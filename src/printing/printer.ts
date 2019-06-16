@@ -1,5 +1,5 @@
 import { PrintItem, CommentBlock, Group, GroupSeparatorKind, PrintItemKind, Separator, Unknown } from "../types";
-import { assertNever } from "../utils";
+import { assertNever, throwError } from "../utils";
 
 interface Context {
     writer: Writer;
@@ -86,8 +86,10 @@ function printSeparator(separator: Separator, context: Context) {
     if (separator === Separator.NewLineIfHangingSpaceOtherwise) {
         if (isInHangingIndent)
             context.writer.write(context.options.newLineKind);
-        else
+        else {
             context.writer.write(" ");
+            context.writer.markSpaceToConvertToNewLineIfHanging();
+        }
     }
     else if (groupSeparatorKind === GroupSeparatorKind.NewLines && (separator === Separator.NewLine || separator === Separator.SpaceOrNewLine))
         context.writer.write(context.options.newLineKind);
@@ -103,20 +105,25 @@ function printUnknown(unknown: Unknown, context: Context) {
 }
 
 function printString(text: string, context: Context) {
-    context.writer.baseWrite(text);
+    context.writer.write(text);
+}
+
+interface SpaceMark {
+    itemsIndex: number;
+    hangingIndentLevel: number | undefined;
 }
 
 class Writer {
-    private items: string[] = [];
+    private readonly items: string[] = [];
     private readonly singleIndentationText: string;
+    private readonly spaceIndexesToConvertToNewLineOnHanging: number[] = []; // yeah, this code is bad and needs improvement
 
     private indentationLevel = 0;
     private currentLineColumn = 0;
     private currentLineNumber = 0;
     private indentationText = "";
     private hangingIndentLevel: number | undefined;
-    private setNextHangingLineNumber: number | undefined;
-    private lastSpaceMarkItemsIndex: number | undefined;
+    private lastSpaceMark: SpaceMark | undefined;
 
     constructor(private readonly options: { indentSize: number; maxWidth: number; newLineKind: "\r\n" | "\n" }) {
         this.singleIndentationText = " ".repeat(options.indentSize);
@@ -125,9 +132,12 @@ class Writer {
     write(text: string) {
         const startsWithNewLine = text[0] === "\r" || text[0] === "\n";
         if (startsWithNewLine) {
-            if (this.setNextHangingLineNumber === this.getLineNumber()) {
-                this.setIndentationLevel(this.indentationLevel + 1);
-                this.setNextHangingLineNumber = undefined;
+            if (text !== "\n" && text !== "\r\n")
+                throwError(`Text cannot be written with newlines: ${text}`);
+
+            if (this.hangingIndentLevel != null) {
+                this.setIndentationLevel(this.hangingIndentLevel);
+                this.hangingIndentLevel = undefined;
             }
         }
 
@@ -141,19 +151,35 @@ class Writer {
         const originalColumn = this.currentLineColumn;
         for (let i = 0; i < text.length; i++) {
             if (text[i] === "\n") {
-                if (this.lastSpaceMarkItemsIndex != null && this.currentLineColumn > this.options.maxWidth) {
+                const lastSpaceMark = this.lastSpaceMark;
+                if (lastSpaceMark != null && this.currentLineColumn > this.options.maxWidth) {
                     // skip writing
-                    const reWriteItems = this.items.splice(this.lastSpaceMarkItemsIndex, this.items.length - this.lastSpaceMarkItemsIndex);
-                    this.lastSpaceMarkItemsIndex = undefined;
+                    const spaceIndexesToConvertToNewLineOnHanging = this.spaceIndexesToConvertToNewLineOnHanging.map(index => index - lastSpaceMark.itemsIndex);
+                    const reWriteItems = this.items.splice(lastSpaceMark.itemsIndex, this.items.length - lastSpaceMark.itemsIndex);
+                    this.lastSpaceMark = undefined;
                     this.currentLineColumn = originalColumn;
+
+                    // write the correct hanging indent level
+                    const previousIndentationLevel = this.indentationLevel;
+                    if (lastSpaceMark.hangingIndentLevel != null)
+                        this.setIndentationLevel(lastSpaceMark.hangingIndentLevel);
 
                     // rewrite everything into the writer on the next line
                     this.write(this.options.newLineKind);
-                    for (let i = 1 /* skip space */; i < reWriteItems.length; i++)
-                        this.write(reWriteItems[i]);
+                    for (let i = 1 /* skip space */; i < reWriteItems.length; i++) {
+                        if (lastSpaceMark.hangingIndentLevel != null && spaceIndexesToConvertToNewLineOnHanging.includes(i))
+                            this.write(this.options.newLineKind);
+                        else
+                            this.write(reWriteItems[i]);
+                    }
+
+                    this.setIndentationLevel(previousIndentationLevel);
                     this.write(text);
                     return;
                 }
+
+                this.lastSpaceMark = undefined;
+                this.spaceIndexesToConvertToNewLineOnHanging.length = 0;
                 this.currentLineColumn = 0;
                 this.currentLineNumber++;
             }
@@ -165,31 +191,42 @@ class Writer {
     }
 
     indent(duration: () => void) {
+        const originalHangingIndentLevel = this.hangingIndentLevel;
         const originalLevel = this.indentationLevel;
         this.setIndentationLevel(this.indentationLevel + 1);
         try {
             duration();
         } finally {
+            this.hangingIndentLevel = originalHangingIndentLevel;
             this.setIndentationLevel(originalLevel);
         }
     }
 
     hangingIndent(duration: () => void) {
-        const previousHangingIndentLevel = this.hangingIndentLevel;
+        const originalHangingIndentLevel = this.hangingIndentLevel;
         const originalLevel = this.indentationLevel;
         this.hangingIndentLevel = this.indentationLevel + 1;
-        this.setNextHangingLineNumber = this.getLineNumber() + 1;
         try {
             duration();
         } finally {
-            this.hangingIndentLevel = previousHangingIndentLevel;
+            this.hangingIndentLevel = originalHangingIndentLevel;
             this.setIndentationLevel(originalLevel);
         }
     }
 
     markSpaceOrNewLine() {
-        this.lastSpaceMarkItemsIndex = this.items.length;
+        this.lastSpaceMark = {
+            itemsIndex: this.items.length,
+            hangingIndentLevel: this.hangingIndentLevel
+        };
         this.write(" ");
+    }
+
+    markSpaceToConvertToNewLineIfHanging() {
+        const index = this.items.length - 1;
+        if (this.items[index] !== " ")
+            throwError(`Expected the index at ${index} to be a space.`);
+        this.spaceIndexesToConvertToNewLineOnHanging.push(index);
     }
 
     getIndentationLevel() {
@@ -213,6 +250,9 @@ class Writer {
     }
 
     private setIndentationLevel(level: number) {
+        if (this.indentationLevel === level)
+            return;
+
         this.indentationLevel = level;
         this.indentationText = this.singleIndentationText.repeat(level);
     }

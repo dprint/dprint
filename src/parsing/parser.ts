@@ -137,6 +137,16 @@ function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclarati
     }
 }
 
+function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): IterableIterator<PrintItem> {
+    yield "type ";
+    yield parseIdentifier(node.id, context);
+    if (node.typeParameters)
+        yield parseTypeParameterDeclaration(node.typeParameters, context);
+    yield " = ";
+    yield parseNode(node.typeAnnotation, context);
+    yield ";";
+}
+
 function parseIdentifier(node: babel.Identifier, context: Context) {
     return getWithComments(node, node.name, context);
 }
@@ -165,16 +175,6 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Ite
             ],
         }
     }
-}
-
-function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): IterableIterator<PrintItem> {
-    yield "type ";
-    yield parseIdentifier(node.id, context);
-    if (node.typeParameters)
-        yield parseTypeParameterDeclaration(node.typeParameters, context);
-    yield " = ";
-    yield parseNode(node.typeAnnotation, context);
-    yield ";";
 }
 
 function parseUnionType(node: babel.TSUnionType, context: Context): Group {
