@@ -8,8 +8,8 @@ import { parseSpecs } from "./specParser";
 const rootDir = path.join(__dirname, "../../");
 const specsDir = path.resolve(path.join(rootDir, "src/tests/specs"))
 
-describe.only("specs", () => {
-    // blocking here for mocha (not sure if it works async) todo: figure out if it works async
+describe("specs", () => {
+    // blocking here for mocha. todo: figure out how to load test cases asynchronously
     const filePaths = globby.sync(`${specsDir}/**/*.txt`);
     const onlyFilePaths = filePaths.filter(filePath => filePath.toLowerCase().endsWith("_only.txt"));
 
@@ -30,7 +30,6 @@ describe.only("specs", () => {
 
         for (const spec of specs) {
             const actualText = formatFileText(spec.filePath, spec.fileText);
-
             expect(actualText).to.equal(spec.expectedText, spec.message);
         }
     }

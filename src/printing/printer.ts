@@ -87,7 +87,6 @@ function printSeparator(separator: Separator, context: Context) {
         if (isInHangingIndent)
             context.writer.write(context.options.newLineKind);
         else {
-            context.writer.write(" ");
             context.writer.markSpaceToConvertToNewLineIfHanging();
         }
     }
@@ -150,40 +149,48 @@ class Writer {
         this.baseWrite(text);
     }
 
+    private splitIfOver(lineColumn: number) {
+        const lastSpaceMark = this.lastSpaceMark;
+        if (lastSpaceMark == null || lineColumn < this.options.maxWidth)
+            return false;
+
+        // save the state
+        const originalHangingIndentLevel = this.hangingIndentLevel;
+        const originalIndentLevel = this.indentLevel;
+
+        // skip writing
+        const spaceIndexesToConvertToNewLineOnHanging = this.spaceIndexesToConvertToNewLineOnHanging.map(index => index - lastSpaceMark.itemsIndex);
+        const reWriteItems = this.items.splice(lastSpaceMark.itemsIndex, this.items.length - lastSpaceMark.itemsIndex);
+        this.lastSpaceMark = undefined;
+        this.currentLineColumn = lastSpaceMark.lineColumn;
+
+        this.hangingIndentLevel = lastSpaceMark.hangingIndentLevel;
+        this.setIndentationLevel(lastSpaceMark.indentLevel);
+
+        // rewrite everything into the writer on the next line
+        this.write(this.options.newLineKind);
+        for (let i = 1 /* skip space */; i < reWriteItems.length; i++) {
+            if (lastSpaceMark.hangingIndentLevel != null && spaceIndexesToConvertToNewLineOnHanging.includes(i))
+                this.write(this.options.newLineKind);
+            else
+                this.write(reWriteItems[i]);
+        }
+
+        // restore the state
+        if (originalHangingIndentLevel != null)
+            this.setIndentationLevel(originalHangingIndentLevel);
+        else
+            this.setIndentationLevel(originalIndentLevel);
+
+        if (originalHangingIndentLevel == null || originalHangingIndentLevel <= this.indentLevel)
+            this.hangingIndentLevel = undefined;
+
+        return true;
+    }
+
     baseWrite(text: string) {
         for (let i = 0; i < text.length; i++) {
-            const lastSpaceMark = this.lastSpaceMark;
-            if (lastSpaceMark != null && this.currentLineColumn >= this.options.maxWidth) {
-                // save the state
-                const originalHangingIndentLevel = this.hangingIndentLevel;
-                const originalIndentLevel = this.indentLevel;
-                // skip writing
-                const spaceIndexesToConvertToNewLineOnHanging = this.spaceIndexesToConvertToNewLineOnHanging.map(index => index - lastSpaceMark.itemsIndex);
-                const reWriteItems = this.items.splice(lastSpaceMark.itemsIndex, this.items.length - lastSpaceMark.itemsIndex);
-                this.lastSpaceMark = undefined;
-                this.currentLineColumn = lastSpaceMark.lineColumn;
-
-                this.hangingIndentLevel = lastSpaceMark.hangingIndentLevel;
-                this.setIndentationLevel(lastSpaceMark.indentLevel);
-
-                // rewrite everything into the writer on the next line
-                this.write(this.options.newLineKind);
-                for (let i = 1 /* skip space */; i < reWriteItems.length; i++) {
-                    if (lastSpaceMark.hangingIndentLevel != null && spaceIndexesToConvertToNewLineOnHanging.includes(i))
-                        this.write(this.options.newLineKind);
-                    else
-                        this.write(reWriteItems[i]);
-                }
-
-                // restore the state
-                if (originalHangingIndentLevel != null)
-                    this.setIndentationLevel(originalHangingIndentLevel);
-                else
-                    this.setIndentationLevel(originalIndentLevel);
-
-                if (originalHangingIndentLevel == null || originalHangingIndentLevel <= this.indentLevel)
-                    this.hangingIndentLevel = undefined;
-
+            if (this.splitIfOver(this.currentLineColumn)) {
                 this.write(text);
                 return;
             }
@@ -237,10 +244,14 @@ class Writer {
     }
 
     markSpaceToConvertToNewLineIfHanging() {
-        const index = this.items.length - 1;
-        if (this.items[index] !== " ")
-            throwError(`Expected the index at ${index} to be a space.`);
-        this.spaceIndexesToConvertToNewLineOnHanging.push(index);
+        const lastSpaceMark = this.lastSpaceMark;
+        if (this.splitIfOver(this.currentLineColumn + 1) && lastSpaceMark != null && lastSpaceMark.hangingIndentLevel != null) {
+            this.write(this.options.newLineKind);
+        }
+        else {
+            this.spaceIndexesToConvertToNewLineOnHanging.push(this.items.length);
+            this.write(" ");
+        }
     }
 
     getLastLineIndentLevel() {

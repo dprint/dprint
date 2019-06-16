@@ -11,6 +11,8 @@ interface Context {
 
 export interface ParseOptions {
     newLineKind: "\r\n" | "\n";
+    semiColons: boolean;
+    singleQuotes: boolean;
 }
 
 export function parseFile(file: babel.File, fileText: string, options: ParseOptions): Group {
@@ -35,12 +37,19 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | I
     "ExportNamedDeclaration": parseExportNamedDeclaration,
     "FunctionDeclaration": parseFunctionDeclaration,
     "TSTypeAliasDeclaration": parseTypeAlias,
-    /* types */
-    "TSTypeParameter": parseTypeParameter,
-    "TSUnionType": parseUnionType,
+    "ImportDeclaration": parseImportDeclaration,
+    /* imports */
+    "ImportDefaultSpecifier": parseImportDefaultSpecifier,
+    "ImportNamespaceSpecifier": parseImportNamespaceSpecifier,
+    "ImportSpecifier": parseImportSpecifier,
+    /* literals */
+    "StringLiteral": parseStringLiteral,
     /* keywords */
     "TSStringKeyword": parseStringKeyword,
     "TSNumberKeyword": parseNumberKeyword,
+    /* types */
+    "TSTypeParameter": parseTypeParameter,
+    "TSUnionType": parseUnionType,
 };
 
 function parseNode(node: babel.Node | null, context: Context) {
@@ -58,11 +67,100 @@ function parseNode(node: babel.Node | null, context: Context) {
 
 /* nodes */
 
-function parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context): PrintItemArray {
+function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context): IterableIterator<PrintItem> {
+    yield "import ";
+    const { specifiers } = node;
+    const defaultImport = specifiers.find(s => s.type === "ImportDefaultSpecifier");
+    const namespaceImport = specifiers.find(s => s.type === "ImportNamespaceSpecifier");
+    const namedImports = specifiers.filter(s => s.type === "ImportSpecifier");
+
+    if (defaultImport) {
+        yield parseNode(defaultImport, context);
+        if (namespaceImport != null || namedImports.length > 0)
+            yield ", "
+    }
+    if (namespaceImport)
+        yield parseNode(namespaceImport, context);
+
+    yield* parseNamedImports();
+
+    if (defaultImport != null || namespaceImport != null || namedImports.length > 0)
+        yield " from ";
+
+    yield parseNode(node.source, context);
+
+    if (context.options.semiColons)
+        yield ";";
+
+    function* parseNamedImports(): IterableIterator<PrintItem> {
+        if (namedImports.length === 0)
+            return;
+
+        const separatorKind = getSeparatorKindForNodes(namedImports);
+        const braceSeparator = separatorKind === GroupSeparatorKind.NewLines ? context.options.newLineKind : " ";
+
+        yield "{";
+        yield braceSeparator;
+
+        yield {
+            kind: PrintItemKind.Group,
+            indent: separatorKind === GroupSeparatorKind.NewLines,
+            hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
+            separatorKind,
+            items: Array.from(parseSpecifiers())
+        };
+
+        yield braceSeparator;
+        yield "}";
+
+        function* parseSpecifiers(): IterableIterator<PrintItem> {
+            for (let i = 0; i < namedImports.length; i++) {
+                if (i > 0) {
+                    yield ",";
+                    yield Separator.SpaceOrNewLine;
+                }
+                yield parseNode(namedImports[i], context);
+            }
+        }
+    }
+}
+
+function parseImportDefaultSpecifier(specifier: babel.ImportDefaultSpecifier, context: Context) {
+    return parseNode(specifier.local, context);
+}
+
+function parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifier, context: Context) {
     return [
+        "* as ",
+        parseNode(specifier.local, context)
+    ];
+}
+
+function parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): Group {
+    return {
+        kind: PrintItemKind.Group,
+        hangingIndent: true,
+        items: Array.from(parseItems())
+    };
+
+    function* parseItems(): IterableIterator<PrintItem> {
+        if (specifier.imported.start === specifier.local.start) {
+            yield parseNode(specifier.imported, context)
+            return;
+        }
+
+        yield parseNode(specifier.imported, context);
+        yield Separator.SpaceOrNewLine;
+        yield "as ";
+        yield parseNode(specifier.local, context);
+    }
+}
+
+function parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context) {
+    return getWithComments(node, [
         "export ",
         parseNode(node.declaration, context)
-    ];
+    ], context);
 }
 
 function parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Context) {
@@ -113,7 +211,8 @@ function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclarati
             Separator.NewLine,
             {
                 kind: PrintItemKind.Group,
-                hangingIndent: true,
+                indent: separatorKind === GroupSeparatorKind.NewLines,
+                hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
                 separatorKind,
                 items: parseParameterList()
             },
@@ -144,60 +243,23 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
         yield parseTypeParameterDeclaration(node.typeParameters, context);
     yield " = ";
     yield parseNode(node.typeAnnotation, context);
-    yield ";";
+
+    if (context.options.semiColons)
+        yield ";";
 }
 
 function parseIdentifier(node: babel.Identifier, context: Context) {
     return getWithComments(node, node.name, context);
 }
 
-function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): IterableIterator<PrintItem> {
-    yield getWithComments(node, node.name!, context);
+/* literals */
 
-    if (node.constraint) {
-        yield {
-            kind: PrintItemKind.Group,
-            items: [
-                " extends",
-                Separator.SpaceOrNewLine,
-                getWithComments(node.constraint, parseNode(node.constraint, context), context)
-            ],
-        }
-    }
-
-    if (node.default) {
-        yield {
-            kind: PrintItemKind.Group,
-            items: [
-                " =",
-                Separator.SpaceOrNewLine,
-                getWithComments(node.default, parseNode(node.default, context), context)
-            ],
-        }
-    }
+function parseStringLiteral(node: babel.StringLiteral, context: Context) {
+    if (context.options.singleQuotes)
+        return `'${node.value.replace(/'/g, `\\'`)}'`;
+    return `"${node.value.replace(/"/g, `\\"`)}"`;
 }
 
-function parseUnionType(node: babel.TSUnionType, context: Context): Group {
-    const separatorKind = getSeparatorKindForNodes(node.types);
-    return {
-        kind: PrintItemKind.Group,
-        hangingIndent: true,
-        separatorKind,
-        items: parseTypes()
-    };
-
-    function parseTypes() {
-        const items: PrintItem[] = [];
-        for (let i = 0; i < node.types.length; i++) {
-            if (i > 0) {
-                items.push(Separator.SpaceOrNewLine);
-                items.push("| ");
-            }
-            items.push(parseNode(node.types[i], context));
-        }
-        return items;
-    }
-}
 /* keywords */
 
 function parseStringKeyword(node: babel.TSStringKeyword, context: Context) {
@@ -246,6 +308,56 @@ function parseUnknownNode(node: babel.Node, context: Context): Unknown {
             isInStringAtPos: () => false // todo: actually check if in a string...
         })
     };
+}
+
+/* types */
+
+function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): IterableIterator<PrintItem> {
+    yield getWithComments(node, node.name!, context);
+
+    if (node.constraint) {
+        yield {
+            kind: PrintItemKind.Group,
+            items: [
+                " extends",
+                Separator.SpaceOrNewLine,
+                getWithComments(node.constraint, parseNode(node.constraint, context), context)
+            ],
+        }
+    }
+
+    if (node.default) {
+        yield {
+            kind: PrintItemKind.Group,
+            items: [
+                " =",
+                Separator.SpaceOrNewLine,
+                getWithComments(node.default, parseNode(node.default, context), context)
+            ],
+        }
+    }
+}
+
+function parseUnionType(node: babel.TSUnionType, context: Context): Group {
+    const separatorKind = getSeparatorKindForNodes(node.types);
+    return {
+        kind: PrintItemKind.Group,
+        hangingIndent: true,
+        separatorKind,
+        items: parseTypes()
+    };
+
+    function parseTypes() {
+        const items: PrintItem[] = [];
+        for (let i = 0; i < node.types.length; i++) {
+            if (i > 0) {
+                items.push(Separator.SpaceOrNewLine);
+                items.push("| ");
+            }
+            items.push(parseNode(node.types[i], context));
+        }
+        return items;
+    }
 }
 
 /* general */
