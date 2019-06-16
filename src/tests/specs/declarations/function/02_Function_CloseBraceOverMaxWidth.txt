@@ -1,8 +1,0 @@
-export function test(some, very, long, list, of, params, to, put, brace, over, the, lim) {
-}
-
-[expect]
-export function test(some, very, long, list, of, params, to, put, brace, over, the,
-    lim)
-{
-}

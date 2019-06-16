@@ -1,0 +1,8 @@
+function test(here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) {
+}
+
+[expect]
+function test(here, are, some, parens, that, will, go, over, the, limit, of,
+    width, source, file)
+{
+}

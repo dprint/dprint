@@ -1,0 +1,8 @@
+export function test(some, very, long, list, of, params, to, put, brace, over) {
+}
+
+[expect]
+export function test(some, very, long, list, of, params, to, put, brace,
+    over)
+{
+}

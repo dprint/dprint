@@ -81,7 +81,7 @@ function printPrintItem(printItem: PrintItem, context: Context) {
 
 function printSeparator(separator: Separator, context: Context) {
     const { groupSeparatorKind } = context.state;
-    const isInHangingIndent = context.writer.getIndentationLevel() > context.state.groupIndentationLevel;
+    const isInHangingIndent = context.writer.getLastLineIndentLevel() > context.state.groupIndentationLevel;
 
     if (separator === Separator.NewLineIfHangingSpaceOtherwise) {
         if (isInHangingIndent)
@@ -110,7 +110,9 @@ function printString(text: string, context: Context) {
 
 interface SpaceMark {
     itemsIndex: number;
+    indentLevel: number;
     hangingIndentLevel: number | undefined;
+    lineColumn: number;
 }
 
 class Writer {
@@ -118,12 +120,13 @@ class Writer {
     private readonly singleIndentationText: string;
     private readonly spaceIndexesToConvertToNewLineOnHanging: number[] = []; // yeah, this code is bad and needs improvement
 
-    private indentationLevel = 0;
     private currentLineColumn = 0;
     private currentLineNumber = 0;
-    private indentationText = "";
+    private indentLevel = 0;
+    private indentText = "";
     private hangingIndentLevel: number | undefined;
     private lastSpaceMark: SpaceMark | undefined;
+    private lastLineIndentLevel = 0;
 
     constructor(private readonly options: { indentSize: number; maxWidth: number; newLineKind: "\r\n" | "\n" }) {
         this.singleIndentationText = " ".repeat(options.indentSize);
@@ -142,46 +145,55 @@ class Writer {
         }
 
         if (this.currentLineColumn === 0 && !startsWithNewLine)
-            this.baseWrite(this.indentationText);
+            this.baseWrite(this.indentText);
 
         this.baseWrite(text);
     }
 
     baseWrite(text: string) {
-        const originalColumn = this.currentLineColumn;
         for (let i = 0; i < text.length; i++) {
-            if (text[i] === "\n") {
-                const lastSpaceMark = this.lastSpaceMark;
-                if (lastSpaceMark != null && this.currentLineColumn > this.options.maxWidth) {
-                    // skip writing
-                    const spaceIndexesToConvertToNewLineOnHanging = this.spaceIndexesToConvertToNewLineOnHanging.map(index => index - lastSpaceMark.itemsIndex);
-                    const reWriteItems = this.items.splice(lastSpaceMark.itemsIndex, this.items.length - lastSpaceMark.itemsIndex);
-                    this.lastSpaceMark = undefined;
-                    this.currentLineColumn = originalColumn;
+            const lastSpaceMark = this.lastSpaceMark;
+            if (lastSpaceMark != null && this.currentLineColumn >= this.options.maxWidth) {
+                // save the state
+                const originalHangingIndentLevel = this.hangingIndentLevel;
+                const originalIndentLevel = this.indentLevel;
+                // skip writing
+                const spaceIndexesToConvertToNewLineOnHanging = this.spaceIndexesToConvertToNewLineOnHanging.map(index => index - lastSpaceMark.itemsIndex);
+                const reWriteItems = this.items.splice(lastSpaceMark.itemsIndex, this.items.length - lastSpaceMark.itemsIndex);
+                this.lastSpaceMark = undefined;
+                this.currentLineColumn = lastSpaceMark.lineColumn;
 
-                    // write the correct hanging indent level
-                    const previousIndentationLevel = this.indentationLevel;
-                    if (lastSpaceMark.hangingIndentLevel != null)
-                        this.setIndentationLevel(lastSpaceMark.hangingIndentLevel);
+                this.hangingIndentLevel = lastSpaceMark.hangingIndentLevel;
+                this.setIndentationLevel(lastSpaceMark.indentLevel);
 
-                    // rewrite everything into the writer on the next line
-                    this.write(this.options.newLineKind);
-                    for (let i = 1 /* skip space */; i < reWriteItems.length; i++) {
-                        if (lastSpaceMark.hangingIndentLevel != null && spaceIndexesToConvertToNewLineOnHanging.includes(i))
-                            this.write(this.options.newLineKind);
-                        else
-                            this.write(reWriteItems[i]);
-                    }
-
-                    this.setIndentationLevel(previousIndentationLevel);
-                    this.write(text);
-                    return;
+                // rewrite everything into the writer on the next line
+                this.write(this.options.newLineKind);
+                for (let i = 1 /* skip space */; i < reWriteItems.length; i++) {
+                    if (lastSpaceMark.hangingIndentLevel != null && spaceIndexesToConvertToNewLineOnHanging.includes(i))
+                        this.write(this.options.newLineKind);
+                    else
+                        this.write(reWriteItems[i]);
                 }
 
+                // restore the state
+                if (originalHangingIndentLevel != null)
+                    this.setIndentationLevel(originalHangingIndentLevel);
+                else
+                    this.setIndentationLevel(originalIndentLevel);
+
+                if (originalHangingIndentLevel == null || originalHangingIndentLevel <= this.indentLevel)
+                    this.hangingIndentLevel = undefined;
+
+                this.write(text);
+                return;
+            }
+
+            if (text[i] === "\n") {
                 this.lastSpaceMark = undefined;
                 this.spaceIndexesToConvertToNewLineOnHanging.length = 0;
                 this.currentLineColumn = 0;
                 this.currentLineNumber++;
+                this.lastLineIndentLevel = this.indentLevel;
             }
             else
                 this.currentLineColumn++;
@@ -192,8 +204,8 @@ class Writer {
 
     indent(duration: () => void) {
         const originalHangingIndentLevel = this.hangingIndentLevel;
-        const originalLevel = this.indentationLevel;
-        this.setIndentationLevel(this.indentationLevel + 1);
+        const originalLevel = this.indentLevel;
+        this.setIndentationLevel(this.indentLevel + 1);
         try {
             duration();
         } finally {
@@ -204,8 +216,8 @@ class Writer {
 
     hangingIndent(duration: () => void) {
         const originalHangingIndentLevel = this.hangingIndentLevel;
-        const originalLevel = this.indentationLevel;
-        this.hangingIndentLevel = this.indentationLevel + 1;
+        const originalLevel = this.indentLevel;
+        this.hangingIndentLevel = this.indentLevel + 1;
         try {
             duration();
         } finally {
@@ -217,7 +229,9 @@ class Writer {
     markSpaceOrNewLine() {
         this.lastSpaceMark = {
             itemsIndex: this.items.length,
-            hangingIndentLevel: this.hangingIndentLevel
+            indentLevel: this.indentLevel,
+            hangingIndentLevel: this.hangingIndentLevel,
+            lineColumn: this.getLineColumn()
         };
         this.write(" ");
     }
@@ -229,14 +243,18 @@ class Writer {
         this.spaceIndexesToConvertToNewLineOnHanging.push(index);
     }
 
+    getLastLineIndentLevel() {
+        return this.lastLineIndentLevel;
+    }
+
     getIndentationLevel() {
-        return this.indentationLevel;
+        return this.indentLevel;
     }
 
     /** Gets the zero-indexed line column. */
     getLineColumn() {
         if (this.currentLineColumn === 0)
-            return this.indentationText.length;
+            return this.indentText.length;
         return this.currentLineColumn;
     }
 
@@ -250,10 +268,10 @@ class Writer {
     }
 
     private setIndentationLevel(level: number) {
-        if (this.indentationLevel === level)
+        if (this.indentLevel === level)
             return;
 
-        this.indentationLevel = level;
-        this.indentationText = this.singleIndentationText.repeat(level);
+        this.indentLevel = level;
+        this.indentText = this.singleIndentationText.repeat(level);
     }
 }
