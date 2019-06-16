@@ -281,7 +281,8 @@ function parseParameters(params: babel.Node[], context: Context): Group {
             Separator.NewLine,
             {
                 kind: PrintItemKind.Group,
-                hangingIndent: true,
+                indent: separatorKind === GroupSeparatorKind.NewLines,
+                hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
                 separatorKind,
                 items: parseParameterList()
             },

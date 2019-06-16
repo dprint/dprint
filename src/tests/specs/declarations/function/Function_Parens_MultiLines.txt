@@ -1,0 +1,29 @@
+== Should keep parens on multiple lines on multiple lines ==
+function test(
+    p1,
+    p2
+)
+{
+}
+
+[expect]
+function test(
+    p1,
+    p2
+) {
+}
+
+== Should fix the first parameter to be on the next line ==
+function test(p1,
+    p2,
+    p3)
+{
+}
+
+[expect]
+function test(
+    p1,
+    p2,
+    p3
+) {
+}

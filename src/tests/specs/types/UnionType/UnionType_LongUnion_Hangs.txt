@@ -1,5 +1,0 @@
-export type T = string | number | string | number | string | number | string | number;
-
-[expect]
-export type T = string | number | string | number | string | number | string
-    | number;

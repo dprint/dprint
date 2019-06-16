@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import globby from "globby";
 import { formatFileText } from "../formatFileText";
+import { parseSpecs } from "./specParser";
 
 const rootDir = path.join(__dirname, "../../");
 const specsDir = path.resolve(path.join(rootDir, "src/tests/specs"))
@@ -25,12 +26,13 @@ describe.only("specs", () => {
 
     async function runTest(filePath: string) {
         const fileText = await readFile(filePath);
-        const parts = fileText.split("[expect]").map(text => text.replace(/\r?\n/g, "\n"));
-        const startText = parts[0].substring(0, parts[0].length - 1); // remove last newline
-        const expectedText = parts[1].substring(1, parts[1].length); // remove first newline
-        const actualText = formatFileText(filePath, startText);
+        const specs = parseSpecs(fileText);
 
-        expect(actualText).to.equal(expectedText);
+        for (const spec of specs) {
+            const actualText = formatFileText(spec.filePath, spec.fileText);
+
+            expect(actualText).to.equal(spec.expectedText, spec.message);
+        }
     }
 });
 

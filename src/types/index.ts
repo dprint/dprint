@@ -32,8 +32,8 @@ export enum Separator {
 
 export interface Group {
     kind: PrintItemKind.Group,
-    hangingIndent?: true;
-    indent?: true;
+    hangingIndent?: boolean;
+    indent?: boolean;
     separatorKind?: GroupSeparatorKind;
     items: PrintItem[];
 }

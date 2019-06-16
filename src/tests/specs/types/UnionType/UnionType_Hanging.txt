@@ -1,0 +1,13 @@
+== Should use hanging indentation by default when a type goes on multiple lines ==
+export type T = string | number | string | number | string | number | string | number;
+
+[expect]
+export type T = string | number | string | number | string | number | string
+    | number;
+
+== Should change a union back to being a single line when too short ==
+export type T = string | number | other
+    | string;
+
+[expect]
+export type T = string | number | other | string;

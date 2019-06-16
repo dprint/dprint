@@ -144,7 +144,7 @@ class Writer {
             }
         }
 
-        if (this.currentLineColumn === 0 && !startsWithNewLine)
+        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0)
             this.baseWrite(this.indentText);
 
         this.baseWrite(text);
