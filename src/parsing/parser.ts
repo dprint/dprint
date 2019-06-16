@@ -96,7 +96,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
         if (namedImports.length === 0)
             return;
 
-        const separatorKind = getSeparatorKindForNodes(namedImports);
+        const separatorKind = getSeparatorKind();
         const braceSeparator = separatorKind === GroupSeparatorKind.NewLines ? context.options.newLineKind : " ";
 
         yield "{";
@@ -112,6 +112,12 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
 
         yield braceSeparator;
         yield "}";
+
+        function getSeparatorKind() {
+            if (namedImports.length === 1 && namedImports[0].loc!.start.line !== node.loc!.start.line)
+                return GroupSeparatorKind.NewLines;
+            return getSeparatorKindForNodes(namedImports);
+        }
 
         function* parseSpecifiers(): IterableIterator<PrintItem> {
             for (let i = 0; i < namedImports.length; i++) {
@@ -150,8 +156,7 @@ function parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context
         }
 
         yield parseNode(specifier.imported, context);
-        yield Separator.SpaceOrNewLine;
-        yield "as ";
+        yield " as ";
         yield parseNode(specifier.local, context);
     }
 }

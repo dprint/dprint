@@ -240,7 +240,9 @@ class Writer {
             hangingIndentLevel: this.hangingIndentLevel,
             lineColumn: this.getLineColumn()
         };
-        this.write(" ");
+
+        if (!this.splitIfOver(this.currentLineColumn + 1))
+            this.write(" ");
     }
 
     markSpaceToConvertToNewLineIfHanging() {

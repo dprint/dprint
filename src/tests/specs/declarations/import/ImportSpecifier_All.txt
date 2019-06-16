@@ -1,0 +1,29 @@
+== Should format all ==
+import { n1, n2    as
+ alias } from "test";
+
+[expect]
+import { n1, n2 as alias } from "test";
+
+== Should always do a newline as a unit ==
+import { someAlias, gettingLongerSoThat, thisGoesOverThe80Limit, butOnly as insideTheAlias } from "test";
+
+[expect]
+import { someAlias, gettingLongerSoThat, thisGoesOverThe80Limit,
+    butOnly as insideTheAlias } from "test";
+
+== Should not break up on as when really long on the same line ==
+import { loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias } from "test";
+
+[expect]
+import { loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias } from "test";
+
+== Should not break up on as when really long on a different line ==
+import {
+    loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias
+} from "test";
+
+[expect]
+import {
+    loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias
+} from "test";
