@@ -1,0 +1,5 @@
+export type T = string | number | other
+    | string;
+
+[expect]
+export type T = string | number | other | string;

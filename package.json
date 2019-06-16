@@ -1,0 +1,49 @@
+{
+  "name": "dprint",
+  "version": "0.1.0",
+  "description": "Prints TypeScript code with the formatting I want.",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "cross-env TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
+    "test:debug": "cross-env TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
+    "test:watch": "yarn test --watch-extensions ts --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsherret/dprint.git"
+  },
+  "keywords": [
+    "printer",
+    "formatter",
+    "typescript",
+    "javascript"
+  ],
+  "author": "David Sherret",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/dsherret/dprint/issues"
+  },
+  "homepage": "https://github.com/dsherret/dprint#readme",
+  "dependencies": {
+    "@babel/core": "^7.4.5",
+    "@babel/parser": "^7.4.5",
+    "@babel/preset-typescript": "^7.3.3",
+    "globby": "^9.2.0"
+  },
+  "devDependencies": {
+    "@types/babel__core": "^7.1.2",
+    "@types/babel__generator": "^7.0.2",
+    "@types/babel__template": "^7.0.2",
+    "@types/babel__traverse": "^7.0.7",
+    "@types/chai": "^4.1.7",
+    "@types/globby": "^9.1.0",
+    "@types/mocha": "^5.2.7",
+    "@types/node": "^12.0.8",
+    "chai": "^4.2.0",
+    "cross-env": "^5.2.0",
+    "mocha": "^6.1.4",
+    "rimraf": "^2.6.3",
+    "ts-node": "^8.2.0",
+    "typescript": "^3.5.2"
+  }
+}

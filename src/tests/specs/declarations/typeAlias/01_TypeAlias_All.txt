@@ -1,0 +1,4 @@
+export type MyTypeAlias<    T   > =  string|number;
+
+[expect]
+export type MyTypeAlias<T> = string | number;

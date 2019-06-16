@@ -1,0 +1,9 @@
+export async function*
+test<T, U>
+(p, u): string
+{
+}
+
+[expect]
+export async function* test<T, U>(p, u): string {
+}

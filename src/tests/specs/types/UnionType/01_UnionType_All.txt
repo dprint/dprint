@@ -1,0 +1,4 @@
+export type T = string|number;
+
+[expect]
+export type T = string | number;
