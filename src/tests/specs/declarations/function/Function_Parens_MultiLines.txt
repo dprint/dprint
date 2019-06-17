@@ -1,4 +1,4 @@
-== Should keep parens on multiple lines on multiple lines ==
+== should keep parens on multiple lines on multiple lines ==
 function test(
     p1,
     p2
@@ -13,7 +13,7 @@ function test(
 ) {
 }
 
-== Should fix the first parameter to be on the next line ==
+== should fix the first parameter to be on the next line ==
 function test(p1,
     p2,
     p3)

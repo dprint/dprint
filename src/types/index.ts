@@ -1,13 +1,12 @@
 // trick to do circular reference https://github.com/Microsoft/TypeScript/issues/3496#issuecomment-128553540
-export type PrintItem = Separator | string | Group | Unknown | CommentBlock | PrintItemArray;
+export type PrintItem = Separator | string | Group | Unknown | PrintItemIterator;
 
-export interface PrintItemArray extends Array<PrintItem> {
+export interface PrintItemIterator extends IterableIterator<PrintItem> {
 }
 
 export enum PrintItemKind {
     Unknown,
-    Group,
-    CommentBlock,
+    Group
 }
 
 export interface Unknown {
@@ -26,8 +25,10 @@ export enum Separator {
     NewLine,
     SpaceOrNewLine,
 
-    /* Special cases */
-    NewLineIfHangingSpaceOtherwise
+    // Special cases
+    NewLineIfHangingSpaceOtherwise,
+    /** Expect the next character to be a newline. If it's not, force a newline */
+    ExpectNewLine
 }
 
 export interface Group {
@@ -35,7 +36,7 @@ export interface Group {
     hangingIndent?: boolean;
     indent?: boolean;
     separatorKind?: GroupSeparatorKind;
-    items: PrintItem[];
+    items: PrintItemIterator;
 }
 
 export enum GroupSeparatorKind {
@@ -43,13 +44,4 @@ export enum GroupSeparatorKind {
     Spaces,
     /** Use newlines if doing multiple lines. */
     NewLines
-}
-
-export type Comment = CommentBlock;
-
-export interface CommentBlock {
-    kind: PrintItemKind.CommentBlock,
-    isJsDoc: boolean;
-    inline: boolean;
-    value: string;
 }

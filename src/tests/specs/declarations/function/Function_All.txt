@@ -1,4 +1,4 @@
-== Should print everything in a function declaration ==
+== should print everything in a function declaration ==
 export async function*
 test<T, U>
 (p, u): string

@@ -1,4 +1,4 @@
-== Should print everything in a type alias ==
+== should print everything in a type alias ==
 export type MyTypeAlias<    T   > =  string|number;
 
 [expect]

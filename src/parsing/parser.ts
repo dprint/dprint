@@ -1,5 +1,5 @@
-import { PrintItem, PrintItemKind, Group, PrintItemArray, Separator, Unknown, CommentBlock, GroupSeparatorKind } from "../types";
 import * as babel from "@babel/types";
+import { PrintItem, PrintItemKind, Group, Separator, Unknown, GroupSeparatorKind, PrintItemIterator } from "../types";
 import { assertNever, removeStringIndentation } from "../utils";
 
 interface Context {
@@ -7,6 +7,7 @@ interface Context {
     fileText: string;
     log: (message: string) => void;
     options: ParseOptions;
+    handledComments: Set<babel.Comment>;
 }
 
 export interface ParseOptions {
@@ -20,7 +21,8 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
         file,
         fileText,
         log: message => console.log("[dprint]: " + message),
-        options
+        options,
+        handledComments: new Set<babel.Comment>()
     };
 
     // todo: handle no statements and only comments
@@ -30,8 +32,9 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
     };
 }
 
-const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | IterableIterator<PrintItem>; } = {
+const parseObj: { [name: string]: (node: any, context: Context) => PrintItem; } = {
     /* common */
+    "BlockStatement": parseBlockStatement,
     "Identifier": parseIdentifier,
     /* declarations */
     "ExportNamedDeclaration": parseExportNamedDeclaration,
@@ -45,29 +48,62 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | I
     /* literals */
     "StringLiteral": parseStringLiteral,
     /* keywords */
-    "TSStringKeyword": parseStringKeyword,
-    "TSNumberKeyword": parseNumberKeyword,
+    "TSStringKeyword": () => "string",
+    "TSNumberKeyword": () => "number",
+    "TSBooleanKeyword": () => "boolean",
+    "TSAnyKeyword": () => "any",
+    "TSUnknownKeyword": () => "unknown",
+    "TSObjectKeyword": () => "object",
     /* types */
     "TSTypeParameter": parseTypeParameter,
     "TSUnionType": parseUnionType,
 };
 
-function parseNode(node: babel.Node | null, context: Context) {
+function* parseNode(node: babel.Node | null, context: Context): PrintItemIterator {
     if (node == null)
-        return [] as PrintItemArray;
+        return;
 
-    const func = parseObj[node.type];
-    if (func) {
-        const result = func(node, context);
-        return Symbol.iterator in Object(result) ? Array.from(result as IterableIterator<PrintItem>) : result as PrintItem;
-    }
-    else
-        return parseUnknownNode(node, context);
+    const parseFunc = parseObj[node!.type] || parseUnknownNode;
+    const printItem = parseFunc(node, context);
+    yield* getWithComments(node, printItem, context);
 }
 
-/* nodes */
+/* common */
 
-function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context): IterableIterator<PrintItem> {
+function* parseBlockStatement(node: babel.BlockStatement, context: Context): PrintItemIterator {
+    let hadCommentLine = false;
+    yield "{";
+    yield* getFirstLineTrailingComments();
+    if (!hadCommentLine)
+        yield context.options.newLineKind;
+    yield {
+        kind: PrintItemKind.Group,
+        indent: true,
+        items: parseStatements(node.body, context)
+    };
+    yield "}";
+
+    function* getFirstLineTrailingComments(): PrintItemIterator {
+        if (!node.trailingComments)
+            return;
+
+        for (const trailingComment of node.trailingComments) {
+            if (trailingComment.loc!.start.line === node.loc!.start.line) {
+                if (trailingComment.type === "CommentLine")
+                    hadCommentLine = true;
+                yield* parseComment(node, trailingComment, context);
+            }
+        }
+    }
+}
+
+function parseIdentifier(node: babel.Identifier) {
+    return node.name;
+}
+
+/* declarations */
+
+function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context): PrintItemIterator {
     yield "import ";
     const { specifiers } = node;
     const defaultImport = specifiers.find(s => s.type === "ImportDefaultSpecifier");
@@ -75,24 +111,24 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
     const namedImports = specifiers.filter(s => s.type === "ImportSpecifier");
 
     if (defaultImport) {
-        yield parseNode(defaultImport, context);
+        yield* parseNode(defaultImport, context);
         if (namespaceImport != null || namedImports.length > 0)
             yield ", "
     }
     if (namespaceImport)
-        yield parseNode(namespaceImport, context);
+        yield* parseNode(namespaceImport, context);
 
     yield* parseNamedImports();
 
     if (defaultImport != null || namespaceImport != null || namedImports.length > 0)
         yield " from ";
 
-    yield parseNode(node.source, context);
+    yield* parseNode(node.source, context);
 
     if (context.options.semiColons)
         yield ";";
 
-    function* parseNamedImports(): IterableIterator<PrintItem> {
+    function* parseNamedImports(): PrintItemIterator {
         if (namedImports.length === 0)
             return;
 
@@ -107,7 +143,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
             indent: separatorKind === GroupSeparatorKind.NewLines,
             hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
             separatorKind,
-            items: Array.from(parseSpecifiers())
+            items: parseSpecifiers()
         };
 
         yield braceSeparator;
@@ -119,13 +155,13 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
             return getSeparatorKindForNodes(namedImports);
         }
 
-        function* parseSpecifiers(): IterableIterator<PrintItem> {
+        function* parseSpecifiers(): PrintItemIterator {
             for (let i = 0; i < namedImports.length; i++) {
                 if (i > 0) {
                     yield ",";
                     yield Separator.SpaceOrNewLine;
                 }
-                yield parseNode(namedImports[i], context);
+                yield* parseNode(namedImports[i], context);
             }
         }
     }
@@ -135,74 +171,57 @@ function parseImportDefaultSpecifier(specifier: babel.ImportDefaultSpecifier, co
     return parseNode(specifier.local, context);
 }
 
-function parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifier, context: Context) {
-    return [
-        "* as ",
-        parseNode(specifier.local, context)
-    ];
+function* parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifier, context: Context): PrintItemIterator {
+    yield "* as ";
+    yield* parseNode(specifier.local, context);
 }
 
 function parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): Group {
     return {
         kind: PrintItemKind.Group,
         hangingIndent: true,
-        items: Array.from(parseItems())
+        items: parseItems()
     };
 
-    function* parseItems(): IterableIterator<PrintItem> {
+    function* parseItems(): PrintItemIterator {
         if (specifier.imported.start === specifier.local.start) {
-            yield parseNode(specifier.imported, context)
+            yield* parseNode(specifier.imported, context)
             return;
         }
 
-        yield parseNode(specifier.imported, context);
+        yield* parseNode(specifier.imported, context);
         yield " as ";
-        yield parseNode(specifier.local, context);
+        yield* parseNode(specifier.local, context);
     }
 }
 
-function parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context) {
-    return getWithComments(node, [
-        "export ",
-        parseNode(node.declaration, context)
-    ], context);
+function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context): PrintItemIterator {
+    yield "export ";
+    yield* parseNode(node.declaration, context);
 }
 
-function parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Context) {
-    return getWithComments(node, {
-        kind: PrintItemKind.Group,
-        items: [
-            parseHeader(),
-            {
-                kind: PrintItemKind.Group,
-                indent: true,
-                items: parseStatements(node.body.body, context)
-            },
-            "}"
-        ]
-    }, context);
+function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Context): PrintItemIterator {
+    yield* parseHeader();
+    yield* parseNode(node.body, context);
 
-    function parseHeader() {
-        const items: PrintItem[] = [];
-        if (node.async) {
-            items.push("async ");
-        }
-        items.push("function");
+    function* parseHeader(): PrintItemIterator {
+        if (node.async)
+            yield "async ";
+        yield "function";
         if (node.generator)
-            items.push("*");
+            yield "*";
         if (node.id) {
-            items.push(" " + parseIdentifier(node.id, context))
+            yield " ";
+            yield* parseNode(node.id, context);
         }
         if (node.typeParameters && node.typeParameters.type !== "Noop")
-            items.push(parseTypeParameterDeclaration(node.typeParameters, context));
-        items.push(parseParameters(node.params, context));
+            yield parseTypeParameterDeclaration(node.typeParameters, context);
+        yield parseParameters(node.params, context);
         if (node.returnType && node.returnType.type !== "Noop") {
-            items.push(": ");
-            items.push(parseNode(node.returnType.typeAnnotation, context));
+            yield ": ";
+            yield* parseNode(node.returnType.typeAnnotation, context);
         }
-        items.push(Separator.NewLineIfHangingSpaceOtherwise);
-        items.push(`{${context.options.newLineKind}`)
-        return items;
+        yield Separator.NewLineIfHangingSpaceOtherwise;
     }
 }
 
@@ -211,50 +230,46 @@ function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclarati
     return {
         kind: PrintItemKind.Group,
         separatorKind,
-        items: [
-            "<",
-            Separator.NewLine,
-            {
-                kind: PrintItemKind.Group,
-                indent: separatorKind === GroupSeparatorKind.NewLines,
-                hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
-                separatorKind,
-                items: parseParameterList()
-            },
-            Separator.NewLine,
-            ">"
-        ]
+        items: parseItems()
     };
 
-    function parseParameterList() {
+    function* parseItems(): PrintItemIterator {
+        yield "<";
+        yield Separator.NewLine;
+        yield {
+            kind: PrintItemKind.Group,
+            indent: separatorKind === GroupSeparatorKind.NewLines,
+            hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
+            separatorKind,
+            items: parseParameterList()
+        };
+        yield Separator.NewLine;
+        yield ">";
+    }
+
+    function* parseParameterList(): PrintItemIterator {
         const params = declaration.params;
-        const items: PrintItem[] = [];
         for (let i = 0; i < params.length; i++) {
             const param = params[i];
-            items.push(parseNode(param, context));
+            yield* parseNode(param, context);
             if (i < params.length - 1) {
-                items.push(",");
-                items.push(Separator.SpaceOrNewLine)
+                yield ",";
+                yield Separator.SpaceOrNewLine;
             }
         }
-        return items;
     }
 }
 
-function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): IterableIterator<PrintItem> {
+function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): PrintItemIterator {
     yield "type ";
-    yield parseIdentifier(node.id, context);
+    yield* parseNode(node.id, context);
     if (node.typeParameters)
         yield parseTypeParameterDeclaration(node.typeParameters, context);
     yield " = ";
-    yield parseNode(node.typeAnnotation, context);
+    yield* parseNode(node.typeAnnotation, context);
 
     if (context.options.semiColons)
         yield ";";
-}
-
-function parseIdentifier(node: babel.Identifier, context: Context) {
-    return getWithComments(node, node.name, context);
 }
 
 /* literals */
@@ -263,42 +278,6 @@ function parseStringLiteral(node: babel.StringLiteral, context: Context) {
     if (context.options.singleQuotes)
         return `'${node.value.replace(/'/g, `\\'`)}'`;
     return `"${node.value.replace(/"/g, `\\"`)}"`;
-}
-
-/* keywords */
-
-function parseStringKeyword(node: babel.TSStringKeyword, context: Context) {
-    return getWithComments(node, "string", context);
-}
-
-function parseNumberKeyword(node: babel.TSNumberKeyword, context: Context) {
-    return getWithComments(node, "number", context);
-}
-
-function parseComment(comment: babel.CommentBlock | babel.CommentLine, context: Context) {
-    switch (comment.type) {
-        case "CommentBlock":
-            return parseCommentBlock(comment);
-        case "CommentLine":
-            return parseCommentLine(comment);
-        default:
-            return assertNever(comment);
-    }
-
-    function parseCommentBlock(comment: babel.CommentBlock): CommentBlock {
-        const { value } = comment;
-        return {
-            kind: PrintItemKind.CommentBlock,
-            inline: false, // todo
-            isJsDoc: value.startsWith("*"),
-            value // todo: make this better
-        };
-    }
-
-    function parseCommentLine(comment: babel.CommentLine) {
-        // todo: properly handle if this should be on its own line
-        return `// ${comment.value.trim()}${context.options.newLineKind}`;
-    }
 }
 
 function parseUnknownNode(node: babel.Node, context: Context): Unknown {
@@ -317,29 +296,17 @@ function parseUnknownNode(node: babel.Node, context: Context): Unknown {
 
 /* types */
 
-function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): IterableIterator<PrintItem> {
-    yield getWithComments(node, node.name!, context);
+function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): PrintItemIterator {
+    yield node.name!;
 
     if (node.constraint) {
-        yield {
-            kind: PrintItemKind.Group,
-            items: [
-                " extends",
-                Separator.SpaceOrNewLine,
-                getWithComments(node.constraint, parseNode(node.constraint, context), context)
-            ],
-        }
+        yield " extends ";
+        yield* parseNode(node.constraint, context);
     }
 
     if (node.default) {
-        yield {
-            kind: PrintItemKind.Group,
-            items: [
-                " =",
-                Separator.SpaceOrNewLine,
-                getWithComments(node.default, parseNode(node.default, context), context)
-            ],
-        }
+        yield " = ";
+        yield* parseNode(node.default, context);
     }
 }
 
@@ -352,40 +319,35 @@ function parseUnionType(node: babel.TSUnionType, context: Context): Group {
         items: parseTypes()
     };
 
-    function parseTypes() {
-        const items: PrintItem[] = [];
+    function* parseTypes(): PrintItemIterator {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
-                items.push(Separator.SpaceOrNewLine);
-                items.push("| ");
+                yield Separator.SpaceOrNewLine;
+                yield "| ";
             }
-            items.push(parseNode(node.types[i], context));
+            yield* parseNode(node.types[i], context);
         }
-        return items;
     }
 }
 
 /* general */
 
-function parseStatements(statements: babel.Statement[], context: Context) {
-    const printItems: PrintItem[] = [];
+function* parseStatements(statements: babel.Statement[], context: Context): PrintItemIterator {
     for (let i = 0; i < statements.length; i++) {
         if (i > 0) {
             if (hasBody(statements[i - 1]) || hasBody(statements[i]))
-                printItems.push(context.options.newLineKind.repeat(2));
+                yield context.options.newLineKind.repeat(2);
             else {
                 // todo: check if there is a blank line between statements and if so, respect that
-                printItems.push(context.options.newLineKind);
+                yield context.options.newLineKind;
             }
         }
 
-        printItems.push(parseNode(statements[i], context));
+        yield* parseNode(statements[i], context);
     }
 
     if (statements.length > 0)
-        printItems.push(context.options.newLineKind);
-
-    return printItems;
+        yield context.options.newLineKind;
 }
 
 function parseParameters(params: babel.Node[], context: Context): Group {
@@ -393,46 +355,88 @@ function parseParameters(params: babel.Node[], context: Context): Group {
     return {
         kind: PrintItemKind.Group,
         separatorKind,
-        items: [
-            "(",
-            Separator.NewLine,
-            {
-                kind: PrintItemKind.Group,
-                indent: separatorKind === GroupSeparatorKind.NewLines,
-                hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
-                separatorKind,
-                items: parseParameterList()
-            },
-            Separator.NewLine,
-            ")"
-        ]
+        items: parseItems()
     };
 
-    function parseParameterList() {
-        const items: PrintItem[] = [];
+    function* parseItems(): PrintItemIterator {
+        yield "(";
+        yield Separator.NewLine;
+        yield {
+            kind: PrintItemKind.Group,
+            indent: separatorKind === GroupSeparatorKind.NewLines,
+            hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
+            separatorKind,
+            items: parseParameterList()
+        };
+        yield Separator.NewLine;
+        yield ")";
+    }
+
+    function* parseParameterList(): PrintItemIterator {
         for (let i = 0; i < params.length; i++) {
             const param = params[i];
-            items.push(parseNode(param, context));
+            yield* parseNode(param, context);
             if (i < params.length - 1) {
-                items.push(",");
-                items.push(Separator.SpaceOrNewLine)
+                yield ",";
+                yield Separator.SpaceOrNewLine;
             }
         }
-        return items;
     }
 }
 
 /* helpers */
 
-function getWithComments(node: babel.Node, nodePrintItem: PrintItem, context: Context) {
-    // todo: store used comments in the context
-    const items: PrintItem[] = [];
-    if (node.leadingComments)
-        items.push(...node.leadingComments.map(c => parseComment(c as babel.CommentBlock | babel.CommentLine, context)));
-    items.push(nodePrintItem);
-    if (node.trailingComments)
-        items.push(...node.trailingComments.map(c => parseComment(c as babel.CommentBlock | babel.CommentLine, context)));
-    return items;
+function* getWithComments(node: babel.Node, nodePrintItem: PrintItem, context: Context): PrintItemIterator {
+    if (node.leadingComments) {
+        for (const leadingComment of node.leadingComments)
+            yield* parseComment(node, leadingComment, context);
+    }
+
+    yield nodePrintItem;
+
+    if (node.trailingComments) {
+        for (const leadingComment of node.trailingComments)
+            yield* parseComment(node, leadingComment, context);
+    }
+}
+
+function* parseComment(node: babel.Node, comment: babel.Comment, context: Context): PrintItemIterator {
+    if (context.handledComments.has(comment))
+        return;
+    else
+        context.handledComments.add(comment);
+
+    switch (comment.type) {
+        case "CommentBlock":
+            yield* parseCommentBlock(comment);
+            break;
+        case "CommentLine":
+            yield* parseCommentLine(comment);
+            break;
+        default:
+            assertNever(comment);
+    }
+
+    function* parseCommentBlock(comment: babel.CommentBlock): PrintItemIterator {
+        if (comment.loc!.start.line < node.loc!.start.line)
+            yield context.options.newLineKind;
+
+        yield "/*";
+        yield comment.value;
+        yield "*/";
+
+        if (comment.loc!.start.line < node.loc!.start.line)
+            yield context.options.newLineKind;
+    }
+
+    function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
+        if (comment.loc!.start.line < node.loc!.start.line)
+            yield context.options.newLineKind;
+        else
+            yield " ";
+        yield `// ${comment.value.trim()}`;
+        yield Separator.ExpectNewLine;
+    }
 }
 
 function getSeparatorKindForNodes(nodes: babel.Node[]) {

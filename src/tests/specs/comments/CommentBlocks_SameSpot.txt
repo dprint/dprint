@@ -1,0 +1,8 @@
+== should keep comments within nodes ==
+
+function /* 1 */test/* 2 */() {// 3
+}// 4
+
+[expect]
+function /* 1 */test/* 2 */() { // 3
+} // 4

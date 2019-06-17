@@ -1,10 +1,10 @@
-== Should format when only having a module specifier ==
+== should format when only having a module specifier ==
 import    "test"  ;
 
 [expect]
 import "test";
 
-== Should format when using a default and namespace import ==
+== should format when using a default and namespace import ==
 import
     myVar,
     *   as   nameSpace   from    'test'  ;
@@ -12,7 +12,7 @@ import
 [expect]
 import myVar, * as nameSpace from "test";
 
-== Should format when using a default and named imports ==
+== should format when using a default and named imports ==
 import
     myVar,
     {
@@ -22,21 +22,21 @@ import
 [expect]
 import myVar, { n1, n2, n3 } from "test";
 
-== Should format when using a default import ==
+== should format when using a default import ==
 import
     myVar   from    "test"  ;
 
 [expect]
 import myVar from "test";
 
-== Should format when using a namespace import ==
+== should format when using a namespace import ==
 import
     *     as   nameSpace   from    "test"  ;
 
 [expect]
 import * as nameSpace from "test";
 
-== Should format when using named imports ==
+== should format when using named imports ==
 import {n1,n2,n3} from    "test"  ;
 
 [expect]

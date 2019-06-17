@@ -1,4 +1,4 @@
-== Should print everything in a union type ==
+== should print everything in a union type ==
 export type T = string|number;
 
 [expect]

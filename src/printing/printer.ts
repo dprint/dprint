@@ -1,5 +1,5 @@
-import { PrintItem, CommentBlock, Group, GroupSeparatorKind, PrintItemKind, Separator, Unknown } from "../types";
-import { assertNever, throwError } from "../utils";
+import { PrintItem, Group, GroupSeparatorKind, PrintItemKind, Separator, Unknown } from "../types";
+import { assertNever, throwError, isIterator } from "../utils";
 
 interface Context {
     writer: Writer;
@@ -67,10 +67,10 @@ function printPrintItem(printItem: PrintItem, context: Context) {
         printSeparator(printItem, context);
     else if (typeof printItem === "string")
         printString(printItem, context);
-    else if (printItem instanceof Array)
-        printItem.forEach(item => printPrintItem(item, context));
-    else if (printItem.kind === PrintItemKind.CommentBlock)
-        printCommentBlock(printItem, context);
+    else if (isIterator(printItem)) {
+        for (const item of printItem)
+            printPrintItem(item, context);
+    }
     else if (printItem.kind === PrintItemKind.Group)
         printGroup(printItem, context);
     else if (printItem.kind === PrintItemKind.Unknown)
@@ -83,7 +83,10 @@ function printSeparator(separator: Separator, context: Context) {
     const { groupSeparatorKind } = context.state;
     const isInHangingIndent = context.writer.getLastLineIndentLevel() > context.state.groupIndentationLevel;
 
-    if (separator === Separator.NewLineIfHangingSpaceOtherwise) {
+    if (separator === Separator.ExpectNewLine) {
+        context.writer.markExpectNewLine();
+    }
+    else if (separator === Separator.NewLineIfHangingSpaceOtherwise) {
         if (isInHangingIndent)
             context.writer.write(context.options.newLineKind);
         else {
@@ -94,9 +97,6 @@ function printSeparator(separator: Separator, context: Context) {
         context.writer.write(context.options.newLineKind);
     else if (separator === Separator.SpaceOrNewLine)
         context.writer.markSpaceOrNewLine();
-}
-
-function printCommentBlock(comment: CommentBlock, context: Context) {
 }
 
 function printUnknown(unknown: Unknown, context: Context) {
@@ -126,13 +126,23 @@ class Writer {
     private hangingIndentLevel: number | undefined;
     private lastSpaceMark: SpaceMark | undefined;
     private lastLineIndentLevel = 0;
+    private expectNewLineNext = false;
 
     constructor(private readonly options: { indentSize: number; maxWidth: number; newLineKind: "\r\n" | "\n" }) {
         this.singleIndentationText = " ".repeat(options.indentSize);
     }
 
     write(text: string) {
-        const startsWithNewLine = text[0] === "\r" || text[0] === "\n";
+        const startsWithNewLine = text[0] === "\n" || text[0] === "\r" && text[1] === "\n";
+        if (this.expectNewLineNext) {
+            this.expectNewLineNext = false;
+            if (!startsWithNewLine) {
+                this.write(this.options.newLineKind);
+                this.write(text);
+                return;
+            }
+        }
+
         if (startsWithNewLine) {
             if (text !== "\n" && text !== "\r\n")
                 throwError(`Text cannot be written with newlines: ${text}`);
@@ -254,6 +264,10 @@ class Writer {
             this.spaceIndexesToConvertToNewLineOnHanging.push(this.items.length);
             this.write(" ");
         }
+    }
+
+    markExpectNewLine() {
+        this.expectNewLineNext = true;
     }
 
     getLastLineIndentLevel() {
