@@ -1,5 +1,5 @@
-import { PrintItem, Group, GroupSeparatorKind, PrintItemKind, Separator, Condition, Unknown, PrintItemIterator } from "../types";
-import { assertNever, throwError, isIterator, ResetableIterable } from "../utils";
+import { PrintItem, Group, PrintItemKind, Separator, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
+import { assertNever, throwError, ResetableIterable } from "../utils";
 import { Writer, WriterState } from "./Writer";
 
 export interface PrintOptions {
@@ -21,22 +21,18 @@ export function print(group: Group, options: PrintOptions) {
 }
 
 interface SavePoint {
-    state: PrinterState;
+    depth: number;
+    minDepthFound: number;
     writerState: WriterState;
     uncommittedItems: PrintItem[];
-}
-
-interface PrinterState {
-    groupDepth: number;
-    groupStartLineNumber: number;
-    groupIndentationLevel: number;
 }
 
 class Printer {
     private readonly writer: Writer;
     private savePoint: SavePoint | undefined;
+    private exitSymbol = Symbol("Thrown to exit when inside a group.");
 
-    private state: PrinterState;
+    private depth = 0;
 
     constructor(private readonly options: PrintOptions) {
         this.writer = new Writer(options);
@@ -44,28 +40,6 @@ class Printer {
             this.commit();
             this.savePoint = undefined;
         });
-        this.state = {
-            groupDepth: 0,
-            groupStartLineNumber: 0,
-            groupIndentationLevel: 0
-        };
-    }
-
-    getState(): Readonly<PrinterState> {
-        return Printer.cloneState(this.state);
-    }
-
-    setState(state: Readonly<PrinterState>) {
-        this.state = Printer.cloneState(state);
-    }
-
-    private static cloneState(printerState: Readonly<PrinterState>): PrinterState {
-        const state: MakeRequired<PrinterState> = {
-            groupDepth: printerState.groupDepth,
-            groupIndentationLevel: printerState.groupIndentationLevel,
-            groupStartLineNumber: printerState.groupStartLineNumber
-        };
-        return state;
     }
 
     commit() {
@@ -73,11 +47,12 @@ class Printer {
     }
 
     createSavePointIfAble() {
-        if (this.savePoint != null && this.state.groupDepth > this.savePoint.state.groupDepth)
+        if (this.savePoint != null && this.depth > this.savePoint.depth)
             return;
 
         this.savePoint = {
-            state: this.getState(),
+            depth: this.depth,
+            minDepthFound: this.depth,
             writerState: this.writer.getState(),
             uncommittedItems: []
         };
@@ -87,8 +62,8 @@ class Printer {
         if (this.savePoint == null)
             return;
 
-        if (this.savePoint.state.groupDepth > this.state.groupDepth)
-            throw "exit";
+        if (this.depth > this.savePoint.depth)
+            throw this.exitSymbol;
 
         this.updateStateToSavePoint();
     }
@@ -99,7 +74,10 @@ class Printer {
 
         const savePoint = this.savePoint;
         this.savePoint = undefined;
-        this.setState(savePoint.state);
+
+        if (this.depth > savePoint.depth)
+            throwError(`For some reason the group depth (${this.depth}) was greater than the save point group depth (${savePoint.depth}).`);
+
         this.writer.setState(savePoint.writerState);
 
         // reverting to save point means it should write a newline
@@ -119,10 +97,12 @@ class Printer {
             this.printGroup(printItem);
         else if (printItem.kind === PrintItemKind.Unknown)
             this.printUnknown(printItem);
-        else {
-            // todo: support conditionals
-            //assertNever(printItem);
-        }
+        else if (printItem.kind === PrintItemKind.Condition)
+            this.printCondition(printItem);
+        else if (printItem.kind === PrintItemKind.Info)
+            this.resolveInfo(printItem);
+        else
+            assertNever(printItem);
     }
 
     printSeparator(separator: Separator) {
@@ -137,7 +117,7 @@ class Printer {
         else if (separator === Separator.SpaceOrNewLine) {
             if (this.isAboveMaxWidth(1)) {
                 const saveState = this.savePoint;
-                if (saveState == null || saveState.state.groupDepth >= this.state.groupDepth)
+                if (saveState == null || saveState.depth >= this.depth)
                     this.writer.write(this.options.newLineKind);
                 else {
                     this.addToUncommittedItemsIfNecessary(separator);
@@ -167,35 +147,38 @@ class Printer {
 
     printGroup(group: Group) {
         this.addToUncommittedItemsIfNecessary(group);
-        const previousState = this.getState();
+        this.doUpdatingDepth(() => {
+            if (group.items instanceof ResetableIterable)
+                group.items.reset();
+            else if (this.savePoint != null)
+                group.items = new ResetableIterable(group.items);
 
-        this.state = {
-            groupStartLineNumber: this.writer.getLineNumber(),
-            groupIndentationLevel: this.writer.getIndentationLevel(),
-            groupDepth: previousState.groupDepth + 1
-        };
-
-        if (group.items instanceof ResetableIterable)
-            group.items.reset();
-        else if (this.savePoint != null)
-            group.items = new ResetableIterable(group.items);
-
-        if (group.hangingIndent)
-            this.writer.hangingIndent(() => this.printItems(group, this.state.groupDepth));
-        else if (group.indent)
-            this.writer.indent(() => this.printItems(group, this.state.groupDepth));
-        else
-            this.printItems(group, this.state.groupDepth);
-
-        this.setState(previousState);
+            if (group.hangingIndent)
+                this.writer.hangingIndent(() => this.printItems(group.items));
+            else if (group.indent)
+                this.writer.indent(() => this.printItems(group.items));
+            else
+                this.printItems(group.items);
+        });
     }
 
-    private printItems(group: Group, groupDepth: number) {
-        for (const item of group.items) {
+    private doUpdatingDepth(action: () => void) {
+        const previousDepth = this.depth;
+        this.depth++;
+
+        try {
+            action();
+        } finally {
+            this.depth = previousDepth;
+        }
+    }
+
+    private printItems(items: PrintItemIterator) {
+        for (const item of items) {
             try {
                 this.printPrintItem(item);
             } catch (err) {
-                if (err !== "exit" || this.state.groupDepth !== groupDepth)
+                if (err !== this.exitSymbol || this.savePoint == null || this.depth !== this.savePoint.depth)
                     throw err;
                 this.updateStateToSavePoint();
             }
@@ -207,17 +190,91 @@ class Printer {
         this.writer.baseWrite(unknown.text);
     }
 
+    private readonly resolvedConditions = new Map<Condition, boolean>();
+    printCondition(condition: Condition) {
+        this.addToUncommittedItemsIfNecessary(condition);
+        this.doUpdatingDepth(() => {
+            const conditionValue = this.getConditionValue(condition);
+            if (conditionValue) {
+                if (condition.true) {
+                    if (condition.true instanceof ResetableIterable)
+                        condition.true.reset();
+                    else if (this.savePoint != null)
+                        condition.true = new ResetableIterable(condition.true);
+
+                    this.printItems(condition.true);
+                }
+            }
+            else {
+                if (condition.false) {
+                    if (condition.false instanceof ResetableIterable)
+                        condition.false.reset();
+                    else if (this.savePoint != null)
+                        condition.false = new ResetableIterable(condition.false);
+
+                    this.printItems(condition.false);
+                }
+            }
+        });
+    }
+
+    private getConditionValue(condition: Condition): boolean {
+        if (typeof condition.condition === "object") {
+            const result = this.resolvedConditions.get(condition.condition);
+            if (result == null)
+                return throwError(`Parser error: Cannot reference conditions that have not been printed first. ${JSON.stringify(condition)}`);
+            return result;
+        }
+        else if (condition.condition instanceof Function) {
+            return condition.condition({
+                isConditionTrue: (c) => this.getConditionValue(c),
+                writerInfo: this.getWriterInfo(),
+                getResolvedInfo: info => this.getResolvedInfo(info)
+            });
+        }
+        else {
+            return assertNever(condition.condition);
+        }
+    }
+
+    private readonly resolvedInfos = new Map<Info, WriterInfo>();
+    resolveInfo(info: Info) {
+        this.addToUncommittedItemsIfNecessary(info);
+        this.resolvedInfos.set(info, this.getWriterInfo());
+    }
+
+    private getResolvedInfo(info: Info) {
+        const resolvedInfo = this.resolvedInfos.get(info);
+        if (resolvedInfo == null)
+            return throwError(`Parser error: Cannot get the resolved info for an info that was not in the tree first.`);
+        return resolvedInfo;
+    }
+
+    private getWriterInfo(): WriterInfo {
+        return {
+            lineStartIndentLevel: this.writer.getLineStartIndentLevel(),
+            lineNumber: this.writer.getLineNumber(),
+            columnNumber: this.writer.getLineColumn()
+        };
+    }
+
     toString() {
         this.writer.commit();
         return this.writer.toString();
     }
 
     private addToUncommittedItemsIfNecessary(printItem: PrintItem) {
-        if (this.savePoint != null && this.savePoint.state.groupDepth === this.state.groupDepth)
-            this.savePoint.uncommittedItems.push(printItem);
+        if (this.savePoint == null || this.depth > this.savePoint.minDepthFound)
+            return;
+
+        // Add all the items at the top of the tree to the uncommitted items.
+        // Their children will be iterated over later.
+        this.savePoint.minDepthFound = this.depth;
+        this.savePoint.uncommittedItems.push(printItem);
     }
 
     private isAboveMaxWidth(offset = 0) {
-        return (this.writer.getLineColumn() + offset) > this.options.maxWidth;
+        // +1 to make the column 1-indexed
+        return (this.writer.getLineColumn() + 1 + offset) > this.options.maxWidth;
     }
 }

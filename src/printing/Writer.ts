@@ -188,7 +188,7 @@ export class Writer {
         this.expectNewLineNext = true;
     }
 
-    getLastLineIndentLevel() {
+    getLineStartIndentLevel() {
         return this.lastLineIndentLevel;
     }
 

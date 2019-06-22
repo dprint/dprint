@@ -1,6 +1,5 @@
 import * as babel from "@babel/types";
-import { PrintItem, PrintItemKind, Group, Separator, Unknown, GroupSeparatorKind, PrintItemIterator,
-    Condition, ConditionKind } from "../types";
+import { PrintItem, PrintItemKind, Group, Separator, Unknown, PrintItemIterator, Condition, Info } from "../types";
 import { assertNever, removeStringIndentation, isPrintItemIterator } from "../utils";
 
 interface Context {
@@ -67,7 +66,7 @@ function parseNode(node: babel.Node | null, context: Context): Group {
         // todo: make this a static object?
         return {
             kind: PrintItemKind.Group,
-            items: [].values()
+            items: []
         };
     }
 
@@ -143,33 +142,33 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
         if (namedImports.length === 0)
             return;
 
-        const separatorKind = getSeparatorKind();
-        const braceSeparator = separatorKind === GroupSeparatorKind.NewLines ? context.options.newLineKind : " ";
+        const useNewLines = getUseNewLines();
+        const braceSeparator = useNewLines ? context.options.newLineKind : " ";
 
         yield "{";
         yield braceSeparator;
 
         yield {
             kind: PrintItemKind.Group,
-            indent: separatorKind === GroupSeparatorKind.NewLines,
-            hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
+            indent: useNewLines,
+            hangingIndent: !useNewLines,
             items: parseSpecifiers()
         };
 
         yield braceSeparator;
         yield "}";
 
-        function getSeparatorKind() {
+        function getUseNewLines() {
             if (namedImports.length === 1 && namedImports[0].loc!.start.line !== node.loc!.start.line)
-                return GroupSeparatorKind.NewLines;
-            return getSeparatorKindForNodes(namedImports);
+                return true;
+            return getUseNewLinesForNodes(namedImports);
         }
 
         function* parseSpecifiers(): PrintItemIterator {
             for (let i = 0; i < namedImports.length; i++) {
                 if (i > 0) {
                     yield ",";
-                    yield separatorKind === GroupSeparatorKind.NewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
+                    yield useNewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
                 }
                 yield parseNode(namedImports[i], context);
             }
@@ -215,6 +214,10 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
     yield parseNode(node.body, context);
 
     function* parseHeader(): PrintItemIterator {
+        const info: Info = {
+            kind: PrintItemKind.Info
+        };
+        yield info;
         if (node.async)
             yield "async ";
         yield "function";
@@ -231,12 +234,12 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
             yield ": ";
             yield parseNode(node.returnType.typeAnnotation, context);
         }
-        yield Separator.NewLineIfHangingSpaceOtherwise;
+        yield newLineIfHangingSpaceOtherwise(context, info);
     }
 }
 
 function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclaration | babel.TSTypeParameterDeclaration, context: Context): Group {
-    const separatorKind = getSeparatorKindForNodes(declaration.params);
+    const useNewLines = getUseNewLinesForNodes(declaration.params);
     return {
         kind: PrintItemKind.Group,
         items: parseItems()
@@ -244,15 +247,15 @@ function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclarati
 
     function* parseItems(): PrintItemIterator {
         yield "<";
-        if (separatorKind === GroupSeparatorKind.NewLines)
+        if (useNewLines)
             yield context.options.newLineKind;
         yield {
             kind: PrintItemKind.Group,
-            indent: separatorKind === GroupSeparatorKind.NewLines,
-            hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
+            indent: useNewLines,
+            hangingIndent: !useNewLines,
             items: parseParameterList()
         };
-        if (separatorKind === GroupSeparatorKind.NewLines)
+        if (useNewLines)
             yield context.options.newLineKind;
         yield ">";
     }
@@ -285,15 +288,12 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 /* statements */
 
 function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItemIterator {
+    const info: Info = { kind: PrintItemKind.Info };
+    yield info;
     yield "if (";
     yield parseNode(node.test, context);
     yield ")";
-    const isHangingCondition: Condition = {
-        kind: PrintItemKind.Condition,
-        condition: ConditionKind.Hanging,
-        true: context.options.newLineKind,
-        false: " "
-    }
+    const isHangingCondition = newLineIfHangingSpaceOtherwise(context, info);
     yield isHangingCondition;
 
     const requireBraces = consequentRequiresBraces(node.consequent);
@@ -319,7 +319,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         yield {
             kind: PrintItemKind.Condition,
             condition: isHangingCondition,
-            true: [context.options.newLineKind, "}"].values()
+            true: [context.options.newLineKind, "}"]
         };
     }
 
@@ -373,7 +373,7 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Pri
 }
 
 function parseUnionType(node: babel.TSUnionType, context: Context): Group {
-    const separatorKind = getSeparatorKindForNodes(node.types);
+    const useNewLines = getUseNewLinesForNodes(node.types);
     return {
         kind: PrintItemKind.Group,
         hangingIndent: true,
@@ -383,7 +383,7 @@ function parseUnionType(node: babel.TSUnionType, context: Context): Group {
     function* parseTypes(): PrintItemIterator {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
-                yield separatorKind === GroupSeparatorKind.NewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
+                yield useNewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
                 yield "| ";
             }
             yield parseNode(node.types[i], context);
@@ -414,7 +414,7 @@ function* parseStatements(statements: babel.Statement[], context: Context): Prin
 }
 
 function parseParameters(params: babel.Node[], context: Context): Group {
-    const separatorKind = getSeparatorKindForNodes(params);
+    const useNewLines = getUseNewLinesForNodes(params);
     return {
         kind: PrintItemKind.Group,
         items: parseItems()
@@ -422,15 +422,15 @@ function parseParameters(params: babel.Node[], context: Context): Group {
 
     function* parseItems(): PrintItemIterator {
         yield "(";
-        if (separatorKind === GroupSeparatorKind.NewLines)
+        if (useNewLines)
             yield context.options.newLineKind;
         yield {
             kind: PrintItemKind.Group,
-            indent: separatorKind === GroupSeparatorKind.NewLines,
-            hangingIndent: separatorKind !== GroupSeparatorKind.NewLines,
+            indent: useNewLines,
+            hangingIndent: !useNewLines,
             items: parseParameterList()
         };
-        if (separatorKind === GroupSeparatorKind.NewLines)
+        if (useNewLines)
             yield context.options.newLineKind;
         yield ")";
     }
@@ -441,9 +441,23 @@ function parseParameters(params: babel.Node[], context: Context): Group {
             yield parseNode(param, context);
             if (i < params.length - 1) {
                 yield ",";
-                yield separatorKind === GroupSeparatorKind.NewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
+                yield useNewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
             }
         }
+    }
+}
+
+/* reusable conditions */
+
+function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition {
+    return {
+        kind: PrintItemKind.Condition,
+        condition: conditionContext => {
+            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > conditionContext.getResolvedInfo(info).lineStartIndentLevel;
+            return isHanging;
+        },
+        true: [context.options.newLineKind],
+        false: [" "]
     }
 }
 
@@ -505,12 +519,12 @@ function* parseComment(node: babel.Node, comment: babel.Comment, context: Contex
     }
 }
 
-function getSeparatorKindForNodes(nodes: babel.Node[]) {
+function getUseNewLinesForNodes(nodes: babel.Node[]) {
     if (nodes.length <= 1)
-        return GroupSeparatorKind.Spaces;
+        return false;
     if (nodes[0].loc!.start.line === nodes[1].loc!.start.line)
-        return GroupSeparatorKind.Spaces;
-    return GroupSeparatorKind.NewLines;
+        return false;
+    return true;
 }
 
 /* checks */
@@ -523,81 +537,3 @@ function hasLeadingCommentOnDifferentLine(node: babel.Node) {
     return node.leadingComments != null
         && node.leadingComments.some(c => c.type === "CommentLine" || c.loc!.start.line < node.loc!.start.line);
 }
-
-/*
-function isMultiLine(nodeToCheck: babel.Node, maxWidth: number, context: Context) {
-    // clone the context because of comments being added to the set
-    return isFirstLineWidthAboveLength(parseNode(nodeToCheck, context.clone()), maxWidth);
-}
-
-function isFirstLineWidthAboveLength(originalPrintItem: PrintItem, originalLength: number) {
-    const finalResult = isFirstLineWidthAboveLengthInternal(originalPrintItem, originalLength, undefined);
-    return typeof finalResult === "number" ? false : finalResult;
-
-    function isFirstLineWidthAboveLengthInternal(printItem: PrintItem, length: number, groupSeparatorKind?: GroupSeparatorKind): number | boolean {
-        let width = 0;
-        if (typeof printItem === "number") {
-            const result = getSeparatorFirstLineWidth(printItem);
-            if (!result)
-                return false;
-            width += result;
-        }
-        else if (typeof printItem === "string") {
-            for (let i = 0; i < printItem.length; i++) {
-                if (printItem[i] === "\n")
-                    return false;
-                width++;
-
-                if (width > length)
-                    return true;
-            }
-        }
-        else if (isIterator(printItem)) {
-            for (const item of printItem) {
-                const result = isFirstLineWidthAboveLengthInternal(item, length - width, groupSeparatorKind);
-                if (typeof result === "boolean")
-                    return result;
-                width += result;
-            }
-        }
-        else if (printItem.kind === PrintItemKind.Group) {
-            for (const item of printItem.items) {
-                const result = isFirstLineWidthAboveLengthInternal(item, length - width, printItem.separatorKind);
-                if (typeof result === "boolean")
-                    return result;
-                width += result;
-            }
-        }
-        else if (printItem.kind === PrintItemKind.Unknown) {
-            const result = isFirstLineWidthAboveLengthInternal(printItem.text, length - width, groupSeparatorKind);
-            if (typeof result === "boolean")
-                return result;
-            width += result;
-        }
-        else
-            assertNever(printItem);
-
-        if (width > length)
-            return true;
-
-        return width;
-
-        function getSeparatorFirstLineWidth(separator: Separator) {
-            if (groupSeparatorKind === GroupSeparatorKind.NewLines && (separator === Separator.NewLine || separator === Separator.SpaceOrNewLine))
-                return false;
-
-            switch (separator) {
-                case Separator.ExpectNewLine:
-                    return false;
-                case Separator.SpaceOrNewLine:
-                case Separator.NewLineIfHangingSpaceOtherwise:
-                    return 1;
-                case Separator.NewLine:
-                    return 0;
-                default:
-                    return assertNever(separator);
-            }
-        }
-    }
-}
-*/
