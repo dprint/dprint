@@ -1,5 +1,5 @@
 import * as babel from "@babel/types";
-import { PrintItem, PrintItemKind, Group, Separator, Unknown, PrintItemIterator, Condition, Info } from "../types";
+import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info } from "../types";
 import { assertNever, removeStringIndentation, isPrintItemIterator } from "../utils";
 
 interface Context {
@@ -86,11 +86,9 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
     yield* getFirstLineTrailingComments();
     if (!hadCommentLine)
         yield context.options.newLineKind;
-    yield {
-        kind: PrintItemKind.Group,
-        indent: true,
-        items: parseStatements(node.body, context)
-    };
+    yield* withIndent(function*() {
+        yield* parseStatements(node.body, context);
+    });
     yield "}";
 
     function* getFirstLineTrailingComments(): PrintItemIterator {
@@ -148,12 +146,10 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
         yield "{";
         yield braceSeparator;
 
-        yield {
-            kind: PrintItemKind.Group,
-            indent: useNewLines,
-            hangingIndent: !useNewLines,
-            items: parseSpecifiers()
-        };
+        if (useNewLines)
+            yield* withIndent(parseSpecifiers);
+        else
+            yield* withHangingIndent(parseSpecifiers);
 
         yield braceSeparator;
         yield "}";
@@ -168,7 +164,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
             for (let i = 0; i < namedImports.length; i++) {
                 if (i > 0) {
                     yield ",";
-                    yield useNewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
+                    yield useNewLines ? context.options.newLineKind : Behaviour.SpaceOrNewLine;
                 }
                 yield parseNode(namedImports[i], context);
             }
@@ -185,23 +181,15 @@ function* parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifie
     yield parseNode(specifier.local, context);
 }
 
-function parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): Group {
-    return {
-        kind: PrintItemKind.Group,
-        hangingIndent: true,
-        items: parseItems()
-    };
-
-    function* parseItems(): PrintItemIterator {
-        if (specifier.imported.start === specifier.local.start) {
-            yield parseNode(specifier.imported, context)
-            return;
-        }
-
-        yield parseNode(specifier.imported, context);
-        yield " as ";
-        yield parseNode(specifier.local, context);
+function* parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): PrintItemIterator {
+    if (specifier.imported.start === specifier.local.start) {
+        yield parseNode(specifier.imported, context)
+        return;
     }
+
+    yield parseNode(specifier.imported, context);
+    yield " as ";
+    yield parseNode(specifier.local, context);
 }
 
 function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context): PrintItemIterator {
@@ -229,7 +217,14 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
         }
         if (node.typeParameters && node.typeParameters.type !== "Noop")
             yield parseTypeParameterDeclaration(node.typeParameters, context);
-        yield parseParameters(node.params, context);
+
+        const useNewLines = useNewLinesForParameters(node.params);
+        const params = parseParameters(node.params, context);
+        if (useNewLines)
+            yield* params;
+        else
+            yield* withHangingIndent(params)
+
         if (node.returnType && node.returnType.type !== "Noop") {
             yield ": ";
             yield parseNode(node.returnType.typeAnnotation, context);
@@ -247,16 +242,12 @@ function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclarati
 
     function* parseItems(): PrintItemIterator {
         yield "<";
+
         if (useNewLines)
-            yield context.options.newLineKind;
-        yield {
-            kind: PrintItemKind.Group,
-            indent: useNewLines,
-            hangingIndent: !useNewLines,
-            items: parseParameterList()
-        };
-        if (useNewLines)
-            yield context.options.newLineKind;
+            yield* surroundWithNewLines(withIndent(parseParameterList()), context);
+        else
+            yield* withHangingIndent(parseParameterList());
+
         yield ">";
     }
 
@@ -267,7 +258,7 @@ function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclarati
             yield parseNode(param, context);
             if (i < params.length - 1) {
                 yield ",";
-                yield Separator.SpaceOrNewLine;
+                yield Behaviour.SpaceOrNewLine;
             }
         }
     }
@@ -372,23 +363,17 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Pri
     }
 }
 
-function parseUnionType(node: babel.TSUnionType, context: Context): Group {
+function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIterator {
     const useNewLines = getUseNewLinesForNodes(node.types);
-    return {
-        kind: PrintItemKind.Group,
-        hangingIndent: true,
-        items: parseTypes()
-    };
-
-    function* parseTypes(): PrintItemIterator {
+    yield* withHangingIndent(function*() {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
-                yield useNewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
+                yield useNewLines ? context.options.newLineKind : Behaviour.SpaceOrNewLine;
                 yield "| ";
             }
             yield parseNode(node.types[i], context);
         }
-    }
+    });
 }
 
 /* general */
@@ -413,27 +398,16 @@ function* parseStatements(statements: babel.Statement[], context: Context): Prin
         yield context.options.newLineKind;
 }
 
-function parseParameters(params: babel.Node[], context: Context): Group {
-    const useNewLines = getUseNewLinesForNodes(params);
-    return {
-        kind: PrintItemKind.Group,
-        items: parseItems()
-    };
+function* parseParameters(params: babel.Node[], context: Context): PrintItemIterator {
+    const useNewLines = useNewLinesForParameters(params);
+    yield "(";
 
-    function* parseItems(): PrintItemIterator {
-        yield "(";
-        if (useNewLines)
-            yield context.options.newLineKind;
-        yield {
-            kind: PrintItemKind.Group,
-            indent: useNewLines,
-            hangingIndent: !useNewLines,
-            items: parseParameterList()
-        };
-        if (useNewLines)
-            yield context.options.newLineKind;
-        yield ")";
-    }
+    if (useNewLines)
+        yield* surroundWithNewLines(withIndent(parseParameterList), context);
+    else
+        yield* withHangingIndent(parseParameterList);
+
+    yield ")";
 
     function* parseParameterList(): PrintItemIterator {
         for (let i = 0; i < params.length; i++) {
@@ -441,7 +415,7 @@ function parseParameters(params: babel.Node[], context: Context): Group {
             yield parseNode(param, context);
             if (i < params.length - 1) {
                 yield ",";
-                yield useNewLines ? context.options.newLineKind : Separator.SpaceOrNewLine;
+                yield useNewLines ? context.options.newLineKind : Behaviour.SpaceOrNewLine;
             }
         }
     }
@@ -515,8 +489,12 @@ function* parseComment(node: babel.Node, comment: babel.Comment, context: Contex
         else
             yield " ";
         yield `// ${comment.value.trim()}`;
-        yield Separator.ExpectNewLine;
+        yield Behaviour.ExpectNewLine;
     }
+}
+
+function useNewLinesForParameters(params: babel.Node[]) {
+    return getUseNewLinesForNodes(params);
 }
 
 function getUseNewLinesForNodes(nodes: babel.Node[]) {
@@ -525,6 +503,33 @@ function getUseNewLinesForNodes(nodes: babel.Node[]) {
     if (nodes[0].loc!.start.line === nodes[1].loc!.start.line)
         return false;
     return true;
+}
+
+function* surroundWithNewLines(actionOrIterator: PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
+    yield context.options.newLineKind;
+    if (actionOrIterator instanceof Function)
+        yield* actionOrIterator()
+    else
+        yield* actionOrIterator;
+    yield context.options.newLineKind;
+}
+
+function* withIndent(actionOrIterator: PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+    yield Behaviour.StartIndent;
+    if (actionOrIterator instanceof Function)
+        yield* actionOrIterator()
+    else
+        yield* actionOrIterator;
+    yield Behaviour.FinishIndent;
+}
+
+function* withHangingIndent(actionOrIterator: PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+    yield Behaviour.StartHangingIndent;
+    if (actionOrIterator instanceof Function)
+        yield* actionOrIterator()
+    else
+        yield* actionOrIterator;
+    yield Behaviour.FinishHangingIndent;
 }
 
 /* checks */

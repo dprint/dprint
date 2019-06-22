@@ -1,4 +1,4 @@
-export type PrintItem = Separator | string | Group | Unknown | Condition | Info;
+export type PrintItem = Behaviour | string | Group | Unknown | Condition | Info;
 
 // iterators should only be used in groups so that they can become resetable
 export interface PrintItemIterator extends Iterable<PrintItem> {
@@ -16,11 +16,15 @@ export interface Unknown {
     text: string;
 }
 
-export enum Separator {
+export enum Behaviour {
     NewLine,
     SpaceOrNewLine,
     /** Expect the next character to be a newline. If it's not, force a newline */
-    ExpectNewLine
+    ExpectNewLine,
+    StartIndent,
+    FinishIndent,
+    StartHangingIndent,
+    FinishHangingIndent
 }
 
 export interface Condition {
@@ -40,8 +44,6 @@ export type ResolveCondition = (context: ResolveConditionContext) => boolean;
 
 export interface Group {
     kind: PrintItemKind.Group,
-    hangingIndent?: boolean;
-    indent?: boolean;
     items: PrintItemIterator;
 }
 

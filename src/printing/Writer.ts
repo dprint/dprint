@@ -1,5 +1,10 @@
 import { throwError } from "../utils";
 
+interface IndentState {
+    hangingIndentLevel: number | undefined;
+    indentLevel: number;
+}
+
 export interface WriterState {
     currentLineColumn: number;
     currentLineNumber: number;
@@ -9,6 +14,8 @@ export interface WriterState {
     hangingIndentLevel: number | undefined;
     expectNewLineNext: boolean;
     uncommitedItems: string[]; // todo: only fill this once the higher level printer says to
+    indentStates: IndentState[];
+    hangingIndentStates: IndentState[];
 }
 
 export class Writer {
@@ -28,7 +35,9 @@ export class Writer {
             indentText: "",
             hangingIndentLevel: undefined,
             expectNewLineNext: false,
-            uncommitedItems: []
+            uncommitedItems: [],
+            indentStates: [],
+            hangingIndentStates: []
         };
     }
 
@@ -55,7 +64,9 @@ export class Writer {
             hangingIndentLevel: lineState.hangingIndentLevel,
             indentLevel: lineState.indentLevel,
             indentText: lineState.indentText,
-            uncommitedItems: [...lineState.uncommitedItems]
+            uncommitedItems: [...lineState.uncommitedItems],
+            indentStates: [...lineState.indentStates],
+            hangingIndentStates: [...lineState.hangingIndentStates]
         };
         return state;
     }
@@ -116,6 +127,14 @@ export class Writer {
         return this.state.indentText;
     }
 
+    private get indentStates() {
+        return this.state.indentStates;
+    }
+
+    private get hangingIndentStates() {
+        return this.state.hangingIndentStates;
+    }
+
     write(text: string) {
         this.validateText(text);
         const isNewLine = text === "\n" || text[0] === "\r" && text[1] === "\n";
@@ -166,22 +185,38 @@ export class Writer {
         this.state.uncommitedItems.push(text);
     }
 
-    indent(duration: () => void) {
-        const originalHangingIndentLevel = this.hangingIndentLevel;
-        const originalLevel = this.indentLevel;
+    startIndent() {
+        this.indentStates.push({
+            hangingIndentLevel: this.hangingIndentLevel,
+            indentLevel: this.indentLevel
+        });
         this.indentLevel++;
-        duration();
-        this.hangingIndentLevel = originalHangingIndentLevel;
-        this.indentLevel = originalLevel;
     }
 
-    hangingIndent(duration: () => void) {
-        const originalHangingIndentLevel = this.hangingIndentLevel;
-        const originalLevel = this.indentLevel;
+    finishIndent(): void {
+        const originalIndentState = this.indentStates.pop();
+        if (originalIndentState == null)
+            return throwError(`For some reason ${nameof(this.finishIndent)} was called without a corresponding ${nameof(this.startIndent)}.`);
+
+        this.hangingIndentLevel = originalIndentState.hangingIndentLevel;
+        this.indentLevel = originalIndentState.indentLevel;
+    }
+
+    startHangingIndent() {
+        this.hangingIndentStates.push({
+            hangingIndentLevel: this.hangingIndentLevel,
+            indentLevel: this.indentLevel
+        });
         this.hangingIndentLevel = this.indentLevel + 1;
-        duration();
-        this.hangingIndentLevel = originalHangingIndentLevel;
-        this.indentLevel = originalLevel;
+    }
+
+    finishHangingIndent(): void {
+        const originalHangingIndentState = this.hangingIndentStates.pop();
+        if (originalHangingIndentState == null)
+            return throwError(`For some reason ${nameof(this.finishHangingIndent)} was called without a corresponding ${nameof(this.startHangingIndent)}.`);
+
+        this.hangingIndentLevel = originalHangingIndentState.hangingIndentLevel;
+        this.indentLevel = originalHangingIndentState.indentLevel;
     }
 
     markExpectNewLine() {

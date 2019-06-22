@@ -1,4 +1,4 @@
-import { PrintItem, Group, PrintItemKind, Separator, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
+import { PrintItem, Group, PrintItemKind, Behaviour, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
 import { assertNever, throwError, ResetableIterable } from "../utils";
 import { Writer, WriterState } from "./Writer";
 
@@ -90,7 +90,7 @@ class Printer {
 
     printPrintItem(printItem: PrintItem) {
         if (typeof printItem === "number")
-            this.printSeparator(printItem);
+            this.printBehaviour(printItem);
         else if (typeof printItem === "string")
             this.printString(printItem);
         else if (printItem.kind === PrintItemKind.Group)
@@ -105,30 +105,49 @@ class Printer {
             assertNever(printItem);
     }
 
-    printSeparator(separator: Separator) {
-        if (separator === Separator.ExpectNewLine) {
-            this.addToUncommittedItemsIfNecessary(separator);
+    printBehaviour(behaviour: Behaviour) {
+        if (behaviour === Behaviour.ExpectNewLine) {
+            this.addToUncommittedItemsIfNecessary(behaviour);
             this.writer.markExpectNewLine();
         }
-        else if (separator === Separator.NewLine) {
+        else if (behaviour === Behaviour.NewLine) {
             this.createSavePointIfAble();
-            this.addToUncommittedItemsIfNecessary(separator);
+            this.addToUncommittedItemsIfNecessary(behaviour);
         }
-        else if (separator === Separator.SpaceOrNewLine) {
+        else if (behaviour === Behaviour.SpaceOrNewLine) {
             if (this.isAboveMaxWidth(1)) {
                 const saveState = this.savePoint;
                 if (saveState == null || saveState.depth >= this.depth)
                     this.writer.write(this.options.newLineKind);
                 else {
-                    this.addToUncommittedItemsIfNecessary(separator);
+                    this.addToUncommittedItemsIfNecessary(behaviour);
                     this.revertToSavePointThrowingIfInGroup();
                 }
             }
             else {
                 this.createSavePointIfAble();
-                this.addToUncommittedItemsIfNecessary(separator);
+                this.addToUncommittedItemsIfNecessary(behaviour);
                 this.writer.write(" ");
             }
+        }
+        else if (behaviour === Behaviour.StartIndent) {
+            this.addToUncommittedItemsIfNecessary(behaviour);
+            this.writer.startIndent();
+        }
+        else if (behaviour === Behaviour.FinishIndent) {
+            this.addToUncommittedItemsIfNecessary(behaviour);
+            this.writer.finishIndent();
+        }
+        else if (behaviour === Behaviour.StartHangingIndent) {
+            this.addToUncommittedItemsIfNecessary(behaviour);
+            this.writer.startHangingIndent();
+        }
+        else if (behaviour === Behaviour.FinishHangingIndent) {
+            this.addToUncommittedItemsIfNecessary(behaviour);
+            this.writer.finishHangingIndent();
+        }
+        else {
+            assertNever(behaviour);
         }
     }
 
@@ -153,12 +172,7 @@ class Printer {
             else if (this.savePoint != null)
                 group.items = new ResetableIterable(group.items);
 
-            if (group.hangingIndent)
-                this.writer.hangingIndent(() => this.printItems(group.items));
-            else if (group.indent)
-                this.writer.indent(() => this.printItems(group.items));
-            else
-                this.printItems(group.items);
+            this.printItems(group.items);
         });
     }
 
