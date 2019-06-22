@@ -1,4 +1,4 @@
-== should format parens with a hanging indent by default ==
+== should format params with a hanging indent by default ==
 function test(here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) {
 }
 

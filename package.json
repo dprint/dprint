@@ -4,8 +4,10 @@
   "description": "Prints TypeScript code with the formatting I want.",
   "main": "dist/index.js",
   "scripts": {
-    "test": "cross-env TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
-    "test:debug": "cross-env TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
+    "build": "tsc --project tsconfig.json",
+    "type-check": "tsc --project tsconfig.json --noEmit",
+    "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
+    "test:debug": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
     "test:watch": "yarn test --watch-extensions ts --watch"
   },
   "repository": {
@@ -39,11 +41,14 @@
     "@types/globby": "^9.1.0",
     "@types/mocha": "^5.2.7",
     "@types/node": "^12.0.8",
+    "@types/ts-nameof": "^2.0.0",
     "chai": "^4.2.0",
     "cross-env": "^5.2.0",
     "mocha": "^6.1.4",
     "rimraf": "^2.6.3",
+    "ts-nameof": "^3.1.0",
     "ts-node": "^8.2.0",
+    "ttypescript": "^1.5.7",
     "typescript": "^3.5.2"
   }
 }

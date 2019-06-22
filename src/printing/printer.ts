@@ -1,15 +1,6 @@
-import { PrintItem, Group, GroupSeparatorKind, PrintItemKind, Separator, Unknown } from "../types";
-import { assertNever, throwError, isIterator } from "../utils";
-
-interface Context {
-    writer: Writer;
-    state: {
-        groupStartLineNumber: number;
-        groupIndentationLevel: number;
-        groupSeparatorKind: GroupSeparatorKind | undefined;
-    },
-    options: PrintOptions;
-}
+import { PrintItem, Group, GroupSeparatorKind, PrintItemKind, Separator, Condition, Unknown, PrintItemIterator } from "../types";
+import { assertNever, throwError, isIterator, ResetableIterable } from "../utils";
+import { Writer, WriterState } from "./Writer";
 
 export interface PrintOptions {
     maxWidth: number;
@@ -18,287 +9,215 @@ export interface PrintOptions {
 }
 
 export function print(group: Group, options: PrintOptions) {
-    const context: Context = {
-        writer: new Writer({ indentSize: options.indentSize, maxWidth: options.maxWidth, newLineKind: options.newLineKind }),
-        state: {
+    const printer = new Printer({
+        indentSize: options.indentSize,
+        maxWidth: options.maxWidth,
+        newLineKind: options.newLineKind
+    });
+
+    printer.printPrintItem(group);
+
+    return printer.toString();
+}
+
+interface SavePoint {
+    state: PrinterState;
+    writerState: WriterState;
+    uncommittedItems: PrintItem[];
+}
+
+interface PrinterState {
+    groupDepth: number;
+    groupStartLineNumber: number;
+    groupIndentationLevel: number;
+}
+
+class Printer {
+    private readonly writer: Writer;
+    private savePoint: SavePoint | undefined;
+
+    private state: PrinterState;
+
+    constructor(private readonly options: PrintOptions) {
+        this.writer = new Writer(options);
+        this.writer.onNewLine(() => {
+            this.commit();
+            this.savePoint = undefined;
+        });
+        this.state = {
+            groupDepth: 0,
             groupStartLineNumber: 0,
-            groupIndentationLevel: 0,
-            groupSeparatorKind: group.separatorKind
-        },
-        options
-    };
+            groupIndentationLevel: 0
+        };
+    }
 
-    printGroup(group, context);
+    getState(): Readonly<PrinterState> {
+        return Printer.cloneState(this.state);
+    }
 
-    return context.writer.toString();
-}
+    setState(state: Readonly<PrinterState>) {
+        this.state = Printer.cloneState(state);
+    }
 
-function printGroup(group: Group, context: Context) {
-    const previousState = context.state;
+    private static cloneState(printerState: Readonly<PrinterState>): PrinterState {
+        const state: MakeRequired<PrinterState> = {
+            groupDepth: printerState.groupDepth,
+            groupIndentationLevel: printerState.groupIndentationLevel,
+            groupStartLineNumber: printerState.groupStartLineNumber
+        };
+        return state;
+    }
 
-    context.state = {
-        groupStartLineNumber: context.writer.getLineNumber(),
-        groupIndentationLevel: context.writer.getIndentationLevel(),
-        groupSeparatorKind: group.separatorKind
-    };
+    commit() {
+        this.writer.commit();
+    }
 
-    try {
-        if (group.hangingIndent) {
-            context.writer.hangingIndent(() => {
-                printPrintItem(group.items, context);
-            });
-        }
-        else if (group.indent) {
-            context.writer.indent(() => {
-                printPrintItem(group.items, context);
-            });
-        }
+    createSavePointIfAble() {
+        if (this.savePoint != null && this.state.groupDepth > this.savePoint.state.groupDepth)
+            return;
+
+        this.savePoint = {
+            state: this.getState(),
+            writerState: this.writer.getState(),
+            uncommittedItems: []
+        };
+    }
+
+    revertToSavePointThrowingIfInGroup() {
+        if (this.savePoint == null)
+            return;
+
+        if (this.savePoint.state.groupDepth > this.state.groupDepth)
+            throw "exit";
+
+        this.updateStateToSavePoint();
+    }
+
+    updateStateToSavePoint() {
+        if (this.savePoint == null)
+            return;
+
+        const savePoint = this.savePoint;
+        this.savePoint = undefined;
+        this.setState(savePoint.state);
+        this.writer.setState(savePoint.writerState);
+
+        // reverting to save point means it should write a newline
+        this.writer.write(this.options.newLineKind);
+
+        const { uncommittedItems } = savePoint;
+        for (let i = 1; i < uncommittedItems.length; i++)
+            this.printPrintItem(uncommittedItems[i]);
+    }
+
+    printPrintItem(printItem: PrintItem) {
+        if (typeof printItem === "number")
+            this.printSeparator(printItem);
+        else if (typeof printItem === "string")
+            this.printString(printItem);
+        else if (printItem.kind === PrintItemKind.Group)
+            this.printGroup(printItem);
+        else if (printItem.kind === PrintItemKind.Unknown)
+            this.printUnknown(printItem);
         else {
-            printPrintItem(group.items, context);
+            // todo: support conditionals
+            //assertNever(printItem);
         }
     }
-    finally {
-        context.state = previousState;
-    }
-}
 
-function printPrintItem(printItem: PrintItem, context: Context) {
-    if (typeof printItem === "number")
-        printSeparator(printItem, context);
-    else if (typeof printItem === "string")
-        printString(printItem, context);
-    else if (isIterator(printItem)) {
-        for (const item of printItem)
-            printPrintItem(item, context);
-    }
-    else if (printItem.kind === PrintItemKind.Group)
-        printGroup(printItem, context);
-    else if (printItem.kind === PrintItemKind.Unknown)
-        printUnknown(printItem, context);
-    else
-        assertNever(printItem);
-}
-
-function printSeparator(separator: Separator, context: Context) {
-    const { groupSeparatorKind } = context.state;
-    const isInHangingIndent = context.writer.getLastLineIndentLevel() > context.state.groupIndentationLevel;
-
-    if (separator === Separator.ExpectNewLine) {
-        context.writer.markExpectNewLine();
-    }
-    else if (separator === Separator.NewLineIfHangingSpaceOtherwise) {
-        if (isInHangingIndent)
-            context.writer.write(context.options.newLineKind);
-        else {
-            context.writer.markSpaceToConvertToNewLineIfHanging();
+    printSeparator(separator: Separator) {
+        if (separator === Separator.ExpectNewLine) {
+            this.addToUncommittedItemsIfNecessary(separator);
+            this.writer.markExpectNewLine();
         }
-    }
-    else if (groupSeparatorKind === GroupSeparatorKind.NewLines && (separator === Separator.NewLine || separator === Separator.SpaceOrNewLine))
-        context.writer.write(context.options.newLineKind);
-    else if (separator === Separator.SpaceOrNewLine)
-        context.writer.markSpaceOrNewLine();
-}
-
-function printUnknown(unknown: Unknown, context: Context) {
-    context.writer.baseWrite(unknown.text);
-}
-
-function printString(text: string, context: Context) {
-    context.writer.write(text);
-}
-
-interface SpaceMark {
-    itemsIndex: number;
-    indentLevel: number;
-    hangingIndentLevel: number | undefined;
-    lineColumn: number;
-}
-
-class Writer {
-    private readonly items: string[] = [];
-    private readonly singleIndentationText: string;
-    private readonly spaceIndexesToConvertToNewLineOnHanging: number[] = []; // yeah, this code is bad and needs improvement
-
-    private currentLineColumn = 0;
-    private currentLineNumber = 0;
-    private indentLevel = 0;
-    private indentText = "";
-    private hangingIndentLevel: number | undefined;
-    private lastSpaceMark: SpaceMark | undefined;
-    private lastLineIndentLevel = 0;
-    private expectNewLineNext = false;
-
-    constructor(private readonly options: { indentSize: number; maxWidth: number; newLineKind: "\r\n" | "\n" }) {
-        this.singleIndentationText = " ".repeat(options.indentSize);
-    }
-
-    write(text: string) {
-        const startsWithNewLine = text[0] === "\n" || text[0] === "\r" && text[1] === "\n";
-        if (this.expectNewLineNext) {
-            this.expectNewLineNext = false;
-            if (!startsWithNewLine) {
-                this.write(this.options.newLineKind);
-                this.write(text);
-                return;
+        else if (separator === Separator.NewLine) {
+            this.createSavePointIfAble();
+            this.addToUncommittedItemsIfNecessary(separator);
+        }
+        else if (separator === Separator.SpaceOrNewLine) {
+            if (this.isAboveMaxWidth(1)) {
+                const saveState = this.savePoint;
+                if (saveState == null || saveState.state.groupDepth >= this.state.groupDepth)
+                    this.writer.write(this.options.newLineKind);
+                else {
+                    this.addToUncommittedItemsIfNecessary(separator);
+                    this.revertToSavePointThrowingIfInGroup();
+                }
+            }
+            else {
+                this.createSavePointIfAble();
+                this.addToUncommittedItemsIfNecessary(separator);
+                this.writer.write(" ");
             }
         }
-
-        if (startsWithNewLine) {
-            if (text !== "\n" && text !== "\r\n")
-                throwError(`Text cannot be written with newlines: ${text}`);
-
-            if (this.hangingIndentLevel != null) {
-                this.setIndentationLevel(this.hangingIndentLevel);
-                this.hangingIndentLevel = undefined;
-            }
-        }
-
-        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0)
-            this.baseWrite(this.indentText);
-
-        this.baseWrite(text);
     }
 
-    private splitIfOver(lineColumn: number) {
-        const lastSpaceMark = this.lastSpaceMark;
-        if (lastSpaceMark == null || lineColumn < this.options.maxWidth)
-            return false;
+    printString(text: string) {
+        // todo: this check should only happen during testing
+        const isNewLine = text === "\n" || text === "\r\n";
+        if (!isNewLine && text.includes("\n"))
+            throw new Error("Praser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
 
-        // save the state
-        const originalHangingIndentLevel = this.hangingIndentLevel;
-        const originalIndentLevel = this.indentLevel;
-
-        // skip writing
-        const spaceIndexesToConvertToNewLineOnHanging = this.spaceIndexesToConvertToNewLineOnHanging.map(index => index - lastSpaceMark.itemsIndex);
-        const reWriteItems = this.items.splice(lastSpaceMark.itemsIndex, this.items.length - lastSpaceMark.itemsIndex);
-        this.lastSpaceMark = undefined;
-        this.currentLineColumn = lastSpaceMark.lineColumn;
-
-        this.hangingIndentLevel = lastSpaceMark.hangingIndentLevel;
-        this.setIndentationLevel(lastSpaceMark.indentLevel);
-
-        // rewrite everything into the writer on the next line
-        this.write(this.options.newLineKind);
-        for (let i = 1 /* skip space */; i < reWriteItems.length; i++) {
-            if (lastSpaceMark.hangingIndentLevel != null && spaceIndexesToConvertToNewLineOnHanging.includes(i))
-                this.write(this.options.newLineKind);
-            else
-                this.write(reWriteItems[i]);
-        }
-
-        // restore the state
-        if (originalHangingIndentLevel != null)
-            this.setIndentationLevel(originalHangingIndentLevel);
+        this.addToUncommittedItemsIfNecessary(text);
+        if (!isNewLine && this.savePoint != null && this.isAboveMaxWidth(text.length))
+            this.revertToSavePointThrowingIfInGroup();
         else
-            this.setIndentationLevel(originalIndentLevel);
-
-        if (originalHangingIndentLevel == null || originalHangingIndentLevel <= this.indentLevel)
-            this.hangingIndentLevel = undefined;
-
-        return true;
+            this.writer.write(text);
     }
 
-    baseWrite(text: string) {
-        for (let i = 0; i < text.length; i++) {
-            if (this.splitIfOver(this.currentLineColumn)) {
-                this.write(text);
-                return;
-            }
+    printGroup(group: Group) {
+        this.addToUncommittedItemsIfNecessary(group);
+        const previousState = this.getState();
 
-            if (text[i] === "\n") {
-                this.lastSpaceMark = undefined;
-                this.spaceIndexesToConvertToNewLineOnHanging.length = 0;
-                this.currentLineColumn = 0;
-                this.currentLineNumber++;
-                this.lastLineIndentLevel = this.indentLevel;
-            }
-            else
-                this.currentLineColumn++;
-        }
-
-        this.items.push(text);
-    }
-
-    indent(duration: () => void) {
-        const originalHangingIndentLevel = this.hangingIndentLevel;
-        const originalLevel = this.indentLevel;
-        this.setIndentationLevel(this.indentLevel + 1);
-        try {
-            duration();
-        } finally {
-            this.hangingIndentLevel = originalHangingIndentLevel;
-            this.setIndentationLevel(originalLevel);
-        }
-    }
-
-    hangingIndent(duration: () => void) {
-        const originalHangingIndentLevel = this.hangingIndentLevel;
-        const originalLevel = this.indentLevel;
-        this.hangingIndentLevel = this.indentLevel + 1;
-        try {
-            duration();
-        } finally {
-            this.hangingIndentLevel = originalHangingIndentLevel;
-            this.setIndentationLevel(originalLevel);
-        }
-    }
-
-    markSpaceOrNewLine() {
-        this.lastSpaceMark = {
-            itemsIndex: this.items.length,
-            indentLevel: this.indentLevel,
-            hangingIndentLevel: this.hangingIndentLevel,
-            lineColumn: this.getLineColumn()
+        this.state = {
+            groupStartLineNumber: this.writer.getLineNumber(),
+            groupIndentationLevel: this.writer.getIndentationLevel(),
+            groupDepth: previousState.groupDepth + 1
         };
 
-        if (!this.splitIfOver(this.currentLineColumn + 1))
-            this.write(" ");
+        if (group.items instanceof ResetableIterable)
+            group.items.reset();
+        else if (this.savePoint != null)
+            group.items = new ResetableIterable(group.items);
+
+        if (group.hangingIndent)
+            this.writer.hangingIndent(() => this.printItems(group, this.state.groupDepth));
+        else if (group.indent)
+            this.writer.indent(() => this.printItems(group, this.state.groupDepth));
+        else
+            this.printItems(group, this.state.groupDepth);
+
+        this.setState(previousState);
     }
 
-    markSpaceToConvertToNewLineIfHanging() {
-        const lastSpaceMark = this.lastSpaceMark;
-        if (this.splitIfOver(this.currentLineColumn + 1) && lastSpaceMark != null && lastSpaceMark.hangingIndentLevel != null) {
-            this.write(this.options.newLineKind);
+    private printItems(group: Group, groupDepth: number) {
+        for (const item of group.items) {
+            try {
+                this.printPrintItem(item);
+            } catch (err) {
+                if (err !== "exit" || this.state.groupDepth !== groupDepth)
+                    throw err;
+                this.updateStateToSavePoint();
+            }
         }
-        else {
-            this.spaceIndexesToConvertToNewLineOnHanging.push(this.items.length);
-            this.write(" ");
-        }
     }
 
-    markExpectNewLine() {
-        this.expectNewLineNext = true;
-    }
-
-    getLastLineIndentLevel() {
-        return this.lastLineIndentLevel;
-    }
-
-    getIndentationLevel() {
-        return this.indentLevel;
-    }
-
-    /** Gets the zero-indexed line column. */
-    getLineColumn() {
-        if (this.currentLineColumn === 0)
-            return this.indentText.length;
-        return this.currentLineColumn;
-    }
-
-    /** Gets the zero-index line number. */
-    getLineNumber() {
-        return this.currentLineNumber;
+    printUnknown(unknown: Unknown) {
+        this.addToUncommittedItemsIfNecessary(unknown);
+        this.writer.baseWrite(unknown.text);
     }
 
     toString() {
-        return this.items.join("");
+        this.writer.commit();
+        return this.writer.toString();
     }
 
-    private setIndentationLevel(level: number) {
-        if (this.indentLevel === level)
-            return;
+    private addToUncommittedItemsIfNecessary(printItem: PrintItem) {
+        if (this.savePoint != null && this.savePoint.state.groupDepth === this.state.groupDepth)
+            this.savePoint.uncommittedItems.push(printItem);
+    }
 
-        this.indentLevel = level;
-        this.indentText = this.singleIndentationText.repeat(level);
+    private isAboveMaxWidth(offset = 0) {
+        return (this.writer.getLineColumn() + offset) > this.options.maxWidth;
     }
 }

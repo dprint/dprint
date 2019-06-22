@@ -1,4 +1,4 @@
-== should keep parens on multiple lines on multiple lines ==
+== should keep parameters on multiple lines on multiple lines ==
 function test(
     p1,
     p2
