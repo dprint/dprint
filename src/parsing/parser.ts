@@ -25,10 +25,18 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
         handledComments: new Set<babel.Comment>(),
     };
 
-    // todo: handle no statements and only comments
     return {
         kind: PrintItemKind.Group,
-        items: parseStatements(context.file.program.body, context)
+        items: function*(): PrintItemIterator {
+            yield* parseStatements(context.file.program, context);
+            yield {
+                kind: PrintItemKind.Condition,
+                condition: conditionContext => {
+                    return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
+                },
+                true: [context.options.newLineKind]
+            };
+        }()
     };
 }
 
@@ -87,7 +95,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
     if (!hadCommentLine)
         yield context.options.newLineKind;
     yield* withIndent(function*() {
-        yield* parseStatements(node.body, context);
+        yield* parseStatements(node, context);
     });
     yield "}";
 
@@ -99,7 +107,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
             if (trailingComment.loc!.start.line === node.loc!.start.line) {
                 if (trailingComment.type === "CommentLine")
                     hadCommentLine = true;
-                yield* parseComment(node, trailingComment, context);
+                yield* parseComment(trailingComment, context);
             }
         }
     }
@@ -284,12 +292,15 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     yield "if (";
     yield parseNode(node.test, context);
     yield ")";
-    const isHangingCondition = newLineIfHangingSpaceOtherwise(context, info);
-    yield isHangingCondition;
 
     const requireBraces = consequentRequiresBraces(node.consequent);
-    if (requireBraces)
+    const isHangingCondition = getIsHangingCondition(info);
+    yield isHangingCondition;
+
+    if (requireBraces) {
+        yield newLineIfHangingSpaceOtherwise(context, info);
         yield "{"
+    }
     else {
         yield {
             kind: PrintItemKind.Condition,
@@ -300,7 +311,10 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 
     yield context.options.newLineKind;
 
-    yield parseNode(node.consequent, context);
+    if (node.consequent.type === "BlockStatement")
+        yield* withIndent(parseStatements(node.consequent, context));
+    else
+        yield* withIndent(parseNode(node.consequent, context));
 
     if (requireBraces) {
         yield context.options.newLineKind;
@@ -321,7 +335,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
             return true;
         }
 
-        return !hasLeadingCommentOnDifferentLine(statement)
+        return hasLeadingCommentOnDifferentLine(statement);
     }
 }
 
@@ -378,7 +392,9 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
 
 /* general */
 
-function* parseStatements(statements: babel.Statement[], context: Context): PrintItemIterator {
+function* parseStatements(block: babel.BlockStatement | babel.Program, context: Context): PrintItemIterator {
+    // todo: handle inner comments
+    const statements = block.body;
     for (let i = 0; i < statements.length; i++) {
         if (i > 0) {
             if (hasBody(statements[i - 1]) || hasBody(statements[i])) {
@@ -393,9 +409,6 @@ function* parseStatements(statements: babel.Statement[], context: Context): Prin
 
         yield parseNode(statements[i], context);
     }
-
-    if (statements.length > 0)
-        yield context.options.newLineKind;
 }
 
 function* parseParameters(params: babel.Node[], context: Context): PrintItemIterator {
@@ -423,6 +436,16 @@ function* parseParameters(params: babel.Node[], context: Context): PrintItemIter
 
 /* reusable conditions */
 
+function getIsHangingCondition(info: Info): Condition {
+    return {
+        kind: PrintItemKind.Condition,
+        condition: conditionContext => {
+            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > conditionContext.getResolvedInfo(info).lineStartIndentLevel;
+            return isHanging;
+        }
+    }
+}
+
 function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition {
     return {
         kind: PrintItemKind.Condition,
@@ -438,23 +461,24 @@ function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition
 /* helpers */
 
 function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {
+    // todo: this should handle when
     if (node.leadingComments) {
         for (const leadingComment of node.leadingComments)
-            yield* parseComment(node, leadingComment, context);
+            yield* parseComment(leadingComment, context);
     }
 
     if (isPrintItemIterator(nodePrintItem))
-        yield* nodePrintItem
+        yield* nodePrintItem;
     else
         yield nodePrintItem;
 
     if (node.trailingComments) {
         for (const leadingComment of node.trailingComments)
-            yield* parseComment(node, leadingComment, context);
+            yield* parseComment(leadingComment, context);
     }
 }
 
-function* parseComment(node: babel.Node, comment: babel.Comment, context: Context): PrintItemIterator {
+function* parseComment(comment: babel.Comment, context: Context): PrintItemIterator {
     if (context.handledComments.has(comment))
         return;
     else
@@ -472,22 +496,12 @@ function* parseComment(node: babel.Node, comment: babel.Comment, context: Contex
     }
 
     function* parseCommentBlock(comment: babel.CommentBlock): PrintItemIterator {
-        if (comment.loc!.start.line < node.loc!.start.line)
-            yield context.options.newLineKind;
-
         yield "/*";
         yield comment.value;
         yield "*/";
-
-        if (comment.loc!.start.line < node.loc!.start.line)
-            yield context.options.newLineKind;
     }
 
     function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
-        if (comment.loc!.start.line < node.loc!.start.line)
-            yield context.options.newLineKind;
-        else
-            yield " ";
         yield `// ${comment.value.trim()}`;
         yield Behaviour.ExpectNewLine;
     }
@@ -505,30 +519,36 @@ function getUseNewLinesForNodes(nodes: babel.Node[]) {
     return true;
 }
 
-function* surroundWithNewLines(actionOrIterator: PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
+function* surroundWithNewLines(item: Group | PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
     yield context.options.newLineKind;
-    if (actionOrIterator instanceof Function)
-        yield* actionOrIterator()
+    if (item instanceof Function)
+        yield* item()
+    else if (isPrintItemIterator(item))
+        yield* item;
     else
-        yield* actionOrIterator;
+        yield item;
     yield context.options.newLineKind;
 }
 
-function* withIndent(actionOrIterator: PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+function* withIndent(item: Group | PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
     yield Behaviour.StartIndent;
-    if (actionOrIterator instanceof Function)
-        yield* actionOrIterator()
+    if (item instanceof Function)
+        yield* item()
+    else if (isPrintItemIterator(item))
+        yield* item;
     else
-        yield* actionOrIterator;
+        yield item;
     yield Behaviour.FinishIndent;
 }
 
-function* withHangingIndent(actionOrIterator: PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+function* withHangingIndent(item: Group | PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
     yield Behaviour.StartHangingIndent;
-    if (actionOrIterator instanceof Function)
-        yield* actionOrIterator()
+    if (item instanceof Function)
+        yield* item()
+    else if (isPrintItemIterator(item))
+        yield* item;
     else
-        yield* actionOrIterator;
+        yield item;
     yield Behaviour.FinishHangingIndent;
 }
 

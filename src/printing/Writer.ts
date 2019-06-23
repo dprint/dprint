@@ -137,15 +137,7 @@ export class Writer {
 
     write(text: string) {
         this.validateText(text);
-        const isNewLine = text === "\n" || text[0] === "\r" && text[1] === "\n";
-        if (this.expectNewLineNext) {
-            this.expectNewLineNext = false;
-            if (!isNewLine) {
-                this.write(this.options.newLineKind);
-                this.write(text);
-                return;
-            }
-        }
+        const isNewLine = text === "\n" || text === "\r\n";
 
         if (isNewLine) {
             if (this.hangingIndentLevel != null) {
@@ -153,9 +145,6 @@ export class Writer {
                 this.hangingIndentLevel = undefined;
             }
         }
-
-        if (this.currentLineColumn === 0 && !isNewLine && this.indentLevel > 0)
-            this.baseWrite(this.indentText);
 
         this.baseWrite(text);
     }
@@ -171,6 +160,19 @@ export class Writer {
     }
 
     baseWrite(text: string) {
+        const isNewLine = text[0] === "\n" || text[0] === "\r" && text[1] === "\n";
+        if (this.expectNewLineNext) {
+            this.expectNewLineNext = false;
+            if (!isNewLine) {
+                this.baseWrite(this.options.newLineKind);
+                this.baseWrite(text);
+                return;
+            }
+        }
+
+        if (this.currentLineColumn === 0 && !isNewLine && this.indentLevel > 0)
+            text = this.indentText + text;
+
         for (let i = 0; i < text.length; i++) {
             if (text[i] === "\n") {
                 this.currentLineColumn = 0;

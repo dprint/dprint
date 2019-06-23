@@ -240,11 +240,13 @@ class Printer {
             return result;
         }
         else if (condition.condition instanceof Function) {
-            return condition.condition({
+            const result = condition.condition({
                 isConditionTrue: (c) => this.getConditionValue(c),
                 writerInfo: this.getWriterInfo(),
                 getResolvedInfo: info => this.getResolvedInfo(info)
             });
+            this.resolvedConditions.set(condition, result);
+            return result;
         }
         else {
             return assertNever(condition.condition);
