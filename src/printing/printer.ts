@@ -1,6 +1,8 @@
 import { PrintItem, Group, PrintItemKind, Behaviour, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
-import { assertNever, throwError, ResetableIterable } from "../utils";
+import { assertNever, RepeatableIterator } from "../utils";
 import { Writer, WriterState } from "./Writer";
+
+// todo: for performance reasons, when doing look aheads, it should only leap back if the condition changes
 
 export interface PrintOptions {
     maxWidth: number;
@@ -21,15 +23,20 @@ export function print(group: Group, options: PrintOptions) {
 }
 
 interface SavePoint {
+    /** Name for debugging purposes. */
+    name?: string;
     depth: number;
     minDepthFound: number;
+    uncomittedItems: PrintItem[];
     writerState: WriterState;
-    uncommittedItems: PrintItem[];
+    possibleNewLineSavePoint: SavePoint | undefined;
 }
 
 class Printer {
     private readonly writer: Writer;
-    private savePoint: SavePoint | undefined;
+    private possibleNewLineSavePoint: SavePoint | undefined;
+    private lookAheadSavePoints = new Map<Condition | Info, SavePoint>();
+
     private exitSymbol = Symbol("Thrown to exit when inside a group.");
 
     private depth = 0;
@@ -38,54 +45,35 @@ class Printer {
         this.writer = new Writer(options);
         this.writer.onNewLine(() => {
             this.commit();
-            this.savePoint = undefined;
+            this.possibleNewLineSavePoint = undefined;
         });
     }
 
     commit() {
-        this.writer.commit();
+        //this.writer.commit();
     }
 
-    createSavePointIfAble() {
-        if (this.savePoint != null && this.depth > this.savePoint.depth)
+    markPossibleNewLineIfAble() {
+        if (this.possibleNewLineSavePoint != null && this.depth > this.possibleNewLineSavePoint.depth)
             return;
 
-        this.savePoint = {
+        this.possibleNewLineSavePoint = this.createSavePoint();
+    }
+
+    private createSavePoint(): SavePoint {
+        return {
             depth: this.depth,
             minDepthFound: this.depth,
             writerState: this.writer.getState(),
-            uncommittedItems: []
+            uncomittedItems: [],
+            possibleNewLineSavePoint: this.possibleNewLineSavePoint
         };
     }
 
-    revertToSavePointThrowingIfInGroup() {
-        if (this.savePoint == null)
-            return;
-
-        if (this.depth > this.savePoint.depth)
-            throw this.exitSymbol;
-
-        this.updateStateToSavePoint();
-    }
-
-    updateStateToSavePoint() {
-        if (this.savePoint == null)
-            return;
-
-        const savePoint = this.savePoint;
-        this.savePoint = undefined;
-
-        if (this.depth > savePoint.depth)
-            throwError(`For some reason the group depth (${this.depth}) was greater than the save point group depth (${savePoint.depth}).`);
-
-        this.writer.setState(savePoint.writerState);
-
-        // reverting to save point means it should write a newline
-        this.writer.write(this.options.newLineKind);
-
-        const { uncommittedItems } = savePoint;
-        for (let i = 1; i < uncommittedItems.length; i++)
-            this.printPrintItem(uncommittedItems[i]);
+    private savePointToResume: SavePoint | undefined;
+    revertToSavePointThrowing(savePoint: SavePoint) {
+        this.savePointToResume = savePoint;
+        throw this.exitSymbol;
     }
 
     printPrintItem(printItem: PrintItem) {
@@ -103,6 +91,18 @@ class Printer {
             this.resolveInfo(printItem);
         else
             assertNever(printItem);
+
+        //this.logWriterForDebugging();
+    }
+
+    private lastLog: string = "";
+    private logWriterForDebugging() {
+        const currentText = this.writer.toString();
+        if (this.lastLog !== currentText) {
+            this.lastLog = currentText;
+            console.log("----");
+            console.log(currentText);
+        }
     }
 
     printBehaviour(behaviour: Behaviour) {
@@ -111,21 +111,22 @@ class Printer {
             this.writer.markExpectNewLine();
         }
         else if (behaviour === Behaviour.NewLine) {
-            this.createSavePointIfAble();
+            this.markPossibleNewLineIfAble();
             this.addToUncommittedItemsIfNecessary(behaviour);
         }
         else if (behaviour === Behaviour.SpaceOrNewLine) {
             if (this.isAboveMaxWidth(1)) {
-                const saveState = this.savePoint;
+                const saveState = this.possibleNewLineSavePoint;
                 if (saveState == null || saveState.depth >= this.depth)
                     this.writer.write(this.options.newLineKind);
                 else {
                     this.addToUncommittedItemsIfNecessary(behaviour);
-                    this.revertToSavePointThrowingIfInGroup();
+                    if (this.possibleNewLineSavePoint != null)
+                        this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
                 }
             }
             else {
-                this.createSavePointIfAble();
+                this.markPossibleNewLineIfAble();
                 this.addToUncommittedItemsIfNecessary(behaviour);
                 this.writer.write(" ");
             }
@@ -158,8 +159,8 @@ class Printer {
             throw new Error("Praser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
 
         this.addToUncommittedItemsIfNecessary(text);
-        if (!isNewLine && this.savePoint != null && this.isAboveMaxWidth(text.length))
-            this.revertToSavePointThrowingIfInGroup();
+        if (!isNewLine && this.possibleNewLineSavePoint != null && this.isAboveMaxWidth(text.length))
+            this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
         else
             this.writer.write(text);
     }
@@ -167,10 +168,9 @@ class Printer {
     printGroup(group: Group) {
         this.addToUncommittedItemsIfNecessary(group);
         this.doUpdatingDepth(() => {
-            if (group.items instanceof ResetableIterable)
-                group.items.reset();
-            else if (this.savePoint != null)
-                group.items = new ResetableIterable(group.items);
+            const isRepeatableIterator = group.items instanceof RepeatableIterator;
+            if (!isRepeatableIterator && this.hasUncomittedItems())
+                group.items = new RepeatableIterator(group.items);
 
             this.printItems(group.items);
         });
@@ -192,10 +192,28 @@ class Printer {
             try {
                 this.printPrintItem(item);
             } catch (err) {
-                if (err !== this.exitSymbol || this.savePoint == null || this.depth !== this.savePoint.depth)
+                const savePointToResume = this.savePointToResume;
+                if (err !== this.exitSymbol || savePointToResume == null || this.depth !== savePointToResume.depth)
                     throw err;
-                this.updateStateToSavePoint();
+                this.savePointToResume = undefined;
+                this.updateStateToSavePoint(savePointToResume);
             }
+        }
+    }
+
+    private updateStateToSavePoint(savePoint: SavePoint) {
+        const isForNewLine = this.possibleNewLineSavePoint === savePoint;
+        this.writer.setState(savePoint.writerState);
+        this.possibleNewLineSavePoint = isForNewLine ? undefined : savePoint.possibleNewLineSavePoint;
+        this.depth = savePoint.depth;
+
+        if (isForNewLine)
+            this.writer.write(this.options.newLineKind);
+
+        // todo: this seems suspect. What happens when something gets thrown inside here?
+        const startIndex = isForNewLine ? 1 : 0;
+        for (let i = startIndex; i < savePoint.uncomittedItems.length; i++) {
+            this.printPrintItem(savePoint.uncomittedItems[i]);
         }
     }
 
@@ -206,25 +224,23 @@ class Printer {
 
     private readonly resolvedConditions = new Map<Condition, boolean>();
     printCondition(condition: Condition) {
-        this.addToUncommittedItemsIfNecessary(condition);
+        const conditionValue = this.getConditionValue(condition);
+        this.addToUncommittedItemsIfNecessary(condition); // add after because resolving the condition might have found a look ahead point
         this.doUpdatingDepth(() => {
-            const conditionValue = this.getConditionValue(condition);
             if (conditionValue) {
                 if (condition.true) {
-                    if (condition.true instanceof ResetableIterable)
-                        condition.true.reset();
-                    else if (this.savePoint != null)
-                        condition.true = new ResetableIterable(condition.true);
+                    const isRepeatableIterator = condition.true instanceof RepeatableIterator;
+                    if (!isRepeatableIterator && this.hasUncomittedItems())
+                        condition.true = new RepeatableIterator(condition.true);
 
                     this.printItems(condition.true);
                 }
             }
             else {
                 if (condition.false) {
-                    if (condition.false instanceof ResetableIterable)
-                        condition.false.reset();
-                    else if (this.savePoint != null)
-                        condition.false = new ResetableIterable(condition.false);
+                    const isRepeatableIterator = condition.false instanceof RepeatableIterator;
+                    if (!isRepeatableIterator && this.hasUncomittedItems())
+                        condition.false = new RepeatableIterator(condition.false);
 
                     this.printItems(condition.false);
                 }
@@ -232,24 +248,49 @@ class Printer {
         });
     }
 
-    private getConditionValue(condition: Condition): boolean {
+    private getConditionValue(condition: Condition): boolean | undefined {
+        const _this = this;
         if (typeof condition.condition === "object") {
             const result = this.resolvedConditions.get(condition.condition);
-            if (result == null)
-                return throwError(`Parser error: Cannot reference conditions that have not been printed first. ${JSON.stringify(condition)}`);
+
+            if (result == null) {
+                if (!this.lookAheadSavePoints.has(condition)) {
+                    const savePoint = this.createSavePoint();
+                    savePoint.name = condition.name;
+                    this.lookAheadSavePoints.set(condition, savePoint);
+                }
+            }
+            else {
+                const savePoint = this.lookAheadSavePoints.get(condition);
+                if (savePoint != null) {
+                    this.lookAheadSavePoints.delete(condition);
+                    this.revertToSavePointThrowing(savePoint);
+                }
+            }
+
             return result;
         }
         else if (condition.condition instanceof Function) {
             const result = condition.condition({
-                isConditionTrue: (c) => this.getConditionValue(c),
+                getResolvedCondition,
                 writerInfo: this.getWriterInfo(),
                 getResolvedInfo: info => this.getResolvedInfo(info)
             });
-            this.resolvedConditions.set(condition, result);
+            if (result != null)
+                this.resolvedConditions.set(condition, result);
             return result;
         }
         else {
             return assertNever(condition.condition);
+        }
+
+        function getResolvedCondition(c: Condition): boolean | undefined;
+        function getResolvedCondition(c: Condition, defaultValue: boolean): boolean;
+        function getResolvedCondition(c: Condition, defaultValue?: boolean): boolean | undefined {
+            const conditionValue = _this.getConditionValue(c);
+            if (conditionValue == null)
+                return defaultValue;
+            return conditionValue;
         }
     }
 
@@ -257,12 +298,21 @@ class Printer {
     resolveInfo(info: Info) {
         this.addToUncommittedItemsIfNecessary(info);
         this.resolvedInfos.set(info, this.getWriterInfo());
+
+        const savePoint = this.lookAheadSavePoints.get(info);
+        if (savePoint != null) {
+            this.lookAheadSavePoints.delete(info);
+            this.revertToSavePointThrowing(savePoint);
+        }
     }
 
     private getResolvedInfo(info: Info) {
         const resolvedInfo = this.resolvedInfos.get(info);
-        if (resolvedInfo == null)
-            return throwError(`Parser error: Cannot get the resolved info for an info that was not in the tree first.`);
+        if (resolvedInfo == null && !this.lookAheadSavePoints.has(info)) {
+            const savePoint = this.createSavePoint();
+            savePoint.name = info.name;
+            this.lookAheadSavePoints.set(info, savePoint);
+        }
         return resolvedInfo;
     }
 
@@ -275,18 +325,35 @@ class Printer {
     }
 
     toString() {
-        this.writer.commit();
+        //this.writer.commit();
         return this.writer.toString();
     }
 
-    private addToUncommittedItemsIfNecessary(printItem: PrintItem) {
-        if (this.savePoint == null || this.depth > this.savePoint.minDepthFound)
-            return;
+    hasUncomittedItems() {
+        return this.possibleNewLineSavePoint != null || this.lookAheadSavePoints.size > 0;
+    }
 
-        // Add all the items at the top of the tree to the uncommitted items.
-        // Their children will be iterated over later.
-        this.savePoint.minDepthFound = this.depth;
-        this.savePoint.uncommittedItems.push(printItem);
+    private addToUncommittedItemsIfNecessary(printItem: PrintItem) {
+        const depth = this.depth;
+
+        if (this.possibleNewLineSavePoint != null)
+            updateSavePoint(this.possibleNewLineSavePoint);
+        for (const savePoint of this.lookAheadSavePoints.values())
+            updateSavePoint(savePoint);
+
+        function updateSavePoint(savePoint: SavePoint) {
+            if (depth > savePoint.minDepthFound)
+                return;
+
+            // Add all the items at the top of the tree to the uncommitted items.
+            // Their children will be iterated over later.
+            savePoint.minDepthFound = depth;
+
+            // todo: need a better way to say it's been here already... perhaps
+            // give every item in the tree an incrementing id?
+            if (savePoint.uncomittedItems.indexOf(printItem) === -1)
+                savePoint.uncomittedItems.push(printItem);
+        }
     }
 
     private isAboveMaxWidth(offset = 0) {

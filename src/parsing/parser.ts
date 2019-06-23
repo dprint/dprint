@@ -1,5 +1,5 @@
 import * as babel from "@babel/types";
-import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info } from "../types";
+import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
 import { assertNever, removeStringIndentation, isPrintItemIterator } from "../utils";
 
 interface Context {
@@ -31,6 +31,7 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
             yield* parseStatements(context.file.program, context);
             yield {
                 kind: PrintItemKind.Condition,
+                name: "endOfFileNewLine",
                 condition: conditionContext => {
                     return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
                 },
@@ -50,7 +51,10 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeAliasDeclaration": parseTypeAlias,
     "ImportDeclaration": parseImportDeclaration,
     /* statements */
+    "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
+    /* expressions */
+    "CallExpression": parseCallExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
     "ImportNamespaceSpecifier": parseImportNamespaceSpecifier,
@@ -64,6 +68,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSAnyKeyword": () => "any",
     "TSUnknownKeyword": () => "unknown",
     "TSObjectKeyword": () => "object",
+    "ThisExpression": () => "this",
     /* types */
     "TSTypeParameter": parseTypeParameter,
     "TSUnionType": parseUnionType,
@@ -226,8 +231,8 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
         if (node.typeParameters && node.typeParameters.type !== "Noop")
             yield parseTypeParameterDeclaration(node.typeParameters, context);
 
-        const useNewLines = useNewLinesForParameters(node.params);
-        const params = parseParameters(node.params, context);
+        const useNewLines = useNewLinesForParametersOrArguments(node.params);
+        const params = parseParametersOrArguments(node.params, context);
         if (useNewLines)
             yield* params;
         else
@@ -286,47 +291,57 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 
 /* statements */
 
+function* parseExpressionStatement(node: babel.ExpressionStatement, context: Context): PrintItemIterator {
+    yield parseNode(node.expression, context);
+
+    if (context.options.semiColons)
+        yield ";";
+}
+
 function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItemIterator {
-    const info: Info = { kind: PrintItemKind.Info };
-    yield info;
+    const startHeaderInfo = createInfo("startHeader");
+    yield startHeaderInfo;
     yield "if (";
     yield parseNode(node.test, context);
     yield ")";
+    const endHeaderInfo = createInfo("endHeader");
+    yield endHeaderInfo;
 
     const requireBraces = consequentRequiresBraces(node.consequent);
-    const isHangingCondition = getIsHangingCondition(info);
-    yield isHangingCondition;
+    const startStatementsInfo = createInfo("startStatements");
+    const endStatementsInfo = createInfo("endStatements");
 
-    if (requireBraces) {
-        yield newLineIfHangingSpaceOtherwise(context, info);
-        yield "{"
-    }
-    else {
-        yield {
-            kind: PrintItemKind.Condition,
-            condition: isHangingCondition,
-            true: "{"
-        };
-    }
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "openBrace",
+        condition: conditionContext => {
+            // assume it should write the open brace until it's been resolved
+            return requireBraces
+                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, true)
+                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, true);
+        },
+        true: [newLineIfHangingSpaceOtherwise(context, startHeaderInfo), "{"]
+    };
 
     yield context.options.newLineKind;
+    yield startStatementsInfo;
 
     if (node.consequent.type === "BlockStatement")
         yield* withIndent(parseStatements(node.consequent, context));
     else
         yield* withIndent(parseNode(node.consequent, context));
 
-    if (requireBraces) {
-        yield context.options.newLineKind;
-        yield "}";
-    }
-    else {
-        yield {
-            kind: PrintItemKind.Condition,
-            condition: isHangingCondition,
-            true: [context.options.newLineKind, "}"]
-        };
-    }
+    yield endStatementsInfo;
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "closeBrace",
+        condition: conditionContext => {
+            return requireBraces
+                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, true)
+                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, true);
+        },
+        true: [context.options.newLineKind, "}"]
+    };
 
     function consequentRequiresBraces(statement: babel.Statement) {
         if (statement.type === "BlockStatement") {
@@ -337,6 +352,13 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 
         return hasLeadingCommentOnDifferentLine(statement);
     }
+}
+
+/* expressions */
+
+function* parseCallExpression(node: babel.CallExpression, context: Context): PrintItemIterator {
+    yield parseNode(node.callee, context);
+    yield* parseParametersOrArguments(node.arguments, context);
 }
 
 /* literals */
@@ -411,8 +433,8 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     }
 }
 
-function* parseParameters(params: babel.Node[], context: Context): PrintItemIterator {
-    const useNewLines = useNewLinesForParameters(params);
+function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
+    const useNewLines = useNewLinesForParametersOrArguments(params);
     yield "(";
 
     if (useNewLines)
@@ -440,7 +462,10 @@ function getIsHangingCondition(info: Info): Condition {
     return {
         kind: PrintItemKind.Condition,
         condition: conditionContext => {
-            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > conditionContext.getResolvedInfo(info).lineStartIndentLevel;
+            const resolvedInfo = conditionContext.getResolvedInfo(info);
+            if (resolvedInfo == null)
+                return undefined;
+            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > resolvedInfo.lineStartIndentLevel;
             return isHanging;
         }
     }
@@ -449,8 +474,12 @@ function getIsHangingCondition(info: Info): Condition {
 function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition {
     return {
         kind: PrintItemKind.Condition,
+        name: "newLineIfHangingSpaceOtherwise",
         condition: conditionContext => {
-            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > conditionContext.getResolvedInfo(info).lineStartIndentLevel;
+            const resolvedInfo = conditionContext.getResolvedInfo(info);
+            if (resolvedInfo == null)
+                return undefined;
+            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > resolvedInfo.lineStartIndentLevel;
             return isHanging;
         },
         true: [context.options.newLineKind],
@@ -507,7 +536,7 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
     }
 }
 
-function useNewLinesForParameters(params: babel.Node[]) {
+function useNewLinesForParametersOrArguments(params: babel.Node[]) {
     return getUseNewLinesForNodes(params);
 }
 
@@ -552,6 +581,14 @@ function* withHangingIndent(item: Group | PrintItemIterator | (() => PrintItemIt
     yield Behaviour.FinishHangingIndent;
 }
 
+function isMultipleLines(startInfo: Info, endInfo: Info, conditionContext: ResolveConditionContext, defaultValue: boolean) {
+    const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo);
+    const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
+    if (resolvedStartInfo == null || resolvedEndInfo == null)
+        return defaultValue;
+    return resolvedEndInfo.lineNumber > resolvedStartInfo.lineNumber;
+}
+
 /* checks */
 
 function hasBody(node: babel.Node) {
@@ -561,4 +598,11 @@ function hasBody(node: babel.Node) {
 function hasLeadingCommentOnDifferentLine(node: babel.Node) {
     return node.leadingComments != null
         && node.leadingComments.some(c => c.type === "CommentLine" || c.loc!.start.line < node.loc!.start.line);
+}
+
+function createInfo(name?: string): Info {
+    return {
+        kind: PrintItemKind.Info,
+        name
+    };
 }

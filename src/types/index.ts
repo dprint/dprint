@@ -29,18 +29,21 @@ export enum Behaviour {
 
 export interface Condition {
     kind: PrintItemKind.Condition,
+    /** Name for debugging purposes. */
+    name?: string;
     condition: ResolveCondition | Condition;
     true?: PrintItemIterator;
     false?: PrintItemIterator;
 }
 
 export interface ResolveConditionContext {
-    isConditionTrue(condition: Condition): boolean;
-    getResolvedInfo(info: Info): WriterInfo;
+    getResolvedCondition(condition: Condition): boolean | undefined; // undefined when not yet resolved
+    getResolvedCondition(condition: Condition, defaultValue: boolean): boolean;
+    getResolvedInfo(info: Info): WriterInfo | undefined; // undefined when not yet resolved
     writerInfo: WriterInfo;
 }
 
-export type ResolveCondition = (context: ResolveConditionContext) => boolean;
+export type ResolveCondition = (context: ResolveConditionContext) => boolean | undefined;
 
 export interface Group {
     kind: PrintItemKind.Group,
@@ -48,7 +51,9 @@ export interface Group {
 }
 
 export interface Info {
-    kind: PrintItemKind.Info,
+    kind: PrintItemKind.Info;
+    /** Name for debugging purposes. */
+    name?: string;
 }
 
 export interface WriterInfo {

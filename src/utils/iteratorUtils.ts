@@ -1,6 +1,8 @@
 import { PrintItemIterator } from "../types";
 
 export function isIterator(obj: unknown): obj is Iterator<unknown> {
+    if (typeof obj === "string")
+        return false;
     return Symbol.iterator in Object(obj);
 }
 

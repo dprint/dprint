@@ -13,13 +13,12 @@ export interface WriterState {
     indentText: string;
     hangingIndentLevel: number | undefined;
     expectNewLineNext: boolean;
-    uncommitedItems: string[]; // todo: only fill this once the higher level printer says to
+    items: string[];
     indentStates: IndentState[];
     hangingIndentStates: IndentState[];
 }
 
 export class Writer {
-    private readonly comittedItems: string[] = [];
     private readonly singleIndentationText: string;
     private fireOnNewLine?: () => void;
 
@@ -35,7 +34,7 @@ export class Writer {
             indentText: "",
             hangingIndentLevel: undefined,
             expectNewLineNext: false,
-            uncommitedItems: [],
+            items: [],
             indentStates: [],
             hangingIndentStates: []
         };
@@ -48,6 +47,10 @@ export class Writer {
     }
 
     getState(): Readonly<WriterState> {
+        // todo: perhaps an additional method should be added that will reduce
+        // the number of items in the "items" array (ex. join them and create
+        // a single item array). That will need to be analyzed in some
+        // performance tests though.
         return Writer.cloneState(this.state);
     }
 
@@ -55,20 +58,20 @@ export class Writer {
         this.state = Writer.cloneState(lineState);
     }
 
-    private static cloneState(lineState: Readonly<WriterState>): WriterState {
-        const state: MakeRequired<WriterState> = {
-            currentLineColumn: lineState.currentLineColumn,
-            currentLineNumber: lineState.currentLineNumber,
-            lastLineIndentLevel: lineState.lastLineIndentLevel,
-            expectNewLineNext: lineState.expectNewLineNext,
-            hangingIndentLevel: lineState.hangingIndentLevel,
-            indentLevel: lineState.indentLevel,
-            indentText: lineState.indentText,
-            uncommitedItems: [...lineState.uncommitedItems],
-            indentStates: [...lineState.indentStates],
-            hangingIndentStates: [...lineState.hangingIndentStates]
+    private static cloneState(state: Readonly<WriterState>): WriterState {
+        const newState: MakeRequired<WriterState> = {
+            currentLineColumn: state.currentLineColumn,
+            currentLineNumber: state.currentLineNumber,
+            lastLineIndentLevel: state.lastLineIndentLevel,
+            expectNewLineNext: state.expectNewLineNext,
+            hangingIndentLevel: state.hangingIndentLevel,
+            indentLevel: state.indentLevel,
+            indentText: state.indentText,
+            items: [...state.items],
+            indentStates: [...state.indentStates],
+            hangingIndentStates: [...state.hangingIndentStates]
         };
-        return state;
+        return newState;
     }
 
     private get currentLineColumn() {
@@ -135,23 +138,19 @@ export class Writer {
         return this.state.hangingIndentStates;
     }
 
+    private get items() {
+        return this.state.items;
+    }
+
     write(text: string) {
         this.validateText(text);
-        const isNewLine = text === "\n" || text === "\r\n";
-
-        if (isNewLine) {
-            if (this.hangingIndentLevel != null) {
-                this.indentLevel = this.hangingIndentLevel;
-                this.hangingIndentLevel = undefined;
-            }
-        }
-
         this.baseWrite(text);
     }
 
     private validateText(text: string) {
         // todo: this check should only be done when running the tests... otherwise
-        // it should be turned off for performance reasons
+        // it should be turned off for performance reasons because it will iterate
+        // the entire text
         if (text === "\n" || text === "\r\n")
             return;
 
@@ -160,17 +159,23 @@ export class Writer {
     }
 
     baseWrite(text: string) {
-        const isNewLine = text[0] === "\n" || text[0] === "\r" && text[1] === "\n";
+        const startsWithNewLine = text[0] === "\n" || text[0] === "\r" && text[1] === "\n";
+        const isNewLine = text === "\n" || text === "\r\n";
         if (this.expectNewLineNext) {
             this.expectNewLineNext = false;
-            if (!isNewLine) {
+            if (!startsWithNewLine) {
                 this.baseWrite(this.options.newLineKind);
                 this.baseWrite(text);
                 return;
             }
         }
 
-        if (this.currentLineColumn === 0 && !isNewLine && this.indentLevel > 0)
+        if (isNewLine && this.hangingIndentLevel != null) {
+            this.indentLevel = this.hangingIndentLevel;
+            this.hangingIndentLevel = undefined;
+        }
+
+        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0)
             text = this.indentText + text;
 
         for (let i = 0; i < text.length; i++) {
@@ -184,7 +189,7 @@ export class Writer {
                 this.currentLineColumn++;
         }
 
-        this.state.uncommitedItems.push(text);
+        this.state.items.push(text);
     }
 
     startIndent() {
@@ -245,15 +250,7 @@ export class Writer {
         return this.currentLineNumber;
     }
 
-    commit() {
-        this.comittedItems.push(...this.state.uncommitedItems);
-        this.state.uncommitedItems.length = 0;
-    }
-
     toString() {
-        if (this.state.uncommitedItems.length > 0)
-            throwError("Printer error: Ensure commit() is called before calling toString()");
-
-        return this.comittedItems.join("");
+        return this.items.join("");
     }
 }

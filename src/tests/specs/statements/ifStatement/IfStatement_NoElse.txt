@@ -7,19 +7,14 @@ if (true) {
 if (true)
     a;
 
-== should use braces when the one line is hanging ==
-if (true)
-    call(theseAreSome, argumentsThatWill, take, this, over, the, limit, of80, columns);
+== should use braces when the single statement is hanging ==
+if(true)call(theseAreSome,argumentsThatWill,take,this, over,the, limit,of80, columns);
 
 [expect]
 if (true) {
     call(theseAreSome, argumentsThatWill, take, this, over, the, limit, of80,
         columns);
 }
-
-[expect]
-if (true)
-    a;
 
 == should use braces when there is a comment and statement and separate lines ==
 if(true){

@@ -3,5 +3,9 @@ export function assertNever(value: never): never {
 }
 
 export function throwError(message: string): never {
-    throw new Error(`[dprint]: ${message}`);
+    throw getError(message);
+}
+
+export function getError(message: string): Error {
+    return new Error(`[dprint]: ${message}`);
 }

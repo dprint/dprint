@@ -32,6 +32,8 @@ describe("specs", () => {
             const actualText = formatFileText(spec.filePath, spec.fileText);
             if (!spec.expectedText.endsWith("\n"))
                 throw new Error("The expected text did not end with a newline.");
+            if (spec.expectedText.endsWith("\n\n"))
+                throw new Error("The expected text ended with multiple newlines.");
             //expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
             expect(actualText).to.equal(spec.expectedText, spec.message);
         }
