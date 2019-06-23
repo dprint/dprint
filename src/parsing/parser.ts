@@ -61,6 +61,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ImportSpecifier": parseImportSpecifier,
     /* literals */
     "StringLiteral": parseStringLiteral,
+    "BooleanLiteral": parseBooleanLiteral,
     /* keywords */
     "TSStringKeyword": () => "string",
     "TSNumberKeyword": () => "number",
@@ -367,6 +368,10 @@ function parseStringLiteral(node: babel.StringLiteral, context: Context) {
     if (context.options.singleQuotes)
         return `'${node.value.replace(/'/g, `\\'`)}'`;
     return `"${node.value.replace(/"/g, `\\"`)}"`;
+}
+
+function parseBooleanLiteral(node: babel.BooleanLiteral, context: Context) {
+    return (node.value) ? "true" : "false";
 }
 
 function parseUnknownNode(node: babel.Node, context: Context): Unknown {
