@@ -3,9 +3,19 @@
     "configurations": [
         {
             "type": "node",
+            "request": "launch",
+            "name": "Run Tests",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "test:debug"],
+            "port": 9229,
+            "stopOnEntry": false
+        },
+        {
+            "type": "node",
             "request": "attach",
             "name": "Attach",
-            "port": 9229
+            "port": 9229,
+            "stopOnEntry": false
         }
     ]
 }
