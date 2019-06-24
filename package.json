@@ -1,6 +1,6 @@
 {
   "name": "dprint",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Prints TypeScript code with the formatting I want.",
   "main": "dist/index.js",
   "scripts": {
@@ -15,10 +15,6 @@
     "url": "git+https://github.com/dsherret/dprint.git"
   },
   "keywords": [
-    "printer",
-    "formatter",
-    "typescript",
-    "javascript"
   ],
   "author": "David Sherret",
   "license": "MIT",

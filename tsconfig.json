@@ -9,6 +9,7 @@
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
     "downlevelIteration": true,
-    "plugins": [{ "transform": "ts-nameof", "type": "raw" }]
+    "plugins": [{ "transform": "ts-nameof", "type": "raw" }],
+    "declaration": true
   }
 }
