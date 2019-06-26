@@ -30,7 +30,7 @@ export enum Behaviour {
 export interface Condition {
     kind: PrintItemKind.Condition,
     /** Name for debugging purposes. */
-    name?: string;
+    name: string;
     condition: ResolveCondition | Condition;
     true?: PrintItemIterator;
     false?: PrintItemIterator;
@@ -53,7 +53,7 @@ export interface Group {
 export interface Info {
     kind: PrintItemKind.Info;
     /** Name for debugging purposes. */
-    name?: string;
+    name: string;
 }
 
 export interface WriterInfo {

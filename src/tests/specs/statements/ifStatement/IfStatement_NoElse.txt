@@ -7,6 +7,15 @@ if (true) {
 if (true)
     a;
 
+== should not use braces when single line and using them would push the if statement over the width limit ==
+if (thisIsAVery && longerConditionThatWill && goOverTheLimitOf80CharAtTheSpace) {
+    a;
+}
+
+[expect]
+if (thisIsAVery && longerConditionThatWill && goOverTheLimitOf80CharAtTheSpace)
+    a;
+
 == should use braces when the single statement is hanging ==
 if(true)call(theseAreSome,argumentsThatWill,take,this, over,the, limit,of80, columns);
 
@@ -35,7 +44,6 @@ if(true){
 [expect]
 if (true) {
 }
-
 
 == should use braces when there's only a comment ==
 if(true){

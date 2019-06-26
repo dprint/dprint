@@ -8,6 +8,9 @@ interface Context {
     log: (message: string) => void;
     options: ParseOptions;
     handledComments: Set<babel.Comment>;
+    /** This is used to queue up the next item on the parent stack. */
+    currentNode: babel.Node;
+    parentStack: babel.Node[];
 }
 
 export interface ParseOptions {
@@ -23,12 +26,14 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
         log: message => console.log("[dprint]: " + message),
         options,
         handledComments: new Set<babel.Comment>(),
+        currentNode: file,
+        parentStack: []
     };
 
     return {
         kind: PrintItemKind.Group,
         items: function*(): PrintItemIterator {
-            yield* parseStatements(context.file.program, context);
+            yield parseNode(file.program, context);
             yield {
                 kind: PrintItemKind.Condition,
                 name: "endOfFileNewLine",
@@ -42,6 +47,8 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
 }
 
 const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | PrintItemIterator; } = {
+    /* file */
+    "Program": parseProgram,
     /* common */
     "BlockStatement": parseBlockStatement,
     "Identifier": parseIdentifier,
@@ -77,19 +84,32 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
 
 function parseNode(node: babel.Node | null, context: Context): Group {
     if (node == null) {
-        // todo: make this a static object?
+        // todo: make this a static object? (with Object.freeze?)
         return {
             kind: PrintItemKind.Group,
             items: []
         };
     }
 
+    context.parentStack.push(context.currentNode);
+    context.currentNode = node;
+
     const parseFunc = parseObj[node!.type] || parseUnknownNode;
     const printItem = parseFunc(node, context);
-    return {
+    const group: Group = {
         kind: PrintItemKind.Group,
         items: getWithComments(node, printItem, context)
     };
+
+    // replace the past item
+    context.currentNode = context.parentStack.pop()!;
+
+    return group;
+}
+
+/* file */
+function* parseProgram(node: babel.Program, context: Context): PrintItemIterator {
+    yield* parseStatements(node, context);
 }
 
 /* common */
@@ -216,10 +236,8 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
     yield parseNode(node.body, context);
 
     function* parseHeader(): PrintItemIterator {
-        const info: Info = {
-            kind: PrintItemKind.Info
-        };
-        yield info;
+        const functionHeaderStartInfo = createInfo("functionHeaderStart");
+        yield functionHeaderStartInfo;
         if (node.async)
             yield "async ";
         yield "function";
@@ -243,7 +261,7 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
             yield ": ";
             yield parseNode(node.returnType.typeAnnotation, context);
         }
-        yield newLineIfHangingSpaceOtherwise(context, info);
+        yield newLineIfHangingSpaceOtherwise(context, functionHeaderStartInfo);
     }
 }
 
@@ -316,10 +334,11 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         kind: PrintItemKind.Condition,
         name: "openBrace",
         condition: conditionContext => {
-            // assume it should write the open brace until it's been resolved
+            // writing an open brace might make the condition hang, so assume it should
+            // not write the open brace until it's been resolved
             return requireBraces
-                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, true)
-                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, true);
+                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
+                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false);
         },
         true: [newLineIfHangingSpaceOtherwise(context, startHeaderInfo), "{"]
     };
@@ -338,10 +357,17 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         name: "closeBrace",
         condition: conditionContext => {
             return requireBraces
-                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, true)
-                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, true);
+                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
+                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false);
         },
-        true: [context.options.newLineKind, "}"]
+        true: [{
+            kind: PrintItemKind.Condition,
+            name: "closeBraceNewLine",
+            condition: conditionContext => {
+                return !areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
+            },
+            true: [context.options.newLineKind]
+        }, "}"]
     };
 
     function consequentRequiresBraces(statement: babel.Statement) {
@@ -420,7 +446,6 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
 /* general */
 
 function* parseStatements(block: babel.BlockStatement | babel.Program, context: Context): PrintItemIterator {
-    // todo: handle inner comments
     const statements = block.body;
     for (let i = 0; i < statements.length; i++) {
         if (i > 0) {
@@ -435,6 +460,16 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
         }
 
         yield parseNode(statements[i], context);
+    }
+
+    if (block.innerComments) {
+        for (const comment of block.innerComments) {
+            yield* parseComment(comment, context);
+
+            // put even comment blocks on their own line
+            if (comment.type === "CommentBlock")
+                yield Behaviour.ExpectNewLine;
+        }
     }
 }
 
@@ -466,6 +501,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
 function getIsHangingCondition(info: Info): Condition {
     return {
         kind: PrintItemKind.Condition,
+        name: "isHangingCondition",
         condition: conditionContext => {
             const resolvedInfo = conditionContext.getResolvedInfo(info);
             if (resolvedInfo == null)
@@ -594,6 +630,17 @@ function isMultipleLines(startInfo: Info, endInfo: Info, conditionContext: Resol
     return resolvedEndInfo.lineNumber > resolvedStartInfo.lineNumber;
 }
 
+function areInfoEqual(startInfo: Info, endInfo: Info, conditionContext: ResolveConditionContext, defaultValue: boolean) {
+    const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo);
+    const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
+
+    if (resolvedStartInfo == null || resolvedEndInfo == null)
+        return defaultValue;
+
+    return resolvedStartInfo.lineNumber === resolvedEndInfo.lineNumber
+        && resolvedStartInfo.columnNumber === resolvedEndInfo.columnNumber;
+}
+
 /* checks */
 
 function hasBody(node: babel.Node) {
@@ -605,7 +652,7 @@ function hasLeadingCommentOnDifferentLine(node: babel.Node) {
         && node.leadingComments.some(c => c.type === "CommentLine" || c.loc!.start.line < node.loc!.start.line);
 }
 
-function createInfo(name?: string): Info {
+function createInfo(name: string): Info {
     return {
         kind: PrintItemKind.Info,
         name

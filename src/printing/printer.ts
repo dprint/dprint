@@ -210,7 +210,6 @@ class Printer {
         if (isForNewLine)
             this.writer.write(this.options.newLineKind);
 
-        // todo: this seems suspect. What happens when something gets thrown inside here?
         const startIndex = isForNewLine ? 1 : 0;
         for (let i = startIndex; i < savePoint.uncomittedItems.length; i++) {
             this.printPrintItem(savePoint.uncomittedItems[i]);
@@ -351,6 +350,9 @@ class Printer {
 
             // todo: need a better way to say it's been here already... perhaps
             // give every item in the tree an incrementing id?
+
+
+            // todo: this is a very bad bug where printItem could be a value type and not be put in here
             if (savePoint.uncomittedItems.indexOf(printItem) === -1)
                 savePoint.uncomittedItems.push(printItem);
         }

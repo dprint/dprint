@@ -54,8 +54,8 @@ export class Writer {
         return Writer.cloneState(this.state);
     }
 
-    setState(lineState: Readonly<WriterState>) {
-        this.state = Writer.cloneState(lineState);
+    setState(state: Readonly<WriterState>) {
+        this.state = Writer.cloneState(state);
     }
 
     private static cloneState(state: Readonly<WriterState>): WriterState {
