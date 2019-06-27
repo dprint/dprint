@@ -250,12 +250,7 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
         if (node.typeParameters && node.typeParameters.type !== "Noop")
             yield parseTypeParameterDeclaration(node.typeParameters, context);
 
-        const useNewLines = useNewLinesForParametersOrArguments(node.params);
-        const params = parseParametersOrArguments(node.params, context);
-        if (useNewLines)
-            yield* params;
-        else
-            yield* withHangingIndent(params)
+        yield* parseParametersOrArguments(node.params, context);
 
         if (node.returnType && node.returnType.type !== "Noop") {
             yield ": ";

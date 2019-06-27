@@ -26,12 +26,16 @@ interface SavePoint {
     /** Name for debugging purposes. */
     name?: string;
     depth: number;
-    minDepthFound: number;
-    uncomittedItems: PrintItem[];
+    childIndex: number;
     writerState: WriterState;
     possibleNewLineSavePoint: SavePoint | undefined;
+
+    minDepthFound: number;
+    minDepthChildIndex: number;
+    uncomittedItems: PrintItem[];
 }
 
+// todo: probably change this to functions rather than a class...
 class Printer {
     private readonly writer: Writer;
     private possibleNewLineSavePoint: SavePoint | undefined;
@@ -40,33 +44,31 @@ class Printer {
     private exitSymbol = Symbol("Thrown to exit when inside a group.");
 
     private depth = 0;
+    private childIndex = 0;
 
     constructor(private readonly options: PrintOptions) {
         this.writer = new Writer(options);
         this.writer.onNewLine(() => {
-            this.commit();
             this.possibleNewLineSavePoint = undefined;
         });
     }
 
-    commit() {
-        //this.writer.commit();
-    }
-
-    markPossibleNewLineIfAble() {
+    markPossibleNewLineIfAble(behaviour: Behaviour) {
         if (this.possibleNewLineSavePoint != null && this.depth > this.possibleNewLineSavePoint.depth)
             return;
 
-        this.possibleNewLineSavePoint = this.createSavePoint();
+        this.possibleNewLineSavePoint = this.createSavePoint(behaviour);
     }
 
-    private createSavePoint(): SavePoint {
+    private createSavePoint(initialItem: PrintItem): SavePoint {
         return {
             depth: this.depth,
-            minDepthFound: this.depth,
+            childIndex: this.childIndex,
             writerState: this.writer.getState(),
-            uncomittedItems: [],
-            possibleNewLineSavePoint: this.possibleNewLineSavePoint
+            possibleNewLineSavePoint: this.possibleNewLineSavePoint,
+            uncomittedItems: [initialItem],
+            minDepthFound: this.depth,
+            minDepthChildIndex: this.childIndex
         };
     }
 
@@ -77,6 +79,10 @@ class Printer {
     }
 
     printPrintItem(printItem: PrintItem) {
+        this.addToUncommittedItemsIfNecessary(printItem);
+
+        // todo: nest all these function within printPrintItem to prevent
+        // them from being used elsewhere
         if (typeof printItem === "number")
             this.printBehaviour(printItem);
         else if (typeof printItem === "string")
@@ -106,50 +112,35 @@ class Printer {
     }
 
     printBehaviour(behaviour: Behaviour) {
-        if (behaviour === Behaviour.ExpectNewLine) {
-            this.addToUncommittedItemsIfNecessary(behaviour);
+        if (behaviour === Behaviour.ExpectNewLine)
             this.writer.markExpectNewLine();
-        }
-        else if (behaviour === Behaviour.NewLine) {
-            this.markPossibleNewLineIfAble();
-            this.addToUncommittedItemsIfNecessary(behaviour);
-        }
+        else if (behaviour === Behaviour.NewLine)
+            this.markPossibleNewLineIfAble(behaviour);
         else if (behaviour === Behaviour.SpaceOrNewLine) {
             if (this.isAboveMaxWidth(1)) {
                 const saveState = this.possibleNewLineSavePoint;
                 if (saveState == null || saveState.depth >= this.depth)
                     this.writer.write(this.options.newLineKind);
                 else {
-                    this.addToUncommittedItemsIfNecessary(behaviour);
                     if (this.possibleNewLineSavePoint != null)
                         this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
                 }
             }
             else {
-                this.markPossibleNewLineIfAble();
-                this.addToUncommittedItemsIfNecessary(behaviour);
+                this.markPossibleNewLineIfAble(behaviour);
                 this.writer.write(" ");
             }
         }
-        else if (behaviour === Behaviour.StartIndent) {
-            this.addToUncommittedItemsIfNecessary(behaviour);
+        else if (behaviour === Behaviour.StartIndent)
             this.writer.startIndent();
-        }
-        else if (behaviour === Behaviour.FinishIndent) {
-            this.addToUncommittedItemsIfNecessary(behaviour);
+        else if (behaviour === Behaviour.FinishIndent)
             this.writer.finishIndent();
-        }
-        else if (behaviour === Behaviour.StartHangingIndent) {
-            this.addToUncommittedItemsIfNecessary(behaviour);
+        else if (behaviour === Behaviour.StartHangingIndent)
             this.writer.startHangingIndent();
-        }
-        else if (behaviour === Behaviour.FinishHangingIndent) {
-            this.addToUncommittedItemsIfNecessary(behaviour);
+        else if (behaviour === Behaviour.FinishHangingIndent)
             this.writer.finishHangingIndent();
-        }
-        else {
+        else
             assertNever(behaviour);
-        }
     }
 
     printString(text: string) {
@@ -158,7 +149,6 @@ class Printer {
         if (!isNewLine && text.includes("\n"))
             throw new Error("Praser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
 
-        this.addToUncommittedItemsIfNecessary(text);
         if (!isNewLine && this.possibleNewLineSavePoint != null && this.isAboveMaxWidth(text.length))
             this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
         else
@@ -166,7 +156,6 @@ class Printer {
     }
 
     printGroup(group: Group) {
-        this.addToUncommittedItemsIfNecessary(group);
         this.doUpdatingDepth(() => {
             const isRepeatableIterator = group.items instanceof RepeatableIterator;
             if (!isRepeatableIterator && this.hasUncomittedItems())
@@ -188,7 +177,10 @@ class Printer {
     }
 
     private printItems(items: PrintItemIterator) {
+        this.childIndex = 0;
+
         for (const item of items) {
+            const previousChildIndex = this.childIndex;
             try {
                 this.printPrintItem(item);
             } catch (err) {
@@ -198,6 +190,8 @@ class Printer {
                 this.savePointToResume = undefined;
                 this.updateStateToSavePoint(savePointToResume);
             }
+
+            this.childIndex = previousChildIndex + 1;
         }
     }
 
@@ -206,25 +200,27 @@ class Printer {
         this.writer.setState(savePoint.writerState);
         this.possibleNewLineSavePoint = isForNewLine ? undefined : savePoint.possibleNewLineSavePoint;
         this.depth = savePoint.depth;
+        this.childIndex = savePoint.childIndex;
 
         if (isForNewLine)
             this.writer.write(this.options.newLineKind);
 
         const startIndex = isForNewLine ? 1 : 0;
+        this.childIndex += startIndex;
         for (let i = startIndex; i < savePoint.uncomittedItems.length; i++) {
+            const previousChildIndex = this.childIndex;
             this.printPrintItem(savePoint.uncomittedItems[i]);
+            this.childIndex = previousChildIndex + 1;
         }
     }
 
     printUnknown(unknown: Unknown) {
-        this.addToUncommittedItemsIfNecessary(unknown);
         this.writer.baseWrite(unknown.text);
     }
 
     private readonly resolvedConditions = new Map<Condition, boolean>();
     printCondition(condition: Condition) {
         const conditionValue = this.getConditionValue(condition);
-        this.addToUncommittedItemsIfNecessary(condition); // add after because resolving the condition might have found a look ahead point
         this.doUpdatingDepth(() => {
             if (conditionValue) {
                 if (condition.true) {
@@ -254,7 +250,7 @@ class Printer {
 
             if (result == null) {
                 if (!this.lookAheadSavePoints.has(condition)) {
-                    const savePoint = this.createSavePoint();
+                    const savePoint = this.createSavePoint(condition);
                     savePoint.name = condition.name;
                     this.lookAheadSavePoints.set(condition, savePoint);
                 }
@@ -273,7 +269,7 @@ class Printer {
             const result = condition.condition({
                 getResolvedCondition,
                 writerInfo: this.getWriterInfo(),
-                getResolvedInfo: info => this.getResolvedInfo(info)
+                getResolvedInfo: info => this.getResolvedInfo(info, condition)
             });
             if (result != null)
                 this.resolvedConditions.set(condition, result);
@@ -295,7 +291,6 @@ class Printer {
 
     private readonly resolvedInfos = new Map<Info, WriterInfo>();
     resolveInfo(info: Info) {
-        this.addToUncommittedItemsIfNecessary(info);
         this.resolvedInfos.set(info, this.getWriterInfo());
 
         const savePoint = this.lookAheadSavePoints.get(info);
@@ -305,10 +300,10 @@ class Printer {
         }
     }
 
-    private getResolvedInfo(info: Info) {
+    private getResolvedInfo(info: Info, parentCondition: Condition) {
         const resolvedInfo = this.resolvedInfos.get(info);
         if (resolvedInfo == null && !this.lookAheadSavePoints.has(info)) {
-            const savePoint = this.createSavePoint();
+            const savePoint = this.createSavePoint(parentCondition);
             savePoint.name = info.name;
             this.lookAheadSavePoints.set(info, savePoint);
         }
@@ -334,6 +329,7 @@ class Printer {
 
     private addToUncommittedItemsIfNecessary(printItem: PrintItem) {
         const depth = this.depth;
+        const childIndex = this.childIndex;
 
         if (this.possibleNewLineSavePoint != null)
             updateSavePoint(this.possibleNewLineSavePoint);
@@ -346,15 +342,15 @@ class Printer {
 
             // Add all the items at the top of the tree to the uncommitted items.
             // Their children will be iterated over later.
-            savePoint.minDepthFound = depth;
-
-            // todo: need a better way to say it's been here already... perhaps
-            // give every item in the tree an incrementing id?
-
-
-            // todo: this is a very bad bug where printItem could be a value type and not be put in here
-            if (savePoint.uncomittedItems.indexOf(printItem) === -1)
+            if (depth < savePoint.minDepthFound) {
+                savePoint.minDepthChildIndex = childIndex;
+                savePoint.minDepthFound = depth;
                 savePoint.uncomittedItems.push(printItem);
+            }
+            else if (childIndex > savePoint.minDepthChildIndex) {
+                savePoint.minDepthChildIndex = childIndex;
+                savePoint.uncomittedItems.push(printItem);
+            }
         }
     }
 
