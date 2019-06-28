@@ -115,11 +115,9 @@ function* parseProgram(node: babel.Program, context: Context): PrintItemIterator
 /* common */
 
 function* parseBlockStatement(node: babel.BlockStatement, context: Context): PrintItemIterator {
-    let hadCommentLine = false;
     yield "{";
     yield* getFirstLineTrailingComments();
-    if (!hadCommentLine)
-        yield context.options.newLineKind;
+    yield context.options.newLineKind;
     yield* withIndent(function*() {
         yield* parseStatements(node, context);
     });
@@ -132,7 +130,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
         for (const trailingComment of node.trailingComments) {
             if (trailingComment.loc!.start.line === node.loc!.start.line) {
                 if (trailingComment.type === "CommentLine")
-                    hadCommentLine = true;
+                    yield " ";
                 yield* parseComment(trailingComment, context);
             }
         }
@@ -457,15 +455,8 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
         yield parseNode(statements[i], context);
     }
 
-    if (block.innerComments) {
-        for (const comment of block.innerComments) {
-            yield* parseComment(comment, context);
-
-            // put even comment blocks on their own line
-            if (comment.type === "CommentBlock")
-                yield Behaviour.ExpectNewLine;
-        }
-    }
+    if (block.innerComments)
+        yield* parseCommentCollection(block.innerComments, undefined, context);
 }
 
 function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
@@ -526,20 +517,50 @@ function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition
 /* helpers */
 
 function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {
-    // todo: this should handle when
-    if (node.leadingComments) {
-        for (const leadingComment of node.leadingComments)
-            yield* parseComment(leadingComment, context);
-    }
+    yield* parseLeadingComments();
 
     if (isPrintItemIterator(nodePrintItem))
         yield* nodePrintItem;
     else
         yield nodePrintItem;
 
-    if (node.trailingComments) {
-        for (const leadingComment of node.trailingComments)
-            yield* parseComment(leadingComment, context);
+    yield* parseTrailingComments();
+
+    function* parseLeadingComments() {
+        if (!node.leadingComments)
+            return;
+
+        yield* parseCommentCollection(node.leadingComments, undefined, context)
+    }
+
+    function* parseTrailingComments() {
+        if (!node.trailingComments)
+            return;
+
+        yield* parseCommentCollection(node.trailingComments, node, context)
+    }
+}
+
+function* parseCommentCollection(comments: readonly babel.Comment[], lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
+    for (const comment of comments) {
+        if (context.handledComments.has(comment))
+            continue;
+
+        if (lastNode != null) {
+            if (lastNode.loc!.end.line < comment.loc.start.line - 1) {
+                yield context.options.newLineKind;
+                yield context.options.newLineKind;
+            }
+            if (lastNode.loc!.end.line < comment.loc.start.line)
+                yield context.options.newLineKind;
+            else if (comment.type === "CommentLine")
+                yield " ";
+            else if (lastNode.type === "CommentBlock")
+                yield " ";
+        }
+
+        yield* parseComment(comment, context);
+        lastNode = comment;
     }
 }
 

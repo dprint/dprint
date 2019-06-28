@@ -1,10 +1,9 @@
-== should place all comments on their own line ==
+== should keep the comments on the lines specified ==
     // 1
-    /* 2 */ /* 3 */
+    /* 2 *//* 3 */
     // 4
 
 [expect]
 // 1
-/* 2 */
-/* 3 */
+/* 2 */ /* 3 */
 // 4
