@@ -1,35 +1,50 @@
-import { Project, PropertySignatureStructure, OptionalKind, NewLineKind } from "ts-morph";
+import { Project, PropertySignatureStructure, OptionalKind, NewLineKind, SyntaxKind, PropertyAssignmentStructure } from "ts-morph";
 import Schema from "../src/configuration/dprint.schema.json";
 
 const project = new Project({ manipulationSettings: { newLineKind: NewLineKind.CarriageReturnLineFeed } });
-const file = project.addExistingSourceFile("src/configuration/Configuration.ts");
-const config = file.getInterfaceOrThrow("Configuration");
 
 interface SchemaProperty {
     type: string;
     description?: string;
-    default: boolean | string;
+    default: boolean | string | undefined;
     oneOf?: { const: string; description: string; }[];
 }
 
-// remove existing properties
-config.getProperties().forEach(p => p.remove());
-
 // add the new ones in
 const properties: OptionalKind<PropertySignatureStructure>[] = [];
+const defaultValueProperties: OptionalKind<PropertyAssignmentStructure>[] = [];
 for (const propName in Schema.properties) {
     const prop = (Schema.properties as any)[propName] as SchemaProperty;
+    const sanitizedPropName = propName.indexOf(".") >= 0 ? `"${propName}"` : propName;
     properties.push({
-        name: propName.indexOf(".") >= 0 ? `"${propName}"` : propName,
+        name: sanitizedPropName,
         hasQuestionToken: true,
         type: getType(propName, prop),
         docs: getDocs(prop)
     });
+
+    if (prop.default != null) {
+        defaultValueProperties.push({
+            name: sanitizedPropName,
+            initializer: getDefault(prop)
+        });
+    }
 }
 
-config.addProperties(properties);
+// update the configuration file
+const configurationFile = project.addExistingSourceFile("src/configuration/Configuration.ts");
+const configClass = configurationFile.getInterfaceOrThrow("Configuration");
+configClass.getProperties().forEach(p => p.remove());
+configClass.addProperties(properties);
+configurationFile.saveSync();
 
-file.saveSync();
+// set the default values object
+const resolveConfigurationFile = project.addExistingSourceFile("src/configuration/resolveConfiguration.ts");
+const defaultValuesObj = resolveConfigurationFile.getVariableDeclarationOrThrow("defaultValues").getInitializerIfKindOrThrow(SyntaxKind.ObjectLiteralExpression);
+
+defaultValuesObj.getProperties().forEach(p => p.remove());
+defaultValuesObj.addPropertyAssignments(defaultValueProperties);
+resolveConfigurationFile.saveSync();
 
 function getDocs(prop: SchemaProperty) {
     let result: string | undefined;
@@ -42,13 +57,13 @@ function getDocs(prop: SchemaProperty) {
         else
             result += "\r\n";
 
-        result += "@default " + getDefault()
+        result += "@default " + getDefault(prop)
     }
     return result == null ? undefined : [result];
+}
 
-    function getDefault() {
-        return prop.type === "string" ? `"${prop.default}"` : prop.default;
-    }
+function getDefault(prop: SchemaProperty) {
+    return prop.type === "string" ? `"${prop.default}"` : prop.default != null ? prop.default.toString() : "undefined";
 }
 
 function getType(propName: string, prop: SchemaProperty) {
