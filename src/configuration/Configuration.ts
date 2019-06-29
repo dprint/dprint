@@ -15,6 +15,11 @@ export interface Configuration {
      */
     indentSize?: number;
     /**
+     * Whether to use tabs (false) or spaces (true).
+     * @default false
+     */
+    useTabs?: boolean;
+    /**
      * Whether statements should use semi-colons.
      * @default true
      */
@@ -41,6 +46,7 @@ export interface Configuration {
 export interface ResolvedConfiguration {
     printWidth: number;
     indentSize: number;
+    useTabs: boolean;
     singleQuotes: boolean;
     newLineKind: "auto" | "\r\n" | "\n";
 

@@ -70,6 +70,24 @@ describe(nameof(resolveConfiguration), () => {
         });
     });
 
+    describe(nameof<Configuration>(c => c.useTabs), () => {
+        function doSpecificTest(value: boolean | undefined, expectedValue: boolean) {
+            doTest({ useTabs: value as any }, { useTabs: expectedValue as any }, prop => prop === "useTabs");
+        }
+
+        it("should set when not set", () => {
+            doSpecificTest(undefined, false);
+        });
+
+        it("should use when set to the default", () => {
+            doSpecificTest(true, true);
+        });
+
+        it("should use when not set to the default", () => {
+            doSpecificTest(false, false);
+        });
+    });
+
     describe(nameof<Configuration>(c => c.semiColons), () => {
         function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
             doTest(config, expectedConfig, prop => prop.endsWith("semiColon"));

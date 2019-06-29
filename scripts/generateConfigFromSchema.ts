@@ -1,4 +1,4 @@
-import { Project, PropertySignatureStructure, OptionalKind, NewLineKind, SyntaxKind, PropertyAssignmentStructure } from "ts-morph";
+import { Project, PropertySignatureStructure, OptionalKind, NewLineKind, SyntaxKind, PropertyAssignmentStructure, ObjectLiteralExpression } from "ts-morph";
 import Schema from "../src/configuration/dprint.schema.json";
 
 const project = new Project({ manipulationSettings: { newLineKind: NewLineKind.CarriageReturnLineFeed } });
@@ -40,7 +40,9 @@ configurationFile.saveSync();
 
 // set the default values object
 const resolveConfigurationFile = project.addExistingSourceFile("src/configuration/resolveConfiguration.ts");
-const defaultValuesObj = resolveConfigurationFile.getVariableDeclarationOrThrow("defaultValues").getInitializerIfKindOrThrow(SyntaxKind.ObjectLiteralExpression);
+const defaultValuesObj = resolveConfigurationFile.getVariableDeclarationOrThrow("defaultValues")
+    .getInitializerIfKindOrThrow(SyntaxKind.AsExpression)
+    .getExpression() as ObjectLiteralExpression;
 
 defaultValuesObj.getProperties().forEach(p => p.remove());
 defaultValuesObj.addPropertyAssignments(defaultValueProperties);

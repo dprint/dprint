@@ -21,6 +21,7 @@ export function formatFileText(filePath: string, fileText: string, configuration
     return print(printItem, {
         maxWidth: configurationResult.config.printWidth,
         indentSize: configurationResult.config.indentSize,
-        newLineKind: resolveNewLineKindFromText(fileText)
+        newLineKind: resolveNewLineKindFromText(fileText),
+        useTabs: configurationResult.config.useTabs
     });
 }

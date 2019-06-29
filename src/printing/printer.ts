@@ -7,15 +7,12 @@ import { Writer, WriterState } from "./Writer";
 export interface PrintOptions {
     maxWidth: number;
     indentSize: number;
+    useTabs: boolean;
     newLineKind: "\r\n" | "\n";
 }
 
 export function print(group: Group, options: PrintOptions) {
-    const printer = new Printer({
-        indentSize: options.indentSize,
-        maxWidth: options.maxWidth,
-        newLineKind: options.newLineKind
-    });
+    const printer = new Printer(options);
 
     printer.printPrintItem(group);
 

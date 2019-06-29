@@ -17,6 +17,7 @@ export interface ResolveConfigurationResult {
 const defaultValues = {
     printWidth: 120,
     indentSize: 4,
+    useTabs: false,
     semiColons: true,
     singleQuotes: false,
     newLineKind: "auto"
@@ -30,6 +31,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     const resolvedConfig: ResolvedConfiguration = {
         printWidth: getValue("printWidth", defaultValues["printWidth"], ensureNumber),
         indentSize: getValue("indentSize", defaultValues["indentSize"], ensureNumber),
+        useTabs: getValue("useTabs", defaultValues["useTabs"], ensureBoolean),
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
         newLineKind: getNewLineKind(),
         "expressionStatement.semiColon": getValue("expressionStatement.semiColon", semiColons, ensureBoolean),
