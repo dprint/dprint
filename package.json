@@ -4,7 +4,8 @@
   "description": "Prints TypeScript code with the formatting I want.",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc --project tsconfig.json",
+    "build": "rimraf dist && tsc --project tsconfig.json",
+    "generate-config-from-schema": "ts-node --compiler ttypescript --transpile-only scripts/generateConfigFromSchema",
     "type-check": "tsc --project tsconfig.json --noEmit",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
@@ -14,8 +15,7 @@
     "type": "git",
     "url": "git+https://github.com/dsherret/dprint.git"
   },
-  "keywords": [
-  ],
+  "keywords": [],
   "author": "David Sherret",
   "license": "MIT",
   "bugs": {
@@ -42,6 +42,7 @@
     "cross-env": "^5.2.0",
     "mocha": "^6.1.4",
     "rimraf": "^2.6.3",
+    "ts-morph": "^2.3.0",
     "ts-nameof": "^3.1.0",
     "ts-node": "^8.2.0",
     "ttypescript": "^1.5.7",

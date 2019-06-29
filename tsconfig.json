@@ -1,15 +1,9 @@
 {
-  "compilerOptions": {
-    "target": "ES2015",
-    "module": "commonjs",
-    "rootDir": "./src",
-    "outDir": "./dist",
-    "strict": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "esModuleInterop": true,
-    "downlevelIteration": true,
-    "plugins": [{ "transform": "ts-nameof", "type": "raw" }],
-    "declaration": true
-  }
+    "extends": "./tsconfig.common.json",
+    "compilerOptions": {
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "plugins": [{ "transform": "ts-nameof", "type": "raw" }],
+    },
+    "exclude": ["./scripts"]
 }

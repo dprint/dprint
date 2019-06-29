@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "target": "ES2015",
+        "module": "commonjs",
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "strict": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "esModuleInterop": true,
+        "downlevelIteration": true,
+        "plugins": [{ "transform": "ts-nameof", "type": "raw" }],
+        "declaration": true,
+        "resolveJsonModule": true
+    }
+}
