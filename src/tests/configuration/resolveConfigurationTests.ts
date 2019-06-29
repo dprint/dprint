@@ -20,6 +20,13 @@ describe(nameof(resolveConfiguration), () => {
     }
 
     describe("diagnostics", () => {
+        it("should do a diagnostic when providing an incorrect number value", () => {
+            doTest({ printWidth: false as any as number }, {}, () => false, [{
+                message: "Expected the configuration for 'printWidth' to be a number, but its value was: false",
+                propertyName: "printWidth"
+            }]);
+        });
+
         it("should do a diagnostic when providing an incorrect boolean value", () => {
             doTest({ semiColons: 5 as any as boolean }, {}, () => false, [{
                 message: "Expected the configuration for 'semiColons' to be a boolean, but its value was: 5",
@@ -32,6 +39,34 @@ describe(nameof(resolveConfiguration), () => {
                 message: "Unexpected property in configuration: asdf",
                 propertyName: "asdf"
             }]);
+        });
+    });
+
+    describe(nameof<Configuration>(c => c.printWidth), () => {
+        function doSpecificTest(value: number | undefined, expectedValue: number) {
+            doTest({ printWidth: value as any }, { printWidth: expectedValue as any }, prop => prop === "printWidth");
+        }
+
+        it("should set when not set", () => {
+            doSpecificTest(undefined, 120);
+        });
+
+        it("should use what was set", () => {
+            doSpecificTest(90, 90);
+        });
+    });
+
+    describe(nameof<Configuration>(c => c.indentSize), () => {
+        function doSpecificTest(value: number | undefined, expectedValue: number) {
+            doTest({ indentSize: value as any }, { indentSize: expectedValue as any }, prop => prop === "indentSize");
+        }
+
+        it("should set when not set", () => {
+            doSpecificTest(undefined, 4);
+        });
+
+        it("should use what was set", () => {
+            doSpecificTest(2, 2);
         });
     });
 
@@ -54,39 +89,42 @@ describe(nameof(resolveConfiguration), () => {
 
         it("should allow setting specific values when not the default", () => {
             const expectedConfig = getObject(false);
-            const config: Configuration = { ...expectedConfig };
+            const config: Configuration = { ...expectedConfig } as any;
             config.semiColons = true;
             doSpecificTest(config, expectedConfig);
         });
 
         function getObject(value: boolean): Partial<ResolvedConfiguration> {
             return {
-                "ifStatement.semiColon": value
+                "expressionStatement.semiColon": value,
+                "ifStatement.semiColon": value,
+                "importDeclaration.semiColon": value,
+                "typeAlias.semiColon": value
             };
         }
     });
 
     describe(nameof<Configuration>(c => c.singleQuotes), () => {
-        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
-            doTest(config, expectedConfig, prop => prop === "singleQuotes");
+        function doSpecificTest(value: boolean | undefined, expectedValue: boolean) {
+            doTest({ singleQuotes: value as any }, { singleQuotes: expectedValue as any }, prop => prop === "singleQuotes");
         }
 
         it("should set when not set", () => {
-            doSpecificTest({}, { singleQuotes: false });
+            doSpecificTest(undefined, false);
         });
 
         it("should use when set to the default", () => {
-            doSpecificTest({ singleQuotes: false }, { singleQuotes: false });
+            doSpecificTest(true, true);
         });
 
         it("should use when not set to the default", () => {
-            doSpecificTest({ singleQuotes: true }, { singleQuotes: true });
+            doSpecificTest(false, false);
         });
     });
 
     describe(nameof<Configuration>(c => c.newLineKind), () => {
-        function doSpecificTest(newLineKind: string | undefined, expectedKind: string) {
-            doTest({ newLineKind: newLineKind as any }, { newLineKind: expectedKind as any }, prop => prop === "newLineKind");
+        function doSpecificTest(value: string | undefined, expectedValue: string) {
+            doTest({ newLineKind: value as any }, { newLineKind: expectedValue as any }, prop => prop === "newLineKind");
         }
 
         it("should set when not set", () => {
@@ -98,15 +136,15 @@ describe(nameof(resolveConfiguration), () => {
         });
 
         it("should set when set to crlf", () => {
-            doSpecificTest("crlf", "crlf");
+            doSpecificTest("crlf", "\r\n");
         });
 
         it("should set when set to lf", () => {
-            doSpecificTest("lf", "lf");
+            doSpecificTest("lf", "\n");
         });
 
         it("should resolve when set to system", () => {
-            doSpecificTest("system", os.EOL === "\r\n" ? "crlf" : "lf");
+            doSpecificTest("system", os.EOL === "\r\n" ? "\r\n" : "\n");
         });
 
         it("should do a diagnostic when providing an incorrect value", () => {

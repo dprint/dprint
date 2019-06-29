@@ -6,7 +6,7 @@ import { Writer, WriterState } from "./Writer";
 
 export interface PrintOptions {
     maxWidth: number;
-    indentSize: number; // todo: support tabs
+    indentSize: number;
     newLineKind: "\r\n" | "\n";
 }
 

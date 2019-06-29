@@ -3,6 +3,16 @@
     "title": "dprint configuration",
     "type": "object",
     "properties": {
+        "printWidth": {
+            "type": "number",
+            "description": "The print width of a line in a file. Note that the printer may exceed this width in certain cases.",
+            "default": 120
+        },
+        "indentSize": {
+            "type": "number",
+            "description": "The number of spaces for an indent. This option is ignored if using tabs.",
+            "default": 4
+        },
         "semiColons": {
             "type": "boolean",
             "description": "Whether statements should use semi-colons.",
@@ -25,7 +35,16 @@
             "default": "auto"
         },
 
+        "expressionStatement.semiColon": {
+            "type": "boolean"
+        },
         "ifStatement.semiColon": {
+            "type": "boolean"
+        },
+        "importDeclaration.semiColon": {
+            "type": "boolean"
+        },
+        "typeAlias.semiColon": {
             "type": "boolean"
         }
     }

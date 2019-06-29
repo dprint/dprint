@@ -1,4 +1,5 @@
 import * as babel from "@babel/types";
+import { ResolvedConfiguration, resolveNewLineKindFromText } from "../configuration";
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
 import { assertNever, removeStringIndentation, isPrintItemIterator } from "../utils";
 
@@ -6,20 +7,15 @@ interface Context {
     file: babel.File,
     fileText: string;
     log: (message: string) => void;
-    options: ParseOptions;
+    options: ResolvedConfiguration;
     handledComments: Set<babel.Comment>;
     /** This is used to queue up the next item on the parent stack. */
     currentNode: babel.Node;
     parentStack: babel.Node[];
-}
-
-export interface ParseOptions {
     newLineKind: "\r\n" | "\n";
-    semiColons: boolean;
-    singleQuotes: boolean;
 }
 
-export function parseFile(file: babel.File, fileText: string, options: ParseOptions): Group {
+export function parseFile(file: babel.File, fileText: string, options: ResolvedConfiguration): Group {
     const context: Context = {
         file,
         fileText,
@@ -27,7 +23,8 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
         options,
         handledComments: new Set<babel.Comment>(),
         currentNode: file,
-        parentStack: []
+        parentStack: [],
+        newLineKind: options.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newLineKind
     };
 
     return {
@@ -40,7 +37,7 @@ export function parseFile(file: babel.File, fileText: string, options: ParseOpti
                 condition: conditionContext => {
                     return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
                 },
-                true: [context.options.newLineKind]
+                true: [context.newLineKind]
             };
         }()
     };
@@ -117,7 +114,7 @@ function* parseProgram(node: babel.Program, context: Context): PrintItemIterator
 function* parseBlockStatement(node: babel.BlockStatement, context: Context): PrintItemIterator {
     yield "{";
     yield* getFirstLineTrailingComments();
-    yield context.options.newLineKind;
+    yield context.newLineKind;
     yield* withIndent(function*() {
         yield* parseStatements(node, context);
     });
@@ -165,7 +162,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
 
     yield parseNode(node.source, context);
 
-    if (context.options.semiColons)
+    if (context.options["importDeclaration.semiColon"])
         yield ";";
 
     function* parseNamedImports(): PrintItemIterator {
@@ -173,7 +170,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
             return;
 
         const useNewLines = getUseNewLines();
-        const braceSeparator = useNewLines ? context.options.newLineKind : " ";
+        const braceSeparator = useNewLines ? context.newLineKind : " ";
 
         yield "{";
         yield braceSeparator;
@@ -196,7 +193,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
             for (let i = 0; i < namedImports.length; i++) {
                 if (i > 0) {
                     yield ",";
-                    yield useNewLines ? context.options.newLineKind : Behaviour.SpaceOrNewLine;
+                    yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
                 }
                 yield parseNode(namedImports[i], context);
             }
@@ -297,7 +294,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
     yield " = ";
     yield parseNode(node.typeAnnotation, context);
 
-    if (context.options.semiColons)
+    if (context.options["typeAlias.semiColon"])
         yield ";";
 }
 
@@ -306,7 +303,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 function* parseExpressionStatement(node: babel.ExpressionStatement, context: Context): PrintItemIterator {
     yield parseNode(node.expression, context);
 
-    if (context.options.semiColons)
+    if (context.options["expressionStatement.semiColon"])
         yield ";";
 }
 
@@ -336,7 +333,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         true: [newLineIfHangingSpaceOtherwise(context, startHeaderInfo), "{"]
     };
 
-    yield context.options.newLineKind;
+    yield context.newLineKind;
     yield startStatementsInfo;
 
     if (node.consequent.type === "BlockStatement")
@@ -359,7 +356,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
             condition: conditionContext => {
                 return !areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
             },
-            true: [context.options.newLineKind]
+            true: [context.newLineKind]
         }, "}"]
     };
 
@@ -428,7 +425,7 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
     yield* withHangingIndent(function*() {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
-                yield useNewLines ? context.options.newLineKind : Behaviour.SpaceOrNewLine;
+                yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
                 yield "| ";
             }
             yield parseNode(node.types[i], context);
@@ -443,12 +440,12 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     for (let i = 0; i < statements.length; i++) {
         if (i > 0) {
             if (hasBody(statements[i - 1]) || hasBody(statements[i])) {
-                yield context.options.newLineKind;
-                yield context.options.newLineKind;
+                yield context.newLineKind;
+                yield context.newLineKind;
             }
             else {
                 // todo: check if there is a blank line between statements and if so, respect that
-                yield context.options.newLineKind;
+                yield context.newLineKind;
             }
         }
 
@@ -476,7 +473,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
             yield parseNode(param, context);
             if (i < params.length - 1) {
                 yield ",";
-                yield useNewLines ? context.options.newLineKind : Behaviour.SpaceOrNewLine;
+                yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
             }
         }
     }
@@ -509,7 +506,7 @@ function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition
             const isHanging = conditionContext.writerInfo.lineStartIndentLevel > resolvedInfo.lineStartIndentLevel;
             return isHanging;
         },
-        true: [context.options.newLineKind],
+        true: [context.newLineKind],
         false: [" "]
     }
 }
@@ -548,11 +545,11 @@ function* parseCommentCollection(comments: readonly babel.Comment[], lastNode: (
 
         if (lastNode != null) {
             if (lastNode.loc!.end.line < comment.loc.start.line - 1) {
-                yield context.options.newLineKind;
-                yield context.options.newLineKind;
+                yield context.newLineKind;
+                yield context.newLineKind;
             }
             if (lastNode.loc!.end.line < comment.loc.start.line)
-                yield context.options.newLineKind;
+                yield context.newLineKind;
             else if (comment.type === "CommentLine")
                 yield " ";
             else if (lastNode.type === "CommentBlock")
@@ -606,14 +603,14 @@ function getUseNewLinesForNodes(nodes: babel.Node[]) {
 }
 
 function* surroundWithNewLines(item: Group | PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
-    yield context.options.newLineKind;
+    yield context.newLineKind;
     if (item instanceof Function)
         yield* item()
     else if (isPrintItemIterator(item))
         yield* item;
     else
         yield item;
-    yield context.options.newLineKind;
+    yield context.newLineKind;
 }
 
 function* withIndent(item: Group | PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
@@ -674,3 +671,4 @@ function createInfo(name: string): Info {
         name
     };
 }
+

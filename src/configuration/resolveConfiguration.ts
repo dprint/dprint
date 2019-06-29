@@ -13,15 +13,29 @@ export interface ResolveConfigurationResult {
     diagnostics: ConfigurationDiagnostic[];
 }
 
+/** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
+const defaultValues = {
+    printWidth: 120,
+    indentSize: 4,
+    semiColons: true,
+    singleQuotes: false,
+    newLineKind: "auto"
+} as const;
+
 export function resolveConfiguration(config: Configuration): ResolveConfigurationResult {
     config = { ...config };
     const diagnostics: ConfigurationDiagnostic[] = [];
-    const semiColons = getValue("semiColons", true, ensureBoolean);
+    const semiColons = getValue("semiColons", defaultValues["semiColons"], ensureBoolean);
 
     const resolvedConfig: ResolvedConfiguration = {
+        printWidth: getValue("printWidth", defaultValues["printWidth"], ensureNumber),
+        indentSize: getValue("indentSize", defaultValues["indentSize"], ensureNumber),
+        singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
+        newLineKind: getNewLineKind(),
+        "expressionStatement.semiColon": getValue("expressionStatement.semiColon", semiColons, ensureBoolean),
         "ifStatement.semiColon": getValue("ifStatement.semiColon", semiColons, ensureBoolean),
-        singleQuotes: getValue("singleQuotes", false, ensureBoolean),
-        newLineKind: getNewLineKind()
+        "importDeclaration.semiColon": getValue("importDeclaration.semiColon", semiColons, ensureBoolean),
+        "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean)
     };
 
     addExcessPropertyDiagnostics();
@@ -36,21 +50,23 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         delete config.newLineKind;
         switch (newLineKind) {
             case "auto":
+                return "auto";
             case "crlf":
+                return "\r\n";
             case "lf":
-                return newLineKind;
+                return "\n";
             case null:
             case undefined:
-                return "auto";
+                return defaultValues["newLineKind"];
             case "system":
-                return os.EOL === "\r\n" ? "crlf" : "lf";
+                return os.EOL === "\r\n" ? "\r\n" : "\n";
             default:
                 const propertyName = nameof<Configuration>(c => c.newLineKind);
                 diagnostics.push({
                     propertyName,
                     message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`
                 });
-                return "auto";
+                return defaultValues["newLineKind"];
         }
     }
 
@@ -68,6 +84,16 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         delete config[key];
 
         return actualValue;
+    }
+
+    function ensureNumber(key: string, value: number) {
+        if (typeof value === "number")
+            return;
+
+        diagnostics.push({
+            propertyName: key,
+            message: `Expected the configuration for '${key}' to be a number, but its value was: ${value}`
+        });
     }
 
     function ensureBoolean(key: string, value: boolean) {
