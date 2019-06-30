@@ -5,10 +5,10 @@
  */
 export interface Configuration {
     /**
-     * The print width of a line in a file. Note that the printer may exceed this width in certain cases.
+     * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
      * @default 120
      */
-    printWidth?: number;
+    lineWidth?: number;
     /**
      * The number of spaces for an indent. This option is ignored if using tabs.
      * @default 4
@@ -44,7 +44,7 @@ export interface Configuration {
  * Resolved configuration from user specified configuration.
  */
 export interface ResolvedConfiguration {
-    printWidth: number;
+    lineWidth: number;
     indentSize: number;
     useTabs: boolean;
     singleQuotes: boolean;

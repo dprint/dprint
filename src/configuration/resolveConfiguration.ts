@@ -15,7 +15,7 @@ export interface ResolveConfigurationResult {
 
 /** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
 const defaultValues = {
-    printWidth: 120,
+    lineWidth: 120,
     indentSize: 4,
     useTabs: false,
     semiColons: true,
@@ -29,7 +29,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     const semiColons = getValue("semiColons", defaultValues["semiColons"], ensureBoolean);
 
     const resolvedConfig: ResolvedConfiguration = {
-        printWidth: getValue("printWidth", defaultValues["printWidth"], ensureNumber),
+        lineWidth: getValue("lineWidth", defaultValues["lineWidth"], ensureNumber),
         indentSize: getValue("indentSize", defaultValues["indentSize"], ensureNumber),
         useTabs: getValue("useTabs", defaultValues["useTabs"], ensureBoolean),
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),

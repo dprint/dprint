@@ -22,14 +22,14 @@ describe("new line configuration", () => {
 
 describe("indent size configuration", () => {
     it("should format with the specified indent size", () => {
-        const result = formatFileText("file.ts", "if (true) { //1\nconsole.log(5); }", { indentSize: 2 });
+        const result = formatFileText("file.ts", "if (true) {\n      //1\nconsole.log(5); }", { indentSize: 2 });
         expect(result).to.equal("if (true) {\n  // 1\n  console.log(5);\n}\n");
     });
 });
 
 describe("use tabs configuration", () => {
     it("should use tabs when specified", () => {
-        const result = formatFileText("file.ts", "if (true) { //1\nconsole.log(5); }", { useTabs: true });
+        const result = formatFileText("file.ts", "if (true) {\n//1\nconsole.log(5); }", { useTabs: true });
         expect(result).to.equal("if (true) {\n\t// 1\n\tconsole.log(5);\n}\n");
     });
 });

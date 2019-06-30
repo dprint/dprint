@@ -3,9 +3,9 @@
     "title": "dprint configuration",
     "type": "object",
     "properties": {
-        "printWidth": {
+        "lineWidth": {
             "type": "number",
-            "description": "The print width of a line in a file. Note that the printer may exceed this width in certain cases.",
+            "description": "The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.",
             "default": 120
         },
         "indentSize": {

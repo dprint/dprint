@@ -8,7 +8,7 @@ export function formatFileText(filePath: string, fileText: string, configuration
         newLineKind: "lf",
         semiColons: true,
         singleQuotes: false,
-        printWidth: 80
+        lineWidth: 80
     };
 
     const babelAst = parseToBabelAst(filePath, fileText);
@@ -19,7 +19,7 @@ export function formatFileText(filePath: string, fileText: string, configuration
     //throw "STOP";
 
     return print(printItem, {
-        maxWidth: configurationResult.config.printWidth,
+        maxWidth: configurationResult.config.lineWidth,
         indentSize: configurationResult.config.indentSize,
         newLineKind: resolveNewLineKindFromText(fileText),
         useTabs: configurationResult.config.useTabs

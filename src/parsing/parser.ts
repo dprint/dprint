@@ -316,6 +316,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     const endHeaderInfo = createInfo("endHeader");
     yield endHeaderInfo;
 
+    const headerTrailingComments = Array.from(getHeaderTrailingComments());
     const requireBraces = consequentRequiresBraces(node.consequent);
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
@@ -332,6 +333,8 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         },
         true: [newLineIfHangingSpaceOtherwise(context, startHeaderInfo), "{"]
     };
+
+    yield* handleHeaderTrailingComment();
 
     yield context.newLineKind;
     yield startStatementsInfo;
@@ -362,12 +365,51 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 
     function consequentRequiresBraces(statement: babel.Statement) {
         if (statement.type === "BlockStatement") {
-            if (statement.body.length === 1 && !hasLeadingCommentOnDifferentLine(statement.body[0]))
+            if (statement.body.length === 1 && !hasLeadingCommentOnDifferentLine(statement.body[0], /* commentsToIgnore */ headerTrailingComments))
                 return false;
             return true;
         }
 
-        return hasLeadingCommentOnDifferentLine(statement);
+        return hasLeadingCommentOnDifferentLine(statement, /* commentsToIgnore */ headerTrailingComments);
+    }
+
+    function* handleHeaderTrailingComment(): PrintItemIterator {
+        const result = parseCommentCollection(headerTrailingComments, undefined, context);
+        yield* prependToIterableIfHasItems(result, " "); // add a space
+    }
+
+    function* getHeaderTrailingComments() {
+        const { consequent } = node;
+        if (consequent.type === "BlockStatement") {
+            if (consequent.leadingComments != null) {
+                const commentLine = consequent.leadingComments.find(c => c.type === "CommentLine");
+                if (commentLine) {
+                    yield commentLine;
+                    return;
+                }
+            }
+
+            if (consequent.body.length > 0)
+                yield* checkLeadingComments(consequent.body[0]);
+            else if (consequent.innerComments)
+                yield* checkComments(consequent.innerComments);
+        }
+        else {
+            yield* checkLeadingComments(consequent);
+        }
+
+        function* checkLeadingComments(node: babel.Node) {
+            const leadingComments = node.leadingComments;
+            if (leadingComments)
+                yield* checkComments(leadingComments);
+        }
+
+        function* checkComments(comments: ReadonlyArray<babel.Comment>) {
+            for (const comment of comments) {
+                if (comment.loc.start.line === consequent.loc!.start.line)
+                    yield comment;
+            }
+        }
     }
 }
 
@@ -538,7 +580,7 @@ function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItem
     }
 }
 
-function* parseCommentCollection(comments: readonly babel.Comment[], lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
+function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
     for (const comment of comments) {
         if (context.handledComments.has(comment))
             continue;
@@ -654,15 +696,31 @@ function areInfoEqual(startInfo: Info, endInfo: Info, conditionContext: ResolveC
         && resolvedStartInfo.columnNumber === resolvedEndInfo.columnNumber;
 }
 
+function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {
+    let found = false;
+    for (const item of iterable) {
+        if (!found) {
+            yield* items;
+            found = true;
+        }
+        yield item;
+    }
+}
+
 /* checks */
 
 function hasBody(node: babel.Node) {
     return (node as any as babel.ClassDeclaration).body != null;
 }
 
-function hasLeadingCommentOnDifferentLine(node: babel.Node) {
+function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgnore?: ReadonlyArray<babel.Comment>) {
     return node.leadingComments != null
-        && node.leadingComments.some(c => c.type === "CommentLine" || c.loc!.start.line < node.loc!.start.line);
+        && node.leadingComments.some(c => {
+            if (commentsToIgnore != null && commentsToIgnore.includes(c))
+                return false;
+
+            return c.type === "CommentLine" || c.loc!.start.line < node.loc!.start.line;
+        });
 }
 
 function createInfo(name: string): Info {

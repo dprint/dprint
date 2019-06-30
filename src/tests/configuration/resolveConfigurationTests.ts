@@ -21,9 +21,9 @@ describe(nameof(resolveConfiguration), () => {
 
     describe("diagnostics", () => {
         it("should do a diagnostic when providing an incorrect number value", () => {
-            doTest({ printWidth: false as any as number }, {}, () => false, [{
-                message: "Expected the configuration for 'printWidth' to be a number, but its value was: false",
-                propertyName: "printWidth"
+            doTest({ lineWidth: false as any as number }, {}, () => false, [{
+                message: "Expected the configuration for 'lineWidth' to be a number, but its value was: false",
+                propertyName: "lineWidth"
             }]);
         });
 
@@ -42,9 +42,9 @@ describe(nameof(resolveConfiguration), () => {
         });
     });
 
-    describe(nameof<Configuration>(c => c.printWidth), () => {
+    describe(nameof<Configuration>(c => c.lineWidth), () => {
         function doSpecificTest(value: number | undefined, expectedValue: number) {
-            doTest({ printWidth: value as any }, { printWidth: expectedValue as any }, prop => prop === "printWidth");
+            doTest({ lineWidth: value as any }, { lineWidth: expectedValue as any }, prop => prop === "lineWidth");
         }
 
         it("should set when not set", () => {
