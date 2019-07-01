@@ -1,16 +1,19 @@
 import { createProject } from "./createProject";
 import { BabelAnalyzer, BabelNode } from "./babel";
+import { DPrintAnalyzer } from "./dprint";
 import { BabelNodeProperty } from "./babel/BabelNodeProperty";
 
 const project = createProject();
 const babelAnalyzer = new BabelAnalyzer(project);
+const dprintAnalyzer = new DPrintAnalyzer(project);
 const fileSystem = project.getFileSystem();
 
+const implementedTypes = new Set(dprintAnalyzer.getParserParseObjKeys());
 const implementedNodes: BabelNode[] = [];
 const unImplementedNodes: BabelNode[] = [];
 
 for (const node of babelAnalyzer.getNodes()) {
-    if (node.isReferenced())
+    if (node.isReferenced() || implementedTypes.has(node.getType()))
         implementedNodes.push(node);
     else
         unImplementedNodes.push(node);

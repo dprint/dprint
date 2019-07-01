@@ -2,6 +2,7 @@ import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText } from "../configuration";
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
 import { assertNever, removeStringIndentation, isPrintItemIterator } from "../utils";
+import { throwError } from "../../dist/utils";
 
 class Bag {
     private readonly bag = new Map<string, object>();
@@ -86,16 +87,25 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "StringLiteral": parseStringLiteral,
     "BooleanLiteral": parseBooleanLiteral,
     /* keywords */
-    "TSStringKeyword": () => "string",
-    "TSNumberKeyword": () => "number",
-    "TSBooleanKeyword": () => "boolean",
-    "TSAnyKeyword": () => "any",
-    "TSUnknownKeyword": () => "unknown",
-    "TSObjectKeyword": () => "object",
     "ThisExpression": () => "this",
+    "TSAnyKeyword": () => "any",
+    "TSBooleanKeyword": () => "boolean",
+    "TSNeverKeyword": () => "never",
+    "TSNullKeyword": () => "null",
+    "TSNumberKeyword": () => "number",
+    "TSObjectKeyword": () => "object",
+    "TSStringKeyword": () => "string",
+    "TSSymbolKeyword": () => "symbol",
+    "TSUndefinedKeyword": () => "undefined",
+    "TSUnknownKeyword": () => "unknown",
+    "TSVoidKeyword": () => "unknown",
+    "VoidKeyword": () => "void",
     /* types */
     "TSTypeParameter": parseTypeParameter,
     "TSUnionType": parseUnionType,
+    "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
+    "TypeParameterDeclaration": parseTypeParameterDeclaration,
+    "TSTypeParameterInstantiation": parseTypeParameterDeclaration
 };
 
 function parseNode(node: babel.Node | null, context: Context): Group {
@@ -277,7 +287,7 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
             yield parseNode(node.id, context);
         }
         if (node.typeParameters && node.typeParameters.type !== "Noop")
-            yield parseTypeParameterDeclaration(node.typeParameters, context);
+            yield parseNode(node.typeParameters, context);
 
         yield* parseParametersOrArguments(node.params, context);
 
@@ -289,7 +299,10 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
     }
 }
 
-function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclaration | babel.TSTypeParameterDeclaration, context: Context): Group {
+function parseTypeParameterDeclaration(
+    declaration: babel.TypeParameterDeclaration | babel.TSTypeParameterDeclaration | babel.TSTypeParameterInstantiation | babel.TypeParameterInstantiation,
+    context: Context
+): Group {
     const useNewLines = getUseNewLinesForNodes(declaration.params);
     return {
         kind: PrintItemKind.Group,
@@ -326,7 +339,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
     yield "type ";
     yield parseNode(node.id, context);
     if (node.typeParameters)
-        yield parseTypeParameterDeclaration(node.typeParameters, context);
+        yield parseNode(node.typeParameters, context);
     yield " = ";
     yield parseNode(node.typeAnnotation, context);
 
@@ -551,6 +564,15 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
 function* parseCallExpression(node: babel.CallExpression, context: Context): PrintItemIterator {
     yield parseNode(node.callee, context);
+
+    // todo: why does this have both arguments and parameters? Seems like only type parameters are filled
+    // I'm guessing typeParameters are used for TypeScript and typeArguments are used for flow?
+    if (node.typeArguments != null)
+        throwError("Unimplemented scenario where a call expression had type arguments.");
+
+    if (node.typeParameters)
+        yield parseNode(node.typeParameters, context);
+
     yield* parseParametersOrArguments(node.arguments, context);
 }
 

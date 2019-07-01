@@ -9,6 +9,10 @@ export class BabelNode {
         return this.declaration.getName();
     }
 
+    getType() {
+        return this.declaration.getPropertyOrThrow("type").getTypeNodeOrThrow().getText().slice(1, -1);
+    }
+
     getProperties() {
         return this.declaration.getProperties().map(p => this.context.getNodeProperty(p));
     }
