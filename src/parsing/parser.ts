@@ -334,13 +334,20 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         true: [newLineIfHangingSpaceOtherwise(context, startHeaderInfo), "{"]
     };
 
-    yield* handleHeaderTrailingComment();
+    yield* parseHeaderTrailingComment();
 
     yield context.newLineKind;
     yield startStatementsInfo;
 
-    if (node.consequent.type === "BlockStatement")
-        yield* withIndent(parseStatements(node.consequent, context));
+    if (node.consequent.type === "BlockStatement") {
+        yield* withIndent(function*() {
+            // parse the remaining trailing comments inside because some of them are parsed already
+            // by parsing the header trailing comments
+            yield* parseLeadingComments(node.consequent, context);
+            yield* parseStatements(node.consequent as babel.BlockStatement, context);
+        }());
+        yield* parseTrailingComments(node.consequent, context);
+    }
     else
         yield* withIndent(parseNode(node.consequent, context));
 
@@ -373,7 +380,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         return hasLeadingCommentOnDifferentLine(statement, /* commentsToIgnore */ headerTrailingComments);
     }
 
-    function* handleHeaderTrailingComment(): PrintItemIterator {
+    function* parseHeaderTrailingComment(): PrintItemIterator {
         const result = parseCommentCollection(headerTrailingComments, undefined, context);
         yield* prependToIterableIfHasItems(result, " "); // add a space
     }
@@ -556,28 +563,28 @@ function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition
 /* helpers */
 
 function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {
-    yield* parseLeadingComments();
+    yield* parseLeadingComments(node, context);
 
     if (isPrintItemIterator(nodePrintItem))
         yield* nodePrintItem;
     else
         yield nodePrintItem;
 
-    yield* parseTrailingComments();
+    yield* parseTrailingComments(node, context);
+}
 
-    function* parseLeadingComments() {
-        if (!node.leadingComments)
-            return;
+function* parseLeadingComments(node: babel.Node, context: Context) {
+    if (!node.leadingComments)
+        return;
 
-        yield* parseCommentCollection(node.leadingComments, undefined, context)
-    }
+    yield* parseCommentCollection(node.leadingComments, undefined, context)
+}
 
-    function* parseTrailingComments() {
-        if (!node.trailingComments)
-            return;
+function* parseTrailingComments(node: babel.Node, context: Context) {
+    if (!node.trailingComments)
+        return;
 
-        yield* parseCommentCollection(node.trailingComments, node, context)
-    }
+    yield* parseCommentCollection(node.trailingComments, node, context)
 }
 
 function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
