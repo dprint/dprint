@@ -45,6 +45,9 @@
             "default": true
         },
 
+        "directive.semiColon": {
+            "type": "boolean"
+        },
         "expressionStatement.semiColon": {
             "type": "boolean"
         },

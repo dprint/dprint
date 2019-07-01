@@ -25,7 +25,7 @@ interface Context {
     file: babel.File,
     fileText: string;
     log: (message: string) => void;
-    options: ResolvedConfiguration;
+    config: ResolvedConfiguration;
     handledComments: Set<babel.Comment>;
     /** This is used to queue up the next item on the parent stack. */
     currentNode: babel.Node;
@@ -39,7 +39,7 @@ export function parseFile(file: babel.File, fileText: string, options: ResolvedC
         file,
         fileText,
         log: message => console.log("[dprint]: " + message),
-        options,
+        config: options,
         handledComments: new Set<babel.Comment>(),
         currentNode: file,
         parentStack: [],
@@ -77,6 +77,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     /* statements */
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
+    "Directive": parseDirective,
     /* expressions */
     "CallExpression": parseCallExpression,
     /* imports */
@@ -84,8 +85,12 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ImportNamespaceSpecifier": parseImportNamespaceSpecifier,
     "ImportSpecifier": parseImportSpecifier,
     /* literals */
-    "StringLiteral": parseStringLiteral,
+    "StringLiteral": parseStringOrDirectiveLiteral,
+    "StringLiteralTypeAnnotation": parseStringOrDirectiveLiteral,
+    "DirectiveLiteral": parseStringOrDirectiveLiteral,
     "BooleanLiteral": parseBooleanLiteral,
+    "NullLiteral": () => "null",
+    "NullLiteralTypeAnnotaion": () => "null",
     /* keywords */
     "ThisExpression": () => "this",
     "TSAnyKeyword": () => "any",
@@ -101,6 +106,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSVoidKeyword": () => "unknown",
     "VoidKeyword": () => "void",
     /* types */
+    "TSLiteralType": parseTSLiteralType,
     "TSTypeParameter": parseTypeParameter,
     "TSUnionType": parseUnionType,
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
@@ -204,7 +210,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
 
     yield parseNode(node.source, context);
 
-    if (context.options["importDeclaration.semiColon"])
+    if (context.config["importDeclaration.semiColon"])
         yield ";";
 
     function* parseNamedImports(): PrintItemIterator {
@@ -343,7 +349,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
     yield " = ";
     yield parseNode(node.typeAnnotation, context);
 
-    if (context.options["typeAlias.semiColon"])
+    if (context.config["typeAlias.semiColon"])
         yield ";";
 }
 
@@ -352,7 +358,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 function* parseExpressionStatement(node: babel.ExpressionStatement, context: Context): PrintItemIterator {
     yield parseNode(node.expression, context);
 
-    if (context.options["expressionStatement.semiColon"])
+    if (context.config["expressionStatement.semiColon"])
         yield ";";
 }
 
@@ -361,7 +367,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         parseHeader: () => parseHeader(node),
         bodyNode: node.consequent,
         context,
-        forceBraces: context.options["ifStatement.forceBraces"],
+        forceBraces: context.config["ifStatement.forceBraces"],
         requiresBracesCondition: context.bag.take(BAG_KEYS.IfStatementLastBraceCondition) as Condition | undefined
     });
 
@@ -381,7 +387,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
             yield* parseConditionalBraceBody({
                 bodyNode: node.alternate,
                 context,
-                forceBraces: context.options["ifStatement.forceBraces"],
+                forceBraces: context.config["ifStatement.forceBraces"],
                 requiresBracesCondition: result.braceCondition
             }).iterator;
         }
@@ -392,6 +398,12 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         yield parseNode(ifStatement.test, context);
         yield ")";
     }
+}
+
+function* parseDirective(node: babel.Directive, context: Context): PrintItemIterator {
+    yield parseNode(node.value, context);
+    if (context.config["directive.semiColon"])
+        yield ";";
 }
 
 interface ParseHeaderWithConditionalBraceBodyOptions {
@@ -578,8 +590,8 @@ function* parseCallExpression(node: babel.CallExpression, context: Context): Pri
 
 /* literals */
 
-function parseStringLiteral(node: babel.StringLiteral, context: Context) {
-    if (context.options.singleQuotes)
+function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.StringLiteralTypeAnnotation | babel.DirectiveLiteral, context: Context) {
+    if (context.config.singleQuotes)
         return `'${node.value.replace(/'/g, `\\'`)}'`;
     return `"${node.value.replace(/"/g, `\\"`)}"`;
 }
@@ -603,6 +615,10 @@ function parseUnknownNode(node: babel.Node, context: Context): Unknown {
 }
 
 /* types */
+
+function* parseTSLiteralType(node: babel.TSLiteralType, context: Context): PrintItemIterator {
+    yield parseNode(node.literal, context);
+}
 
 function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): PrintItemIterator {
     yield node.name!;

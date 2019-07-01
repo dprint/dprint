@@ -1,0 +1,11 @@
+== should use double quotes by default... todo: seems like the parser parses this as a string literal actually... ==
+type T = 'str';
+
+[expect]
+type T = "str";
+
+== should handle double quotes inside the string ==
+type T = '"';
+
+[expect]
+type T = "\"";

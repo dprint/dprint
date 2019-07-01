@@ -1,0 +1,12 @@
+~~ singleQuotes: true ~~
+== should use single quotes when specified ==
+console.log("str");
+
+[expect]
+console.log('str');
+
+== should handle single quotes inside the string ==
+console.log("'");
+
+[expect]
+console.log('\'');

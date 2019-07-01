@@ -36,6 +36,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         useTabs: getValue("useTabs", defaultValues["useTabs"], ensureBoolean),
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
         newLineKind: getNewLineKind(),
+        "directive.semiColon": getValue("directive.semiColon", semiColons, ensureBoolean),
         "expressionStatement.semiColon": getValue("expressionStatement.semiColon", semiColons, ensureBoolean),
         "ifStatement.semiColon": getValue("ifStatement.semiColon", semiColons, ensureBoolean),
         "importDeclaration.semiColon": getValue("importDeclaration.semiColon", semiColons, ensureBoolean),

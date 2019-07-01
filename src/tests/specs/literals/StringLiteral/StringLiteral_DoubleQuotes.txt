@@ -1,0 +1,11 @@
+== should use double quotes by default ==
+console.log('str');
+
+[expect]
+console.log("str");
+
+== should handle double quotes inside the string ==
+console.log('"');
+
+[expect]
+console.log("\"");

@@ -39,6 +39,7 @@ export interface Configuration {
      * @default true
      */
     forceBraces?: boolean;
+    "directive.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
@@ -57,6 +58,7 @@ export interface ResolvedConfiguration {
     newLineKind: "auto" | "\r\n" | "\n";
 
     // semi colons
+    "directive.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
