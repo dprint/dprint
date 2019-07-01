@@ -1,3 +1,4 @@
+~~ lineWidth: 80 ~~
 == should format all ==
 import { n1, n2    as
  alias } from "test";

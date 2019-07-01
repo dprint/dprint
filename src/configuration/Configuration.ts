@@ -34,10 +34,16 @@ export interface Configuration {
      * @default "auto"
      */
     newLineKind?: "auto" | "crlf" | "lf" | "system";
+    /**
+     * Whether to force the use of braces for statements that allow them to be optional.
+     * @default true
+     */
+    forceBraces?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
+    "ifStatement.forceBraces"?: boolean;
 }
 
 /**
@@ -55,4 +61,7 @@ export interface ResolvedConfiguration {
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
     "typeAlias.semiColon": boolean;
+
+    // force braces
+    "ifStatement.forceBraces": boolean;
 }

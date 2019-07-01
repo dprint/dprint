@@ -1,13 +1,18 @@
+import { Configuration } from "../configuration";
+
 export interface Spec {
     filePath: string;
     message: string;
     fileText: string;
     expectedText: string;
     isOnly: boolean;
+    config: Configuration;
 }
 
 export function parseSpecs(fileText: string) {
-    const lines = fileText.replace(/\r?\n/g, "\n").split("\n");
+    fileText = fileText.replace(/\r?\n/g, "\n");
+    const configResult = parseConfig();
+    const lines = configResult.fileText.split("\n");
     const specStarts = getSpecStarts();
     const specs: Spec[] = [];
     let filterOnly = false;
@@ -16,7 +21,7 @@ export function parseSpecs(fileText: string) {
         const startIndex = specStarts[i];
         const endIndex = specStarts[i + 1] || lines.length;
         const messageLine = lines[startIndex];
-        const spec = parseSingleSpec(messageLine, lines.slice(startIndex + 1, endIndex));
+        const spec = parseSingleSpec(messageLine, lines.slice(startIndex + 1, endIndex), configResult.config);
         if (spec.isOnly) {
             console.log(`Running only test: ${spec.message}`);
             filterOnly = true;
@@ -39,9 +44,31 @@ export function parseSpecs(fileText: string) {
 
         return result;
     }
+
+    function parseConfig(): { fileText: string; config: Configuration; } {
+        if (!fileText.startsWith("~~"))
+            return { fileText, config: {} };
+        const lastIndex = fileText.indexOf("~~\n", 2);
+        if (lastIndex === -1)
+            throw new Error("Canot find last ~~\\n.");
+        const configText = fileText.substring(2, lastIndex).replace(/\n/g, "");
+        const config: Configuration = {};
+
+        for (const item of configText.split(",")) {
+            const firstColon = item.indexOf(":");
+            const key = item.substring(0, firstColon).trim();
+            const value = JSON.parse(item.substring(firstColon + 1).trim());
+            (config as any)[key] = value;
+        }
+
+        return {
+            fileText: fileText.substring(lastIndex + 3),
+            config
+        };
+    }
 }
 
-function parseSingleSpec(messageLine: string, lines: string[]): Spec {
+function parseSingleSpec(messageLine: string, lines: string[], config: Configuration): Spec {
     // this is temp code changed during a port... this should be better
     const fileText = lines.join("\n");
     const parts = fileText.split("[expect]");
@@ -53,7 +80,8 @@ function parseSingleSpec(messageLine: string, lines: string[]): Spec {
         message: parseMessage(),
         fileText: startText,
         expectedText,
-        isOnly: messageLine.toLowerCase().includes("(only)")
+        isOnly: messageLine.toLowerCase().includes("(only)"),
+        config
     };
 
     function parseMessage() {

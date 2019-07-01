@@ -29,7 +29,7 @@ describe("specs", () => {
         const specs = parseSpecs(fileText);
 
         for (const spec of specs) {
-            const actualText = formatFileText(spec.filePath, spec.fileText);
+            const actualText = formatFileText(spec.filePath, spec.fileText, spec.config);
             if (!spec.expectedText.endsWith("\n"))
                 throw new Error(`${spec.message}: The expected text did not end with a newline.`);
             if (spec.expectedText.endsWith("\n\n"))

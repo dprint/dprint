@@ -1,3 +1,4 @@
+~~ lineWidth: 80 ~~
 == should use hanging indentation by default when a type goes on multiple lines ==
 export type T = string | number | string | number | string | number | string | number;
 

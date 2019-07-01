@@ -15,6 +15,10 @@ export function formatFileText(filePath: string, fileText: string, configuration
     const configurationResult = resolveConfiguration(configuration);
     const printItem = parseFile(babelAst, fileText, configurationResult.config);
 
+    // todo: remove this...
+    if (configurationResult.diagnostics.length > 0)
+        throw configurationResult.diagnostics;
+
     //console.log(printParseTree(printItem));
     //throw "STOP";
 

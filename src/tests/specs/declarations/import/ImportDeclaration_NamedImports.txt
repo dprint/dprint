@@ -1,3 +1,4 @@
+~~ lineWidth: 80 ~~
 == should format on a single line when hanging and short enough ==
 import { n1, n2,
     n3 } from "test";

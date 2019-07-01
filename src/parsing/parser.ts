@@ -344,6 +344,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         parseHeader: () => parseHeader(node),
         bodyNode: node.consequent,
         context,
+        forceBraces: context.options["ifStatement.forceBraces"],
         requiresBracesCondition: context.bag.take(BAG_KEYS.IfStatementLastBraceCondition) as Condition | undefined
     });
 
@@ -363,6 +364,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
             yield* parseConditionalBraceBody({
                 bodyNode: node.alternate,
                 context,
+                forceBraces: context.options["ifStatement.forceBraces"],
                 requiresBracesCondition: result.braceCondition
             }).iterator;
         }
@@ -380,6 +382,7 @@ interface ParseHeaderWithConditionalBraceBodyOptions {
     parseHeader(): PrintItemIterator;
     context: Context;
     requiresBracesCondition: Condition | undefined;
+    forceBraces: boolean;
 }
 
 interface ParseHeaderWithConditionalBraceBodyResult {
@@ -388,7 +391,7 @@ interface ParseHeaderWithConditionalBraceBodyResult {
 }
 
 function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBraceBodyOptions): ParseHeaderWithConditionalBraceBodyResult {
-    const { bodyNode, context, requiresBracesCondition } = opts;
+    const { bodyNode, context, requiresBracesCondition, forceBraces } = opts;
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
 
@@ -396,6 +399,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
         bodyNode,
         context,
         requiresBracesCondition,
+        forceBraces,
         startHeaderInfo,
         endHeaderInfo
     });
@@ -418,6 +422,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
 interface ParseConditionalBraceBodyOptions {
     bodyNode: babel.Statement;
     context: Context;
+    forceBraces: boolean;
     requiresBracesCondition: Condition | undefined;
     startHeaderInfo?: Info;
     endHeaderInfo?: Info;
@@ -433,7 +438,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
     const headerTrailingComments = Array.from(getHeaderTrailingComments(bodyNode));
-    const requireBraces = bodyRequiresBraces(bodyNode);
+    const requireBraces = opts.forceBraces || bodyRequiresBraces(bodyNode);
     const openBraceCondition: Condition = {
         kind: PrintItemKind.Condition,
         name: "openBrace",

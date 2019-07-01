@@ -20,13 +20,15 @@ const defaultValues = {
     useTabs: false,
     semiColons: true,
     singleQuotes: false,
-    newLineKind: "auto"
+    newLineKind: "auto",
+    forceBraces: true
 } as const;
 
 export function resolveConfiguration(config: Configuration): ResolveConfigurationResult {
     config = { ...config };
     const diagnostics: ConfigurationDiagnostic[] = [];
     const semiColons = getValue("semiColons", defaultValues["semiColons"], ensureBoolean);
+    const forceBraces = getValue("forceBraces", defaultValues["forceBraces"], ensureBoolean);
 
     const resolvedConfig: ResolvedConfiguration = {
         lineWidth: getValue("lineWidth", defaultValues["lineWidth"], ensureNumber),
@@ -37,7 +39,8 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "expressionStatement.semiColon": getValue("expressionStatement.semiColon", semiColons, ensureBoolean),
         "ifStatement.semiColon": getValue("ifStatement.semiColon", semiColons, ensureBoolean),
         "importDeclaration.semiColon": getValue("importDeclaration.semiColon", semiColons, ensureBoolean),
-        "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean)
+        "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean),
+        "ifStatement.forceBraces": getValue("ifStatement.forceBraces", forceBraces, ensureBoolean)
     };
 
     addExcessPropertyDiagnostics();

@@ -1,3 +1,4 @@
+~~ forceBraces: false ~~
 == should not use braces when only one line and the previous was one line ==
 if (true) {
     a;
@@ -47,8 +48,9 @@ else {
     c;
 }
 
-== should only braces for the else if the preceeding if statements don't need an else clause ==
+== should not use braces for a middle clause if it doesn't need any ==
 if (true) {
+    a;
     a;
 }
 else if (true) {
@@ -60,8 +62,10 @@ else {
 }
 
 [expect]
-if (true)
+if (true) {
     a;
+    a;
+}
 else if (true)
     b;
 else {
