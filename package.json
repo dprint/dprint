@@ -9,7 +9,8 @@
     "type-check": "tsc --project tsconfig.json --noEmit",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
-    "test:watch": "yarn test --watch-extensions ts --watch"
+    "test:watch": "yarn test --watch-extensions ts --watch",
+    "output-implemented-nodes": "ts-node scripts/outputImplementedNodes.ts"
   },
   "repository": {
     "type": "git",
