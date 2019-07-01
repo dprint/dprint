@@ -13,3 +13,9 @@ test< T,U >();
 
 [expect]
 test<T, U>();
+
+== should print when optional ==
+test?.(   )  ;
+
+[expect]
+test?.();

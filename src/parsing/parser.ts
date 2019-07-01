@@ -80,17 +80,19 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "Directive": parseDirective,
     /* expressions */
     "CallExpression": parseCallExpression,
+    "OptionalCallExpression": parseCallExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
     "ImportNamespaceSpecifier": parseImportNamespaceSpecifier,
     "ImportSpecifier": parseImportSpecifier,
     /* literals */
-    "StringLiteral": parseStringOrDirectiveLiteral,
-    "StringLiteralTypeAnnotation": parseStringOrDirectiveLiteral,
-    "DirectiveLiteral": parseStringOrDirectiveLiteral,
+    "BigIntLiteral": parseBigIntLiteral,
     "BooleanLiteral": parseBooleanLiteral,
+    "DirectiveLiteral": parseStringOrDirectiveLiteral,
     "NullLiteral": () => "null",
     "NullLiteralTypeAnnotaion": () => "null",
+    "StringLiteral": parseStringOrDirectiveLiteral,
+    "StringLiteralTypeAnnotation": parseStringOrDirectiveLiteral,
     /* keywords */
     "ThisExpression": () => "this",
     "TSAnyKeyword": () => "any",
@@ -574,7 +576,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
 /* expressions */
 
-function* parseCallExpression(node: babel.CallExpression, context: Context): PrintItemIterator {
+function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExpression, context: Context): PrintItemIterator {
     yield parseNode(node.callee, context);
 
     // todo: why does this have both arguments and parameters? Seems like only type parameters are filled
@@ -585,19 +587,26 @@ function* parseCallExpression(node: babel.CallExpression, context: Context): Pri
     if (node.typeParameters)
         yield parseNode(node.typeParameters, context);
 
+    if (node.optional)
+        yield "?.";
+
     yield* parseParametersOrArguments(node.arguments, context);
 }
 
 /* literals */
 
+function parseBigIntLiteral(node: babel.BigIntLiteral, context: Context) {
+    return node.value + "n";
+}
+
+function parseBooleanLiteral(node: babel.BooleanLiteral, context: Context) {
+    return node.value ? "true" : "false";
+}
+
 function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.StringLiteralTypeAnnotation | babel.DirectiveLiteral, context: Context) {
     if (context.config.singleQuotes)
         return `'${node.value.replace(/'/g, `\\'`)}'`;
     return `"${node.value.replace(/"/g, `\\"`)}"`;
-}
-
-function parseBooleanLiteral(node: babel.BooleanLiteral, context: Context) {
-    return (node.value) ? "true" : "false";
 }
 
 function parseUnknownNode(node: babel.Node, context: Context): Unknown {

@@ -6,7 +6,9 @@ export function parseToBabelAst(fileName: string, code: string) {
         sourceType: "module",
         plugins: [
             "jsx",
-            "typescript"
+            "typescript",
+            "bigInt",
+            "optionalChaining"
         ]
     });
 }

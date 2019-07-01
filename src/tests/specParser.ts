@@ -6,6 +6,7 @@ export interface Spec {
     fileText: string;
     expectedText: string;
     isOnly: boolean;
+    skip: boolean;
     config: Configuration;
 }
 
@@ -22,8 +23,11 @@ export function parseSpecs(fileText: string) {
         const endIndex = specStarts[i + 1] || lines.length;
         const messageLine = lines[startIndex];
         const spec = parseSingleSpec(messageLine, lines.slice(startIndex + 1, endIndex), configResult.config);
+        if (spec.skip)
+            continue;
+
         if (spec.isOnly) {
-            console.log(`Running only test: ${spec.message}`);
+            console.log(`NOTICE!!! Running only test: ${spec.message}`);
             filterOnly = true;
         }
         specs.push(spec);
@@ -74,13 +78,15 @@ function parseSingleSpec(messageLine: string, lines: string[], config: Configura
     const parts = fileText.split("[expect]");
     const startText = parts[0].substring(0, parts[0].length - 1); // remove last newline
     const expectedText = parts[1].substring(1, parts[1].length); // remove first newline
+    const lowerCaseMessageLine = messageLine.toLowerCase();
 
     return {
         filePath: "/file.ts", // todo: make configurable
         message: parseMessage(),
         fileText: startText,
         expectedText,
-        isOnly: messageLine.toLowerCase().includes("(only)"),
+        isOnly: lowerCaseMessageLine.includes("(only)"),
+        skip: lowerCaseMessageLine.includes("(skip)"),
         config
     };
 
