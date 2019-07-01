@@ -1,5 +1,6 @@
 {
   "name": "dprint",
+  "private": true,
   "version": "0.0.1",
   "description": "Prints TypeScript code with the formatting I want.",
   "main": "dist/index.js",

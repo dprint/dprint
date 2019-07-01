@@ -1,0 +1,21 @@
+== should print out the inner statements ==
+{ a; }
+
+[expect]
+{
+    a;
+}
+
+== should print out any directives ==
+function test(){
+"use strict";
+"use strict";
+a;
+}
+
+[expect]
+function test() {
+    "use strict";
+    "use strict";
+    a;
+}

@@ -23,8 +23,10 @@ outputHeader("Implemented", implementedNodes);
 
 for (const node of implementedNodes) {
     output += `* ${node.getName()}\n`;
-    for (const prop of node.getProperties())
-        outputProperty(prop);
+    for (const prop of node.getProperties()) {
+        if (isAllowedProperty(prop))
+            outputProperty(prop);
+    }
 }
 
 output += "\n";
@@ -45,4 +47,13 @@ function outputHeader(header: string, nodes: BabelNode[], additionalText?: strin
 
 function outputProperty(prop: BabelNodeProperty) {
     output += `    * ${prop.isReferenced() ? ":heavy_check_mark:" : ":x:"} ${prop.getName()}\n`;
+}
+
+function isAllowedProperty(prop: BabelNodeProperty) {
+    switch (prop.getName()) {
+        case "type":
+            return false;
+    }
+
+    return true;
 }

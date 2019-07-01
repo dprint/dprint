@@ -265,6 +265,8 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
     function* parseHeader(): PrintItemIterator {
         const functionHeaderStartInfo = createInfo("functionHeaderStart");
         yield functionHeaderStartInfo;
+        if (node.declare)
+            yield "declare ";
         if (node.async)
             yield "async ";
         yield "function";
@@ -319,6 +321,8 @@ function parseTypeParameterDeclaration(declaration: babel.TypeParameterDeclarati
 }
 
 function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): PrintItemIterator {
+    if (node.declare)
+        yield "declare ";
     yield "type ";
     yield parseNode(node.id, context);
     if (node.typeParameters)
@@ -608,10 +612,19 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
 /* general */
 
 function* parseStatements(block: babel.BlockStatement | babel.Program, context: Context): PrintItemIterator {
+    let lastNode: babel.Node | undefined;
+    for (const directive of block.directives) {
+        if (lastNode != null)
+            yield context.newLineKind;
+
+        yield parseNode(directive, context);
+        lastNode = directive;
+    }
+
     const statements = block.body;
-    for (let i = 0; i < statements.length; i++) {
-        if (i > 0) {
-            if (hasBody(statements[i - 1]) || hasBody(statements[i])) {
+    for (const statement of statements) {
+        if (lastNode != null) {
+            if (hasBody(lastNode) || hasBody(statement)) {
                 yield context.newLineKind;
                 yield context.newLineKind;
             }
@@ -621,11 +634,16 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
             }
         }
 
-        yield parseNode(statements[i], context);
+        yield parseNode(statement, context);
+        lastNode = statement;
     }
 
-    if (block.innerComments)
+    if (block.innerComments && block.innerComments.length > 0) {
+        if (lastNode != null)
+            yield context.newLineKind;
+
         yield* parseCommentCollection(block.innerComments, undefined, context);
+    }
 }
 
 function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {

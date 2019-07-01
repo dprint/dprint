@@ -1,0 +1,17 @@
+== should print out comments ==
+// 1
+/* 2 */
+
+[expect]
+// 1
+/* 2 */
+
+== should print out the directives ==
+"use strict";
+   "use strict";
+a;
+
+[expect]
+"use strict";
+"use strict";
+a;

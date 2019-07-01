@@ -1,5 +1,5 @@
 == should print everything in a type alias ==
-export type MyTypeAlias<    T   > =  string|number;
+export declare type MyTypeAlias<    T   > =  string|number;
 
 [expect]
-export type MyTypeAlias<T> = string | number;
+export declare type MyTypeAlias<T> = string | number;

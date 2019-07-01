@@ -1,10 +1,10 @@
 == should print everything in a function declaration ==
-export async function*
+export declare async function*
 test<T, U>
 (p, u): string
 {
 }
 
 [expect]
-export async function* test<T, U>(p, u): string {
+export declare async function* test<T, U>(p, u): string {
 }
