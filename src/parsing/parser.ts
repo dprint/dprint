@@ -3,6 +3,23 @@ import { ResolvedConfiguration, resolveNewLineKindFromText } from "../configurat
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
 import { assertNever, removeStringIndentation, isPrintItemIterator } from "../utils";
 
+class Bag {
+    private readonly bag = new Map<string, object>();
+    put(key: string, value: any) {
+        this.bag.set(key, value);
+    }
+
+    take(key: string) {
+        const value = this.bag.get(key);
+        this.bag.delete(key);
+        return value;
+    }
+}
+
+const BAG_KEYS = {
+    IfStatementLastBraceCondition: "ifStatementLastBraceCondition"
+} as const;
+
 interface Context {
     file: babel.File,
     fileText: string;
@@ -13,6 +30,7 @@ interface Context {
     currentNode: babel.Node;
     parentStack: babel.Node[];
     newLineKind: "\r\n" | "\n";
+    bag: Bag;
 }
 
 export function parseFile(file: babel.File, fileText: string, options: ResolvedConfiguration): Group {
@@ -24,7 +42,8 @@ export function parseFile(file: babel.File, fileText: string, options: ResolvedC
         handledComments: new Set<babel.Comment>(),
         currentNode: file,
         parentStack: [],
-        newLineKind: options.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newLineKind
+        newLineKind: options.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newLineKind,
+        bag: new Bag()
     };
 
     return {
@@ -112,12 +131,25 @@ function* parseProgram(node: babel.Program, context: Context): PrintItemIterator
 /* common */
 
 function* parseBlockStatement(node: babel.BlockStatement, context: Context): PrintItemIterator {
+    const startStatementsInfo = createInfo("startStatementsInfo");
+    const endStatementsInfo = createInfo("endStatementsInfo");
+
     yield "{";
     yield* getFirstLineTrailingComments();
     yield context.newLineKind;
+    yield startStatementsInfo;
     yield* withIndent(function*() {
         yield* parseStatements(node, context);
     });
+    yield endStatementsInfo;
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "endStatementsNewLine",
+        condition: conditionContext => {
+            return !areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
+        },
+        true: [context.newLineKind]
+    }
     yield "}";
 
     function* getFirstLineTrailingComments(): PrintItemIterator {
@@ -308,98 +340,187 @@ function* parseExpressionStatement(node: babel.ExpressionStatement, context: Con
 }
 
 function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItemIterator {
-    const startHeaderInfo = createInfo("startHeader");
-    yield startHeaderInfo;
-    yield "if (";
-    yield parseNode(node.test, context);
-    yield ")";
-    const endHeaderInfo = createInfo("endHeader");
-    yield endHeaderInfo;
+    const result = parseHeaderWithConditionalBraceBody({
+        parseHeader: () => parseHeader(node),
+        bodyNode: node.consequent,
+        context,
+        requiresBracesCondition: context.bag.take(BAG_KEYS.IfStatementLastBraceCondition) as Condition | undefined
+    });
 
-    const headerTrailingComments = Array.from(getHeaderTrailingComments());
-    const requireBraces = consequentRequiresBraces(node.consequent);
+    yield* result.iterator;
+
+    if (node.alternate) {
+        if (node.alternate.type === "IfStatement" && node.alternate.alternate == null)
+            context.bag.put(BAG_KEYS.IfStatementLastBraceCondition, result.braceCondition);
+
+        yield context.newLineKind;
+        yield "else";
+        if (node.alternate.type === "IfStatement") {
+            yield " ";
+            yield parseNode(node.alternate, context);
+        }
+        else {
+            yield* parseConditionalBraceBody({
+                bodyNode: node.alternate,
+                context,
+                requiresBracesCondition: result.braceCondition
+            }).iterator;
+        }
+    }
+
+    function* parseHeader(ifStatement: babel.IfStatement): PrintItemIterator {
+        yield "if (";
+        yield parseNode(ifStatement.test, context);
+        yield ")";
+    }
+}
+
+interface ParseHeaderWithConditionalBraceBodyOptions {
+    bodyNode: babel.Statement;
+    parseHeader(): PrintItemIterator;
+    context: Context;
+    requiresBracesCondition: Condition | undefined;
+}
+
+interface ParseHeaderWithConditionalBraceBodyResult {
+    iterator: PrintItemIterator;
+    braceCondition: Condition;
+}
+
+function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBraceBodyOptions): ParseHeaderWithConditionalBraceBodyResult {
+    const { bodyNode, context, requiresBracesCondition } = opts;
+    const startHeaderInfo = createInfo("startHeader");
+    const endHeaderInfo = createInfo("endHeader");
+
+    const result = parseConditionalBraceBody({
+        bodyNode,
+        context,
+        requiresBracesCondition,
+        startHeaderInfo,
+        endHeaderInfo
+    });
+
+    return {
+        iterator: function*() {
+            yield* parseHeader();
+            yield* result.iterator;
+        }(),
+        braceCondition: result.braceCondition
+    }
+
+    function* parseHeader(): PrintItemIterator {
+        yield startHeaderInfo;
+        yield* opts.parseHeader();
+        yield endHeaderInfo;
+    }
+}
+
+interface ParseConditionalBraceBodyOptions {
+    bodyNode: babel.Statement;
+    context: Context;
+    requiresBracesCondition: Condition | undefined;
+    startHeaderInfo?: Info;
+    endHeaderInfo?: Info;
+}
+
+interface ParseConditionalBraceBodyResult {
+    iterator: PrintItemIterator;
+    braceCondition: Condition;
+}
+
+function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): ParseConditionalBraceBodyResult {
+    const { startHeaderInfo, endHeaderInfo, bodyNode, context, requiresBracesCondition } = opts;
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
-
+    const headerTrailingComments = Array.from(getHeaderTrailingComments(bodyNode));
+    const requireBraces = bodyRequiresBraces(bodyNode);
     const openBraceCondition: Condition = {
         kind: PrintItemKind.Condition,
         name: "openBrace",
         condition: conditionContext => {
-            // writing an open brace might make the condition hang, so assume it should
+            // writing an open brace might make the header hang, so assume it should
             // not write the open brace until it's been resolved
             return requireBraces
-                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
-                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false);
+                || startHeaderInfo && endHeaderInfo && isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
+                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false)
+                || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
         },
-        true: [newLineIfHangingSpaceOtherwise(context, startHeaderInfo), "{"]
+        true: [startHeaderInfo ? newLineIfHangingSpaceOtherwise(context, startHeaderInfo) : " ", "{"]
     };
-    yield openBraceCondition;
 
-    yield* parseHeaderTrailingComment();
-
-    yield context.newLineKind;
-    yield startStatementsInfo;
-
-    if (node.consequent.type === "BlockStatement") {
-        yield* withIndent(function*() {
-            // parse the remaining trailing comments inside because some of them are parsed already
-            // by parsing the header trailing comments
-            yield* parseLeadingComments(node.consequent, context);
-            yield* parseStatements(node.consequent as babel.BlockStatement, context);
-        }());
-        yield* parseTrailingComments(node.consequent, context);
+    return {
+        braceCondition: openBraceCondition,
+        iterator: parseBody()
     }
-    else
-        yield* withIndent(parseNode(node.consequent, context));
 
-    yield endStatementsInfo;
-    yield {
-        kind: PrintItemKind.Condition,
-        name: "closeBrace",
-        condition: openBraceCondition,
-        true: [{
+    function* parseBody(): PrintItemIterator {
+        yield openBraceCondition;
+
+        yield* parseHeaderTrailingComment();
+
+        yield context.newLineKind;
+        yield startStatementsInfo;
+
+        if (bodyNode.type === "BlockStatement") {
+            yield* withIndent(function*() {
+                // parse the remaining trailing comments inside because some of them are parsed already
+                // by parsing the header trailing comments
+                yield* parseLeadingComments(bodyNode, context);
+                yield* parseStatements(bodyNode as babel.BlockStatement, context);
+            }());
+            yield* parseTrailingComments(bodyNode, context);
+        }
+        else
+            yield* withIndent(parseNode(bodyNode, context));
+
+        yield endStatementsInfo;
+        yield {
             kind: PrintItemKind.Condition,
-            name: "closeBraceNewLine",
-            condition: conditionContext => {
-                return !areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
-            },
-            true: [context.newLineKind]
-        }, "}"]
-    };
+            name: "closeBrace",
+            condition: openBraceCondition,
+            true: [{
+                kind: PrintItemKind.Condition,
+                name: "closeBraceNewLine",
+                condition: conditionContext => {
+                    return !areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
+                },
+                true: [context.newLineKind]
+            }, "}"]
+        };
 
-    function consequentRequiresBraces(statement: babel.Statement) {
-        if (statement.type === "BlockStatement") {
-            if (statement.body.length === 1 && !hasLeadingCommentOnDifferentLine(statement.body[0], /* commentsToIgnore */ headerTrailingComments))
+        function* parseHeaderTrailingComment(): PrintItemIterator {
+            const result = parseCommentCollection(headerTrailingComments, undefined, context);
+            yield* prependToIterableIfHasItems(result, " "); // add a space
+        }
+    }
+
+    function bodyRequiresBraces(bodyNode: babel.Statement) {
+        if (bodyNode.type === "BlockStatement") {
+            if (bodyNode.body.length === 1 && !hasLeadingCommentOnDifferentLine(bodyNode.body[0], /* commentsToIgnore */ headerTrailingComments))
                 return false;
             return true;
         }
 
-        return hasLeadingCommentOnDifferentLine(statement, /* commentsToIgnore */ headerTrailingComments);
+        return hasLeadingCommentOnDifferentLine(bodyNode, /* commentsToIgnore */ headerTrailingComments);
     }
 
-    function* parseHeaderTrailingComment(): PrintItemIterator {
-        const result = parseCommentCollection(headerTrailingComments, undefined, context);
-        yield* prependToIterableIfHasItems(result, " "); // add a space
-    }
-
-    function* getHeaderTrailingComments() {
-        const { consequent } = node;
-        if (consequent.type === "BlockStatement") {
-            if (consequent.leadingComments != null) {
-                const commentLine = consequent.leadingComments.find(c => c.type === "CommentLine");
+    function* getHeaderTrailingComments(bodyNode: babel.Node) {
+        if (bodyNode.type === "BlockStatement") {
+            if (bodyNode.leadingComments != null) {
+                const commentLine = bodyNode.leadingComments.find(c => c.type === "CommentLine");
                 if (commentLine) {
                     yield commentLine;
                     return;
                 }
             }
 
-            if (consequent.body.length > 0)
-                yield* checkLeadingComments(consequent.body[0]);
-            else if (consequent.innerComments)
-                yield* checkComments(consequent.innerComments);
+            if (bodyNode.body.length > 0)
+                yield* checkLeadingComments(bodyNode.body[0]);
+            else if (bodyNode.innerComments)
+                yield* checkComments(bodyNode.innerComments);
         }
         else {
-            yield* checkLeadingComments(consequent);
+            yield* checkLeadingComments(bodyNode);
         }
 
         function* checkLeadingComments(node: babel.Node) {
@@ -410,7 +531,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 
         function* checkComments(comments: ReadonlyArray<babel.Comment>) {
             for (const comment of comments) {
-                if (comment.loc.start.line === consequent.loc!.start.line)
+                if (comment.loc.start.line === bodyNode.loc!.start.line)
                     yield comment;
             }
         }

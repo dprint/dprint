@@ -1,0 +1,70 @@
+== should not use braces when only one line and the previous was one line ==
+if (true) {
+    a;
+}
+else {
+    b;
+}
+
+[expect]
+if (true)
+    a;
+else
+    b;
+
+== should use braces when the previous had braces ==
+if (true) {
+    // 1
+    a;
+}
+else {
+    b;
+}
+
+[expect]
+if (true) {
+    // 1
+    a;
+}
+else {
+    b;
+}
+
+== should only use braces for the else if the else clause needs braces ==
+if (true) {
+    a;
+}
+else {
+    b;
+    c;
+}
+
+[expect]
+if (true)
+    a;
+else {
+    b;
+    c;
+}
+
+== should only braces for the else if the preceeding if statements don't need an else clause ==
+if (true) {
+    a;
+}
+else if (true) {
+    b;
+}
+else {
+    c;
+    d;
+}
+
+[expect]
+if (true)
+    a;
+else if (true)
+    b;
+else {
+    c;
+    d;
+}
