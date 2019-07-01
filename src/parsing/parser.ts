@@ -321,7 +321,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
 
-    yield {
+    const openBraceCondition: Condition = {
         kind: PrintItemKind.Condition,
         name: "openBrace",
         condition: conditionContext => {
@@ -333,6 +333,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         },
         true: [newLineIfHangingSpaceOtherwise(context, startHeaderInfo), "{"]
     };
+    yield openBraceCondition;
 
     yield* parseHeaderTrailingComment();
 
@@ -355,11 +356,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     yield {
         kind: PrintItemKind.Condition,
         name: "closeBrace",
-        condition: conditionContext => {
-            return requireBraces
-                || isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
-                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false);
-        },
+        condition: openBraceCondition,
         true: [{
             kind: PrintItemKind.Condition,
             name: "closeBraceNewLine",
