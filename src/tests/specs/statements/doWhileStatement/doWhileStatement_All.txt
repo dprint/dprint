@@ -1,0 +1,13 @@
+== should print ==
+do
+{
+    a;
+    b;
+}
+while(true)
+
+[expect]
+do {
+    a;
+    b;
+} while(true);

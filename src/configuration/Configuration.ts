@@ -40,6 +40,7 @@ export interface Configuration {
      */
     forceBraces?: boolean;
     "directive.semiColon"?: boolean;
+    "doWhileStatement.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
@@ -59,6 +60,7 @@ export interface ResolvedConfiguration {
 
     // semi colons
     "directive.semiColon": boolean;
+    "doWhileStatement.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;

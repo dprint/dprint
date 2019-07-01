@@ -75,6 +75,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeAliasDeclaration": parseTypeAlias,
     "ImportDeclaration": parseImportDeclaration,
     /* statements */
+    "DoWhileStatement": parseDoWhileStatement,
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
     "Directive": parseDirective,
@@ -357,6 +358,17 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 }
 
 /* statements */
+
+function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context): PrintItemIterator {
+    yield "do ";
+    yield parseNode(node.body, context);
+    yield " while(";
+    yield* withHangingIndent(parseNode(node.test, context));
+    yield ")";
+
+    if (context.config["doWhileStatement.semiColon"])
+        yield ";";
+}
 
 function* parseExpressionStatement(node: babel.ExpressionStatement, context: Context): PrintItemIterator {
     yield parseNode(node.expression, context);

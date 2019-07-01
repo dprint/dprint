@@ -48,6 +48,9 @@
         "directive.semiColon": {
             "type": "boolean"
         },
+        "doWhileStatement.semiColon": {
+            "type": "boolean"
+        },
         "expressionStatement.semiColon": {
             "type": "boolean"
         },
