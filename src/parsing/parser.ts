@@ -94,6 +94,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "StringLiteral": parseStringOrDirectiveLiteral,
     "StringLiteralTypeAnnotation": parseStringOrDirectiveLiteral,
     /* keywords */
+    "AnyTypeAnnotation": () => "any",
     "ThisExpression": () => "this",
     "TSAnyKeyword": () => "any",
     "TSBooleanKeyword": () => "boolean",

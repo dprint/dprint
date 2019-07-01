@@ -13,7 +13,7 @@ const implementedNodes: BabelNode[] = [];
 const unImplementedNodes: BabelNode[] = [];
 
 for (const node of babelAnalyzer.getNodes()) {
-    if (node.isReferenced() || implementedTypes.has(node.getType()))
+    if (node.isReferenced() || implementedTypes.has(node.getType()) && verifyNodeHasNoProperties(node))
         implementedNodes.push(node);
     else
         unImplementedNodes.push(node);
@@ -40,6 +40,14 @@ for (const node of unImplementedNodes)
     output += `* ${node.getName()}\n`;
 
 fileSystem.writeFileSync("implemented-nodes.md", output);
+
+function verifyNodeHasNoProperties(node: BabelNode) {
+    const props = node.getProperties().filter(p => p.getName() !== "type");
+    if (props.length > 0)
+        throw new Error(`The node '${node.getName()}' was expected to have no properties, but it did: ${props.map(p => p.getName()).join(", ")}`)
+
+    return true;
+}
 
 function outputHeader(header: string, nodes: BabelNode[], additionalText?: string) {
     output += `## ${header}\n\n`;
