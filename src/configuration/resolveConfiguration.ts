@@ -36,13 +36,16 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         useTabs: getValue("useTabs", defaultValues["useTabs"], ensureBoolean),
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
         newLineKind: getNewLineKind(),
+        // semi-colons
         "directive.semiColon": getValue("directive.semiColon", semiColons, ensureBoolean),
         "doWhileStatement.semiColon": getValue("doWhileStatement.semiColon", semiColons, ensureBoolean),
         "expressionStatement.semiColon": getValue("expressionStatement.semiColon", semiColons, ensureBoolean),
         "ifStatement.semiColon": getValue("ifStatement.semiColon", semiColons, ensureBoolean),
         "importDeclaration.semiColon": getValue("importDeclaration.semiColon", semiColons, ensureBoolean),
         "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean),
-        "ifStatement.forceBraces": getValue("ifStatement.forceBraces", forceBraces, ensureBoolean)
+        // force braces
+        "ifStatement.forceBraces": getValue("ifStatement.forceBraces", forceBraces, ensureBoolean),
+        "whileStatement.forceBraces": getValue("whileStatement.forceBraces", forceBraces, ensureBoolean)
     };
 
     addExcessPropertyDiagnostics();

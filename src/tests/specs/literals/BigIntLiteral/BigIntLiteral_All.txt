@@ -1,5 +1,5 @@
 == should parse a big int literal ==
-const v = 90n + 80n;
+90n + 80n;
 
 [expect]
-const v = 90n + 80n;
+90n + 80n;

@@ -1,0 +1,26 @@
+~~ lineWidth: 40 ~~
+== should print ==
+while (true) {
+    a;
+    b;
+}
+
+[expect]
+while (true) {
+    a;
+    b;
+}
+
+== should put brace on newline when on multiple lines ==
+while (thisIsA && veryLongHeader && thatWill) {
+    a;
+    b;
+}
+
+[expect]
+while (thisIsA && veryLongHeader
+    && thatWill)
+{
+    a;
+    b;
+}

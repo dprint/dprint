@@ -174,4 +174,36 @@ describe(nameof(resolveConfiguration), () => {
             }]);
         });
     });
+
+    describe(nameof<Configuration>(c => c.forceBraces), () => {
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("forceBraces"));
+        }
+
+        it("should set all the semi-colon values using the default", () => {
+            doSpecificTest({}, getObject(true));
+        });
+
+        it("should set all the semi-colon values when using the default", () => {
+            doSpecificTest({ forceBraces: true }, getObject(true));
+        });
+
+        it("should set all the semi-colon values when set to a non default", () => {
+            doSpecificTest({ forceBraces: false }, getObject(false));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(false);
+            const config: Configuration = { ...expectedConfig } as any;
+            config.forceBraces = true;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: boolean): Partial<ResolvedConfiguration> {
+            return {
+                "ifStatement.forceBraces": value,
+                "whileStatement.forceBraces": value
+            };
+        }
+    });
 });

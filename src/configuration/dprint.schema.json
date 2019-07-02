@@ -66,6 +66,9 @@
 
         "ifStatement.forceBraces": {
             "type": "boolean"
+        },
+        "whileStatement.forceBraces": {
+            "type": "boolean"
         }
     }
 }

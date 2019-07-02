@@ -1,0 +1,21 @@
+~~ lineWidth: 40 ~~
+== should print ==
+test&&other   ||asdf;
+
+[expect]
+test && other || asdf;
+
+== should print hanging when exceeding line width ==
+test && other || asdf && test || asdf && asdf;
+
+[expect]
+test && other || asdf && test
+    || asdf && asdf;
+
+== should print hanging when exceeding line width multiple times ==
+test && other || asdf && test || asdf && asdf || test && other || asdf && test || asdf && asdf;
+
+[expect]
+test && other || asdf && test
+    || asdf && asdf || test && other
+    || asdf && test || asdf && asdf;

@@ -46,6 +46,7 @@ export interface Configuration {
     "importDeclaration.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     "ifStatement.forceBraces"?: boolean;
+    "whileStatement.forceBraces"?: boolean;
 }
 
 /**
@@ -68,4 +69,5 @@ export interface ResolvedConfiguration {
 
     // force braces
     "ifStatement.forceBraces": boolean;
+    "whileStatement.forceBraces": boolean;
 }

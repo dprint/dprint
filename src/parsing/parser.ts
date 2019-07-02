@@ -75,12 +75,14 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeAliasDeclaration": parseTypeAlias,
     "ImportDeclaration": parseImportDeclaration,
     /* statements */
+    "Directive": parseDirective,
     "DoWhileStatement": parseDoWhileStatement,
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
-    "Directive": parseDirective,
+    "WhileStatement": parseWhileStatement,
     /* expressions */
     "CallExpression": parseCallExpression,
+    "LogicalExpression": parseLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
@@ -134,13 +136,17 @@ function parseNode(node: babel.Node | null, context: Context): Group {
     const printItem = parseFunc(node, context);
     const group: Group = {
         kind: PrintItemKind.Group,
-        items: getWithComments(node, printItem, context)
+        items: innerGetWithComments()
     };
 
-    // replace the past item
-    context.currentNode = context.parentStack.pop()!;
-
     return group;
+
+    function* innerGetWithComments(): PrintItemIterator {
+        yield* getWithComments(node!, printItem, context);
+
+        // replace the past item after iterating
+        context.currentNode = context.parentStack.pop()!;
+    }
 }
 
 /* file */
@@ -359,6 +365,12 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 
 /* statements */
 
+function* parseDirective(node: babel.Directive, context: Context): PrintItemIterator {
+    yield parseNode(node.value, context);
+    if (context.config["directive.semiColon"])
+        yield ";";
+}
+
 function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context): PrintItemIterator {
     yield "do ";
     yield parseNode(node.body, context);
@@ -415,10 +427,23 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     }
 }
 
-function* parseDirective(node: babel.Directive, context: Context): PrintItemIterator {
-    yield parseNode(node.value, context);
-    if (context.config["directive.semiColon"])
-        yield ";";
+function* parseWhileStatement(node: babel.WhileStatement, context: Context): PrintItemIterator {
+    const startHeaderInfo = createInfo("startHeader");
+    const endHeaderInfo = createInfo("endHeader");
+    yield startHeaderInfo;
+    yield "while (";
+    yield* withHangingIndent(parseNode(node.test, context));
+    yield ")";
+    yield endHeaderInfo;
+
+    yield* parseConditionalBraceBody({
+        context,
+        bodyNode: node.body,
+        forceBraces: context.config["whileStatement.forceBraces"],
+        requiresBracesCondition: undefined,
+        startHeaderInfo,
+        endHeaderInfo
+    }).iterator;
 }
 
 interface ParseHeaderWithConditionalBraceBodyOptions {
@@ -604,6 +629,22 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
         yield "?.";
 
     yield* parseParametersOrArguments(node.arguments, context);
+}
+
+function* parseLogicalExpression(node: babel.LogicalExpression, context: Context): PrintItemIterator {
+    const wasLastLogicalExpression = context.parentStack[context.parentStack.length - 1].type === "LogicalExpression";
+    if (wasLastLogicalExpression)
+        yield* parseInner();
+    else
+        yield* withHangingIndent(parseInner);
+
+    function* parseInner(): PrintItemIterator {
+        yield parseNode(node.left, context);
+        yield Behaviour.SpaceOrNewLine;
+        yield node.operator;
+        yield " ";
+        yield parseNode(node.right, context);
+    }
 }
 
 /* literals */
