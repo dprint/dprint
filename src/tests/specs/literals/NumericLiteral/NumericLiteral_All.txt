@@ -1,0 +1,9 @@
+== should parse different kinds of numeric literals ==
+10;
+10.883;
+10e5;
+
+[expect]
+10;
+10.883;
+10e5;

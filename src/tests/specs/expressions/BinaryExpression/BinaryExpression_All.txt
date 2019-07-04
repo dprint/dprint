@@ -1,0 +1,21 @@
+~~ lineWidth: 20 ~~
+== should print ==
+1234+12345   * 5;
+
+[expect]
+1234 + 12345 * 5;
+
+== should print hanging when exceeding line width todo: this is wrong (skip) ==
+1234 + 12345 * 5 * 10;
+
+[expect]
+1234 + 12345 * 5
+    * 10;
+
+== should print hanging when exceeding line width multiple times -- todo: this is wrong (skip) ==
+1234 + 12345 * 5 * 10 * 20 + 509;
+
+[expect]
+1234 + 12345 * 5
+    * 10 * 20
+    + 509;

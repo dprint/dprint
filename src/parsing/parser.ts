@@ -81,8 +81,9 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "IfStatement": parseIfStatement,
     "WhileStatement": parseWhileStatement,
     /* expressions */
+    "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
-    "LogicalExpression": parseLogicalExpression,
+    "LogicalExpression": parseBinaryOrLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
@@ -94,6 +95,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "DirectiveLiteral": parseStringOrDirectiveLiteral,
     "NullLiteral": () => "null",
     "NullLiteralTypeAnnotaion": () => "null",
+    "NumericLiteral": parseNumericLiteral,
     "StringLiteral": parseStringOrDirectiveLiteral,
     "StringLiteralTypeAnnotation": parseStringOrDirectiveLiteral,
     /* keywords */
@@ -614,6 +616,22 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
 /* expressions */
 
+function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
+    const wasLastSame = context.parentStack[context.parentStack.length - 1].type === node.type;
+    if (wasLastSame)
+        yield* parseInner();
+    else
+        yield* withHangingIndent(parseInner);
+
+    function* parseInner(): PrintItemIterator {
+        yield parseNode(node.left, context);
+        yield Behaviour.SpaceOrNewLine;
+        yield node.operator;
+        yield " ";
+        yield parseNode(node.right, context);
+    }
+}
+
 function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExpression, context: Context): PrintItemIterator {
     yield parseNode(node.callee, context);
 
@@ -631,22 +649,6 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
     yield* parseParametersOrArguments(node.arguments, context);
 }
 
-function* parseLogicalExpression(node: babel.LogicalExpression, context: Context): PrintItemIterator {
-    const wasLastLogicalExpression = context.parentStack[context.parentStack.length - 1].type === "LogicalExpression";
-    if (wasLastLogicalExpression)
-        yield* parseInner();
-    else
-        yield* withHangingIndent(parseInner);
-
-    function* parseInner(): PrintItemIterator {
-        yield parseNode(node.left, context);
-        yield Behaviour.SpaceOrNewLine;
-        yield node.operator;
-        yield " ";
-        yield parseNode(node.right, context);
-    }
-}
-
 /* literals */
 
 function parseBigIntLiteral(node: babel.BigIntLiteral, context: Context) {
@@ -655,6 +657,10 @@ function parseBigIntLiteral(node: babel.BigIntLiteral, context: Context) {
 
 function parseBooleanLiteral(node: babel.BooleanLiteral, context: Context) {
     return node.value ? "true" : "false";
+}
+
+function parseNumericLiteral(node: babel.NumericLiteral, context: Context) {
+    return context.fileText.substring(node.start!, node.end!);
 }
 
 function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.StringLiteralTypeAnnotation | babel.DirectiveLiteral, context: Context) {

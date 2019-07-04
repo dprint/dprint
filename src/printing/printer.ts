@@ -212,7 +212,19 @@ class Printer {
     }
 
     printUnknown(unknown: Unknown) {
-        this.writer.baseWrite(unknown.text);
+        if (this.possibleNewLineSavePoint != null && this.isAboveMaxWidth(getLineWidth()))
+            this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
+        else
+            this.writer.baseWrite(unknown.text);
+
+        function getLineWidth() {
+            const index = unknown.text.indexOf("\n");
+            if (index === -1)
+                return unknown.text.length;
+            else if (unknown.text[index - 1] === "\r")
+                return index - 1;
+            return index;
+        }
     }
 
     private readonly resolvedConditions = new Map<Condition, boolean>();
