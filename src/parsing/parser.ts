@@ -88,6 +88,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "CallExpression": parseCallExpression,
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
+    "YieldExpression": parseYieldExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
     "ImportNamespaceSpecifier": parseImportNamespaceSpecifier,
@@ -688,6 +689,14 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
         yield "?.";
 
     yield* parseParametersOrArguments(node.arguments, context);
+}
+
+function* parseYieldExpression(node: babel.YieldExpression, context: Context): PrintItemIterator {
+    yield "yield";
+    if (node.delegate)
+        yield "*";
+    yield " ";
+    yield* withHangingIndent(parseNode(node.argument, context));
 }
 
 /* literals */
