@@ -1,0 +1,52 @@
+== should output with catch clause ==
+try{
+    a;
+}
+catch
+{
+    b;
+}
+
+[expect]
+try {
+    a;
+} catch {
+    b;
+}
+
+== should output with finally ==
+try{
+    a;
+}
+finally
+{
+    b;
+}
+
+[expect]
+try {
+    a;
+} finally {
+    b;
+}
+
+== should output with try and finally ==
+try{
+    a;
+}
+catch (ex) {
+    b;
+}
+finally
+{
+    c;
+}
+
+[expect]
+try {
+    a;
+} catch (ex) {
+    b;
+} finally {
+    c;
+}

@@ -79,7 +79,10 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "DoWhileStatement": parseDoWhileStatement,
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
+    "TryStatement": parseTryStatement,
     "WhileStatement": parseWhileStatement,
+    /* clauses */
+    "CatchClause": parseCatchClause,
     /* expressions */
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
@@ -429,6 +432,19 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     }
 }
 
+function* parseTryStatement(node: babel.TryStatement, context: Context): PrintItemIterator {
+    yield "try ";
+    yield parseNode(node.block, context);
+    if (node.handler != null) {
+        yield " ";
+        yield parseNode(node.handler, context);
+    }
+    if (node.finalizer != null) {
+        yield " finally ";
+        yield parseNode(node.finalizer, context);
+    }
+}
+
 function* parseWhileStatement(node: babel.WhileStatement, context: Context): PrintItemIterator {
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
@@ -442,6 +458,31 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
         context,
         bodyNode: node.body,
         forceBraces: context.config["whileStatement.forceBraces"],
+        requiresBracesCondition: undefined,
+        startHeaderInfo,
+        endHeaderInfo
+    }).iterator;
+}
+
+/* clauses */
+
+function* parseCatchClause(node: babel.CatchClause, context: Context): PrintItemIterator {
+    // a bit overkill since the param will currently always be just an identifier
+    const startHeaderInfo = createInfo("catchClauseHeaderStart");
+    const endHeaderInfo = createInfo("catchClauseHeaderEnd");
+    yield startHeaderInfo;
+    yield "catch";
+    if (node.param != null) {
+        yield " (";
+        yield* withHangingIndent(parseNode(node.param, context));
+        yield ")";
+    }
+
+    // not condition, required.
+    yield* parseConditionalBraceBody({
+        context,
+        bodyNode: node.body,
+        forceBraces: true,
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo

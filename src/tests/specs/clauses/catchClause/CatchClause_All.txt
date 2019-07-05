@@ -1,0 +1,30 @@
+== should output without param ==
+try{
+    a;
+}
+catch
+{
+    b;
+}
+
+[expect]
+try {
+    a;
+} catch {
+    b;
+}
+
+== should output with param ==
+try{
+    a;
+}
+catch(ex){
+    b;
+}
+
+[expect]
+try {
+    a;
+} catch (ex) {
+    b;
+}
