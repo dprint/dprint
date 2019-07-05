@@ -9,13 +9,14 @@ test && other || asdf;
 test && other || asdf && test || asdf && asdf;
 
 [expect]
-test && other || asdf && test
-    || asdf && asdf;
+test && other || asdf && test || asdf
+    && asdf;
 
 == should print hanging when exceeding line width multiple times ==
-test && other || asdf && test || asdf && asdf || test && other || asdf && test || asdf && asdf;
+test && other || asdf && test || asdf && asdf || asdf && asdf || test && other || asdf && test || asdf && asdf;
 
 [expect]
-test && other || asdf && test
-    || asdf && asdf || test && other
-    || asdf && test || asdf && asdf;
+test && other || asdf && test || asdf
+    && asdf || asdf && asdf || test
+    && other || asdf && test || asdf
+    && asdf;

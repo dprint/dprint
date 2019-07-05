@@ -23,6 +23,7 @@ interface SavePoint {
     /** Name for debugging purposes. */
     name?: string;
     depth: number;
+    newlineGroupDepth: number;
     childIndex: number;
     writerState: WriterState;
     possibleNewLineSavePoint: SavePoint | undefined;
@@ -42,6 +43,7 @@ class Printer {
 
     private depth = 0;
     private childIndex = 0;
+    private newlineGroupDepth = 0;
 
     constructor(private readonly options: PrintOptions) {
         this.writer = new Writer(options);
@@ -51,7 +53,7 @@ class Printer {
     }
 
     markPossibleNewLineIfAble(behaviour: Behaviour) {
-        if (this.possibleNewLineSavePoint != null && this.depth > this.possibleNewLineSavePoint.depth)
+        if (this.possibleNewLineSavePoint != null && this.newlineGroupDepth > this.possibleNewLineSavePoint.newlineGroupDepth)
             return;
 
         this.possibleNewLineSavePoint = this.createSavePoint(behaviour);
@@ -61,6 +63,7 @@ class Printer {
         return {
             depth: this.depth,
             childIndex: this.childIndex,
+            newlineGroupDepth: this.newlineGroupDepth,
             writerState: this.writer.getState(),
             possibleNewLineSavePoint: this.possibleNewLineSavePoint,
             uncomittedItems: [initialItem],
@@ -136,6 +139,10 @@ class Printer {
             this.writer.startHangingIndent();
         else if (behaviour === Behaviour.FinishHangingIndent)
             this.writer.finishHangingIndent();
+        else if (behaviour === Behaviour.StartNewlineGroup)
+            this.newlineGroupDepth++;
+        else if (behaviour === Behaviour.FinishNewLineGroup)
+            this.newlineGroupDepth--;
         else
             assertNever(behaviour);
     }
@@ -182,7 +189,7 @@ class Printer {
                 this.printPrintItem(item);
             } catch (err) {
                 const savePointToResume = this.savePointToResume;
-                if (err !== this.exitSymbol || savePointToResume == null || this.depth !== savePointToResume.depth)
+                if (err !== this.exitSymbol || savePointToResume == null || this.depth !== savePointToResume.minDepthFound)
                     throw err;
                 this.savePointToResume = undefined;
                 this.updateStateToSavePoint(savePointToResume);
@@ -198,6 +205,7 @@ class Printer {
         this.possibleNewLineSavePoint = isForNewLine ? undefined : savePoint.possibleNewLineSavePoint;
         this.depth = savePoint.depth;
         this.childIndex = savePoint.childIndex;
+        this.newlineGroupDepth = savePoint.newlineGroupDepth;
 
         if (isForNewLine)
             this.writer.write(this.options.newLineKind);

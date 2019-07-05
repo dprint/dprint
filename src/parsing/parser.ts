@@ -238,7 +238,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
         if (useNewLines)
             yield* withIndent(parseSpecifiers);
         else
-            yield* withHangingIndent(parseSpecifiers);
+            yield* newlineGroup(withHangingIndent(parseSpecifiers));
 
         yield braceSeparator;
         yield "}";
@@ -324,7 +324,7 @@ function parseTypeParameterDeclaration(
     const useNewLines = getUseNewLinesForNodes(declaration.params);
     return {
         kind: PrintItemKind.Group,
-        items: parseItems()
+        items: newlineGroup(parseItems())
     };
 
     function* parseItems(): PrintItemIterator {
@@ -359,7 +359,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
     if (node.typeParameters)
         yield parseNode(node.typeParameters, context);
     yield " = ";
-    yield parseNode(node.typeAnnotation, context);
+    yield* newlineGroup(parseNode(node.typeAnnotation, context));
 
     if (context.config["typeAlias.semiColon"])
         yield ";";
@@ -621,7 +621,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
     if (wasLastSame)
         yield* parseInner();
     else
-        yield* withHangingIndent(parseInner);
+        yield* newlineGroup(withHangingIndent(parseInner));
 
     function* parseInner(): PrintItemIterator {
         yield parseNode(node.left, context);
@@ -755,14 +755,18 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
 
 function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
     const useNewLines = useNewLinesForParametersOrArguments(params);
-    yield "(";
+    yield* newlineGroup(parseItems());
 
-    if (useNewLines)
-        yield* surroundWithNewLines(withIndent(parseParameterList), context);
-    else
-        yield* withHangingIndent(parseParameterList);
+    function* parseItems(): PrintItemIterator {
+        yield "(";
 
-    yield ")";
+        if (useNewLines)
+            yield* surroundWithNewLines(withIndent(parseParameterList), context);
+        else
+            yield* withHangingIndent(parseParameterList);
+
+        yield ")";
+    }
 
     function* parseParameterList(): PrintItemIterator {
         for (let i = 0; i < params.length; i++) {
@@ -777,20 +781,6 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
 }
 
 /* reusable conditions */
-
-function getIsHangingCondition(info: Info): Condition {
-    return {
-        kind: PrintItemKind.Condition,
-        name: "isHangingCondition",
-        condition: conditionContext => {
-            const resolvedInfo = conditionContext.getResolvedInfo(info);
-            if (resolvedInfo == null)
-                return undefined;
-            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > resolvedInfo.lineStartIndentLevel;
-            return isHanging;
-        }
-    }
-}
 
 function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition {
     return {
@@ -930,6 +920,17 @@ function* withHangingIndent(item: Group | PrintItemIterator | (() => PrintItemIt
     else
         yield item;
     yield Behaviour.FinishHangingIndent;
+}
+
+function* newlineGroup(item: Group | PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+    yield Behaviour.StartNewlineGroup;
+    if (item instanceof Function)
+        yield* item()
+    else if (isPrintItemIterator(item))
+        yield* item;
+    else
+        yield item;
+    yield Behaviour.FinishNewLineGroup;
 }
 
 function isMultipleLines(startInfo: Info, endInfo: Info, conditionContext: ResolveConditionContext, defaultValue: boolean) {

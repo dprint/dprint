@@ -24,7 +24,9 @@ export enum Behaviour {
     StartIndent,
     FinishIndent,
     StartHangingIndent,
-    FinishHangingIndent
+    FinishHangingIndent,
+    StartNewlineGroup,
+    FinishNewLineGroup
 }
 
 export interface Condition {

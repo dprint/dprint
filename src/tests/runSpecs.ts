@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import globby from "globby";
 import { formatFileText } from "../formatFileText";
-import { parseSpecs } from "./specParser";
+import { parseSpecs, Spec } from "./specParser";
 
 const rootDir = path.join(__dirname, "../../");
 const specsDir = path.resolve(path.join(rootDir, "src/tests/specs"))
@@ -19,26 +19,36 @@ describe("specs", () => {
     }
 
     for (const filePath of filePaths) {
-        it(`should work for ${path.basename(filePath)}`, async () => {
-            await runTest(filePath);
+        describe(path.basename(filePath), () => {
+            const specs = getSpecs(filePath);
+            for (const spec of specs) {
+                const itFunc = spec.isOnly ? it.only : it;
+                itFunc(spec.message, () => {
+                    runTest(spec);
+                });
+            }
         });
     }
 
-    async function runTest(filePath: string) {
-        const fileText = await readFile(filePath);
-        const specs = parseSpecs(fileText);
+    function runTest(spec: Spec) {
+        const actualText = formatFileText(spec.filePath, spec.fileText, spec.config);
+        if (!spec.expectedText.endsWith("\n"))
+            throw new Error(`${spec.message}: The expected text did not end with a newline.`);
+        if (spec.expectedText.endsWith("\n\n"))
+            throw new Error(`${spec.message}: The expected text ended with multiple newlines: ${JSON.stringify(spec.expectedText)}`);
+        //expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
+        expect(actualText).to.equal(spec.expectedText, spec.message);
+    }
 
-        for (const spec of specs) {
-            const actualText = formatFileText(spec.filePath, spec.fileText, spec.config);
-            if (!spec.expectedText.endsWith("\n"))
-                throw new Error(`${spec.message}: The expected text did not end with a newline.`);
-            if (spec.expectedText.endsWith("\n\n"))
-                throw new Error(`${spec.message}: The expected text ended with multiple newlines: ${JSON.stringify(spec.expectedText)}`);
-            //expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
-            expect(actualText).to.equal(spec.expectedText, spec.message);
-        }
+    function getSpecs(filePath: string) {
+        const fileText = readFileSync(filePath);
+        return parseSpecs(fileText);
     }
 });
+
+function readFileSync(filePath: string) {
+    return fs.readFileSync(filePath, { encoding: "utf8" });
+}
 
 function readFile(filePath: string) {
     return new Promise<string>((resolve, reject) => {
