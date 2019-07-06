@@ -1,4 +1,4 @@
-//todo: tests
+// todo: tests
 export class RepeatableIterator<T> implements Iterable<T> {
     private readonly items: T[];
 

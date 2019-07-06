@@ -79,7 +79,9 @@ function printItemsWithBrackets(iterator: PrintItemIterator) {
 
 function printItems(iterator: PrintItemIterator) {
     const items: string[] = [];
+
     for (const item of iterator)
         items.push(printItem(item));
+
     return items.join(",\n");
 }

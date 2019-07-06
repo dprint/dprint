@@ -6,8 +6,8 @@ export function formatFileText(filePath: string, fileText: string, configuration
     const babelAst = parseToBabelAst(filePath, fileText);
     const printItem = parseFile(babelAst, fileText, configuration);
 
-    //console.log(printParseTree(printItem));
-    //throw "STOP";
+    // console.log(printParseTree(printItem));
+    // throw "STOP";
 
     return print(printItem, {
         maxWidth: configuration.lineWidth,
