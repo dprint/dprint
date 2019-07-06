@@ -30,3 +30,19 @@ const t: string; // other
 1 + 1;
 // test
 const u: number;
+
+== should not add newlines for comments between interface declarations ==
+interface A {
+}
+
+// testing
+interface B {
+}
+
+[expect]
+interface A {
+}
+
+// testing
+interface B {
+}

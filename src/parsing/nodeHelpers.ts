@@ -25,14 +25,23 @@ export function hasSeparatingBlankLine(nodeA: babel.Node, nodeB: babel.Node | un
     }
 }
 
-export function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgnore?: ReadonlyArray<babel.Comment>) {
-    return node.leadingComments != null
-        && node.leadingComments.some(c => {
-            if (commentsToIgnore != null && commentsToIgnore.includes(c))
-                return false;
+export function getLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgnore?: ReadonlyArray<babel.Comment>) {
+    if (node.leadingComments == null)
+        return undefined;
 
-            return c.type === "CommentLine" || c.loc!.start.line < node.loc!.start.line;
-        });
+    for (const comment of node.leadingComments) {
+        if (commentsToIgnore != null && commentsToIgnore.includes(comment))
+            continue;
+
+        if (comment.loc!.start.line < node.loc!.start.line)
+            return comment;
+    }
+
+    return undefined;
+}
+
+export function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgnore?: ReadonlyArray<babel.Comment>) {
+    return getLeadingCommentOnDifferentLine(node, commentsToIgnore) != null;
 }
 
 export function useNewLinesForParametersOrArguments(params: babel.Node[]) {
