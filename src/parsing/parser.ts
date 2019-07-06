@@ -78,6 +78,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "DoWhileStatement": parseDoWhileStatement,
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
+    "InterpreterDirective": parseInterpreterDirective,
     "TryStatement": parseTryStatement,
     "WhileStatement": parseWhileStatement,
     /* clauses */
@@ -156,6 +157,14 @@ function parseNode(node: babel.Node | null, context: Context): Group {
 
 /* file */
 function* parseProgram(node: babel.Program, context: Context): PrintItemIterator {
+    if (node.interpreter) {
+        yield parseNode(node.interpreter, context);
+        yield context.newLineKind;
+
+        if (hasSeparatingBlankLine(node.interpreter, node.body[0]))
+            yield context.newLineKind;
+    }
+
     yield* parseStatements(node, context);
 }
 
@@ -430,6 +439,11 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         yield parseNode(ifStatement.test, context);
         yield ")";
     }
+}
+
+function* parseInterpreterDirective(node: babel.InterpreterDirective, context: Context): PrintItemIterator {
+    yield "#!";
+    yield node.value;
 }
 
 function* parseTryStatement(node: babel.TryStatement, context: Context): PrintItemIterator {
@@ -1016,6 +1030,13 @@ function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {
 
 function hasBody(node: babel.Node) {
     return (node as any as babel.ClassDeclaration).body != null;
+}
+
+function hasSeparatingBlankLine(nodeA: babel.Node, nodeB: babel.Node | undefined) {
+    if (nodeB == null)
+        return false;
+
+    return nodeB.loc!.start.line > nodeA.loc!.end.line + 1;
 }
 
 function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgnore?: ReadonlyArray<babel.Comment>) {

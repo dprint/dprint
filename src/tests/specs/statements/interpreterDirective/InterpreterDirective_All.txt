@@ -1,0 +1,28 @@
+== should print ==
+#!/usr/bin/env node
+1+2;
+
+[expect]
+#!/usr/bin/env node
+1 + 2;
+
+== should print with a blank line separating ==
+#!/usr/bin/env node
+
+1+2;
+
+[expect]
+#!/usr/bin/env node
+
+1 + 2;
+
+== should not allow multiple blank lines ==
+#!/usr/bin/env node
+
+
+1+2;
+
+[expect]
+#!/usr/bin/env node
+
+1 + 2;

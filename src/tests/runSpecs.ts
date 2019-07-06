@@ -7,7 +7,7 @@ import { parseSpecs, Spec } from "./specParser";
 import { resolveConfiguration } from "../configuration";
 
 const rootDir = path.join(__dirname, "../../");
-const specsDir = path.resolve(path.join(rootDir, "src/tests/specs"))
+const specsDir = path.resolve(path.join(rootDir, "src/tests/specs")).replace(/\\/g, "/");
 
 describe("specs", () => {
     // blocking here for mocha. todo: figure out how to load test cases asynchronously
@@ -18,12 +18,17 @@ describe("specs", () => {
         filePaths.length = 0;
         filePaths.push(...onlyFilePaths);
     }
+    console.log(`${specsDir}/**/*.txt`);
 
     for (const filePath of filePaths) {
         describe(path.basename(filePath), () => {
             const specs = getSpecs(filePath);
             for (const spec of specs) {
                 const itFunc = spec.isOnly ? it.only : it;
+
+                if (spec.isOnly)
+                    console.log("RUNNING ONLY TEST!");
+
                 itFunc(spec.message, () => {
                     runTest(spec);
                 });
@@ -47,7 +52,11 @@ describe("specs", () => {
 
     function getSpecs(filePath: string) {
         const fileText = readFileSync(filePath);
-        return parseSpecs(fileText);
+        try {
+            return parseSpecs(fileText);
+        } catch (err) {
+            throw new Error(`Error parsing ${filePath}\n\n${err}`);
+        }
     }
 });
 
