@@ -8,7 +8,21 @@ export function hasSeparatingBlankLine(nodeA: babel.Node, nodeB: babel.Node | un
     if (nodeB == null)
         return false;
 
-    return nodeB.loc!.start.line > nodeA.loc!.end.line + 1;
+    return getNodeBStartLine() > nodeA.loc!.end.line + 1;
+
+    function getNodeBStartLine() {
+        const leadingComments = nodeB!.leadingComments;
+
+        if (leadingComments != null) {
+            for (const leadingComment of leadingComments) {
+                const commentStartLine = leadingComment.loc!.start.line;
+                if (commentStartLine > nodeA.loc!.end.line)
+                    return commentStartLine;
+            }
+        }
+
+        return nodeB!.loc!.start.line;
+    }
 }
 
 export function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgnore?: ReadonlyArray<babel.Comment>) {

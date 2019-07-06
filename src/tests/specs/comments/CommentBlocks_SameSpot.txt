@@ -6,3 +6,27 @@ function /* 1 */test/* 2 */() {// 3
 [expect]
 function /* 1 */test/* 2 */() { // 3
 } // 4
+
+== should keep blank lines between comments ==
+// testing
+
+//other
+const t: string; // other
+
+// testing
+
+1 + 1;
+// test
+const u: number;
+
+[expect]
+// testing
+
+// other
+const t: string; // other
+
+// testing
+
+1 + 1;
+// test
+const u: number;

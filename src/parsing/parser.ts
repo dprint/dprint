@@ -977,12 +977,12 @@ function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (b
             continue;
 
         if (lastNode != null) {
-            if (lastNode.loc!.end.line < comment.loc.start.line - 1) {
+            if (comment.loc.start.line > lastNode.loc!.end.line) {
                 yield context.newLineKind;
-                yield context.newLineKind;
+
+                if (comment.loc.start.line > lastNode.loc!.end.line + 1)
+                    yield context.newLineKind;
             }
-            if (lastNode.loc!.end.line < comment.loc.start.line)
-                yield context.newLineKind;
             else if (comment.type === "CommentLine")
                 yield " ";
             else if (lastNode.type === "CommentBlock")
