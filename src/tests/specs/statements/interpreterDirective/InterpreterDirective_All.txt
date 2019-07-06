@@ -26,3 +26,21 @@
 #!/usr/bin/env node
 
 1 + 2;
+
+== should print with a directive ==
+#!/usr/bin/env node
+"use strict";
+
+[expect]
+#!/usr/bin/env node
+"use strict";
+
+== should print with a blank line separating the directive ==
+#!/usr/bin/env node
+
+"use strict";
+
+[expect]
+#!/usr/bin/env node
+
+"use strict";

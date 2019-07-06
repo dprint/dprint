@@ -2,6 +2,7 @@ import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText } from "../configuration";
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
 import { assertNever, removeStringIndentation, isPrintItemIterator, throwError } from "../utils";
+import * as nodeHelpers from "./nodeHelpers";
 
 class Bag {
     private readonly bag = new Map<string, object>();
@@ -161,7 +162,7 @@ function* parseProgram(node: babel.Program, context: Context): PrintItemIterator
         yield parseNode(node.interpreter, context);
         yield context.newLineKind;
 
-        if (hasSeparatingBlankLine(node.interpreter, node.body[0]))
+        if (nodeHelpers.hasSeparatingBlankLine(node.interpreter, node.directives[0] || node.body[0]))
             yield context.newLineKind;
     }
 
@@ -258,7 +259,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
         function getUseNewLines() {
             if (namedImports.length === 1 && namedImports[0].loc!.start.line !== node.loc!.start.line)
                 return true;
-            return getUseNewLinesForNodes(namedImports);
+            return nodeHelpers.getUseNewLinesForNodes(namedImports);
         }
 
         function* parseSpecifiers(): PrintItemIterator {
@@ -333,7 +334,7 @@ function parseTypeParameterDeclaration(
     declaration: babel.TypeParameterDeclaration | babel.TSTypeParameterDeclaration | babel.TSTypeParameterInstantiation | babel.TypeParameterInstantiation,
     context: Context
 ): Group {
-    const useNewLines = getUseNewLinesForNodes(declaration.params);
+    const useNewLines = nodeHelpers.getUseNewLinesForNodes(declaration.params);
     return {
         kind: PrintItemKind.Group,
         items: newlineGroup(parseItems())
@@ -627,12 +628,12 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
     function bodyRequiresBraces(bodyNode: babel.Statement) {
         if (bodyNode.type === "BlockStatement") {
-            if (bodyNode.body.length === 1 && !hasLeadingCommentOnDifferentLine(bodyNode.body[0], /* commentsToIgnore */ headerTrailingComments))
+            if (bodyNode.body.length === 1 && !nodeHelpers.hasLeadingCommentOnDifferentLine(bodyNode.body[0], /* commentsToIgnore */ headerTrailingComments))
                 return false;
             return true;
         }
 
-        return hasLeadingCommentOnDifferentLine(bodyNode, /* commentsToIgnore */ headerTrailingComments);
+        return nodeHelpers.hasLeadingCommentOnDifferentLine(bodyNode, /* commentsToIgnore */ headerTrailingComments);
     }
 
     function* getHeaderTrailingComments(bodyNode: babel.Node) {
@@ -767,7 +768,7 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Pri
 }
 
 function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIterator {
-    const useNewLines = getUseNewLinesForNodes(node.types);
+    const useNewLines = nodeHelpers.getUseNewLinesForNodes(node.types);
     yield* withHangingIndent(function*() {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
@@ -784,8 +785,11 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
 function* parseStatements(block: babel.BlockStatement | babel.Program, context: Context): PrintItemIterator {
     let lastNode: babel.Node | undefined;
     for (const directive of block.directives) {
-        if (lastNode != null)
+        if (lastNode != null) {
             yield context.newLineKind;
+            if (nodeHelpers.hasSeparatingBlankLine(lastNode, directive))
+                yield context.newLineKind;
+        }
 
         yield parseNode(directive, context);
         lastNode = directive;
@@ -794,13 +798,15 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     const statements = block.body;
     for (const statement of statements) {
         if (lastNode != null) {
-            if (hasBody(lastNode) || hasBody(statement)) {
+            if (nodeHelpers.hasBody(lastNode) || nodeHelpers.hasBody(statement)) {
                 yield context.newLineKind;
                 yield context.newLineKind;
             }
             else {
-                // todo: check if there is a blank line between statements and if so, respect that
                 yield context.newLineKind;
+
+                if (nodeHelpers.hasSeparatingBlankLine(lastNode, statement))
+                    yield context.newLineKind;
             }
         }
 
@@ -817,7 +823,7 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
 }
 
 function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
-    const useNewLines = useNewLinesForParametersOrArguments(params);
+    const useNewLines = nodeHelpers.useNewLinesForParametersOrArguments(params);
     yield* newlineGroup(parseItems());
 
     function* parseItems(): PrintItemIterator {
@@ -940,18 +946,6 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
     }
 }
 
-function useNewLinesForParametersOrArguments(params: babel.Node[]) {
-    return getUseNewLinesForNodes(params);
-}
-
-function getUseNewLinesForNodes(nodes: babel.Node[]) {
-    if (nodes.length <= 1)
-        return false;
-    if (nodes[0].loc!.start.line === nodes[1].loc!.start.line)
-        return false;
-    return true;
-}
-
 function* surroundWithNewLines(item: Group | PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
     yield context.newLineKind;
     if (item instanceof Function)
@@ -1026,28 +1020,7 @@ function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {
     }
 }
 
-/* checks */
-
-function hasBody(node: babel.Node) {
-    return (node as any as babel.ClassDeclaration).body != null;
-}
-
-function hasSeparatingBlankLine(nodeA: babel.Node, nodeB: babel.Node | undefined) {
-    if (nodeB == null)
-        return false;
-
-    return nodeB.loc!.start.line > nodeA.loc!.end.line + 1;
-}
-
-function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgnore?: ReadonlyArray<babel.Comment>) {
-    return node.leadingComments != null
-        && node.leadingComments.some(c => {
-            if (commentsToIgnore != null && commentsToIgnore.includes(c))
-                return false;
-
-            return c.type === "CommentLine" || c.loc!.start.line < node.loc!.start.line;
-        });
-}
+/* factory functions */
 
 function createInfo(name: string): Info {
     return {

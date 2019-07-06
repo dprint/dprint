@@ -19,3 +19,26 @@ function test() {
     "use strict";
     a;
 }
+
+== should print out the inner statements respecting blank lines, but not allowing consequtive blank lines ==
+{
+    a;
+    b;
+
+    c
+      && d;
+    d;
+
+    e;
+}
+
+[expect]
+{
+    a;
+    b;
+
+    c && d;
+    d;
+
+    e;
+}
