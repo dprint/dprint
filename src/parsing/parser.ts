@@ -1,8 +1,7 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText } from "../configuration";
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
-import { assertNever, removeStringIndentation, isPrintItemIterator } from "../utils";
-import { throwError } from "../../dist/utils";
+import { assertNever, removeStringIndentation, isPrintItemIterator, throwError } from "../utils";
 
 class Bag {
     private readonly bag = new Map<string, object>();

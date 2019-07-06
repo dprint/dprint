@@ -4,6 +4,9 @@
   "version": "0.0.1",
   "description": "Prints TypeScript code with the formatting I want.",
   "main": "dist/index.js",
+  "bin": {
+    "dprint": "dist/cli/cli.js"
+  },
   "scripts": {
     "build": "rimraf dist && tsc --project tsconfig.json",
     "generate-config-from-schema": "ts-node --compiler ttypescript --transpile-only scripts/generateConfigFromSchema",
@@ -28,7 +31,8 @@
     "@babel/core": "^7.4.5",
     "@babel/parser": "^7.4.5",
     "@babel/preset-typescript": "^7.3.3",
-    "globby": "^9.2.0"
+    "globby": "^9.2.0",
+    "minimist": "^1.2.0"
   },
   "devDependencies": {
     "@types/babel__core": "^7.1.2",
@@ -37,6 +41,7 @@
     "@types/babel__traverse": "^7.0.7",
     "@types/chai": "^4.1.7",
     "@types/globby": "^9.1.0",
+    "@types/minimist": "^1.2.0",
     "@types/mocha": "^5.2.7",
     "@types/node": "^12.0.8",
     "@types/ts-nameof": "^2.0.0",
