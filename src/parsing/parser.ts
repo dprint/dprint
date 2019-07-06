@@ -207,8 +207,12 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
     }
 }
 
-function parseIdentifier(node: babel.Identifier) {
-    return node.name;
+function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIterator {
+    yield node.name;
+    if (node.optional)
+        yield "?";
+    if (node.typeAnnotation)
+        yield parseNode(node.typeAnnotation, context);
 }
 
 /* declarations */

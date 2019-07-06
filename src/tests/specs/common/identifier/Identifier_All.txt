@@ -1,0 +1,26 @@
+== should parse ==
+
+function test(test) {
+}
+
+[expect]
+function test(test) {
+}
+
+== should parse with type annotation ==
+
+function test(test : string) {
+}
+
+[expect]
+function test(test: string) {
+}
+
+== should parse when optional ==
+
+function test(test ? : string) {
+}
+
+[expect]
+function test(test?: string) {
+}
