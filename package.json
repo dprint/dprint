@@ -10,6 +10,7 @@
   "scripts": {
     "build": "rimraf dist && tsc --project tsconfig.json",
     "generate-config-from-schema": "ts-node --compiler ttypescript --transpile-only scripts/generateConfigFromSchema",
+    "format": "ts-node --compiler ttypescript --transpile-only src/cli/cli.ts \"src/**/*.ts\"",
     "type-check": "tsc --project tsconfig.json --noEmit",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
