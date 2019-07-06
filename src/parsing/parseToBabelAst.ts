@@ -8,7 +8,9 @@ export function parseToBabelAst(fileName: string, code: string) {
             "jsx",
             "typescript",
             "bigInt",
-            "optionalChaining"
+            "optionalChaining",
+            "exportDefaultFrom",
+            "exportNamespaceFrom"
         ]
     });
 }

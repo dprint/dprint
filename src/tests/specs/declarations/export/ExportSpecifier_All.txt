@@ -1,0 +1,30 @@
+~~ lineWidth: 80 ~~
+== should format all ==
+export { n1, n2    as
+ alias } from "test";
+
+[expect]
+export { n1, n2 as alias } from "test";
+
+== should always do a newline as a unit ==
+export { someAlias, gettingLongerSoThat, thisGoesOverThe80Limit, butOnly as insideTheAlias } from "test";
+
+[expect]
+export { someAlias, gettingLongerSoThat, thisGoesOverThe80Limit,
+    butOnly as insideTheAlias } from "test";
+
+== should not break up on `as` when really long on the same line ==
+export { loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias } from "test";
+
+[expect]
+export { loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias } from "test";
+
+== should not break up on `as` when really long on a different line ==
+export {
+    loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias
+} from "test";
+
+[expect]
+export {
+    loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias
+} from "test";

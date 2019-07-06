@@ -1,0 +1,5 @@
+== should format when using a namespace export ==
+export  *  from   "test"  ;
+
+[expect]
+export * from "test";

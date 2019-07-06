@@ -30,6 +30,7 @@ interface Context {
     /** This is used to queue up the next item on the parent stack. */
     currentNode: babel.Node;
     parentStack: babel.Node[];
+    parent: babel.Node;
     newLineKind: "\r\n" | "\n";
     bag: Bag;
 }
@@ -43,6 +44,7 @@ export function parseFile(file: babel.File, fileText: string, options: ResolvedC
         handledComments: new Set<babel.Comment>(),
         currentNode: file,
         parentStack: [],
+        parent: file,
         newLineKind: options.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newLineKind,
         bag: new Bag()
     };
@@ -70,7 +72,9 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "BlockStatement": parseBlockStatement,
     "Identifier": parseIdentifier,
     /* declarations */
+    "ExportAllDeclaration": parseExportAllDeclaration,
     "ExportNamedDeclaration": parseExportNamedDeclaration,
+    "ExportDefaultDeclaration": parseExportDefaultDeclaration,
     "FunctionDeclaration": parseFunctionDeclaration,
     "TSTypeAliasDeclaration": parseTypeAlias,
     "ImportDeclaration": parseImportDeclaration,
@@ -94,6 +98,10 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
     "ImportNamespaceSpecifier": parseImportNamespaceSpecifier,
     "ImportSpecifier": parseImportSpecifier,
+    /* exports */
+    "ExportDefaultSpecifier": parseExportDefaultSpecifier,
+    "ExportNamespaceSpecifier": parseExportNamespaceSpecifier,
+    "ExportSpecifier": parseExportSpecifier,
     /* literals */
     "BigIntLiteral": parseBigIntLiteral,
     "BooleanLiteral": parseBooleanLiteral,
@@ -137,6 +145,7 @@ function parseNode(node: babel.Node | null, context: Context): Group {
     }
 
     context.parentStack.push(context.currentNode);
+    context.parent = context.currentNode;
     context.currentNode = node;
 
     const parseFunc = parseObj[node!.type] || parseUnknownNode;
@@ -153,6 +162,7 @@ function parseNode(node: babel.Node | null, context: Context): Group {
 
         // replace the past item after iterating
         context.currentNode = context.parentStack.pop()!;
+        context.parent = context.parentStack[context.parentStack.length - 1];
     }
 }
 
@@ -213,6 +223,9 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
         yield "?";
     if (node.typeAnnotation)
         yield parseNode(node.typeAnnotation, context);
+
+    if (context.parent.type === "ExportDefaultDeclaration")
+        yield ";"; // todo: configuration
 }
 
 /* declarations */
@@ -222,7 +235,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
     const { specifiers } = node;
     const defaultImport = specifiers.find(s => s.type === "ImportDefaultSpecifier");
     const namespaceImport = specifiers.find(s => s.type === "ImportNamespaceSpecifier");
-    const namedImports = specifiers.filter(s => s.type === "ImportSpecifier");
+    const namedImports = specifiers.filter(s => s.type === "ImportSpecifier") as babel.ImportSpecifier[];
 
     if (defaultImport) {
         yield parseNode(defaultImport, context);
@@ -232,7 +245,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
     if (namespaceImport)
         yield parseNode(namespaceImport, context);
 
-    yield* parseNamedImports();
+    yield* parseNamedImportsOrExports(node, namedImports, context);
 
     if (defaultImport != null || namespaceImport != null || namedImports.length > 0)
         yield " from ";
@@ -241,65 +254,44 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
 
     if (context.config["importDeclaration.semiColon"])
         yield ";";
-
-    function* parseNamedImports(): PrintItemIterator {
-        if (namedImports.length === 0)
-            return;
-
-        const useNewLines = getUseNewLines();
-        const braceSeparator = useNewLines ? context.newLineKind : " ";
-
-        yield "{";
-        yield braceSeparator;
-
-        if (useNewLines)
-            yield* withIndent(parseSpecifiers);
-        else
-            yield* newlineGroup(withHangingIndent(parseSpecifiers));
-
-        yield braceSeparator;
-        yield "}";
-
-        function getUseNewLines() {
-            if (namedImports.length === 1 && namedImports[0].loc!.start.line !== node.loc!.start.line)
-                return true;
-            return nodeHelpers.getUseNewLinesForNodes(namedImports);
-        }
-
-        function* parseSpecifiers(): PrintItemIterator {
-            for (let i = 0; i < namedImports.length; i++) {
-                if (i > 0) {
-                    yield ",";
-                    yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
-                }
-                yield parseNode(namedImports[i], context);
-            }
-        }
-    }
 }
 
-function parseImportDefaultSpecifier(specifier: babel.ImportDefaultSpecifier, context: Context) {
-    return parseNode(specifier.local, context);
-}
-
-function* parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifier, context: Context): PrintItemIterator {
-    yield "* as ";
-    yield parseNode(specifier.local, context);
-}
-
-function* parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): PrintItemIterator {
-    if (specifier.imported.start === specifier.local.start) {
-        yield parseNode(specifier.imported, context)
-        return;
-    }
-
-    yield parseNode(specifier.imported, context);
-    yield " as ";
-    yield parseNode(specifier.local, context);
+function* parseExportAllDeclaration(node: babel.ExportAllDeclaration, context: Context): PrintItemIterator {
+    yield "export * from ";
+    yield parseNode(node.source, context);
+    yield ";"; // todo: configuration
 }
 
 function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context): PrintItemIterator {
+    const { specifiers } = node;
+    const defaultExport = specifiers.find(s => s.type === "ExportDefaultSpecifier");
+    const namespaceExport = specifiers.find(s => s.type === "ExportNamespaceSpecifier");
+    const namedExports = specifiers.filter(s => s.type === "ExportSpecifier") as babel.ExportSpecifier[];
+
     yield "export ";
+
+    if (node.declaration)
+        yield parseNode(node.declaration, context);
+    else if (defaultExport)
+        yield parseNode(defaultExport, context);
+    else if (namedExports.length > 0)
+        yield* parseNamedImportsOrExports(node, namedExports, context);
+    else if (namespaceExport)
+        yield parseNode(namespaceExport, context);
+    else
+        yield "{}";
+
+    if (node.source) {
+        yield " from ";
+        yield parseNode(node.source, context);
+    }
+
+    if (node.declaration == null)
+        yield ";"; // todo: configuration
+}
+
+function* parseExportDefaultDeclaration(node: babel.ExportDefaultDeclaration, context: Context): PrintItemIterator {
+    yield "export default ";
     yield parseNode(node.declaration, context);
 }
 
@@ -677,7 +669,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 /* expressions */
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
-    const wasLastSame = context.parentStack[context.parentStack.length - 1].type === node.type;
+    const wasLastSame = context.parent.type === node.type;
     if (wasLastSame)
         yield* parseInner();
     else
@@ -715,6 +707,51 @@ function* parseYieldExpression(node: babel.YieldExpression, context: Context): P
         yield "*";
     yield " ";
     yield* withHangingIndent(parseNode(node.argument, context));
+}
+
+/* imports */
+
+function parseImportDefaultSpecifier(specifier: babel.ImportDefaultSpecifier, context: Context) {
+    return parseNode(specifier.local, context);
+}
+
+function* parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifier, context: Context): PrintItemIterator {
+    yield "* as ";
+    yield parseNode(specifier.local, context);
+}
+
+function* parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): PrintItemIterator {
+    if (specifier.imported.start === specifier.local.start) {
+        yield parseNode(specifier.imported, context)
+        return;
+    }
+
+    yield parseNode(specifier.imported, context);
+    yield " as ";
+    yield parseNode(specifier.local, context);
+}
+
+/* exports */
+
+function* parseExportDefaultSpecifier(node: babel.ExportDefaultSpecifier, context: Context): PrintItemIterator {
+    yield "default ";
+    yield parseNode(node.exported, context);
+}
+
+function* parseExportNamespaceSpecifier(node: babel.ExportNamespaceSpecifier, context: Context): PrintItemIterator {
+    yield "* as ";
+    yield parseNode(node.exported, context);
+}
+
+function* parseExportSpecifier(specifier: babel.ExportSpecifier, context: Context): PrintItemIterator {
+    if (specifier.local.start === specifier.exported.start) {
+        yield parseNode(specifier.local, context)
+        return;
+    }
+
+    yield parseNode(specifier.local, context);
+    yield " as ";
+    yield parseNode(specifier.exported, context);
 }
 
 /* literals */
@@ -846,6 +883,45 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
                 yield ",";
                 yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
             }
+        }
+    }
+}
+
+function* parseNamedImportsOrExports(
+    parentDeclaration: babel.Node,
+    namedImportsOrExports: (babel.ImportSpecifier | babel.ExportSpecifier)[],
+    context: Context
+): PrintItemIterator {
+    if (namedImportsOrExports.length === 0)
+        return;
+
+    const useNewLines = getUseNewLines();
+    const braceSeparator = useNewLines ? context.newLineKind : " ";
+
+    yield "{";
+    yield braceSeparator;
+
+    if (useNewLines)
+        yield* withIndent(parseSpecifiers);
+    else
+        yield* newlineGroup(withHangingIndent(parseSpecifiers));
+
+    yield braceSeparator;
+    yield "}";
+
+    function getUseNewLines() {
+        if (namedImportsOrExports.length === 1 && namedImportsOrExports[0].loc!.start.line !== parentDeclaration.loc!.start.line)
+            return true;
+        return nodeHelpers.getUseNewLinesForNodes(namedImportsOrExports);
+    }
+
+    function* parseSpecifiers(): PrintItemIterator {
+        for (let i = 0; i < namedImportsOrExports.length; i++) {
+            if (i > 0) {
+                yield ",";
+                yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
+            }
+            yield parseNode(namedImportsOrExports[i], context);
         }
     }
 }
