@@ -835,16 +835,8 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
 
     const statements = block.body;
     for (const statement of statements) {
-        if (lastNode != null) {
-            if (nodeHelpers.hasLeadingCommentOnDifferentLine(statement)) {
-                yield context.newLineKind;
-
-                const leadingComments = statement.leadingComments!;
-                const lastComment = leadingComments[leadingComments.length - 1];
-                if (statement.loc!.start.line - 1 > lastComment.loc!.end.line)
-                    yield context.newLineKind;
-            }
-            else if (nodeHelpers.hasBody(lastNode) || nodeHelpers.hasBody(statement)) {
+        if (lastNode != null && !nodeHelpers.hasLeadingCommentOnDifferentLine(statement)) {
+            if (nodeHelpers.hasBody(lastNode) || nodeHelpers.hasBody(statement)) {
                 yield context.newLineKind;
                 yield context.newLineKind;
             }
@@ -970,6 +962,12 @@ function* parseLeadingComments(node: babel.Node, context: Context) {
         return;
 
     yield* parseCommentCollection(node.leadingComments, undefined, context)
+
+    const lastComment = node.leadingComments[node.leadingComments.length - 1];
+    if (lastComment != null && node.loc!.start.line - 1 > lastComment.loc!.end.line) {
+        yield context.newLineKind;
+        yield context.newLineKind;
+    }
 }
 
 function* parseTrailingComments(node: babel.Node, context: Context) {
