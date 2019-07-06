@@ -3,7 +3,7 @@ import { Configuration } from "../configuration";
 
 const defaultFileName = "dprint.config";
 
-export async function resolveConfig(filePath: string | undefined, environment: Environment): Promise<Configuration> {
+export async function resolveConfigFile(filePath: string | undefined, environment: Environment): Promise<Configuration> {
     const resolvedFilePath = environment.resolvePath(filePath || defaultFileName);
     const fileText = await getFileText();
 

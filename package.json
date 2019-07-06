@@ -31,7 +31,7 @@
     "@babel/core": "^7.4.5",
     "@babel/parser": "^7.4.5",
     "@babel/preset-typescript": "^7.3.3",
-    "globby": "^9.2.0",
+    "globby": "^10.0.1",
     "minimist": "^1.2.0"
   },
   "devDependencies": {

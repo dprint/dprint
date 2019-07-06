@@ -1,12 +1,12 @@
 import { expect } from "chai";
-import { resolveConfig } from "../../cli";
+import { resolveConfigFile } from "../../cli";
 import { TestEnvironment } from "./TestEnvironment";
 
-describe(nameof(resolveConfig), () => {
+describe(nameof(resolveConfigFile), () => {
     async function getError(filePath: string | undefined, environment: TestEnvironment) {
         let foundErr: { message: string; } | undefined;
         try {
-            await resolveConfig(filePath, environment);
+            await resolveConfigFile(filePath, environment);
         } catch (err) {
             foundErr = err;
         }
@@ -36,7 +36,7 @@ describe(nameof(resolveConfig), () => {
     it("should get the default configuration file when it exists", async () => {
         const environment = new TestEnvironment();
         environment.addFile("/dprint.config", `{ "semiColons": true }`);
-        const config = await resolveConfig(undefined, environment);
+        const config = await resolveConfigFile(undefined, environment);
 
         expect(config).to.deep.equal({ semiColons: true });
     });
@@ -44,7 +44,7 @@ describe(nameof(resolveConfig), () => {
     it("should get the specified configuration file when it exists", async () => {
         const environment = new TestEnvironment();
         environment.addFile("/file.config", `{ "semiColons": true }`);
-        const config = await resolveConfig("file.config", environment);
+        const config = await resolveConfigFile("file.config", environment);
 
         expect(config).to.deep.equal({ semiColons: true });
     });

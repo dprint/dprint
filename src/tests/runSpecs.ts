@@ -4,6 +4,7 @@ import * as path from "path";
 import globby from "globby";
 import { formatFileText } from "../formatFileText";
 import { parseSpecs, Spec } from "./specParser";
+import { resolveConfiguration } from "../configuration";
 
 const rootDir = path.join(__dirname, "../../");
 const specsDir = path.resolve(path.join(rootDir, "src/tests/specs"))
@@ -31,7 +32,11 @@ describe("specs", () => {
     }
 
     function runTest(spec: Spec) {
-        const actualText = formatFileText(spec.filePath, spec.fileText, spec.config);
+        const resolvedConfig = resolveConfiguration(spec.config);
+        if (resolvedConfig.diagnostics.length > 0)
+            throw new Error(JSON.stringify(resolvedConfig.diagnostics));
+
+        const actualText = formatFileText(spec.filePath, spec.fileText, resolvedConfig.config);
         if (!spec.expectedText.endsWith("\n"))
             throw new Error(`${spec.message}: The expected text did not end with a newline.`);
         if (spec.expectedText.endsWith("\n\n"))

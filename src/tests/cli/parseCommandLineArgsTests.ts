@@ -28,4 +28,28 @@ describe(nameof(parseCommandLineArgs), () => {
     it("should parse the --version option", () => {
         doTest(["--version"], { showVersion: true });
     });
+
+    it("should parse the -c option", () => {
+        doTest(["-c", "file.config"], { config: "file.config" });
+    });
+
+    it("should parse the --config option", () => {
+        doTest(["--config", "file.config"], { config: "file.config" });
+    });
+
+    it("should parse file globs specified with a leading config", () => {
+        doTest(["--config", "file.config", "file.ts", "file2.ts"], { config: "file.config", filePatterns: ["file.ts", "file2.ts"] });
+    });
+
+    it("should parse file globs specified with a leading help", () => {
+        doTest(["--help", "file.ts", "file2.ts"], { showHelp: true, filePatterns: ["file.ts", "file2.ts"] });
+    });
+
+    it("should parse file globs specified with a leading version", () => {
+        doTest(["--version", "file.ts", "file2.ts"], { showVersion: true, filePatterns: ["file.ts", "file2.ts"] });
+    });
+
+    it("should parse file globs specified with a leading outputFilePaths", () => {
+        doTest(["--outputFilePaths", "file.ts", "file2.ts"], { outputFilePaths: true, filePatterns: ["file.ts", "file2.ts"] });
+    });
 });

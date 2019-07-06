@@ -1,31 +1,18 @@
-import { parseToBabelAst, parseFile, printParseTree } from "./parsing";
+import { parseToBabelAst, parseFile } from "./parsing";
 import { print } from "./printing";
-import { resolveConfiguration, Configuration, resolveNewLineKindFromText } from "./configuration";
+import { resolveNewLineKindFromText, ResolvedConfiguration } from "./configuration";
 
-export function formatFileText(filePath: string, fileText: string, configuration?: Configuration) {
-    // todo: use resolved configuration here
-    configuration = configuration || {
-        newLineKind: "lf",
-        semiColons: true,
-        singleQuotes: false,
-        lineWidth: 80
-    };
-
+export function formatFileText(filePath: string, fileText: string, configuration: ResolvedConfiguration) {
     const babelAst = parseToBabelAst(filePath, fileText);
-    const configurationResult = resolveConfiguration(configuration);
-    const printItem = parseFile(babelAst, fileText, configurationResult.config);
-
-    // todo: remove this...
-    if (configurationResult.diagnostics.length > 0)
-        throw configurationResult.diagnostics;
+    const printItem = parseFile(babelAst, fileText, configuration);
 
     //console.log(printParseTree(printItem));
     //throw "STOP";
 
     return print(printItem, {
-        maxWidth: configurationResult.config.lineWidth,
-        indentSize: configurationResult.config.indentSize,
-        newLineKind: resolveNewLineKindFromText(fileText),
-        useTabs: configurationResult.config.useTabs
+        maxWidth: configuration.lineWidth,
+        indentSize: configuration.indentSize,
+        newLineKind: configuration.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : configuration.newLineKind,
+        useTabs: configuration.useTabs
     });
 }

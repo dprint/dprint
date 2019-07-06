@@ -2,4 +2,8 @@
 import { runCli } from "./runCli";
 import { CliEnvironment } from "./environment";
 
-runCli(process.argv.slice(2), new CliEnvironment());
+const environment = new CliEnvironment();
+
+runCli(process.argv.slice(2), environment).catch(err => {
+    environment.error(err);
+});

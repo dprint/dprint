@@ -2,10 +2,20 @@ import minimist from "minimist";
 import { CommandLineOptions } from "./CommandLineOptions";
 
 export function parseCommandLineArgs(args: string[]): CommandLineOptions {
-    const argv = minimist(args, { boolean: true });
+    const argv = minimist(args, {
+        string: ["config"],
+        boolean: ["help", "version", "outputFilePaths"]
+    });
 
     return {
-        showHelp: argv.hasOwnProperty("h") || argv.hasOwnProperty("help"),
-        showVersion: argv.hasOwnProperty("v") || argv.hasOwnProperty("version"),
+        config: getConfigFilePath(),
+        showHelp: argv["h"] || argv["help"],
+        showVersion: argv["v"] || argv["version"],
+        outputFilePaths: argv["outputFilePaths"],
+        filePatterns: argv._
     };
+
+    function getConfigFilePath() {
+        return argv["c"] || argv["config"] || undefined as string | undefined;
+    }
 }

@@ -3,15 +3,44 @@ import { getHelpText } from "./getHelpText";
 import { getPackageVersion } from "./getPackageVersion";
 import { CommandLineOptions } from "./CommandLineOptions";
 import { Environment } from "./environment";
+import { resolveConfigFile } from "./resolveConfigFile";
+import { resolveConfiguration } from "../configuration";
+import { formatFileText } from "../formatFileText";
 
-export function runCli(args: string[], environment: Environment) {
+export async function runCli(args: string[], environment: Environment) {
     const options = parseCommandLineArgs(args);
-    handleCommandLineOptions(options, environment);
+    await runCliWithOptions(options, environment);
 }
 
-export function handleCommandLineOptions(options: CommandLineOptions, environment: Environment) {
+export async function runCliWithOptions(options: CommandLineOptions, environment: Environment) {
     if (options.showHelp)
         environment.log(getHelpText());
     else if (options.showVersion)
         environment.log(getPackageVersion());
+
+    const unresolvedConfiguration = await resolveConfigFile(options.config, environment);
+    const configResult = resolveConfiguration(unresolvedConfiguration);
+    const { config } = configResult;
+
+    for (const diagnostic of configResult.diagnostics)
+        environment.warn(diagnostic.message);
+
+    const filePaths = await environment.glob(options.filePatterns);
+
+    if (options.outputFilePaths) {
+        for (const filePath of filePaths)
+            environment.log(filePath);
+    }
+
+    const promises: Promise<void>[] = [];
+
+    for (const filePath of filePaths) {
+        const promise = environment.readFile(filePath).then(fileText => {
+            const result = formatFileText(filePath, fileText, config);
+            return environment.writeFile(filePath, result);
+        });
+        promises.push(promise);
+    }
+
+    return Promise.all(promises);
 }
