@@ -48,3 +48,11 @@ interface A {
 // testing
 interface B {
 }
+
+== should use newlines when the comment block is on a different line ==
+/* test */
+const t;
+
+[expect]
+/* test */
+const t;

@@ -852,6 +852,12 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
         lastNode = statement;
     }
 
+    // get the trailing comments on separate lines of the last node
+    if (lastNode != null && lastNode.trailingComments != null) {
+        // treat these as if they were leading comments, so don't provide the last node
+        yield* parseCommentCollection(lastNode.trailingComments, undefined, context);
+    }
+
     if (block.innerComments && block.innerComments.length > 0) {
         if (lastNode != null)
             yield context.newLineKind;
@@ -960,13 +966,16 @@ function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItem
 function* parseLeadingComments(node: babel.Node, context: Context) {
     if (!node.leadingComments)
         return;
+    const lastComment = node.leadingComments[node.leadingComments.length - 1];
+    const hasHandled = lastComment == null || context.handledComments.has(lastComment);
 
     yield* parseCommentCollection(node.leadingComments, undefined, context)
 
-    const lastComment = node.leadingComments[node.leadingComments.length - 1];
-    if (lastComment != null && node.loc!.start.line - 1 > lastComment.loc!.end.line) {
+    if (lastComment != null && !hasHandled && node.loc!.start.line > lastComment.loc!.end.line) {
         yield context.newLineKind;
-        yield context.newLineKind;
+
+        if (node.loc!.start.line - 1 > lastComment.loc!.end.line)
+            yield context.newLineKind;
     }
 }
 
@@ -974,7 +983,16 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
     if (!node.trailingComments)
         return;
 
-    yield* parseCommentCollection(node.trailingComments, node, context)
+    // use the roslyn definition of trailing comments
+    const trailingCommentsOnSameLine = node.trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
+    yield* parseCommentCollection(trailingCommentsOnSameLine, node, context)
+
+    const nextComment = node.trailingComments[trailingCommentsOnSameLine.length];
+    if (nextComment != null && !context.handledComments.has(nextComment)) {
+        yield context.newLineKind;
+        if (nextComment.loc!.start.line > node.loc!.end.line + 1)
+            yield context.newLineKind;
+    }
 }
 
 function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
