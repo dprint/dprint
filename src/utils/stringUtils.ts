@@ -1,3 +1,5 @@
+// todo: remove?
+
 export function removeStringIndentation(str: string, opts: { isInStringAtPos: (pos: number) => boolean; indentSizeInSpaces: number; }) {
     const { isInStringAtPos, indentSizeInSpaces } = opts;
     const startPositions: number[] = [];

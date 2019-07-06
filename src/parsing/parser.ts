@@ -1,7 +1,7 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText } from "../configuration";
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
-import { assertNever, removeStringIndentation, isPrintItemIterator, throwError } from "../utils";
+import { assertNever, isPrintItemIterator, throwError } from "../utils";
 import * as nodeHelpers from "./nodeHelpers";
 
 class Bag {
@@ -744,10 +744,7 @@ function parseUnknownNode(node: babel.Node, context: Context): Unknown {
 
     return {
         kind: PrintItemKind.Unknown,
-        text: removeStringIndentation(nodeText, {
-            indentSizeInSpaces: 2,
-            isInStringAtPos: () => false // todo: actually check if in a string...
-        })
+        text: nodeText
     };
 }
 
