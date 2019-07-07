@@ -10,7 +10,8 @@ export function parseToBabelAst(fileName: string, code: string) {
             "bigInt",
             "optionalChaining",
             "exportDefaultFrom",
-            "exportNamespaceFrom"
+            "exportNamespaceFrom",
+            "decorators-legacy"
         ]
     });
 }

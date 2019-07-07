@@ -102,3 +102,60 @@ export class Test
     implements Other
 {
 }
+
+== should print with type parameters ==
+export class Test< T  > {
+}
+
+[expect]
+export class Test<T> {
+}
+
+== should print with type parameters hanging when they go over the limit ==
+export class Test<TestingThisOut, WithVeryLong, TypeParameterList> {
+}
+
+[expect]
+export class Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+{
+}
+
+== should print with type parameters hanging and extends when they go over the limit ==
+export class Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
+}
+
+[expect]
+export class Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+    extends Test
+{
+}
+
+== should print with type parameters on multiple lines ==
+export class Test<TestingThisOut,
+    WithVeryLong, TypeParameterList> {
+}
+
+[expect]
+export class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> {
+}
+
+== should print with type parameters on multiple lines and extends ==
+export class Test<TestingThisOut,
+    WithVeryLong, TypeParameterList> extends Test {
+}
+
+[expect]
+export class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+>
+    extends Test
+{
+}

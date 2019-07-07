@@ -44,11 +44,11 @@ export function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgn
     return getLeadingCommentOnDifferentLine(node, commentsToIgnore) != null;
 }
 
-export function useNewLinesForParametersOrArguments(params: babel.Node[]) {
-    return getUseNewLinesForNodes(params);
+export function useNewlinesForParametersOrArguments(params: babel.Node[]) {
+    return getUseNewlinesForNodes(params);
 }
 
-export function getUseNewLinesForNodes(nodes: babel.Node[]) {
+export function getUseNewlinesForNodes(nodes: babel.Node[]) {
     if (nodes.length <= 1)
         return false;
     if (nodes[0].loc!.start.line === nodes[1].loc!.start.line)

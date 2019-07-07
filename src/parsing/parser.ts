@@ -2,7 +2,9 @@ import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
 import { assertNever, isPrintItemIterator, throwError } from "../utils";
+import * as conditions from "./conditions";
 import * as nodeHelpers from "./nodeHelpers";
+import * as infoChecks from "./infoChecks";
 
 class Bag {
     private readonly bag = new Map<string, object>();
@@ -18,13 +20,15 @@ class Bag {
 }
 
 const BAG_KEYS = {
-    IfStatementLastBraceCondition: "ifStatementLastBraceCondition"
+    IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
+    ClassDeclarationStartHeaderInfo: "classDeclarationStartHeaderInfo"
 } as const;
 
-interface Context {
+export interface Context {
     file: babel.File,
     fileText: string;
     log: (message: string) => void;
+    warn: (message: string) => void;
     config: ResolvedConfiguration;
     handledComments: Set<babel.Comment>;
     /** This is used to queue up the next item on the parent stack. */
@@ -39,7 +43,8 @@ export function parseFile(file: babel.File, fileText: string, options: ResolvedC
     const context: Context = {
         file,
         fileText,
-        log: message => console.log("[dprint]: " + message),
+        log: message => console.log("[dprint]: " + message), // todo: use environment?
+        warn: message => console.warn("[dprint]: " + message),
         config: options,
         handledComments: new Set<babel.Comment>(),
         currentNode: file,
@@ -77,8 +82,10 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ExportNamedDeclaration": parseExportNamedDeclaration,
     "ExportDefaultDeclaration": parseExportDefaultDeclaration,
     "FunctionDeclaration": parseFunctionDeclaration,
-    "TSTypeAliasDeclaration": parseTypeAlias,
     "ImportDeclaration": parseImportDeclaration,
+    "TSTypeAliasDeclaration": parseTypeAlias,
+    /* class */
+    "ClassBody": parseClassBody,
     /* statements */
     "Directive": parseDirective,
     "DoWhileStatement": parseDoWhileStatement,
@@ -198,7 +205,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
         kind: PrintItemKind.Condition,
         name: "endStatementsNewLine",
         condition: conditionContext => {
-            return !areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
+            return !infoChecks.areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
         },
         true: [context.newLineKind]
     }
@@ -232,13 +239,27 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
 /* declarations */
 
 function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context): PrintItemIterator {
-    yield* withHangingIndent(parseHeader());
+    yield* parseClassDecorators();
+    yield* parseHeader();
     yield parseNode(node.body, context);
+
+    function* parseClassDecorators(): PrintItemIterator {
+        if (context.parent.type === "ExportNamedDeclaration" || context.parent.type === "ExportDefaultDeclaration")
+            return;
+
+        // it is a class, but reuse this
+        yield* parseDecoratorsIfClass(node, context);
+    }
 
     function* parseHeader(): PrintItemIterator {
         const startHeaderInfo = createInfo("startHeader");
-        const afterExtendsInfo = createInfo("afterExtends");
         yield startHeaderInfo;
+
+        context.bag.put(BAG_KEYS.ClassDeclarationStartHeaderInfo, startHeaderInfo);
+
+        if (node.decorators && node.decorators.length > 0) {
+
+        }
 
         if (node.declare)
             yield "declare ";
@@ -251,29 +272,30 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
             yield parseNode(node.id, context);
         }
 
-        if (node.superClass) {
-            yield Behaviour.SpaceOrNewLine;
-            yield "extends ";
-            yield* withHangingIndent(parseNode(node.superClass, context));
+        if (node.typeParameters)
+            yield parseNode(node.typeParameters, context);
+
+        yield* withHangingIndent(parseExtendsAndImplements());
+
+        function* parseExtendsAndImplements(): PrintItemIterator {
+            if (node.superClass) {
+                const beforeExtendsInfo = createInfo("beforeExtends");
+                yield beforeExtendsInfo;
+
+                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo, beforeExtendsInfo);
+                yield "extends ";
+                yield* withHangingIndent(parseNode(node.superClass, context));
+            }
+
+            if (node.implements && node.implements.length > 0) {
+                const beforeImplementsInfo = createInfo("beforeImplements");
+                yield beforeImplementsInfo;
+
+                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo, beforeImplementsInfo);
+                yield "implements ";
+                yield* newlineGroup(withHangingIndent(parseImplements()));
+            }
         }
-
-        yield afterExtendsInfo;
-
-        if (node.implements && node.implements.length > 0) {
-            yield {
-                name: "implementsNewLineCondition",
-                kind: PrintItemKind.Condition,
-                condition: conditionContext => {
-                    return isMultipleLines(startHeaderInfo, afterExtendsInfo, conditionContext, false);
-                },
-                true: [context.newLineKind],
-                false: [Behaviour.SpaceOrNewLine]
-            };
-            yield "implements ";
-            yield* newlineGroup(withHangingIndent(parseImplements()));
-        }
-
-        yield " ";
     }
 
     function* parseImplements(): PrintItemIterator {
@@ -302,6 +324,7 @@ function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, contex
     const namespaceExport = specifiers.find(s => s.type === "ExportNamespaceSpecifier");
     const namedExports = specifiers.filter(s => s.type === "ExportSpecifier") as babel.ExportSpecifier[];
 
+    yield* parseDecoratorsIfClass(node.declaration, context);
     yield "export ";
 
     if (node.declaration)
@@ -325,6 +348,7 @@ function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, contex
 }
 
 function* parseExportDefaultDeclaration(node: babel.ExportDefaultDeclaration, context: Context): PrintItemIterator {
+    yield* parseDecoratorsIfClass(node.declaration, context);
     yield "export default ";
     yield parseNode(node.declaration, context);
 }
@@ -347,7 +371,7 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
             yield " ";
             yield parseNode(node.id, context);
         }
-        if (node.typeParameters && node.typeParameters.type !== "Noop")
+        if (node.typeParameters)
             yield parseNode(node.typeParameters, context);
 
         yield* parseParametersOrArguments(node.params, context);
@@ -356,7 +380,7 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
             yield ": ";
             yield parseNode(node.returnType.typeAnnotation, context);
         }
-        yield newLineIfHangingSpaceOtherwise(context, functionHeaderStartInfo);
+        yield conditions.newlineIfHangingSpaceOtherwise(context, functionHeaderStartInfo);
     }
 }
 
@@ -390,7 +414,7 @@ function parseTypeParameterDeclaration(
     declaration: babel.TypeParameterDeclaration | babel.TSTypeParameterDeclaration | babel.TSTypeParameterInstantiation | babel.TypeParameterInstantiation,
     context: Context
 ): Group {
-    const useNewLines = nodeHelpers.getUseNewLinesForNodes(declaration.params);
+    const useNewLines = nodeHelpers.getUseNewlinesForNodes(declaration.params);
     return {
         kind: PrintItemKind.Group,
         items: newlineGroup(parseItems())
@@ -414,7 +438,10 @@ function parseTypeParameterDeclaration(
             yield parseNode(param, context);
             if (i < params.length - 1) {
                 yield ",";
-                yield Behaviour.SpaceOrNewLine;
+                if (useNewLines)
+                    yield context.newLineKind;
+                else
+                    yield Behaviour.SpaceOrNewLine;
             }
         }
     }
@@ -432,6 +459,30 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 
     if (context.config["typeAlias.semiColon"])
         yield ";";
+}
+
+/* class */
+
+function* parseClassBody(node: babel.ClassBody, context: Context): PrintItemIterator {
+    const startHeaderInfo = context.bag.take(BAG_KEYS.ClassDeclarationStartHeaderInfo) as Info | undefined;
+
+    if (startHeaderInfo == null) {
+        context.warn("Class body could not find start header info.");
+        yield " ";
+    }
+    else {
+        yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
+    }
+
+    yield "{";
+
+    for (let i = 0; i < node.body.length; i++) {
+        yield context.newLineKind;
+        yield parseNode(node.body[i], context);
+    }
+
+    yield context.newLineKind;
+    yield "}";
 }
 
 /* statements */
@@ -633,15 +684,15 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 // writing an open brace might make the header hang, so assume it should
                 // not write the open brace until it's been resolved
                 return bodyRequiresBraces(bodyNode)
-                    || startHeaderInfo && endHeaderInfo && isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
-                    || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false)
+                    || startHeaderInfo && endHeaderInfo && infoChecks.isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
+                    || infoChecks.isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false)
                     || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
             }
             else {
                 return assertNever(useBraces);
             }
         },
-        true: [startHeaderInfo ? newLineIfHangingSpaceOtherwise(context, startHeaderInfo) : " ", "{"]
+        true: [startHeaderInfo ? conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo) : " ", "{"]
     };
 
     return {
@@ -678,7 +729,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 kind: PrintItemKind.Condition,
                 name: "closeBraceNewLine",
                 condition: conditionContext => {
-                    return !areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
+                    return !infoChecks.areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
                 },
                 true: [context.newLineKind]
             }, "}"]
@@ -874,7 +925,7 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Pri
 }
 
 function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIterator {
-    const useNewLines = nodeHelpers.getUseNewLinesForNodes(node.types);
+    const useNewLines = nodeHelpers.getUseNewlinesForNodes(node.types);
     yield* withHangingIndent(function*() {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
@@ -935,7 +986,7 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
 }
 
 function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
-    const useNewLines = nodeHelpers.useNewLinesForParametersOrArguments(params);
+    const useNewLines = nodeHelpers.useNewlinesForParametersOrArguments(params);
     yield* newlineGroup(parseItems());
 
     function* parseItems(): PrintItemIterator {
@@ -986,7 +1037,7 @@ function* parseNamedImportsOrExports(
     function getUseNewLines() {
         if (namedImportsOrExports.length === 1 && namedImportsOrExports[0].loc!.start.line !== parentDeclaration.loc!.start.line)
             return true;
-        return nodeHelpers.getUseNewLinesForNodes(namedImportsOrExports);
+        return nodeHelpers.getUseNewlinesForNodes(namedImportsOrExports);
     }
 
     function* parseSpecifiers(): PrintItemIterator {
@@ -1000,25 +1051,33 @@ function* parseNamedImportsOrExports(
     }
 }
 
-/* reusable conditions */
+/* helpers */
 
-function newLineIfHangingSpaceOtherwise(context: Context, info: Info): Condition {
-    return {
-        kind: PrintItemKind.Condition,
-        name: "newLineIfHangingSpaceOtherwise",
-        condition: conditionContext => {
-            const resolvedInfo = conditionContext.getResolvedInfo(info);
-            if (resolvedInfo == null)
-                return undefined;
-            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > resolvedInfo.lineStartIndentLevel;
-            return isHanging;
-        },
-        true: [context.newLineKind],
-        false: [" "]
-    }
+function* parseDecoratorsIfClass(declaration: babel.Node | undefined | null, context: Context): PrintItemIterator {
+    if (declaration == null || declaration.type !== "ClassDeclaration")
+        return;
+
+    if (declaration.decorators == null || declaration.decorators.length === 0)
+        return;
+
+    yield* parseDecorators(declaration.decorators, context);
+    yield context.newLineKind;
 }
 
-/* helpers */
+function* parseDecorators(decorators: babel.Decorator[], context: Context): PrintItemIterator {
+    const useNewlines = nodeHelpers.getUseNewlinesForNodes(decorators);
+
+    for (let i = 0; i < decorators.length; i++) {
+        if (i > 0) {
+            if (useNewlines)
+                yield context.newLineKind;
+            else
+                yield Behaviour.SpaceOrNewLine;
+        }
+
+        yield parseNode(decorators[i], context);
+    }
+}
 
 function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {
     yield* parseLeadingComments(node, context);
@@ -1157,25 +1216,6 @@ function* newlineGroup(item: Group | PrintItemIterator | (() => PrintItemIterato
     else
         yield item;
     yield Behaviour.FinishNewLineGroup;
-}
-
-function isMultipleLines(startInfo: Info, endInfo: Info, conditionContext: ResolveConditionContext, defaultValue: boolean) {
-    const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo);
-    const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
-    if (resolvedStartInfo == null || resolvedEndInfo == null)
-        return defaultValue;
-    return resolvedEndInfo.lineNumber > resolvedStartInfo.lineNumber;
-}
-
-function areInfoEqual(startInfo: Info, endInfo: Info, conditionContext: ResolveConditionContext, defaultValue: boolean) {
-    const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo);
-    const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
-
-    if (resolvedStartInfo == null || resolvedEndInfo == null)
-        return defaultValue;
-
-    return resolvedStartInfo.lineNumber === resolvedEndInfo.lineNumber
-        && resolvedStartInfo.columnNumber === resolvedEndInfo.columnNumber;
 }
 
 function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {

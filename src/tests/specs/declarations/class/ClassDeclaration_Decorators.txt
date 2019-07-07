@@ -1,0 +1,64 @@
+~~ lineWidth: 30 ~~
+== should print decorator ==
+@decorator
+class Test {
+}
+
+[expect]
+@decorator
+class Test {
+}
+
+== should print decorator with export keyword ==
+@decorator
+export class Test {
+}
+
+[expect]
+@decorator
+export class Test {
+}
+
+== should print decorator with export default ==
+@decorator
+export default class Test {
+}
+
+[expect]
+@decorator
+export default class Test {
+}
+
+== should print multiple decorators ==
+@dec     @dec2
+class Test {
+}
+
+[expect]
+@dec @dec2
+class Test {
+}
+
+== should print multiple decorators that go over the line width ==
+@decorator1 @decorator2 @decorator3
+class Test {
+}
+
+[expect]
+@decorator1 @decorator2
+@decorator3
+class Test {
+}
+
+== should use newlines if the first two decorators are on different lines ==
+@dec1
+@dec2 @dec3
+class Test {
+}
+
+[expect]
+@dec1
+@dec2
+@dec3
+class Test {
+}
