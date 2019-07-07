@@ -1,0 +1,35 @@
+~~ bracePosition: "currentLine", lineWidth: 40 ~~
+== should use the current line for the brace position ==
+if (true)
+{
+}
+else
+{
+}
+
+[expect]
+if (true) {
+}
+else {
+}
+
+== should use the current line for the brace position when hanging ==
+if (someCondition && otherConditionThatTakesItOver)
+{
+}
+else if (someCondition && otherConditionLong)
+{
+}
+else
+{
+}
+
+[expect]
+if (someCondition
+    && otherConditionThatTakesItOver) {
+}
+else if (someCondition
+    && otherConditionLong) {
+}
+else {
+}

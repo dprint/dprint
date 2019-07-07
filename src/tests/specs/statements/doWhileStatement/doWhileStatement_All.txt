@@ -10,4 +10,4 @@ while(true)
 do {
     a;
     b;
-} while(true);
+} while (true);

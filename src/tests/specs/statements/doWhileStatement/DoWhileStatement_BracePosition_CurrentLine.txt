@@ -1,0 +1,9 @@
+~~ bracePosition: "currentLine", lineWidth: 40 ~~
+== should use the current line for the brace position ==
+do
+{
+} while (true);
+
+[expect]
+do {
+} while (true);

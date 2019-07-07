@@ -49,7 +49,13 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "ifStatement.useBraces": getValue("ifStatement.useBraces", useBraces, ensureBraceUse),
         "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
         // bracePosition
-        "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition)
+        "catchClause.bracePosition": getValue("catchClause.bracePosition", bracePosition, ensureBracePosition),
+        "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition),
+        "doWhileStatement.bracePosition": getValue("doWhileStatement.bracePosition", bracePosition, ensureBracePosition),
+        "ifStatement.bracePosition": getValue("ifStatement.bracePosition", bracePosition, ensureBracePosition),
+        "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
+        "tryStatementFinally.bracePosition": getValue("tryStatementFinally.bracePosition", bracePosition, ensureBracePosition),
+        "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition)
     };
 
     addExcessPropertyDiagnostics();

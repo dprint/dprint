@@ -1,8 +1,7 @@
 == should output with catch clause ==
 try{
     a;
-}
-catch
+}catch
 {
     b;
 }
@@ -10,15 +9,15 @@ catch
 [expect]
 try {
     a;
-} catch {
+}
+catch {
     b;
 }
 
 == should output with finally ==
 try{
     a;
-}
-finally
+} finally
 {
     b;
 }
@@ -26,18 +25,17 @@ finally
 [expect]
 try {
     a;
-} finally {
+}
+finally {
     b;
 }
 
 == should output with try and finally ==
 try{
     a;
-}
-catch (ex) {
+}    catch (ex) {
     b;
-}
-finally
+}finally
 {
     c;
 }
@@ -45,8 +43,10 @@ finally
 [expect]
 try {
     a;
-} catch (ex) {
+}
+catch (ex) {
     b;
-} finally {
+}
+finally {
     c;
 }

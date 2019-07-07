@@ -1,8 +1,7 @@
 == should output without param ==
 try{
     a;
-}
-catch
+} catch
 {
     b;
 }
@@ -10,21 +9,22 @@ catch
 [expect]
 try {
     a;
-} catch {
+}
+catch {
     b;
 }
 
 == should output with param ==
 try{
     a;
-}
-catch(ex){
+} catch(ex){
     b;
 }
 
 [expect]
 try {
     a;
-} catch (ex) {
+}
+catch (ex) {
     b;
 }

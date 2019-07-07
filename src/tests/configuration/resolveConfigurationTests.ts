@@ -233,7 +233,13 @@ describe(nameof(resolveConfiguration), () => {
 
         function getObject(value: NonNullable<Configuration["bracePosition"]>): Partial<ResolvedConfiguration> {
             return {
-                "classDeclaration.bracePosition": value
+                "catchClause.bracePosition": value,
+                "classDeclaration.bracePosition": value,
+                "doWhileStatement.bracePosition": value,
+                "ifStatement.bracePosition": value,
+                "tryStatement.bracePosition": value,
+                "tryStatementFinally.bracePosition": value,
+                "whileStatement.bracePosition": value
             };
         }
     });

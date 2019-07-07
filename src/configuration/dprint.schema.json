@@ -95,7 +95,25 @@
             "$ref": "#/definitions/useBraces"
         },
 
+        "catchClause.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "classDeclaration.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "doWhileStatement.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "ifStatement.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "tryStatement.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "tryStatementFinally.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "whileStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         }
     }
