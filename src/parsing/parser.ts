@@ -465,26 +465,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 
 function* parseClassBody(node: babel.ClassBody, context: Context): PrintItemIterator {
     const startHeaderInfo = context.bag.take(BAG_KEYS.ClassDeclarationStartHeaderInfo) as Info | undefined;
-
-    if (startHeaderInfo == null) {
-        context.warn("Class body could not find start header info.");
-        yield " ";
-    }
-    else {
-        const bracePosition = context.config["classDeclaration.bracePosition"];
-        if (bracePosition === "nextLineIfHanging")
-            yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
-        else if (bracePosition === "currentLine")
-            yield " ";
-        else if (bracePosition === "nextLine")
-            yield context.newLineKind
-        else if (bracePosition === "maintain") {
-            if (nodeHelpers.isFirstNodeOnLine(node, context))
-                yield context.newLineKind;
-            else
-                yield " ";
-        }
-    }
+    yield* parseBraceSeparator(context.config["classDeclaration.bracePosition"], node, startHeaderInfo, context);
 
     yield "{";
     yield* withIndent(parseBody());
@@ -1185,6 +1166,28 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
     function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
         yield `// ${comment.value.trim()}`;
         yield Behaviour.ExpectNewLine;
+    }
+}
+
+function* parseBraceSeparator(bracePosition: NonNullable<Configuration["bracePosition"]>, node: babel.Node, startHeaderInfo: Info | undefined, context: Context) {
+    if (bracePosition === "nextLineIfHanging") {
+        if (startHeaderInfo == null) {
+            context.warn(`Could not find start header info for ${node.type}.`);
+            yield " ";
+        }
+        else {
+            yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
+        }
+    }
+    else if (bracePosition === "currentLine")
+        yield " ";
+    else if (bracePosition === "nextLine")
+        yield context.newLineKind
+    else if (bracePosition === "maintain") {
+        if (nodeHelpers.isFirstNodeOnLine(node, context))
+            yield context.newLineKind;
+        else
+            yield " ";
     }
 }
 
