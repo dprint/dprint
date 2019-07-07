@@ -1,0 +1,31 @@
+~~ lineWidth: 30 ~~
+== should print a decorator ==
+    @dec
+class T {
+}
+
+[expect]
+@dec
+class T {
+}
+
+== should print a decorator with a call expression ==
+@dec(testing)
+class T {
+}
+
+[expect]
+@dec(testing)
+class T {
+}
+
+== should print a decorator with hanging indentation ==
+@dec(testing, this, out, toSee, ifItHangs)
+class T {
+}
+
+[expect]
+@dec(testing, this, out,
+    toSee, ifItHangs)
+class T {
+}

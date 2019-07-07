@@ -86,6 +86,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
     "ClassBody": parseClassBody,
+    "Decorator": parseDecorator,
     /* statements */
     "Directive": parseDirective,
     "DoWhileStatement": parseDoWhileStatement,
@@ -475,6 +476,11 @@ function* parseClassBody(node: babel.ClassBody, context: Context): PrintItemIter
             yield parseNode(node.body[i], context);
         }
     }
+}
+
+function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIterator {
+    yield "@";
+    yield* withHangingIndent(parseNode(node.expression, context));
 }
 
 /* statements */
