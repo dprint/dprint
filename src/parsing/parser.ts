@@ -72,6 +72,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "BlockStatement": parseBlockStatement,
     "Identifier": parseIdentifier,
     /* declarations */
+    "ClassDeclaration": parseClassDeclaration,
     "ExportAllDeclaration": parseExportAllDeclaration,
     "ExportNamedDeclaration": parseExportNamedDeclaration,
     "ExportDefaultDeclaration": parseExportDefaultDeclaration,
@@ -230,30 +231,63 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
 
 /* declarations */
 
-function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context): PrintItemIterator {
-    yield "import ";
-    const { specifiers } = node;
-    const defaultImport = specifiers.find(s => s.type === "ImportDefaultSpecifier");
-    const namespaceImport = specifiers.find(s => s.type === "ImportNamespaceSpecifier");
-    const namedImports = specifiers.filter(s => s.type === "ImportSpecifier") as babel.ImportSpecifier[];
+function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context): PrintItemIterator {
+    yield* withHangingIndent(parseHeader());
+    yield parseNode(node.body, context);
 
-    if (defaultImport) {
-        yield parseNode(defaultImport, context);
-        if (namespaceImport != null || namedImports.length > 0)
-            yield ", "
+    function* parseHeader(): PrintItemIterator {
+        const startHeaderInfo = createInfo("startHeader");
+        const afterExtendsInfo = createInfo("afterExtends");
+        yield startHeaderInfo;
+
+        if (node.declare)
+            yield "declare ";
+        if (node.abstract)
+            yield "abstract ";
+        yield "class";
+
+        if (node.id) {
+            yield " ";
+            yield parseNode(node.id, context);
+        }
+
+        if (node.superClass) {
+            yield Behaviour.SpaceOrNewLine;
+            yield "extends ";
+            yield* withHangingIndent(parseNode(node.superClass, context));
+        }
+
+        yield afterExtendsInfo;
+
+        if (node.implements && node.implements.length > 0) {
+            yield {
+                name: "implementsNewLineCondition",
+                kind: PrintItemKind.Condition,
+                condition: conditionContext => {
+                    return isMultipleLines(startHeaderInfo, afterExtendsInfo, conditionContext, false);
+                },
+                true: [context.newLineKind],
+                false: [Behaviour.SpaceOrNewLine]
+            };
+            yield "implements ";
+            yield* newlineGroup(withHangingIndent(parseImplements()));
+        }
+
+        yield " ";
     }
-    if (namespaceImport)
-        yield parseNode(namespaceImport, context);
 
-    yield* parseNamedImportsOrExports(node, namedImports, context);
+    function* parseImplements(): PrintItemIterator {
+        if (node.implements == null)
+            return;
 
-    if (defaultImport != null || namespaceImport != null || namedImports.length > 0)
-        yield " from ";
-
-    yield parseNode(node.source, context);
-
-    if (context.config["importDeclaration.semiColon"])
-        yield ";";
+        for (let i = 0; i < node.implements.length; i++) {
+            if (i > 0) {
+                yield ",";
+                yield Behaviour.SpaceOrNewLine;
+            }
+            yield parseNode(node.implements[i], context);
+        }
+    }
 }
 
 function* parseExportAllDeclaration(node: babel.ExportAllDeclaration, context: Context): PrintItemIterator {
@@ -324,6 +358,32 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
         }
         yield newLineIfHangingSpaceOtherwise(context, functionHeaderStartInfo);
     }
+}
+
+function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context): PrintItemIterator {
+    yield "import ";
+    const { specifiers } = node;
+    const defaultImport = specifiers.find(s => s.type === "ImportDefaultSpecifier");
+    const namespaceImport = specifiers.find(s => s.type === "ImportNamespaceSpecifier");
+    const namedImports = specifiers.filter(s => s.type === "ImportSpecifier") as babel.ImportSpecifier[];
+
+    if (defaultImport) {
+        yield parseNode(defaultImport, context);
+        if (namespaceImport != null || namedImports.length > 0)
+            yield ", "
+    }
+    if (namespaceImport)
+        yield parseNode(namespaceImport, context);
+
+    yield* parseNamedImportsOrExports(node, namedImports, context);
+
+    if (defaultImport != null || namespaceImport != null || namedImports.length > 0)
+        yield " from ";
+
+    yield parseNode(node.source, context);
+
+    if (context.config["importDeclaration.semiColon"])
+        yield ";";
 }
 
 function parseTypeParameterDeclaration(

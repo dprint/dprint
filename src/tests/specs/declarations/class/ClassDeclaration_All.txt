@@ -1,0 +1,104 @@
+~~ lineWidth: 60 ~~
+== should print with no members ==
+class Test {}
+
+[expect]
+class Test {
+}
+
+== should print with no name ==
+export default class {}
+
+[expect]
+export default class {
+}
+
+== should print abstract ==
+abstract class Test {
+}
+
+[expect]
+abstract class Test {
+}
+
+== should print declare ==
+declare class Test {
+}
+
+[expect]
+declare class Test {
+}
+
+== should print declare and abstract ==
+declare abstract class Test {
+}
+
+[expect]
+declare abstract class Test {
+}
+
+== should print an extends clause ==
+export class Test extends Other {
+}
+
+[expect]
+export class Test extends Other {
+}
+
+== should print a verly long extends clause so that it goes to the next line ==
+export class Test extends OtherOtherOtherOtherOtherOtherOtherOther {
+}
+
+[expect]
+export class Test
+    extends OtherOtherOtherOtherOtherOtherOtherOther
+{
+}
+
+== should print an implements clause ==
+export class Test implements Other {
+}
+
+[expect]
+export class Test implements Other {
+}
+
+== should print multiple implements ==
+export class Test implements Other, Other2 {
+}
+
+[expect]
+export class Test implements Other, Other2 {
+}
+
+== should print multiple implements that go over the line width ==
+export class Test implements Other, Other2, Other3, Other4, Other5 {
+}
+
+[expect]
+export class Test
+    implements Other, Other2, Other3, Other4, Other5
+{
+}
+
+== should print multiple implements that go over the line width twice ==
+export class Test implements Other, Other2, Other3, Other4, Other5, Other6, Other7 {
+}
+
+[expect]
+export class Test
+    implements Other, Other2, Other3, Other4, Other5,
+        Other6, Other7
+{
+}
+
+== should print long extends and then put implements on separate line ==
+export class Test extends OtherOtherOtherOtherOtherOtherOtherOther implements Other {
+}
+
+[expect]
+export class Test
+    extends OtherOtherOtherOtherOtherOtherOtherOther
+    implements Other
+{
+}

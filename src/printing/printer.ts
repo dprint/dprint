@@ -98,7 +98,7 @@ class Printer {
         else
             assertNever(printItem);
 
-        //this.logWriterForDebugging();
+        // this.logWriterForDebugging();
     }
 
     private lastLog: string = "";
@@ -119,7 +119,7 @@ class Printer {
         else if (behaviour === Behaviour.SpaceOrNewLine) {
             if (this.isAboveMaxWidth(1)) {
                 const saveState = this.possibleNewLineSavePoint;
-                if (saveState == null || saveState.depth >= this.depth)
+                if (saveState == null || saveState.newlineGroupDepth >= this.newlineGroupDepth)
                     this.writer.write(this.options.newLineKind);
                 else {
                     if (this.possibleNewLineSavePoint != null)
