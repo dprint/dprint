@@ -12,7 +12,7 @@ interface SchemaPointer {
     "$ref": string;
 }
 
-export function* getJsonSchemaProperties(): Iterable<SchemaProperty> {
+export function* parseJsonSchemaProperties(): Iterable<SchemaProperty> {
     for (const propName in Schema.properties) {
         const prop = (Schema.properties as any)[propName] as SchemaProperty | SchemaPointer;
         const ref = (prop as SchemaPointer).$ref;

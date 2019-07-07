@@ -1,12 +1,13 @@
 import { Project, PropertySignatureStructure, OptionalKind, NewLineKind, SyntaxKind, PropertyAssignmentStructure, ObjectLiteralExpression } from "ts-morph";
-import { getJsonSchemaProperties, SchemaProperty } from "./getJsonSchemaProperties";
+import { parseJsonSchemaProperties, SchemaProperty } from "./parseJsonSchemaProperties";
 
 const project = new Project({ manipulationSettings: { newLineKind: NewLineKind.CarriageReturnLineFeed } });
 
 // add the new ones in
 const properties: OptionalKind<PropertySignatureStructure>[] = [];
 const defaultValueProperties: OptionalKind<PropertyAssignmentStructure>[] = [];
-for (const prop of getJsonSchemaProperties()) {
+const jsonSchema = parseJsonSchemaProperties();
+for (const prop of parseJsonSchemaProperties()) {
     const sanitizedPropName = prop.name.indexOf(".") >= 0 ? `"${prop.name}"` : prop.name;
     properties.push({
         name: sanitizedPropName,
@@ -46,14 +47,23 @@ function getDocs(prop: SchemaProperty) {
         result = prop.description;
 
     if (prop.default != null) {
+        appendNewLine();
+        result += "@default " + getDefault(prop)
+    }
+    if (prop.oneOf != null) {
+        for (const value of prop.oneOf) {
+            appendNewLine();
+            result += `@value "${value.const}" - ${value.description}`
+        }
+    }
+    return result == null ? undefined : [result];
+
+    function appendNewLine() {
         if (result == null)
             result = "";
         else
             result += "\r\n";
-
-        result += "@default " + getDefault(prop)
     }
-    return result == null ? undefined : [result];
 }
 
 function getDefault(prop: SchemaProperty) {

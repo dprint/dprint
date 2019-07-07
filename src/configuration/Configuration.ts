@@ -32,11 +32,18 @@ export interface Configuration {
     /**
      * The kind of newline to use.
      * @default "auto"
+     * @value "auto" - Uses the newline kind found at the end of the first line.
+     * @value "crlf" - Uses carriage return, line feed.
+     * @value "lf" - Uses line feed.
+     * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
     newLineKind?: "auto" | "crlf" | "lf" | "system";
     /**
      * If braces should be used or not.
      * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
      */
     useBraces?: "maintain" | "always" | "preferNone";
     "directive.semiColon"?: boolean;
@@ -48,11 +55,17 @@ export interface Configuration {
     /**
      * If braces should be used or not.
      * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
      */
     "ifStatement.useBraces"?: "maintain" | "always" | "preferNone";
     /**
      * If braces should be used or not.
      * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
      */
     "whileStatement.useBraces"?: "maintain" | "always" | "preferNone";
 }

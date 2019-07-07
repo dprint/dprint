@@ -9,7 +9,7 @@
             "oneOf": [
                 { "const": "maintain", "description": "Uses braces if they're used. Doesn't use braces if they're not used." },
                 { "const": "always", "description": "Forces the use of braces. Will add them if they aren't used." },
-                { "const": "preferNone", "description": "Forces no braces when when the header is one line and body is one line." }
+                { "const": "preferNone", "description": "Forces no braces when when the header is one line and body is one line. Otherwise forces braces." }
             ],
             "default": "maintain"
         }
