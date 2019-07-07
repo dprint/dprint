@@ -376,7 +376,8 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
             yield ": ";
             yield parseNode(node.returnType.typeAnnotation, context);
         }
-        yield conditions.newlineIfHangingSpaceOtherwise(context, functionHeaderStartInfo);
+
+        yield* parseBraceSeparator(context.config["functionDeclaration.bracePosition"], node.body, functionHeaderStartInfo, context);
     }
 }
 

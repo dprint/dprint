@@ -114,6 +114,9 @@
         "doWhileStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
+        "functionDeclaration.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "ifStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },

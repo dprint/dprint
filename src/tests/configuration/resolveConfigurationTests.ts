@@ -235,6 +235,7 @@ describe(nameof(resolveConfiguration), () => {
             return {
                 "classDeclaration.bracePosition": value,
                 "doWhileStatement.bracePosition": value,
+                "functionDeclaration.bracePosition": value,
                 "ifStatement.bracePosition": value,
                 "tryStatement.bracePosition": value,
                 "whileStatement.bracePosition": value
