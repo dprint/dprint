@@ -471,7 +471,19 @@ function* parseClassBody(node: babel.ClassBody, context: Context): PrintItemIter
         yield " ";
     }
     else {
-        yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
+        const bracePosition = context.config["classDeclaration.bracePosition"];
+        if (bracePosition === "nextLineIfHanging")
+            yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
+        else if (bracePosition === "currentLine")
+            yield " ";
+        else if (bracePosition === "nextLine")
+            yield context.newLineKind
+        else if (bracePosition === "maintain") {
+            if (nodeHelpers.isFirstNodeOnLine(node, context))
+                yield context.newLineKind;
+            else
+                yield " ";
+        }
     }
 
     yield "{";

@@ -101,7 +101,7 @@ describe(nameof(resolveConfiguration), () => {
             doSpecificTest({ semiColons: true }, getObject(true));
         });
 
-        it("should set all the semi-colon values when set to a non default", () => {
+        it("should set all the semi-colon values when set to a non-default", () => {
             doSpecificTest({ semiColons: false }, getObject(false));
         });
 
@@ -188,7 +188,7 @@ describe(nameof(resolveConfiguration), () => {
             doSpecificTest({ useBraces: "maintain" }, getObject("maintain"));
         });
 
-        it("should set all the values when set to a non default", () => {
+        it("should set all the values when set to a non-default", () => {
             doSpecificTest({ useBraces: "always" }, getObject("always"));
         });
 
@@ -203,6 +203,37 @@ describe(nameof(resolveConfiguration), () => {
             return {
                 "ifStatement.useBraces": value,
                 "whileStatement.useBraces": value
+            };
+        }
+    });
+
+    describe(nameof<Configuration>(c => c.bracePosition), () => {
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("bracePosition"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject("nextLineIfHanging"));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ bracePosition: "nextLineIfHanging" }, getObject("nextLineIfHanging"));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ bracePosition: "nextLine" }, getObject("nextLine"));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject("nextLine");
+            const config: Configuration = { ...expectedConfig } as any;
+            config.bracePosition = "nextLineIfHanging";
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<Configuration["bracePosition"]>): Partial<ResolvedConfiguration> {
+            return {
+                "classDeclaration.bracePosition": value
             };
         }
     });

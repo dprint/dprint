@@ -16,7 +16,7 @@ for (const prop of parseJsonSchemaProperties()) {
         docs: getDocs(prop)
     });
 
-    if (prop.default != null) {
+    if (prop.default != null && sanitizedPropName === prop.name) {
         defaultValueProperties.push({
             name: sanitizedPropName,
             initializer: getDefault(prop)

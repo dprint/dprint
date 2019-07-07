@@ -12,6 +12,17 @@
                 { "const": "preferNone", "description": "Forces no braces when when the header is one line and body is one line. Otherwise forces braces." }
             ],
             "default": "maintain"
+        },
+        "bracePosition": {
+            "type": "string",
+            "description": "Where to place the brace.",
+            "oneOf": [
+                { "const": "maintain", "description": "Maintains the brace being on the next line or the current line." },
+                { "const": "currentLine", "description": "Forces the brace to be on the current line." },
+                { "const": "nextLine", "description": "Forces the brace to be on the next line." },
+                { "const": "nextLineIfHanging", "description": "Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next." }
+            ],
+            "default": "nextLineIfHanging"
         }
     },
     "properties": {
@@ -54,6 +65,9 @@
         "useBraces": {
             "$ref": "#/definitions/useBraces"
         },
+        "bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
 
         "directive.semiColon": {
             "type": "boolean"
@@ -79,6 +93,10 @@
         },
         "whileStatement.useBraces": {
             "$ref": "#/definitions/useBraces"
+        },
+
+        "classDeclaration.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
         }
     }
 }

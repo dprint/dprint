@@ -1,4 +1,5 @@
 import * as babel from "@babel/types";
+import { Context } from "./parser";
 
 export function hasBody(node: babel.Node) {
     return (node as any as babel.ClassDeclaration).body != null;
@@ -53,5 +54,17 @@ export function getUseNewlinesForNodes(nodes: babel.Node[]) {
         return false;
     if (nodes[0].loc!.start.line === nodes[1].loc!.start.line)
         return false;
+    return true;
+}
+
+export function isFirstNodeOnLine(node: babel.Node, context: Context) {
+    for (let i = node.start! - 1; i >= 0; i--) {
+        const char = context.fileText[i];
+        if (char === " " || char === "\t")
+            continue;
+
+        return char === "\n";
+    }
+
     return true;
 }

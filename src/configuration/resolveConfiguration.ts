@@ -22,8 +22,7 @@ const defaultValues = {
     singleQuotes: false,
     newLineKind: "auto",
     useBraces: "maintain",
-    "ifStatement.useBraces": "maintain",
-    "whileStatement.useBraces": "maintain"
+    bracePosition: "nextLineIfHanging"
 } as const;
 
 export function resolveConfiguration(config: Configuration): ResolveConfigurationResult {
@@ -31,6 +30,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     const diagnostics: ConfigurationDiagnostic[] = [];
     const semiColons = getValue("semiColons", defaultValues["semiColons"], ensureBoolean);
     const useBraces = getValue("useBraces", defaultValues["useBraces"], ensureBraceUse);
+    const bracePosition = getValue("bracePosition", defaultValues["bracePosition"], ensureBracePosition);
 
     const resolvedConfig: ResolvedConfiguration = {
         lineWidth: getValue("lineWidth", defaultValues["lineWidth"], ensureNumber),
@@ -47,7 +47,9 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean),
         // useBraces
         "ifStatement.useBraces": getValue("ifStatement.useBraces", useBraces, ensureBraceUse),
-        "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse)
+        "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
+        // bracePosition
+        "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition)
     };
 
     addExcessPropertyDiagnostics();
@@ -123,6 +125,25 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
             case "maintain":
             case "preferNone":
             case "always":
+            case null:
+            case undefined:
+                return true;
+            default:
+                const assertNever: never = value;
+                diagnostics.push({
+                    propertyName: key,
+                    message: `Expected the configuration for '${key}' to equal one of the expected values, but was: ${value}`
+                });
+                return false;
+        }
+    }
+
+    function ensureBracePosition(key: string, value: Configuration["bracePosition"]) {
+        switch (value) {
+            case "maintain":
+            case "currentLine":
+            case "nextLine":
+            case "nextLineIfHanging":
             case null:
             case undefined:
                 return true;
