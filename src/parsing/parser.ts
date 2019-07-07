@@ -1090,7 +1090,7 @@ function* parseDecorators(decorators: babel.Decorator[], context: Context): Prin
                 yield Behaviour.SpaceOrNewLine;
         }
 
-        yield parseNode(decorators[i], context);
+        yield* newlineGroup(parseNode(decorators[i], context));
     }
 }
 

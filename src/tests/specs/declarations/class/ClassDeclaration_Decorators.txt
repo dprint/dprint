@@ -62,3 +62,14 @@ class Test {
 @dec3
 class Test {
 }
+
+== should have preference to break between decorators when going above line width ==
+@dec(testing, t) @other(t, outtt)
+class T {
+}
+
+[expect]
+@dec(testing, t)
+@other(t, outtt)
+class T {
+}
