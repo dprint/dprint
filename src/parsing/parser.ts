@@ -1192,7 +1192,7 @@ function* parseBraceSeparator(bracePosition: NonNullable<Configuration["bracePos
             yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
         }
     }
-    else if (bracePosition === "currentLine")
+    else if (bracePosition === "sameLine")
         yield " ";
     else if (bracePosition === "nextLine")
         yield context.newLineKind
@@ -1213,7 +1213,7 @@ function* parseControlFlowSeparator(
     tokenText: string,
     context: Context
 ): PrintItemIterator {
-    if (nextControlFlowPosition === "currentLine")
+    if (nextControlFlowPosition === "sameLine")
         yield " ";
     else if (nextControlFlowPosition === "nextLine")
         yield context.newLineKind

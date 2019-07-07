@@ -257,11 +257,11 @@ describe(nameof(resolveConfiguration), () => {
         });
 
         it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ nextControlFlowPosition: "currentLine" }, getObject("currentLine"));
+            doSpecificTest({ nextControlFlowPosition: "sameLine" }, getObject("sameLine"));
         });
 
         it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject("currentLine");
+            const expectedConfig = getObject("sameLine");
             const config: Configuration = { ...expectedConfig } as any;
             config.nextControlFlowPosition = "nextLine";
             doSpecificTest(config, expectedConfig);

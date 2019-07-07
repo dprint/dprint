@@ -49,20 +49,20 @@ export interface Configuration {
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
      * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
-    bracePosition?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    bracePosition?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
-     * @value "maintain" - Maintains the next control flow being on the next line or the current line.
-     * @value "currentLine" - Forces the next control flow to be on the current line.
+     * @value "maintain" - Maintains the next control flow being on the next line or the same line.
+     * @value "sameLine" - Forces the next control flow to be on the same line.
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
-    nextControlFlowPosition?: "maintain" | "currentLine" | "nextLine";
+    nextControlFlowPosition?: "maintain" | "sameLine" | "nextLine";
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
@@ -88,73 +88,73 @@ export interface Configuration {
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
      * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
-    "classDeclaration.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    "classDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
      * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
-    "doWhileStatement.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    "doWhileStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
      * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
-    "functionDeclaration.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    "functionDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
      * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
-    "ifStatement.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    "ifStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
      * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
-    "tryStatement.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    "tryStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
      * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
-    "whileStatement.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    "whileStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
-     * @value "maintain" - Maintains the next control flow being on the next line or the current line.
-     * @value "currentLine" - Forces the next control flow to be on the current line.
+     * @value "maintain" - Maintains the next control flow being on the next line or the same line.
+     * @value "sameLine" - Forces the next control flow to be on the same line.
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
-    "ifStatement.nextControlFlowPosition"?: "maintain" | "currentLine" | "nextLine";
+    "ifStatement.nextControlFlowPosition"?: "maintain" | "sameLine" | "nextLine";
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
-     * @value "maintain" - Maintains the next control flow being on the next line or the current line.
-     * @value "currentLine" - Forces the next control flow to be on the current line.
+     * @value "maintain" - Maintains the next control flow being on the next line or the same line.
+     * @value "sameLine" - Forces the next control flow to be on the same line.
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
-    "tryStatement.nextControlFlowPosition"?: "maintain" | "currentLine" | "nextLine";
+    "tryStatement.nextControlFlowPosition"?: "maintain" | "sameLine" | "nextLine";
 }
 
 /**

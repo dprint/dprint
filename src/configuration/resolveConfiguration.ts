@@ -151,7 +151,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     function ensureBracePosition(key: string, value: Configuration["bracePosition"]) {
         switch (value) {
             case "maintain":
-            case "currentLine":
+            case "sameLine":
             case "nextLine":
             case "nextLineIfHanging":
             case null:
@@ -170,7 +170,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     function ensureNextControlFlowPosition(key: string, value: Configuration["nextControlFlowPosition"]) {
         switch (value) {
             case "maintain":
-            case "currentLine":
+            case "sameLine":
             case "nextLine":
             case null:
             case undefined:

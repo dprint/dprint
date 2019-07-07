@@ -17,10 +17,10 @@
             "type": "string",
             "description": "Where to place the brace.",
             "oneOf": [
-                { "const": "maintain", "description": "Maintains the brace being on the next line or the current line." },
-                { "const": "currentLine", "description": "Forces the brace to be on the current line." },
+                { "const": "maintain", "description": "Maintains the brace being on the next line or the same line." },
+                { "const": "sameLine", "description": "Forces the brace to be on the same line." },
                 { "const": "nextLine", "description": "Forces the brace to be on the next line." },
-                { "const": "nextLineIfHanging", "description": "Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next." }
+                { "const": "nextLineIfHanging", "description": "Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next." }
             ],
             "default": "nextLineIfHanging"
         },
@@ -28,8 +28,8 @@
             "type": "string",
             "description": "Where to place the next control flow within a control flow statement.",
             "oneOf": [
-                { "const": "maintain", "description": "Maintains the next control flow being on the next line or the current line." },
-                { "const": "currentLine", "description": "Forces the next control flow to be on the current line." },
+                { "const": "maintain", "description": "Maintains the next control flow being on the next line or the same line." },
+                { "const": "sameLine", "description": "Forces the next control flow to be on the same line." },
                 { "const": "nextLine", "description": "Forces the next control flow to be on the next line." }
             ],
             "default": "nextLine"
