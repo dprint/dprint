@@ -23,6 +23,16 @@
                 { "const": "nextLineIfHanging", "description": "Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next." }
             ],
             "default": "nextLineIfHanging"
+        },
+        "nextControlFlowPosition": {
+            "type": "string",
+            "description": "Where to place the next control flow within a control flow statement.",
+            "oneOf": [
+                { "const": "maintain", "description": "Maintains the next control flow being on the next line or the current line." },
+                { "const": "currentLine", "description": "Forces the next control flow to be on the current line." },
+                { "const": "nextLine", "description": "Forces the next control flow to be on the next line." }
+            ],
+            "default": "nextLine"
         }
     },
     "properties": {
@@ -68,6 +78,9 @@
         "bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
+        "nextControlFlowPosition": {
+            "$ref": "#/definitions/nextControlFlowPosition"
+        },
 
         "directive.semiColon": {
             "type": "boolean"
@@ -95,9 +108,6 @@
             "$ref": "#/definitions/useBraces"
         },
 
-        "catchClause.bracePosition": {
-            "$ref": "#/definitions/bracePosition"
-        },
         "classDeclaration.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
@@ -110,11 +120,15 @@
         "tryStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
-        "tryStatementFinally.bracePosition": {
-            "$ref": "#/definitions/bracePosition"
-        },
         "whileStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
+        },
+
+        "ifStatement.nextControlFlowPosition": {
+            "$ref": "#/definitions/nextControlFlowPosition"
+        },
+        "tryStatement.nextControlFlowPosition": {
+            "$ref": "#/definitions/nextControlFlowPosition"
         }
     }
 }

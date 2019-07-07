@@ -55,6 +55,14 @@ export interface Configuration {
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
      */
     bracePosition?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the next control flow within a control flow statement.
+     * @default "nextLine"
+     * @value "maintain" - Maintains the next control flow being on the next line or the current line.
+     * @value "currentLine" - Forces the next control flow to be on the current line.
+     * @value "nextLine" - Forces the next control flow to be on the next line.
+     */
+    nextControlFlowPosition?: "maintain" | "currentLine" | "nextLine";
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
@@ -77,15 +85,6 @@ export interface Configuration {
      * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
      */
     "whileStatement.useBraces"?: "maintain" | "always" | "preferNone";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
-     */
-    "catchClause.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -130,16 +129,23 @@ export interface Configuration {
      * @value "nextLine" - Forces the brace to be on the next line.
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
      */
-    "tryStatementFinally.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the current line.
-     * @value "currentLine" - Forces the brace to be on the current line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the current line is hanging, but otherwise uses the next.
-     */
     "whileStatement.bracePosition"?: "maintain" | "currentLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the next control flow within a control flow statement.
+     * @default "nextLine"
+     * @value "maintain" - Maintains the next control flow being on the next line or the current line.
+     * @value "currentLine" - Forces the next control flow to be on the current line.
+     * @value "nextLine" - Forces the next control flow to be on the next line.
+     */
+    "ifStatement.nextControlFlowPosition"?: "maintain" | "currentLine" | "nextLine";
+    /**
+     * Where to place the next control flow within a control flow statement.
+     * @default "nextLine"
+     * @value "maintain" - Maintains the next control flow being on the next line or the current line.
+     * @value "currentLine" - Forces the next control flow to be on the current line.
+     * @value "nextLine" - Forces the next control flow to be on the next line.
+     */
+    "tryStatement.nextControlFlowPosition"?: "maintain" | "currentLine" | "nextLine";
 }
 
 /**
@@ -165,11 +171,13 @@ export interface ResolvedConfiguration {
     "whileStatement.useBraces": NonNullable<Configuration["useBraces"]>;
 
     // brace position
-    "catchClause.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "classDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "doWhileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "tryStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
-    "tryStatementFinally.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "whileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
+
+    // next control flow position
+    "ifStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
+    "tryStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
 }

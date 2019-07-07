@@ -1,6 +1,6 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
-import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
+import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info } from "../types";
 import { assertNever, isPrintItemIterator, throwError } from "../utils";
 import * as conditions from "./conditions";
 import * as nodeHelpers from "./nodeHelpers";
@@ -520,7 +520,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         if (node.alternate.type === "IfStatement" && node.alternate.alternate == null)
             context.bag.put(BAG_KEYS.IfStatementLastBraceCondition, result.braceCondition);
 
-        yield context.newLineKind;
+        yield* parseControlFlowSeparator(context.config["ifStatement.nextControlFlowPosition"], node.alternate, "else", context);
         yield "else";
         if (node.alternate.type === "IfStatement") {
             yield " ";
@@ -553,14 +553,16 @@ function* parseTryStatement(node: babel.TryStatement, context: Context): PrintIt
     yield "try";
     yield* parseBraceSeparator(context.config["tryStatement.bracePosition"], node.block, undefined, context);
     yield parseNode(node.block, context);
+
     if (node.handler != null) {
-        yield context.newLineKind;
+        yield* parseControlFlowSeparator(context.config["tryStatement.nextControlFlowPosition"], node.handler, "catch", context);
         yield parseNode(node.handler, context);
     }
+
     if (node.finalizer != null) {
-        yield context.newLineKind;
+        yield* parseControlFlowSeparator(context.config["tryStatement.nextControlFlowPosition"], node.finalizer, "finally", context);
         yield "finally";
-        yield* parseBraceSeparator(context.config["tryStatementFinally.bracePosition"], node.block, undefined, context);
+        yield* parseBraceSeparator(context.config["tryStatement.bracePosition"], node.finalizer, undefined, context);
         yield parseNode(node.finalizer, context);
     }
 }
@@ -605,7 +607,7 @@ function* parseCatchClause(node: babel.CatchClause, context: Context): PrintItem
         bodyNode: node.body,
         useBraces: "always",
         requiresBracesCondition: undefined,
-        bracePosition: context.config["catchClause.bracePosition"],
+        bracePosition: context.config["tryStatement.bracePosition"],
         startHeaderInfo,
         endHeaderInfo
     }).iterator;
@@ -1198,6 +1200,41 @@ function* parseBraceSeparator(bracePosition: NonNullable<Configuration["bracePos
             yield context.newLineKind;
         else
             yield " ";
+    }
+    else {
+        assertNever(bracePosition);
+    }
+}
+
+function* parseControlFlowSeparator(
+    nextControlFlowPosition: NonNullable<Configuration["nextControlFlowPosition"]>,
+    nodeBlock: babel.Node,
+    tokenText: string,
+    context: Context
+): PrintItemIterator {
+    if (nextControlFlowPosition === "currentLine")
+        yield " ";
+    else if (nextControlFlowPosition === "nextLine")
+        yield context.newLineKind
+    else if (nextControlFlowPosition === "maintain") {
+        const token = getFirstControlFlowToken();
+        if (token != null && nodeHelpers.isFirstNodeOnLine(token, context))
+            yield context.newLineKind;
+        else
+            yield " ";
+    }
+    else {
+        assertNever(nextControlFlowPosition);
+    }
+
+    function getFirstControlFlowToken() {
+        // todo: something faster than O(n)
+        const nodeBlockStart = nodeBlock.start!;
+        return nodeHelpers.getLastToken(context.file, token => {
+            if (token.start > nodeBlockStart)
+                return false;
+            return token.value === tokenText;
+        });
     }
 }
 

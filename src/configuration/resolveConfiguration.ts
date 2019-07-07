@@ -22,7 +22,8 @@ const defaultValues = {
     singleQuotes: false,
     newLineKind: "auto",
     useBraces: "maintain",
-    bracePosition: "nextLineIfHanging"
+    bracePosition: "nextLineIfHanging",
+    nextControlFlowPosition: "nextLine"
 } as const;
 
 export function resolveConfiguration(config: Configuration): ResolveConfigurationResult {
@@ -31,6 +32,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     const semiColons = getValue("semiColons", defaultValues["semiColons"], ensureBoolean);
     const useBraces = getValue("useBraces", defaultValues["useBraces"], ensureBraceUse);
     const bracePosition = getValue("bracePosition", defaultValues["bracePosition"], ensureBracePosition);
+    const nextControlFlowPosition = getValue("nextControlFlowPosition", defaultValues["nextControlFlowPosition"], ensureNextControlFlowPosition);
 
     const resolvedConfig: ResolvedConfiguration = {
         lineWidth: getValue("lineWidth", defaultValues["lineWidth"], ensureNumber),
@@ -49,13 +51,14 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "ifStatement.useBraces": getValue("ifStatement.useBraces", useBraces, ensureBraceUse),
         "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
         // bracePosition
-        "catchClause.bracePosition": getValue("catchClause.bracePosition", bracePosition, ensureBracePosition),
         "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "doWhileStatement.bracePosition": getValue("doWhileStatement.bracePosition", bracePosition, ensureBracePosition),
         "ifStatement.bracePosition": getValue("ifStatement.bracePosition", bracePosition, ensureBracePosition),
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
-        "tryStatementFinally.bracePosition": getValue("tryStatementFinally.bracePosition", bracePosition, ensureBracePosition),
-        "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition)
+        "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition),
+        // next control flow position
+        "ifStatement.nextControlFlowPosition": getValue("ifStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
+        "tryStatement.nextControlFlowPosition": getValue("tryStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
     };
 
     addExcessPropertyDiagnostics();
@@ -150,6 +153,24 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
             case "currentLine":
             case "nextLine":
             case "nextLineIfHanging":
+            case null:
+            case undefined:
+                return true;
+            default:
+                const assertNever: never = value;
+                diagnostics.push({
+                    propertyName: key,
+                    message: `Expected the configuration for '${key}' to equal one of the expected values, but was: ${value}`
+                });
+                return false;
+        }
+    }
+
+    function ensureNextControlFlowPosition(key: string, value: Configuration["nextControlFlowPosition"]) {
+        switch (value) {
+            case "maintain":
+            case "currentLine":
+            case "nextLine":
             case null:
             case undefined:
                 return true;

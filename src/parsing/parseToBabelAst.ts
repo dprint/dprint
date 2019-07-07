@@ -4,6 +4,7 @@ export function parseToBabelAst(fileName: string, code: string) {
     return parser.parse(code, {
         sourceFilename: fileName,
         sourceType: "module",
+        tokens: true,
         plugins: [
             "jsx",
             "typescript",

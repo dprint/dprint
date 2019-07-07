@@ -233,13 +233,43 @@ describe(nameof(resolveConfiguration), () => {
 
         function getObject(value: NonNullable<Configuration["bracePosition"]>): Partial<ResolvedConfiguration> {
             return {
-                "catchClause.bracePosition": value,
                 "classDeclaration.bracePosition": value,
                 "doWhileStatement.bracePosition": value,
                 "ifStatement.bracePosition": value,
                 "tryStatement.bracePosition": value,
-                "tryStatementFinally.bracePosition": value,
                 "whileStatement.bracePosition": value
+            };
+        }
+    });
+
+    describe(nameof<Configuration>(c => c.nextControlFlowPosition), () => {
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("nextControlFlowPosition"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject("nextLine"));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ nextControlFlowPosition: "nextLine" }, getObject("nextLine"));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ nextControlFlowPosition: "currentLine" }, getObject("currentLine"));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject("currentLine");
+            const config: Configuration = { ...expectedConfig } as any;
+            config.nextControlFlowPosition = "nextLine";
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<Configuration["nextControlFlowPosition"]>): Partial<ResolvedConfiguration> {
+            return {
+                "ifStatement.nextControlFlowPosition": value,
+                "tryStatement.nextControlFlowPosition": value
             };
         }
     });

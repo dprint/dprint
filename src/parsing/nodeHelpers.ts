@@ -57,7 +57,7 @@ export function getUseNewlinesForNodes(nodes: babel.Node[]) {
     return true;
 }
 
-export function isFirstNodeOnLine(node: babel.Node, context: Context) {
+export function isFirstNodeOnLine(node: babel.Node | BabelToken, context: Context) {
     for (let i = node.start! - 1; i >= 0; i--) {
         const char = context.fileText[i];
         if (char === " " || char === "\t")
@@ -67,4 +67,25 @@ export function isFirstNodeOnLine(node: babel.Node, context: Context) {
     }
 
     return true;
+}
+
+export interface BabelToken {
+    start: number;
+    end: number;
+    value: string;
+    loc: babel.Node["loc"];
+}
+
+export function getLastToken(file: babel.File, isMatch: (token: BabelToken) => boolean | "stop") {
+    const tokens = file.tokens as BabelToken[];
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        const token = tokens[i];
+        const result = isMatch(token);
+        if (result === true)
+            return token;
+        else if (result === "stop")
+            return undefined;
+    }
+
+    return undefined;
 }
