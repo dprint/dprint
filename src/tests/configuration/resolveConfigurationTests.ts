@@ -175,34 +175,34 @@ describe(nameof(resolveConfiguration), () => {
         });
     });
 
-    describe(nameof<Configuration>(c => c.forceBraces), () => {
+    describe(nameof<Configuration>(c => c.useBraces), () => {
         function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("forceBraces"));
+            doTest(config, expectedConfig, prop => prop.endsWith("useBraces"));
         }
 
-        it("should set all the semi-colon values using the default", () => {
-            doSpecificTest({}, getObject(true));
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject("maintain"));
         });
 
-        it("should set all the semi-colon values when using the default", () => {
-            doSpecificTest({ forceBraces: true }, getObject(true));
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ useBraces: "maintain" }, getObject("maintain"));
         });
 
-        it("should set all the semi-colon values when set to a non default", () => {
-            doSpecificTest({ forceBraces: false }, getObject(false));
+        it("should set all the values when set to a non default", () => {
+            doSpecificTest({ useBraces: "always" }, getObject("always"));
         });
 
         it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(false);
+            const expectedConfig = getObject("always");
             const config: Configuration = { ...expectedConfig } as any;
-            config.forceBraces = true;
+            config.useBraces = "maintain";
             doSpecificTest(config, expectedConfig);
         });
 
-        function getObject(value: boolean): Partial<ResolvedConfiguration> {
+        function getObject(value: NonNullable<Configuration["useBraces"]>): Partial<ResolvedConfiguration> {
             return {
-                "ifStatement.forceBraces": value,
-                "whileStatement.forceBraces": value
+                "ifStatement.useBraces": value,
+                "whileStatement.useBraces": value
             };
         }
     });

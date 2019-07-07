@@ -2,6 +2,18 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "dprint configuration",
     "type": "object",
+    "definitions": {
+        "useBraces": {
+            "type": "string",
+            "description": "If braces should be used or not.",
+            "oneOf": [
+                { "const": "maintain", "description": "Uses braces if they're used. Doesn't use braces if they're not used." },
+                { "const": "always", "description": "Forces the use of braces. Will add them if they aren't used." },
+                { "const": "preferNone", "description": "Forces no braces when when the header is one line and body is one line." }
+            ],
+            "default": "maintain"
+        }
+    },
     "properties": {
         "lineWidth": {
             "type": "number",
@@ -30,7 +42,7 @@
         },
         "newLineKind": {
             "type": "string",
-            "description": "The style of newline.",
+            "description": "The kind of newline to use.",
             "oneOf": [
                 { "const": "auto", "description": "Uses the newline kind found at the end of the first line." },
                 { "const": "crlf", "description": "Uses carriage return, line feed." },
@@ -39,10 +51,8 @@
             ],
             "default": "auto"
         },
-        "forceBraces": {
-            "type": "boolean",
-            "description": "Whether to force the use of braces for statements that allow them to be optional.",
-            "default": true
+        "useBraces": {
+            "$ref": "#/definitions/useBraces"
         },
 
         "directive.semiColon": {
@@ -64,11 +74,11 @@
             "type": "boolean"
         },
 
-        "ifStatement.forceBraces": {
-            "type": "boolean"
+        "ifStatement.useBraces": {
+            "$ref": "#/definitions/useBraces"
         },
-        "whileStatement.forceBraces": {
-            "type": "boolean"
+        "whileStatement.useBraces": {
+            "$ref": "#/definitions/useBraces"
         }
     }
 }

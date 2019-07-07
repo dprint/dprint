@@ -1,25 +1,17 @@
 import { Project, PropertySignatureStructure, OptionalKind, NewLineKind, SyntaxKind, PropertyAssignmentStructure, ObjectLiteralExpression } from "ts-morph";
-import Schema from "../src/configuration/dprint.schema.json";
+import { getJsonSchemaProperties, SchemaProperty } from "./getJsonSchemaProperties";
 
 const project = new Project({ manipulationSettings: { newLineKind: NewLineKind.CarriageReturnLineFeed } });
-
-interface SchemaProperty {
-    type: string;
-    description?: string;
-    default: boolean | string | undefined;
-    oneOf?: { const: string; description: string; }[];
-}
 
 // add the new ones in
 const properties: OptionalKind<PropertySignatureStructure>[] = [];
 const defaultValueProperties: OptionalKind<PropertyAssignmentStructure>[] = [];
-for (const propName in Schema.properties) {
-    const prop = (Schema.properties as any)[propName] as SchemaProperty;
-    const sanitizedPropName = propName.indexOf(".") >= 0 ? `"${propName}"` : propName;
+for (const prop of getJsonSchemaProperties()) {
+    const sanitizedPropName = prop.name.indexOf(".") >= 0 ? `"${prop.name}"` : prop.name;
     properties.push({
         name: sanitizedPropName,
         hasQuestionToken: true,
-        type: getType(propName, prop),
+        type: getType(prop.name, prop),
         docs: getDocs(prop)
     });
 

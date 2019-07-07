@@ -1,5 +1,5 @@
 import * as babel from "@babel/types";
-import { ResolvedConfiguration, resolveNewLineKindFromText } from "../configuration";
+import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
 import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info, ResolveConditionContext } from "../types";
 import { assertNever, isPrintItemIterator, throwError } from "../utils";
 import * as nodeHelpers from "./nodeHelpers";
@@ -405,7 +405,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         parseHeader: () => parseHeader(node),
         bodyNode: node.consequent,
         context,
-        forceBraces: context.config["ifStatement.forceBraces"],
+        useBraces: context.config["ifStatement.useBraces"],
         requiresBracesCondition: context.bag.take(BAG_KEYS.IfStatementLastBraceCondition) as Condition | undefined
     });
 
@@ -425,7 +425,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
             yield* parseConditionalBraceBody({
                 bodyNode: node.alternate,
                 context,
-                forceBraces: context.config["ifStatement.forceBraces"],
+                useBraces: context.config["ifStatement.useBraces"],
                 requiresBracesCondition: result.braceCondition
             }).iterator;
         }
@@ -468,7 +468,7 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
     yield* parseConditionalBraceBody({
         context,
         bodyNode: node.body,
-        forceBraces: context.config["whileStatement.forceBraces"],
+        useBraces: context.config["whileStatement.useBraces"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -493,7 +493,7 @@ function* parseCatchClause(node: babel.CatchClause, context: Context): PrintItem
     yield* parseConditionalBraceBody({
         context,
         bodyNode: node.body,
-        forceBraces: true,
+        useBraces: "always",
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -505,7 +505,7 @@ interface ParseHeaderWithConditionalBraceBodyOptions {
     parseHeader(): PrintItemIterator;
     context: Context;
     requiresBracesCondition: Condition | undefined;
-    forceBraces: boolean;
+    useBraces: NonNullable<Configuration["useBraces"]>;
 }
 
 interface ParseHeaderWithConditionalBraceBodyResult {
@@ -514,7 +514,7 @@ interface ParseHeaderWithConditionalBraceBodyResult {
 }
 
 function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBraceBodyOptions): ParseHeaderWithConditionalBraceBodyResult {
-    const { bodyNode, context, requiresBracesCondition, forceBraces } = opts;
+    const { bodyNode, context, requiresBracesCondition, useBraces } = opts;
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
 
@@ -522,7 +522,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
         bodyNode,
         context,
         requiresBracesCondition,
-        forceBraces,
+        useBraces,
         startHeaderInfo,
         endHeaderInfo
     });
@@ -545,7 +545,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
 interface ParseConditionalBraceBodyOptions {
     bodyNode: babel.Statement;
     context: Context;
-    forceBraces: boolean;
+    useBraces: NonNullable<Configuration["useBraces"]>;
     requiresBracesCondition: Condition | undefined;
     startHeaderInfo?: Info;
     endHeaderInfo?: Info;
@@ -557,21 +557,29 @@ interface ParseConditionalBraceBodyResult {
 }
 
 function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): ParseConditionalBraceBodyResult {
-    const { startHeaderInfo, endHeaderInfo, bodyNode, context, requiresBracesCondition } = opts;
+    const { startHeaderInfo, endHeaderInfo, bodyNode, context, requiresBracesCondition, useBraces } = opts;
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
     const headerTrailingComments = Array.from(getHeaderTrailingComments(bodyNode));
-    const requireBraces = opts.forceBraces || bodyRequiresBraces(bodyNode);
     const openBraceCondition: Condition = {
         kind: PrintItemKind.Condition,
         name: "openBrace",
         condition: conditionContext => {
-            // writing an open brace might make the header hang, so assume it should
-            // not write the open brace until it's been resolved
-            return requireBraces
-                || startHeaderInfo && endHeaderInfo && isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
-                || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false)
-                || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
+            if (useBraces === "maintain")
+                return bodyNode.type === "BlockStatement";
+            else if (useBraces === "always")
+                return true;
+            else if (useBraces === "preferNone") {
+                // writing an open brace might make the header hang, so assume it should
+                // not write the open brace until it's been resolved
+                return bodyRequiresBraces(bodyNode)
+                    || startHeaderInfo && endHeaderInfo && isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
+                    || isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false)
+                    || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
+            }
+            else {
+                return assertNever(useBraces);
+            }
         },
         true: [startHeaderInfo ? newLineIfHangingSpaceOtherwise(context, startHeaderInfo) : " ", "{"]
     };

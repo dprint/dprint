@@ -1,4 +1,4 @@
-~~ forceBraces: false, lineWidth: 40 ~~
+~~ useBraces: "preferNone", lineWidth: 40 ~~
 == should not use braces when only one line ==
 while (true) {
     a;

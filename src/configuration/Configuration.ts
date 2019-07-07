@@ -30,23 +30,31 @@ export interface Configuration {
      */
     singleQuotes?: boolean;
     /**
-     * The style of newline.
+     * The kind of newline to use.
      * @default "auto"
      */
     newLineKind?: "auto" | "crlf" | "lf" | "system";
     /**
-     * Whether to force the use of braces for statements that allow them to be optional.
-     * @default true
+     * If braces should be used or not.
+     * @default "maintain"
      */
-    forceBraces?: boolean;
+    useBraces?: "maintain" | "always" | "preferNone";
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
-    "ifStatement.forceBraces"?: boolean;
-    "whileStatement.forceBraces"?: boolean;
+    /**
+     * If braces should be used or not.
+     * @default "maintain"
+     */
+    "ifStatement.useBraces"?: "maintain" | "always" | "preferNone";
+    /**
+     * If braces should be used or not.
+     * @default "maintain"
+     */
+    "whileStatement.useBraces"?: "maintain" | "always" | "preferNone";
 }
 
 /**
@@ -67,7 +75,7 @@ export interface ResolvedConfiguration {
     "importDeclaration.semiColon": boolean;
     "typeAlias.semiColon": boolean;
 
-    // force braces
-    "ifStatement.forceBraces": boolean;
-    "whileStatement.forceBraces": boolean;
+    // use braces
+    "ifStatement.useBraces": NonNullable<Configuration["useBraces"]>;
+    "whileStatement.useBraces": NonNullable<Configuration["useBraces"]>;
 }

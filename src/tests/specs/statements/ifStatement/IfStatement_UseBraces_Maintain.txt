@@ -1,0 +1,20 @@
+~~ useBraces: "maintain" ~~
+== should leave the code as is ==
+if (true)
+    // gross
+    a;
+else if (true) {
+    b;
+}
+else
+    c;
+
+[expect]
+if (true)
+    // gross
+    a;
+else if (true) {
+    b;
+}
+else
+    c;

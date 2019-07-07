@@ -1,4 +1,4 @@
-~~ forceBraces: false ~~
+~~ useBraces: "preferNone" ~~
 == should not use braces when only one line and the previous was one line ==
 if (true) {
     a;

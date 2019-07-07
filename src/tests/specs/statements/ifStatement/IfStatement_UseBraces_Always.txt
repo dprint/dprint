@@ -1,0 +1,14 @@
+~~ useBraces: "always" ~~
+== should force the use of braces when not specified ==
+if (true)
+    a;
+else
+    b;
+
+[expect]
+if (true) {
+    a;
+}
+else {
+    b;
+}
