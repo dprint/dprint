@@ -13,10 +13,14 @@ export async function runCli(args: string[], environment: Environment) {
 }
 
 export async function runCliWithOptions(options: CommandLineOptions, environment: Environment) {
-    if (options.showHelp)
+    if (options.showHelp) {
         environment.log(getHelpText());
-    else if (options.showVersion)
+        return;
+    }
+    else if (options.showVersion) {
         environment.log(getPackageVersion());
+        return;
+    }
 
     const unresolvedConfiguration = await resolveConfigFile(options.config, environment);
     const configResult = resolveConfiguration(unresolvedConfiguration);
@@ -30,6 +34,12 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     if (options.outputFilePaths) {
         for (const filePath of filePaths)
             environment.log(filePath);
+        return;
+    }
+    else if (options.outputResolvedConfig) {
+        // todo: print this out formatted
+        environment.log(JSON.stringify(configResult.config));
+        return;
     }
 
     const promises: Promise<void>[] = [];

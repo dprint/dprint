@@ -50,4 +50,10 @@ describe(nameof(runCliWithOptions), () => {
         expect(await environment.readFile("/file1.ts")).to.equal("5 + 1;\n");
         expect(await environment.readFile("/file2.ts")).to.equal("console.log(5);\n");
     });
+
+    it("should output the resolved config when specifying to", async () => {
+        const logs = await getLogs({ outputResolvedConfig: true });
+        expect(logs.length).to.equal(1);
+        expect(logs[0].startsWith("{")).to.be.true;
+    });
 });

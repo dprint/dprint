@@ -52,4 +52,8 @@ describe(nameof(parseCommandLineArgs), () => {
     it("should parse file globs specified with a leading outputFilePaths", () => {
         doTest(["--outputFilePaths", "file.ts", "file2.ts"], { outputFilePaths: true, filePatterns: ["file.ts", "file2.ts"] });
     });
+
+    it("should parse file globs specified with a leading outputResolvedConfig", () => {
+        doTest(["--outputResolvedConfig", "file.ts", "file2.ts"], { outputResolvedConfig: true, filePatterns: ["file.ts", "file2.ts"] });
+    });
 });

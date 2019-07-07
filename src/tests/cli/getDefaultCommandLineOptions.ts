@@ -6,6 +6,7 @@ export function getDefaultCommandLineOptions(): CommandLineOptions {
         showHelp: false,
         showVersion: false,
         outputFilePaths: false,
+        outputResolvedConfig: false,
         filePatterns: []
     };
 }
