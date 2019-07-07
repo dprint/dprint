@@ -475,14 +475,16 @@ function* parseClassBody(node: babel.ClassBody, context: Context): PrintItemIter
     }
 
     yield "{";
-
-    for (let i = 0; i < node.body.length; i++) {
-        yield context.newLineKind;
-        yield parseNode(node.body[i], context);
-    }
-
+    yield* withIndent(parseBody());
     yield context.newLineKind;
     yield "}";
+
+    function* parseBody(): PrintItemIterator {
+        for (let i = 0; i < node.body.length; i++) {
+            yield context.newLineKind;
+            yield parseNode(node.body[i], context);
+        }
+    }
 }
 
 /* statements */
