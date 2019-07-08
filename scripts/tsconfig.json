@@ -4,6 +4,7 @@
         "outDir": "../dist-scripts",
         "rootDir": "../",
         "noEmit": true,
+        "module": "commonjs",
         "resolveJsonModule": true,
         "plugins": [{ "transform": "ts-nameof", "type": "raw" }]
     }
