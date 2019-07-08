@@ -48,7 +48,7 @@
         },
         "useTabs": {
             "type": "boolean",
-            "description": "Whether to use tabs (false) or spaces (true).",
+            "description": "Whether to use tabs (true) or spaces (false).",
             "default": false
         },
         "semiColons": {
