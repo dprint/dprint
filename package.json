@@ -5,11 +5,13 @@
   "description": "Prints TypeScript code with the formatting I want.",
   "main": "dist/index.js",
   "bin": {
-    "dprint": "dist/cli/cli.js"
+    "dprint": "dist/cli.js"
   },
   "scripts": {
-    "build": "rimraf dist && tsc --project tsconfig.json",
-    "generate-config-from-schema": "ts-node --compiler ttypescript --transpile-only scripts/generateConfigFromSchema",
+    "build": "rimraf dist && yarn rollup && yarn build:cli",
+    "build:cli": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildCli.ts",
+    "rollup": "rollup --config",
+    "generate-config-from-schema": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/generateConfigFromSchema",
     "format": "ts-node --compiler ttypescript --transpile-only src/cli/cli.ts \"src/**/*.ts\"",
     "type-check": "tsc --project tsconfig.json --noEmit",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
@@ -50,9 +52,13 @@
     "cross-env": "^5.2.0",
     "mocha": "^6.1.4",
     "rimraf": "^2.6.3",
+    "rollup": "^1.16.6",
+    "rollup-plugin-javascript-obfuscator": "^1.0.4",
+    "rollup-plugin-typescript2": "^0.21.2",
     "ts-morph": "^3.0.0",
     "ts-nameof": "^3.1.0",
     "ts-node": "^8.2.0",
+    "tslib": "^1.10.0",
     "ttypescript": "^1.5.7",
     "typescript": "^3.5.2"
   }

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { runCli } from "./runCli";
-import { CliEnvironment } from "./environment";
+import { runCli, CliEnvironment } from "./index";
 
 const environment = new CliEnvironment();
 

@@ -8,3 +8,8 @@ export {
     ResolveConfigurationResult,
     ResolvedConfiguration
 } from "./configuration";
+export {
+    CliEnvironment,
+    Environment,
+    runCli
+} from "./cli/index";
