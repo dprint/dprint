@@ -65,7 +65,7 @@
             "type": "string",
             "description": "The kind of newline to use.",
             "oneOf": [
-                { "const": "auto", "description": "Uses the newline kind found at the end of the first line." },
+                { "const": "auto", "description": "For each file, uses the newline kind found at the end of the last line." },
                 { "const": "crlf", "description": "Uses carriage return, line feed." },
                 { "const": "lf", "description": "Uses line feed." },
                 { "const": "system", "description": "Uses the system standard (ex. crlf on Windows)." }

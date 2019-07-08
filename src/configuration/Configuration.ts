@@ -15,7 +15,7 @@ export interface Configuration {
      */
     indentSize?: number;
     /**
-     * Whether to use tabs (false) or spaces (true).
+     * Whether to use tabs (true) or spaces (false).
      * @default false
      */
     useTabs?: boolean;
@@ -32,7 +32,7 @@ export interface Configuration {
     /**
      * The kind of newline to use.
      * @default "auto"
-     * @value "auto" - Uses the newline kind found at the end of the first line.
+     * @value "auto" - For each file, uses the newline kind found at the end of the last line.
      * @value "crlf" - Uses carriage return, line feed.
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).

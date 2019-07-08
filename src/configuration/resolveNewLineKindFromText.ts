@@ -1,7 +1,7 @@
 import * as os from "os";
 
 export function resolveNewLineKindFromText(text: string) {
-    for (let i = 0; i < text.length; i++) {
+    for (let i = text.length - 1; i >= 0; i--) {
         if (text[i] === "\n")
             return text[i - 1] === "\r" ? "\r\n" : "\n";
     }
