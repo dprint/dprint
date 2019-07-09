@@ -1,4 +1,4 @@
-import { PrintItem, Group, PrintItemKind, Signal, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
+import { PrintItem, PrintItemKind, Signal, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
 import { assertNever, RepeatableIterator } from "../utils";
 import { Writer, WriterState } from "./Writer";
 
@@ -11,10 +11,10 @@ export interface PrintOptions {
     newLineKind: "\r\n" | "\n";
 }
 
-export function print(group: Group, options: PrintOptions) {
+export function print(iterator: PrintItemIterator, options: PrintOptions) {
     const printer = new Printer(options);
 
-    printer.printPrintItem(group);
+    printer.printItems(iterator);
 
     return printer.toString();
 }
@@ -87,8 +87,6 @@ class Printer {
             this.printSignal(printItem);
         else if (typeof printItem === "string")
             this.printString(printItem);
-        else if (printItem.kind === PrintItemKind.Group)
-            this.printGroup(printItem);
         else if (printItem.kind === PrintItemKind.Unknown)
             this.printUnknown(printItem);
         else if (printItem.kind === PrintItemKind.Condition)
@@ -159,16 +157,6 @@ class Printer {
             this.writer.write(text);
     }
 
-    printGroup(group: Group) {
-        this.doUpdatingDepth(() => {
-            const isRepeatableIterator = group.items instanceof RepeatableIterator;
-            if (!isRepeatableIterator && this.hasUncomittedItems())
-                group.items = new RepeatableIterator(group.items);
-
-            this.printItems(group.items);
-        });
-    }
-
     private doUpdatingDepth(action: () => void) {
         const previousDepth = this.depth;
         this.depth++;
@@ -180,7 +168,7 @@ class Printer {
         }
     }
 
-    private printItems(items: PrintItemIterator) {
+    printItems(items: PrintItemIterator) {
         this.childIndex = 0;
 
         for (const item of items) {

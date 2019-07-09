@@ -1,4 +1,4 @@
-export type PrintItem = Signal | string | Group | Unknown | Condition | Info;
+export type PrintItem = Signal | string | Unknown | Condition | Info;
 
 // iterators should only be used in groups so that they can become resetable
 export interface PrintItemIterator extends Iterable<PrintItem> {
@@ -6,7 +6,6 @@ export interface PrintItemIterator extends Iterable<PrintItem> {
 
 export enum PrintItemKind {
     Unknown,
-    Group,
     Condition,
     Info
 }
@@ -46,11 +45,6 @@ export interface ResolveConditionContext {
 }
 
 export type ResolveCondition = (context: ResolveConditionContext) => boolean | undefined;
-
-export interface Group {
-    kind: PrintItemKind.Group,
-    items: PrintItemIterator;
-}
 
 export interface Info {
     kind: PrintItemKind.Info;
