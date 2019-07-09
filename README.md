@@ -2,18 +2,21 @@
 
 This library is currently under construction, but will serve as the formatter for all my TypeScript projects. Not recommended for use yet.
 
-```ts
-import { formatFileText } from "dprint";
+[Implemented Nodes](implemented-nodes.md)
 
-const fileText = `if(condition){callExpr( true,false\n   )}`;
-const formattedText = formatFileText("file.ts", fileText);
+## Goals
 
-// outputs:
-// if (condition)
-//     callExpr(true, false);
-console.log(fileText);
-```
+1. Reasonable [configuration](schema/dprint.schema.json).
+2. Work well above an 80 character line width.
+3. Satisfy my formatting needs.
+4. TypeScript and probably JSON support.
 
-TODO:
+## Architecture
 
-Add back keywords `"printer", "formatter", "typescript", "javascript"` to package.json.
+[Read more](docs/architecture.md)
+
+## Licence
+
+No licence. **You are not legally allowed to use this** (for the time being).
+
+Copyright 2019 David Sherret.

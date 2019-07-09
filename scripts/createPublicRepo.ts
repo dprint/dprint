@@ -11,7 +11,9 @@ copy("package.json"); // todo: strip this down using a whitelist of properties t
 copy("README.md");
 copy("dist/cli.js");
 copy("dist/dprint.js");
-copy("src/configuration/dprint.schema.json", "dprint.schema.json");
+copy("schema");
+copy("docs");
+copy("lib");
 copy("src/tests/specs");
 copy("src/tests/runSpecs.ts");
 copy("src/tests/specParser.ts");
