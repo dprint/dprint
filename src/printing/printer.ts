@@ -73,7 +73,12 @@ class Printer {
     }
 
     private savePointToResume: SavePoint | undefined;
-    revertToSavePointThrowing(savePoint: SavePoint) {
+    revertToSavePointPossiblyThrowing(savePoint: SavePoint) {
+        if (this.depth === savePoint.minDepthFound) {
+            this.updateStateToSavePoint(savePoint);
+            return;
+        }
+
         this.savePointToResume = savePoint;
         throw this.exitSymbol;
     }
@@ -121,7 +126,7 @@ class Printer {
                     this.writer.write(this.options.newLineKind);
                 else {
                     if (this.possibleNewLineSavePoint != null)
-                        this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
+                        this.revertToSavePointPossiblyThrowing(this.possibleNewLineSavePoint);
                 }
             }
             else {
@@ -152,7 +157,7 @@ class Printer {
             throw new Error("Praser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
 
         if (!isNewLine && this.possibleNewLineSavePoint != null && this.isAboveMaxWidth(text.length))
-            this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
+            this.revertToSavePointPossiblyThrowing(this.possibleNewLineSavePoint);
         else
             this.writer.write(text);
     }
@@ -209,7 +214,7 @@ class Printer {
 
     printUnknown(unknown: Unknown) {
         if (this.possibleNewLineSavePoint != null && this.isAboveMaxWidth(getLineWidth()))
-            this.revertToSavePointThrowing(this.possibleNewLineSavePoint);
+            this.revertToSavePointPossiblyThrowing(this.possibleNewLineSavePoint);
         else
             this.writer.baseWrite(unknown.text);
 
@@ -264,7 +269,7 @@ class Printer {
                 const savePoint = this.lookAheadSavePoints.get(condition);
                 if (savePoint != null) {
                     this.lookAheadSavePoints.delete(condition);
-                    this.revertToSavePointThrowing(savePoint);
+                    this.revertToSavePointPossiblyThrowing(savePoint);
                 }
             }
 
@@ -301,7 +306,7 @@ class Printer {
         const savePoint = this.lookAheadSavePoints.get(info);
         if (savePoint != null) {
             this.lookAheadSavePoints.delete(info);
-            this.revertToSavePointThrowing(savePoint);
+            this.revertToSavePointPossiblyThrowing(savePoint);
         }
     }
 
