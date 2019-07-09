@@ -184,9 +184,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
     yield* getFirstLineTrailingComments();
     yield context.newLineKind;
     yield startStatementsInfo;
-    yield* withIndent(function*() {
-        yield* parseStatements(node, context);
-    });
+    yield* withIndent(parseStatements(node, context));
     yield endStatementsInfo;
     yield {
         kind: PrintItemKind.Condition,
@@ -790,7 +788,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
     if (wasLastSame)
         yield* parseInner();
     else
-        yield* newlineGroup(withHangingIndent(parseInner));
+        yield* newlineGroup(withHangingIndent(parseInner()));
 
     function* parseInner(): PrintItemIterator {
         yield* parseNode(node.left, context);
@@ -894,7 +892,7 @@ function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.StringL
 function parseUnknownNode(node: babel.Node, context: Context): Unknown {
     const nodeText = context.fileText.substring(node.start!, node.end!);
 
-    context.log(`Not implemented node type: ${node.type} (${nodeText})`);
+    context.log(`Not implemented node type: ${node.type} (${nodeText.substring(0, 100)})`);
 
     return {
         kind: PrintItemKind.Unknown,
@@ -932,7 +930,7 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
             }
             yield* parseNode(node.types[i], context);
         }
-    });
+    }());
 }
 
 /* general */
@@ -991,9 +989,9 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
         yield "(";
 
         if (useNewLines)
-            yield* surroundWithNewLines(withIndent(parseParameterList), context);
+            yield* surroundWithNewLines(withIndent(parseParameterList()), context);
         else
-            yield* withHangingIndent(parseParameterList);
+            yield* withHangingIndent(parseParameterList());
 
         yield ")";
     }
@@ -1025,9 +1023,9 @@ function* parseNamedImportsOrExports(
     yield braceSeparator;
 
     if (useNewLines)
-        yield* withIndent(parseSpecifiers);
+        yield* withIndent(parseSpecifiers());
     else
-        yield* newlineGroup(withHangingIndent(parseSpecifiers));
+        yield* newlineGroup(withHangingIndent(parseSpecifiers()));
 
     yield braceSeparator;
     yield "}";
@@ -1239,36 +1237,21 @@ function* surroundWithNewLines(item: PrintItemIterator | (() => PrintItemIterato
     yield context.newLineKind;
 }
 
-function* withIndent(item: PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+function* withIndent(item: PrintItemIterator): PrintItemIterator {
     yield Signal.StartIndent;
-    if (item instanceof Function)
-        yield* item()
-    else if (isPrintItemIterator(item))
-        yield* item;
-    else
-        yield item;
+    yield* item;
     yield Signal.FinishIndent;
 }
 
-function* withHangingIndent(item: PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+function* withHangingIndent(item: PrintItemIterator): PrintItemIterator {
     yield Signal.StartHangingIndent;
-    if (item instanceof Function)
-        yield* item()
-    else if (isPrintItemIterator(item))
-        yield* item;
-    else
-        yield item;
+    yield* item;
     yield Signal.FinishHangingIndent;
 }
 
-function* newlineGroup(item: PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
+function* newlineGroup(item: PrintItemIterator): PrintItemIterator {
     yield Signal.StartNewlineGroup;
-    if (item instanceof Function)
-        yield* item()
-    else if (isPrintItemIterator(item))
-        yield* item;
-    else
-        yield item;
+    yield* item;
     yield Signal.FinishNewLineGroup;
 }
 
