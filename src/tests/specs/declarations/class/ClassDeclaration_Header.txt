@@ -159,3 +159,19 @@ export class Test<
     extends Test
 {
 }
+
+== should print a super's type argument ==
+export class Test extends Other<string> {
+}
+
+[expect]
+export class Test extends Other<string> {
+}
+
+== should print mixins ==
+export class Test extends MyMixin(OtherMixin())<string> {
+}
+
+[expect]
+export class Test extends MyMixin(OtherMixin())<string> {
+}

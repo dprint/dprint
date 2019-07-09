@@ -265,7 +265,11 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
 
                 yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo, beforeExtendsInfo);
                 yield "extends ";
-                yield* withHangingIndent(parseNode(node.superClass, context));
+                yield* withHangingIndent(function*(): PrintItemIterator {
+                    yield* parseNode(node.superClass, context);
+                    if (node.superTypeParameters)
+                        yield* parseNode(node.superTypeParameters, context);
+                }());
             }
 
             if (node.implements && node.implements.length > 0) {
