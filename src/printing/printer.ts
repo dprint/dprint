@@ -27,6 +27,8 @@ interface SavePoint {
 
 const exitSymbol = Symbol("Thrown to exit when down a depth.");
 
+// todo: separate out more of this code (ex. resolving conditions, infos, and dealing with save points could be in separate classes)
+
 export function print(iterator: PrintItemIterator, options: PrintOptions) {
     // setup
     const writer = new Writer(options);

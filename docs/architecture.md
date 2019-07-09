@@ -1,7 +1,7 @@
 # Architecture
 
 1. Source code is parsed to an AST.
-2. AST is parsed to a "print tree".
+2. AST is traversed and creates a "print tree".
 3. Print tree is printed by a printer.
 
 ## AST Parsing
@@ -16,7 +16,7 @@ Major downside to doing this is that it will take slightly longer to support new
 
 The print tree allows writing simplish declarativish code describing how the nodes should be formatted.
 
-It's a rather shallow tree with the following nodes:
+It's actually not much of a tree and is quiet shallow. It consists of the following nodes:
 
 1. Texts.
 2. Infos.
@@ -35,7 +35,7 @@ These nodes can be put into the tree and when resolved, report information such 
 
 ### Conditions
 
-These conditions have an optional true and optional false path based on how the condition is resolved. Conditions are usually resolved by looking at the value of a resolved info node, which could appear before or after the condition (look ahead).
+These conditions have an optional true and optional false path based on how the condition is resolved. Conditions are usually resolved by looking at the value of an info node or other condition. These infos/conditions that are inspected can appear before or even after the condition.
 
 ### Signals
 
