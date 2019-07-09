@@ -1,0 +1,51 @@
+{
+  "name": "dprint",
+  "version": "0.0.2",
+  "description": "TypeScript code formatter for my personal projects.",
+  "main": "dist/index.js",
+  "bin": {
+    "dprint": "dist/cli-bin.js"
+  },
+  "types": "lib/dprint.d.ts",
+  "scripts": {
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsherret/dprint.git"
+  },
+  "keywords": ["printer", "formatter", "typescript", "javascript"],
+  "author": "David Sherret",
+  "license": "No License",
+  "bugs": {
+    "url": "https://github.com/dsherret/dprint/issues"
+  },
+  "homepage": "https://github.com/dsherret/dprint#readme",
+  "dependencies": {
+    "@babel/core": "^7.4.5",
+    "@babel/parser": "^7.4.5",
+    "@babel/preset-typescript": "^7.3.3",
+    "globby": "^10.0.1",
+    "minimist": "^1.2.0",
+    "tslib": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/babel__core": "^7.1.2",
+    "@types/babel__generator": "^7.0.2",
+    "@types/babel__template": "^7.0.2",
+    "@types/babel__traverse": "^7.0.7",
+    "@types/chai": "^4.1.7",
+    "@types/globby": "^9.1.0",
+    "@types/minimist": "^1.2.0",
+    "@types/mocha": "^5.2.7",
+    "@types/node": "^12.0.8",
+    "@types/ts-nameof": "^2.0.0",
+    "chai": "^4.2.0",
+    "cross-env": "^5.2.0",
+    "mocha": "^6.1.4",
+    "rimraf": "^2.6.3",
+    "ts-nameof": "^3.1.0",
+    "ts-node": "^8.2.0",
+    "ttypescript": "^1.5.7",
+    "typescript": "^3.5.2"
+  }
+}

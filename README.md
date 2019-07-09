@@ -6,7 +6,7 @@ This library is currently under construction, but will serve as the formatter fo
 
 ## Goals
 
-1. Reasonable [configuration](schema/dprint.schema.json).
+1. Reasonable [configuration](schema/dprint.schema.json) (more to come...).
 2. Work well above an 80 character line width.
 3. Satisfy my formatting needs.
 4. TypeScript and probably JSON support.
