@@ -5,11 +5,13 @@
   "description": "Prints TypeScript code with the formatting I want.",
   "main": "dist/index.js",
   "bin": {
-    "dprint": "dist/cli.js"
+    "dprint": "dist/cli-bin.js"
   },
+  "types": "lib/dprint.d.ts",
   "scripts": {
-    "build": "rimraf dist && yarn rollup && yarn build:cli",
+    "build": "rimraf dist && yarn rollup && yarn build:cli && yarn build:declarations",
     "build:cli": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildCli.ts",
+    "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "rollup": "rollup --config",
     "generate-config-from-schema": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/generateConfigFromSchema",
     "format": "ts-node --compiler ttypescript --transpile-only src/cli/cli.ts \"src/**/*.ts\"",

@@ -43,7 +43,7 @@
         },
         "indentSize": {
             "type": "number",
-            "description": "The number of spaces for an indent. This option is ignored if using tabs.",
+            "description": "The number of spaces for an indent. This option is ignored when using tabs.",
             "default": 4
         },
         "useTabs": {

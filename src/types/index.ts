@@ -1,4 +1,4 @@
-export type PrintItem = Behaviour | string | Group | Unknown | Condition | Info;
+export type PrintItem = Signal | string | Group | Unknown | Condition | Info;
 
 // iterators should only be used in groups so that they can become resetable
 export interface PrintItemIterator extends Iterable<PrintItem> {
@@ -16,7 +16,7 @@ export interface Unknown {
     text: string;
 }
 
-export enum Behaviour {
+export enum Signal {
     NewLine,
     SpaceOrNewLine,
     /** Expect the next character to be a newline. If it's not, force a newline */

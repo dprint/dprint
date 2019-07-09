@@ -1,4 +1,4 @@
-import { Group, PrintItem, Behaviour, PrintItemKind, Condition, Info, PrintItemIterator, Unknown } from "../types";
+import { Group, PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterator, Unknown } from "../types";
 import { assertNever } from "../utils";
 
 // this is for debugging purposes
@@ -12,7 +12,7 @@ function printItem(item: PrintItem) {
     if (typeof item === "string")
         return printString(item);
     else if (typeof item === "number")
-        return printBehaviour(item);
+        return printSignal(item);
     else if (item.kind === PrintItemKind.Group)
         return printGroup(item);
     else if (item.kind === PrintItemKind.Condition)
@@ -28,8 +28,8 @@ function printString(text: string) {
     return `"${text.replace(/"/g, `\"`).replace(/\r?\n/g, "\\n")}"`;
 }
 
-function printBehaviour(behaviour: Behaviour) {
-    return "Behaviour." + Behaviour[behaviour];
+function printSignal(signal: Signal) {
+    return "Signal." + Signal[signal];
 }
 
 function printGroup(group: Group) {

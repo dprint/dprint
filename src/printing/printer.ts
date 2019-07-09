@@ -1,4 +1,4 @@
-import { PrintItem, Group, PrintItemKind, Behaviour, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
+import { PrintItem, Group, PrintItemKind, Signal, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
 import { assertNever, RepeatableIterator } from "../utils";
 import { Writer, WriterState } from "./Writer";
 
@@ -52,11 +52,11 @@ class Printer {
         });
     }
 
-    markPossibleNewLineIfAble(behaviour: Behaviour) {
+    markPossibleNewLineIfAble(signal: Signal) {
         if (this.possibleNewLineSavePoint != null && this.newlineGroupDepth > this.possibleNewLineSavePoint.newlineGroupDepth)
             return;
 
-        this.possibleNewLineSavePoint = this.createSavePoint(behaviour);
+        this.possibleNewLineSavePoint = this.createSavePoint(signal);
     }
 
     private createSavePoint(initialItem: PrintItem): SavePoint {
@@ -84,7 +84,7 @@ class Printer {
         // todo: nest all these function within printPrintItem to prevent
         // them from being used elsewhere
         if (typeof printItem === "number")
-            this.printBehaviour(printItem);
+            this.printSignal(printItem);
         else if (typeof printItem === "string")
             this.printString(printItem);
         else if (printItem.kind === PrintItemKind.Group)
@@ -111,12 +111,12 @@ class Printer {
         }
     }
 
-    printBehaviour(behaviour: Behaviour) {
-        if (behaviour === Behaviour.ExpectNewLine)
+    printSignal(signal: Signal) {
+        if (signal === Signal.ExpectNewLine)
             this.writer.markExpectNewLine();
-        else if (behaviour === Behaviour.NewLine)
-            this.markPossibleNewLineIfAble(behaviour);
-        else if (behaviour === Behaviour.SpaceOrNewLine) {
+        else if (signal === Signal.NewLine)
+            this.markPossibleNewLineIfAble(signal);
+        else if (signal === Signal.SpaceOrNewLine) {
             if (this.isAboveMaxWidth(1)) {
                 const saveState = this.possibleNewLineSavePoint;
                 if (saveState == null || saveState.newlineGroupDepth >= this.newlineGroupDepth)
@@ -127,24 +127,24 @@ class Printer {
                 }
             }
             else {
-                this.markPossibleNewLineIfAble(behaviour);
+                this.markPossibleNewLineIfAble(signal);
                 this.writer.write(" ");
             }
         }
-        else if (behaviour === Behaviour.StartIndent)
+        else if (signal === Signal.StartIndent)
             this.writer.startIndent();
-        else if (behaviour === Behaviour.FinishIndent)
+        else if (signal === Signal.FinishIndent)
             this.writer.finishIndent();
-        else if (behaviour === Behaviour.StartHangingIndent)
+        else if (signal === Signal.StartHangingIndent)
             this.writer.startHangingIndent();
-        else if (behaviour === Behaviour.FinishHangingIndent)
+        else if (signal === Signal.FinishHangingIndent)
             this.writer.finishHangingIndent();
-        else if (behaviour === Behaviour.StartNewlineGroup)
+        else if (signal === Signal.StartNewlineGroup)
             this.newlineGroupDepth++;
-        else if (behaviour === Behaviour.FinishNewLineGroup)
+        else if (signal === Signal.FinishNewLineGroup)
             this.newlineGroupDepth--;
         else
-            assertNever(behaviour);
+            assertNever(signal);
     }
 
     printString(text: string) {

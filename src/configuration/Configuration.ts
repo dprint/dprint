@@ -10,7 +10,7 @@ export interface Configuration {
      */
     lineWidth?: number;
     /**
-     * The number of spaces for an indent. This option is ignored if using tabs.
+     * The number of spaces for an indent. This option is ignored when using tabs.
      * @default 4
      */
     indentSize?: number;

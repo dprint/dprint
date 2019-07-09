@@ -1,6 +1,6 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
-import { PrintItem, PrintItemKind, Group, Behaviour, Unknown, PrintItemIterator, Condition, Info } from "../types";
+import { PrintItem, PrintItemKind, Group, Signal, Unknown, PrintItemIterator, Condition, Info } from "../types";
 import { assertNever, isPrintItemIterator, throwError } from "../utils";
 import * as conditions from "./conditions";
 import * as nodeHelpers from "./nodeHelpers";
@@ -302,7 +302,7 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
         for (let i = 0; i < node.implements.length; i++) {
             if (i > 0) {
                 yield ",";
-                yield Behaviour.SpaceOrNewLine;
+                yield Signal.SpaceOrNewLine;
             }
             yield parseNode(node.implements[i], context);
         }
@@ -439,7 +439,7 @@ function parseTypeParameterDeclaration(
                 if (useNewLines)
                     yield context.newLineKind;
                 else
-                    yield Behaviour.SpaceOrNewLine;
+                    yield Signal.SpaceOrNewLine;
             }
         }
     }
@@ -811,7 +811,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
 
     function* parseInner(): PrintItemIterator {
         yield parseNode(node.left, context);
-        yield Behaviour.SpaceOrNewLine;
+        yield Signal.SpaceOrNewLine;
         yield node.operator;
         yield " ";
         yield parseNode(node.right, context);
@@ -944,7 +944,7 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
     yield* withHangingIndent(function*() {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
-                yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
+                yield useNewLines ? context.newLineKind : Signal.SpaceOrNewLine;
                 yield "| ";
             }
             yield parseNode(node.types[i], context);
@@ -1021,7 +1021,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
             yield parseNode(param, context);
             if (i < params.length - 1) {
                 yield ",";
-                yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
+                yield useNewLines ? context.newLineKind : Signal.SpaceOrNewLine;
             }
         }
     }
@@ -1059,7 +1059,7 @@ function* parseNamedImportsOrExports(
         for (let i = 0; i < namedImportsOrExports.length; i++) {
             if (i > 0) {
                 yield ",";
-                yield useNewLines ? context.newLineKind : Behaviour.SpaceOrNewLine;
+                yield useNewLines ? context.newLineKind : Signal.SpaceOrNewLine;
             }
             yield parseNode(namedImportsOrExports[i], context);
         }
@@ -1087,7 +1087,7 @@ function* parseDecorators(decorators: babel.Decorator[], context: Context): Prin
             if (useNewlines)
                 yield context.newLineKind;
             else
-                yield Behaviour.SpaceOrNewLine;
+                yield Signal.SpaceOrNewLine;
         }
 
         yield* newlineGroup(parseNode(decorators[i], context));
@@ -1185,7 +1185,7 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
 
     function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
         yield `// ${comment.value.trim()}`;
-        yield Behaviour.ExpectNewLine;
+        yield Signal.ExpectNewLine;
     }
 }
 
@@ -1257,36 +1257,36 @@ function* surroundWithNewLines(item: Group | PrintItemIterator | (() => PrintIte
 }
 
 function* withIndent(item: Group | PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
-    yield Behaviour.StartIndent;
+    yield Signal.StartIndent;
     if (item instanceof Function)
         yield* item()
     else if (isPrintItemIterator(item))
         yield* item;
     else
         yield item;
-    yield Behaviour.FinishIndent;
+    yield Signal.FinishIndent;
 }
 
 function* withHangingIndent(item: Group | PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
-    yield Behaviour.StartHangingIndent;
+    yield Signal.StartHangingIndent;
     if (item instanceof Function)
         yield* item()
     else if (isPrintItemIterator(item))
         yield* item;
     else
         yield item;
-    yield Behaviour.FinishHangingIndent;
+    yield Signal.FinishHangingIndent;
 }
 
 function* newlineGroup(item: Group | PrintItemIterator | (() => PrintItemIterator)): PrintItemIterator {
-    yield Behaviour.StartNewlineGroup;
+    yield Signal.StartNewlineGroup;
     if (item instanceof Function)
         yield* item()
     else if (isPrintItemIterator(item))
         yield* item;
     else
         yield item;
-    yield Behaviour.FinishNewLineGroup;
+    yield Signal.FinishNewLineGroup;
 }
 
 function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {

@@ -1,4 +1,4 @@
-import Schema from "../src/configuration/dprint.schema.json";
+import Schema from "../schema/dprint.schema.json";
 
 export interface SchemaProperty {
     name: string;

@@ -10,6 +10,7 @@ export default {
   plugins: [
     typescript({
         typescript: require("ttypescript"),
+        tsconfig: "tsconfig.rollup.json"
     }),
     obfuscatorPlugin()
   ]

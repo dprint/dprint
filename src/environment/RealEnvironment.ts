@@ -1,9 +1,9 @@
 import * as path from "path";
 import globby from "globby";
 import { Environment } from "./Environment";
-import { readFile, writeFile } from "../../utils";
+import { readFile, writeFile } from "../utils";
 
-export class CliEnvironment implements Environment {
+export class RealEnvironment implements Environment {
     log(text: string) {
         console.log(text);
     }

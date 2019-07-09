@@ -3,6 +3,7 @@
         "target": "ES2015",
         "rootDir": "./src",
         "outDir": "./dist",
+        "module": "commonjs",
         "allowJs": true,
         "strict": true,
         "noImplicitReturns": true,

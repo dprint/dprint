@@ -1,4 +1,4 @@
-import { PrintItemKind, Info, Condition, Behaviour } from "../types";
+import { PrintItemKind, Info, Condition, Signal } from "../types";
 import { Context } from "./parser";
 import * as infoChecks from "./infoChecks";
 
@@ -26,6 +26,6 @@ export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: Context, 
         kind: PrintItemKind.Condition,
         condition: conditionContext => infoChecks.isMultipleLines(startInfo, endInfo, conditionContext, false),
         true: [context.newLineKind],
-        false: [Behaviour.SpaceOrNewLine]
+        false: [Signal.SpaceOrNewLine]
     };
 }

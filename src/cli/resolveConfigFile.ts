@@ -1,4 +1,4 @@
-import { Environment } from "./environment";
+import { Environment } from "../environment";
 import { Configuration } from "../configuration";
 
 const defaultFileName = "dprint.config";

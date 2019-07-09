@@ -1,10 +1,9 @@
 {
     "extends": "./tsconfig.common.json",
     "compilerOptions": {
-        "module": "ES2015",
         "rootDir": "./src",
         "outDir": "./dist",
-        "plugins": [{ "transform": "ts-nameof", "type": "raw" }],
+        "plugins": [{ "transform": "ts-nameof", "type": "raw" }]
     },
-    "exclude": ["./scripts"]
+    "exclude": ["./scripts", "./dist", "./rollup.config.js", "./lib"]
 }

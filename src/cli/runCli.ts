@@ -1,11 +1,11 @@
+import { Environment } from "../environment";
+import { formatFileText } from "../formatFileText";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
 import { getPackageVersion } from "./getPackageVersion";
 import { CommandLineOptions } from "./CommandLineOptions";
-import { Environment } from "./environment";
 import { resolveConfigFile } from "./resolveConfigFile";
 import { resolveConfiguration } from "../configuration";
-import { formatFileText } from "../formatFileText";
 
 export async function runCli(args: string[], environment: Environment) {
     const options = parseCommandLineArgs(args);

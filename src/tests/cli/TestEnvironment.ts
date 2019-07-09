@@ -1,4 +1,4 @@
-import { Environment } from "../../cli";
+import { Environment } from "../../environment";
 
 export class TestEnvironment implements Environment {
     private readonly logs: string[] = [];

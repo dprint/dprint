@@ -9,7 +9,9 @@ export {
     ResolvedConfiguration
 } from "./configuration";
 export {
-    CliEnvironment,
-    Environment,
     runCli
-} from "./cli/index";
+} from "./cli";
+export {
+    RealEnvironment as CliEnvironment,
+    Environment
+} from "./environment";
