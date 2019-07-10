@@ -1,5 +1,14 @@
+/**
+ * Formats the provided text with the specified configuration.
+ * @param filePath - File path of the text.
+ * @param fileText - Text to format.
+ * @param configuration - Configuration to use for formatting.
+ */
 export declare function formatFileText(filePath: string, fileText: string, configuration: ResolvedConfiguration): string;
 
+/**
+ * User specified configuration.
+ */
 export interface Configuration {
     /**
      * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
@@ -154,13 +163,21 @@ export interface Configuration {
     "tryStatement.nextControlFlowPosition"?: "maintain" | "sameLine" | "nextLine";
 }
 
+/** Represents a problem with a configuration. */
 export interface ConfigurationDiagnostic {
+    /** The property name the problem occurred on. */
     propertyName: string;
+    /** The diagnostic's message. */
     message: string;
 }
 
+/**
+ * Changes the provided configuration to have all its properties resolved to a value.
+ * @param config - Configuration to resolve.
+ */
 export declare function resolveConfiguration(config: Configuration): ResolveConfigurationResult;
 
+/** The result of resolving configuration. */
 export interface ResolveConfigurationResult {
     /** The resolved configuration. */
     config: ResolvedConfiguration;
@@ -168,6 +185,9 @@ export interface ResolveConfigurationResult {
     diagnostics: ConfigurationDiagnostic[];
 }
 
+/**
+ * Resolved configuration from user specified configuration.
+ */
 export interface ResolvedConfiguration {
     lineWidth: number;
     indentSize: number;
@@ -192,8 +212,16 @@ export interface ResolvedConfiguration {
     "tryStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
 }
 
+/**
+ * Function used by the cli to format files.
+ * @param args - Command line arguments.
+ * @param environment - Environment to run the cli in.
+ */
 export declare function runCli(args: string[], environment: Environment): Promise<void>;
 
+/**
+ * An implementation of an environment that interacts with the user's file system and outputs to the console.
+ */
 export declare class RealEnvironment implements Environment {
     log(text: string): void;
     warn(text: string): void;
@@ -204,6 +232,7 @@ export declare class RealEnvironment implements Environment {
     glob(patterns: string[]): Promise<string[]>;
 }
 
+/** Represents an execution environment. */
 export interface Environment {
     log(text: string): void;
     warn(text: string): void;

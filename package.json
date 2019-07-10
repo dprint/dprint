@@ -1,16 +1,19 @@
 {
   "name": "dprint",
-  "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "TypeScript code formatter for my personal projects.",
+  "main": "dist/index.js",
+  "bin": {
+    "dprint": "dist/cli-bin.js"
+  },
+  "types": "lib/dprint.d.ts",
   "scripts": {
     "build": "rimraf dist && yarn rollup && yarn build:cli && yarn build:declarations",
     "build:cli": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildCli.ts",
     "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
-    "create-public-repo": "yarn build && ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/createPublicRepo.ts",
     "rollup": "rollup --config",
     "generate-config-from-schema": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/generateConfigFromSchema",
-    "format": "ts-node --compiler ttypescript --transpile-only src/cli-bin.ts \"src/**/*.ts\"",
+    "format": "ts-node --compiler ttypescript --transpile-only src/cli-bin.ts \"src/**/*.ts\" \"scripts/**/*.ts\"",
     "type-check": "tsc --project tsconfig.json --noEmit",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
@@ -33,8 +36,7 @@
     "@babel/parser": "^7.4.5",
     "@babel/preset-typescript": "^7.3.3",
     "globby": "^10.0.1",
-    "minimist": "^1.2.0",
-    "tslib": "^1.10.0"
+    "minimist": "^1.2.0"
   },
   "devDependencies": {
     "@types/babel__core": "^7.1.2",
@@ -52,7 +54,6 @@
     "mocha": "^6.1.4",
     "rimraf": "^2.6.3",
     "rollup": "^1.16.6",
-    "rollup-plugin-javascript-obfuscator": "^1.0.4",
     "rollup-plugin-typescript2": "^0.21.2",
     "ts-morph": "^3.0.0",
     "ts-nameof": "^3.1.0",

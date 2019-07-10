@@ -1,0 +1,12 @@
+.rpt2_cache
+.vscode
+docs
+src
+scripts
+.gitignore
+dprint.config
+implemented-nodes.md
+mocha.opts
+rollup.config.js
+tsconfig.*
+yarn-error.log

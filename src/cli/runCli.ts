@@ -7,6 +7,11 @@ import { CommandLineOptions } from "./CommandLineOptions";
 import { resolveConfigFile } from "./resolveConfigFile";
 import { resolveConfiguration } from "../configuration";
 
+/**
+ * Function used by the cli to format files.
+ * @param args - Command line arguments.
+ * @param environment - Environment to run the cli in.
+ */
 export async function runCli(args: string[], environment: Environment) {
     const options = parseCommandLineArgs(args);
     await runCliWithOptions(options, environment);

@@ -10,7 +10,6 @@
         "noFallthroughCasesInSwitch": true,
         "esModuleInterop": true,
         "downlevelIteration": true,
-        "plugins": [{ "transform": "ts-nameof", "type": "raw" }],
-        "importHelpers": true
+        "plugins": [{ "transform": "ts-nameof", "type": "raw" }]
     }
 }

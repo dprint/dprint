@@ -1,16 +1,20 @@
 import { Configuration, ResolvedConfiguration } from "./Configuration";
 import * as os from "os";
 
-export interface ConfigurationDiagnostic {
-    propertyName: string;
-    message: string;
-}
-
+/** The result of resolving configuration. */
 export interface ResolveConfigurationResult {
     /** The resolved configuration. */
     config: ResolvedConfiguration;
     /** The diagnostics, if any. */
     diagnostics: ConfigurationDiagnostic[];
+}
+
+/** Represents a problem with a configuration. */
+export interface ConfigurationDiagnostic {
+    /** The property name the problem occurred on. */
+    propertyName: string;
+    /** The diagnostic's message. */
+    message: string;
 }
 
 /** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
@@ -26,6 +30,10 @@ const defaultValues = {
     nextControlFlowPosition: "nextLine"
 } as const;
 
+/**
+ * Changes the provided configuration to have all its properties resolved to a value.
+ * @param config - Configuration to resolve.
+ */
 export function resolveConfiguration(config: Configuration): ResolveConfigurationResult {
     config = { ...config };
     const diagnostics: ConfigurationDiagnostic[] = [];

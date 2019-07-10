@@ -1,3 +1,4 @@
+/** Represents an execution environment. */
 export interface Environment {
     log(text: string): void;
     warn(text: string): void;

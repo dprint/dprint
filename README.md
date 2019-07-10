@@ -4,21 +4,19 @@ This library is under construction, but will eventually serve as the formatter f
 
 This is not recommended for use yet.
 
-[Implemented Nodes](implemented-nodes.md)
+* [Implemented nodes](implemented-nodes.md) (59/223)
+* [Configuration schema](schema/dprint.schema.json) (more to come...)
+* [API declarations](lib/dprint.d.ts)
 
 ## Goals
 
-1. Reasonable [configuration](schema/dprint.schema.json). More to come...
+1. Reasonable configuration.
 2. Work well above an 80 character line width.
 3. Satisfy my formatting needs.
 4. TypeScript and probably JSON support.
 
-## Architecture
-
-[Read more](docs/architecture.md)
-
 ## Licence
 
-No licence. **You are not legally allowed to use this** (for the time being).
+No licence for the time being. That means you are not legally allowed to use this, make any changes/derivitives, or provide contributions.
 
 Copyright (c) 2019 David Sherret.

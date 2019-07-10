@@ -3,6 +3,9 @@ import globby from "globby";
 import { Environment } from "./Environment";
 import { readFile, writeFile } from "../utils";
 
+/**
+ * An implementation of an environment that interacts with the user's file system and outputs to the console.
+ */
 export class RealEnvironment implements Environment {
     log(text: string) {
         console.log(text);

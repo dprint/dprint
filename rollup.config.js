@@ -1,5 +1,4 @@
 import typescript from 'rollup-plugin-typescript2';
-import obfuscatorPlugin from 'rollup-plugin-javascript-obfuscator';
 
 export default {
   input: './src/index.ts',
@@ -11,7 +10,6 @@ export default {
     typescript({
         typescript: require("ttypescript"),
         tsconfig: "tsconfig.rollup.json"
-    }),
-    obfuscatorPlugin()
+    })
   ]
 };

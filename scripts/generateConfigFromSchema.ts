@@ -48,7 +48,7 @@ function getDocs(prop: SchemaProperty) {
 
     if (prop.default != null) {
         appendNewLine();
-        result += "@default " + getDefault(prop)
+        result += "@default " + getDefault(prop);
     }
     if (prop.oneOf != null) {
         for (const value of prop.oneOf) {
