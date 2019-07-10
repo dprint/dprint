@@ -456,10 +456,9 @@ function* parseClassBody(node: babel.ClassBody, context: Context): PrintItemIter
     yield "}";
 
     function* parseBody(): PrintItemIterator {
-        for (let i = 0; i < node.body.length; i++) {
+        if (node.body.length > 0 || node.innerComments != null && node.innerComments.length > 0)
             yield context.newLineKind;
-            yield* parseNode(node.body[i], context);
-        }
+        yield* parseStatementOrMembers(node.body, node.innerComments, undefined, context);
     }
 }
 
@@ -953,36 +952,41 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     }
 
     const statements = block.body;
-    for (const statement of statements) {
-        if (lastNode != null && !nodeHelpers.hasLeadingCommentOnDifferentLine(statement)) {
-            if (nodeHelpers.hasBody(lastNode) || nodeHelpers.hasBody(statement)) {
-                yield context.newLineKind;
-                yield context.newLineKind;
-            }
-            else {
-                yield context.newLineKind;
+    yield* parseStatementOrMembers(statements, block.innerComments, lastNode, context);
+}
 
-                if (nodeHelpers.hasSeparatingBlankLine(lastNode, statement))
-                    yield context.newLineKind;
-            }
+function* parseStatementOrMembers(
+    items: babel.Node[],
+    innerComments: ReadonlyArray<babel.Comment> | undefined | null,
+    lastNode: babel.Node | undefined, context: Context
+): PrintItemIterator {
+    for (const item of items) {
+        if (lastNode != null && !nodeHelpers.hasLeadingCommentOnDifferentLine(item)) {
+            yield context.newLineKind;
+
+            if (nodeHelpers.hasSeparatingBlankLine(lastNode, item))
+                yield context.newLineKind;
         }
 
-        yield* parseNode(statement, context);
-        lastNode = statement;
+        yield* parseNode(item, context);
+        lastNode = item;
     }
 
     // get the trailing comments on separate lines of the last node
-    if (lastNode != null && lastNode.trailingComments != null) {
+    if (lastNode != null && lastNode.trailingComments != null && lastNode.trailingComments.length > 0) {
         // treat these as if they were leading comments, so don't provide the last node
         yield* parseCommentCollection(lastNode.trailingComments, undefined, context);
     }
 
-    if (block.innerComments && block.innerComments.length > 0) {
+    if (innerComments != null && innerComments.length > 0) {
         if (lastNode != null)
             yield context.newLineKind;
 
-        yield* parseCommentCollection(block.innerComments, undefined, context);
+        yield* parseCommentCollection(innerComments, undefined, context);
     }
+}
+
+function* parseInnerComments(comments: ReadonlyArray<babel.Comment>, lastNode: babel.Node | undefined, context: Context): PrintItemIterator {
 }
 
 function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {

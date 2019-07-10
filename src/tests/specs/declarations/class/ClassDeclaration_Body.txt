@@ -1,0 +1,41 @@
+== should print members ==
+class Test {
+    // other
+    prop: string;
+
+    /** testing */
+    method() {
+    }
+
+    otherProp: string;
+    // other
+}
+
+[expect]
+class Test {
+    // other
+    prop: string;
+
+    /** testing */
+    method() {
+    }
+
+    otherProp: string;
+    // other
+}
+
+== should inner comments ==
+class Test {
+    // testing
+
+    /* testing */ // 1
+    // test
+}
+
+[expect]
+class Test {
+    // testing
+
+    /* testing */ // 1
+    // test
+}
