@@ -17,7 +17,7 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
     for (const declaration of declarations) {
         if (text.length > 0)
             text += "\n";
-        text += declaration.getText();
+        text += declaration.getText(true);
         text += "\n";
     }
 }
