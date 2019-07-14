@@ -116,9 +116,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "NullLiteralTypeAnnotaion": () => "null",
     "NumericLiteral": parseNumericLiteral,
     "StringLiteral": parseStringOrDirectiveLiteral,
-    "StringLiteralTypeAnnotation": parseStringOrDirectiveLiteral,
     /* keywords */
-    "AnyTypeAnnotation": () => "any",
     "ThisExpression": () => "this",
     "TSAnyKeyword": () => "any",
     "TSBooleanKeyword": () => "boolean",
@@ -137,8 +135,62 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeParameter": parseTypeParameter,
     "TSUnionType": parseUnionType,
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
-    "TypeParameterDeclaration": parseTypeParameterDeclaration,
-    "TSTypeParameterInstantiation": parseTypeParameterDeclaration
+    "TSTypeParameterInstantiation": parseTypeParameterDeclaration,
+    /* explicitly not implemented */
+    "BindExpression": parseUnknownNode,
+    /* flow */
+    "AnyTypeAnnotation": parseNotSupportedFlowNode,
+    "ArrayTypeAnnotation": parseNotSupportedFlowNode,
+    "BooleanLiteralTypeAnnotation": parseNotSupportedFlowNode,
+    "BooleanTypeAnnotation": parseNotSupportedFlowNode,
+    "ClassImplements": parseNotSupportedFlowNode,
+    "DeclareClass": parseNotSupportedFlowNode,
+    "DeclareExportAllDeclaration": parseNotSupportedFlowNode,
+    "DeclareExportDeclaration": parseNotSupportedFlowNode,
+    "DeclareFunction": parseNotSupportedFlowNode,
+    "DeclareInterface": parseNotSupportedFlowNode,
+    "DeclareModule": parseNotSupportedFlowNode,
+    "DeclareModuleExports": parseNotSupportedFlowNode,
+    "DeclareOpaqueType": parseNotSupportedFlowNode,
+    "DeclareTypeAlias": parseNotSupportedFlowNode,
+    "DeclareVariable": parseNotSupportedFlowNode,
+    "DeclaredPredicate": parseNotSupportedFlowNode,
+    "EmptyTypeAnnotation": parseNotSupportedFlowNode,
+    "ExistsTypeAnnotation": parseNotSupportedFlowNode,
+    "FunctionTypeAnnotation": parseNotSupportedFlowNode,
+    "FunctionTypeParam": parseNotSupportedFlowNode,
+    "GenericTypeAnnotation": parseNotSupportedFlowNode,
+    "InferredPredicate": parseNotSupportedFlowNode,
+    "InterfaceDeclaration": parseNotSupportedFlowNode,
+    "InterfaceExtends": parseNotSupportedFlowNode,
+    "IntersectionTypeAnnotation": parseNotSupportedFlowNode,
+    "MixedTypeAnnotation": parseNotSupportedFlowNode,
+    "NullLiteralTypeAnnotation": parseNotSupportedFlowNode,
+    "NullableTypeAnnotation": parseNotSupportedFlowNode,
+    "NumberLiteralTypeAnnotation": parseNotSupportedFlowNode,
+    "NumberTypeAnnotation": parseNotSupportedFlowNode,
+    "ObjectTypeAnnotation": parseNotSupportedFlowNode,
+    "ObjectTypeCallProperty": parseNotSupportedFlowNode,
+    "ObjectTypeIndexer": parseNotSupportedFlowNode,
+    "ObjectTypeInternalSlot": parseNotSupportedFlowNode,
+    "ObjectTypeProperty": parseNotSupportedFlowNode,
+    "ObjectTypeSpreadProperty": parseNotSupportedFlowNode,
+    "OpaqueType": parseNotSupportedFlowNode,
+    "QualifiedTypeIdentifier": parseNotSupportedFlowNode,
+    "StringLiteralTypeAnnotation": parseNotSupportedFlowNode,
+    "StringTypeAnnotation": parseNotSupportedFlowNode,
+    "ThisTypeAnnotation": parseNotSupportedFlowNode,
+    "TupleTypeAnnotation": parseNotSupportedFlowNode,
+    "TypeAlias": parseNotSupportedFlowNode,
+    "TypeAnnotation": parseNotSupportedFlowNode,
+    "TypeCastExpression": parseNotSupportedFlowNode,
+    "TypeParameter": parseNotSupportedFlowNode,
+    "TypeParameterDeclaration": parseNotSupportedFlowNode,
+    "TypeParameterInstantiation": parseNotSupportedFlowNode,
+    "TypeofTypeAnnotation": parseNotSupportedFlowNode,
+    "UnionTypeAnnotation": parseNotSupportedFlowNode,
+    "Variance": parseNotSupportedFlowNode,
+    "VoidTypeAnnotation": parseNotSupportedFlowNode
 };
 
 function* parseNode(node: babel.Node | null, context: Context): PrintItemIterator {
@@ -399,7 +451,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
 }
 
 function* parseTypeParameterDeclaration(
-    declaration: babel.TypeParameterDeclaration | babel.TSTypeParameterDeclaration | babel.TSTypeParameterInstantiation | babel.TypeParameterInstantiation,
+    declaration: babel.TSTypeParameterDeclaration | babel.TSTypeParameterInstantiation | babel.TypeParameterInstantiation,
     context: Context
 ): PrintItemIterator {
     const useNewLines = nodeHelpers.getUseNewlinesForNodes(declaration.params);
@@ -899,16 +951,24 @@ function parseNumericLiteral(node: babel.NumericLiteral, context: Context) {
     return context.fileText.substring(node.start!, node.end!);
 }
 
-function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.StringLiteralTypeAnnotation | babel.DirectiveLiteral, context: Context) {
+function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.DirectiveLiteral, context: Context) {
     if (context.config.singleQuotes)
         return `'${node.value.replace(/'/g, `\\'`)}'`;
     return `"${node.value.replace(/"/g, `\\"`)}"`;
 }
 
+function parseNotSupportedFlowNode(node: babel.Node, context: Context): Unknown {
+    return parseUnknownNodeWithMessage(node, context, "Flow node types are not supported");
+}
+
 function parseUnknownNode(node: babel.Node, context: Context): Unknown {
+    return parseUnknownNodeWithMessage(node, context, "Not implemented node type");
+}
+
+function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message: string): Unknown {
     const nodeText = context.fileText.substring(node.start!, node.end!);
 
-    context.log(`Not implemented node type: ${node.type} (${nodeText.substring(0, 100)})`);
+    context.log(`${message}: ${node.type} (${nodeText.substring(0, 100)})`);
 
     return {
         kind: PrintItemKind.Unknown,
