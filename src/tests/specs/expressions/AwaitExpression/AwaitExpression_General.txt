@@ -1,0 +1,9 @@
+== should parse the await expression ==
+async function test() {
+    await   test;
+}
+
+[expect]
+async function test() {
+    await test;
+}

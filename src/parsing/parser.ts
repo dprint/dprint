@@ -93,6 +93,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     /* clauses */
     "CatchClause": parseCatchClause,
     /* expressions */
+    "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
     "LogicalExpression": parseBinaryOrLogicalExpression,
@@ -785,6 +786,11 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 }
 
 /* expressions */
+
+function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): PrintItemIterator {
+    yield "await ";
+    yield* parseNode(node.argument, context);
+}
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
     const wasLastSame = context.parent.type === node.type;
