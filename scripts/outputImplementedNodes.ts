@@ -9,10 +9,12 @@ const dprintAnalyzer = new DPrintAnalyzer(project);
 const fileSystem = project.getFileSystem();
 
 const implementedTypes = new Set(dprintAnalyzer.getParserParseObjKeys());
+const flowNodeNames = new Set(dprintAnalyzer.getIgnoredFlowNodeNames());
+const ignoredNodeNames = new Set(dprintAnalyzer.getIgnoredUnknownNodeNames());
 const implementedNodes: BabelNode[] = [];
 const unImplementedNodes: BabelNode[] = [];
 
-for (const node of babelAnalyzer.getNodes()) {
+for (const node of babelAnalyzer.getNodes().filter(n => !flowNodeNames.has(n.getName()) && !ignoredNodeNames.has(n.getName()))) {
     if (node.isReferenced() || implementedTypes.has(node.getType()) && verifyNodeHasNoProperties(node))
         implementedNodes.push(node);
     else
