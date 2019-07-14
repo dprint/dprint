@@ -83,6 +83,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ClassBody": parseClassBody,
     "Decorator": parseDecorator,
     /* statements */
+    "DebuggerStatement": parseDebuggerStatement,
     "Directive": parseDirective,
     "DoWhileStatement": parseDoWhileStatement,
     "ExpressionStatement": parseExpressionStatement,
@@ -469,6 +470,12 @@ function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIter
 }
 
 /* statements */
+
+function* parseDebuggerStatement(node: babel.DebuggerStatement, context: Context): PrintItemIterator {
+    yield "debugger";
+    if (context.config["debuggerStatement.semiColon"])
+        yield ";";
+}
 
 function* parseDirective(node: babel.Directive, context: Context): PrintItemIterator {
     yield* parseNode(node.value, context);

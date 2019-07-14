@@ -1,0 +1,5 @@
+== should format a debugger statement ==
+debugger
+
+[expect]
+debugger;

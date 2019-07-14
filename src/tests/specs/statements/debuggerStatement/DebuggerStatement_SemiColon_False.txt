@@ -1,0 +1,6 @@
+~~ debuggerStatement.semiColon: false ~~
+== should remove the semi-colon ==
+debugger;
+
+[expect]
+debugger

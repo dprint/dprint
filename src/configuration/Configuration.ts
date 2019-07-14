@@ -63,6 +63,7 @@ export interface Configuration {
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
     nextControlFlowPosition?: "maintain" | "sameLine" | "nextLine";
+    "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
@@ -168,6 +169,7 @@ export interface ResolvedConfiguration {
     newLineKind: "auto" | "\r\n" | "\n";
 
     // semi colons
+    "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;
     "doWhileStatement.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
