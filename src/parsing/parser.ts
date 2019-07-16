@@ -134,10 +134,11 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "VoidKeyword": () => "void",
     /* types */
     "TSLiteralType": parseTSLiteralType,
+    "TSThisType": () => "this",
     "TSTypeParameter": parseTypeParameter,
-    "TSUnionType": parseUnionType,
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
     "TSTypeParameterInstantiation": parseTypeParameterDeclaration,
+    "TSUnionType": parseUnionType,
     /* explicitly not implemented */
     "BindExpression": parseUnknownNode,
     /* flow */

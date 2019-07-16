@@ -1,0 +1,11 @@
+== should format ==
+class Test {
+    myMethod(): this {
+    }
+}
+
+[expect]
+class Test {
+    myMethod(): this {
+    }
+}
