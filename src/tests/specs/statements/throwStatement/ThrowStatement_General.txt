@@ -1,0 +1,5 @@
+== should format a debugger statement ==
+throw    new Error("testing")
+
+[expect]
+throw new Error("testing");

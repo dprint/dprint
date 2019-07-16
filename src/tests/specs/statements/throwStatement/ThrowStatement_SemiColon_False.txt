@@ -1,0 +1,6 @@
+~~ throwStatement.semiColon: false ~~
+== should remove the semi-colon ==
+throw "test";
+
+[expect]
+throw "test"

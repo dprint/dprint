@@ -69,6 +69,7 @@ export interface Configuration {
     "expressionStatement.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
+    "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     /**
      * If braces should be used or not.
@@ -175,6 +176,7 @@ export interface ResolvedConfiguration {
     "expressionStatement.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
+    "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;
 
     // use braces

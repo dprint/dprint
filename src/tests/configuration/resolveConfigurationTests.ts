@@ -120,6 +120,7 @@ describe(nameof(resolveConfiguration), () => {
                 "expressionStatement.semiColon": value,
                 "ifStatement.semiColon": value,
                 "importDeclaration.semiColon": value,
+                "throwStatement.semiColon": value,
                 "typeAlias.semiColon": value
             };
         }
