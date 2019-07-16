@@ -83,6 +83,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ClassBody": parseClassBody,
     "Decorator": parseDecorator,
     /* statements */
+    "BreakStatement": parseBreakStatement,
     "ContinueStatement": parseContinueStatement,
     "DebuggerStatement": parseDebuggerStatement,
     "Directive": parseDirective,
@@ -534,6 +535,18 @@ function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIter
 }
 
 /* statements */
+
+function* parseBreakStatement(node: babel.BreakStatement, context: Context): PrintItemIterator {
+    yield "break";
+
+    if (node.label != null) {
+        yield " ";
+        yield* parseNode(node.label, context);
+    }
+
+    if (context.config["breakStatement.semiColon"])
+        yield ";";
+}
 
 function* parseContinueStatement(node: babel.ContinueStatement, context: Context): PrintItemIterator {
     yield "continue";

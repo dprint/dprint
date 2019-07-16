@@ -49,6 +49,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
         newLineKind: getNewLineKind(),
         // semi-colons
+        "breakStatement.semiColon": getValue("breakStatement.semiColon", semiColons, ensureBoolean),
         "continueStatement.semiColon": getValue("continueStatement.semiColon", semiColons, ensureBoolean),
         "debuggerStatement.semiColon": getValue("debuggerStatement.semiColon", semiColons, ensureBoolean),
         "directive.semiColon": getValue("directive.semiColon", semiColons, ensureBoolean),

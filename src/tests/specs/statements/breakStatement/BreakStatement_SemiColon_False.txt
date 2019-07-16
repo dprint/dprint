@@ -1,0 +1,8 @@
+~~ breakStatement.semiColon: false ~~
+== should not inclue a semi-colon ==
+for (let i = 0; i < 5; i++)
+    break
+
+[expect]
+for (let i = 0; i < 5; i++)
+    break
