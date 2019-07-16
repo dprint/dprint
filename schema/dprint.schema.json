@@ -82,6 +82,9 @@
             "$ref": "#/definitions/nextControlFlowPosition"
         },
 
+        "continueStatement.semiColon": {
+            "type": "boolean"
+        },
         "debuggerStatement.semiColon": {
             "type": "boolean"
         },

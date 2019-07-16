@@ -1,4 +1,4 @@
-== should format a debugger statement ==
+== should format ==
 debugger
 
 [expect]

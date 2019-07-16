@@ -83,6 +83,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ClassBody": parseClassBody,
     "Decorator": parseDecorator,
     /* statements */
+    "ContinueStatement": parseContinueStatement,
     "DebuggerStatement": parseDebuggerStatement,
     "Directive": parseDirective,
     "DoWhileStatement": parseDoWhileStatement,
@@ -140,8 +141,9 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
     "TSTypeParameterInstantiation": parseTypeParameterDeclaration,
     "TSUnionType": parseUnionType,
-    /* explicitly not implemented */
+    /* explicitly not implemented (most are proposals that haven't made it far enough) */
     "BindExpression": parseUnknownNode,
+    "DoExpression": parseUnknownNode,
     "Noop": parseUnknownNode,
     "PrivateName": parseUnknownNode,
     "PipelineBareFunction": parseUnknownNode,
@@ -532,6 +534,18 @@ function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIter
 }
 
 /* statements */
+
+function* parseContinueStatement(node: babel.ContinueStatement, context: Context): PrintItemIterator {
+    yield "continue";
+
+    if (node.label != null) {
+        yield " ";
+        yield* parseNode(node.label, context);
+    }
+
+    if (context.config["continueStatement.semiColon"])
+        yield ";";
+}
 
 function* parseDebuggerStatement(node: babel.DebuggerStatement, context: Context): PrintItemIterator {
     yield "debugger";
