@@ -86,6 +86,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "DebuggerStatement": parseDebuggerStatement,
     "Directive": parseDirective,
     "DoWhileStatement": parseDoWhileStatement,
+    "EmptyStatement": parseEmptyStatement,
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
     "InterpreterDirective": parseInterpreterDirective,
@@ -141,6 +142,12 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSUnionType": parseUnionType,
     /* explicitly not implemented */
     "BindExpression": parseUnknownNode,
+    "Noop": parseUnknownNode,
+    "PrivateName": parseUnknownNode,
+    "PipelineBareFunction": parseUnknownNode,
+    "PipelineTopicExpression": parseUnknownNode,
+    "ClassPrivateMethod": parseUnknownNode,
+    "ClassPrivateProperty": parseUnknownNode,
     /* flow */
     "AnyTypeAnnotation": parseNotSupportedFlowNode,
     "ArrayTypeAnnotation": parseNotSupportedFlowNode,
@@ -549,6 +556,12 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
 
     if (context.config["doWhileStatement.semiColon"])
         yield ";";
+}
+
+function* parseEmptyStatement(node: babel.EmptyStatement, context: Context): PrintItemIterator {
+    // this could possibly return nothing when semi-colons aren't supported,
+    // but I'm going to keep this in and let people do this
+    yield ";";
 }
 
 function* parseExpressionStatement(node: babel.ExpressionStatement, context: Context): PrintItemIterator {
