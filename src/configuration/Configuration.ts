@@ -69,6 +69,7 @@ export interface Configuration {
     "expressionStatement.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
+    "returnStatement.semiColon"?: boolean;
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     /**
@@ -176,6 +177,7 @@ export interface ResolvedConfiguration {
     "expressionStatement.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
+    "returnStatement.semiColon": boolean;
     "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;
 

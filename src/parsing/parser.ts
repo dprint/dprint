@@ -89,6 +89,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
     "InterpreterDirective": parseInterpreterDirective,
+    "ReturnStatement": parseReturnStatement,
     "ThrowStatement": parseThrowStatement,
     "TryStatement": parseTryStatement,
     "WhileStatement": parseWhileStatement,
@@ -599,6 +600,17 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 function* parseInterpreterDirective(node: babel.InterpreterDirective, context: Context): PrintItemIterator {
     yield "#!";
     yield node.value;
+}
+
+function* parseReturnStatement(node: babel.ReturnStatement, context: Context): PrintItemIterator {
+    yield "return";
+    if (node.argument) {
+        yield " ";
+        yield* parseNode(node.argument, context);
+    }
+
+    if (context.config["returnStatement.semiColon"])
+        yield ";";
 }
 
 function* parseThrowStatement(node: babel.ThrowStatement, context: Context): PrintItemIterator {

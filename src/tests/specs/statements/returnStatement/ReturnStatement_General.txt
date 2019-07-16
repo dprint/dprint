@@ -1,0 +1,19 @@
+== should format ==
+function test() {
+    return    5 ;
+}
+
+[expect]
+function test() {
+    return 5;
+}
+
+== should format when has no argument ==
+function test() {
+    return    ;
+}
+
+[expect]
+function test() {
+    return;
+}
