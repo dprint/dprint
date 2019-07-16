@@ -18,7 +18,6 @@ describe("specs", () => {
         filePaths.length = 0;
         filePaths.push(...onlyFilePaths);
     }
-    console.log(`${specsDir}/**/*.txt`);
 
     for (const filePath of filePaths) {
         describe(path.basename(filePath), () => {
