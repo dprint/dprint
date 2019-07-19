@@ -143,6 +143,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeParameterInstantiation": parseTypeParameterDeclaration,
     "TSUnionType": parseUnionType,
     /* explicitly not implemented (most are proposals that haven't made it far enough) */
+    "ArgumentPlaceholder": parseUnknownNode,
     "BindExpression": parseUnknownNode,
     "DoExpression": parseUnknownNode,
     "Noop": parseUnknownNode,
@@ -151,6 +152,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "PipelineTopicExpression": parseUnknownNode,
     "ClassPrivateMethod": parseUnknownNode,
     "ClassPrivateProperty": parseUnknownNode,
+    "WithStatement": parseUnknownNode, // not supported
     /* flow */
     "AnyTypeAnnotation": parseNotSupportedFlowNode,
     "ArrayTypeAnnotation": parseNotSupportedFlowNode,
