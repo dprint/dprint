@@ -8,10 +8,10 @@ for (let i = 0; i < 5; i++)
 
 == should format when has a label ==
 block_1: {
-  break block_1;
+    break block_1;
 }
 
 [expect]
 block_1: {
-  break block_1;
+    break block_1;
 }

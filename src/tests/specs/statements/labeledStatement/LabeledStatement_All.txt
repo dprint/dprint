@@ -1,0 +1,16 @@
+== should format ==
+label  : console.log(5);
+
+[expect]
+label:
+console.log(5);
+
+== should format a block on the same line ==
+label  :{
+    console.log(5);
+}
+
+[expect]
+label: {
+    console.log(5);
+}

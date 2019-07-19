@@ -92,6 +92,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
     "InterpreterDirective": parseInterpreterDirective,
+    "LabeledStatement": parseLabeledStatement,
     "ReturnStatement": parseReturnStatement,
     "ThrowStatement": parseThrowStatement,
     "TryStatement": parseTryStatement,
@@ -643,6 +644,19 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 function* parseInterpreterDirective(node: babel.InterpreterDirective, context: Context): PrintItemIterator {
     yield "#!";
     yield node.value;
+}
+
+function* parseLabeledStatement(node: babel.LabeledStatement, context: Context): PrintItemIterator {
+    yield* parseNode(node.label, context);
+    yield ":";
+
+    // not bothering to make this configurable
+    if (node.body.type === "BlockStatement")
+        yield " ";
+    else
+        yield context.newLineKind;
+
+    yield* parseNode(node.body, context);
 }
 
 function* parseReturnStatement(node: babel.ReturnStatement, context: Context): PrintItemIterator {
