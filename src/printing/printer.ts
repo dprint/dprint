@@ -194,7 +194,6 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
         throw exitSymbol;
     }
 
-
     function addToUncommittedItemsIfNecessary(printItem: PrintItem) {
         if (possibleNewLineSavePoint != null)
             updateSavePoint(possibleNewLineSavePoint);

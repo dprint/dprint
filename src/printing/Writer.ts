@@ -155,7 +155,7 @@ export class Writer {
             return;
 
         if (text.includes("\n"))
-            throwError("Printer error: The parser should write")
+            throwError("Printer error: The parser should write");
     }
 
     baseWrite(text: string) {

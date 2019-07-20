@@ -151,7 +151,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSSymbolKeyword": () => "symbol",
     "TSUndefinedKeyword": () => "undefined",
     "TSUnknownKeyword": () => "unknown",
-    "TSVoidKeyword": () => "unknown",
+    "TSVoidKeyword": () => "void",
     "VoidKeyword": () => "void",
     /* types */
     "TSLiteralType": parseTSLiteralType,
