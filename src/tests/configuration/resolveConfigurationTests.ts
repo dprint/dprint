@@ -115,6 +115,7 @@ describe(nameof(resolveConfiguration), () => {
         function getObject(value: boolean): Partial<ResolvedConfiguration> {
             return {
                 "breakStatement.semiColon": value,
+                "classMethod.semiColon": value,
                 "classProperty.semiColon": value,
                 "continueStatement.semiColon": value,
                 "debuggerStatement.semiColon": value,
@@ -240,6 +241,7 @@ describe(nameof(resolveConfiguration), () => {
         function getObject(value: NonNullable<Configuration["bracePosition"]>): Partial<ResolvedConfiguration> {
             return {
                 "classDeclaration.bracePosition": value,
+                "classMethod.bracePosition": value,
                 "doWhileStatement.bracePosition": value,
                 "enumDeclaration.bracePosition": value,
                 "functionDeclaration.bracePosition": value,

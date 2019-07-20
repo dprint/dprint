@@ -109,6 +109,9 @@
         "breakStatement.semiColon": {
             "type": "boolean"
         },
+        "classMethod.semiColon": {
+            "type": "boolean"
+        },
         "classProperty.semiColon": {
             "type": "boolean"
         },
@@ -151,6 +154,9 @@
         },
 
         "classDeclaration.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "classMethod.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
         "doWhileStatement.bracePosition": {

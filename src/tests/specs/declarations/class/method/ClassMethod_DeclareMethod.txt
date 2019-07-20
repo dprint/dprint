@@ -1,0 +1,11 @@
+== should format different kinds of declare class methods ==
+abstract class Test {
+    public static abstract method1(): string;
+    abstract method2();
+}
+
+[expect]
+abstract class Test {
+    public static abstract method1(): string;
+    abstract method2();
+}

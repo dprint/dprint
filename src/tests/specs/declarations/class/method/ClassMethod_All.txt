@@ -1,0 +1,62 @@
+~~ lineWidth: 50 ~~
+== should format different kinds of class methods ==
+abstract class Test {
+    public static async method1(): string {
+        // test
+    }
+
+    public static async *method2() {
+    }
+
+    ["method3"]?() {
+    }
+
+    method4<T>() {
+    }
+
+    "method5"() {
+    }
+
+    6() {
+        // testing
+    }
+
+    method7() {
+        console.log("test");
+    }
+
+    method8(): string | number | string | number | string {
+    }
+}
+
+[expect]
+abstract class Test {
+    public static async method1(): string {
+        // test
+    }
+
+    public static async *method2() {
+    }
+
+    ["method3"]?() {
+    }
+
+    method4<T>() {
+    }
+
+    "method5"() {
+    }
+
+    6() {
+        // testing
+    }
+
+    method7() {
+        console.log("test");
+    }
+
+    method8(): string | number | string | number
+        | string
+    {
+    }
+}

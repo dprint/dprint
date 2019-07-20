@@ -55,6 +55,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "enumDeclaration.memberSpacing": getValue("enumDeclaration.memberSpacing", defaultValues["enumDeclaration.memberSpacing"], ensureEnumMemberSpacing),
         // semi-colons
         "breakStatement.semiColon": getValue("breakStatement.semiColon", semiColons, ensureBoolean),
+        "classMethod.semiColon": getValue("classMethod.semiColon", semiColons, ensureBoolean),
         "classProperty.semiColon": getValue("classProperty.semiColon", semiColons, ensureBoolean),
         "continueStatement.semiColon": getValue("continueStatement.semiColon", semiColons, ensureBoolean),
         "debuggerStatement.semiColon": getValue("debuggerStatement.semiColon", semiColons, ensureBoolean),
@@ -71,6 +72,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
         // bracePosition
         "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition),
+        "classMethod.bracePosition": getValue("classMethod.bracePosition", bracePosition, ensureBracePosition),
         "doWhileStatement.bracePosition": getValue("doWhileStatement.bracePosition", bracePosition, ensureBracePosition),
         "enumDeclaration.bracePosition": getValue("enumDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "functionDeclaration.bracePosition": getValue("functionDeclaration.bracePosition", bracePosition, ensureBracePosition),

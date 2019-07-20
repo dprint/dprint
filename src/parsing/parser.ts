@@ -88,6 +88,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
     "ClassBody": parseClassBody,
+    "ClassMethod": parseClassMethod,
+    "TSDeclareMethod": parseClassMethod,
     "ClassProperty": parseClassProperty,
     "Decorator": parseDecorator,
     /* statements */
@@ -523,10 +525,8 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
 
         yield* parseParametersOrArguments(node.params, context);
 
-        if (node.returnType && node.returnType.type !== "Noop") {
-            yield ": ";
-            yield* parseNode(node.returnType.typeAnnotation, context);
-        }
+        if (node.returnType)
+            yield* parseNode(node.returnType, context);
 
         yield* parseBraceSeparator({
             bracePosition: context.config["functionDeclaration.bracePosition"],
@@ -626,6 +626,68 @@ function parseClassBody(node: babel.ClassBody, context: Context): PrintItemItera
             return nodeHelpers.hasSeparatingBlankLine(previousMember, nextMember);
         }
     });
+}
+
+function* parseClassMethod(node: babel.ClassMethod | babel.TSDeclareMethod, context: Context): PrintItemIterator {
+    yield* parseHeader();
+
+    if (node.type === "ClassMethod")
+        yield* parseNode(node.body, context);
+    else if (context.config["classMethod.semiColon"])
+        yield ";";
+
+    function* parseHeader(): PrintItemIterator {
+        if (node.decorators)
+            yield* parseDecorators(node.decorators, context);
+
+        const startHeaderInfo = createInfo("methodStartHeaderInfo");
+        yield startHeaderInfo;
+
+        if (node.accessibility)
+            yield node.accessibility + " ";
+        if (node.static)
+            yield "static ";
+        if (node.async)
+            yield "async ";
+        if (node.abstract)
+            yield "abstract ";
+
+        if (node.kind === "get")
+            yield "get ";
+        else if (node.kind === "set")
+            yield "set ";
+
+        if (node.generator)
+            yield "*"
+
+        if (node.computed)
+            yield "[";
+
+        yield* parseNode(node.key, context);
+
+        if (node.computed)
+            yield "]";
+
+        if (node.optional)
+            yield "?";
+
+        if (node.typeParameters)
+            yield* parseNode(node.typeParameters, context);
+
+        yield* parseParametersOrArguments(node.params, context);
+
+        if (node.returnType)
+            yield* parseNode(node.returnType, context);
+
+        if (node.type === "ClassMethod") {
+            yield* parseBraceSeparator({
+                bracePosition: context.config["classMethod.bracePosition"],
+                bodyNode: node.body,
+                startHeaderInfo: startHeaderInfo,
+                context
+            });
+        }
+    }
 }
 
 function* parseClassProperty(node: babel.ClassProperty, context: Context): PrintItemIterator {
@@ -1102,8 +1164,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
 function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExpression, context: Context): PrintItemIterator {
     yield* parseNode(node.callee, context);
 
-    // todo: why does this have both arguments and parameters? Seems like only type parameters are filled
-    // I'm guessing typeParameters are used for TypeScript and typeArguments are used for flow?
+    // todo: why does this have both arguments and parameters? Seems like only type parameters are filled.
     if (node.typeArguments != null)
         throwError("Unimplemented scenario where a call expression had type arguments.");
 

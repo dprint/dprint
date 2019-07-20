@@ -1,0 +1,10 @@
+~~ classMethod.semiColon: false ~~
+== should not use semi colons when specified not to ==
+abstract class Test {
+    abstract method1(): string;
+}
+
+[expect]
+abstract class Test {
+    abstract method1(): string
+}
