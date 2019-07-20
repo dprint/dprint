@@ -115,6 +115,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "CallExpression": parseCallExpression,
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
+    "TSAsExpression": parseTSAsExpression,
     "YieldExpression": parseYieldExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
@@ -1176,6 +1177,12 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
         yield "?.";
 
     yield* parseParametersOrArguments(node.arguments, context);
+}
+
+function* parseTSAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
+    yield* parseNode(node.expression, context);
+    yield " as "
+    yield* parseNode(node.typeAnnotation, context);
 }
 
 function* parseYieldExpression(node: babel.YieldExpression, context: Context): PrintItemIterator {
