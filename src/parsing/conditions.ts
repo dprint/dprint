@@ -4,19 +4,34 @@ import * as infoChecks from "./infoChecks";
 
 // reusable conditions
 
-export function newlineIfHangingSpaceOtherwise(context: Context, info: Info): Condition {
+export function newlineIfHangingSpaceOtherwise(context: Context, startInfo: Info, endInfo?: Info, spaceChar: " " | Signal.SpaceOrNewLine = " "): Condition {
     return {
         kind: PrintItemKind.Condition,
         name: "newLineIfHangingSpaceOtherwise",
         condition: conditionContext => {
-            const resolvedInfo = conditionContext.getResolvedInfo(info);
-            if (resolvedInfo == null)
+            const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo);
+            if (resolvedStartInfo == null)
                 return undefined;
-            const isHanging = conditionContext.writerInfo.lineStartIndentLevel > resolvedInfo.lineStartIndentLevel;
-            return isHanging;
+
+            const resolvedEndInfo = getResolvedEndInfo();
+            if (resolvedEndInfo == null)
+                return undefined;
+
+            return resolvedEndInfo.lineStartIndentLevel > resolvedStartInfo.lineStartIndentLevel;
+
+            function getResolvedEndInfo() {
+                if (endInfo == null)
+                    return conditionContext.writerInfo; // use the current condition position
+
+                // otherwise, use the end info
+                const resolvedInfo = conditionContext.getResolvedInfo(endInfo);
+                if (resolvedInfo == null)
+                    return undefined;
+                return resolvedInfo;
+            }
         },
         true: [context.newlineKind],
-        false: [" "]
+        false: [spaceChar]
     };
 }
 

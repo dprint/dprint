@@ -118,6 +118,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
+    "ConditionalExpression": parseConditionalExpression,
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
     "TSAsExpression": parseTSAsExpression,
@@ -234,22 +235,31 @@ function* parseNode(node: babel.Node | null, context: Context): PrintItemIterato
     if (node == null)
         return;
 
+    // store info
     context.parentStack.push(context.currentNode);
     context.parent = context.currentNode;
     context.currentNode = node;
 
+    // parse
+    const hasParentheses = nodeHelpers.hasParentheses(node);
     const parseFunc = parseObj[node!.type] || parseUnknownNode;
     const printItem = parseFunc(node, context);
 
-    yield* innerGetWithComments();
-
-    function* innerGetWithComments(): PrintItemIterator {
-        yield* getWithComments(node!, printItem, context);
-
-        // replace the past item after iterating
-        context.currentNode = context.parentStack.pop()!;
-        context.parent = context.parentStack[context.parentStack.length - 1];
+    if (hasParentheses) {
+        yield Signal.StartNewlineGroup;
+        yield "(";
     }
+
+    yield* getWithComments(node!, printItem, context);
+
+    if (hasParentheses) {
+        yield ")";
+        yield Signal.FinishNewLineGroup;
+    }
+
+    // replace the past info after iterating
+    context.currentNode = context.parentStack.pop()!;
+    context.parent = context.parentStack[context.parentStack.length - 1];
 }
 
 /* file */
@@ -1222,19 +1232,15 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
-    const hasParentheses = nodeHelpers.hasParentheses(node);
     const useNewLines = nodeHelpers.getUseNewlinesForNodes([node.left, node.right]);
     const wasLastSame = context.parent.type === node.type;
 
-    if (wasLastSame && !hasParentheses)
+    if (wasLastSame)
         yield* parseInner();
     else
         yield* newlineGroup(withHangingIndent(parseInner()));
 
     function* parseInner(): PrintItemIterator {
-        if (hasParentheses)
-            yield "(";
-
         yield* parseNode(node.left, context);
 
         if (useNewLines)
@@ -1245,9 +1251,6 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         yield node.operator;
         yield " ";
         yield* parseNode(node.right, context);
-
-        if (hasParentheses)
-            yield ")";
     }
 }
 
@@ -1265,6 +1268,36 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
         yield "?.";
 
     yield* parseParametersOrArguments(node.arguments, context);
+}
+
+function* parseConditionalExpression(node: babel.ConditionalExpression, context: Context): PrintItemIterator {
+    const useNewlines = nodeHelpers.useNewlinesForParametersOrArguments([node.test, node.consequent])
+        || nodeHelpers.useNewlinesForParametersOrArguments([node.consequent, node.alternate]);
+    const startInfo = createInfo("startConditionalExpression");
+    const endInfo = createInfo("endConditionalExpression");
+
+    yield startInfo;
+    yield* newlineGroup(parseNode(node.test, context));
+    yield* withHangingIndent(parseConsequentAndAlternate());
+
+    function* parseConsequentAndAlternate() {
+        if (useNewlines)
+            yield context.newlineKind;
+        else
+            yield conditions.newlineIfHangingSpaceOtherwise(context, startInfo, endInfo, Signal.SpaceOrNewLine);
+
+        yield "? ";
+        yield* newlineGroup(parseNode(node.consequent, context));
+
+        if (useNewlines)
+            yield context.newlineKind;
+        else
+            yield conditions.newlineIfHangingSpaceOtherwise(context, startInfo, endInfo, Signal.SpaceOrNewLine);
+
+        yield ": ";
+        yield* newlineGroup(parseNode(node.alternate, context));
+        yield endInfo;
+    }
 }
 
 function* parseTSAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {

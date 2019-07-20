@@ -14,7 +14,6 @@ export interface PrintOptions {
 interface SavePoint {
     /** Name for debugging purposes. */
     name?: string;
-    depth: number;
     newlineGroupDepth: number;
     childIndex: number;
     writerState: WriterState;
@@ -222,7 +221,6 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
         const isForNewLine = possibleNewLineSavePoint === savePoint;
         writer.setState(savePoint.writerState);
         possibleNewLineSavePoint = isForNewLine ? undefined : savePoint.possibleNewLineSavePoint;
-        depth = savePoint.depth;
         childIndex = savePoint.childIndex;
         newlineGroupDepth = savePoint.newlineGroupDepth;
 
@@ -333,7 +331,6 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
 
     function createSavePoint(initialItem: PrintItem): SavePoint {
         return {
-            depth,
             childIndex,
             newlineGroupDepth,
             writerState: writer.getState(),
