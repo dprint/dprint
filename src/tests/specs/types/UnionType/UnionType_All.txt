@@ -1,5 +1,0 @@
-== should print everything in a union type ==
-export type T = string|number;
-
-[expect]
-export type T = string | number;

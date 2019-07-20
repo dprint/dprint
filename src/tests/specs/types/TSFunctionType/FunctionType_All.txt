@@ -1,0 +1,9 @@
+== should format ==
+type T = ()   =>    void;
+type U = (param: string  )  =>   void;
+type V = <  T>(param: string   ) => void;
+
+[expect]
+type T = () => void;
+type U = (param: string) => void;
+type V = <T>(param: string) => void;

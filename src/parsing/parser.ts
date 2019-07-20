@@ -156,15 +156,24 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSVoidKeyword": () => "void",
     "VoidKeyword": () => "void",
     /* types */
+    "TSArrayType": parseTSArrayType,
+    "TSConditionalType": parseTSConditionalType,
+    "TSFunctionType": parseTSFunctionType,
+    "TSImportType": parseTSImportType,
+    "TSInferType": parseTSInferType,
+    "TSIntersectionType": parseUnionOrIntersectionType,
     "TSLiteralType": parseTSLiteralType,
     "TSRestType": parseTSRestType,
     "TSThisType": () => "this",
     "TSTupleType": parseTSTupleType,
-    "TSTypeAnnotation": parseTSTypeAnnotation,
+    "TSTypeAnnotation": parseTypeAnnotation,
+    "TSTypeOperator": parseTypeOperator,
     "TSTypeParameter": parseTypeParameter,
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
     "TSTypeParameterInstantiation": parseTypeParameterDeclaration,
-    "TSUnionType": parseUnionType,
+    "TSTypeQuery": parseTypeQuery,
+    "TSTypeReference": parseTypeReference,
+    "TSUnionType": parseUnionOrIntersectionType,
     /* explicitly not implemented (most are proposals that haven't made it far enough) */
     "ArgumentPlaceholder": parseUnknownNode,
     "BindExpression": parseUnknownNode,
@@ -321,8 +330,10 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
     if (parent.type === "VariableDeclarator" && parent.definite)
         yield "!";
 
-    if (node.typeAnnotation)
+    if (node.typeAnnotation) {
+        yield ": ";
         yield* parseNode(node.typeAnnotation, context);
+    }
 
     if (parent.type === "ExportDefaultDeclaration")
         yield ";"; // todo: configuration
@@ -539,8 +550,10 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration | babel.TSDec
 
         yield* parseParametersOrArguments(node.params, context);
 
-        if (node.returnType)
+        if (node.returnType) {
+            yield ": ";
             yield* parseNode(node.returnType, context);
+        }
 
         if (node.type === "FunctionDeclaration") {
             yield* parseBraceSeparator({
@@ -724,8 +737,10 @@ function* parseClassMethod(node: babel.ClassMethod | babel.TSDeclareMethod, cont
 
         yield* parseParametersOrArguments(node.params, context);
 
-        if (node.returnType)
+        if (node.returnType) {
+            yield ": ";
             yield* parseNode(node.returnType, context);
+        }
 
         if (node.type === "ClassMethod") {
             yield* parseBraceSeparator({
@@ -764,8 +779,10 @@ function* parseClassProperty(node: babel.ClassProperty, context: Context): Print
     if (node.definite)
         yield "!";
 
-    if (node.typeAnnotation)
+    if (node.typeAnnotation) {
+        yield ": ";
         yield* parseNode(node.typeAnnotation, context);
+    }
 
     if (node.value) {
         yield " = ";
@@ -1409,6 +1426,69 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
 
 /* types */
 
+function* parseTSArrayType(node: babel.TSArrayType, context: Context): PrintItemIterator {
+    yield* parseNode(node.elementType, context);
+    yield "[]";
+}
+
+function* parseTSConditionalType(node: babel.TSConditionalType, context: Context): PrintItemIterator {
+    const useNewlines = nodeHelpers.getUseNewlinesForNodes([node.checkType, node.falseType]);
+    if (context.parent.type === "TSConditionalType")
+        yield* innerParse();
+    else
+        yield* withHangingIndent(innerParse());
+
+    function* innerParse(): PrintItemIterator {
+        yield* withHangingIndent(newlineGroup(parseMainArea()));
+        yield* parseFalseType();
+
+        function* parseMainArea(): PrintItemIterator {
+            yield* newlineGroup(parseNode(node.checkType, context));
+            yield Signal.SpaceOrNewLine;
+            yield "extends "
+            yield* newlineGroup(parseNode(node.extendsType, context));
+            yield Signal.SpaceOrNewLine;
+            yield "? ";
+            yield* newlineGroup(parseNode(node.trueType, context));
+        }
+
+        function* parseFalseType(): PrintItemIterator {
+            if (useNewlines)
+                yield context.newlineKind;
+            else
+                yield Signal.SpaceOrNewLine;
+            yield ": ";
+            yield* newlineGroup(parseNode(node.falseType, context));
+        }
+    }
+}
+
+function* parseTSFunctionType(node: babel.TSFunctionType, context: Context): PrintItemIterator {
+    yield* parseNode(node.typeParameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
+    yield " => ";
+    yield* parseNode(node.typeAnnotation, context);
+}
+
+function* parseTSImportType(node: babel.TSImportType, context: Context): PrintItemIterator {
+    yield "import(";
+    yield* parseNode(node.argument, context);
+    yield ")";
+
+    if (node.qualifier) {
+        yield ".";
+        yield* parseNode(node.qualifier, context);
+    }
+
+    // incorrectly named... these are type arguments!
+    yield* parseNode(node.typeParameters, context);
+}
+
+function* parseTSInferType(node: babel.TSInferType, context: Context): PrintItemIterator {
+    yield "infer ";
+    yield* parseNode(node.typeParameter, context);
+}
+
 function* parseTSLiteralType(node: babel.TSLiteralType, context: Context): PrintItemIterator {
     yield* parseNode(node.literal, context);
 }
@@ -1447,8 +1527,14 @@ function* parseTSTupleType(node: babel.TSTupleType, context: Context): PrintItem
     }
 }
 
-function* parseTSTypeAnnotation(node: babel.TSTypeAnnotation, context: Context): PrintItemIterator {
-    yield ": ";
+function* parseTypeAnnotation(node: babel.TSTypeAnnotation, context: Context): PrintItemIterator {
+    yield* parseNode(node.typeAnnotation, context);
+}
+
+function* parseTypeOperator(node: babel.TSTypeOperator, context: Context): PrintItemIterator {
+    if (node.operator)
+        yield `${node.operator} `;
+
     yield* parseNode(node.typeAnnotation, context);
 }
 
@@ -1466,13 +1552,26 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Pri
     }
 }
 
-function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIterator {
+function* parseTypeQuery(node: babel.TSTypeQuery, context: Context): PrintItemIterator {
+    yield "typeof ";
+    yield* parseNode(node.exprName, context);
+}
+
+function* parseTypeReference(node: babel.TSTypeReference, context: Context): PrintItemIterator {
+    yield* parseNode(node.typeName, context);
+    yield* parseNode(node.typeParameters, context);
+}
+
+function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSIntersectionType, context: Context): PrintItemIterator {
     const useNewLines = nodeHelpers.getUseNewlinesForNodes(node.types);
     yield* withHangingIndent(function*() {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
                 yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
-                yield "| ";
+                if (node.type === "TSUnionType")
+                    yield "| ";
+                else
+                    yield "& ";
             }
             yield* parseNode(node.types[i], context);
         }

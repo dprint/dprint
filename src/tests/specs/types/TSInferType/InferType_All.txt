@@ -1,0 +1,5 @@
+== should format ==
+type ReturnType<T extends AnyFunction> = T extends (...args: any[]) => infer    R ? R : any;
+
+[expect]
+type ReturnType<T extends AnyFunction> = T extends (...args: any[]) => infer R ? R : any;

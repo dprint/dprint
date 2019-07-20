@@ -1,0 +1,11 @@
+== should format ==
+type T = Ref;
+
+[expect]
+type T = Ref;
+
+== should format with type parameters ==
+type T = Ref< string   , number >;
+
+[expect]
+type T = Ref<string, number>;

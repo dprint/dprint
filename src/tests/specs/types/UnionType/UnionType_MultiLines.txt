@@ -1,9 +1,0 @@
-== should change a union type to be on multiple lines when the first and second are on different lines ==
-export type T = string
-    | number | other | string;
-
-[expect]
-export type T = string
-    | number
-    | other
-    | string;

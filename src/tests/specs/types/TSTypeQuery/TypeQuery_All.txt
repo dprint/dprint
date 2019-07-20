@@ -1,0 +1,5 @@
+== should format ==
+type T = typeof    Test   ;
+
+[expect]
+type T = typeof Test;
