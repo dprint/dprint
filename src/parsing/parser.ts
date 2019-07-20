@@ -116,6 +116,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
     "TSAsExpression": parseTSAsExpression,
+    "TSTypeAssertion": parseTSTypeAssertion,
     "YieldExpression": parseYieldExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
@@ -1183,6 +1184,13 @@ function* parseTSAsExpression(node: babel.TSAsExpression, context: Context): Pri
     yield* parseNode(node.expression, context);
     yield " as "
     yield* parseNode(node.typeAnnotation, context);
+}
+
+function* parseTSTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {
+    yield "<";
+    yield* parseNode(node.typeAnnotation, context);
+    yield "> ";
+    yield* parseNode(node.expression, context);
 }
 
 function* parseYieldExpression(node: babel.YieldExpression, context: Context): PrintItemIterator {
