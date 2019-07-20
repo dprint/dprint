@@ -116,3 +116,10 @@ export function getLastToken(file: babel.File, isMatch: (token: BabelToken) => b
 
     return undefined;
 }
+
+export function hasParentheses(node: babel.Node): boolean {
+    const extra = (node as any).extra;
+    if (extra == null)
+        return false;
+    return extra.parenthesized || false;
+}

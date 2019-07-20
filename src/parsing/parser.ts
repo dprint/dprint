@@ -1222,15 +1222,19 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
+    const hasParentheses = nodeHelpers.hasParentheses(node);
     const useNewLines = nodeHelpers.getUseNewlinesForNodes([node.left, node.right]);
     const wasLastSame = context.parent.type === node.type;
 
-    if (wasLastSame)
+    if (wasLastSame && !hasParentheses)
         yield* parseInner();
     else
         yield* newlineGroup(withHangingIndent(parseInner()));
 
     function* parseInner(): PrintItemIterator {
+        if (hasParentheses)
+            yield "(";
+
         yield* parseNode(node.left, context);
 
         if (useNewLines)
@@ -1241,6 +1245,9 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         yield node.operator;
         yield " ";
         yield* parseNode(node.right, context);
+
+        if (hasParentheses)
+            yield ")";
     }
 }
 
