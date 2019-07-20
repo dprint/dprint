@@ -15,7 +15,7 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
 
     async function getFileText() {
         try {
-            return await environment.readFile(resolvedFilePath)
+            return await environment.readFile(resolvedFilePath);
         } catch (err) {
             if (filePath == null)
                 throw new Error(`Could not find configuration file at '${resolvedFilePath}'. Did you mean to create one or specify a --config option?\n\n` + err);

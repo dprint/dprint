@@ -17,7 +17,7 @@ export function newlineIfHangingSpaceOtherwise(context: Context, info: Info): Co
         },
         true: [context.newlineKind],
         false: [" "]
-    }
+    };
 }
 
 export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: Context, startInfo: Info, endInfo: Info): Condition {

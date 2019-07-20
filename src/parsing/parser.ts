@@ -279,7 +279,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
             return !infoChecks.areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
         },
         true: [context.newlineKind]
-    }
+    };
     yield "}";
 
     function* getFirstLineTrailingComments(): PrintItemIterator {
@@ -433,9 +433,8 @@ function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItem
     const parentDeclaration = context.bag.peek(BAG_KEYS.EnumDeclarationNode) as babel.TSEnumDeclaration;
     yield* parseNode(node.id, context);
 
-    if (node.initializer) {
+    if (node.initializer)
         yield* withHangingIndent(parseInitializer(node.initializer));
-    }
 
     const forceTrailingCommas = getForceTrailingCommas(context.config["enumDeclaration.trailingCommas"]);
     if (forceTrailingCommas || parentDeclaration.members[parentDeclaration.members.length - 1] !== node)
@@ -552,7 +551,7 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
     if (defaultImport) {
         yield* parseNode(defaultImport, context);
         if (namespaceImport != null || namedImports.length > 0)
-            yield ", "
+            yield ", ";
     }
     if (namespaceImport)
         yield* parseNode(namespaceImport, context);
@@ -663,7 +662,7 @@ function* parseClassMethod(node: babel.ClassMethod | babel.TSDeclareMethod, cont
             yield "set ";
 
         if (node.generator)
-            yield "*"
+            yield "*";
 
         if (node.computed)
             yield "[";
@@ -993,7 +992,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
             yield* result.iterator;
         }(),
         braceCondition: result.braceCondition
-    }
+    };
 
     function* parseHeader(): PrintItemIterator {
         yield startHeaderInfo;
@@ -1056,7 +1055,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
     return {
         braceCondition: openBraceCondition,
         iterator: parseBody()
-    }
+    };
 
     function* parseBody(): PrintItemIterator {
         yield openBraceCondition;
@@ -1075,8 +1074,9 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             }());
             yield* parseTrailingComments(bodyNode, context);
         }
-        else
+        else {
             yield* withIndent(parseNode(bodyNode, context));
+        }
 
         yield endStatementsInfo;
         yield {
@@ -1184,7 +1184,7 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
 
 function* parseTSAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
     yield* parseNode(node.expression, context);
-    yield " as "
+    yield " as ";
     yield* parseNode(node.typeAnnotation, context);
 }
 
@@ -1216,7 +1216,7 @@ function* parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifie
 
 function* parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): PrintItemIterator {
     if (specifier.imported.start === specifier.local.start) {
-        yield* parseNode(specifier.imported, context)
+        yield* parseNode(specifier.imported, context);
         return;
     }
 
@@ -1239,7 +1239,7 @@ function* parseExportNamespaceSpecifier(node: babel.ExportNamespaceSpecifier, co
 
 function* parseExportSpecifier(specifier: babel.ExportSpecifier, context: Context): PrintItemIterator {
     if (specifier.local.start === specifier.exported.start) {
-        yield* parseNode(specifier.local, context)
+        yield* parseNode(specifier.local, context);
         return;
     }
 
@@ -1593,7 +1593,7 @@ function* parseLeadingComments(node: babel.Node, context: Context) {
     const lastComment = node.leadingComments[node.leadingComments.length - 1];
     const hasHandled = lastComment == null || context.handledComments.has(lastComment);
 
-    yield* parseCommentCollection(node.leadingComments, undefined, context)
+    yield* parseCommentCollection(node.leadingComments, undefined, context);
 
     if (lastComment != null && !hasHandled && node.loc!.start.line > lastComment.loc!.end.line) {
         yield context.newlineKind;
@@ -1609,7 +1609,7 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
 
     // use the roslyn definition of trailing comments
     const trailingCommentsOnSameLine = node.trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
-    yield* parseCommentCollection(trailingCommentsOnSameLine, node, context)
+    yield* parseCommentCollection(trailingCommentsOnSameLine, node, context);
 }
 
 function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
@@ -1675,17 +1675,15 @@ function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
     const { bracePosition, bodyNode, startHeaderInfo, context } = opts;
 
     if (bracePosition === "nextLineIfHanging") {
-        if (startHeaderInfo == null) {
+        if (startHeaderInfo == null)
             yield " ";
-        }
-        else {
+        else
             yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
-        }
     }
     else if (bracePosition === "sameLine")
         yield " ";
     else if (bracePosition === "nextLine")
-        yield context.newlineKind
+        yield context.newlineKind;
     else if (bracePosition === "maintain") {
         if (nodeHelpers.isFirstNodeOnLine(bodyNode, context))
             yield context.newlineKind;
@@ -1706,7 +1704,7 @@ function* parseControlFlowSeparator(
     if (nextControlFlowPosition === "sameLine")
         yield " ";
     else if (nextControlFlowPosition === "nextLine")
-        yield context.newlineKind
+        yield context.newlineKind;
     else if (nextControlFlowPosition === "maintain") {
         const token = getFirstControlFlowToken();
         if (token != null && nodeHelpers.isFirstNodeOnLine(token, context))
@@ -1732,7 +1730,7 @@ function* parseControlFlowSeparator(
 function* surroundWithNewLines(item: PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
     yield context.newlineKind;
     if (item instanceof Function)
-        yield* item()
+        yield* item();
     else if (isPrintItemIterator(item))
         yield* item;
     else
