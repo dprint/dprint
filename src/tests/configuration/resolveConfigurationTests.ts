@@ -311,6 +311,7 @@ describe(nameof(resolveConfiguration), () => {
         function getObject(value: NonNullable<Configuration["trailingCommas"]>): Partial<ResolvedConfiguration> {
             return {
                 "enumDeclaration.trailingCommas": value,
+                "tupleType.trailingCommas": value
             };
         }
     });

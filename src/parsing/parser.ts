@@ -151,7 +151,9 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "VoidKeyword": () => "void",
     /* types */
     "TSLiteralType": parseTSLiteralType,
+    "TSRestType": parseTSRestType,
     "TSThisType": () => "this",
+    "TSTupleType": parseTSTupleType,
     "TSTypeAnnotation": parseTSTypeAnnotation,
     "TSTypeParameter": parseTypeParameter,
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
@@ -1289,6 +1291,55 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
 
 function* parseTSLiteralType(node: babel.TSLiteralType, context: Context): PrintItemIterator {
     yield* parseNode(node.literal, context);
+}
+
+function* parseTSRestType(node: babel.TSRestType, context: Context): PrintItemIterator {
+    yield "...";
+    yield* parseNode(node.typeAnnotation, context);
+}
+
+function* parseTSTupleType(node: babel.TSTupleType, context: Context): PrintItemIterator {
+    const useNewlines = nodeHelpers.getUseNewlinesForNodes(node.elementTypes);
+    const forceTrailingCommas = getForceTrailingCommas(context.config["tupleType.trailingCommas"]);
+
+    yield "[";
+
+    if (node.elementTypes.length > 0)
+        yield* withHangingIndent(parseElements());
+
+    yield "]";
+
+    function* parseElements(): PrintItemIterator {
+        if (useNewlines)
+            yield context.newlineKind;
+
+        for (let i = 0; i < node.elementTypes.length; i++) {
+            if (i > 0 && !useNewlines)
+                yield Signal.SpaceOrNewLine;
+
+            yield* parseNode(node.elementTypes[i], context);
+
+            if (forceTrailingCommas || i < node.elementTypes.length - 1)
+                yield ",";
+            if (useNewlines)
+                yield context.newlineKind;
+        }
+    }
+
+    function getForceTrailingCommas(option: NonNullable<Configuration["trailingCommas"]>) {
+        // this is explicit so that this is re-evaluated when the options change
+        switch (option) {
+            case "always":
+                return true;
+            case "onlyMultiLine":
+                return useNewlines;
+            case "never":
+                return false;
+            default:
+                const assertNever: never = option;
+                return false;
+        }
+    }
 }
 
 function* parseTSTypeAnnotation(node: babel.TSTypeAnnotation, context: Context): PrintItemIterator {

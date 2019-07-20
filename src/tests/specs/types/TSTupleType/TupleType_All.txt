@@ -1,0 +1,23 @@
+~~ lineWidth: 40 ~~
+== should format ==
+type T = [   string   , number   ];
+
+[expect]
+type T = [string, number];
+
+== should split on multiple lines when second is on different line ==
+type T = [string,
+    number   ];
+
+[expect]
+type T = [
+    string,
+    number
+];
+
+== should hang when exceeding line width ==
+type T = [string, number, other, otherTest, other];
+
+[expect]
+type T = [string, number, other,
+    otherTest, other];
