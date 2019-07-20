@@ -14,6 +14,11 @@ export function parseToBabelAst(fileName: string, code: string) {
             "exportDefaultFrom",
             "exportNamespaceFrom",
             "optionalChaining"
-        ]
+        ],
+        // be very relaxed
+        allowAwaitOutsideFunction: true,
+        allowImportExportEverywhere: true,
+        allowReturnOutsideFunction: true,
+        allowSuperOutsideMethod: true
     });
 }

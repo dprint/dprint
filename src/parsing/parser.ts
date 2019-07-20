@@ -133,6 +133,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "NumericLiteral": parseNumericLiteral,
     "StringLiteral": parseStringOrDirectiveLiteral,
     /* keywords */
+    "Super": () => "super",
     "ThisExpression": () => "this",
     "TSAnyKeyword": () => "any",
     "TSBooleanKeyword": () => "boolean",

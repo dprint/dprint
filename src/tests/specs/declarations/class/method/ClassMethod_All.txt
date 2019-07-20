@@ -1,6 +1,10 @@
 ~~ lineWidth: 50 ~~
 == should format different kinds of class methods ==
 abstract class Test {
+    constructor() {
+        super(5, 4);
+    }
+
     public static async method1(): string {
         // test
     }
@@ -27,10 +31,20 @@ abstract class Test {
 
     method8(): string | number | string | number | string {
     }
+
+    get getSet(): string {
+    }
+
+    set getSet(value: string) {
+    }
 }
 
 [expect]
 abstract class Test {
+    constructor() {
+        super(5, 4);
+    }
+
     public static async method1(): string {
         // test
     }
@@ -58,5 +72,11 @@ abstract class Test {
     method8(): string | number | string | number
         | string
     {
+    }
+
+    get getSet(): string {
+    }
+
+    set getSet(value: string) {
     }
 }
