@@ -26,7 +26,7 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 declarationFile.replaceWithText(text);
 declarationFile.saveSync();
 
-const diagnostics = writeProject.getPreEmitDiagnostics()
+const diagnostics = writeProject.getPreEmitDiagnostics();
 if (diagnostics.length > 0) {
     console.log(writeProject.formatDiagnosticsWithColorAndContext(diagnostics));
     process.exit(1);
