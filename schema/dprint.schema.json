@@ -109,6 +109,9 @@
         "breakStatement.semiColon": {
             "type": "boolean"
         },
+        "classProperty.semiColon": {
+            "type": "boolean"
+        },
         "continueStatement.semiColon": {
             "type": "boolean"
         },

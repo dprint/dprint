@@ -80,6 +80,7 @@ export interface Configuration {
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
     "breakStatement.semiColon"?: boolean;
+    "classProperty.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
@@ -210,6 +211,7 @@ export interface ResolvedConfiguration {
 
     // semi colons
     "breakStatement.semiColon": boolean;
+    "classProperty.semiColon": boolean;
     "continueStatement.semiColon": boolean;
     "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;

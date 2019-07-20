@@ -1,0 +1,9 @@
+== should parse a type annotation ==
+class Test {
+    prop:     number;
+}
+
+[expect]
+class Test {
+    prop: number;
+}

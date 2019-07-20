@@ -115,6 +115,7 @@ describe(nameof(resolveConfiguration), () => {
         function getObject(value: boolean): Partial<ResolvedConfiguration> {
             return {
                 "breakStatement.semiColon": value,
+                "classProperty.semiColon": value,
                 "continueStatement.semiColon": value,
                 "debuggerStatement.semiColon": value,
                 "directive.semiColon": value,

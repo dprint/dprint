@@ -88,6 +88,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
     "ClassBody": parseClassBody,
+    "ClassProperty": parseClassProperty,
     "Decorator": parseDecorator,
     /* statements */
     "BreakStatement": parseBreakStatement,
@@ -146,6 +147,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     /* types */
     "TSLiteralType": parseTSLiteralType,
     "TSThisType": () => "this",
+    "TSTypeAnnotation": parseTSTypeAnnotation,
     "TSTypeParameter": parseTypeParameter,
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
     "TSTypeParameterInstantiation": parseTypeParameterDeclaration,
@@ -624,6 +626,44 @@ function parseClassBody(node: babel.ClassBody, context: Context): PrintItemItera
             return nodeHelpers.hasSeparatingBlankLine(previousMember, nextMember);
         }
     });
+}
+
+function* parseClassProperty(node: babel.ClassProperty, context: Context): PrintItemIterator {
+    if (node.decorators)
+        yield* parseDecorators(node.decorators, context);
+
+    if (node.accessibility)
+        yield node.accessibility + " ";
+    if (node.static)
+        yield "static ";
+    if (node.abstract)
+        yield "abstract ";
+    if (node.readonly)
+        yield "readonly ";
+
+    if (node.computed)
+        yield "[";
+
+    yield* parseNode(node.key, context);
+
+    if (node.computed)
+        yield "]";
+
+    if (node.optional)
+        yield "?";
+    if (node.definite)
+        yield "!";
+
+    if (node.typeAnnotation)
+        yield* parseNode(node.typeAnnotation, context);
+
+    if (node.value) {
+        yield " = ";
+        yield* parseNode(node.value, context);
+    }
+
+    if (context.config["classProperty.semiColon"])
+        yield ";";
 }
 
 function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIterator {
@@ -1174,6 +1214,11 @@ function* parseTSLiteralType(node: babel.TSLiteralType, context: Context): Print
     yield* parseNode(node.literal, context);
 }
 
+function* parseTSTypeAnnotation(node: babel.TSTypeAnnotation, context: Context): PrintItemIterator {
+    yield ": ";
+    yield* parseNode(node.typeAnnotation, context);
+}
+
 function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): PrintItemIterator {
     yield node.name!;
 
@@ -1379,14 +1424,14 @@ function* parseDecoratorsIfClass(declaration: babel.Node | undefined | null, con
     if (declaration == null || declaration.type !== "ClassDeclaration")
         return;
 
-    if (declaration.decorators == null || declaration.decorators.length === 0)
-        return;
-
-    yield* parseDecorators(declaration.decorators, context);
-    yield context.newlineKind;
+    if (declaration.decorators != null)
+        yield* parseDecorators(declaration.decorators, context);
 }
 
 function* parseDecorators(decorators: babel.Decorator[], context: Context): PrintItemIterator {
+    if (decorators.length === 0)
+        return;
+
     const useNewlines = nodeHelpers.getUseNewlinesForNodes(decorators);
 
     for (let i = 0; i < decorators.length; i++) {
@@ -1399,6 +1444,8 @@ function* parseDecorators(decorators: babel.Decorator[], context: Context): Prin
 
         yield* newlineGroup(parseNode(decorators[i], context));
     }
+
+    yield context.newlineKind;
 }
 
 function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {

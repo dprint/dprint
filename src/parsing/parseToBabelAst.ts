@@ -9,10 +9,11 @@ export function parseToBabelAst(fileName: string, code: string) {
             "jsx",
             "typescript",
             "bigInt",
-            "optionalChaining",
+            "classProperties",
+            "decorators-legacy",
             "exportDefaultFrom",
             "exportNamespaceFrom",
-            "decorators-legacy"
+            "optionalChaining"
         ]
     });
 }

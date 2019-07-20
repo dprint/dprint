@@ -55,6 +55,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "enumDeclaration.memberSpacing": getValue("enumDeclaration.memberSpacing", defaultValues["enumDeclaration.memberSpacing"], ensureEnumMemberSpacing),
         // semi-colons
         "breakStatement.semiColon": getValue("breakStatement.semiColon", semiColons, ensureBoolean),
+        "classProperty.semiColon": getValue("classProperty.semiColon", semiColons, ensureBoolean),
         "continueStatement.semiColon": getValue("continueStatement.semiColon", semiColons, ensureBoolean),
         "debuggerStatement.semiColon": getValue("debuggerStatement.semiColon", semiColons, ensureBoolean),
         "directive.semiColon": getValue("directive.semiColon", semiColons, ensureBoolean),
