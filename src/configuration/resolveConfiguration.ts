@@ -27,7 +27,8 @@ const defaultValues = {
     newLineKind: "auto",
     useBraces: "maintain",
     bracePosition: "nextLineIfHanging",
-    nextControlFlowPosition: "nextLine"
+    nextControlFlowPosition: "nextLine",
+    trailingCommas: "never"
 } as const;
 
 /**
@@ -41,6 +42,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     const useBraces = getValue("useBraces", defaultValues["useBraces"], ensureBraceUse);
     const bracePosition = getValue("bracePosition", defaultValues["bracePosition"], ensureBracePosition);
     const nextControlFlowPosition = getValue("nextControlFlowPosition", defaultValues["nextControlFlowPosition"], ensureNextControlFlowPosition);
+    const trailingCommas = getValue("trailingCommas", defaultValues["trailingCommas"], ensureTrailingCommas);
 
     const resolvedConfig: ResolvedConfiguration = {
         lineWidth: getValue("lineWidth", defaultValues["lineWidth"], ensureNumber),
@@ -66,6 +68,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         // bracePosition
         "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "doWhileStatement.bracePosition": getValue("doWhileStatement.bracePosition", bracePosition, ensureBracePosition),
+        "enumDeclaration.bracePosition": getValue("enumDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "functionDeclaration.bracePosition": getValue("functionDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "ifStatement.bracePosition": getValue("ifStatement.bracePosition", bracePosition, ensureBracePosition),
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
@@ -73,6 +76,8 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         // next control flow position
         "ifStatement.nextControlFlowPosition": getValue("ifStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
         "tryStatement.nextControlFlowPosition": getValue("tryStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
+        // trailing commas
+        "enumDeclaration.trailingCommas": getValue("enumDeclaration.trailingCommas", trailingCommas, ensureTrailingCommas)
     };
 
     addExcessPropertyDiagnostics();
@@ -185,6 +190,24 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
             case "maintain":
             case "sameLine":
             case "nextLine":
+            case null:
+            case undefined:
+                return true;
+            default:
+                const assertNever: never = value;
+                diagnostics.push({
+                    propertyName: key,
+                    message: `Expected the configuration for '${key}' to equal one of the expected values, but was: ${value}`
+                });
+                return false;
+        }
+    }
+
+    function ensureTrailingCommas(key: string, value: Configuration["trailingCommas"]) {
+        switch (value) {
+            case "never":
+            case "always":
+            case "onlyMultiLine":
             case null:
             case undefined:
                 return true;

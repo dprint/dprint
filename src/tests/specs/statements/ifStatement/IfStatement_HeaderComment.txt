@@ -1,4 +1,4 @@
-~~ useBraces: "preferNone" ~~
+~~ ifStatement.useBraces: "preferNone" ~~
 == handle a comment after the header when there exists braces and keeping braces ==
 if (true) { // 1
     true;

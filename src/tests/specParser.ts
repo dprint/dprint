@@ -6,6 +6,7 @@ export interface Spec {
     fileText: string;
     expectedText: string;
     isOnly: boolean;
+    showTree: boolean;
     skip: boolean;
     config: Configuration;
 }
@@ -23,6 +24,7 @@ export function parseSpecs(fileText: string) {
         const endIndex = specStarts[i + 1] || lines.length;
         const messageLine = lines[startIndex];
         const spec = parseSingleSpec(messageLine, lines.slice(startIndex + 1, endIndex), configResult.config);
+
         if (spec.skip)
             continue;
 
@@ -30,6 +32,7 @@ export function parseSpecs(fileText: string) {
             console.log(`NOTICE!!! Running only test: ${spec.message}`);
             filterOnly = true;
         }
+
         specs.push(spec);
     }
 
@@ -87,6 +90,7 @@ function parseSingleSpec(messageLine: string, lines: string[], config: Configura
         expectedText,
         isOnly: lowerCaseMessageLine.includes("(only)"),
         skip: lowerCaseMessageLine.includes("(skip)"),
+        showTree: lowerCaseMessageLine.includes("(tree)"),
         config
     };
 

@@ -63,6 +63,14 @@ export interface Configuration {
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
     nextControlFlowPosition?: "maintain" | "sameLine" | "nextLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
+    trailingCommas?: "never" | "always" | "onlyMultiLine";
     "breakStatement.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
@@ -116,6 +124,15 @@ export interface Configuration {
      * @value "nextLine" - Forces the brace to be on the next line.
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
+    "enumDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
     "functionDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
@@ -160,6 +177,14 @@ export interface Configuration {
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
     "tryStatement.nextControlFlowPosition"?: "maintain" | "sameLine" | "nextLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
+    "enumDeclaration.trailingCommas"?: "never" | "always" | "onlyMultiLine";
 }
 
 /**
@@ -192,6 +217,7 @@ export interface ResolvedConfiguration {
     // brace position
     "classDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "doWhileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "enumDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "functionDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "tryStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
@@ -200,4 +226,7 @@ export interface ResolvedConfiguration {
     // next control flow position
     "ifStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
     "tryStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
+
+    // trailing commas
+    "enumDeclaration.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
 }

@@ -1,4 +1,4 @@
-~~ bracePosition: "nextLine", lineWidth: 30 ~~
+~~ functionDeclaration.bracePosition: "nextLine", lineWidth: 30 ~~
 == should use the next line for the brace position ==
 function t() {
 }

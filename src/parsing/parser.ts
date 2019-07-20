@@ -17,11 +17,16 @@ class Bag {
         this.bag.delete(key);
         return value;
     }
+
+    peek(key: string) {
+        return this.bag.get(key);
+    }
 }
 
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
-    ClassDeclarationStartHeaderInfo: "classDeclarationStartHeaderInfo"
+    ClassDeclarationStartHeaderInfo: "classDeclarationStartHeaderInfo",
+    EnumDeclarationNode: "enumDeclarationNode"
 } as const;
 
 export interface Context {
@@ -78,6 +83,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ExportDefaultDeclaration": parseExportDefaultDeclaration,
     "FunctionDeclaration": parseFunctionDeclaration,
     "ImportDeclaration": parseImportDeclaration,
+    "TSEnumDeclaration": parseEnumDeclaration,
+    "TSEnumMember": parseEnumMember,
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
     "ClassBody": parseClassBody,
@@ -367,6 +374,74 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
     }
 }
 
+function* parseEnumDeclaration(node: babel.TSEnumDeclaration, context: Context): PrintItemIterator {
+    const startHeaderInfo = createInfo("startHeader");
+    context.bag.put(BAG_KEYS.EnumDeclarationNode, node); // for when parsing a member
+
+    yield* parseHeader();
+    yield* parseBody();
+
+    function* parseHeader(): PrintItemIterator {
+        yield startHeaderInfo;
+
+        if (node.declare)
+            yield "declare ";
+        if (node.const)
+            yield "const ";
+        yield "enum";
+
+        yield " ";
+        yield* parseNode(node.id, context);
+    }
+
+    function parseBody(): PrintItemIterator {
+        return parseMemberedBody({
+            bracePosition: context.config["enumDeclaration.bracePosition"],
+            context,
+            node,
+            members: node.members,
+            startHeaderInfo
+        });
+    }
+}
+
+function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItemIterator {
+    const parentDeclaration = context.bag.peek(BAG_KEYS.EnumDeclarationNode) as babel.TSEnumDeclaration;
+    yield* parseNode(node.id, context);
+
+    if (node.initializer) {
+        yield* withHangingIndent(parseInitializer(node.initializer));
+    }
+
+    const forceTrailingCommas = getForceTrailingCommas(context.config["enumDeclaration.trailingCommas"]);
+    if (forceTrailingCommas || parentDeclaration.members[parentDeclaration.members.length - 1] !== node)
+        yield ",";
+
+    function getForceTrailingCommas(option: NonNullable<Configuration["trailingCommas"]>) {
+        // this is explicit so that this is re-evaluated when the options change
+        switch (option) {
+            case "always":
+            case "onlyMultiLine":
+                return true;
+            case "never":
+                return false;
+            default:
+                const assertNever: never = option;
+                return false;
+        }
+    }
+
+    function* parseInitializer(initializer: NonNullable<babel.TSEnumMember["initializer"]>): PrintItemIterator {
+        if (initializer.type === "NumericLiteral" || initializer.type === "StringLiteral")
+            yield Signal.SpaceOrNewLine;
+        else
+            yield " ";
+
+        yield "= ";
+        yield* withHangingIndent(parseNode(initializer, context));
+    }
+}
+
 function* parseExportAllDeclaration(node: babel.ExportAllDeclaration, context: Context): PrintItemIterator {
     yield "export * from ";
     yield* parseNode(node.source, context);
@@ -436,7 +511,12 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
             yield* parseNode(node.returnType.typeAnnotation, context);
         }
 
-        yield* parseBraceSeparator(context.config["functionDeclaration.bracePosition"], node.body, functionHeaderStartInfo, context);
+        yield* parseBraceSeparator({
+            bracePosition: context.config["functionDeclaration.bracePosition"],
+            bodyNode: node.body,
+            startHeaderInfo: functionHeaderStartInfo,
+            context
+        });
     }
 }
 
@@ -516,20 +596,16 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 
 /* class */
 
-function* parseClassBody(node: babel.ClassBody, context: Context): PrintItemIterator {
+function parseClassBody(node: babel.ClassBody, context: Context): PrintItemIterator {
     const startHeaderInfo = context.bag.take(BAG_KEYS.ClassDeclarationStartHeaderInfo) as Info | undefined;
-    yield* parseBraceSeparator(context.config["classDeclaration.bracePosition"], node, startHeaderInfo, context);
 
-    yield "{";
-    yield* withIndent(parseBody());
-    yield context.newLineKind;
-    yield "}";
-
-    function* parseBody(): PrintItemIterator {
-        if (node.body.length > 0 || node.innerComments != null && node.innerComments.length > 0)
-            yield context.newLineKind;
-        yield* parseStatementOrMembers(node.body, node.innerComments, undefined, context);
-    }
+    return parseMemberedBody({
+        bracePosition: context.config["classDeclaration.bracePosition"],
+        context,
+        members: node.body,
+        node,
+        startHeaderInfo
+    });
 }
 
 function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIterator {
@@ -578,7 +654,12 @@ function* parseDirective(node: babel.Directive, context: Context): PrintItemIter
 function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context): PrintItemIterator {
     // the braces are technically optional on do while statements...
     yield "do";
-    yield* parseBraceSeparator(context.config["doWhileStatement.bracePosition"], node.body, undefined, context);
+    yield* parseBraceSeparator({
+        bracePosition: context.config["doWhileStatement.bracePosition"],
+        bodyNode: node.body,
+        startHeaderInfo: undefined,
+        context
+    });
     yield* parseNode(node.body, context);
     yield " while (";
     yield* withHangingIndent(parseNode(node.test, context));
@@ -680,7 +761,12 @@ function* parseThrowStatement(node: babel.ThrowStatement, context: Context): Pri
 
 function* parseTryStatement(node: babel.TryStatement, context: Context): PrintItemIterator {
     yield "try";
-    yield* parseBraceSeparator(context.config["tryStatement.bracePosition"], node.block, undefined, context);
+    yield* parseBraceSeparator({
+        bracePosition: context.config["tryStatement.bracePosition"],
+        bodyNode: node.block,
+        startHeaderInfo: undefined,
+        context
+    });
     yield* parseNode(node.block, context);
 
     if (node.handler != null) {
@@ -691,7 +777,12 @@ function* parseTryStatement(node: babel.TryStatement, context: Context): PrintIt
     if (node.finalizer != null) {
         yield* parseControlFlowSeparator(context.config["tryStatement.nextControlFlowPosition"], node.finalizer, "finally", context);
         yield "finally";
-        yield* parseBraceSeparator(context.config["tryStatement.bracePosition"], node.finalizer, undefined, context);
+        yield* parseBraceSeparator({
+            bracePosition: context.config["tryStatement.bracePosition"],
+            bodyNode: node.finalizer,
+            startHeaderInfo: undefined,
+            context
+        });
         yield* parseNode(node.finalizer, context);
     }
 }
@@ -827,7 +918,12 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             }
         },
         true: function*(): PrintItemIterator {
-            yield* parseBraceSeparator(bracePosition, bodyNode, startHeaderInfo, context);
+            yield* parseBraceSeparator({
+                bracePosition,
+                bodyNode,
+                startHeaderInfo,
+                context
+            });
             yield "{";
         }()
     };
@@ -1089,6 +1185,41 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
 
 /* general */
 
+interface ParseMemberedBodyOptions {
+    node: babel.Node;
+    members: babel.Node[];
+    context: Context;
+    startHeaderInfo: Info | undefined;
+    bracePosition: NonNullable<Configuration["bracePosition"]>;
+}
+
+function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterator {
+    const { node, members, context, startHeaderInfo, bracePosition } = opts;
+
+    yield* parseBraceSeparator({
+        bracePosition,
+        bodyNode: getFirstOpenBraceToken(node, context) || node,
+        startHeaderInfo,
+        context
+    });
+
+    yield "{";
+    yield* withIndent(parseBody());
+    yield context.newLineKind;
+    yield "}";
+
+    function* parseBody(): PrintItemIterator {
+        if (members.length > 0 || node.innerComments != null && node.innerComments.length > 0)
+            yield context.newLineKind;
+        yield* parseStatementOrMembers({
+            items: members,
+            innerComments: node.innerComments,
+            lastNode: undefined,
+            context
+        });
+    }
+}
+
 function* parseStatements(block: babel.BlockStatement | babel.Program, context: Context): PrintItemIterator {
     let lastNode: babel.Node | undefined;
     for (const directive of block.directives) {
@@ -1103,16 +1234,27 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     }
 
     const statements = block.body;
-    yield* parseStatementOrMembers(statements, block.innerComments, lastNode, context);
+    yield* parseStatementOrMembers({
+        items: statements,
+        innerComments: block.innerComments,
+        lastNode,
+        context
+    });
 }
 
-function* parseStatementOrMembers(
-    items: babel.Node[],
-    innerComments: ReadonlyArray<babel.Comment> | undefined | null,
-    lastNode: babel.Node | undefined, context: Context
-): PrintItemIterator {
+interface ParseStatementOrMembersOptions {
+    items: babel.Node[];
+    innerComments: ReadonlyArray<babel.Comment> | undefined | null;
+    lastNode: babel.Node | undefined;
+    context: Context;
+}
+
+function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintItemIterator {
+    const { items, innerComments, context } = opts;
+    let { lastNode } = opts;
+
     for (const item of items) {
-        if (lastNode != null && !nodeHelpers.hasLeadingCommentOnDifferentLine(item)) {
+        if (lastNode != null) {
             yield context.newLineKind;
 
             if (nodeHelpers.hasSeparatingBlankLine(lastNode, item))
@@ -1124,9 +1266,13 @@ function* parseStatementOrMembers(
     }
 
     // get the trailing comments on separate lines of the last node
-    if (lastNode != null && lastNode.trailingComments != null && lastNode.trailingComments.length > 0) {
-        // treat these as if they were leading comments, so don't provide the last node
-        yield* parseCommentCollection(lastNode.trailingComments, undefined, context);
+    if (lastNode != null && lastNode.trailingComments != null) {
+        const unHandledComments = lastNode.trailingComments.filter(c => !context.handledComments.has(c));
+        if (unHandledComments.length > 0) {
+            yield context.newLineKind;
+            // treat these as if they were leading comments, so don't provide the last node
+            yield* parseCommentCollection(lastNode.trailingComments, undefined, context);
+        }
     }
 
     if (innerComments != null && innerComments.length > 0) {
@@ -1268,13 +1414,6 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
     // use the roslyn definition of trailing comments
     const trailingCommentsOnSameLine = node.trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
     yield* parseCommentCollection(trailingCommentsOnSameLine, node, context)
-
-    const nextComment = node.trailingComments[trailingCommentsOnSameLine.length];
-    if (nextComment != null && !context.handledComments.has(nextComment)) {
-        yield context.newLineKind;
-        if (nextComment.loc!.start.line > node.loc!.end.line + 1)
-            yield context.newLineKind;
-    }
 }
 
 function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
@@ -1329,7 +1468,16 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
     }
 }
 
-function* parseBraceSeparator(bracePosition: NonNullable<Configuration["bracePosition"]>, blockNode: babel.Node, startHeaderInfo: Info | undefined, context: Context) {
+interface ParseBraceSeparatorOptions {
+    bracePosition: NonNullable<Configuration["bracePosition"]>;
+    bodyNode: babel.Node | nodeHelpers.BabelToken;
+    startHeaderInfo: Info | undefined;
+    context: Context;
+}
+
+function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
+    const { bracePosition, bodyNode, startHeaderInfo, context } = opts;
+
     if (bracePosition === "nextLineIfHanging") {
         if (startHeaderInfo == null) {
             yield " ";
@@ -1343,7 +1491,7 @@ function* parseBraceSeparator(bracePosition: NonNullable<Configuration["bracePos
     else if (bracePosition === "nextLine")
         yield context.newLineKind
     else if (bracePosition === "maintain") {
-        if (nodeHelpers.isFirstNodeOnLine(blockNode, context))
+        if (nodeHelpers.isFirstNodeOnLine(bodyNode, context))
             yield context.newLineKind;
         else
             yield " ";
@@ -1423,6 +1571,21 @@ function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {
         }
         yield item;
     }
+}
+
+function getFirstOpenBraceToken(node: babel.Node, context: Context) {
+    // todo: something faster than O(n)
+    const tokenText = "{";
+    return nodeHelpers.getFirstToken(context.file, token => {
+        if (token.start < node.start!)
+            return false;
+        if (token.start > node.end!)
+            return "stop";
+        if (token.type == null)
+            return false;
+
+        return token.type.label === tokenText;
+    });
 }
 
 /* factory functions */

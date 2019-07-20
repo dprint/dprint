@@ -1,0 +1,30 @@
+~~ lineWidth: 30 ~~
+== should format ==
+enum Test {
+    member,
+    member2    =    5,
+    "member3",
+    "member4"="str"
+}
+
+[expect]
+enum Test {
+    member,
+    member2 = 5,
+    "member3",
+    "member4" = "str"
+}
+
+== should format with initializer on next line if it goes over ==
+enum Test {
+    memberThatIsLong = 52364363463463,
+    member2 = "some" + "test" + "withLotsOfThese"
+}
+
+[expect]
+enum Test {
+    memberThatIsLong
+        = 52364363463463,
+    member2 = "some" + "test"
+        + "withLotsOfThese"
+}

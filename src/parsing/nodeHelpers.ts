@@ -72,8 +72,25 @@ export function isFirstNodeOnLine(node: babel.Node | BabelToken, context: Contex
 export interface BabelToken {
     start: number;
     end: number;
-    value: string;
+    value?: string;
+    type?: {
+        label: string;
+    };
     loc: babel.Node["loc"];
+}
+
+export function getFirstToken(file: babel.File, isMatch: (token: BabelToken) => boolean | "stop") {
+    const tokens = file.tokens as BabelToken[];
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        const result = isMatch(token);
+        if (result === true)
+            return token;
+        else if (result === "stop")
+            return undefined;
+    }
+
+    return undefined;
 }
 
 export function getLastToken(file: babel.File, isMatch: (token: BabelToken) => boolean | "stop") {

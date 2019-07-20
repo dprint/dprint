@@ -240,6 +240,7 @@ describe(nameof(resolveConfiguration), () => {
             return {
                 "classDeclaration.bracePosition": value,
                 "doWhileStatement.bracePosition": value,
+                "enumDeclaration.bracePosition": value,
                 "functionDeclaration.bracePosition": value,
                 "ifStatement.bracePosition": value,
                 "tryStatement.bracePosition": value,
@@ -276,6 +277,37 @@ describe(nameof(resolveConfiguration), () => {
             return {
                 "ifStatement.nextControlFlowPosition": value,
                 "tryStatement.nextControlFlowPosition": value
+            };
+        }
+    });
+
+    describe(nameof<Configuration>(c => c.trailingCommas), () => {
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("trailingCommas"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject("never"));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ trailingCommas: "never" }, getObject("never"));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ trailingCommas: "always" }, getObject("always"));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject("always");
+            const config: Configuration = { ...expectedConfig } as any;
+            config.trailingCommas = "never";
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<Configuration["trailingCommas"]>): Partial<ResolvedConfiguration> {
+            return {
+                "enumDeclaration.trailingCommas": value,
             };
         }
     });

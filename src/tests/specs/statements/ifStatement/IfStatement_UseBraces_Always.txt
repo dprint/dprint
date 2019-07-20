@@ -1,4 +1,4 @@
-~~ useBraces: "always" ~~
+~~ ifStatement.useBraces: "always" ~~
 == should force the use of braces when not specified ==
 if (true)
     a;

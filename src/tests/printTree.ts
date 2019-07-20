@@ -1,11 +1,18 @@
 import { PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterator, Unknown } from "../types";
 import { assertNever } from "../utils";
 
-// this is for debugging purposes
-// todo: move this out
+/** Prints out the tree for debugging purposes. */
+export function printTree(item: PrintItemIterator) {
+    return printItems(item);
+}
 
-export function printParseTree(item: PrintItem) {
-    return printItem(item);
+function printItems(iterator: PrintItemIterator) {
+    const items: string[] = [];
+
+    for (const item of iterator)
+        items.push(printItem(item));
+
+    return items.join(",\n");
 }
 
 function printItem(item: PrintItem) {
@@ -66,13 +73,4 @@ function printItemsWithBrackets(iterator: PrintItemIterator) {
     return "[\n"
         + addIndentation(printItems(iterator))
         + "\n]";
-}
-
-function printItems(iterator: PrintItemIterator) {
-    const items: string[] = [];
-
-    for (const item of iterator)
-        items.push(printItem(item));
-
-    return items.join(",\n");
 }

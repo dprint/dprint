@@ -1,4 +1,4 @@
-~~ useBraces: "maintain" ~~
+~~ ifStatement.useBraces: "maintain" ~~
 == should leave the code as is ==
 if (true)
     // gross

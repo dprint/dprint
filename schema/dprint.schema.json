@@ -33,6 +33,16 @@
                 { "const": "nextLine", "description": "Forces the next control flow to be on the next line." }
             ],
             "default": "nextLine"
+        },
+        "trailingCommas": {
+            "type": "string",
+            "description": "If trailing commas should be used.",
+            "oneOf": [
+                { "const": "never", "description": "Trailing commas should not be used." },
+                { "const": "always", "description": "Trailing commas should always be used." },
+                { "const": "onlyMultiLine", "description": "Trailing commas should only be used in multi-line scenarios." }
+            ],
+            "default": "never"
         }
     },
     "properties": {
@@ -80,6 +90,9 @@
         },
         "nextControlFlowPosition": {
             "$ref": "#/definitions/nextControlFlowPosition"
+        },
+        "trailingCommas": {
+            "$ref": "#/definitions/trailingCommas"
         },
 
         "breakStatement.semiColon": {
@@ -129,6 +142,9 @@
         "doWhileStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
+        "enumDeclaration.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "functionDeclaration.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
@@ -147,6 +163,10 @@
         },
         "tryStatement.nextControlFlowPosition": {
             "$ref": "#/definitions/nextControlFlowPosition"
+        },
+
+        "enumDeclaration.trailingCommas": {
+            "$ref": "#/definitions/trailingCommas"
         }
     }
 }

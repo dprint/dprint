@@ -1,4 +1,4 @@
-import { parseToBabelAst, parseFile, printParseTree } from "./parsing";
+import { parseToBabelAst, parseFile } from "./parsing";
 import { print } from "./printing";
 import { resolveNewLineKindFromText, ResolvedConfiguration } from "./configuration";
 
