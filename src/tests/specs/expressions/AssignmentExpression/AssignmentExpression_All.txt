@@ -1,0 +1,5 @@
+== should format ==
+test=5;
+
+[expect]
+test = 5;

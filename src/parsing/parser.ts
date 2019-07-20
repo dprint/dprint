@@ -114,6 +114,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "CatchClause": parseCatchClause,
     /* expressions */
     "ArrayExpression": parseArrayExpression,
+    "AssignmentExpression": parseAssignmentExpression,
     "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
@@ -1207,6 +1208,12 @@ function* parseArrayExpression(node: babel.ArrayExpression, context: Context): P
                 yield context.newlineKind;
         }
     }
+}
+
+function* parseAssignmentExpression(node: babel.AssignmentExpression, context: Context): PrintItemIterator {
+    yield* parseNode(node.left, context);
+    yield ` ${node.operator} `;
+    yield* parseNode(node.right, context);
 }
 
 function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): PrintItemIterator {
