@@ -8,7 +8,7 @@ export interface PrintOptions {
     maxWidth: number;
     indentSize: number;
     useTabs: boolean;
-    newLineKind: "\r\n" | "\n";
+    newlineKind: "\r\n" | "\n";
 }
 
 interface SavePoint {
@@ -97,7 +97,7 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
                 if (isAboveMaxWidth(1)) {
                     const saveState = possibleNewLineSavePoint;
                     if (saveState == null || saveState.newlineGroupDepth >= newlineGroupDepth)
-                        writer.write(options.newLineKind);
+                        writer.write(options.newlineKind);
                     else {
                         if (possibleNewLineSavePoint != null)
                             revertToSavePointPossiblyThrowing(possibleNewLineSavePoint);
@@ -228,7 +228,7 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
         newlineGroupDepth = savePoint.newlineGroupDepth;
 
         if (isForNewLine)
-            writer.write(options.newLineKind);
+            writer.write(options.newlineKind);
 
         const startIndex = isForNewLine ? 1 : 0;
         childIndex += startIndex;

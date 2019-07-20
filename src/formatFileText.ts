@@ -18,7 +18,7 @@ export function formatFileText(filePath: string, fileText: string, configuration
     return print(printItem, {
         maxWidth: configuration.lineWidth,
         indentSize: configuration.indentSize,
-        newLineKind: configuration.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : configuration.newLineKind,
+        newlineKind: configuration.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : configuration.newlineKind,
         useTabs: configuration.useTabs
     });
 }

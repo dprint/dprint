@@ -6,7 +6,7 @@ import { TestEnvironment } from "./TestEnvironment";
 describe(nameof(runCliWithOptions), () => {
     function createTestEnvironment() {
         const environment = new TestEnvironment();
-        environment.addFile("/dprint.config", `{ "newLineKind": "lf" }`);
+        environment.addFile("/dprint.config", `{ "newlineKind": "lf" }`);
         environment.addFile("/file1.ts", "5+1;");
         environment.addFile("/file2.ts", "console.log (5)  ;");
         return environment;

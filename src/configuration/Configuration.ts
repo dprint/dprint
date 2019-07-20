@@ -37,7 +37,7 @@ export interface Configuration {
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
-    newLineKind?: "auto" | "crlf" | "lf" | "system";
+    newlineKind?: "auto" | "crlf" | "lf" | "system";
     /**
      * If braces should be used or not.
      * @default "maintain"
@@ -71,6 +71,14 @@ export interface Configuration {
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
      */
     trailingCommas?: "never" | "always" | "onlyMultiLine";
+    /**
+     * How to space the members of an enum.
+     * @default "newline"
+     * @value "newline" - Forces a new line between members.
+     * @value "blankline" - Forces a blank line between members.
+     * @value "maintain" - Maintains whether a newline or blankline is used.
+     */
+    "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
     "breakStatement.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
@@ -195,7 +203,10 @@ export interface ResolvedConfiguration {
     indentSize: number;
     useTabs: boolean;
     singleQuotes: boolean;
-    newLineKind: "auto" | "\r\n" | "\n";
+    newlineKind: "auto" | "\r\n" | "\n";
+
+    // declaration specific
+    "enumDeclaration.memberSpacing": NonNullable<Configuration["enumDeclaration.memberSpacing"]>;
 
     // semi colons
     "breakStatement.semiColon": boolean;

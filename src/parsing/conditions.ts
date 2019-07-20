@@ -15,7 +15,7 @@ export function newlineIfHangingSpaceOtherwise(context: Context, info: Info): Co
             const isHanging = conditionContext.writerInfo.lineStartIndentLevel > resolvedInfo.lineStartIndentLevel;
             return isHanging;
         },
-        true: [context.newLineKind],
+        true: [context.newlineKind],
         false: [" "]
     }
 }
@@ -25,7 +25,7 @@ export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: Context, 
         name: "newlineIfMultipleLinesSpaceOrNewlineOtherwise",
         kind: PrintItemKind.Condition,
         condition: conditionContext => infoChecks.isMultipleLines(startInfo, endInfo, conditionContext, false),
-        true: [context.newLineKind],
+        true: [context.newlineKind],
         false: [Signal.SpaceOrNewLine]
     };
 }

@@ -43,7 +43,7 @@ export interface Configuration {
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
-    newLineKind?: "auto" | "crlf" | "lf" | "system";
+    newlineKind?: "auto" | "crlf" | "lf" | "system";
     /**
      * If braces should be used or not.
      * @default "maintain"
@@ -69,11 +69,32 @@ export interface Configuration {
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
     nextControlFlowPosition?: "maintain" | "sameLine" | "nextLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
+    trailingCommas?: "never" | "always" | "onlyMultiLine";
+    /**
+     * How to space the members of an enum.
+     * @default "newline"
+     * @value "newline" - Forces a new line between members.
+     * @value "blankline" - Forces a blank line between members.
+     * @value "maintain" - Maintains whether a newline or blankline is used.
+     */
+    "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
+    "breakStatement.semiColon"?: boolean;
+    "continueStatement.semiColon"?: boolean;
+    "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
+    "returnStatement.semiColon"?: boolean;
+    "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     /**
      * If braces should be used or not.
@@ -109,6 +130,15 @@ export interface Configuration {
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
     "doWhileStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "enumDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -161,6 +191,14 @@ export interface Configuration {
      * @value "nextLine" - Forces the next control flow to be on the next line.
      */
     "tryStatement.nextControlFlowPosition"?: "maintain" | "sameLine" | "nextLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
+    "enumDeclaration.trailingCommas"?: "never" | "always" | "onlyMultiLine";
 }
 
 /** Represents a problem with a configuration. */
@@ -193,23 +231,31 @@ export interface ResolvedConfiguration {
     indentSize: number;
     useTabs: boolean;
     singleQuotes: boolean;
-    newLineKind: "auto" | "\r\n" | "\n";
+    newlineKind: "auto" | "\r\n" | "\n";
+    "enumDeclaration.memberSpacing": NonNullable<Configuration["enumDeclaration.memberSpacing"]>;
+    "breakStatement.semiColon": boolean;
+    "continueStatement.semiColon": boolean;
+    "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;
     "doWhileStatement.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
+    "returnStatement.semiColon": boolean;
+    "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;
     "ifStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "whileStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "classDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "doWhileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "enumDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "functionDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "tryStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "whileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
     "tryStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
+    "enumDeclaration.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
 }
 
 /**

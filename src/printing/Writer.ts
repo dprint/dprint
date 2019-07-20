@@ -24,7 +24,7 @@ export class Writer {
 
     private state: WriterState;
 
-    constructor(private readonly options: { indentSize: number; useTabs: boolean; newLineKind: "\r\n" | "\n" }) {
+    constructor(private readonly options: { indentSize: number; useTabs: boolean; newlineKind: "\r\n" | "\n" }) {
         this.singleIndentationText = this.options.useTabs ? "\t" : " ".repeat(options.indentSize);
         this.state = {
             currentLineColumn: 0,
@@ -164,7 +164,7 @@ export class Writer {
         if (this.expectNewLineNext) {
             this.expectNewLineNext = false;
             if (!startsWithNewLine) {
-                this.baseWrite(this.options.newLineKind);
+                this.baseWrite(this.options.newlineKind);
                 this.baseWrite(text);
                 return;
             }

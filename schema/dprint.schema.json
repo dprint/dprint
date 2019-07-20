@@ -71,7 +71,7 @@
             "description": "Whether to use single quotes (true) or double quotes (false).",
             "default": false
         },
-        "newLineKind": {
+        "newlineKind": {
             "type": "string",
             "description": "The kind of newline to use.",
             "oneOf": [
@@ -93,6 +93,17 @@
         },
         "trailingCommas": {
             "$ref": "#/definitions/trailingCommas"
+        },
+
+        "enumDeclaration.memberSpacing": {
+            "type": "string",
+            "description": "How to space the members of an enum.",
+            "oneOf": [
+                { "const": "newline", "description": "Forces a new line between members." },
+                { "const": "blankline", "description": "Forces a blank line between members." },
+                { "const": "maintain", "description": "Maintains whether a newline or blankline is used." }
+            ],
+            "default": "newline"
         },
 
         "breakStatement.semiColon": {

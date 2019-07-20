@@ -147,9 +147,9 @@ describe(nameof(resolveConfiguration), () => {
         });
     });
 
-    describe(nameof<Configuration>(c => c.newLineKind), () => {
+    describe(nameof<Configuration>(c => c.newlineKind), () => {
         function doSpecificTest(value: string | undefined, expectedValue: string) {
-            doTest({ newLineKind: value as any }, { newLineKind: expectedValue as any }, prop => prop === "newLineKind");
+            doTest({ newlineKind: value as any }, { newlineKind: expectedValue as any }, prop => prop === "newlineKind");
         }
 
         it("should set when not set", () => {
@@ -173,9 +173,9 @@ describe(nameof(resolveConfiguration), () => {
         });
 
         it("should do a diagnostic when providing an incorrect value", () => {
-            doTest({ newLineKind: "asdf" as any }, {}, () => false, [{
-                message: "Unknown configuration specified for 'newLineKind': asdf",
-                propertyName: "newLineKind"
+            doTest({ newlineKind: "asdf" as any }, {}, () => false, [{
+                message: "Unknown configuration specified for 'newlineKind': asdf",
+                propertyName: "newlineKind"
             }]);
         });
     });
@@ -310,5 +310,23 @@ describe(nameof(resolveConfiguration), () => {
                 "enumDeclaration.trailingCommas": value,
             };
         }
+    });
+
+    describe("enumDeclaration.memberSpacing", () => {
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "enumDeclaration.memberSpacing");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "enumDeclaration.memberSpacing": "newline" });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest({
+                "enumDeclaration.memberSpacing": "blankline"
+            }, {
+                "enumDeclaration.memberSpacing": "blankline"
+            });
+        });
     });
 });

@@ -1,12 +1,12 @@
 import { Project, PropertySignatureStructure, OptionalKind, NewLineKind, SyntaxKind, PropertyAssignmentStructure, ObjectLiteralExpression } from "ts-morph";
 import { parseJsonSchemaProperties, SchemaProperty } from "./parseJsonSchemaProperties";
 
-const project = new Project({ manipulationSettings: { newLineKind: NewLineKind.CarriageReturnLineFeed } });
+const project = new Project({ manipulationSettings: { newlineKind: NewLineKind.CarriageReturnLineFeed } });
 
 // add the new ones in
 const properties: OptionalKind<PropertySignatureStructure>[] = [];
 const defaultValueProperties: OptionalKind<PropertyAssignmentStructure>[] = [];
-const jsonSchema = parseJsonSchemaProperties();
+
 for (const prop of parseJsonSchemaProperties()) {
     const sanitizedPropName = prop.name.indexOf(".") >= 0 ? `"${prop.name}"` : prop.name;
     properties.push({
@@ -16,7 +16,7 @@ for (const prop of parseJsonSchemaProperties()) {
         docs: getDocs(prop)
     });
 
-    if (prop.default != null && sanitizedPropName === prop.name) {
+    if (isAllowedDefaultValueProperty(prop, sanitizedPropName)) {
         defaultValueProperties.push({
             name: sanitizedPropName,
             initializer: getDefault(prop)
@@ -78,4 +78,11 @@ function getType(propName: string, prop: SchemaProperty) {
         throw new Error(`Expected a oneOf property for ${propName}.`);
 
     return oneOf.map(item => `"${item.const}"`).join(" | ");
+}
+
+function isAllowedDefaultValueProperty(prop: SchemaProperty, sanitizedPropName: string) {
+    if (prop.name === "enumDeclaration.memberSpacing")
+        return true;
+
+    return prop.default != null && sanitizedPropName === prop.name;
 }

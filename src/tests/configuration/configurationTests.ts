@@ -14,16 +14,16 @@ function doTest(inputText: string, config: Configuration, expectedText: string) 
 
 describe("new line configuration", () => {
     it("should use the last line newline kind when auto and using \r\n", () => {
-        doTest("var t;\nvar u;\r\n", { newLineKind: "auto" }, "var t;\r\nvar u;\r\n");
+        doTest("var t;\nvar u;\r\n", { newlineKind: "auto" }, "var t;\r\nvar u;\r\n");
     });
 
     it("should use the first last newline kind when auto and using \n", () => {
-        doTest("var t;\r\nvar u;\n", { newLineKind: "auto" }, "var t;\nvar u;\n");
+        doTest("var t;\r\nvar u;\n", { newlineKind: "auto" }, "var t;\nvar u;\n");
     });
 
     it("should use the system newline when set to system", () => {
         const newLine = os.EOL === "\r\n" ? "\r\n" : "\n";
-        doTest("var t;\r\nvar u;\n", { newLineKind: "system" }, `var t;${newLine}var u;${newLine}`);
+        doTest("var t;\r\nvar u;\n", { newlineKind: "system" }, `var t;${newLine}var u;${newLine}`);
     });
 });
 

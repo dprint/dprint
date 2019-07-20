@@ -40,7 +40,7 @@ export interface Context {
     currentNode: babel.Node;
     parentStack: babel.Node[];
     parent: babel.Node;
-    newLineKind: "\r\n" | "\n";
+    newlineKind: "\r\n" | "\n";
     bag: Bag;
 }
 
@@ -55,7 +55,7 @@ export function* parseFile(file: babel.File, fileText: string, options: Resolved
         currentNode: file,
         parentStack: [],
         parent: file,
-        newLineKind: options.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newLineKind,
+        newlineKind: options.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newlineKind,
         bag: new Bag()
     };
 
@@ -66,7 +66,7 @@ export function* parseFile(file: babel.File, fileText: string, options: Resolved
         condition: conditionContext => {
             return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
         },
-        true: [context.newLineKind]
+        true: [context.newlineKind]
     };
 }
 
@@ -242,10 +242,10 @@ function* parseNode(node: babel.Node | null, context: Context): PrintItemIterato
 function* parseProgram(node: babel.Program, context: Context): PrintItemIterator {
     if (node.interpreter) {
         yield* parseNode(node.interpreter, context);
-        yield context.newLineKind;
+        yield context.newlineKind;
 
         if (nodeHelpers.hasSeparatingBlankLine(node.interpreter, node.directives[0] || node.body[0]))
-            yield context.newLineKind;
+            yield context.newlineKind;
     }
 
     yield* parseStatements(node, context);
@@ -259,7 +259,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
 
     yield "{";
     yield* getFirstLineTrailingComments();
-    yield context.newLineKind;
+    yield context.newlineKind;
     yield startStatementsInfo;
     yield* withIndent(parseStatements(node, context));
     yield endStatementsInfo;
@@ -269,7 +269,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
         condition: conditionContext => {
             return !infoChecks.areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
         },
-        true: [context.newLineKind]
+        true: [context.newlineKind]
     }
     yield "}";
 
@@ -400,8 +400,23 @@ function* parseEnumDeclaration(node: babel.TSEnumDeclaration, context: Context):
             context,
             node,
             members: node.members,
-            startHeaderInfo
+            startHeaderInfo,
+            shouldUseBlankLine
         });
+    }
+
+    function shouldUseBlankLine(previousNode: babel.Node, nextNode: babel.Node) {
+        const memberSpacingOption = context.config["enumDeclaration.memberSpacing"];
+        switch (memberSpacingOption) {
+            case "blankline":
+                return true;
+            case "newline":
+                return false;
+            case "maintain":
+                return nodeHelpers.hasSeparatingBlankLine(previousNode, nextNode);
+            default:
+                return assertNever(memberSpacingOption);
+        }
     }
 }
 
@@ -572,7 +587,7 @@ function* parseTypeParameterDeclaration(
             if (i < params.length - 1) {
                 yield ",";
                 if (useNewLines)
-                    yield context.newLineKind;
+                    yield context.newlineKind;
                 else
                     yield Signal.SpaceOrNewLine;
             }
@@ -604,7 +619,10 @@ function parseClassBody(node: babel.ClassBody, context: Context): PrintItemItera
         context,
         members: node.body,
         node,
-        startHeaderInfo
+        startHeaderInfo,
+        shouldUseBlankLine: (previousMember, nextMember) => {
+            return nodeHelpers.hasSeparatingBlankLine(previousMember, nextMember);
+        }
     });
 }
 
@@ -735,7 +753,7 @@ function* parseLabeledStatement(node: babel.LabeledStatement, context: Context):
     if (node.body.type === "BlockStatement")
         yield " ";
     else
-        yield context.newLineKind;
+        yield context.newlineKind;
 
     yield* parseNode(node.body, context);
 }
@@ -938,7 +956,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
         yield* parseHeaderTrailingComment();
 
-        yield context.newLineKind;
+        yield context.newlineKind;
         yield startStatementsInfo;
 
         if (bodyNode.type === "BlockStatement") {
@@ -964,7 +982,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 condition: conditionContext => {
                     return !infoChecks.areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
                 },
-                true: [context.newLineKind]
+                true: [context.newlineKind]
             }, "}"]
         };
 
@@ -1175,7 +1193,7 @@ function* parseUnionType(node: babel.TSUnionType, context: Context): PrintItemIt
     yield* withHangingIndent(function*() {
         for (let i = 0; i < node.types.length; i++) {
             if (i > 0) {
-                yield useNewLines ? context.newLineKind : Signal.SpaceOrNewLine;
+                yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
                 yield "| ";
             }
             yield* parseNode(node.types[i], context);
@@ -1191,10 +1209,11 @@ interface ParseMemberedBodyOptions {
     context: Context;
     startHeaderInfo: Info | undefined;
     bracePosition: NonNullable<Configuration["bracePosition"]>;
+    shouldUseBlankLine: (previousMember: babel.Node, nextMember: babel.Node) => boolean;
 }
 
 function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterator {
-    const { node, members, context, startHeaderInfo, bracePosition } = opts;
+    const { node, members, context, startHeaderInfo, bracePosition, shouldUseBlankLine } = opts;
 
     yield* parseBraceSeparator({
         bracePosition,
@@ -1205,17 +1224,18 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterator {
 
     yield "{";
     yield* withIndent(parseBody());
-    yield context.newLineKind;
+    yield context.newlineKind;
     yield "}";
 
     function* parseBody(): PrintItemIterator {
         if (members.length > 0 || node.innerComments != null && node.innerComments.length > 0)
-            yield context.newLineKind;
+            yield context.newlineKind;
         yield* parseStatementOrMembers({
             items: members,
             innerComments: node.innerComments,
             lastNode: undefined,
-            context
+            context,
+            shouldUseBlankLine
         });
     }
 }
@@ -1224,9 +1244,9 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     let lastNode: babel.Node | undefined;
     for (const directive of block.directives) {
         if (lastNode != null) {
-            yield context.newLineKind;
+            yield context.newlineKind;
             if (nodeHelpers.hasSeparatingBlankLine(lastNode, directive))
-                yield context.newLineKind;
+                yield context.newlineKind;
         }
 
         yield* parseNode(directive, context);
@@ -1238,7 +1258,10 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
         items: statements,
         innerComments: block.innerComments,
         lastNode,
-        context
+        context,
+        shouldUseBlankLine: (previousStatement, nextStatement) => {
+            return nodeHelpers.hasSeparatingBlankLine(previousStatement, nextStatement);
+        }
     });
 }
 
@@ -1247,18 +1270,19 @@ interface ParseStatementOrMembersOptions {
     innerComments: ReadonlyArray<babel.Comment> | undefined | null;
     lastNode: babel.Node | undefined;
     context: Context;
+    shouldUseBlankLine: (previousMember: babel.Node, nextMember: babel.Node) => boolean;
 }
 
 function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintItemIterator {
-    const { items, innerComments, context } = opts;
+    const { items, innerComments, context, shouldUseBlankLine } = opts;
     let { lastNode } = opts;
 
     for (const item of items) {
         if (lastNode != null) {
-            yield context.newLineKind;
+            yield context.newlineKind;
 
-            if (nodeHelpers.hasSeparatingBlankLine(lastNode, item))
-                yield context.newLineKind;
+            if (shouldUseBlankLine(lastNode, item))
+                yield context.newlineKind;
         }
 
         yield* parseNode(item, context);
@@ -1269,7 +1293,7 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
     if (lastNode != null && lastNode.trailingComments != null) {
         const unHandledComments = lastNode.trailingComments.filter(c => !context.handledComments.has(c));
         if (unHandledComments.length > 0) {
-            yield context.newLineKind;
+            yield context.newlineKind;
             // treat these as if they were leading comments, so don't provide the last node
             yield* parseCommentCollection(lastNode.trailingComments, undefined, context);
         }
@@ -1277,13 +1301,10 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
 
     if (innerComments != null && innerComments.length > 0) {
         if (lastNode != null)
-            yield context.newLineKind;
+            yield context.newlineKind;
 
         yield* parseCommentCollection(innerComments, undefined, context);
     }
-}
-
-function* parseInnerComments(comments: ReadonlyArray<babel.Comment>, lastNode: babel.Node | undefined, context: Context): PrintItemIterator {
 }
 
 function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
@@ -1307,7 +1328,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
             yield* parseNode(param, context);
             if (i < params.length - 1) {
                 yield ",";
-                yield useNewLines ? context.newLineKind : Signal.SpaceOrNewLine;
+                yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
             }
         }
     }
@@ -1322,7 +1343,7 @@ function* parseNamedImportsOrExports(
         return;
 
     const useNewLines = getUseNewLines();
-    const braceSeparator = useNewLines ? context.newLineKind : " ";
+    const braceSeparator = useNewLines ? context.newlineKind : " ";
 
     yield "{";
     yield braceSeparator;
@@ -1345,7 +1366,7 @@ function* parseNamedImportsOrExports(
         for (let i = 0; i < namedImportsOrExports.length; i++) {
             if (i > 0) {
                 yield ",";
-                yield useNewLines ? context.newLineKind : Signal.SpaceOrNewLine;
+                yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
             }
             yield* parseNode(namedImportsOrExports[i], context);
         }
@@ -1362,7 +1383,7 @@ function* parseDecoratorsIfClass(declaration: babel.Node | undefined | null, con
         return;
 
     yield* parseDecorators(declaration.decorators, context);
-    yield context.newLineKind;
+    yield context.newlineKind;
 }
 
 function* parseDecorators(decorators: babel.Decorator[], context: Context): PrintItemIterator {
@@ -1371,7 +1392,7 @@ function* parseDecorators(decorators: babel.Decorator[], context: Context): Prin
     for (let i = 0; i < decorators.length; i++) {
         if (i > 0) {
             if (useNewlines)
-                yield context.newLineKind;
+                yield context.newlineKind;
             else
                 yield Signal.SpaceOrNewLine;
         }
@@ -1400,10 +1421,10 @@ function* parseLeadingComments(node: babel.Node, context: Context) {
     yield* parseCommentCollection(node.leadingComments, undefined, context)
 
     if (lastComment != null && !hasHandled && node.loc!.start.line > lastComment.loc!.end.line) {
-        yield context.newLineKind;
+        yield context.newlineKind;
 
         if (node.loc!.start.line - 1 > lastComment.loc!.end.line)
-            yield context.newLineKind;
+            yield context.newlineKind;
     }
 }
 
@@ -1423,10 +1444,10 @@ function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (b
 
         if (lastNode != null) {
             if (comment.loc.start.line > lastNode.loc!.end.line) {
-                yield context.newLineKind;
+                yield context.newlineKind;
 
                 if (comment.loc.start.line > lastNode.loc!.end.line + 1)
-                    yield context.newLineKind;
+                    yield context.newlineKind;
             }
             else if (comment.type === "CommentLine")
                 yield " ";
@@ -1489,10 +1510,10 @@ function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
     else if (bracePosition === "sameLine")
         yield " ";
     else if (bracePosition === "nextLine")
-        yield context.newLineKind
+        yield context.newlineKind
     else if (bracePosition === "maintain") {
         if (nodeHelpers.isFirstNodeOnLine(bodyNode, context))
-            yield context.newLineKind;
+            yield context.newlineKind;
         else
             yield " ";
     }
@@ -1510,11 +1531,11 @@ function* parseControlFlowSeparator(
     if (nextControlFlowPosition === "sameLine")
         yield " ";
     else if (nextControlFlowPosition === "nextLine")
-        yield context.newLineKind
+        yield context.newlineKind
     else if (nextControlFlowPosition === "maintain") {
         const token = getFirstControlFlowToken();
         if (token != null && nodeHelpers.isFirstNodeOnLine(token, context))
-            yield context.newLineKind;
+            yield context.newlineKind;
         else
             yield " ";
     }
@@ -1534,14 +1555,14 @@ function* parseControlFlowSeparator(
 }
 
 function* surroundWithNewLines(item: PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
-    yield context.newLineKind;
+    yield context.newlineKind;
     if (item instanceof Function)
         yield* item()
     else if (isPrintItemIterator(item))
         yield* item;
     else
         yield item;
-    yield context.newLineKind;
+    yield context.newlineKind;
 }
 
 function* withIndent(item: PrintItemIterator): PrintItemIterator {

@@ -24,11 +24,12 @@ const defaultValues = {
     useTabs: false,
     semiColons: true,
     singleQuotes: false,
-    newLineKind: "auto",
+    newlineKind: "auto",
     useBraces: "maintain",
     bracePosition: "nextLineIfHanging",
     nextControlFlowPosition: "nextLine",
-    trailingCommas: "never"
+    trailingCommas: "never",
+    "enumDeclaration.memberSpacing": "newline"
 } as const;
 
 /**
@@ -49,7 +50,9 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         indentSize: getValue("indentSize", defaultValues["indentSize"], ensureNumber),
         useTabs: getValue("useTabs", defaultValues["useTabs"], ensureBoolean),
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
-        newLineKind: getNewLineKind(),
+        newlineKind: getNewLineKind(),
+        // declaration specific
+        "enumDeclaration.memberSpacing": getValue("enumDeclaration.memberSpacing", defaultValues["enumDeclaration.memberSpacing"], ensureEnumMemberSpacing),
         // semi-colons
         "breakStatement.semiColon": getValue("breakStatement.semiColon", semiColons, ensureBoolean),
         "continueStatement.semiColon": getValue("continueStatement.semiColon", semiColons, ensureBoolean),
@@ -88,9 +91,9 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     };
 
     function getNewLineKind() {
-        const newLineKind = config.newLineKind;
-        delete config.newLineKind;
-        switch (newLineKind) {
+        const newlineKind = config.newlineKind;
+        delete config.newlineKind;
+        switch (newlineKind) {
             case "auto":
                 return "auto";
             case "crlf":
@@ -99,16 +102,16 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
                 return "\n";
             case null:
             case undefined:
-                return defaultValues["newLineKind"];
+                return defaultValues["newlineKind"];
             case "system":
                 return os.EOL === "\r\n" ? "\r\n" : "\n";
             default:
-                const propertyName = nameof<Configuration>(c => c.newLineKind);
+                const propertyName = nameof<Configuration>(c => c.newlineKind);
                 diagnostics.push({
                     propertyName,
-                    message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`
+                    message: `Unknown configuration specified for '${propertyName}': ${newlineKind}`
                 });
-                return defaultValues["newLineKind"];
+                return defaultValues["newlineKind"];
         }
     }
 
@@ -208,6 +211,24 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
             case "never":
             case "always":
             case "onlyMultiLine":
+            case null:
+            case undefined:
+                return true;
+            default:
+                const assertNever: never = value;
+                diagnostics.push({
+                    propertyName: key,
+                    message: `Expected the configuration for '${key}' to equal one of the expected values, but was: ${value}`
+                });
+                return false;
+        }
+    }
+
+    function ensureEnumMemberSpacing(key: string, value: Configuration["enumDeclaration.memberSpacing"]) {
+        switch (value) {
+            case "maintain":
+            case "blankline":
+            case "newline":
             case null:
             case undefined:
                 return true;
