@@ -87,6 +87,7 @@ export interface Configuration {
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
+    "functionDeclaration.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
     "returnStatement.semiColon"?: boolean;
@@ -245,6 +246,7 @@ export interface ResolvedConfiguration {
     "directive.semiColon": boolean;
     "doWhileStatement.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
+    "functionDeclaration.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
     "returnStatement.semiColon": boolean;

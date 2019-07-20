@@ -1,0 +1,6 @@
+~~ functionDeclaration.semiColon: false ~~
+== should format without semi-colon ==
+declare function test(): string;
+
+[expect]
+declare function test(): string

@@ -122,6 +122,7 @@ describe(nameof(resolveConfiguration), () => {
                 "directive.semiColon": value,
                 "doWhileStatement.semiColon": value,
                 "expressionStatement.semiColon": value,
+                "functionDeclaration.semiColon": value,
                 "ifStatement.semiColon": value,
                 "importDeclaration.semiColon": value,
                 "returnStatement.semiColon": value,

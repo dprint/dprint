@@ -130,6 +130,9 @@
         "expressionStatement.semiColon": {
             "type": "boolean"
         },
+        "functionDeclaration.semiColon": {
+            "type": "boolean"
+        },
         "ifStatement.semiColon": {
             "type": "boolean"
         },

@@ -62,6 +62,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "directive.semiColon": getValue("directive.semiColon", semiColons, ensureBoolean),
         "doWhileStatement.semiColon": getValue("doWhileStatement.semiColon", semiColons, ensureBoolean),
         "expressionStatement.semiColon": getValue("expressionStatement.semiColon", semiColons, ensureBoolean),
+        "functionDeclaration.semiColon": getValue("functionDeclaration.semiColon", semiColons, ensureBoolean),
         "ifStatement.semiColon": getValue("ifStatement.semiColon", semiColons, ensureBoolean),
         "importDeclaration.semiColon": getValue("importDeclaration.semiColon", semiColons, ensureBoolean),
         "returnStatement.semiColon": getValue("returnStatement.semiColon", semiColons, ensureBoolean),

@@ -86,6 +86,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSEnumDeclaration": parseEnumDeclaration,
     "TSEnumMember": parseEnumMember,
     "TSTypeAliasDeclaration": parseTypeAlias,
+    "TSDeclareFunction": parseFunctionDeclaration,
     /* class */
     "ClassBody": parseClassBody,
     "ClassMethod": parseClassMethod,
@@ -501,9 +502,12 @@ function* parseExportDefaultDeclaration(node: babel.ExportDefaultDeclaration, co
     yield* parseNode(node.declaration, context);
 }
 
-function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Context): PrintItemIterator {
+function* parseFunctionDeclaration(node: babel.FunctionDeclaration | babel.TSDeclareFunction, context: Context): PrintItemIterator {
     yield* parseHeader();
-    yield* parseNode(node.body, context);
+    if (node.type === "FunctionDeclaration")
+        yield* parseNode(node.body, context);
+    else if (context.config["functionDeclaration.semiColon"])
+        yield ";";
 
     function* parseHeader(): PrintItemIterator {
         const functionHeaderStartInfo = createInfo("functionHeaderStart");
@@ -527,12 +531,14 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration, context: Con
         if (node.returnType)
             yield* parseNode(node.returnType, context);
 
-        yield* parseBraceSeparator({
-            bracePosition: context.config["functionDeclaration.bracePosition"],
-            bodyNode: node.body,
-            startHeaderInfo: functionHeaderStartInfo,
-            context
-        });
+        if (node.type === "FunctionDeclaration") {
+            yield* parseBraceSeparator({
+                bracePosition: context.config["functionDeclaration.bracePosition"],
+                bodyNode: node.body,
+                startHeaderInfo: functionHeaderStartInfo,
+                context
+            });
+        }
     }
 }
 
