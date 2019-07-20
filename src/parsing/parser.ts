@@ -1327,9 +1327,11 @@ function parseNumericLiteral(node: babel.NumericLiteral, context: Context) {
 }
 
 function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.DirectiveLiteral, context: Context) {
+    // do not use node.value because it will not keep escaped characters as escaped characters
+    const stringValue = context.fileText.substring(node.start! + 1, node.end! - 1);
     if (context.config.singleQuotes)
-        return `'${node.value.replace(/'/g, `\\'`)}'`;
-    return `"${node.value.replace(/"/g, `\\"`)}"`;
+        return `'${stringValue.replace(/'/g, `\\'`)}'`;
+    return `"${stringValue.replace(/"/g, `\\"`)}"`;
 }
 
 function parseNotSupportedFlowNode(node: babel.Node, context: Context): Unknown {
