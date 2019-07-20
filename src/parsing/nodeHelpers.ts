@@ -49,12 +49,22 @@ export function useNewlinesForParametersOrArguments(params: babel.Node[]) {
     return getUseNewlinesForNodes(params);
 }
 
-export function getUseNewlinesForNodes(nodes: babel.Node[]) {
-    if (nodes.length <= 1)
+export function getUseNewlinesForNodes(nodes: (babel.Node | null | undefined)[]) {
+    const nonNullNodes = getNodes();
+    const firstNode = nonNullNodes.next().value;
+    const secondNode = nonNullNodes.next().value;
+
+    if (firstNode == null || secondNode == null || firstNode.loc!.start.line === secondNode.loc!.start.line)
         return false;
-    if (nodes[0].loc!.start.line === nodes[1].loc!.start.line)
-        return false;
+
     return true;
+
+    function* getNodes() {
+        for (const node of nodes) {
+            if (node != null)
+                yield node;
+        }
+    }
 }
 
 export function isFirstNodeOnLine(node: babel.Node | BabelToken, context: Context) {

@@ -126,7 +126,8 @@ describe(nameof(resolveConfiguration), () => {
                 "importDeclaration.semiColon": value,
                 "returnStatement.semiColon": value,
                 "throwStatement.semiColon": value,
-                "typeAlias.semiColon": value
+                "typeAlias.semiColon": value,
+                "variableStatement.semiColon": value
             };
         }
     });
@@ -310,6 +311,7 @@ describe(nameof(resolveConfiguration), () => {
 
         function getObject(value: NonNullable<Configuration["trailingCommas"]>): Partial<ResolvedConfiguration> {
             return {
+                "arrayExpression.trailingCommas": value,
                 "enumDeclaration.trailingCommas": value,
                 "tupleType.trailingCommas": value
             };

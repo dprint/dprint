@@ -67,6 +67,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "returnStatement.semiColon": getValue("returnStatement.semiColon", semiColons, ensureBoolean),
         "throwStatement.semiColon": getValue("throwStatement.semiColon", semiColons, ensureBoolean),
         "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean),
+        "variableStatement.semiColon": getValue("variableStatement.semiColon", semiColons, ensureBoolean),
         // useBraces
         "ifStatement.useBraces": getValue("ifStatement.useBraces", useBraces, ensureBraceUse),
         "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
@@ -83,6 +84,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "ifStatement.nextControlFlowPosition": getValue("ifStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
         "tryStatement.nextControlFlowPosition": getValue("tryStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
         // trailing commas
+        "arrayExpression.trailingCommas": getValue("arrayExpression.trailingCommas", trailingCommas, ensureTrailingCommas),
         "enumDeclaration.trailingCommas": getValue("enumDeclaration.trailingCommas", trailingCommas, ensureTrailingCommas),
         "tupleType.trailingCommas": getValue("tupleType.trailingCommas", trailingCommas, ensureTrailingCommas)
     };

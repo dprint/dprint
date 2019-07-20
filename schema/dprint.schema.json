@@ -145,6 +145,9 @@
         "typeAlias.semiColon": {
             "type": "boolean"
         },
+        "variableStatement.semiColon": {
+            "type": "boolean"
+        },
 
         "ifStatement.useBraces": {
             "$ref": "#/definitions/useBraces"
@@ -185,6 +188,9 @@
             "$ref": "#/definitions/nextControlFlowPosition"
         },
 
+        "arrayExpression.trailingCommas": {
+            "$ref": "#/definitions/trailingCommas"
+        },
         "enumDeclaration.trailingCommas": {
             "$ref": "#/definitions/trailingCommas"
         },

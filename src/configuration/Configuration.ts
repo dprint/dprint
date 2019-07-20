@@ -92,6 +92,7 @@ export interface Configuration {
     "returnStatement.semiColon"?: boolean;
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
+    "variableStatement.semiColon"?: boolean;
     /**
      * If braces should be used or not.
      * @default "maintain"
@@ -203,6 +204,14 @@ export interface Configuration {
      * @value "always" - Trailing commas should always be used.
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
      */
+    "arrayExpression.trailingCommas"?: "never" | "always" | "onlyMultiLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
     "enumDeclaration.trailingCommas"?: "never" | "always" | "onlyMultiLine";
     /**
      * If trailing commas should be used.
@@ -241,6 +250,7 @@ export interface ResolvedConfiguration {
     "returnStatement.semiColon": boolean;
     "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;
+    "variableStatement.semiColon": boolean;
 
     // use braces
     "ifStatement.useBraces": NonNullable<Configuration["useBraces"]>;
@@ -261,6 +271,7 @@ export interface ResolvedConfiguration {
     "tryStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
 
     // trailing commas
+    "arrayExpression.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
     "enumDeclaration.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
     "tupleType.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
 }

@@ -1,0 +1,17 @@
+~~ lineWidth: 40 ~~
+== should format ==
+let a!: string;
+const b = 5;
+const c: number = 5;
+var d = 5, e = 20;
+let f = 2, g = 3, testingTheLimitOut = 4;
+declare const t: string;
+
+[expect]
+let a!: string;
+const b = 5;
+const c: number = 5;
+var d = 5, e = 20;
+let f = 2, g = 3,
+    testingTheLimitOut = 4;
+declare const t: string;

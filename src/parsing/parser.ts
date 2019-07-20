@@ -107,9 +107,12 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ThrowStatement": parseThrowStatement,
     "TryStatement": parseTryStatement,
     "WhileStatement": parseWhileStatement,
+    "VariableDeclaration": parseVariableStatement,
+    "VariableDeclarator": parseVariableDeclarator,
     /* clauses */
     "CatchClause": parseCatchClause,
     /* expressions */
+    "ArrayExpression": parseArrayExpression,
     "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
@@ -297,13 +300,19 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
 }
 
 function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIterator {
+    const parent = context.parent;
+
     yield node.name;
+
     if (node.optional)
         yield "?";
+    if (parent.type === "VariableDeclarator" && parent.definite)
+        yield "!";
+
     if (node.typeAnnotation)
         yield* parseNode(node.typeAnnotation, context);
 
-    if (context.parent.type === "ExportDefaultDeclaration")
+    if (parent.type === "ExportDefaultDeclaration")
         yield ";"; // todo: configuration
 }
 
@@ -436,23 +445,9 @@ function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItem
     if (node.initializer)
         yield* withHangingIndent(parseInitializer(node.initializer));
 
-    const forceTrailingCommas = getForceTrailingCommas(context.config["enumDeclaration.trailingCommas"]);
+    const forceTrailingCommas = getForceTrailingCommas(context.config["enumDeclaration.trailingCommas"], true);
     if (forceTrailingCommas || parentDeclaration.members[parentDeclaration.members.length - 1] !== node)
         yield ",";
-
-    function getForceTrailingCommas(option: NonNullable<Configuration["trailingCommas"]>) {
-        // this is explicit so that this is re-evaluated when the options change
-        switch (option) {
-            case "always":
-            case "onlyMultiLine":
-                return true;
-            case "never":
-                return false;
-            default:
-                const assertNever: never = option;
-                return false;
-        }
-    }
 
     function* parseInitializer(initializer: NonNullable<babel.TSEnumMember["initializer"]>): PrintItemIterator {
         if (initializer.type === "NumericLiteral" || initializer.type === "StringLiteral")
@@ -613,6 +608,38 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
 
     if (context.config["typeAlias.semiColon"])
         yield ";";
+}
+
+function* parseVariableStatement(node: babel.VariableDeclaration, context: Context): PrintItemIterator {
+    // note: babel calls this a declaration, but this is better named a statement (as is done in the ts compiler)
+    if (node.declare)
+        yield "declare ";
+    yield node.kind + " ";
+
+    yield* withHangingIndent(parseDeclarators());
+
+    if (context.config["variableStatement.semiColon"])
+        yield ";";
+
+    function* parseDeclarators() {
+        for (let i = 0; i < node.declarations.length; i++) {
+            if (i > 0) {
+                yield ",";
+                yield Signal.SpaceOrNewLine;
+            }
+
+            yield* parseNode(node.declarations[i], context);
+        }
+    }
+}
+
+function* parseVariableDeclarator(node: babel.VariableDeclarator, context: Context): PrintItemIterator {
+    yield* parseNode(node.id, context);
+
+    if (node.init) {
+        yield " = ";
+        yield* parseNode(node.init, context);
+    }
 }
 
 /* class */
@@ -1145,6 +1172,37 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
 /* expressions */
 
+function* parseArrayExpression(node: babel.ArrayExpression, context: Context): PrintItemIterator {
+    const useNewlines = nodeHelpers.getUseNewlinesForNodes(node.elements);
+    const forceTrailingCommas = getForceTrailingCommas(context.config["arrayExpression.trailingCommas"], useNewlines);
+
+    yield "[";
+
+    if (node.elements.length > 0)
+        yield* withHangingIndent(parseElements());
+
+    yield "]";
+
+    function* parseElements(): PrintItemIterator {
+        if (useNewlines)
+            yield context.newlineKind;
+
+        for (let i = 0; i < node.elements.length; i++) {
+            if (i > 0 && !useNewlines)
+                yield Signal.SpaceOrNewLine;
+
+            const element = node.elements[i];
+            if (element != null)
+                yield* parseNode(element, context);
+
+            if (forceTrailingCommas || i < node.elements.length - 1)
+                yield ",";
+            if (useNewlines)
+                yield context.newlineKind;
+        }
+    }
+}
+
 function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): PrintItemIterator {
     yield "await ";
     yield* parseNode(node.argument, context);
@@ -1300,7 +1358,7 @@ function* parseTSRestType(node: babel.TSRestType, context: Context): PrintItemIt
 
 function* parseTSTupleType(node: babel.TSTupleType, context: Context): PrintItemIterator {
     const useNewlines = nodeHelpers.getUseNewlinesForNodes(node.elementTypes);
-    const forceTrailingCommas = getForceTrailingCommas(context.config["tupleType.trailingCommas"]);
+    const forceTrailingCommas = getForceTrailingCommas(context.config["tupleType.trailingCommas"], useNewlines);
 
     yield "[";
 
@@ -1323,21 +1381,6 @@ function* parseTSTupleType(node: babel.TSTupleType, context: Context): PrintItem
                 yield ",";
             if (useNewlines)
                 yield context.newlineKind;
-        }
-    }
-
-    function getForceTrailingCommas(option: NonNullable<Configuration["trailingCommas"]>) {
-        // this is explicit so that this is re-evaluated when the options change
-        switch (option) {
-            case "always":
-                return true;
-            case "onlyMultiLine":
-                return useNewlines;
-            case "never":
-                return false;
-            default:
-                const assertNever: never = option;
-                return false;
         }
     }
 }
@@ -1780,6 +1823,21 @@ function getFirstOpenBraceToken(node: babel.Node, context: Context) {
 
         return token.type.label === tokenText;
     });
+}
+
+function getForceTrailingCommas(option: NonNullable<Configuration["trailingCommas"]>, useNewlines: boolean) {
+    // this is explicit so that this is re-evaluated when the options change
+    switch (option) {
+        case "always":
+            return true;
+        case "onlyMultiLine":
+            return useNewlines;
+        case "never":
+            return false;
+        default:
+            const assertNever: never = option;
+            return false;
+    }
 }
 
 /* factory functions */
