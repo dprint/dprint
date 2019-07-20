@@ -1215,7 +1215,9 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
+    const useNewLines = nodeHelpers.getUseNewlinesForNodes([node.left, node.right]);
     const wasLastSame = context.parent.type === node.type;
+
     if (wasLastSame)
         yield* parseInner();
     else
@@ -1223,7 +1225,12 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
 
     function* parseInner(): PrintItemIterator {
         yield* parseNode(node.left, context);
-        yield Signal.SpaceOrNewLine;
+
+        if (useNewLines)
+            yield context.newlineKind;
+        else
+            yield Signal.SpaceOrNewLine;
+
         yield node.operator;
         yield " ";
         yield* parseNode(node.right, context);

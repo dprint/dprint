@@ -54,7 +54,7 @@ export function getUseNewlinesForNodes(nodes: (babel.Node | null | undefined)[])
     const firstNode = nonNullNodes.next().value;
     const secondNode = nonNullNodes.next().value;
 
-    if (firstNode == null || secondNode == null || firstNode.loc!.start.line === secondNode.loc!.start.line)
+    if (firstNode == null || secondNode == null || firstNode.loc!.end.line === secondNode.loc!.start.line)
         return false;
 
     return true;
