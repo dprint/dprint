@@ -1,0 +1,5 @@
+== should format ==
+type Test = Test.Other.Other;
+
+[expect]
+type Test = Test.Other.Other;
