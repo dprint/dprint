@@ -122,8 +122,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ConditionalExpression": parseConditionalExpression,
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
-    "TSAsExpression": parseTSAsExpression,
-    "TSTypeAssertion": parseTSTypeAssertion,
+    "TSAsExpression": parseAsExpression,
+    "TSTypeAssertion": parseTypeAssertion,
     "YieldExpression": parseYieldExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
@@ -157,21 +157,21 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSVoidKeyword": () => "void",
     "VoidKeyword": () => "void",
     /* types */
-    "TSArrayType": parseTSArrayType,
-    "TSConditionalType": parseTSConditionalType,
-    "TSFunctionType": parseTSFunctionType,
-    "TSImportType": parseTSImportType,
-    "TSIndexedAccessType": parseTSIndexedAccessType,
-    "TSInferType": parseTSInferType,
+    "TSArrayType": parseArrayType,
+    "TSConditionalType": parseConditionalType,
+    "TSFunctionType": parseFunctionType,
+    "TSImportType": parseImportType,
+    "TSIndexedAccessType": parseIndexedAccessType,
+    "TSInferType": parseInferType,
     "TSIntersectionType": parseUnionOrIntersectionType,
-    "TSLiteralType": parseTSLiteralType,
-    "TSMappedType": parseTSMappedType,
-    "TSOptionalType": parseTSOptionalType,
-    "TSParenthesizedType": parseTSParenthesizedType,
-    "TSQualifiedName": parseTSQualifiedName,
-    "TSRestType": parseTSRestType,
+    "TSLiteralType": parseLiteralType,
+    "TSMappedType": parseMappedType,
+    "TSOptionalType": parseOptionalType,
+    "TSParenthesizedType": parseParenthesizedType,
+    "TSQualifiedName": parseQualifiedName,
+    "TSRestType": parseRestType,
     "TSThisType": () => "this",
-    "TSTupleType": parseTSTupleType,
+    "TSTupleType": parseTupleType,
     "TSTypeAnnotation": parseTypeAnnotation,
     "TSTypeOperator": parseTypeOperator,
     "TSTypeParameter": parseTypeParameter,
@@ -1327,13 +1327,13 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
     }
 }
 
-function* parseTSAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
+function* parseAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
     yield* parseNode(node.expression, context);
     yield " as ";
     yield* parseNode(node.typeAnnotation, context);
 }
 
-function* parseTSTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {
+function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {
     yield "<";
     yield* parseNode(node.typeAnnotation, context);
     yield "> ";
@@ -1436,12 +1436,12 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
 
 /* types */
 
-function* parseTSArrayType(node: babel.TSArrayType, context: Context): PrintItemIterator {
+function* parseArrayType(node: babel.TSArrayType, context: Context): PrintItemIterator {
     yield* parseNode(node.elementType, context);
     yield "[]";
 }
 
-function* parseTSConditionalType(node: babel.TSConditionalType, context: Context): PrintItemIterator {
+function* parseConditionalType(node: babel.TSConditionalType, context: Context): PrintItemIterator {
     const useNewlines = nodeHelpers.getUseNewlinesForNodes([node.checkType, node.falseType]);
     if (context.parent.type === "TSConditionalType")
         yield* innerParse();
@@ -1473,14 +1473,14 @@ function* parseTSConditionalType(node: babel.TSConditionalType, context: Context
     }
 }
 
-function* parseTSFunctionType(node: babel.TSFunctionType, context: Context): PrintItemIterator {
+function* parseFunctionType(node: babel.TSFunctionType, context: Context): PrintItemIterator {
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments(node.parameters, context);
     yield " => ";
     yield* parseNode(node.typeAnnotation, context);
 }
 
-function* parseTSImportType(node: babel.TSImportType, context: Context): PrintItemIterator {
+function* parseImportType(node: babel.TSImportType, context: Context): PrintItemIterator {
     yield "import(";
     yield* parseNode(node.argument, context);
     yield ")";
@@ -1494,23 +1494,23 @@ function* parseTSImportType(node: babel.TSImportType, context: Context): PrintIt
     yield* parseNode(node.typeParameters, context);
 }
 
-function* parseTSIndexedAccessType(node: babel.TSIndexedAccessType, context: Context): PrintItemIterator {
+function* parseIndexedAccessType(node: babel.TSIndexedAccessType, context: Context): PrintItemIterator {
     yield* parseNode(node.objectType, context);
     yield "[";
     yield* parseNode(node.indexType, context);
     yield "]";
 }
 
-function* parseTSInferType(node: babel.TSInferType, context: Context): PrintItemIterator {
+function* parseInferType(node: babel.TSInferType, context: Context): PrintItemIterator {
     yield "infer ";
     yield* parseNode(node.typeParameter, context);
 }
 
-function* parseTSLiteralType(node: babel.TSLiteralType, context: Context): PrintItemIterator {
+function* parseLiteralType(node: babel.TSLiteralType, context: Context): PrintItemIterator {
     yield* parseNode(node.literal, context);
 }
 
-function* parseTSMappedType(node: babel.TSMappedType, context: Context): PrintItemIterator {
+function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItemIterator {
     const useNewLines = nodeHelpers.getUseNewlinesForNodes([getFirstOpenBraceToken(node, context), node.typeParameter]);
     const startInfo = createInfo("startMappedType");
     yield startInfo;
@@ -1553,29 +1553,29 @@ function* parseTSMappedType(node: babel.TSMappedType, context: Context): PrintIt
     }
 }
 
-function* parseTSOptionalType(node: babel.TSOptionalType, context: Context): PrintItemIterator {
+function* parseOptionalType(node: babel.TSOptionalType, context: Context): PrintItemIterator {
     yield* parseNode(node.typeAnnotation, context);
     yield "?";
 }
 
-function* parseTSParenthesizedType(node: babel.TSParenthesizedType, context: Context): PrintItemIterator {
+function* parseParenthesizedType(node: babel.TSParenthesizedType, context: Context): PrintItemIterator {
     yield "(";
     yield* newlineGroup(parseNode(node.typeAnnotation, context));
     yield ")";
 }
 
-function* parseTSQualifiedName(node: babel.TSQualifiedName, context: Context): PrintItemIterator {
+function* parseQualifiedName(node: babel.TSQualifiedName, context: Context): PrintItemIterator {
     yield* parseNode(node.left, context);
     yield ".";
     yield* parseNode(node.right, context);
 }
 
-function* parseTSRestType(node: babel.TSRestType, context: Context): PrintItemIterator {
+function* parseRestType(node: babel.TSRestType, context: Context): PrintItemIterator {
     yield "...";
     yield* parseNode(node.typeAnnotation, context);
 }
 
-function* parseTSTupleType(node: babel.TSTupleType, context: Context): PrintItemIterator {
+function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIterator {
     const useNewlines = nodeHelpers.getUseNewlinesForNodes(node.elementTypes);
     const forceTrailingCommas = getForceTrailingCommas(context.config["tupleType.trailingCommas"], useNewlines);
 
