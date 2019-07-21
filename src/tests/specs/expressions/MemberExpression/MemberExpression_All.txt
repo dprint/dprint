@@ -1,0 +1,7 @@
+== should format ==
+obj.prop.otherProp;
+obj.prop[ "computed"   ];
+
+[expect]
+obj.prop.otherProp;
+obj.prop["computed"];

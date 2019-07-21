@@ -126,6 +126,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ConditionalExpression": parseConditionalExpression,
     "TSExpressionWithTypeArguments": parseExpressionWithTypeArguments,
     "LogicalExpression": parseBinaryOrLogicalExpression,
+    "MemberExpression": parseMemberExpression,
     "NewExpression": parseNewExpression,
     "TSTypeAssertion": parseTypeAssertion,
     "YieldExpression": parseYieldExpression,
@@ -1361,6 +1362,19 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         yield* newlineGroup(parseNode(node.alternate, context));
         yield endInfo;
     }
+}
+
+function* parseMemberExpression(node: babel.MemberExpression, context: Context): PrintItemIterator {
+    yield* parseNode(node.object, context);
+    if (node.computed)
+        yield "[";
+    else
+        yield ".";
+
+    yield* parseNode(node.property, context);
+
+    if (node.computed)
+        yield "]";
 }
 
 function* parseNewExpression(node: babel.NewExpression, context: Context): PrintItemIterator {
