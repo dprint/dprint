@@ -1399,16 +1399,29 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
 }
 
 function* parseMemberExpression(node: babel.MemberExpression, context: Context): PrintItemIterator {
-    yield* parseNode(node.object, context);
-    if (node.computed)
-        yield "[";
+    const useNewline = nodeHelpers.getUseNewlinesForNodes([node.object, node.property]);
+
+    if (context.parent.type !== "MemberExpression")
+        yield* newlineGroup(withHangingIndent(parseInner()));
     else
-        yield ".";
+        yield* newlineGroup(parseInner());
 
-    yield* parseNode(node.property, context);
+    function* parseInner(): PrintItemIterator {
+        yield* parseNode(node.object, context);
 
-    if (node.computed)
-        yield "]";
+        if (useNewline)
+            yield context.newlineKind;
+
+        if (node.computed)
+            yield "[";
+        else
+            yield ".";
+
+        yield* parseNode(node.property, context);
+
+        if (node.computed)
+            yield "]";
+    }
 }
 
 function* parseNewExpression(node: babel.NewExpression, context: Context): PrintItemIterator {

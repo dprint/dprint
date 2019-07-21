@@ -1,7 +1,19 @@
 == should format ==
 obj.prop.otherProp;
 obj.prop[ "computed"   ];
+testing
+    .this
+    .out
+    .a
+    .lot
+    .more;
 
 [expect]
 obj.prop.otherProp;
 obj.prop["computed"];
+testing
+    .this
+    .out
+    .a
+    .lot
+    .more;
