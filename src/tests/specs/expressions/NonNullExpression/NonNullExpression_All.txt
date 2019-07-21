@@ -1,0 +1,5 @@
+== should format ==
+const t = test ! ;
+
+[expect]
+const t = test!;

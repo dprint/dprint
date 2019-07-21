@@ -129,6 +129,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSExternalModuleReference": parseExternalModuleReference,
     "MemberExpression": parseMemberExpression,
     "NewExpression": parseNewExpression,
+    "TSNonNullExpression": parseNonNullExpression,
     "RestElement": parseRestElement,
     "TSTypeAssertion": parseTypeAssertion,
     "YieldExpression": parseYieldExpression,
@@ -1384,6 +1385,11 @@ function* parseNewExpression(node: babel.NewExpression, context: Context): Print
     yield* parseNode(node.callee, context);
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments(node.arguments, context);
+}
+
+function* parseNonNullExpression(node: babel.TSNonNullExpression, context: Context): PrintItemIterator {
+    yield* parseNode(node.expression, context);
+    yield "!";
 }
 
 function* parseRestElement(node: babel.RestElement, context: Context): PrintItemIterator {
