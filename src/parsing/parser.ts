@@ -117,14 +117,15 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "CatchClause": parseCatchClause,
     /* expressions */
     "ArrayExpression": parseArrayExpression,
+    "TSAsExpression": parseAsExpression,
     "AssignmentExpression": parseAssignmentExpression,
     "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
     "ConditionalExpression": parseConditionalExpression,
+    "TSExpressionWithTypeArguments": parseExpressionWithTypeArguments,
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "OptionalCallExpression": parseCallExpression,
-    "TSAsExpression": parseAsExpression,
     "TSTypeAssertion": parseTypeAssertion,
     "YieldExpression": parseYieldExpression,
     /* imports */
@@ -1270,6 +1271,12 @@ function* parseArrayExpression(node: babel.ArrayExpression, context: Context): P
     }
 }
 
+function* parseAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
+    yield* parseNode(node.expression, context);
+    yield " as ";
+    yield* parseNode(node.typeAnnotation, context);
+}
+
 function* parseAssignmentExpression(node: babel.AssignmentExpression, context: Context): PrintItemIterator {
     yield* parseNode(node.left, context);
     yield ` ${node.operator} `;
@@ -1279,6 +1286,11 @@ function* parseAssignmentExpression(node: babel.AssignmentExpression, context: C
 function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): PrintItemIterator {
     yield "await ";
     yield* parseNode(node.argument, context);
+}
+
+function* parseExpressionWithTypeArguments(node: babel.TSExpressionWithTypeArguments, context: Context): PrintItemIterator {
+    yield* parseNode(node.expression, context);
+    yield* parseNode(node.typeParameters, context); // arguments, not parameters
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
@@ -1348,12 +1360,6 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         yield* newlineGroup(parseNode(node.alternate, context));
         yield endInfo;
     }
-}
-
-function* parseAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
-    yield* parseNode(node.expression, context);
-    yield " as ";
-    yield* parseNode(node.typeAnnotation, context);
 }
 
 function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {
