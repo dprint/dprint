@@ -166,6 +166,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSLiteralType": parseTSLiteralType,
     "TSMappedType": parseTSMappedType,
     "TSOptionalType": parseTSOptionalType,
+    "TSParenthesizedType": parseTSParenthesizedType,
     "TSRestType": parseTSRestType,
     "TSThisType": () => "this",
     "TSTupleType": parseTSTupleType,
@@ -1544,6 +1545,12 @@ function* parseTSMappedType(node: babel.TSMappedType, context: Context): PrintIt
 function* parseTSOptionalType(node: babel.TSOptionalType, context: Context): PrintItemIterator {
     yield* parseNode(node.typeAnnotation, context);
     yield "?";
+}
+
+function* parseTSParenthesizedType(node: babel.TSParenthesizedType, context: Context): PrintItemIterator {
+    yield "(";
+    yield* newlineGroup(parseNode(node.typeAnnotation, context));
+    yield ")";
 }
 
 function* parseTSRestType(node: babel.TSRestType, context: Context): PrintItemIterator {
