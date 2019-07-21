@@ -174,6 +174,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSTypeParameter": parseTypeParameter,
     "TSTypeParameterDeclaration": parseTypeParameterDeclaration,
     "TSTypeParameterInstantiation": parseTypeParameterDeclaration,
+    "TSTypePredicate": parseTypePredicate,
     "TSTypeQuery": parseTypeQuery,
     "TSTypeReference": parseTypeReference,
     "TSUnionType": parseUnionOrIntersectionType,
@@ -1606,6 +1607,12 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Pri
         yield " = ";
         yield* parseNode(node.default, context);
     }
+}
+
+function* parseTypePredicate(node: babel.TSTypePredicate, context: Context): PrintItemIterator {
+    yield* parseNode(node.parameterName, context);
+    yield " is ";
+    yield* parseNode(node.typeAnnotation, context);
 }
 
 function* parseTypeQuery(node: babel.TSTypeQuery, context: Context): PrintItemIterator {

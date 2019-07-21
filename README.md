@@ -4,7 +4,7 @@ This library is under construction, but will eventually serve as the formatter f
 
 This is not recommended for use yet.
 
-* [Implemented nodes](implemented-nodes.md) (93/161)
+* [Implemented nodes](implemented-nodes.md) (94/161)
 * [Configuration schema](schema/dprint.schema.json) (more to come...)
 * [API declarations](lib/dprint.d.ts)
 
