@@ -73,6 +73,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean),
         "variableStatement.semiColon": getValue("variableStatement.semiColon", semiColons, ensureBoolean),
         // useBraces
+        "forStatement.useBraces": getValue("forStatement.useBraces", useBraces, ensureBraceUse),
         "ifStatement.useBraces": getValue("ifStatement.useBraces", useBraces, ensureBraceUse),
         "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
         // bracePosition
@@ -80,6 +81,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "classMethod.bracePosition": getValue("classMethod.bracePosition", bracePosition, ensureBracePosition),
         "doWhileStatement.bracePosition": getValue("doWhileStatement.bracePosition", bracePosition, ensureBracePosition),
         "enumDeclaration.bracePosition": getValue("enumDeclaration.bracePosition", bracePosition, ensureBracePosition),
+        "forStatement.bracePosition": getValue("forStatement.bracePosition", bracePosition, ensureBracePosition),
         "functionDeclaration.bracePosition": getValue("functionDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "ifStatement.bracePosition": getValue("ifStatement.bracePosition", bracePosition, ensureBracePosition),
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),

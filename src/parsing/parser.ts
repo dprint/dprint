@@ -104,6 +104,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "EmptyStatement": parseEmptyStatement,
     "TSExportAssignment": parseExportAssignment,
     "ExpressionStatement": parseExpressionStatement,
+    "ForStatement": parseForStatement,
     "IfStatement": parseIfStatement,
     "InterpreterDirective": parseInterpreterDirective,
     "LabeledStatement": parseLabeledStatement,
@@ -132,6 +133,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSNonNullExpression": parseNonNullExpression,
     "RestElement": parseRestElement,
     "TSTypeAssertion": parseTypeAssertion,
+    "UpdateExpression": parseUpdateExpression,
     "YieldExpression": parseYieldExpression,
     /* imports */
     "ImportDefaultSpecifier": parseImportDefaultSpecifier,
@@ -900,6 +902,35 @@ function* parseExpressionStatement(node: babel.ExpressionStatement, context: Con
         yield ";";
 }
 
+function* parseForStatement(node: babel.ForStatement, context: Context): PrintItemIterator {
+    const startHeaderInfo = createInfo("startHeader");
+    const endHeaderInfo = createInfo("endHeader");
+    yield startHeaderInfo;
+    yield "for (";
+    yield* withHangingIndent(parseInnerHeader());
+    yield ")";
+    yield endHeaderInfo;
+
+    yield* parseConditionalBraceBody({
+        context,
+        bodyNode: node.body,
+        useBraces: context.config["forStatement.useBraces"],
+        bracePosition: context.config["forStatement.bracePosition"],
+        requiresBracesCondition: undefined,
+        startHeaderInfo,
+        endHeaderInfo
+    }).iterator;
+
+    function* parseInnerHeader(): PrintItemIterator {
+        yield* parseNode(node.init, context);
+        yield Signal.SpaceOrNewLine;
+        yield* parseNode(node.test, context);
+        yield ";";
+        yield Signal.SpaceOrNewLine;
+        yield* parseNode(node.update, context);
+    }
+}
+
 function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItemIterator {
     const result = parseHeaderWithConditionalBraceBody({
         parseHeader: () => parseHeader(node),
@@ -1403,6 +1434,16 @@ function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): Pri
     yield* parseNode(node.typeAnnotation, context);
     yield "> ";
     yield* parseNode(node.expression, context);
+}
+
+function* parseUpdateExpression(node: babel.UpdateExpression, context: Context): PrintItemIterator {
+    if (node.prefix)
+        yield node.operator;
+
+    yield* parseNode(node.argument, context);
+
+    if (!node.prefix)
+        yield node.operator;
 }
 
 function* parseYieldExpression(node: babel.YieldExpression, context: Context): PrintItemIterator {

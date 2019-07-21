@@ -1,0 +1,11 @@
+== should format ==
+i++;
+++i;
+--i;
+i--;
+
+[expect]
+i++;
+++i;
+--i;
+i--;

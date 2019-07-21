@@ -1,0 +1,26 @@
+~~ lineWidth: 40 ~~
+== should print ==
+for (let i = 0; i < 5; i++) {
+    a;
+    b;
+}
+
+[expect]
+for (let i = 0; i < 5; i++) {
+    a;
+    b;
+}
+
+== should put brace on newline when on multiple lines ==
+for (let testingThisOut = 0; testingThisOut < 5; i++) {
+    a;
+    b;
+}
+
+[expect]
+for (let testingThisOut = 0;
+    testingThisOut < 5; i++)
+{
+    a;
+    b;
+}
