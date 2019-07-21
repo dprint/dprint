@@ -92,14 +92,25 @@ export interface Configuration {
     "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
+    "exportAssignment.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "functionDeclaration.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
+    "importEqualsDeclaration.semiColon"?: boolean;
+    "mappedType.semiColon"?: boolean;
     "returnStatement.semiColon"?: boolean;
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     "variableStatement.semiColon"?: boolean;
+    /**
+     * If braces should be used or not.
+     * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
+     */
+    "forStatement.useBraces"?: "maintain" | "always" | "preferNone";
     /**
      * If braces should be used or not.
      * @default "maintain"
@@ -152,6 +163,15 @@ export interface Configuration {
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
     "enumDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "forStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -269,20 +289,25 @@ export interface ResolvedConfiguration {
     "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;
     "doWhileStatement.semiColon": boolean;
+    "exportAssignment.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
     "functionDeclaration.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
+    "importEqualsDeclaration.semiColon": boolean;
+    "mappedType.semiColon": boolean;
     "returnStatement.semiColon": boolean;
     "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;
     "variableStatement.semiColon": boolean;
+    "forStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "ifStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "whileStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "classDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "classMethod.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "doWhileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "enumDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "forStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "functionDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "tryStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
