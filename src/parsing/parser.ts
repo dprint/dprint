@@ -82,11 +82,12 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ExportNamedDeclaration": parseExportNamedDeclaration,
     "ExportDefaultDeclaration": parseExportDefaultDeclaration,
     "FunctionDeclaration": parseFunctionDeclaration,
+    "TSDeclareFunction": parseFunctionDeclaration,
     "ImportDeclaration": parseImportDeclaration,
     "TSEnumDeclaration": parseEnumDeclaration,
     "TSEnumMember": parseEnumMember,
+    "TSImportEqualsDeclaration": parseImportEqualsDeclaration,
     "TSTypeAliasDeclaration": parseTypeAlias,
-    "TSDeclareFunction": parseFunctionDeclaration,
     /* class */
     "ClassBody": parseClassBody,
     "ClassMethod": parseClassMethod,
@@ -625,6 +626,19 @@ function* parseTypeParameterDeclaration(
             }
         }
     }
+}
+
+function* parseImportEqualsDeclaration(node: babel.TSImportEqualsDeclaration, context: Context): PrintItemIterator {
+    if (node.isExport)
+        yield "export ";
+
+    yield "import ";
+    yield* parseNode(node.id, context);
+    yield " = ";
+    yield* parseNode(node.moduleReference, context);
+
+    if (context.config["importEqualsDeclaration.semiColon"])
+        yield ";"
 }
 
 function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): PrintItemIterator {
