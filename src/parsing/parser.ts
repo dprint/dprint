@@ -163,6 +163,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSInferType": parseTSInferType,
     "TSIntersectionType": parseUnionOrIntersectionType,
     "TSLiteralType": parseTSLiteralType,
+    "TSOptionalType": parseTSOptionalType,
     "TSRestType": parseTSRestType,
     "TSThisType": () => "this",
     "TSTupleType": parseTSTupleType,
@@ -1491,6 +1492,11 @@ function* parseTSInferType(node: babel.TSInferType, context: Context): PrintItem
 
 function* parseTSLiteralType(node: babel.TSLiteralType, context: Context): PrintItemIterator {
     yield* parseNode(node.literal, context);
+}
+
+function* parseTSOptionalType(node: babel.TSOptionalType, context: Context): PrintItemIterator {
+    yield* parseNode(node.typeAnnotation, context);
+    yield "?";
 }
 
 function* parseTSRestType(node: babel.TSRestType, context: Context): PrintItemIterator {
