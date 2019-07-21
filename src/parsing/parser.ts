@@ -121,11 +121,12 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "AssignmentExpression": parseAssignmentExpression,
     "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
+    "LogicalExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
     "OptionalCallExpression": parseCallExpression,
     "ConditionalExpression": parseConditionalExpression,
     "TSExpressionWithTypeArguments": parseExpressionWithTypeArguments,
-    "LogicalExpression": parseBinaryOrLogicalExpression,
+    "TSExternalModuleReference": parseExternalModuleReference,
     "MemberExpression": parseMemberExpression,
     "NewExpression": parseNewExpression,
     "RestElement": parseRestElement,
@@ -1285,11 +1286,6 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
     yield* parseNode(node.argument, context);
 }
 
-function* parseExpressionWithTypeArguments(node: babel.TSExpressionWithTypeArguments, context: Context): PrintItemIterator {
-    yield* parseNode(node.expression, context);
-    yield* parseNode(node.typeParameters, context); // arguments, not parameters
-}
-
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
     const useNewLines = nodeHelpers.getUseNewlinesForNodes([node.left, node.right]);
     const wasLastSame = context.parent.type === node.type;
@@ -1311,6 +1307,17 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         yield " ";
         yield* parseNode(node.right, context);
     }
+}
+
+function* parseExpressionWithTypeArguments(node: babel.TSExpressionWithTypeArguments, context: Context): PrintItemIterator {
+    yield* parseNode(node.expression, context);
+    yield* parseNode(node.typeParameters, context); // arguments, not parameters
+}
+
+function* parseExternalModuleReference(node: babel.TSExternalModuleReference, context: Context): PrintItemIterator {
+    yield "require(";
+    yield* parseNode(node.expression, context);
+    yield ")";
 }
 
 function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExpression, context: Context): PrintItemIterator {

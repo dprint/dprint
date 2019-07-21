@@ -1,0 +1,5 @@
+== should format ==
+import t = require(   "test"   );
+
+[expect]
+import t = require("test");
