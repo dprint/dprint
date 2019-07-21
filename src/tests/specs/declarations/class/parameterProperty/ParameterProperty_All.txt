@@ -1,0 +1,11 @@
+== should format ==
+class Test {
+    constructor(private   p1, readonly   p2, public   readonly   p3) {
+    }
+}
+
+[expect]
+class Test {
+    constructor(private p1, readonly p2, public readonly p3) {
+    }
+}

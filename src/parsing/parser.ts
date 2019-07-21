@@ -93,6 +93,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSDeclareMethod": parseClassMethod,
     "ClassProperty": parseClassProperty,
     "Decorator": parseDecorator,
+    "TSParameterProperty": parseParameterProperty,
     /* statements */
     "BreakStatement": parseBreakStatement,
     "ContinueStatement": parseContinueStatement,
@@ -796,6 +797,15 @@ function* parseClassProperty(node: babel.ClassProperty, context: Context): Print
 function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIterator {
     yield "@";
     yield* withHangingIndent(parseNode(node.expression, context));
+}
+
+function* parseParameterProperty(node: babel.TSParameterProperty, context: Context): PrintItemIterator {
+    if (node.accessibility)
+        yield node.accessibility + " ";
+    if (node.readonly)
+        yield "readonly ";
+
+    yield* parseNode(node.parameter, context);
 }
 
 /* statements */
