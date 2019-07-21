@@ -102,6 +102,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "Directive": parseDirective,
     "DoWhileStatement": parseDoWhileStatement,
     "EmptyStatement": parseEmptyStatement,
+    "TSExportAssignment": parseExportAssignment,
     "ExpressionStatement": parseExpressionStatement,
     "IfStatement": parseIfStatement,
     "InterpreterDirective": parseInterpreterDirective,
@@ -882,6 +883,14 @@ function* parseEmptyStatement(node: babel.EmptyStatement, context: Context): Pri
     // this could possibly return nothing when semi-colons aren't supported,
     // but I'm going to keep this in and let people do this
     yield ";";
+}
+
+function* parseExportAssignment(node: babel.TSExportAssignment, context: Context): PrintItemIterator {
+    yield "export = ";
+    yield* parseNode(node.expression, context);
+
+    if (context.config["exportAssignment.semiColon"])
+        yield ";";
 }
 
 function* parseExpressionStatement(node: babel.ExpressionStatement, context: Context): PrintItemIterator {

@@ -127,6 +127,9 @@
         "doWhileStatement.semiColon": {
             "type": "boolean"
         },
+        "exportAssignment.semiColon": {
+            "type": "boolean"
+        },
         "expressionStatement.semiColon": {
             "type": "boolean"
         },

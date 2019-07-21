@@ -86,6 +86,7 @@ export interface Configuration {
     "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
+    "exportAssignment.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "functionDeclaration.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
@@ -247,6 +248,7 @@ export interface ResolvedConfiguration {
     "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;
     "doWhileStatement.semiColon": boolean;
+    "exportAssignment.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
     "functionDeclaration.semiColon": boolean;
     "ifStatement.semiColon": boolean;

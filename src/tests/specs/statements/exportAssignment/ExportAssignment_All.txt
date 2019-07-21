@@ -1,0 +1,5 @@
+== should format ==
+export  =   5;
+
+[expect]
+export = 5;

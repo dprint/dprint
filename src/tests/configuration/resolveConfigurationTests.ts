@@ -121,6 +121,7 @@ describe(nameof(resolveConfiguration), () => {
                 "debuggerStatement.semiColon": value,
                 "directive.semiColon": value,
                 "doWhileStatement.semiColon": value,
+                "exportAssignment.semiColon": value,
                 "expressionStatement.semiColon": value,
                 "functionDeclaration.semiColon": value,
                 "ifStatement.semiColon": value,
