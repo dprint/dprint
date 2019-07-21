@@ -160,6 +160,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSConditionalType": parseTSConditionalType,
     "TSFunctionType": parseTSFunctionType,
     "TSImportType": parseTSImportType,
+    "TSIndexedAccessType": parseTSIndexedAccessType,
     "TSInferType": parseTSInferType,
     "TSIntersectionType": parseUnionOrIntersectionType,
     "TSLiteralType": parseTSLiteralType,
@@ -1480,6 +1481,13 @@ function* parseTSImportType(node: babel.TSImportType, context: Context): PrintIt
     yield* parseNode(node.typeParameters, context);
 }
 
+function* parseTSIndexedAccessType(node: babel.TSIndexedAccessType, context: Context): PrintItemIterator {
+    yield* parseNode(node.objectType, context);
+    yield "[";
+    yield* parseNode(node.indexType, context);
+    yield "]";
+}
+
 function* parseTSInferType(node: babel.TSInferType, context: Context): PrintItemIterator {
     yield "infer ";
     yield* parseNode(node.typeParameter, context);
@@ -1521,10 +1529,10 @@ function* parseTSMappedType(node: babel.TSMappedType, context: Context): PrintIt
 
         if (node.typeAnnotation) {
             yield ":";
-            yield* withHangingIndent(function*(): PrintItemIterator {
+            yield* newlineGroup(withHangingIndent(function*(): PrintItemIterator {
                 yield Signal.SpaceOrNewLine;
                 yield* parseNode(node.typeAnnotation, context);
-            }());
+            }()));
         }
 
         if (context.config["mappedType.semiColon"])
