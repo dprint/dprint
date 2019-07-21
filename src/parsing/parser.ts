@@ -644,7 +644,7 @@ function* parseImportEqualsDeclaration(node: babel.TSImportEqualsDeclaration, co
     yield* parseNode(node.moduleReference, context);
 
     if (context.config["importEqualsDeclaration.semiColon"])
-        yield ";"
+        yield ";";
 }
 
 function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): PrintItemIterator {
@@ -1574,7 +1574,7 @@ function* parseConditionalType(node: babel.TSConditionalType, context: Context):
         function* parseMainArea(): PrintItemIterator {
             yield* newlineGroup(parseNode(node.checkType, context));
             yield Signal.SpaceOrNewLine;
-            yield "extends "
+            yield "extends ";
             yield* newlineGroup(parseNode(node.extendsType, context));
             yield Signal.SpaceOrNewLine;
             yield "? ";
@@ -1637,7 +1637,7 @@ function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItem
 
     yield* withHangingIndent(parseLayout());
 
-    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo)
+    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo);
     yield "}";
 
     function* parseLayout(): PrintItemIterator {

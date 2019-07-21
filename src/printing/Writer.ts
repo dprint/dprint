@@ -185,8 +185,9 @@ export class Writer {
                 this.lastLineIndentLevel = this.indentLevel;
                 this.fireOnNewLine!(); // expect this to be set
             }
-            else
+            else {
                 this.currentLineColumn++;
+            }
         }
 
         this.state.items.push(text);
