@@ -65,6 +65,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "functionDeclaration.semiColon": getValue("functionDeclaration.semiColon", semiColons, ensureBoolean),
         "ifStatement.semiColon": getValue("ifStatement.semiColon", semiColons, ensureBoolean),
         "importDeclaration.semiColon": getValue("importDeclaration.semiColon", semiColons, ensureBoolean),
+        "mappedType.semiColon": getValue("mappedType.semiColon", semiColons, ensureBoolean),
         "returnStatement.semiColon": getValue("returnStatement.semiColon", semiColons, ensureBoolean),
         "throwStatement.semiColon": getValue("throwStatement.semiColon", semiColons, ensureBoolean),
         "typeAlias.semiColon": getValue("typeAlias.semiColon", semiColons, ensureBoolean),

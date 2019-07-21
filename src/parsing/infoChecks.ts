@@ -1,11 +1,17 @@
-import { Info, ResolveConditionContext } from "../types";
+import { Info, ResolveConditionContext, WriterInfo, PrintItemKind } from "../types";
 
-export function isMultipleLines(startInfo: Info, endInfo: Info, conditionContext: ResolveConditionContext, defaultValue: boolean) {
+export function isMultipleLines(startInfo: Info, endInfo: Info | WriterInfo, conditionContext: ResolveConditionContext, defaultValue: boolean) {
     const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo);
-    const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
+    const resolvedEndInfo = getResolvedEndInfo();
     if (resolvedStartInfo == null || resolvedEndInfo == null)
         return defaultValue;
     return resolvedEndInfo.lineNumber > resolvedStartInfo.lineNumber;
+
+    function getResolvedEndInfo() {
+        if ((endInfo as any as Info).kind === PrintItemKind.Info)
+            return conditionContext.getResolvedInfo(endInfo as Info);
+        return endInfo as WriterInfo;
+    }
 }
 
 export function areInfoEqual(startInfo: Info, endInfo: Info, conditionContext: ResolveConditionContext, defaultValue: boolean) {

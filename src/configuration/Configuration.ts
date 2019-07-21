@@ -90,6 +90,7 @@ export interface Configuration {
     "functionDeclaration.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
+    "mappedType.semiColon"?: boolean;
     "returnStatement.semiColon"?: boolean;
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
@@ -249,6 +250,7 @@ export interface ResolvedConfiguration {
     "functionDeclaration.semiColon": boolean;
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
+    "mappedType.semiColon": boolean;
     "returnStatement.semiColon": boolean;
     "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;

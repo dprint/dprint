@@ -163,6 +163,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSInferType": parseTSInferType,
     "TSIntersectionType": parseUnionOrIntersectionType,
     "TSLiteralType": parseTSLiteralType,
+    "TSMappedType": parseTSMappedType,
     "TSOptionalType": parseTSOptionalType,
     "TSRestType": parseTSRestType,
     "TSThisType": () => "this",
@@ -379,10 +380,7 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
 
         function* parseExtendsAndImplements(): PrintItemIterator {
             if (node.superClass) {
-                const beforeExtendsInfo = createInfo("beforeExtends");
-                yield beforeExtendsInfo;
-
-                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo, beforeExtendsInfo);
+                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
                 yield "extends ";
                 yield* withHangingIndent(function*(): PrintItemIterator {
                     yield* parseNode(node.superClass, context);
@@ -392,10 +390,7 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
             }
 
             if (node.implements && node.implements.length > 0) {
-                const beforeImplementsInfo = createInfo("beforeImplements");
-                yield beforeImplementsInfo;
-
-                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo, beforeImplementsInfo);
+                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
                 yield "implements ";
                 yield* newlineGroup(withHangingIndent(parseImplements()));
             }
@@ -1302,7 +1297,7 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         if (useNewlines)
             yield context.newlineKind;
         else
-            yield conditions.newlineIfHangingSpaceOtherwise(context, startInfo, endInfo, Signal.SpaceOrNewLine);
+            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
 
         yield "? ";
         yield* newlineGroup(parseNode(node.consequent, context));
@@ -1310,7 +1305,7 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         if (useNewlines)
             yield context.newlineKind;
         else
-            yield conditions.newlineIfHangingSpaceOtherwise(context, startInfo, endInfo, Signal.SpaceOrNewLine);
+            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
 
         yield ": ";
         yield* newlineGroup(parseNode(node.alternate, context));
@@ -1494,6 +1489,49 @@ function* parseTSLiteralType(node: babel.TSLiteralType, context: Context): Print
     yield* parseNode(node.literal, context);
 }
 
+function* parseTSMappedType(node: babel.TSMappedType, context: Context): PrintItemIterator {
+    const useNewLines = nodeHelpers.getUseNewlinesForNodes([getFirstOpenBraceToken(node, context), node.typeParameter]);
+    const startInfo = createInfo("startMappedType");
+    yield startInfo;
+    yield "{";
+
+    yield* withHangingIndent(parseLayout());
+
+    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo)
+    yield "}";
+
+    function* parseLayout(): PrintItemIterator {
+        if (useNewLines)
+            yield context.newlineKind;
+        else
+            yield Signal.SpaceOrNewLine;
+
+        yield* newlineGroup(parseBody());
+    }
+
+    function* parseBody(): PrintItemIterator {
+        if (node.readonly)
+            yield "readonly ";
+
+        yield "[";
+        yield* parseNode(node.typeParameter, context);
+        yield "]";
+        if (node.optional)
+            yield "?";
+
+        if (node.typeAnnotation) {
+            yield ":";
+            yield* withHangingIndent(function*(): PrintItemIterator {
+                yield Signal.SpaceOrNewLine;
+                yield* parseNode(node.typeAnnotation, context);
+            }());
+        }
+
+        if (context.config["mappedType.semiColon"])
+            yield ";";
+    }
+}
+
 function* parseTSOptionalType(node: babel.TSOptionalType, context: Context): PrintItemIterator {
     yield* parseNode(node.typeAnnotation, context);
     yield "?";
@@ -1548,7 +1586,11 @@ function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): Pri
     yield node.name!;
 
     if (node.constraint) {
-        yield " extends ";
+        if (context.parent.type === "TSMappedType")
+            yield " in ";
+        else
+            yield " extends ";
+
         yield* parseNode(node.constraint, context);
     }
 

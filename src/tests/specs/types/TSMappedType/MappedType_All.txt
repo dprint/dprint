@@ -1,0 +1,38 @@
+~~ lineWidth: 50 ~~
+== should format ==
+type Partial<T> = { [P   in  keyof   T]  ? :   T[P];    };
+type Flags<T> = { [P in keyof T]: boolean; };
+type ReadOnly<T> = { readonly [P in keyof T]: T[P]; };
+
+[expect]
+type Partial<T> = { [P in keyof T]?: T[P]; };
+type Flags<T> = { [P in keyof T]: boolean; };
+type ReadOnly<T> = {
+    readonly [P in keyof T]: T[P];
+};
+
+== should format with newlines when the brace is on a different line ==
+type Partial<T> = {
+    [P in keyof T]?: T[P]; };
+
+[expect]
+type Partial<T> = {
+    [P in keyof T]?: T[P];
+};
+
+== should format with newlines when the length goes over the line width ==
+type Partial<T> = { [TESTINGTHIS in keyof T]?: T[TESTINGTHIS]; };
+
+[expect]
+type Partial<T> = {
+    [TESTINGTHIS in keyof T]?: T[TESTINGTHIS];
+};
+
+== should format a mapped type with a long type annotation hanging ==
+type Partial<T> = { readonly [TESTINGTHISOUT in keyof T]?: T[TESTINGTHISOUT]; };
+
+[expect]
+type Partial<T> = {
+    readonly [TESTINGTHISOUT in keyof T]?:
+        T[TESTINGTHISOUT];
+};

@@ -49,7 +49,7 @@ export function useNewlinesForParametersOrArguments(params: babel.Node[]) {
     return getUseNewlinesForNodes(params);
 }
 
-export function getUseNewlinesForNodes(nodes: (babel.Node | null | undefined)[]) {
+export function getUseNewlinesForNodes(nodes: (babel.Node | BabelToken | null | undefined)[]) {
     const nonNullNodes = getNodes();
     const firstNode = nonNullNodes.next().value;
     const secondNode = nonNullNodes.next().value;

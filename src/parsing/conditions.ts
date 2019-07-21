@@ -35,11 +35,11 @@ export function newlineIfHangingSpaceOtherwise(context: Context, startInfo: Info
     };
 }
 
-export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: Context, startInfo: Info, endInfo: Info): Condition {
+export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: Context, startInfo: Info, endInfo?: Info): Condition {
     return {
         name: "newlineIfMultipleLinesSpaceOrNewlineOtherwise",
         kind: PrintItemKind.Condition,
-        condition: conditionContext => infoChecks.isMultipleLines(startInfo, endInfo, conditionContext, false),
+        condition: conditionContext => infoChecks.isMultipleLines(startInfo, endInfo || conditionContext.writerInfo, conditionContext, false),
         true: [context.newlineKind],
         false: [Signal.SpaceOrNewLine]
     };
