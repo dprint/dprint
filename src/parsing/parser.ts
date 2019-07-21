@@ -128,6 +128,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "MemberExpression": parseMemberExpression,
     "NewExpression": parseNewExpression,
+    "RestElement": parseRestElement,
     "TSTypeAssertion": parseTypeAssertion,
     "YieldExpression": parseYieldExpression,
     /* imports */
@@ -342,10 +343,7 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
     if (parent.type === "VariableDeclarator" && parent.definite)
         yield "!";
 
-    if (node.typeAnnotation) {
-        yield ": ";
-        yield* parseNode(node.typeAnnotation, context);
-    }
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 
     if (parent.type === "ExportDefaultDeclaration")
         yield ";"; // todo: configuration
@@ -798,10 +796,7 @@ function* parseClassProperty(node: babel.ClassProperty, context: Context): Print
     if (node.definite)
         yield "!";
 
-    if (node.typeAnnotation) {
-        yield ": ";
-        yield* parseNode(node.typeAnnotation, context);
-    }
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 
     if (node.value) {
         yield " = ";
@@ -1384,6 +1379,12 @@ function* parseNewExpression(node: babel.NewExpression, context: Context): Print
     yield* parseParametersOrArguments(node.arguments, context);
 }
 
+function* parseRestElement(node: babel.RestElement, context: Context): PrintItemIterator {
+    yield "...";
+    yield* parseNode(node.argument, context);
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+}
+
 function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {
     yield "<";
     yield* parseNode(node.typeAnnotation, context);
@@ -1591,13 +1592,7 @@ function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItem
         if (node.optional)
             yield "?";
 
-        if (node.typeAnnotation) {
-            yield ":";
-            yield* newlineGroup(withHangingIndent(function*(): PrintItemIterator {
-                yield Signal.SpaceOrNewLine;
-                yield* parseNode(node.typeAnnotation, context);
-            }()));
-        }
+        yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 
         if (context.config["mappedType.semiColon"])
             yield ";";
@@ -2067,6 +2062,17 @@ function* parseControlFlowSeparator(
             return token.value === tokenText;
         });
     }
+}
+
+function* parseTypeAnnotationWithColonIfExists(node: babel.Node | null | undefined, context: Context) {
+    if (node == null)
+        return;
+
+    yield ":";
+    yield* newlineGroup(withHangingIndent(function*(): PrintItemIterator {
+        yield Signal.SpaceOrNewLine;
+        yield* parseNode(node, context);
+    }()));
 }
 
 function* surroundWithNewLines(item: PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {

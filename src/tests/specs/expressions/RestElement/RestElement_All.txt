@@ -1,0 +1,13 @@
+== should format ==
+function test(  ...p : string[]) {
+}
+
+function test2(...p) {
+}
+
+[expect]
+function test(...p: string[]) {
+}
+
+function test2(...p) {
+}
