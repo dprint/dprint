@@ -1,0 +1,7 @@
+== should format ==
+const t = new   Class  (5,   3);
+const u = new Class  < string > ();
+
+[expect]
+const t = new Class(5, 3);
+const u = new Class<string>();

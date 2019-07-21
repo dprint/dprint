@@ -122,10 +122,11 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
+    "OptionalCallExpression": parseCallExpression,
     "ConditionalExpression": parseConditionalExpression,
     "TSExpressionWithTypeArguments": parseExpressionWithTypeArguments,
     "LogicalExpression": parseBinaryOrLogicalExpression,
-    "OptionalCallExpression": parseCallExpression,
+    "NewExpression": parseNewExpression,
     "TSTypeAssertion": parseTypeAssertion,
     "YieldExpression": parseYieldExpression,
     /* imports */
@@ -1360,6 +1361,13 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         yield* newlineGroup(parseNode(node.alternate, context));
         yield endInfo;
     }
+}
+
+function* parseNewExpression(node: babel.NewExpression, context: Context): PrintItemIterator {
+    yield "new ";
+    yield* parseNode(node.callee, context);
+    yield* parseNode(node.typeParameters, context);
+    yield* parseParametersOrArguments(node.arguments, context);
 }
 
 function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {
