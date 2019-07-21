@@ -669,7 +669,7 @@ function* parseVariableStatement(node: babel.VariableDeclaration, context: Conte
 
     yield* withHangingIndent(parseDeclarators());
 
-    if (context.config["variableStatement.semiColon"])
+    if (context.config["variableStatement.semiColon"] || context.parent.type === "ForStatement")
         yield ";";
 
     function* parseDeclarators() {
@@ -923,6 +923,8 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
 
     function* parseInnerHeader(): PrintItemIterator {
         yield* parseNode(node.init, context);
+        if (!node.init || node.init.type !== "VariableDeclaration")
+            yield ";";
         yield Signal.SpaceOrNewLine;
         yield* parseNode(node.test, context);
         yield ";";

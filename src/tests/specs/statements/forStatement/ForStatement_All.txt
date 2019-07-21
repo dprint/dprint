@@ -24,3 +24,19 @@ for (let testingThisOut = 0;
     a;
     b;
 }
+
+== should print when there is no init ==
+for (; i < 5; i++) {
+}
+
+[expect]
+for (; i < 5; i++) {
+}
+
+== should print when the init does not have a variable declaration ==
+for (i = 0; i < 5; i++) {
+}
+
+[expect]
+for (i = 0; i < 5; i++) {
+}
