@@ -203,6 +203,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "PrivateName": parseUnknownNode,
     "PipelineBareFunction": parseUnknownNode,
     "PipelineTopicExpression": parseUnknownNode,
+    "PipelinePrimaryTopicReference": parseUnknownNode,
     "ClassPrivateMethod": parseUnknownNode,
     "ClassPrivateProperty": parseUnknownNode,
     "WithStatement": parseUnknownNode, // not supported
@@ -231,6 +232,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "InferredPredicate": parseNotSupportedFlowNode,
     "InterfaceDeclaration": parseNotSupportedFlowNode,
     "InterfaceExtends": parseNotSupportedFlowNode,
+    "InterfaceTypeAnnotation": parseNotSupportedFlowNode,
     "IntersectionTypeAnnotation": parseNotSupportedFlowNode,
     "MixedTypeAnnotation": parseNotSupportedFlowNode,
     "NullLiteralTypeAnnotation": parseNotSupportedFlowNode,
