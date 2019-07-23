@@ -155,6 +155,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "NullLiteralTypeAnnotaion": () => "null",
     "NumericLiteral": parseNumericLiteral,
     "StringLiteral": parseStringOrDirectiveLiteral,
+    "RegExpLiteral": parseRegExpLiteral,
     /* keywords */
     "Import": () => "import",
     "Super": () => "super",
@@ -1642,6 +1643,13 @@ function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.Directi
     if (context.config.singleQuotes)
         return `'${stringValue.replace(/'/g, `\\'`)}'`;
     return `"${stringValue.replace(/"/g, `\\"`)}"`;
+}
+
+function* parseRegExpLiteral(node: babel.RegExpLiteral, context: Context): PrintItemIterator {
+    yield "/";
+    yield node.pattern;
+    yield "/";
+    yield node.flags;
 }
 
 function parseNotSupportedFlowNode(node: babel.Node, context: Context): Unknown {
