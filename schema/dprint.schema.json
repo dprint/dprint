@@ -161,6 +161,12 @@
             "type": "boolean"
         },
 
+        "forInStatement.useBraces": {
+            "$ref": "#/definitions/useBraces"
+        },
+        "forOfStatement.useBraces": {
+            "$ref": "#/definitions/useBraces"
+        },
         "forStatement.useBraces": {
             "$ref": "#/definitions/useBraces"
         },
@@ -181,6 +187,12 @@
             "$ref": "#/definitions/bracePosition"
         },
         "enumDeclaration.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "forInStatement.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
+        "forOfStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
         "forStatement.bracePosition": {

@@ -213,6 +213,8 @@ describe(nameof(resolveConfiguration), () => {
 
         function getObject(value: NonNullable<Configuration["useBraces"]>): Partial<ResolvedConfiguration> {
             return {
+                "forInStatement.useBraces": value,
+                "forOfStatement.useBraces": value,
                 "forStatement.useBraces": value,
                 "ifStatement.useBraces": value,
                 "whileStatement.useBraces": value
@@ -250,6 +252,8 @@ describe(nameof(resolveConfiguration), () => {
                 "classMethod.bracePosition": value,
                 "doWhileStatement.bracePosition": value,
                 "enumDeclaration.bracePosition": value,
+                "forInStatement.bracePosition": value,
+                "forOfStatement.bracePosition": value,
                 "forStatement.bracePosition": value,
                 "functionDeclaration.bracePosition": value,
                 "ifStatement.bracePosition": value,

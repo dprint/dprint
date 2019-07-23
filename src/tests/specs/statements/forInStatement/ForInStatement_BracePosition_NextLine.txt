@@ -1,0 +1,19 @@
+~~ forInStatement.bracePosition: "nextLine", lineWidth: 40 ~~
+== should use the next line for the brace position ==
+for (const t in test) {
+}
+
+[expect]
+for (const t in test)
+{
+}
+
+== should use the next line for the brace position when hanging ==
+for (const testingThisOut in testingThestasdfasdf) {
+}
+
+[expect]
+for (const testingThisOut
+    in testingThestasdfasdf)
+{
+}

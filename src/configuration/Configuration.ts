@@ -104,6 +104,22 @@ export interface Configuration {
      * @value "always" - Forces the use of braces. Will add them if they aren't used.
      * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
      */
+    "forInStatement.useBraces"?: "maintain" | "always" | "preferNone";
+    /**
+     * If braces should be used or not.
+     * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
+     */
+    "forOfStatement.useBraces"?: "maintain" | "always" | "preferNone";
+    /**
+     * If braces should be used or not.
+     * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
+     */
     "forStatement.useBraces"?: "maintain" | "always" | "preferNone";
     /**
      * If braces should be used or not.
@@ -157,6 +173,24 @@ export interface Configuration {
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
     "enumDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "forInStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "forOfStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -278,6 +312,8 @@ export interface ResolvedConfiguration {
     "variableStatement.semiColon": boolean;
 
     // use braces
+    "forInStatement.useBraces": NonNullable<Configuration["useBraces"]>;
+    "forOfStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "forStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "ifStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "whileStatement.useBraces": NonNullable<Configuration["useBraces"]>;
@@ -287,6 +323,8 @@ export interface ResolvedConfiguration {
     "classMethod.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "doWhileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "enumDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "forInStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "forOfStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "forStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "functionDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;

@@ -104,6 +104,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "EmptyStatement": parseEmptyStatement,
     "TSExportAssignment": parseExportAssignment,
     "ExpressionStatement": parseExpressionStatement,
+    "ForInStatement": parseForInStatement,
+    "ForOfStatement": parseForOfStatement,
     "ForStatement": parseForStatement,
     "IfStatement": parseIfStatement,
     "InterpreterDirective": parseInterpreterDirective,
@@ -112,7 +114,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ThrowStatement": parseThrowStatement,
     "TryStatement": parseTryStatement,
     "WhileStatement": parseWhileStatement,
-    "VariableDeclaration": parseVariableStatement,
+    "VariableDeclaration": parseVariableDeclaration,
     "VariableDeclarator": parseVariableDeclarator,
     /* clauses */
     "CatchClause": parseCatchClause,
@@ -661,15 +663,14 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
         yield ";";
 }
 
-function* parseVariableStatement(node: babel.VariableDeclaration, context: Context): PrintItemIterator {
-    // note: babel calls this a declaration, but this is better named a statement (as is done in the ts compiler)
+function* parseVariableDeclaration(node: babel.VariableDeclaration, context: Context): PrintItemIterator {
     if (node.declare)
         yield "declare ";
     yield node.kind + " ";
 
     yield* withHangingIndent(parseDeclarators());
 
-    if (context.config["variableStatement.semiColon"] || context.parent.type === "ForStatement")
+    if (requiresSemiColon())
         yield ";";
 
     function* parseDeclarators() {
@@ -681,6 +682,13 @@ function* parseVariableStatement(node: babel.VariableDeclaration, context: Conte
 
             yield* parseNode(node.declarations[i], context);
         }
+    }
+
+    function requiresSemiColon() {
+        if (context.parent.type === "ForOfStatement" || context.parent.type === "ForInStatement")
+            return false;
+
+        return context.config["variableStatement.semiColon"] || context.parent.type === "ForStatement";
     }
 }
 
@@ -900,6 +908,64 @@ function* parseExpressionStatement(node: babel.ExpressionStatement, context: Con
 
     if (context.config["expressionStatement.semiColon"])
         yield ";";
+}
+
+function* parseForInStatement(node: babel.ForInStatement, context: Context): PrintItemIterator {
+    const startHeaderInfo = createInfo("startHeader");
+    const endHeaderInfo = createInfo("endHeader");
+    yield startHeaderInfo;
+    yield "for ";
+    yield "(";
+    yield* withHangingIndent(parseInnerHeader());
+    yield ")";
+    yield endHeaderInfo;
+
+    yield* parseConditionalBraceBody({
+        context,
+        bodyNode: node.body,
+        useBraces: context.config["forInStatement.useBraces"],
+        bracePosition: context.config["forInStatement.bracePosition"],
+        requiresBracesCondition: undefined,
+        startHeaderInfo,
+        endHeaderInfo
+    }).iterator;
+
+    function* parseInnerHeader(): PrintItemIterator {
+        yield* parseNode(node.left, context);
+        yield Signal.SpaceOrNewLine;
+        yield "in ";
+        yield* parseNode(node.right, context);
+    }
+}
+
+function* parseForOfStatement(node: babel.ForOfStatement, context: Context): PrintItemIterator {
+    const startHeaderInfo = createInfo("startHeader");
+    const endHeaderInfo = createInfo("endHeader");
+    yield startHeaderInfo;
+    yield "for ";
+    if (node.await)
+        yield "await ";
+    yield "(";
+    yield* withHangingIndent(parseInnerHeader());
+    yield ")";
+    yield endHeaderInfo;
+
+    yield* parseConditionalBraceBody({
+        context,
+        bodyNode: node.body,
+        useBraces: context.config["forOfStatement.useBraces"],
+        bracePosition: context.config["forOfStatement.bracePosition"],
+        requiresBracesCondition: undefined,
+        startHeaderInfo,
+        endHeaderInfo
+    }).iterator;
+
+    function* parseInnerHeader(): PrintItemIterator {
+        yield* parseNode(node.left, context);
+        yield Signal.SpaceOrNewLine;
+        yield "of ";
+        yield* parseNode(node.right, context);
+    }
 }
 
 function* parseForStatement(node: babel.ForStatement, context: Context): PrintItemIterator {

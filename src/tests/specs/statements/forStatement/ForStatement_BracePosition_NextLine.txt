@@ -9,8 +9,7 @@ for (let i = 0; i < 5; i++)
 }
 
 == should use the next line for the brace position when hanging ==
-for (let someLongName = 0; someLongName < 5; i++)
-{
+for (let someLongName = 0; someLongName < 5; i++) {
 }
 
 [expect]

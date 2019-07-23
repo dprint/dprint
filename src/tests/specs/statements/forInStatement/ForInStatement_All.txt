@@ -1,0 +1,26 @@
+~~ lineWidth: 40 ~~
+== should print ==
+for (const t    in   test) {
+    a;
+    b;
+}
+
+[expect]
+for (const t in test) {
+    a;
+    b;
+}
+
+== should put brace on newline when on multiple lines ==
+for (const testingThis in outALittleBit) {
+    a;
+    b;
+}
+
+[expect]
+for (const testingThis
+    in outALittleBit)
+{
+    a;
+    b;
+}
