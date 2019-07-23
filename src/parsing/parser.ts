@@ -134,6 +134,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "NewExpression": parseNewExpression,
     "TSNonNullExpression": parseNonNullExpression,
     "RestElement": parseRestElement,
+    "SpreadElement": parseSpreadElement,
     "TSTypeAssertion": parseTypeAssertion,
     "UpdateExpression": parseUpdateExpression,
     "YieldExpression": parseYieldExpression,
@@ -1508,6 +1509,11 @@ function* parseRestElement(node: babel.RestElement, context: Context): PrintItem
     yield "...";
     yield* parseNode(node.argument, context);
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+}
+
+function* parseSpreadElement(node: babel.SpreadElement, context: Context): PrintItemIterator {
+    yield "...";
+    yield* parseNode(node.argument, context);
 }
 
 function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {

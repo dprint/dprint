@@ -1,0 +1,5 @@
+== should format ==
+const t = { ...obj };
+
+[expect]
+const t = { ...obj };
