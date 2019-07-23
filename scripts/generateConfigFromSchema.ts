@@ -53,7 +53,7 @@ function getDocs(prop: SchemaProperty) {
     if (prop.oneOf != null) {
         for (const value of prop.oneOf) {
             appendNewLine();
-            result += `@value "${value.const}" - ${value.description}`
+            result += `@value "${value.const}" - ${value.description}`;
         }
     }
     return result == null ? undefined : [result];

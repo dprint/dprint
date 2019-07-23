@@ -3,9 +3,8 @@ import { Project } from "ts-morph";
 const readProject = new Project({ tsConfigFilePath: "tsconfig.json" });
 const emitResult = readProject.emitToMemory({ emitOnlyDtsFiles: true });
 
-for (const file of emitResult.getFiles()) {
+for (const file of emitResult.getFiles())
     readProject.createSourceFile(file.filePath, file.text);
-}
 
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project();
