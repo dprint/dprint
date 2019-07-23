@@ -117,6 +117,7 @@ describe(nameof(resolveConfiguration), () => {
                 "breakStatement.semiColon": value,
                 "classMethod.semiColon": value,
                 "classProperty.semiColon": value,
+                "constructSignatureDeclaration.semiColon": value,
                 "continueStatement.semiColon": value,
                 "debuggerStatement.semiColon": value,
                 "directive.semiColon": value,

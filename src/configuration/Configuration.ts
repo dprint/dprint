@@ -82,6 +82,7 @@ export interface Configuration {
     "breakStatement.semiColon"?: boolean;
     "classMethod.semiColon"?: boolean;
     "classProperty.semiColon"?: boolean;
+    "constructSignatureDeclaration.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
@@ -295,6 +296,7 @@ export interface ResolvedConfiguration {
     "breakStatement.semiColon": boolean;
     "classMethod.semiColon": boolean;
     "classProperty.semiColon": boolean;
+    "constructSignatureDeclaration.semiColon": boolean;
     "continueStatement.semiColon": boolean;
     "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;

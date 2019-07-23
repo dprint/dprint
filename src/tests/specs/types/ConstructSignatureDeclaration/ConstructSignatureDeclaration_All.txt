@@ -1,0 +1,17 @@
+~~ lineWidth: 40 ~~
+== should format ==
+type Test = {
+    new(): string;
+    new<T>(param: string): string;
+    new(param: string, otherParam: number): string;
+    new();
+};
+
+[expect]
+type Test = {
+    new(): string;
+    new<T>(param: string): string;
+    new(param: string,
+        otherParam: number): string;
+    new();
+};

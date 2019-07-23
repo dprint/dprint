@@ -1,0 +1,10 @@
+~~ constructSignatureDeclaration.semiColon: false ~~
+== should format ==
+type Test = {
+    new(): string;
+};
+
+[expect]
+type Test = {
+    new(): string
+};

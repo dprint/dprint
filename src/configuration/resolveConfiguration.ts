@@ -57,6 +57,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "breakStatement.semiColon": getValue("breakStatement.semiColon", semiColons, ensureBoolean),
         "classMethod.semiColon": getValue("classMethod.semiColon", semiColons, ensureBoolean),
         "classProperty.semiColon": getValue("classProperty.semiColon", semiColons, ensureBoolean),
+        "constructSignatureDeclaration.semiColon": getValue("constructSignatureDeclaration.semiColon", semiColons, ensureBoolean),
         "continueStatement.semiColon": getValue("continueStatement.semiColon", semiColons, ensureBoolean),
         "debuggerStatement.semiColon": getValue("debuggerStatement.semiColon", semiColons, ensureBoolean),
         "directive.semiColon": getValue("directive.semiColon", semiColons, ensureBoolean),

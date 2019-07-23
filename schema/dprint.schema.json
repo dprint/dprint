@@ -115,6 +115,9 @@
         "classProperty.semiColon": {
             "type": "boolean"
         },
+        "constructSignatureDeclaration.semiColon": {
+            "type": "boolean"
+        },
         "continueStatement.semiColon": {
             "type": "boolean"
         },

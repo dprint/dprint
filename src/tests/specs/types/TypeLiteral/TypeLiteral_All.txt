@@ -1,0 +1,53 @@
+~~ lineWidth: 80 ~~
+== should format when empty ==
+type Test = {
+};
+
+[expect]
+type Test = {};
+
+== should format when a single line ==
+type Test = { prop: string; other: number; };
+
+[expect]
+type Test = { prop: string; other: number; };
+
+== should format when multi-line ==
+type Test = {
+    prop: string;
+    other: number;
+};
+
+[expect]
+type Test = {
+    prop: string;
+    other: number;
+};
+
+== should make multiple lines wrap ==
+type Test = { prop: string; other: number; someReallyReallyReallyLongName: number; };
+
+[expect]
+type Test = { prop: string; other: number;
+    someReallyReallyReallyLongName: number; };
+
+== should respect blank lines in certain places ==
+type Test = {
+
+    prop: string;
+
+    other: number;
+    test(): void;
+
+    prop: string;
+};
+
+[expect]
+type Test = {
+    prop: string;
+
+    other: number;
+    test(): void;
+
+    prop: string;
+};

@@ -1,0 +1,8 @@
+~~ lineWidth: 40 ~~
+== should format ==
+type Test = new() => Date;
+type Test2 = new<T>() => Date;
+
+[expect]
+type Test = new() => Date;
+type Test2 = new<T>() => Date;
