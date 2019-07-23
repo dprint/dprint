@@ -198,14 +198,15 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     /* explicitly not implemented (most are proposals that haven't made it far enough) */
     "ArgumentPlaceholder": parseUnknownNode,
     "BindExpression": parseUnknownNode,
+    "ClassPrivateMethod": parseUnknownNode,
+    "ClassPrivateProperty": parseUnknownNode,
     "DoExpression": parseUnknownNode,
+    "MetaProperty": parseUnknownNode,
     "Noop": parseUnknownNode,
     "PrivateName": parseUnknownNode,
     "PipelineBareFunction": parseUnknownNode,
     "PipelineTopicExpression": parseUnknownNode,
     "PipelinePrimaryTopicReference": parseUnknownNode,
-    "ClassPrivateMethod": parseUnknownNode,
-    "ClassPrivateProperty": parseUnknownNode,
     "WithStatement": parseUnknownNode, // not supported
     /* flow */
     "AnyTypeAnnotation": parseNotSupportedFlowNode,
