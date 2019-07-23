@@ -136,6 +136,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "RestElement": parseRestElement,
     "SpreadElement": parseSpreadElement,
     "TSTypeAssertion": parseTypeAssertion,
+    "UnaryExpression": parseUnaryExpression,
     "UpdateExpression": parseUpdateExpression,
     "YieldExpression": parseYieldExpression,
     /* imports */
@@ -1525,6 +1526,35 @@ function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): Pri
     yield* parseNode(node.typeAnnotation, context);
     yield "> ";
     yield* parseNode(node.expression, context);
+}
+
+function* parseUnaryExpression(node: babel.UnaryExpression, context: Context): PrintItemIterator {
+    const operator = getOperator();
+    if (node.prefix)
+        yield operator;
+
+    yield* parseNode(node.argument, context);
+
+    if (!node.prefix)
+        yield operator;
+
+    function getOperator() {
+        switch (node.operator) {
+            case "void":
+            case "typeof":
+            case "throw":
+            case "delete":
+                return `${node.operator} `;
+            case "!":
+            case "+":
+            case "-":
+            case "~":
+                return node.operator;
+            default:
+                const assertNever: never = node.operator;
+                return node.operator;
+        }
+    }
 }
 
 function* parseUpdateExpression(node: babel.UpdateExpression, context: Context): PrintItemIterator {

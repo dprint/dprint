@@ -1,0 +1,19 @@
+== should format ==
+void    200;
+typeof  "value";
+throw   "testing";
+delete   obj.test;
+! test;
++ 200;
+- 200;
+~ (1 -  2);
+
+[expect]
+void 200;
+typeof "value";
+throw "testing";
+delete obj.test;
+!test;
++200;
+-200;
+~(1 - 2);
