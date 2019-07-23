@@ -32,3 +32,13 @@ for await (const t of test) {
 [expect]
 for await (const t of test) {
 }
+
+== should print a nested variable declaration with semi-colon ==
+for (const t of test) {
+    const u = 5;
+}
+
+[expect]
+for (const t of test) {
+    const u = 5;
+}

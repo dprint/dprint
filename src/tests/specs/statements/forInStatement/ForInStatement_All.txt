@@ -24,3 +24,13 @@ for (const testingThis
     a;
     b;
 }
+
+== should print a nested variable declaration with a semi-colon ==
+for (const t in test) {
+    const u = 5;
+}
+
+[expect]
+for (const t in test) {
+    const u = 5;
+}

@@ -687,7 +687,7 @@ function* parseVariableDeclaration(node: babel.VariableDeclaration, context: Con
 
     function requiresSemiColon() {
         if (context.parent.type === "ForOfStatement" || context.parent.type === "ForInStatement")
-            return false;
+            return context.parent.left !== node;
 
         return context.config["variableStatement.semiColon"] || context.parent.type === "ForStatement";
     }
