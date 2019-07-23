@@ -208,6 +208,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "PipelineBareFunction": parseUnknownNode,
     "PipelineTopicExpression": parseUnknownNode,
     "PipelinePrimaryTopicReference": parseUnknownNode,
+    "Placeholder": parseUnknownNode,
     "SequenceExpression": parseUnknownNode,
     "WithStatement": parseUnknownNode, // not supported
     /* flow */
