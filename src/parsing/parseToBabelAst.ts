@@ -26,6 +26,7 @@ export function parseToBabelAst(fileName: string, code: string) {
         yield "exportDefaultFrom";
         yield "exportNamespaceFrom";
         yield "optionalChaining";
+        yield "dynamicImport";
     }
 
     function isJsx() {

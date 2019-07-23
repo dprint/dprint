@@ -1,0 +1,5 @@
+== should format ==
+const t = import("test");
+
+[expect]
+const t = import("test");
