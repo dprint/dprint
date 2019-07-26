@@ -23,10 +23,11 @@ export function parseToBabelAst(fileName: string, code: string) {
         yield "bigInt";
         yield "classProperties";
         yield "decorators-legacy";
+        yield "dynamicImport";
         yield "exportDefaultFrom";
         yield "exportNamespaceFrom";
+        yield "importMeta";
         yield "optionalChaining";
-        yield "dynamicImport";
     }
 
     function isJsx() {

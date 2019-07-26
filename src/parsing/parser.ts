@@ -87,6 +87,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSEnumDeclaration": parseEnumDeclaration,
     "TSEnumMember": parseEnumMember,
     "TSImportEqualsDeclaration": parseImportEqualsDeclaration,
+    "TSNamespaceExportDeclaration": parseNamespaceExportDeclaration,
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
     "ClassBody": parseClassBody,
@@ -131,6 +132,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSExpressionWithTypeArguments": parseExpressionWithTypeArguments,
     "TSExternalModuleReference": parseExternalModuleReference,
     "MemberExpression": parseMemberExpression,
+    "MetaProperty": parseMetaProperty,
     "NewExpression": parseNewExpression,
     "TSNonNullExpression": parseNonNullExpression,
     "RestElement": parseRestElement,
@@ -152,7 +154,6 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "BooleanLiteral": parseBooleanLiteral,
     "DirectiveLiteral": parseStringOrDirectiveLiteral,
     "NullLiteral": () => "null",
-    "NullLiteralTypeAnnotaion": () => "null",
     "NumericLiteral": parseNumericLiteral,
     "StringLiteral": parseStringOrDirectiveLiteral,
     "RegExpLiteral": parseRegExpLiteral,
@@ -206,8 +207,9 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ClassPrivateMethod": parseUnknownNode,
     "ClassPrivateProperty": parseUnknownNode,
     "DoExpression": parseUnknownNode,
-    "MetaProperty": parseUnknownNode,
     "Noop": parseUnknownNode,
+    "OptionalMemberExpression": parseUnknownNode,
+    "ParenthesizedExpression": parseUnknownNode, // seems this is not used?
     "PrivateName": parseUnknownNode,
     "PipelineBareFunction": parseUnknownNode,
     "PipelineTopicExpression": parseUnknownNode,
@@ -658,6 +660,14 @@ function* parseImportEqualsDeclaration(node: babel.TSImportEqualsDeclaration, co
     yield* parseNode(node.moduleReference, context);
 
     if (context.config["importEqualsDeclaration.semiColon"])
+        yield ";";
+}
+
+function* parseNamespaceExportDeclaration(node: babel.TSNamespaceExportDeclaration, context: Context): PrintItemIterator {
+    yield "export as namespace ";
+    yield* parseNode(node.id, context);
+
+    if (context.config["namespaceExportDeclaration.semiColon"])
         yield ";";
 }
 
@@ -1479,29 +1489,11 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
 }
 
 function* parseMemberExpression(node: babel.MemberExpression, context: Context): PrintItemIterator {
-    const useNewline = nodeHelpers.getUseNewlinesForNodes([node.object, node.property]);
+    yield* parseForMemberLikeExpression(node.object, node.property, node.computed, context);
+}
 
-    if (context.parent.type !== "MemberExpression")
-        yield* newlineGroup(withHangingIndent(parseInner()));
-    else
-        yield* newlineGroup(parseInner());
-
-    function* parseInner(): PrintItemIterator {
-        yield* parseNode(node.object, context);
-
-        if (useNewline)
-            yield context.newlineKind;
-
-        if (node.computed)
-            yield "[";
-        else
-            yield ".";
-
-        yield* parseNode(node.property, context);
-
-        if (node.computed)
-            yield "]";
-    }
+function* parseMetaProperty(node: babel.MetaProperty, context: Context): PrintItemIterator {
+    yield* parseForMemberLikeExpression(node.meta, node.property, false, context);
 }
 
 function* parseNewExpression(node: babel.NewExpression, context: Context): PrintItemIterator {
@@ -2166,6 +2158,32 @@ function* parseDecorators(decorators: babel.Decorator[], context: Context): Prin
     }
 
     yield context.newlineKind;
+}
+
+function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.Node, isComputed: boolean, context: Context): PrintItemIterator {
+    const useNewline = nodeHelpers.getUseNewlinesForNodes([leftNode, rightNode]);
+
+    if (context.parent.type !== "MemberExpression")
+        yield* newlineGroup(withHangingIndent(parseInner()));
+    else
+        yield* newlineGroup(parseInner());
+
+    function* parseInner(): PrintItemIterator {
+        yield* parseNode(leftNode, context);
+
+        if (useNewline)
+            yield context.newlineKind;
+
+        if (isComputed)
+            yield "[";
+        else
+            yield ".";
+
+        yield* parseNode(rightNode, context);
+
+        if (isComputed)
+            yield "]";
+    }
 }
 
 function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {
