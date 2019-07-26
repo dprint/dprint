@@ -1,17 +1,17 @@
 == should format ==
 type T = {
-    p1: string;
-    readonly p2: number;
-    readonly p3: number;
-    [p4]: number;
-    "p5": string;
+    p1   : string;
+    readonly  p2  :  number;
+    [  p3 ]: number;
+    "p4": string;
+    [p5] ?  : number;
 };
 
 [expect]
 type T = {
     p1: string;
     readonly p2: number;
-    readonly p3: number;
-    [p4]: number;
-    "p5": string;
+    [p3]: number;
+    "p4": string;
+    [p5]?: number;
 };

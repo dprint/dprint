@@ -1,0 +1,15 @@
+== should format ==
+type T = {
+    m1 ( ) : number;
+    m2  ? (arg, arg2:  number): number  ;
+    m3 ? <T , U> (  );
+    [ m4  ](): string;
+};
+
+[expect]
+type T = {
+    m1(): number;
+    m2?(arg, arg2: number): number;
+    m3?<T, U>();
+    [m4](): string;
+};

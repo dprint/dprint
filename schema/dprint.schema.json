@@ -151,6 +151,9 @@
         "mappedType.semiColon": {
             "type": "boolean"
         },
+        "methodSignature.semiColon": {
+            "type": "boolean"
+        },
         "namespaceExportDeclaration.semiColon": {
             "type": "boolean"
         },

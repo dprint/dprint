@@ -174,6 +174,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSVoidKeyword": () => "void",
     "VoidKeyword": () => "void",
     /* interface / type element */
+    "TSMethodSignature": parseMethodSignature,
     "TSPropertySignature": parsePropertySignature,
     /* types */
     "TSArrayType": parseArrayType,
@@ -1669,6 +1670,27 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
 }
 
 /* interface / type element */
+
+function* parseMethodSignature(node: babel.TSMethodSignature, context: Context): PrintItemIterator {
+    if (node.computed)
+        yield "[";
+
+    yield* parseNode(node.key, context);
+
+    if (node.computed)
+        yield "]";
+
+    if (node.optional)
+        yield "?";
+
+    yield* parseNode(node.typeParameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
+
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+
+    if (context.config["methodSignature.semiColon"])
+        yield ";";
+}
 
 function* parsePropertySignature(node: babel.TSPropertySignature, context: Context): PrintItemIterator {
     if (node.readonly)
