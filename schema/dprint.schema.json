@@ -154,6 +154,9 @@
         "namespaceExportDeclaration.semiColon": {
             "type": "boolean"
         },
+        "propertySignature.semiColon": {
+            "type": "boolean"
+        },
         "returnStatement.semiColon": {
             "type": "boolean"
         },

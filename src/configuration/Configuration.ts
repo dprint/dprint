@@ -95,6 +95,7 @@ export interface Configuration {
     "importEqualsDeclaration.semiColon"?: boolean;
     "mappedType.semiColon"?: boolean;
     "namespaceExportDeclaration.semiColon"?: boolean;
+    "propertySignature.semiColon"?: boolean;
     "returnStatement.semiColon"?: boolean;
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
@@ -310,6 +311,7 @@ export interface ResolvedConfiguration {
     "importEqualsDeclaration.semiColon": boolean;
     "mappedType.semiColon": boolean;
     "namespaceExportDeclaration.semiColon": boolean;
+    "propertySignature.semiColon": boolean;
     "returnStatement.semiColon": boolean;
     "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;

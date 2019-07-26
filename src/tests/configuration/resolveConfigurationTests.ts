@@ -130,6 +130,7 @@ describe(nameof(resolveConfiguration), () => {
                 "importEqualsDeclaration.semiColon": value,
                 "mappedType.semiColon": value,
                 "namespaceExportDeclaration.semiColon": value,
+                "propertySignature.semiColon": value,
                 "returnStatement.semiColon": value,
                 "throwStatement.semiColon": value,
                 "typeAlias.semiColon": value,

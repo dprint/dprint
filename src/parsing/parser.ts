@@ -173,6 +173,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSUnknownKeyword": () => "unknown",
     "TSVoidKeyword": () => "void",
     "VoidKeyword": () => "void",
+    /* interface / type element */
+    "TSPropertySignature": parsePropertySignature,
     /* types */
     "TSArrayType": parseArrayType,
     "TSConditionalType": parseConditionalType,
@@ -1664,6 +1666,37 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
         kind: PrintItemKind.Unknown,
         text: nodeText
     };
+}
+
+/* interface / type element */
+
+function* parsePropertySignature(node: babel.TSPropertySignature, context: Context): PrintItemIterator {
+    if (node.readonly)
+        yield "readonly ";
+
+    if (node.computed)
+        yield "[";
+
+    yield* parseNode(node.key, context);
+
+    if (node.computed)
+        yield "]";
+
+    if (node.optional)
+        yield "?";
+
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+
+    if (node.initializer) {
+        yield Signal.SpaceOrNewLine;
+        yield* withHangingIndent(function*(): PrintItemIterator {
+            yield "= ";
+            yield* parseNode(node.initializer, context);
+        }());
+    }
+
+    if (context.config["propertySignature.semiColon"])
+        yield ";";
 }
 
 /* types */
