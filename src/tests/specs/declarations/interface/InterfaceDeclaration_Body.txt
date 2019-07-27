@@ -1,0 +1,39 @@
+== should print members ==
+interface Test {
+    // other
+    prop: string;
+
+    /** testing */
+    method(): void;
+
+    otherProp: string;
+    // other
+}
+
+[expect]
+interface Test {
+    // other
+    prop: string;
+
+    /** testing */
+    method(): void;
+
+    otherProp: string;
+    // other
+}
+
+== should inner comments ==
+interface Test {
+    // testing
+
+    /* testing */ // 1
+    // test
+}
+
+[expect]
+interface Test {
+    // testing
+
+    /* testing */ // 1
+    // test
+}

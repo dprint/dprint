@@ -216,6 +216,9 @@
         "ifStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
+        "interfaceDeclaration.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "tryStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },

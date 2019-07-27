@@ -261,6 +261,7 @@ describe(nameof(resolveConfiguration), () => {
                 "forStatement.bracePosition": value,
                 "functionDeclaration.bracePosition": value,
                 "ifStatement.bracePosition": value,
+                "interfaceDeclaration.bracePosition": value,
                 "tryStatement.bracePosition": value,
                 "whileStatement.bracePosition": value
             };

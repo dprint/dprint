@@ -26,6 +26,7 @@ class Bag {
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
     ClassDeclarationStartHeaderInfo: "classDeclarationStartHeaderInfo",
+    InterfaceDeclarationStartHeaderInfo: "interfaceDeclarationStartHeaderInfo",
     EnumDeclarationNode: "enumDeclarationNode"
 } as const;
 
@@ -83,10 +84,11 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ExportDefaultDeclaration": parseExportDefaultDeclaration,
     "FunctionDeclaration": parseFunctionDeclaration,
     "TSDeclareFunction": parseFunctionDeclaration,
-    "ImportDeclaration": parseImportDeclaration,
     "TSEnumDeclaration": parseEnumDeclaration,
     "TSEnumMember": parseEnumMember,
+    "ImportDeclaration": parseImportDeclaration,
     "TSImportEqualsDeclaration": parseImportEqualsDeclaration,
+    "TSInterfaceDeclaration": parseInterfaceDeclaration,
     "TSNamespaceExportDeclaration": parseNamespaceExportDeclaration,
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
@@ -174,6 +176,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSVoidKeyword": () => "void",
     "VoidKeyword": () => "void",
     /* interface / type element */
+    "TSInterfaceBody": parseInterfaceBody,
     "TSMethodSignature": parseMethodSignature,
     "TSPropertySignature": parsePropertySignature,
     /* types */
@@ -420,24 +423,12 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
                 }());
             }
 
-            if (node.implements && node.implements.length > 0) {
-                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
-                yield "implements ";
-                yield* newlineGroup(withHangingIndent(parseImplements()));
-            }
-        }
-    }
-
-    function* parseImplements(): PrintItemIterator {
-        if (node.implements == null)
-            return;
-
-        for (let i = 0; i < node.implements.length; i++) {
-            if (i > 0) {
-                yield ",";
-                yield Signal.SpaceOrNewLine;
-            }
-            yield* parseNode(node.implements[i], context);
+            yield* parseExtendsOrImplements({
+                text: "implements",
+                items: node.implements,
+                context,
+                startHeaderInfo
+            });
         }
     }
 }
@@ -619,6 +610,64 @@ function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context
         yield ";";
 }
 
+function* parseImportEqualsDeclaration(node: babel.TSImportEqualsDeclaration, context: Context): PrintItemIterator {
+    if (node.isExport)
+        yield "export ";
+
+    yield "import ";
+    yield* parseNode(node.id, context);
+    yield " = ";
+    yield* parseNode(node.moduleReference, context);
+
+    if (context.config["importEqualsDeclaration.semiColon"])
+        yield ";";
+}
+
+function* parseInterfaceDeclaration(node: babel.TSInterfaceDeclaration, context: Context): PrintItemIterator {
+    const startHeaderInfo = createInfo("startHeader");
+    yield startHeaderInfo;
+
+    context.bag.put(BAG_KEYS.InterfaceDeclarationStartHeaderInfo, startHeaderInfo);
+
+    if (node.declare)
+        yield "declare ";
+
+    yield "interface ";
+    yield* parseNode(node.id, context);
+    yield* parseNode(node.typeParameters, context);
+
+    yield* withHangingIndent(parseExtendsOrImplements({
+        text: "extends",
+        items: node.extends,
+        context,
+        startHeaderInfo
+    }));
+
+    yield* parseNode(node.body, context);
+}
+
+function* parseNamespaceExportDeclaration(node: babel.TSNamespaceExportDeclaration, context: Context): PrintItemIterator {
+    yield "export as namespace ";
+    yield* parseNode(node.id, context);
+
+    if (context.config["namespaceExportDeclaration.semiColon"])
+        yield ";";
+}
+
+function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): PrintItemIterator {
+    if (node.declare)
+        yield "declare ";
+    yield "type ";
+    yield* parseNode(node.id, context);
+    if (node.typeParameters)
+        yield* parseNode(node.typeParameters, context);
+    yield " = ";
+    yield* newlineGroup(parseNode(node.typeAnnotation, context));
+
+    if (context.config["typeAlias.semiColon"])
+        yield ";";
+}
+
 function* parseTypeParameterDeclaration(
     declaration: babel.TSTypeParameterDeclaration | babel.TSTypeParameterInstantiation | babel.TypeParameterInstantiation,
     context: Context
@@ -651,41 +700,6 @@ function* parseTypeParameterDeclaration(
             }
         }
     }
-}
-
-function* parseImportEqualsDeclaration(node: babel.TSImportEqualsDeclaration, context: Context): PrintItemIterator {
-    if (node.isExport)
-        yield "export ";
-
-    yield "import ";
-    yield* parseNode(node.id, context);
-    yield " = ";
-    yield* parseNode(node.moduleReference, context);
-
-    if (context.config["importEqualsDeclaration.semiColon"])
-        yield ";";
-}
-
-function* parseNamespaceExportDeclaration(node: babel.TSNamespaceExportDeclaration, context: Context): PrintItemIterator {
-    yield "export as namespace ";
-    yield* parseNode(node.id, context);
-
-    if (context.config["namespaceExportDeclaration.semiColon"])
-        yield ";";
-}
-
-function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): PrintItemIterator {
-    if (node.declare)
-        yield "declare ";
-    yield "type ";
-    yield* parseNode(node.id, context);
-    if (node.typeParameters)
-        yield* parseNode(node.typeParameters, context);
-    yield " = ";
-    yield* newlineGroup(parseNode(node.typeAnnotation, context));
-
-    if (context.config["typeAlias.semiColon"])
-        yield ";";
 }
 
 function* parseVariableDeclaration(node: babel.VariableDeclaration, context: Context): PrintItemIterator {
@@ -1671,6 +1685,21 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
 
 /* interface / type element */
 
+function parseInterfaceBody(node: babel.TSInterfaceBody, context: Context): PrintItemIterator {
+    const startHeaderInfo = context.bag.take(BAG_KEYS.InterfaceDeclarationStartHeaderInfo) as Info | undefined;
+
+    return parseMemberedBody({
+        bracePosition: context.config["interfaceDeclaration.bracePosition"],
+        context,
+        members: node.body,
+        node,
+        startHeaderInfo,
+        shouldUseBlankLine: (previousMember, nextMember) => {
+            return nodeHelpers.hasSeparatingBlankLine(previousMember, nextMember);
+        }
+    });
+}
+
 function* parseMethodSignature(node: babel.TSMethodSignature, context: Context): PrintItemIterator {
     if (node.computed)
         yield "[";
@@ -2239,6 +2268,31 @@ function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.No
         if (isComputed)
             yield "]";
     }
+}
+
+interface ParseExtendsOrImplementsOptions {
+    text: "extends" | "implements";
+    items: babel.Node[] | null | undefined;
+    startHeaderInfo: Info;
+    context: Context;
+}
+
+function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
+    const { text, items, context, startHeaderInfo } = opts;
+    if (!items || items.length === 0)
+        return;
+
+    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
+    yield `${text} `;
+    yield* newlineGroup(withHangingIndent(function*(): PrintItemIterator {
+        for (let i = 0; i < items.length; i++) {
+            if (i > 0) {
+                yield ",";
+                yield Signal.SpaceOrNewLine;
+            }
+            yield* parseNode(items[i], context);
+        }
+    }()));
 }
 
 function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {
