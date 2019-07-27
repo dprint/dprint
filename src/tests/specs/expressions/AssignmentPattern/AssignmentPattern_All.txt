@@ -1,0 +1,5 @@
+== should format ==
+[a=5] = 0;
+
+[expect]
+[a=5] = 0;

@@ -13,3 +13,9 @@ function t([  a   ,   b  ]: [string   , number]) {
 [expect]
 function t([a, b]: [string, number]) {
 }
+
+== should allow empty elements ==
+[a, , b] = 0;
+
+[expect]
+[a, , b] = 0;

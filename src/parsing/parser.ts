@@ -139,6 +139,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ArrowFunctionExpression": parseArrowFunctionExpression,
     "TSAsExpression": parseAsExpression,
     "AssignmentExpression": parseAssignmentExpression,
+    "AssignmentPattern": parseAssignmentPattern,
     "AwaitExpression": parseAwaitExpression,
     "BinaryExpression": parseBinaryOrLogicalExpression,
     "LogicalExpression": parseBinaryOrLogicalExpression,
@@ -1630,6 +1631,11 @@ function* parseAssignmentExpression(node: babel.AssignmentExpression, context: C
     yield ` ${node.operator} `;
     yield* parseNode(node.right, context);
 }
+function* parseAssignmentPattern(node: babel.AssignmentPattern, context: Context): PrintItemIterator {
+    yield* parseNode(node.left, context);
+    yield "=";
+    yield* parseNode(node.right, context);
+}
 
 function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): PrintItemIterator {
     yield "await ";
@@ -2357,7 +2363,12 @@ function* parseDecoratorsIfClass(declaration: babel.Node | undefined | null, con
     yield* parseDecorators(declaration, context);
 }
 
-function* parseDecorators(node: babel.Node & { decorators: babel.Decorator[] | null; }, context: Context): PrintItemIterator {
+function* parseDecorators(
+    // explicitly type each member because the not smart code analysis will falsely pick up stuff
+    // if using an intersection type here (ex. Node & { decorators: ...etc... })
+    node: babel.ClassDeclaration | babel.ClassExpression | babel.ClassProperty | babel.ClassMethod | babel.TSDeclareMethod,
+    context: Context
+): PrintItemIterator {
     const decorators = node.decorators;
     if (decorators == null || decorators.length === 0)
         return;
