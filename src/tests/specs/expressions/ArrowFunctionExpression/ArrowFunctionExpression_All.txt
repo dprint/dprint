@@ -1,0 +1,22 @@
+~~ lineWidth: 60 ~~
+== should format a single line statement ==
+const t = ()   =>   7;
+
+[expect]
+const t = () => 7;
+
+== should format with everything ==
+const t = async <T, U>(p, u): string =>
+{
+};
+
+[expect]
+const t = async <T, U>(p, u): string => {
+};
+
+== should support multiple line expressions ==
+const t = () => true || false || true || false || true || false;
+
+[expect]
+const t = () => true || false || true || false || true
+    || false;

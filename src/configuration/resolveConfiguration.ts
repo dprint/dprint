@@ -85,6 +85,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "ifStatement.useBraces": getValue("ifStatement.useBraces", useBraces, ensureBraceUse),
         "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
         // bracePosition
+        "arrowFunctionExpression.bracePosition": getValue("arrowFunctionExpression.bracePosition", bracePosition, ensureBracePosition),
         "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "classExpression.bracePosition": getValue("classExpression.bracePosition", bracePosition, ensureBracePosition),
         "classMethod.bracePosition": getValue("classMethod.bracePosition", bracePosition, ensureBracePosition),

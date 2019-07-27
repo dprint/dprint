@@ -1,0 +1,38 @@
+~~ arrowFunctionExpression.bracePosition: "maintain", lineWidth: 30 ~~
+== should maintain the position for the brace position when on same line ==
+const t = () => {
+};
+
+[expect]
+const t = () => {
+};
+
+== should maintain the position for the brace position when on a new line ==
+const t = () =>
+{
+};
+
+[expect]
+const t = () =>
+{
+};
+
+== should maintain the position for the brace position when hanging and on the same line ==
+const t = (param, otherParamst) => {
+};
+
+[expect]
+const t = (param,
+    otherParamst) => {
+};
+
+== should maintain the position for the brace position when hanging and on the next line ==
+const t = (param, otherParamst) =>
+{
+};
+
+[expect]
+const t = (param,
+    otherParamst) =>
+{
+};

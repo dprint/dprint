@@ -1,0 +1,29 @@
+== should keep parameters on multiple lines on multiple lines ==
+const t = (
+    p1,
+    p2
+) =>
+{
+}
+
+[expect]
+const t = (
+    p1,
+    p2
+) => {
+};
+
+== should fix the first parameter to be on the next line ==
+const t = (p1,
+    p2,
+    p3) =>
+{
+}
+
+[expect]
+const t = (
+    p1,
+    p2,
+    p3
+) => {
+};

@@ -136,6 +136,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     /* expressions */
     "ArrayPattern": parseArrayPattern,
     "ArrayExpression": parseArrayExpression,
+    "ArrowFunctionExpression": parseArrowFunctionExpression,
     "TSAsExpression": parseAsExpression,
     "AssignmentExpression": parseAssignmentExpression,
     "AwaitExpression": parseAwaitExpression,
@@ -1588,6 +1589,34 @@ function* parseArrayExpression(node: babel.ArrayExpression, context: Context): P
         trailingCommas: context.config["arrayExpression.trailingCommas"],
         context
     });
+}
+
+function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, context: Context): PrintItemIterator {
+    const headerStartInfo = createInfo("functionExpressionHeaderStart");
+    yield headerStartInfo;
+
+    if (node.async)
+        yield "async ";
+
+    yield* parseNode(node.typeParameters, context);
+
+    yield* parseParametersOrArguments(node.params, context);
+
+    if (node.returnType) {
+        yield ": ";
+        yield* parseNode(node.returnType, context);
+    }
+
+    yield " =>";
+
+    yield* parseBraceSeparator({
+        bracePosition: context.config["arrowFunctionExpression.bracePosition"],
+        bodyNode: node.body,
+        startHeaderInfo: headerStartInfo,
+        context
+    });
+
+    yield* parseNode(node.body, context);
 }
 
 function* parseAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {

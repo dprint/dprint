@@ -195,6 +195,9 @@
             "$ref": "#/definitions/useBraces"
         },
 
+        "arrowFunctionExpression.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "classDeclaration.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
