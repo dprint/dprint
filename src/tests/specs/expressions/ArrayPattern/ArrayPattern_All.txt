@@ -1,0 +1,15 @@
+== should format ==
+function t([  a   ,   b  ]) {
+}
+
+[expect]
+function t([a, b]) {
+}
+
+== should format with a type annotation ==
+function t([  a   ,   b  ]: [string   , number]) {
+}
+
+[expect]
+function t([a, b]: [string, number]) {
+}

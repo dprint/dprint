@@ -291,6 +291,14 @@ export interface Configuration {
      * @value "always" - Trailing commas should always be used.
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
      */
+    "arrayPattern.trailingCommas"?: "never" | "always" | "onlyMultiLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
     "enumDeclaration.trailingCommas"?: "never" | "always" | "onlyMultiLine";
     /**
      * If trailing commas should be used.
@@ -369,6 +377,7 @@ export interface ResolvedConfiguration {
 
     // trailing commas
     "arrayExpression.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
+    "arrayPattern.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
     "enumDeclaration.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
     "tupleType.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
 }

@@ -186,6 +186,10 @@ export class Writer {
                 this.fireOnNewLine!(); // expect this to be set
             }
             else {
+                // update the indent level again if on the first line
+                if (this.currentLineColumn === 0)
+                    this.lastLineIndentLevel = this.indentLevel;
+
                 this.currentLineColumn++;
             }
         }

@@ -245,6 +245,9 @@
         "arrayExpression.trailingCommas": {
             "$ref": "#/definitions/trailingCommas"
         },
+        "arrayPattern.trailingCommas": {
+            "$ref": "#/definitions/trailingCommas"
+        },
         "enumDeclaration.trailingCommas": {
             "$ref": "#/definitions/trailingCommas"
         },
