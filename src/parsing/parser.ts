@@ -26,8 +26,9 @@ class Bag {
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
     ClassDeclarationStartHeaderInfo: "classDeclarationStartHeaderInfo",
+    EnumDeclarationNode: "enumDeclarationNode",
     InterfaceDeclarationStartHeaderInfo: "interfaceDeclarationStartHeaderInfo",
-    EnumDeclarationNode: "enumDeclarationNode"
+    ModuleDeclarationStartHeaderInfo: "moduleDeclarationStartHeaderInfo"
 } as const;
 
 export interface Context {
@@ -89,6 +90,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ImportDeclaration": parseImportDeclaration,
     "TSImportEqualsDeclaration": parseImportEqualsDeclaration,
     "TSInterfaceDeclaration": parseInterfaceDeclaration,
+    "TSModuleDeclaration": parseModuleDeclaration,
     "TSNamespaceExportDeclaration": parseNamespaceExportDeclaration,
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
@@ -98,6 +100,15 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ClassProperty": parseClassProperty,
     "Decorator": parseDecorator,
     "TSParameterProperty": parseParameterProperty,
+    /* interface / type element */
+    "TSCallSignatureDeclaration": parseCallSignatureDeclaration,
+    "TSConstructSignatureDeclaration": parseConstructSignatureDeclaration,
+    "TSIndexSignature": parseIndexSignature,
+    "TSInterfaceBody": parseInterfaceBody,
+    "TSMethodSignature": parseMethodSignature,
+    "TSPropertySignature": parsePropertySignature,
+    /* module */
+    "TSModuleBlock": parseModuleBlock,
     /* statements */
     "BreakStatement": parseBreakStatement,
     "ContinueStatement": parseContinueStatement,
@@ -175,13 +186,6 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "TSUnknownKeyword": () => "unknown",
     "TSVoidKeyword": () => "void",
     "VoidKeyword": () => "void",
-    /* interface / type element */
-    "TSCallSignatureDeclaration": parseCallSignatureDeclaration,
-    "TSConstructSignatureDeclaration": parseConstructSignatureDeclaration,
-    "TSIndexSignature": parseIndexSignature,
-    "TSInterfaceBody": parseInterfaceBody,
-    "TSMethodSignature": parseMethodSignature,
-    "TSPropertySignature": parsePropertySignature,
     /* types */
     "TSArrayType": parseArrayType,
     "TSConditionalType": parseConditionalType,
@@ -648,6 +652,51 @@ function* parseInterfaceDeclaration(node: babel.TSInterfaceDeclaration, context:
     yield* parseNode(node.body, context);
 }
 
+function* parseModuleDeclaration(node: babel.TSModuleDeclaration, context: Context): PrintItemIterator {
+    // doing namespace Name1.Name2 {} is actually two nested module declarations
+    if (context.parent.type !== "TSModuleDeclaration") {
+        const startHeaderInfo = createInfo("startHeader");
+        yield startHeaderInfo;
+
+        context.bag.put(BAG_KEYS.ModuleDeclarationStartHeaderInfo, startHeaderInfo);
+
+        if (node.declare)
+            yield "declare ";
+
+        if (node.global) {
+            yield "global";
+            if (node.id != null)
+                yield " ";
+        }
+        else {
+            if (hasNamespaceKeyword())
+                yield "namespace ";
+            else
+                yield "module ";
+        }
+    }
+    else {
+        yield ".";
+    }
+
+    yield* parseNode(node.id, context);
+    yield* parseNode(node.body, context);
+
+    function hasNamespaceKeyword() {
+        const keyword = nodeHelpers.getFirstToken(context.file, token => {
+            if (token.start < node.start!)
+                return false;
+            if (token.start > node.end!)
+                return "stop";
+            if (token.value && (token.value === "namespace" || token.value === "module"))
+                return true;
+            return false;
+        });
+
+        return keyword == null || keyword.value === "namespace";
+    }
+}
+
 function* parseNamespaceExportDeclaration(node: babel.TSNamespaceExportDeclaration, context: Context): PrintItemIterator {
     yield "export as namespace ";
     yield* parseNode(node.id, context);
@@ -872,6 +921,122 @@ function* parseParameterProperty(node: babel.TSParameterProperty, context: Conte
         yield "readonly ";
 
     yield* parseNode(node.parameter, context);
+}
+
+/* interface / type element */
+
+function* parseCallSignatureDeclaration(node: babel.TSCallSignatureDeclaration, context: Context): PrintItemIterator {
+    yield* parseNode(node.typeParameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+
+    if (context.config["callSignature.semiColon"])
+        yield ";";
+}
+
+function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDeclaration, context: Context): PrintItemIterator {
+    yield "new";
+    yield* parseNode(node.typeParameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+
+    if (context.config["constructSignature.semiColon"])
+        yield ";";
+}
+
+function* parseIndexSignature(node: babel.TSIndexSignature, context: Context): PrintItemIterator {
+    if (node.readonly)
+        yield "readonly ";
+
+    yield "[";
+    yield* parseNode(node.parameters[0], context);
+    yield "]";
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+
+    if (context.config["indexSignature.semiColon"])
+        yield ";";
+}
+
+function parseInterfaceBody(node: babel.TSInterfaceBody, context: Context): PrintItemIterator {
+    const startHeaderInfo = context.bag.take(BAG_KEYS.InterfaceDeclarationStartHeaderInfo) as Info | undefined;
+
+    return parseMemberedBody({
+        bracePosition: context.config["interfaceDeclaration.bracePosition"],
+        context,
+        members: node.body,
+        node,
+        startHeaderInfo,
+        shouldUseBlankLine: (previousMember, nextMember) => {
+            return nodeHelpers.hasSeparatingBlankLine(previousMember, nextMember);
+        }
+    });
+}
+
+function* parseMethodSignature(node: babel.TSMethodSignature, context: Context): PrintItemIterator {
+    if (node.computed)
+        yield "[";
+
+    yield* parseNode(node.key, context);
+
+    if (node.computed)
+        yield "]";
+
+    if (node.optional)
+        yield "?";
+
+    yield* parseNode(node.typeParameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
+
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+
+    if (context.config["methodSignature.semiColon"])
+        yield ";";
+}
+
+function* parsePropertySignature(node: babel.TSPropertySignature, context: Context): PrintItemIterator {
+    if (node.readonly)
+        yield "readonly ";
+
+    if (node.computed)
+        yield "[";
+
+    yield* parseNode(node.key, context);
+
+    if (node.computed)
+        yield "]";
+
+    if (node.optional)
+        yield "?";
+
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+
+    if (node.initializer) {
+        yield Signal.SpaceOrNewLine;
+        yield* withHangingIndent(function*(): PrintItemIterator {
+            yield "= ";
+            yield* parseNode(node.initializer, context);
+        }());
+    }
+
+    if (context.config["propertySignature.semiColon"])
+        yield ";";
+}
+
+/* module */
+
+function parseModuleBlock(node: babel.TSModuleBlock, context: Context): PrintItemIterator {
+    const startHeaderInfo = context.bag.take(BAG_KEYS.ModuleDeclarationStartHeaderInfo) as Info | undefined;
+
+    return parseMemberedBody({
+        bracePosition: context.config["moduleDeclaration.bracePosition"],
+        context,
+        members: node.body,
+        node,
+        startHeaderInfo,
+        shouldUseBlankLine: (previousMember, nextMember) => {
+            return nodeHelpers.hasSeparatingBlankLine(previousMember, nextMember);
+        }
+    });
 }
 
 /* statements */
@@ -1683,105 +1848,6 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
         kind: PrintItemKind.Unknown,
         text: nodeText
     };
-}
-
-/* interface / type element */
-
-function* parseCallSignatureDeclaration(node: babel.TSCallSignatureDeclaration, context: Context): PrintItemIterator {
-    yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
-
-    if (context.config["callSignature.semiColon"])
-        yield ";";
-}
-
-function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDeclaration, context: Context): PrintItemIterator {
-    yield "new";
-    yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
-
-    if (context.config["constructSignature.semiColon"])
-        yield ";";
-}
-
-function* parseIndexSignature(node: babel.TSIndexSignature, context: Context): PrintItemIterator {
-    if (node.readonly)
-        yield "readonly ";
-
-    yield "[";
-    yield* parseNode(node.parameters[0], context);
-    yield "]";
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
-
-    if (context.config["indexSignature.semiColon"])
-        yield ";";
-}
-
-function parseInterfaceBody(node: babel.TSInterfaceBody, context: Context): PrintItemIterator {
-    const startHeaderInfo = context.bag.take(BAG_KEYS.InterfaceDeclarationStartHeaderInfo) as Info | undefined;
-
-    return parseMemberedBody({
-        bracePosition: context.config["interfaceDeclaration.bracePosition"],
-        context,
-        members: node.body,
-        node,
-        startHeaderInfo,
-        shouldUseBlankLine: (previousMember, nextMember) => {
-            return nodeHelpers.hasSeparatingBlankLine(previousMember, nextMember);
-        }
-    });
-}
-
-function* parseMethodSignature(node: babel.TSMethodSignature, context: Context): PrintItemIterator {
-    if (node.computed)
-        yield "[";
-
-    yield* parseNode(node.key, context);
-
-    if (node.computed)
-        yield "]";
-
-    if (node.optional)
-        yield "?";
-
-    yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
-
-    if (context.config["methodSignature.semiColon"])
-        yield ";";
-}
-
-function* parsePropertySignature(node: babel.TSPropertySignature, context: Context): PrintItemIterator {
-    if (node.readonly)
-        yield "readonly ";
-
-    if (node.computed)
-        yield "[";
-
-    yield* parseNode(node.key, context);
-
-    if (node.computed)
-        yield "]";
-
-    if (node.optional)
-        yield "?";
-
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
-
-    if (node.initializer) {
-        yield Signal.SpaceOrNewLine;
-        yield* withHangingIndent(function*(): PrintItemIterator {
-            yield "= ";
-            yield* parseNode(node.initializer, context);
-        }());
-    }
-
-    if (context.config["propertySignature.semiColon"])
-        yield ";";
 }
 
 /* types */

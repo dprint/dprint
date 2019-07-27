@@ -1,0 +1,39 @@
+== should format statements ==
+module Test {
+    // other
+    class Test {
+    }
+
+    /** testing */
+    interface T {
+    }
+    // other
+}
+
+[expect]
+module Test {
+    // other
+    class Test {
+    }
+
+    /** testing */
+    interface T {
+    }
+    // other
+}
+
+== should format inner comments ==
+module Test {
+    // testing
+
+    /* testing */ // 1
+    // test
+}
+
+[expect]
+module Test {
+    // testing
+
+    /* testing */ // 1
+    // test
+}
