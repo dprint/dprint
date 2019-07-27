@@ -198,6 +198,9 @@
         "classDeclaration.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
+        "classExpression.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "classMethod.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },

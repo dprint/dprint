@@ -119,6 +119,8 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
                 newlineGroupDepth++;
             else if (signal === Signal.FinishNewLineGroup)
                 newlineGroupDepth--;
+            else if (signal === Signal.SingleIndent)
+                writer.singleIndent();
             else
                 assertNever(signal);
         }

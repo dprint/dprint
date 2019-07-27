@@ -124,6 +124,11 @@ export class Writer {
 
         this.state.indentLevel = level;
         this.state.indentText = this.singleIndentationText.repeat(level);
+
+        // if it's on the first column, update the indent level
+        // that the line started on
+        if (this.currentLineColumn === 0)
+            this.lastLineIndentLevel = level;
     }
 
     private get indentText() {
@@ -140,6 +145,10 @@ export class Writer {
 
     private get items() {
         return this.state.items;
+    }
+
+    singleIndent() {
+        this.write(this.singleIndentationText);
     }
 
     write(text: string) {

@@ -3,6 +3,7 @@ import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from
 import { PrintItem, PrintItemKind, Signal, Unknown, PrintItemIterator, Condition, Info } from "../types";
 import { assertNever, isPrintItemIterator, throwError, RepeatableIterator } from "../utils";
 import * as conditions from "./conditions";
+import * as conditionResolvers from "./conditionResolvers";
 import * as nodeHelpers from "./nodeHelpers";
 import * as infoChecks from "./infoChecks";
 
@@ -25,7 +26,7 @@ class Bag {
 
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
-    ClassDeclarationStartHeaderInfo: "classDeclarationStartHeaderInfo",
+    ClassStartHeaderInfo: "classStartHeaderInfo",
     EnumDeclarationNode: "enumDeclarationNode",
     InterfaceDeclarationStartHeaderInfo: "interfaceDeclarationStartHeaderInfo",
     ModuleDeclarationStartHeaderInfo: "moduleDeclarationStartHeaderInfo"
@@ -79,7 +80,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "BlockStatement": parseBlockStatement,
     "Identifier": parseIdentifier,
     /* declarations */
-    "ClassDeclaration": parseClassDeclaration,
+    "ClassDeclaration": parseClassDeclarationOrExpression,
     "ExportAllDeclaration": parseExportAllDeclaration,
     "ExportNamedDeclaration": parseExportNamedDeclaration,
     "ExportDefaultDeclaration": parseExportDefaultDeclaration,
@@ -142,6 +143,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "LogicalExpression": parseBinaryOrLogicalExpression,
     "CallExpression": parseCallExpression,
     "OptionalCallExpression": parseCallExpression,
+    "ClassExpression": parseClassDeclarationOrExpression,
     "ConditionalExpression": parseConditionalExpression,
     "TSExpressionWithTypeArguments": parseExpressionWithTypeArguments,
     "TSExternalModuleReference": parseExternalModuleReference,
@@ -385,9 +387,22 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
 
 /* declarations */
 
-function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context): PrintItemIterator {
-    yield* parseClassDecorators();
-    yield* parseHeader();
+function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel.ClassExpression, context: Context): PrintItemIterator {
+    if (node.type === "ClassExpression") {
+        yield* withHangingIndent(parseClassDecorators());
+        yield {
+            kind: PrintItemKind.Condition,
+            name: "singleIndentIfStartOfLine",
+            condition: conditionResolvers.isStartOfNewLine,
+            true: [Signal.SingleIndent]
+        };
+        yield* parseHeader();
+    }
+    else {
+        yield* parseClassDecorators();
+        yield* parseHeader();
+    }
+
     yield* parseNode(node.body, context);
 
     function* parseClassDecorators(): PrintItemIterator {
@@ -402,12 +417,15 @@ function* parseClassDeclaration(node: babel.ClassDeclaration, context: Context):
         const startHeaderInfo = createInfo("startHeader");
         yield startHeaderInfo;
 
-        context.bag.put(BAG_KEYS.ClassDeclarationStartHeaderInfo, startHeaderInfo);
+        context.bag.put(BAG_KEYS.ClassStartHeaderInfo, startHeaderInfo);
 
-        if (node.declare)
-            yield "declare ";
-        if (node.abstract)
-            yield "abstract ";
+        if (node.type === "ClassDeclaration") {
+            if (node.declare)
+                yield "declare ";
+            if (node.abstract)
+                yield "abstract ";
+        }
+
         yield "class";
 
         if (node.id) {
@@ -804,10 +822,13 @@ function* parseVariableDeclarator(node: babel.VariableDeclarator, context: Conte
 /* class */
 
 function parseClassBody(node: babel.ClassBody, context: Context): PrintItemIterator {
-    const startHeaderInfo = context.bag.take(BAG_KEYS.ClassDeclarationStartHeaderInfo) as Info | undefined;
+    const startHeaderInfo = context.bag.take(BAG_KEYS.ClassStartHeaderInfo) as Info | undefined;
+    const bracePosition = context.parent.type === "ClassDeclaration"
+        ? context.config["classDeclaration.bracePosition"]
+        : context.config["classExpression.bracePosition"];
 
     return parseMemberedBody({
-        bracePosition: context.config["classDeclaration.bracePosition"],
+        bracePosition,
         context,
         members: node.body,
         node,
@@ -827,8 +848,7 @@ function* parseClassMethod(node: babel.ClassMethod | babel.TSDeclareMethod, cont
         yield ";";
 
     function* parseHeader(): PrintItemIterator {
-        if (node.decorators)
-            yield* parseDecorators(node.decorators, context);
+        yield* parseDecorators(node, context);
 
         const startHeaderInfo = createInfo("methodStartHeaderInfo");
         yield startHeaderInfo;
@@ -883,8 +903,7 @@ function* parseClassMethod(node: babel.ClassMethod | babel.TSDeclareMethod, cont
 }
 
 function* parseClassProperty(node: babel.ClassProperty, context: Context): PrintItemIterator {
-    if (node.decorators)
-        yield* parseDecorators(node.decorators, context);
+    yield* parseDecorators(node, context);
 
     if (node.accessibility)
         yield node.accessibility + " ";
@@ -2303,18 +2322,19 @@ function* parseNamedImportsOrExports(
 /* helpers */
 
 function* parseDecoratorsIfClass(declaration: babel.Node | undefined | null, context: Context): PrintItemIterator {
-    if (declaration == null || declaration.type !== "ClassDeclaration")
+    if (declaration == null || declaration.type !== "ClassDeclaration" && declaration.type !== "ClassExpression")
         return;
 
-    if (declaration.decorators != null)
-        yield* parseDecorators(declaration.decorators, context);
+    yield* parseDecorators(declaration, context);
 }
 
-function* parseDecorators(decorators: babel.Decorator[], context: Context): PrintItemIterator {
-    if (decorators.length === 0)
+function* parseDecorators(node: babel.Node & { decorators: babel.Decorator[] | null; }, context: Context): PrintItemIterator {
+    const decorators = node.decorators;
+    if (decorators == null || decorators.length === 0)
         return;
 
-    const useNewlines = nodeHelpers.getUseNewlinesForNodes(decorators);
+    const isClassExpression = node.type === "ClassExpression";
+    const useNewlines = isClassExpression ? false : nodeHelpers.getUseNewlinesForNodes(decorators);
 
     for (let i = 0; i < decorators.length; i++) {
         if (i > 0) {
@@ -2327,7 +2347,10 @@ function* parseDecorators(decorators: babel.Decorator[], context: Context): Prin
         yield* newlineGroup(parseNode(decorators[i], context));
     }
 
-    yield context.newlineKind;
+    if (isClassExpression)
+        yield Signal.SpaceOrNewLine;
+    else
+        yield context.newlineKind;
 }
 
 function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.Node, isComputed: boolean, context: Context): PrintItemIterator {
@@ -2600,9 +2623,7 @@ function* indentIfStartOfLine(item: PrintItemIterator): PrintItemIterator {
     yield {
         kind: PrintItemKind.Condition,
         name: "indentIfStartOfLine",
-        condition: (conditionContext) => {
-            return conditionContext.writerInfo.columnNumber === conditionContext.writerInfo.lineStartColumnNumber;
-        },
+        condition: conditionResolvers.isStartOfNewLine,
         true: withIndent(item),
         false: item
     };

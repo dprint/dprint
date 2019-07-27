@@ -25,7 +25,8 @@ export enum Signal {
     StartHangingIndent,
     FinishHangingIndent,
     StartNewlineGroup,
-    FinishNewLineGroup
+    FinishNewLineGroup,
+    SingleIndent
 }
 
 export interface Condition {

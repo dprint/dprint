@@ -160,6 +160,15 @@ export interface Configuration {
      * @value "nextLine" - Forces the brace to be on the next line.
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
+    "classExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
     "classMethod.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
@@ -367,6 +376,7 @@ export interface ResolvedConfiguration {
 
     // brace position
     "classDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "classExpression.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "classMethod.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "doWhileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "enumDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;

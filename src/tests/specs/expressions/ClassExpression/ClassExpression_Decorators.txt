@@ -1,0 +1,36 @@
+~~ lineWidth: 35 ~~
+== should print decorator ==
+const t = @dec class Test {
+};
+
+[expect]
+const t = @dec class Test {
+};
+
+== should print multiple decorators ==
+const t = @dec     @dec2 class Test {
+};
+
+[expect]
+const t = @dec @dec2 class Test {
+};
+
+== should print multiple decorators that go over the line width ==
+const t = @decorator1 @decorator2 @decorator3 @decorator4 class Test {
+};
+
+[expect]
+const t = @decorator1 @decorator2
+    @decorator3 @decorator4
+    class Test {
+};
+
+== should not use newlines if the first two decorators are on different lines ==
+let t = @d
+@e
+class Test {
+};
+
+[expect]
+let t = @d @e class Test {
+};

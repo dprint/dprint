@@ -255,6 +255,7 @@ describe(nameof(resolveConfiguration), () => {
         function getObject(value: NonNullable<Configuration["bracePosition"]>): Partial<ResolvedConfiguration> {
             return {
                 "classDeclaration.bracePosition": value,
+                "classExpression.bracePosition": value,
                 "classMethod.bracePosition": value,
                 "doWhileStatement.bracePosition": value,
                 "enumDeclaration.bracePosition": value,

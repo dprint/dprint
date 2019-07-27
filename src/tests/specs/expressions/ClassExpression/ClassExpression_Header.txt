@@ -1,0 +1,153 @@
+~~ lineWidth: 65 ~~
+== should print with no members ==
+const t = class Test {
+};
+
+[expect]
+const t = class Test {
+};
+
+== should print with no name ==
+const t = class {};
+
+[expect]
+const t = class {
+};
+
+== should print an extends clause ==
+const t = class Test extends Other {};
+
+[expect]
+const t = class Test extends Other {
+};
+
+== should print a verly long extends clause so that it goes to the next line ==
+const t = class Test extends OtherOtherOtherOtherOtherOtherOtherOther {
+};
+
+[expect]
+const t = class Test
+    extends OtherOtherOtherOtherOtherOtherOtherOther
+{
+};
+
+== should print an implements clause ==
+const t = class Test implements Other {
+};
+
+[expect]
+const t = class Test implements Other {
+};
+
+== should print multiple implements ==
+const t = class Test implements Other, Other2 {
+};
+
+[expect]
+const t = class Test implements Other, Other2 {
+};
+
+== should print multiple implements that go over the line width ==
+const t = class Test implements Other, Other2, Other3, Other4, Other5 {
+};
+
+[expect]
+const t = class Test
+    implements Other, Other2, Other3, Other4, Other5
+{
+};
+
+== should print multiple implements that go over the line width twice ==
+const t = class Test implements Other, Other2, Other3, Other4, Other5, Other6, Other7 {
+}
+
+[expect]
+const t = class Test
+    implements Other, Other2, Other3, Other4, Other5, Other6,
+        Other7
+{
+};
+
+== should print long extends and then put implements on separate line ==
+const t = class Test extends OtherOtherOtherOtherOtherOtherOtherOther implements Other {
+};
+
+[expect]
+const t = class Test
+    extends OtherOtherOtherOtherOtherOtherOtherOther
+    implements Other
+{
+};
+
+== should print with type parameters ==
+const t =  class Test< T  > {
+};
+
+[expect]
+const t = class Test<T> {
+};
+
+== should print with type parameters hanging when they go over the limit ==
+const t = class Test<TestingThisOut, WithVeryLong, TypeParameterList> {
+};
+
+[expect]
+const t = class Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+{
+};
+
+== should print with type parameters hanging and extends when they go over the limit ==
+const t = class Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
+};
+
+[expect]
+const t = class Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+    extends Test
+{
+};
+
+== should print with type parameters on multiple lines ==
+const t = class Test<TestingThisOut,
+    WithVeryLong, TypeParameterList> {
+};
+
+[expect]
+const t = class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> {
+};
+
+== should print with type parameters on multiple lines and extends ==
+const t = class Test<TestingThisOut,
+    WithVeryLong, TypeParameterList> extends Test {
+};
+
+[expect]
+const t = class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+>
+    extends Test
+{
+};
+
+== should print a super's type argument ==
+const t = class Test extends Other<string> {
+};
+
+[expect]
+const t = class Test extends Other<string> {
+};
+
+== should print mixins ==
+const t = class Test extends MyMixin(OtherMixin())<string> {
+};
+
+[expect]
+const t = class Test extends MyMixin(OtherMixin())<string> {
+};

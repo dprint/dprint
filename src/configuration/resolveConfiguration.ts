@@ -86,6 +86,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "whileStatement.useBraces": getValue("whileStatement.useBraces", useBraces, ensureBraceUse),
         // bracePosition
         "classDeclaration.bracePosition": getValue("classDeclaration.bracePosition", bracePosition, ensureBracePosition),
+        "classExpression.bracePosition": getValue("classExpression.bracePosition", bracePosition, ensureBracePosition),
         "classMethod.bracePosition": getValue("classMethod.bracePosition", bracePosition, ensureBracePosition),
         "doWhileStatement.bracePosition": getValue("doWhileStatement.bracePosition", bracePosition, ensureBracePosition),
         "enumDeclaration.bracePosition": getValue("enumDeclaration.bracePosition", bracePosition, ensureBracePosition),
