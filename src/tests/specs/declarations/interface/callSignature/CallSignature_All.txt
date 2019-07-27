@@ -1,0 +1,19 @@
+~~ lineWidth: 40 ~~
+== should format ==
+interface T {
+    (): void;
+    <T>(a: T): T;
+    <T, U, V>(): string;
+    (a: string, b: number): string;
+    (param: string, otherParam: number): string;
+}
+
+[expect]
+interface T {
+    (): void;
+    <T>(a: T): T;
+    <T, U, V>(): string;
+    (a: string, b: number): string;
+    (param: string,
+        otherParam: number): string;
+}

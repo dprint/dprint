@@ -109,13 +109,16 @@
         "breakStatement.semiColon": {
             "type": "boolean"
         },
+        "callSignature.semiColon": {
+            "type": "boolean"
+        },
         "classMethod.semiColon": {
             "type": "boolean"
         },
         "classProperty.semiColon": {
             "type": "boolean"
         },
-        "constructSignatureDeclaration.semiColon": {
+        "constructSignature.semiColon": {
             "type": "boolean"
         },
         "continueStatement.semiColon": {
@@ -146,6 +149,9 @@
             "type": "boolean"
         },
         "importEqualsDeclaration.semiColon": {
+            "type": "boolean"
+        },
+        "indexSignature.semiColon": {
             "type": "boolean"
         },
         "mappedType.semiColon": {

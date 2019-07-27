@@ -1,0 +1,15 @@
+~~ lineWidth: 40 ~~
+== should format ==
+interface T {
+    [index: number]: string;
+    [index: number]: string | number | boolean;
+    readonly [index]: string;
+}
+
+[expect]
+interface T {
+    [index: number]: string;
+    [index: number]: string | number
+        | boolean;
+    readonly [index]: string;
+}

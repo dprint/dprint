@@ -1,4 +1,4 @@
-~~ constructSignatureDeclaration.semiColon: false ~~
+~~ constructSignature.semiColon: false ~~
 == should format ==
 type Test = {
     new(): string;

@@ -1,0 +1,10 @@
+~~ indexSignature.semiColon: false ~~
+== should format without a semi-colon ==
+interface T {
+    [index: number]: string;
+}
+
+[expect]
+interface T {
+    [index: number]: string
+}

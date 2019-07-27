@@ -115,9 +115,10 @@ describe(nameof(resolveConfiguration), () => {
         function getObject(value: boolean): Partial<ResolvedConfiguration> {
             return {
                 "breakStatement.semiColon": value,
+                "callSignature.semiColon": value,
                 "classMethod.semiColon": value,
                 "classProperty.semiColon": value,
-                "constructSignatureDeclaration.semiColon": value,
+                "constructSignature.semiColon": value,
                 "continueStatement.semiColon": value,
                 "debuggerStatement.semiColon": value,
                 "directive.semiColon": value,
@@ -128,6 +129,7 @@ describe(nameof(resolveConfiguration), () => {
                 "ifStatement.semiColon": value,
                 "importDeclaration.semiColon": value,
                 "importEqualsDeclaration.semiColon": value,
+                "indexSignature.semiColon": value,
                 "mappedType.semiColon": value,
                 "methodSignature.semiColon": value,
                 "namespaceExportDeclaration.semiColon": value,

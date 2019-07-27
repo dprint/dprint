@@ -80,9 +80,10 @@ export interface Configuration {
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
     "breakStatement.semiColon"?: boolean;
+    "callSignature.semiColon"?: boolean;
     "classMethod.semiColon"?: boolean;
     "classProperty.semiColon"?: boolean;
-    "constructSignatureDeclaration.semiColon"?: boolean;
+    "constructSignature.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
@@ -93,6 +94,7 @@ export interface Configuration {
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
     "importEqualsDeclaration.semiColon"?: boolean;
+    "indexSignature.semiColon"?: boolean;
     "mappedType.semiColon"?: boolean;
     "methodSignature.semiColon"?: boolean;
     "namespaceExportDeclaration.semiColon"?: boolean;
@@ -306,9 +308,10 @@ export interface ResolvedConfiguration {
 
     // semi colons
     "breakStatement.semiColon": boolean;
+    "callSignature.semiColon": boolean;
     "classMethod.semiColon": boolean;
     "classProperty.semiColon": boolean;
-    "constructSignatureDeclaration.semiColon": boolean;
+    "constructSignature.semiColon": boolean;
     "continueStatement.semiColon": boolean;
     "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;
@@ -319,6 +322,7 @@ export interface ResolvedConfiguration {
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
     "importEqualsDeclaration.semiColon": boolean;
+    "indexSignature.semiColon": boolean;
     "mappedType.semiColon": boolean;
     "methodSignature.semiColon": boolean;
     "namespaceExportDeclaration.semiColon": boolean;
