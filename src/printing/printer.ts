@@ -304,6 +304,7 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
     function getWriterInfo(): WriterInfo {
         return {
             lineStartIndentLevel: writer.getLineStartIndentLevel(),
+            lineStartColumnNumber: writer.getLineStartColumnNumber(),
             lineNumber: writer.getLineNumber(),
             columnNumber: writer.getLineColumn()
         };

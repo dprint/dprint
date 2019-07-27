@@ -243,6 +243,10 @@ export class Writer {
         return this.indentLevel;
     }
 
+    getLineStartColumnNumber() {
+        return this.singleIndentationText.length * this.lastLineIndentLevel;
+    }
+
     /** Gets the zero-indexed line column. */
     getLineColumn() {
         if (this.currentLineColumn === 0)

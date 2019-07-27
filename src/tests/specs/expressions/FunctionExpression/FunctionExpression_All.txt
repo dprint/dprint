@@ -1,0 +1,10 @@
+== should format ==
+const t = async function*
+test<T, U>
+(p, u): string
+{
+};
+
+[expect]
+const t = async function* test<T, U>(p, u): string {
+};

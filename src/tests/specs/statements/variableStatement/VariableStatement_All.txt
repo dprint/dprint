@@ -7,6 +7,10 @@ var d = 5, e = 20;
 let f = 2, g = 3, testingTheLimitOut = 4;
 declare const t: string;
 
+function test() {
+    let f = 2, g = 3, testingTheLimitOut = 4;
+}
+
 [expect]
 let a!: string;
 const b = 5;
@@ -15,3 +19,8 @@ var d = 5, e = 20;
 let f = 2, g = 3,
     testingTheLimitOut = 4;
 declare const t: string;
+
+function test() {
+    let f = 2, g = 3,
+        testingTheLimitOut = 4;
+}

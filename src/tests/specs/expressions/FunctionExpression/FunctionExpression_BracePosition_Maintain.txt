@@ -1,0 +1,38 @@
+~~ functionExpression.bracePosition: "maintain", lineWidth: 30 ~~
+== should maintain the position for the brace position when on same line ==
+const t = function t() {
+};
+
+[expect]
+const t = function t() {
+};
+
+== should maintain the position for the brace position when on a new line ==
+const t = function t()
+{
+};
+
+[expect]
+const t = function t()
+{
+};
+
+== should maintain the position for the brace position when hanging and on the same line ==
+const t = function t(param, otherParamst) {
+};
+
+[expect]
+const t = function t(param,
+    otherParamst) {
+};
+
+== should maintain the position for the brace position when hanging and on the next line ==
+const t = function(param, otherParamst)
+{
+};
+
+[expect]
+const t = function(param,
+    otherParamst)
+{
+};

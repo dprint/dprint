@@ -219,6 +219,9 @@
         "functionDeclaration.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
+        "functionExpression.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "ifStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },

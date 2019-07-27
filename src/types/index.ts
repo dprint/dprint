@@ -55,5 +55,6 @@ export interface Info {
 export interface WriterInfo {
     lineNumber: number;
     lineStartIndentLevel: number;
+    lineStartColumnNumber: number;
     columnNumber: number;
 }

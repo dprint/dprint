@@ -1,7 +1,7 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
 import { PrintItem, PrintItemKind, Signal, Unknown, PrintItemIterator, Condition, Info } from "../types";
-import { assertNever, isPrintItemIterator, throwError } from "../utils";
+import { assertNever, isPrintItemIterator, throwError, RepeatableIterator } from "../utils";
 import * as conditions from "./conditions";
 import * as nodeHelpers from "./nodeHelpers";
 import * as infoChecks from "./infoChecks";
@@ -83,8 +83,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ExportAllDeclaration": parseExportAllDeclaration,
     "ExportNamedDeclaration": parseExportNamedDeclaration,
     "ExportDefaultDeclaration": parseExportDefaultDeclaration,
-    "FunctionDeclaration": parseFunctionDeclaration,
-    "TSDeclareFunction": parseFunctionDeclaration,
+    "FunctionDeclaration": parseFunctionDeclarationOrExpression,
+    "TSDeclareFunction": parseFunctionDeclarationOrExpression,
     "TSEnumDeclaration": parseEnumDeclaration,
     "TSEnumMember": parseEnumMember,
     "ImportDeclaration": parseImportDeclaration,
@@ -145,6 +145,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "ConditionalExpression": parseConditionalExpression,
     "TSExpressionWithTypeArguments": parseExpressionWithTypeArguments,
     "TSExternalModuleReference": parseExternalModuleReference,
+    "FunctionExpression": parseFunctionDeclarationOrExpression,
     "MemberExpression": parseMemberExpression,
     "MetaProperty": parseMetaProperty,
     "NewExpression": parseNewExpression,
@@ -549,9 +550,12 @@ function* parseExportDefaultDeclaration(node: babel.ExportDefaultDeclaration, co
     yield* parseNode(node.declaration, context);
 }
 
-function* parseFunctionDeclaration(node: babel.FunctionDeclaration | babel.TSDeclareFunction, context: Context): PrintItemIterator {
+function* parseFunctionDeclarationOrExpression(
+    node: babel.FunctionDeclaration | babel.TSDeclareFunction | babel.FunctionExpression,
+    context: Context
+): PrintItemIterator {
     yield* parseHeader();
-    if (node.type === "FunctionDeclaration")
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression")
         yield* parseNode(node.body, context);
     else if (context.config["functionDeclaration.semiColon"])
         yield ";";
@@ -559,7 +563,7 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration | babel.TSDec
     function* parseHeader(): PrintItemIterator {
         const functionHeaderStartInfo = createInfo("functionHeaderStart");
         yield functionHeaderStartInfo;
-        if (node.declare)
+        if (node.type !== "FunctionExpression" && node.declare)
             yield "declare ";
         if (node.async)
             yield "async ";
@@ -580,9 +584,13 @@ function* parseFunctionDeclaration(node: babel.FunctionDeclaration | babel.TSDec
             yield* parseNode(node.returnType, context);
         }
 
-        if (node.type === "FunctionDeclaration") {
+        if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression") {
+            const bracePosition = node.type === "FunctionDeclaration"
+                ? context.config["functionDeclaration.bracePosition"]
+                : context.config["functionExpression.bracePosition"];
+
             yield* parseBraceSeparator({
-                bracePosition: context.config["functionDeclaration.bracePosition"],
+                bracePosition,
                 bodyNode: node.body,
                 startHeaderInfo: functionHeaderStartInfo,
                 context
@@ -760,19 +768,19 @@ function* parseVariableDeclaration(node: babel.VariableDeclaration, context: Con
         yield "declare ";
     yield node.kind + " ";
 
-    yield* withHangingIndent(parseDeclarators());
+    yield* parseDeclarators();
 
     if (requiresSemiColon())
         yield ";";
 
-    function* parseDeclarators() {
+    function* parseDeclarators(): PrintItemIterator {
         for (let i = 0; i < node.declarations.length; i++) {
             if (i > 0) {
                 yield ",";
                 yield Signal.SpaceOrNewLine;
             }
 
-            yield* parseNode(node.declarations[i], context);
+            yield* indentIfStartOfLine(parseNode(node.declarations[i], context));
         }
     }
 
@@ -2582,6 +2590,22 @@ function* surroundWithNewLines(item: PrintItemIterator | (() => PrintItemIterato
     else
         yield item;
     yield context.newlineKind;
+}
+
+function* indentIfStartOfLine(item: PrintItemIterator): PrintItemIterator {
+    // need to make this a repeatable iterator so it can be iterated multiple times
+    // between the true and false condition
+    item = new RepeatableIterator(item);
+
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "indentIfStartOfLine",
+        condition: (conditionContext) => {
+            return conditionContext.writerInfo.columnNumber === conditionContext.writerInfo.lineStartColumnNumber;
+        },
+        true: withIndent(item),
+        false: item
+    };
 }
 
 function* withIndent(item: PrintItemIterator): PrintItemIterator {

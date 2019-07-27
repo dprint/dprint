@@ -223,6 +223,15 @@ export interface Configuration {
      * @value "nextLine" - Forces the brace to be on the next line.
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
+    "functionExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
     "ifStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
@@ -365,6 +374,7 @@ export interface ResolvedConfiguration {
     "forOfStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "forStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "functionDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "functionExpression.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "interfaceDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "moduleDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;

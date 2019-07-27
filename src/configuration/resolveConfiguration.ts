@@ -93,6 +93,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "forOfStatement.bracePosition": getValue("forOfStatement.bracePosition", bracePosition, ensureBracePosition),
         "forStatement.bracePosition": getValue("forStatement.bracePosition", bracePosition, ensureBracePosition),
         "functionDeclaration.bracePosition": getValue("functionDeclaration.bracePosition", bracePosition, ensureBracePosition),
+        "functionExpression.bracePosition": getValue("functionExpression.bracePosition", bracePosition, ensureBracePosition),
         "ifStatement.bracePosition": getValue("ifStatement.bracePosition", bracePosition, ensureBracePosition),
         "interfaceDeclaration.bracePosition": getValue("interfaceDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "moduleDeclaration.bracePosition": getValue("moduleDeclaration.bracePosition", bracePosition, ensureBracePosition),

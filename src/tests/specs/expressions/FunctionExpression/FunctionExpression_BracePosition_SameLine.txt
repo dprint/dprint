@@ -1,0 +1,18 @@
+~~ functionExpression.bracePosition: "sameLine", lineWidth: 30 ~~
+== should use the same line for the brace position ==
+const t = function()
+{
+};
+
+[expect]
+const t = function() {
+};
+
+== should use the same line for the brace position when hanging ==
+const t = function(someParams, goingToNewLine) {
+};
+
+[expect]
+const t = function(someParams,
+    goingToNewLine) {
+};
