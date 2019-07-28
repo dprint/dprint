@@ -1,0 +1,13 @@
+== should not indent ==
+export function test() {
+    const obj = new Test({
+        prop: ""
+    });
+}
+
+[expect]
+export function test() {
+    const obj = new Test({
+        prop: ""
+    });
+}

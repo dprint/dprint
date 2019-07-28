@@ -55,37 +55,42 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
 
         for (const item of items) {
             const previousChildIndex = childIndex;
-            try {
-                printPrintItem(item);
-            } catch (err) {
-                if (err !== exitSymbol || savePointToResume == null || depth !== savePointToResume.minDepthFound)
-                    throw err;
-                updateStateToSavePoint(savePointToResume);
-            }
+
+            printPrintItem(item);
 
             childIndex = previousChildIndex + 1;
         }
     }
 
     function printPrintItem(printItem: PrintItem) {
-        addToUncommittedItemsIfNecessary(printItem);
+        try {
+            printInternal();
+        } catch (err) {
+            if (err !== exitSymbol || savePointToResume == null || depth !== savePointToResume.minDepthFound)
+                throw err;
+            updateStateToSavePoint(savePointToResume);
+        }
 
-        // todo: nest all these function within printPrintItem to prevent
-        // them from being used elsewhere
-        if (typeof printItem === "number")
-            printSignal(printItem);
-        else if (typeof printItem === "string")
-            printString(printItem);
-        else if (printItem.kind === PrintItemKind.RawString)
-            printRawString(printItem);
-        else if (printItem.kind === PrintItemKind.Condition)
-            printCondition(printItem);
-        else if (printItem.kind === PrintItemKind.Info)
-            resolveInfo(printItem);
-        else
-            assertNever(printItem);
+        function printInternal() {
+            addToUncommittedItemsIfNecessary(printItem);
 
-        // logWriterForDebugging();
+            // todo: nest all these function within printPrintItem to prevent
+            // them from being used elsewhere
+            if (typeof printItem === "number")
+                printSignal(printItem);
+            else if (typeof printItem === "string")
+                printString(printItem);
+            else if (printItem.kind === PrintItemKind.RawString)
+                printRawString(printItem);
+            else if (printItem.kind === PrintItemKind.Condition)
+                printCondition(printItem);
+            else if (printItem.kind === PrintItemKind.Info)
+                resolveInfo(printItem);
+            else
+                assertNever(printItem);
+
+            // logWriterForDebugging();
+        }
 
         function printSignal(signal: Signal) {
             switch (signal) {
@@ -251,7 +256,9 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
         childIndex += startIndex;
         for (let i = startIndex; i < savePoint.uncomittedItems.length; i++) {
             const previousChildIndex = childIndex;
+
             printPrintItem(savePoint.uncomittedItems[i]);
+
             childIndex = previousChildIndex + 1;
         }
     }

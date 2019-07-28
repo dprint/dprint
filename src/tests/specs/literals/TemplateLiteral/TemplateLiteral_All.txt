@@ -25,7 +25,7 @@ log(`testing ${  3 } this ${  6  } out`);
 [expect]
 log(`testing ${3} this ${6} out`);
 
-== should indent within the expresison when it goes over the line width ==
+== should indent within the expression when it goes over the line width ==
 log(`testing this out a little bit ${4} testing`);
 
 [expect]

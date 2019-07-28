@@ -941,7 +941,7 @@ function* parseClassProperty(node: babel.ClassProperty, context: Context): Print
 
 function* parseDecorator(node: babel.Decorator, context: Context): PrintItemIterator {
     yield "@";
-    yield* withHangingIndent(parseNode(node.expression, context));
+    yield* parseNode(node.expression, context);
 }
 
 function* parseParameterProperty(node: babel.TSParameterProperty, context: Context): PrintItemIterator {
@@ -1743,10 +1743,6 @@ function* parseExternalModuleReference(node: babel.TSExternalModuleReference, co
 function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExpression, context: Context): PrintItemIterator {
     yield* parseNode(node.callee, context);
 
-    // todo: why does this have both arguments and parameters? Seems like only type parameters are filled.
-    if (node.typeArguments != null)
-        throwError("Unimplemented scenario where a call expression had type arguments.");
-
     if (node.typeParameters)
         yield* parseNode(node.typeParameters, context);
 
@@ -2463,7 +2459,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
         if (useNewLines)
             yield* surroundWithNewLines(withIndent(parseParameterList()), context);
         else
-            yield* withHangingIndent(parseParameterList());
+            yield* parseParameterList();
 
         yield ")";
     }
@@ -2471,11 +2467,30 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
     function* parseParameterList(): PrintItemIterator {
         for (let i = 0; i < params.length; i++) {
             const param = params[i];
-            yield* parseNode(param, context);
-            if (i < params.length - 1) {
-                yield ",";
-                yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
+            const hasComma = i < params.length - 1;
+            const parsedParam = parseParam(param, hasComma);
+
+            if (i === 0)
+                yield* parsedParam;
+            else if (useNewLines) {
+                yield context.newlineKind;
+                yield* parsedParam;
             }
+            else {
+                yield Signal.SpaceOrNewLine;
+                yield* indentIfStartOfLine(parsedParam)
+            }
+        }
+
+        function* parseParam(param: babel.Node, hasComma: boolean): PrintItemIterator {
+            yield* newlineGroup(parseNode(param, context, {
+                innerParse: function*(iterator) {
+                    yield* iterator;
+
+                    if (hasComma)
+                        yield ",";
+                }
+            }));
         }
     }
 }
