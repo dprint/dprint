@@ -108,6 +108,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "arrayExpression.trailingCommas": getValue("arrayExpression.trailingCommas", trailingCommas, ensureTrailingCommas),
         "arrayPattern.trailingCommas": getValue("arrayPattern.trailingCommas", trailingCommas, ensureTrailingCommas),
         "enumDeclaration.trailingCommas": getValue("enumDeclaration.trailingCommas", trailingCommas, ensureTrailingCommas),
+        "objectExpression.trailingCommas": getValue("objectExpression.trailingCommas", trailingCommas, ensureTrailingCommas),
         "tupleType.trailingCommas": getValue("tupleType.trailingCommas", trailingCommas, ensureTrailingCommas)
     };
 

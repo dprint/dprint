@@ -260,6 +260,9 @@
         "enumDeclaration.trailingCommas": {
             "$ref": "#/definitions/trailingCommas"
         },
+        "objectExpression.trailingCommas": {
+            "$ref": "#/definitions/trailingCommas"
+        },
         "tupleType.trailingCommas": {
             "$ref": "#/definitions/trailingCommas"
         }

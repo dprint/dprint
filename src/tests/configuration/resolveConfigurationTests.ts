@@ -335,6 +335,7 @@ describe(nameof(resolveConfiguration), () => {
                 "arrayExpression.trailingCommas": value,
                 "arrayPattern.trailingCommas": value,
                 "enumDeclaration.trailingCommas": value,
+                "objectExpression.trailingCommas": value,
                 "tupleType.trailingCommas": value
             };
         }

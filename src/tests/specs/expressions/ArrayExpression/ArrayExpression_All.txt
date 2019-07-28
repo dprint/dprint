@@ -6,12 +6,12 @@ const t = [   5   , 6   ];
 const t = [5, 6];
 
 == should split on multiple lines when second is on different line ==
-const t = [5,
+const t = [5, // testing
     6   ];
 
 [expect]
 const t = [
-    5,
+    5, // testing
     6
 ];
 

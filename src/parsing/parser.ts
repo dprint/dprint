@@ -1,7 +1,7 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
 import { PrintItem, PrintItemKind, Signal, Unknown, PrintItemIterator, Condition, Info } from "../types";
-import { assertNever, isPrintItemIterator, throwError, RepeatableIterator } from "../utils";
+import { assertNever, isPrintItemIterator, throwError, RepeatableIterator, isIterator } from "../utils";
 import * as conditions from "./conditions";
 import * as conditionResolvers from "./conditionResolvers";
 import * as nodeHelpers from "./nodeHelpers";
@@ -27,7 +27,6 @@ class Bag {
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
     ClassStartHeaderInfo: "classStartHeaderInfo",
-    EnumDeclarationNode: "enumDeclarationNode",
     InterfaceDeclarationStartHeaderInfo: "interfaceDeclarationStartHeaderInfo",
     ModuleDeclarationStartHeaderInfo: "moduleDeclarationStartHeaderInfo"
 } as const;
@@ -73,7 +72,7 @@ export function* parseFile(file: babel.File, fileText: string, options: Resolved
     };
 }
 
-const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | PrintItemIterator; } = {
+const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIterator; } = {
     /* file */
     "Program": parseProgram,
     /* common */
@@ -154,6 +153,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "MetaProperty": parseMetaProperty,
     "NewExpression": parseNewExpression,
     "TSNonNullExpression": parseNonNullExpression,
+    "ObjectExpression": parseObjectExpression,
+    "ObjectProperty": parseObjectProperty,
     "RestElement": parseRestElement,
     "SpreadElement": parseSpreadElement,
     "TSTypeAssertion": parseTypeAssertion,
@@ -172,26 +173,26 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "BigIntLiteral": parseBigIntLiteral,
     "BooleanLiteral": parseBooleanLiteral,
     "DirectiveLiteral": parseStringOrDirectiveLiteral,
-    "NullLiteral": () => "null",
+    "NullLiteral": () => toPrintItemIterator("null"),
     "NumericLiteral": parseNumericLiteral,
     "StringLiteral": parseStringOrDirectiveLiteral,
     "RegExpLiteral": parseRegExpLiteral,
     /* keywords */
-    "Import": () => "import",
-    "Super": () => "super",
-    "ThisExpression": () => "this",
-    "TSAnyKeyword": () => "any",
-    "TSBooleanKeyword": () => "boolean",
-    "TSNeverKeyword": () => "never",
-    "TSNullKeyword": () => "null",
-    "TSNumberKeyword": () => "number",
-    "TSObjectKeyword": () => "object",
-    "TSStringKeyword": () => "string",
-    "TSSymbolKeyword": () => "symbol",
-    "TSUndefinedKeyword": () => "undefined",
-    "TSUnknownKeyword": () => "unknown",
-    "TSVoidKeyword": () => "void",
-    "VoidKeyword": () => "void",
+    "Import": () => toPrintItemIterator("import"),
+    "Super": () => toPrintItemIterator("super"),
+    "ThisExpression": () => toPrintItemIterator("this"),
+    "TSAnyKeyword": () => toPrintItemIterator("any"),
+    "TSBooleanKeyword": () => toPrintItemIterator("boolean"),
+    "TSNeverKeyword": () => toPrintItemIterator("never"),
+    "TSNullKeyword": () => toPrintItemIterator("null"),
+    "TSNumberKeyword": () => toPrintItemIterator("number"),
+    "TSObjectKeyword": () => toPrintItemIterator("object"),
+    "TSStringKeyword": () => toPrintItemIterator("string"),
+    "TSSymbolKeyword": () => toPrintItemIterator("symbol"),
+    "TSUndefinedKeyword": () => toPrintItemIterator("undefined"),
+    "TSUnknownKeyword": () => toPrintItemIterator("unknown"),
+    "TSVoidKeyword": () => toPrintItemIterator("void"),
+    "VoidKeyword": () => toPrintItemIterator("void"),
     /* types */
     "TSArrayType": parseArrayType,
     "TSConditionalType": parseConditionalType,
@@ -291,7 +292,15 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItem | P
     "VoidTypeAnnotation": parseNotSupportedFlowNode
 };
 
-function* parseNode(node: babel.Node | null, context: Context): PrintItemIterator {
+interface ParseNodeOptions {
+    /**
+     * Inner parse useful for adding items at the beginning or end of the iterator
+     * after leading comments and before trailing comments.
+     */
+    innerParse?(iterator: PrintItemIterator): PrintItemIterator;
+}
+
+function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeOptions): PrintItemIterator {
     if (node == null)
         return;
 
@@ -303,23 +312,22 @@ function* parseNode(node: babel.Node | null, context: Context): PrintItemIterato
     // parse
     const hasParentheses = nodeHelpers.hasParentheses(node);
     const parseFunc = parseObj[node!.type] || parseUnknownNode;
-    const printItem = parseFunc(node, context);
+    const initialPrintItemIterator = parseFunc(node, context);
+    const printItemIterator = opts && opts.innerParse ? opts.innerParse(initialPrintItemIterator) : initialPrintItemIterator;
 
-    if (hasParentheses) {
-        yield Signal.StartNewlineGroup;
-        yield "(";
-    }
-
-    yield* getWithComments(node!, printItem, context);
-
-    if (hasParentheses) {
-        yield ")";
-        yield Signal.FinishNewLineGroup;
-    }
+    yield* getWithComments(node!, hasParentheses ? surroundWithParentheses() : printItemIterator, context);
 
     // replace the past info after iterating
     context.currentNode = context.parentStack.pop()!;
     context.parent = context.parentStack[context.parentStack.length - 1];
+
+    function* surroundWithParentheses(): PrintItemIterator {
+        yield Signal.StartNewlineGroup;
+        yield "(";
+        yield* printItemIterator;
+        yield ")";
+        yield Signal.FinishNewLineGroup;
+    }
 }
 
 /* file */
@@ -463,8 +471,6 @@ function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel
 
 function* parseEnumDeclaration(node: babel.TSEnumDeclaration, context: Context): PrintItemIterator {
     const startHeaderInfo = createInfo("startHeader");
-    context.bag.put(BAG_KEYS.EnumDeclarationNode, node); // for when parsing a member
-
     yield* parseHeader();
     yield* parseBody();
 
@@ -488,7 +494,8 @@ function* parseEnumDeclaration(node: babel.TSEnumDeclaration, context: Context):
             node,
             members: node.members,
             startHeaderInfo,
-            shouldUseBlankLine
+            shouldUseBlankLine,
+            trailingCommas: context.config["enumDeclaration.trailingCommas"]
         });
     }
 
@@ -508,15 +515,10 @@ function* parseEnumDeclaration(node: babel.TSEnumDeclaration, context: Context):
 }
 
 function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItemIterator {
-    const parentDeclaration = context.bag.peek(BAG_KEYS.EnumDeclarationNode) as babel.TSEnumDeclaration;
     yield* parseNode(node.id, context);
 
     if (node.initializer)
         yield* withHangingIndent(parseInitializer(node.initializer));
-
-    const forceTrailingCommas = getForceTrailingCommas(context.config["enumDeclaration.trailingCommas"], true);
-    if (forceTrailingCommas || parentDeclaration.members[parentDeclaration.members.length - 1] !== node)
-        yield ",";
 
     function* parseInitializer(initializer: NonNullable<babel.TSEnumMember["initializer"]>): PrintItemIterator {
         if (initializer.type === "NumericLiteral" || initializer.type === "StringLiteral")
@@ -1742,6 +1744,28 @@ function* parseNonNullExpression(node: babel.TSNonNullExpression, context: Conte
     yield "!";
 }
 
+function* parseObjectExpression(node: babel.ObjectExpression, context: Context): PrintItemIterator {
+    yield* parseObjectLikeNode({
+        node,
+        members: node.properties,
+        context,
+        trailingCommas: context.config["objectExpression.trailingCommas"]
+    });
+}
+
+function* parseObjectProperty(node: babel.ObjectProperty, context: Context): PrintItemIterator {
+    if (node.computed)
+        yield "[";
+
+    yield* parseNode(node.key, context);
+
+    if (node.computed)
+        yield "]";
+
+    if (node.value && !node.shorthand)
+        yield* parseNodeWithPreceedingColon(node.value, context);
+}
+
 function* parseRestElement(node: babel.RestElement, context: Context): PrintItemIterator {
     yield "...";
     yield* parseNode(node.argument, context);
@@ -1881,12 +1905,12 @@ function* parseRegExpLiteral(node: babel.RegExpLiteral, context: Context): Print
     yield node.flags;
 }
 
-function parseNotSupportedFlowNode(node: babel.Node, context: Context): Unknown {
-    return parseUnknownNodeWithMessage(node, context, "Flow node types are not supported");
+function parseNotSupportedFlowNode(node: babel.Node, context: Context): PrintItemIterator {
+    return toPrintItemIterator(parseUnknownNodeWithMessage(node, context, "Flow node types are not supported"));
 }
 
-function parseUnknownNode(node: babel.Node, context: Context): Unknown {
-    return parseUnknownNodeWithMessage(node, context, "Not implemented node type");
+function parseUnknownNode(node: babel.Node, context: Context): PrintItemIterator {
+    return toPrintItemIterator(parseUnknownNodeWithMessage(node, context, "Not implemented node type"));
 }
 
 function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message: string): Unknown {
@@ -2062,10 +2086,15 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
             if (i > 0 && !useNewlines)
                 yield Signal.SpaceOrNewLine;
 
-            yield* parseNode(node.elementTypes[i], context);
+            yield* parseNode(node.elementTypes[i], context, {
+                innerParse: function*(iterator) {
+                    yield* iterator;
 
-            if (forceTrailingCommas || i < node.elementTypes.length - 1)
-                yield ",";
+                    if (forceTrailingCommas || i < node.elementTypes.length - 1)
+                        yield ",";
+                }
+            });
+
             if (useNewlines)
                 yield context.newlineKind;
         }
@@ -2077,52 +2106,11 @@ function* parseTypeAnnotation(node: babel.TSTypeAnnotation, context: Context): P
 }
 
 function* parseTypeLiteral(node: babel.TSTypeLiteral, context: Context): PrintItemIterator {
-    if (node.members.length === 0) {
-        yield "{}";
-        return;
-    }
-
-    const multiLine = nodeHelpers.getUseNewlinesForNodes([getFirstOpenBraceToken(node, context), node.members[0]]);
-    const startInfo = createInfo("startTypeLiteral");
-    const endInfo = createInfo("endTypeLiteral");
-
-    yield startInfo;
-    yield "{";
-    yield* withHangingIndent(getInner());
-    yield getSeparator();
-    yield "}";
-    yield endInfo;
-
-    function* getInner(): PrintItemIterator {
-        yield getSeparator();
-
-        if (multiLine) {
-            yield* parseStatementOrMembers({
-                context,
-                innerComments: node.innerComments,
-                items: node.members,
-                lastNode: undefined,
-                shouldUseBlankLine: (previousStatement, nextStatement) => {
-                    return nodeHelpers.hasSeparatingBlankLine(previousStatement, nextStatement);
-                }
-            });
-        }
-        else {
-            for (let i = 0; i < node.members.length; i++) {
-                if (i > 0)
-                    yield Signal.SpaceOrNewLine;
-
-                yield* parseNode(node.members[i], context);
-            }
-        }
-    }
-
-    function getSeparator() {
-        if (multiLine)
-            return context.newlineKind;
-        else
-            return Signal.SpaceOrNewLine;
-    }
+    yield* parseObjectLikeNode({
+        node,
+        members: node.members,
+        context
+    });
 }
 
 function* parseTypeOperator(node: babel.TSTypeOperator, context: Context): PrintItemIterator {
@@ -2191,10 +2179,11 @@ interface ParseMemberedBodyOptions {
     startHeaderInfo: Info | undefined;
     bracePosition: NonNullable<Configuration["bracePosition"]>;
     shouldUseBlankLine: (previousMember: babel.Node, nextMember: babel.Node) => boolean;
+    trailingCommas?: Configuration["trailingCommas"];
 }
 
 function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterator {
-    const { node, members, context, startHeaderInfo, bracePosition, shouldUseBlankLine } = opts;
+    const { node, members, context, startHeaderInfo, bracePosition, shouldUseBlankLine, trailingCommas } = opts;
 
     yield* parseBraceSeparator({
         bracePosition,
@@ -2216,7 +2205,8 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterator {
             innerComments: node.innerComments,
             lastNode: undefined,
             context,
-            shouldUseBlankLine
+            shouldUseBlankLine,
+            trailingCommas
         });
     }
 }
@@ -2252,10 +2242,11 @@ interface ParseStatementOrMembersOptions {
     lastNode: babel.Node | undefined;
     context: Context;
     shouldUseBlankLine: (previousMember: babel.Node, nextMember: babel.Node) => boolean;
+    trailingCommas?: Configuration["trailingCommas"];
 }
 
 function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintItemIterator {
-    const { items, innerComments, context, shouldUseBlankLine } = opts;
+    const { items, innerComments, context, shouldUseBlankLine, trailingCommas } = opts;
     let { lastNode } = opts;
 
     for (const item of items) {
@@ -2266,7 +2257,18 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
                 yield context.newlineKind;
         }
 
-        yield* parseNode(item, context);
+        yield* parseNode(item, context, {
+            innerParse: function*(iterator) {
+                yield* iterator;
+
+                if (trailingCommas) {
+                    const forceTrailingCommas = getForceTrailingCommas(trailingCommas, true);
+                    if (forceTrailingCommas || items[items.length - 1] !== item)
+                        yield ",";
+                }
+            }
+        });
+
         lastNode = item;
     }
 
@@ -2471,25 +2473,99 @@ function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
                 yield Signal.SpaceOrNewLine;
 
             const element = elements[i];
-            if (element != null)
-                yield* parseNode(element, context);
+            if (element) {
+                yield* parseNode(element, context, {
+                    innerParse: function*(iterator) {
+                        yield* iterator;
 
-            if (forceTrailingCommas || i < elements.length - 1)
-                yield ",";
+                        if (forceTrailingCommas || i < elements.length - 1)
+                            yield ",";
+                    }
+                });
+            }
+            else {
+                if (forceTrailingCommas || i < elements.length - 1)
+                    yield ",";
+            }
+
             if (useNewlines)
                 yield context.newlineKind;
         }
     }
 }
 
-function* getWithComments(node: babel.Node, nodePrintItem: PrintItem | PrintItemIterator, context: Context): PrintItemIterator {
+interface ParseObjectLikeNodeOptions {
+    node: babel.Node;
+    members: babel.Node[];
+    context: Context;
+    trailingCommas?: Configuration["trailingCommas"];
+}
+
+function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
+    const { node, members, context, trailingCommas } = opts;
+
+    if (members.length === 0) {
+        yield "{}";
+        return;
+    }
+
+    const multiLine = nodeHelpers.getUseNewlinesForNodes([getFirstOpenBraceToken(node, context), members[0]]);
+    const startInfo = createInfo("startObject");
+    const endInfo = createInfo("endObject");
+
+    yield startInfo;
+    yield "{";
+    yield* withHangingIndent(getInner());
+    yield getSeparator();
+    yield "}";
+    yield endInfo;
+
+    function* getInner(): PrintItemIterator {
+        yield getSeparator();
+
+        if (multiLine) {
+            yield* parseStatementOrMembers({
+                context,
+                innerComments: node.innerComments,
+                items: members,
+                lastNode: undefined,
+                shouldUseBlankLine: (previousStatement, nextStatement) => {
+                    return nodeHelpers.hasSeparatingBlankLine(previousStatement, nextStatement);
+                },
+                trailingCommas
+            });
+        }
+        else {
+            for (let i = 0; i < members.length; i++) {
+                if (i > 0)
+                    yield Signal.SpaceOrNewLine;
+
+                yield* parseNode(members[i], context, {
+                    innerParse: function*(iterator) {
+                        yield* iterator;
+
+                        if (trailingCommas) {
+                            const forceTrailingCommas = getForceTrailingCommas(trailingCommas, multiLine);
+                            if (forceTrailingCommas || i < members.length - 1)
+                                yield ",";
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    function getSeparator() {
+        if (multiLine)
+            return context.newlineKind;
+        else
+            return Signal.SpaceOrNewLine;
+    }
+}
+
+function* getWithComments(node: babel.Node, printItemIterator: PrintItemIterator, context: Context): PrintItemIterator {
     yield* parseLeadingComments(node, context);
-
-    if (isPrintItemIterator(nodePrintItem))
-        yield* nodePrintItem;
-    else
-        yield nodePrintItem;
-
+    yield* printItemIterator;
     yield* parseTrailingComments(node, context);
 }
 
@@ -2510,12 +2586,39 @@ function* parseLeadingComments(node: babel.Node, context: Context) {
 }
 
 function* parseTrailingComments(node: babel.Node, context: Context) {
-    if (!node.trailingComments)
+    const trailingComments = getTrailingComments();
+    if (!trailingComments)
         return;
 
     // use the roslyn definition of trailing comments
-    const trailingCommentsOnSameLine = node.trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
+    const trailingCommentsOnSameLine = trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
     yield* parseCommentCollection(trailingCommentsOnSameLine, node, context);
+
+    function getTrailingComments() {
+        // These will not have trailing comments for comments that appear after a comma
+        // so force them to appear.
+        if (context.parent.type === "ObjectExpression")
+            return getTrailingCommentsWithNextLeading(context.parent.properties);
+        else if (context.parent.type === "ArrayExpression")
+            return getTrailingCommentsWithNextLeading(context.parent.elements);
+        else if (context.parent.type === "TSTupleType")
+            return getTrailingCommentsWithNextLeading(context.parent.elementTypes);
+
+        return node.trailingComments;
+
+        function getTrailingCommentsWithNextLeading(nodes: (babel.Node | null)[]) {
+            // todo: something faster than O(n)
+            const index = nodes.indexOf(node);
+            const nextProperty = nodes[index + 1];
+            if (nextProperty) {
+                return [
+                    ...node.trailingComments || [],
+                    ...nextProperty.leadingComments || []
+                ];
+            }
+            return node.trailingComments;
+        }
+    }
 }
 
 function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
@@ -2632,8 +2735,11 @@ function* parseControlFlowSeparator(
         });
     }
 }
-
 function* parseTypeAnnotationWithColonIfExists(node: babel.Node | null | undefined, context: Context) {
+    yield* parseNodeWithPreceedingColon(node, context);
+}
+
+function* parseNodeWithPreceedingColon(node: babel.Node | null | undefined, context: Context) {
     if (node == null)
         return;
 
@@ -2726,6 +2832,10 @@ function getForceTrailingCommas(option: NonNullable<Configuration["trailingComma
             const assertNever: never = option;
             return false;
     }
+}
+
+function* toPrintItemIterator(printItem: PrintItem): PrintItemIterator {
+    yield printItem;
 }
 
 /* factory functions */

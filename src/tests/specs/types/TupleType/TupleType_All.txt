@@ -6,12 +6,12 @@ type T = [   string   , number   ];
 type T = [string, number];
 
 == should split on multiple lines when second is on different line ==
-type T = [string,
+type T = [string, // test
     number   ];
 
 [expect]
 type T = [
-    string,
+    string, // test
     number
 ];
 
