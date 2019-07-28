@@ -2010,8 +2010,10 @@ function* parseTemplateLiteral(node: babel.TemplateLiteral, context: Context): P
                 yield "${";
                 yield Signal.FinishIgnoringIndent;
                 yield Signal.NewLine;
+                yield conditions.singleIndentIfStartOfLine();
                 yield* parseNode(item, context);
                 yield Signal.NewLine;
+                yield conditions.singleIndentIfStartOfLine();
                 yield "}";
                 yield Signal.StartIgnoringIndent;
             }

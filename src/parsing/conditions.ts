@@ -1,6 +1,7 @@
 import { PrintItemKind, Info, Condition, Signal } from "../types";
 import { Context } from "./parser";
 import * as infoChecks from "./infoChecks";
+import * as conditionResolvers from "./conditionResolvers";
 
 // reusable conditions
 
@@ -42,5 +43,14 @@ export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: Context, 
         condition: conditionContext => infoChecks.isMultipleLines(startInfo, endInfo || conditionContext.writerInfo, conditionContext, false),
         true: [context.newlineKind],
         false: [Signal.SpaceOrNewLine]
+    };
+}
+
+export function singleIndentIfStartOfLine(): Condition {
+    return {
+        kind: PrintItemKind.Condition,
+        name: "singleIndentIfStartOfLine",
+        condition: conditionResolvers.isStartOfNewLine,
+        true: [Signal.SingleIndent],
     };
 }
