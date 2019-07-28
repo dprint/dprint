@@ -1696,9 +1696,14 @@ function* parseAssignmentExpression(node: babel.AssignmentExpression, context: C
 }
 
 function* parseAssignmentPattern(node: babel.AssignmentPattern, context: Context): PrintItemIterator {
-    yield* parseNode(node.left, context);
-    yield "=";
-    yield* parseNode(node.right, context);
+    yield* newlineGroup(function*() {
+        yield* parseNode(node.left, context);
+        yield Signal.SpaceOrNewLine
+        yield* indentIfStartOfLine(function*() {
+            yield "= ";
+            yield* parseNode(node.right, context);
+        }());
+    }());
 }
 
 function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): PrintItemIterator {
@@ -2642,7 +2647,7 @@ function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
     yield "[";
 
     if (elements.length > 0)
-        yield* withHangingIndent(parseElements());
+        yield* parseElements();
 
     yield "]";
 
@@ -2655,23 +2660,28 @@ function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
                 yield Signal.SpaceOrNewLine;
 
             const element = elements[i];
+            const hasComma = forceTrailingCommas || i < elements.length - 1;
+            yield* indentIfStartOfLine(parseElement(element, hasComma));
+
+            if (useNewlines)
+                yield context.newlineKind;
+        }
+
+        function* parseElement(element: babel.Node | null | undefined, hasComma: boolean): PrintItemIterator {
             if (element) {
                 yield* parseNode(element, context, {
                     innerParse: function*(iterator) {
                         yield* iterator;
 
-                        if (forceTrailingCommas || i < elements.length - 1)
+                        if (hasComma)
                             yield ",";
                     }
                 });
             }
             else {
-                if (forceTrailingCommas || i < elements.length - 1)
+                if (hasComma)
                     yield ",";
             }
-
-            if (useNewlines)
-                yield context.newlineKind;
         }
     }
 }

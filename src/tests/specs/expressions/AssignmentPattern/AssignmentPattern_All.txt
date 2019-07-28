@@ -1,5 +1,13 @@
+~~ lineWidth: 30 ~~
 == should format ==
 [a=5] = 0;
 
 [expect]
-[a=5] = 0;
+[a = 5] = 0;
+
+== should format when hanging ==
+[testingThisReallyReally = testingOtherThing] = 0;
+
+[expect]
+[testingThisReallyReally
+    = testingOtherThing] = 0;

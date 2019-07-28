@@ -2,7 +2,7 @@
 const { t=5, u=4, v: other } = obj;
 
 [expect]
-const { t=5, u=4, v: other } = obj;
+const { t = 5, u = 4, v: other } = obj;
 
 == should format multi-line ==
 const {
@@ -12,6 +12,6 @@ const {
 
 [expect]
 const {
-    t=5,
-    u=4
+    t = 5,
+    u = 4
 } = obj;
