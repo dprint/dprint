@@ -11,3 +11,21 @@ const obj = {
     prop2: 2,
     ["test"]: 4
 };
+
+== should indent arrow function expression appropriately ==
+function test() {
+    return {
+        prop: () => {
+            return 5;
+        }
+    };
+}
+
+[expect]
+function test() {
+    return {
+        prop: () => {
+            return 5;
+        }
+    };
+}

@@ -2948,10 +2948,10 @@ function* parseNodeWithPreceedingColon(node: babel.Node | null | undefined, cont
         return;
 
     yield ":";
-    yield* newlineGroup(withHangingIndent(function*(): PrintItemIterator {
+    yield* newlineGroup(function*(): PrintItemIterator {
         yield Signal.SpaceOrNewLine;
-        yield* parseNode(node, context);
-    }()));
+        yield* indentIfStartOfLine(parseNode(node, context));
+    }());
 }
 
 function* surroundWithNewLines(item: PrintItemIterator, context: Context): PrintItemIterator {
