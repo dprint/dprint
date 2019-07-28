@@ -29,3 +29,19 @@ function* test() {
     yield* func()
         && otherWithLongName();
 }
+
+== should not do a hanging indent when an object expression ==
+function* test() {
+    yield {
+        prop: 5,
+        prop2: 7
+    };
+}
+
+[expect]
+function* test() {
+    yield {
+        prop: 5,
+        prop2: 7
+    };
+}

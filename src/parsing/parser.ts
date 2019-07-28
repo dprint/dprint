@@ -1914,7 +1914,7 @@ function* parseYieldExpression(node: babel.YieldExpression, context: Context): P
     if (node.delegate)
         yield "*";
     yield " ";
-    yield* withHangingIndent(parseNode(node.argument, context));
+    yield* parseNode(node.argument, context);
 }
 
 /* imports */
