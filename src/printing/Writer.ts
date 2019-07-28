@@ -16,6 +16,7 @@ export interface WriterState {
     items: string[];
     indentStates: IndentState[];
     hangingIndentStates: IndentState[];
+    ignoreIndent: boolean;
 }
 
 export class Writer {
@@ -36,7 +37,8 @@ export class Writer {
             expectNewLineNext: false,
             items: [],
             indentStates: [],
-            hangingIndentStates: []
+            hangingIndentStates: [],
+            ignoreIndent: false
         };
     }
 
@@ -69,7 +71,8 @@ export class Writer {
             indentText: state.indentText,
             items: [...state.items],
             indentStates: [...state.indentStates],
-            hangingIndentStates: [...state.hangingIndentStates]
+            hangingIndentStates: [...state.hangingIndentStates],
+            ignoreIndent: state.ignoreIndent
         };
         return newState;
     }
@@ -135,6 +138,14 @@ export class Writer {
         return this.state.indentText;
     }
 
+    private get ignoreIndent() {
+        return this.state.ignoreIndent;
+    }
+
+    private set ignoreIndent(value: boolean) {
+        this.state.ignoreIndent = value;
+    }
+
     private get indentStates() {
         return this.state.indentStates;
     }
@@ -184,7 +195,7 @@ export class Writer {
             this.hangingIndentLevel = undefined;
         }
 
-        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0)
+        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0 && !this.ignoreIndent)
             text = this.indentText + text;
 
         for (let i = 0; i < text.length; i++) {
@@ -238,6 +249,14 @@ export class Writer {
 
         this.hangingIndentLevel = originalHangingIndentState.hangingIndentLevel;
         this.indentLevel = originalHangingIndentState.indentLevel;
+    }
+
+    startIgnoringIndent() {
+        this.ignoreIndent = true;
+    }
+
+    finishIgnoringIndent() {
+        this.ignoreIndent = false;
     }
 
     markExpectNewLine() {

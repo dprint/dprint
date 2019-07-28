@@ -1,4 +1,4 @@
-import { PrintItem, PrintItemKind, Signal, Condition, Unknown, PrintItemIterator, Info, WriterInfo } from "../types";
+import { PrintItem, PrintItemKind, Signal, Condition, RawString, PrintItemIterator, Info, WriterInfo } from "../types";
 import { assertNever, RepeatableIterator } from "../utils";
 import { Writer, WriterState } from "./Writer";
 
@@ -76,8 +76,8 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
             printSignal(printItem);
         else if (typeof printItem === "string")
             printString(printItem);
-        else if (printItem.kind === PrintItemKind.Unknown)
-            printUnknown(printItem);
+        else if (printItem.kind === PrintItemKind.RawString)
+            printRawString(printItem);
         else if (printItem.kind === PrintItemKind.Condition)
             printCondition(printItem);
         else if (printItem.kind === PrintItemKind.Info)
@@ -88,41 +88,59 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
         // logWriterForDebugging();
 
         function printSignal(signal: Signal) {
-            if (signal === Signal.ExpectNewLine)
-                writer.markExpectNewLine();
-            else if (signal === Signal.NewLine)
-                markPossibleNewLineIfAble(signal);
-            else if (signal === Signal.SpaceOrNewLine) {
-                if (isAboveMaxWidth(1)) {
-                    const saveState = possibleNewLineSavePoint;
-                    if (saveState == null || saveState.newlineGroupDepth >= newlineGroupDepth)
-                        writer.write(options.newlineKind);
-                    else {
-                        if (possibleNewLineSavePoint != null)
-                            revertToSavePointPossiblyThrowing(possibleNewLineSavePoint);
-                    }
-                }
-                else {
+            switch (signal) {
+                case Signal.ExpectNewLine:
+                    writer.markExpectNewLine();
+                    break;
+                case Signal.NewLine:
                     markPossibleNewLineIfAble(signal);
-                    writer.write(" ");
-                }
+                    break;
+                case Signal.SpaceOrNewLine:
+                    if (isAboveMaxWidth(1)) {
+                        const saveState = possibleNewLineSavePoint;
+                        if (saveState == null || saveState.newlineGroupDepth >= newlineGroupDepth)
+                            writer.write(options.newlineKind);
+                        else {
+                            if (possibleNewLineSavePoint != null)
+                                revertToSavePointPossiblyThrowing(possibleNewLineSavePoint);
+                        }
+                    }
+                    else {
+                        markPossibleNewLineIfAble(signal);
+                        writer.write(" ");
+                    }
+                    break;
+                case Signal.StartIndent:
+                    writer.startIndent();
+                    break;
+                case Signal.FinishIndent:
+                    writer.finishIndent();
+                    break;
+                case Signal.StartHangingIndent:
+                    writer.startHangingIndent();
+                    break;
+                case Signal.FinishHangingIndent:
+                    writer.finishHangingIndent();
+                    break;
+                case Signal.StartNewlineGroup:
+                    newlineGroupDepth++;
+                    break;
+                case Signal.FinishNewLineGroup:
+                    newlineGroupDepth--;
+                    break;
+                case Signal.SingleIndent:
+                    writer.singleIndent();
+                    break;
+                case Signal.StartIgnoringIndent:
+                    writer.startIgnoringIndent();
+                    break;
+                case Signal.FinishIgnoringIndent:
+                    writer.finishIgnoringIndent();
+                    break;
+                default:
+                    assertNever(signal);
+                    break;
             }
-            else if (signal === Signal.StartIndent)
-                writer.startIndent();
-            else if (signal === Signal.FinishIndent)
-                writer.finishIndent();
-            else if (signal === Signal.StartHangingIndent)
-                writer.startHangingIndent();
-            else if (signal === Signal.FinishHangingIndent)
-                writer.finishHangingIndent();
-            else if (signal === Signal.StartNewlineGroup)
-                newlineGroupDepth++;
-            else if (signal === Signal.FinishNewLineGroup)
-                newlineGroupDepth--;
-            else if (signal === Signal.SingleIndent)
-                writer.singleIndent();
-            else
-                assertNever(signal);
         }
 
         function printString(text: string) {
@@ -137,7 +155,7 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
                 writer.write(text);
         }
 
-        function printUnknown(unknown: Unknown) {
+        function printRawString(unknown: RawString) {
             if (possibleNewLineSavePoint != null && isAboveMaxWidth(getLineWidth()))
                 revertToSavePointPossiblyThrowing(possibleNewLineSavePoint);
             else

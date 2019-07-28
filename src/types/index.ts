@@ -1,17 +1,17 @@
-export type PrintItem = Signal | string | Unknown | Condition | Info;
+export type PrintItem = Signal | string | RawString | Condition | Info;
 
 // iterators should only be used in groups so that they can become resetable
 export interface PrintItemIterator extends Iterable<PrintItem> {
 }
 
 export enum PrintItemKind {
-    Unknown,
+    RawString,
     Condition,
     Info
 }
 
-export interface Unknown {
-    kind: PrintItemKind.Unknown,
+export interface RawString {
+    kind: PrintItemKind.RawString,
     text: string;
 }
 
@@ -26,7 +26,9 @@ export enum Signal {
     FinishHangingIndent,
     StartNewlineGroup,
     FinishNewLineGroup,
-    SingleIndent
+    SingleIndent,
+    StartIgnoringIndent,
+    FinishIgnoringIndent
 }
 
 export interface Condition {

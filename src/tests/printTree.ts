@@ -1,4 +1,4 @@
-import { PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterator, Unknown } from "../types";
+import { PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterator, RawString } from "../types";
 import { assertNever } from "../utils";
 
 /** Prints out the tree for debugging purposes. */
@@ -24,8 +24,8 @@ function printItem(item: PrintItem) {
         return printCondition(item);
     else if (item.kind === PrintItemKind.Info)
         return printInfo(item);
-    else if (item.kind === PrintItemKind.Unknown)
-        return printUnknown(item);
+    else if (item.kind === PrintItemKind.RawString)
+        return printRawString(item);
     return assertNever(item);
 }
 
@@ -58,9 +58,9 @@ function printInfo(info: Info) {
     return `{ kind: Info, name: ${printString(info.name || "")} }`;
 }
 
-function printUnknown(unknown: Unknown) {
+function printRawString(unknown: RawString) {
     return "{\n"
-        + addIndentation("kind: Unknown,\n"
+        + addIndentation("kind: RawString,\n"
             + "text: " + printString(unknown.text)) + "\n"
         + "}";
 }

@@ -1,6 +1,6 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
-import { PrintItem, PrintItemKind, Signal, Unknown, PrintItemIterator, Condition, Info } from "../types";
+import { PrintItem, PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../types";
 import { assertNever, throwError, RepeatableIterator } from "../utils";
 import * as conditions from "./conditions";
 import * as conditionResolvers from "./conditionResolvers";
@@ -161,6 +161,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "ObjectProperty": parseObjectProperty,
     "RestElement": parseRestElement,
     "SpreadElement": parseSpreadElement,
+    "TaggedTemplateExpression": parseTaggedTemplateExpression,
     "TSTypeAssertion": parseTypeAssertion,
     "UnaryExpression": parseUnaryExpression,
     "UpdateExpression": parseUpdateExpression,
@@ -181,6 +182,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "NumericLiteral": parseNumericLiteral,
     "StringLiteral": parseStringOrDirectiveLiteral,
     "RegExpLiteral": parseRegExpLiteral,
+    "TemplateElement": parseTemplateElement,
+    "TemplateLiteral": parseTemplateLiteral,
     /* keywords */
     "Import": () => toPrintItemIterator("import"),
     "Super": () => toPrintItemIterator("super"),
@@ -1831,6 +1834,18 @@ function* parseSpreadElement(node: babel.SpreadElement, context: Context): Print
     yield* parseNode(node.argument, context);
 }
 
+function* parseTaggedTemplateExpression(node: babel.TaggedTemplateExpression, context: Context): PrintItemIterator {
+    yield* newlineGroup(function*() {
+        yield* parseNode(node.tag, context);
+        yield* parseNode(node.typeParameters, context);
+
+        yield* withHangingIndent(function*() {
+            yield Signal.SpaceOrNewLine;
+            yield* parseNode(node.quasi, context);
+        }());
+    }());
+}
+
 function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterator {
     yield "<";
     yield* parseNode(node.typeAnnotation, context);
@@ -1932,24 +1947,25 @@ function* parseExportSpecifier(specifier: babel.ExportSpecifier, context: Contex
 
 /* literals */
 
-function parseBigIntLiteral(node: babel.BigIntLiteral, context: Context) {
-    return node.value + "n";
+function* parseBigIntLiteral(node: babel.BigIntLiteral, context: Context): PrintItemIterator {
+    yield node.value + "n";
 }
 
-function parseBooleanLiteral(node: babel.BooleanLiteral, context: Context) {
-    return node.value ? "true" : "false";
+function* parseBooleanLiteral(node: babel.BooleanLiteral, context: Context): PrintItemIterator {
+    yield node.value ? "true" : "false";
 }
 
-function parseNumericLiteral(node: babel.NumericLiteral, context: Context) {
-    return context.fileText.substring(node.start!, node.end!);
+function* parseNumericLiteral(node: babel.NumericLiteral, context: Context): PrintItemIterator {
+    yield context.fileText.substring(node.start!, node.end!);
 }
 
-function parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.DirectiveLiteral, context: Context) {
+function* parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.DirectiveLiteral, context: Context): PrintItemIterator {
     // do not use node.value because it will not keep escaped characters as escaped characters
     const stringValue = context.fileText.substring(node.start! + 1, node.end! - 1);
     if (context.config.singleQuotes)
-        return `'${stringValue.replace(/'/g, `\\'`)}'`;
-    return `"${stringValue.replace(/"/g, `\\"`)}"`;
+        yield `'${stringValue.replace(/'/g, `\\'`)}'`;
+    else
+        yield `"${stringValue.replace(/"/g, `\\"`)}"`;
 }
 
 function* parseRegExpLiteral(node: babel.RegExpLiteral, context: Context): PrintItemIterator {
@@ -1959,6 +1975,75 @@ function* parseRegExpLiteral(node: babel.RegExpLiteral, context: Context): Print
     yield node.flags;
 }
 
+function* parseTemplateElement(node: babel.TemplateElement, context: Context): PrintItemIterator {
+    yield {
+        kind: PrintItemKind.RawString,
+        text: context.fileText.substring(node.start!, node.end!)
+    };
+}
+
+function* parseTemplateLiteral(node: babel.TemplateLiteral, context: Context): PrintItemIterator {
+    yield* newlineGroup(function*(): PrintItemIterator {
+        yield "`";
+        yield Signal.StartIgnoringIndent;
+        for (const item of getItems()) {
+            if (item.type === "TemplateElement")
+                yield* parseNode(item, context);
+            else {
+                yield "${";
+                yield Signal.FinishIgnoringIndent;
+                yield Signal.NewLine;
+                yield* parseNode(item, context);
+                yield Signal.NewLine;
+                yield "}";
+                yield Signal.StartIgnoringIndent;
+            }
+        }
+        yield "`";
+        yield Signal.FinishIgnoringIndent;
+    }());
+
+    function* getItems(): Iterable<babel.Node> {
+        let quasisIndex = 0;
+        let expressionsIndex = 0;
+
+        while (true) {
+            const currentQuasis = node.quasis[quasisIndex];
+            const currentExpression = node.expressions[expressionsIndex];
+
+            if (currentQuasis != null) {
+                if (currentExpression != null) {
+                    if (currentQuasis.start! < currentExpression.start!)
+                        yield moveNextQuasis();
+                    else
+                        yield moveNextExpression();
+                }
+                else {
+                    yield moveNextQuasis();
+                }
+            }
+            else if (currentExpression != null) {
+                yield moveNextExpression();
+            }
+            else {
+                return;
+            }
+
+            function moveNextQuasis() {
+                quasisIndex++;
+                return currentQuasis;
+            }
+
+            function moveNextExpression() {
+                expressionsIndex++;
+                return currentExpression;
+            }
+        }
+    }
+}
+
+/* not implemented */
+
 function parseNotSupportedFlowNode(node: babel.Node, context: Context): PrintItemIterator {
     return toPrintItemIterator(parseUnknownNodeWithMessage(node, context, "Flow node types are not supported"));
 }
@@ -1967,13 +2052,13 @@ function parseUnknownNode(node: babel.Node, context: Context): PrintItemIterator
     return toPrintItemIterator(parseUnknownNodeWithMessage(node, context, "Not implemented node type"));
 }
 
-function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message: string): Unknown {
+function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message: string): RawString {
     const nodeText = context.fileText.substring(node.start!, node.end!);
 
     context.log(`${message}: ${node.type} (${nodeText.substring(0, 100)})`);
 
     return {
-        kind: PrintItemKind.Unknown,
+        kind: PrintItemKind.RawString,
         text: nodeText
     };
 }
