@@ -2583,12 +2583,7 @@ function* parseDecorators(
 function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.Node, isComputed: boolean, context: Context): PrintItemIterator {
     const useNewline = nodeHelpers.getUseNewlinesForNodes([leftNode, rightNode]);
 
-    if (context.parent.type !== "MemberExpression")
-        yield* newlineGroup(withHangingIndent(parseInner()));
-    else
-        yield* newlineGroup(parseInner());
-
-    function* parseInner(): PrintItemIterator {
+    yield* newlineGroup(function*() {
         yield* parseNode(leftNode, context);
 
         if (useNewline)
@@ -2596,6 +2591,10 @@ function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.No
         else
             yield Signal.NewLine;
 
+        yield* indentIfStartOfLine(parseRightNode());
+    }());
+
+    function* parseRightNode(): PrintItemIterator {
         if (isComputed)
             yield "[";
         else

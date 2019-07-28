@@ -5,8 +5,7 @@ obj.prop[ "computed"   ];
 testing
     .this
     .out
-    .a
-    .lot
+    .a.lot
     .more;
 testing.this.out.for.when.it.passes.thelineWidth;
 
@@ -16,8 +15,19 @@ obj.prop["computed"];
 testing
     .this
     .out
-    .a
-    .lot
+    .a.lot
     .more;
 testing.this.out.for.when.it.passes
     .thelineWidth;
+
+== should not indent for other nodes ==
+call({
+    prop: 5,
+    prop: 7
+}).member;
+
+[expect]
+call({
+    prop: 5,
+    prop: 7
+}).member;
