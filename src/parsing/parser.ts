@@ -1,7 +1,7 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
 import { PrintItem, PrintItemKind, Signal, Unknown, PrintItemIterator, Condition, Info } from "../types";
-import { assertNever, isPrintItemIterator, throwError, RepeatableIterator, isIterator } from "../utils";
+import { assertNever, throwError, RepeatableIterator } from "../utils";
 import * as conditions from "./conditions";
 import * as conditionResolvers from "./conditionResolvers";
 import * as nodeHelpers from "./nodeHelpers";
@@ -2785,14 +2785,9 @@ function* parseNodeWithPreceedingColon(node: babel.Node | null | undefined, cont
     }()));
 }
 
-function* surroundWithNewLines(item: PrintItemIterator | (() => PrintItemIterator), context: Context): PrintItemIterator {
+function* surroundWithNewLines(item: PrintItemIterator, context: Context): PrintItemIterator {
     yield context.newlineKind;
-    if (item instanceof Function)
-        yield* item();
-    else if (isPrintItemIterator(item))
-        yield* item;
-    else
-        yield item;
+    yield* item;
     yield context.newlineKind;
 }
 
