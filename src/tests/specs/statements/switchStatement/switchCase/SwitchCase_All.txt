@@ -1,0 +1,28 @@
+~~ lineWidth: 40 ~~
+== should print ==
+switch (expr) {
+
+    case 5:
+    case 6: // other
+    // testing
+    case 7: // test
+        return 6;
+
+    default:
+        console.log(5);
+
+        return 6;
+}
+
+[expect]
+switch (expr) {
+    case 5:
+    case 6: // other
+    // testing
+    case 7: // test
+        return 6;
+    default:
+        console.log(5);
+
+        return 6;
+}

@@ -125,6 +125,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "InterpreterDirective": parseInterpreterDirective,
     "LabeledStatement": parseLabeledStatement,
     "ReturnStatement": parseReturnStatement,
+    "SwitchCase": parseSwitchCase,
     "SwitchStatement": parseSwitchStatement,
     "ThrowStatement": parseThrowStatement,
     "TryStatement": parseTryStatement,
@@ -1300,6 +1301,32 @@ function* parseReturnStatement(node: babel.ReturnStatement, context: Context): P
         yield ";";
 }
 
+function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIterator {
+    if (node.test == null)
+        yield "default:";
+    else {
+        yield "case ";
+        yield* parseNode(node.test, context);
+        yield ":";
+    }
+
+    yield* parseFirstLineTrailingComments(node, node.consequent, context);
+
+    if (node.consequent.length > 0) {
+        yield context.newlineKind;
+
+        yield* withIndent(parseStatementOrMembers({
+            items: node.consequent,
+            innerComments: node.innerComments,
+            lastNode: undefined,
+            context,
+            shouldUseBlankLine: (previousNode, nextNode) => {
+                return nodeHelpers.hasSeparatingBlankLine(previousNode, nextNode);
+            }
+        }));
+    }
+}
+
 function* parseSwitchStatement(node: babel.SwitchStatement, context: Context): PrintItemIterator {
     const startHeaderInfo = createInfo("startHeader");
     yield startHeaderInfo;
@@ -1313,9 +1340,7 @@ function* parseSwitchStatement(node: babel.SwitchStatement, context: Context): P
         node,
         members: node.cases,
         startHeaderInfo,
-        shouldUseBlankLine: (previousNode, nextNode) => {
-            return nodeHelpers.hasSeparatingBlankLine(previousNode, nextNode);
-        }
+        shouldUseBlankLine: () => false
     });
 }
 
