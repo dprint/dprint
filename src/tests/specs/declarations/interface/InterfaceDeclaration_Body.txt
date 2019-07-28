@@ -1,5 +1,5 @@
 == should print members ==
-interface Test {
+interface Test { // test
     // other
     prop: string;
 
@@ -11,7 +11,7 @@ interface Test {
 }
 
 [expect]
-interface Test {
+interface Test { // test
     // other
     prop: string;
 

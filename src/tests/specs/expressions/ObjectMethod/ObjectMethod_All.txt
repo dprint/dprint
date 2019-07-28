@@ -1,0 +1,19 @@
+== should format ==
+const obj = {
+    method() {
+        return 5;
+    },
+    *method2(): string { // testing
+        return "";
+    }
+};
+
+[expect]
+const obj = {
+    method() {
+        return 5;
+    },
+    *method2(): string { // testing
+        return "";
+    }
+};

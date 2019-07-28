@@ -1,10 +1,10 @@
 ~~ lineWidth: 65 ~~
 == should print with no members ==
-const t = class Test {
+const t = class Test { // test
 };
 
 [expect]
-const t = class Test {
+const t = class Test { // test
 };
 
 == should print with no name ==

@@ -95,8 +95,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "TSTypeAliasDeclaration": parseTypeAlias,
     /* class */
     "ClassBody": parseClassBody,
-    "ClassMethod": parseClassMethod,
-    "TSDeclareMethod": parseClassMethod,
+    "ClassMethod": parseClassOrObjectMethod,
+    "TSDeclareMethod": parseClassOrObjectMethod,
     "ClassProperty": parseClassProperty,
     "Decorator": parseDecorator,
     "TSParameterProperty": parseParameterProperty,
@@ -154,6 +154,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "NewExpression": parseNewExpression,
     "TSNonNullExpression": parseNonNullExpression,
     "ObjectExpression": parseObjectExpression,
+    "ObjectMethod": parseClassOrObjectMethod,
     "ObjectProperty": parseObjectProperty,
     "RestElement": parseRestElement,
     "SpreadElement": parseSpreadElement,
@@ -350,7 +351,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
     const endStatementsInfo = createInfo("endStatementsInfo");
 
     yield "{";
-    yield* getFirstLineTrailingComments();
+    yield* parseFirstLineTrailingComments(node, node.body, context);
     yield context.newlineKind;
     yield startStatementsInfo;
     yield* withIndent(parseStatements(node, context));
@@ -364,19 +365,6 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
         true: [context.newlineKind]
     };
     yield "}";
-
-    function* getFirstLineTrailingComments(): PrintItemIterator {
-        if (!node.trailingComments)
-            return;
-
-        for (const trailingComment of node.trailingComments) {
-            if (trailingComment.loc!.start.line === node.loc!.start.line) {
-                if (trailingComment.type === "CommentLine")
-                    yield " ";
-                yield* parseComment(trailingComment, context);
-            }
-        }
-    }
 }
 
 function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIterator {
@@ -843,66 +831,69 @@ function parseClassBody(node: babel.ClassBody, context: Context): PrintItemItera
     });
 }
 
-function* parseClassMethod(node: babel.ClassMethod | babel.TSDeclareMethod, context: Context): PrintItemIterator {
-    yield* parseHeader();
-
-    if (node.type === "ClassMethod")
-        yield* parseNode(node.body, context);
-    else if (context.config["classMethod.semiColon"])
-        yield ";";
-
-    function* parseHeader(): PrintItemIterator {
+function* parseClassOrObjectMethod(
+    node: babel.ClassMethod | babel.TSDeclareMethod | babel.ObjectMethod,
+    context: Context
+): PrintItemIterator {
+    if (node.type !== "ObjectMethod")
         yield* parseDecorators(node, context);
 
-        const startHeaderInfo = createInfo("methodStartHeaderInfo");
-        yield startHeaderInfo;
+    const startHeaderInfo = createInfo("methodStartHeaderInfo");
+    yield startHeaderInfo;
 
+    if (node.type !== "ObjectMethod") {
         if (node.accessibility)
             yield node.accessibility + " ";
         if (node.static)
             yield "static ";
-        if (node.async)
-            yield "async ";
-        if (node.abstract)
-            yield "abstract ";
+    }
 
-        if (node.kind === "get")
-            yield "get ";
-        else if (node.kind === "set")
-            yield "set ";
+    if (node.async)
+        yield "async ";
 
-        if (node.generator)
-            yield "*";
+    if (node.type !== "ObjectMethod" && node.abstract)
+        yield "abstract ";
 
-        if (node.computed)
-            yield "[";
+    if (node.kind === "get")
+        yield "get ";
+    else if (node.kind === "set")
+        yield "set ";
 
-        yield* parseNode(node.key, context);
+    if (node.generator)
+        yield "*";
 
-        if (node.computed)
-            yield "]";
+    if (node.computed)
+        yield "[";
 
-        if (node.optional)
-            yield "?";
+    yield* parseNode(node.key, context);
 
-        if (node.typeParameters)
-            yield* parseNode(node.typeParameters, context);
+    if (node.computed)
+        yield "]";
 
-        yield* parseParametersOrArguments(node.params, context);
+    if (node.type !== "ObjectMethod" && node.optional)
+        yield "?";
 
-        if (node.returnType) {
-            yield ": ";
-            yield* parseNode(node.returnType, context);
-        }
+    if (node.typeParameters)
+        yield* parseNode(node.typeParameters, context);
 
-        if (node.type === "ClassMethod") {
-            yield* parseBraceSeparator({
-                bracePosition: context.config["classMethod.bracePosition"],
-                bodyNode: node.body,
-                startHeaderInfo: startHeaderInfo,
-                context
-            });
-        }
+    yield* parseParametersOrArguments(node.params, context);
+
+    if (node.returnType) {
+        yield ": ";
+        yield* parseNode(node.returnType, context);
+    }
+
+    if (node.type !== "TSDeclareMethod") {
+        yield* parseBraceSeparator({
+            bracePosition: context.config["classMethod.bracePosition"],
+            bodyNode: node.body,
+            startHeaderInfo: startHeaderInfo,
+            context
+        });
+        yield* parseNode(node.body, context);
+    }
+    else if (context.config["classMethod.semiColon"]) {
+        yield ";";
     }
 }
 
@@ -2193,13 +2184,16 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterator {
     });
 
     yield "{";
+    yield* parseFirstLineTrailingComments(node, members, context);
     yield* withIndent(parseBody());
     yield context.newlineKind;
     yield "}";
 
     function* parseBody(): PrintItemIterator {
-        if (members.length > 0 || node.innerComments != null && node.innerComments.length > 0)
+        // todo: remove filter—don't allocate a new array for this.
+        if (members.length > 0 || node.innerComments != null && node.innerComments.filter(n => !context.handledComments.has(n)).length > 0)
             yield context.newlineKind;
+
         yield* parseStatementOrMembers({
             items: members,
             innerComments: node.innerComments,
@@ -2670,6 +2664,25 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
     function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
         yield `// ${comment.value.trim()}`;
         yield Signal.ExpectNewLine;
+    }
+}
+
+function* parseFirstLineTrailingComments(node: babel.Node, members: babel.Node[], context: Context): PrintItemIterator {
+    for (const trailingComment of getComments()) {
+        if (trailingComment.loc!.start.line === node.loc!.start.line) {
+            if (trailingComment.type === "CommentLine")
+                yield " ";
+            yield* parseComment(trailingComment, context);
+        }
+    }
+
+    function* getComments() {
+        if (node.innerComments)
+            yield* node.innerComments;
+        if (members.length > 0 && members[0].leadingComments)
+            yield* members[0].leadingComments!;
+        if (node.trailingComments)
+            yield* node.trailingComments;
     }
 }
 
