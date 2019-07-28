@@ -2989,6 +2989,7 @@ function* withIndent(item: PrintItemIterator): PrintItemIterator {
     yield Signal.FinishIndent;
 }
 
+// todo: deprecate this
 function* withHangingIndent(item: PrintItemIterator): PrintItemIterator {
     yield Signal.StartHangingIndent;
     yield* item;
