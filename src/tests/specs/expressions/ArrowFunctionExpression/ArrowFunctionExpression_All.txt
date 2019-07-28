@@ -38,3 +38,15 @@ const t = (a: string) => 5;
 
 [expect]
 const t = (a: string) => 5;
+
+== should use parens when async and no parens ==
+const t = async () => 5;
+
+[expect]
+const t = async () => 5;
+
+== should not use parens when async and has no parens ==
+const t = async a => 5;
+
+[expect]
+const t = async a => 5;

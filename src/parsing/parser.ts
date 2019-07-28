@@ -1644,8 +1644,7 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
     yield* parseNode(node.typeParameters, context);
 
     // todo: configuration (issue #7)
-    const hasParentheses = context.fileText[node.start!] === "(";
-    if (hasParentheses || node.params.length > 1)
+    if (node.params.length !== 1 || hasParentheses())
         yield* parseParametersOrArguments(node.params, context);
     else
         yield* parseNode(node.params[0], context);
@@ -1665,6 +1664,23 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
     });
 
     yield* parseNode(node.body, context);
+
+    function hasParentheses() {
+        if (node.params.length !== 1)
+            return true;
+
+        const endSearchPos = node.params[0].start!;
+        const openParenToken = nodeHelpers.getFirstToken(context.file, token => {
+            if (token.start < node.start!)
+                return false;
+            if (token.start >= endSearchPos)
+                return "stop";
+
+            return token.type && token.type.label === "(" || false;
+        });
+
+        return openParenToken != null;
+    }
 }
 
 function* parseAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
