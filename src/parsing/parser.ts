@@ -1643,7 +1643,12 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
 
     yield* parseNode(node.typeParameters, context);
 
-    yield* parseParametersOrArguments(node.params, context);
+    // todo: configuration (issue #7)
+    const hasParentheses = context.fileText[node.start!] === "(";
+    if (hasParentheses || node.params.length > 1)
+        yield* parseParametersOrArguments(node.params, context);
+    else
+        yield* parseNode(node.params[0], context);
 
     if (node.returnType) {
         yield ": ";

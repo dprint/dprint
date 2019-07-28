@@ -20,3 +20,21 @@ const t = () => true || false || true || false || true || false;
 [expect]
 const t = () => true || false || true || false || true
     || false;
+
+== should allow arrow functions without parens ==
+const t = a => 5;
+
+[expect]
+const t = a => 5;
+
+== should use parens when specified ==
+const t = (a) => 5;
+
+[expect]
+const t = (a) => 5;
+
+== should use parens when there is a type ==
+const t = (a: string) => 5;
+
+[expect]
+const t = (a: string) => 5;
