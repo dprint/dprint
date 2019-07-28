@@ -156,6 +156,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "TSNonNullExpression": parseNonNullExpression,
     "ObjectExpression": parseObjectExpression,
     "ObjectMethod": parseClassOrObjectMethod,
+    "ObjectPattern": parseObjectPattern,
     "ObjectProperty": parseObjectProperty,
     "RestElement": parseRestElement,
     "SpreadElement": parseSpreadElement,
@@ -1644,6 +1645,7 @@ function* parseAssignmentExpression(node: babel.AssignmentExpression, context: C
     yield ` ${node.operator} `;
     yield* parseNode(node.right, context);
 }
+
 function* parseAssignmentPattern(node: babel.AssignmentPattern, context: Context): PrintItemIterator {
     yield* parseNode(node.left, context);
     yield "=";
@@ -1764,17 +1766,33 @@ function* parseObjectExpression(node: babel.ObjectExpression, context: Context):
     });
 }
 
+function* parseObjectPattern(node: babel.ObjectPattern, context: Context): PrintItemIterator {
+    yield* parseObjectLikeNode({
+        node,
+        members: node.properties,
+        context,
+        trailingCommas: "never"
+    });
+    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+}
+
 function* parseObjectProperty(node: babel.ObjectProperty, context: Context): PrintItemIterator {
-    if (node.computed)
-        yield "[";
+    if (!node.shorthand) {
+        if (node.computed)
+            yield "[";
 
-    yield* parseNode(node.key, context);
+        yield* parseNode(node.key, context);
 
-    if (node.computed)
-        yield "]";
+        if (node.computed)
+            yield "]";
+    }
 
-    if (node.value && !node.shorthand)
-        yield* parseNodeWithPreceedingColon(node.value, context);
+    if (node.value) {
+        if (node.shorthand)
+            yield* parseNode(node.value, context);
+        else
+            yield* parseNodeWithPreceedingColon(node.value, context);
+    }
 }
 
 function* parseRestElement(node: babel.RestElement, context: Context): PrintItemIterator {

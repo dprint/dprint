@@ -1,0 +1,17 @@
+== should format ==
+const { t=5, u=4, v: other } = obj;
+
+[expect]
+const { t=5, u=4, v: other } = obj;
+
+== should format multi-line ==
+const {
+    t=5,
+    u=4
+} = obj;
+
+[expect]
+const {
+    t=5,
+    u=4
+} = obj;

@@ -16,14 +16,17 @@ const obj = { prop: 5, other: 4 };
 const obj = {
 
     prop: 5,
-    other: 7
-
+    other: 7,
+    ...test,
+    ...other
 };
 
 [expect]
 const obj = {
     prop: 5,
-    other: 7
+    other: 7,
+    ...test,
+    ...other
 };
 
 == should make multiple lines wrap ==
