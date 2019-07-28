@@ -393,19 +393,19 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
 
 function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel.ClassExpression, context: Context): PrintItemIterator {
     if (node.type === "ClassExpression") {
-        yield* withHangingIndent(parseClassDecorators());
+        yield* parseClassDecorators();
         yield {
             kind: PrintItemKind.Condition,
             name: "singleIndentIfStartOfLine",
             condition: conditionResolvers.isStartOfNewLine,
             true: [Signal.SingleIndent]
         };
-        yield* parseHeader();
     }
     else {
         yield* parseClassDecorators();
-        yield* parseHeader();
     }
+
+    yield* parseHeader();
 
     yield* parseNode(node.body, context);
 
@@ -440,13 +440,13 @@ function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel
         if (node.typeParameters)
             yield* parseNode(node.typeParameters, context);
 
-        yield* withHangingIndent(parseExtendsAndImplements());
+        yield* parseExtendsAndImplements();
 
         function* parseExtendsAndImplements(): PrintItemIterator {
             if (node.superClass) {
                 yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
-                yield "extends ";
-                yield* withHangingIndent(function*(): PrintItemIterator {
+                yield* indentIfStartOfLine(function*() {
+                    yield "extends ";
                     yield* parseNode(node.superClass, context);
                     if (node.superTypeParameters)
                         yield* parseNode(node.superTypeParameters, context);
@@ -667,12 +667,12 @@ function* parseInterfaceDeclaration(node: babel.TSInterfaceDeclaration, context:
     yield* parseNode(node.id, context);
     yield* parseNode(node.typeParameters, context);
 
-    yield* withHangingIndent(parseExtendsOrImplements({
+    yield* parseExtendsOrImplements({
         text: "extends",
         items: node.extends,
         context,
         startHeaderInfo
-    }));
+    });
 
     yield* parseNode(node.body, context);
 }
@@ -2515,9 +2515,9 @@ function* parseNamedImportsOrExports(
     yield braceSeparator;
 
     if (useNewLines)
-        yield* withIndent(parseSpecifiers());
+        yield* withIndent(newlineGroup(parseSpecifiers()));
     else
-        yield* newlineGroup(withHangingIndent(parseSpecifiers()));
+        yield* newlineGroup(parseSpecifiers());
 
     yield braceSeparator;
     yield "}";
@@ -2534,7 +2534,11 @@ function* parseNamedImportsOrExports(
                 yield ",";
                 yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
             }
-            yield* parseNode(namedImportsOrExports[i], context);
+
+            if (useNewLines)
+                yield* parseNode(namedImportsOrExports[i], context);
+            else
+                yield* indentIfStartOfLine(parseNode(namedImportsOrExports[i], context));
         }
     }
 }
@@ -2569,7 +2573,10 @@ function* parseDecorators(
                 yield Signal.SpaceOrNewLine;
         }
 
-        yield* newlineGroup(parseNode(decorators[i], context));
+        if (isClassExpression)
+            yield* indentIfStartOfLine(newlineGroup(parseNode(decorators[i], context)));
+        else
+            yield* newlineGroup(parseNode(decorators[i], context));
     }
 
     if (isClassExpression)
@@ -2618,16 +2625,19 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
         return;
 
     yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
-    yield `${text} `;
-    yield* newlineGroup(withHangingIndent(function*(): PrintItemIterator {
-        for (let i = 0; i < items.length; i++) {
-            if (i > 0) {
-                yield ",";
-                yield Signal.SpaceOrNewLine;
+    yield* indentIfStartOfLine(function*() {
+        yield `${text} `;
+        yield* newlineGroup(function*() {
+            for (let i = 0; i < items.length; i++) {
+                if (i > 0) {
+                    yield ",";
+                    yield Signal.SpaceOrNewLine;
+                }
+
+                yield* indentIfStartOfLine(parseNode(items[i], context));
             }
-            yield* parseNode(items[i], context);
-        }
-    }()));
+        }());
+    }());
 }
 
 interface ParseArrayLikeNodesOptions {
@@ -2704,7 +2714,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
 
     yield startInfo;
     yield "{";
-    yield* withHangingIndent(getInner());
+    yield* getInner();
     yield getSeparator();
     yield "}";
     yield endInfo;
@@ -2713,7 +2723,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
         yield getSeparator();
 
         if (multiLine) {
-            yield* parseStatementOrMembers({
+            yield* withIndent(parseStatementOrMembers({
                 context,
                 innerComments: node.innerComments,
                 items: members,
@@ -2722,14 +2732,14 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
                     return nodeHelpers.hasSeparatingBlankLine(previousStatement, nextStatement);
                 },
                 trailingCommas
-            });
+            }));
         }
         else {
             for (let i = 0; i < members.length; i++) {
                 if (i > 0)
                     yield Signal.SpaceOrNewLine;
 
-                yield* parseNode(members[i], context, {
+                yield* indentIfStartOfLine(parseNode(members[i], context, {
                     innerParse: function*(iterator) {
                         yield* iterator;
 
@@ -2739,7 +2749,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
                                 yield ",";
                         }
                     }
-                });
+                }));
             }
         }
     }
