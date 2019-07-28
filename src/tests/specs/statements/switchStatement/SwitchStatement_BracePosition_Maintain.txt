@@ -1,0 +1,38 @@
+~~ switchStatement.bracePosition: "maintain", lineWidth: 40 ~~
+== should maintain the position for the brace position when on same line ==
+switch (expr) {
+}
+
+[expect]
+switch (expr) {
+}
+
+== should maintain the position for the brace position when on a new line ==
+switch (expr)
+{
+}
+
+[expect]
+switch (expr)
+{
+}
+
+== should maintain the position for the brace position when hanging and on the same line ==
+switch (obj.testing.testing.testing.testing) {
+}
+
+[expect]
+switch (obj.testing.testing.testing
+    .testing) {
+}
+
+== should maintain the position for the brace position when hanging and on the next line ==
+switch (obj.testing.testing.testing.testing)
+{
+}
+
+[expect]
+switch (obj.testing.testing.testing
+    .testing)
+{
+}

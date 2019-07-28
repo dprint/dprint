@@ -99,6 +99,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "ifStatement.bracePosition": getValue("ifStatement.bracePosition", bracePosition, ensureBracePosition),
         "interfaceDeclaration.bracePosition": getValue("interfaceDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "moduleDeclaration.bracePosition": getValue("moduleDeclaration.bracePosition", bracePosition, ensureBracePosition),
+        "switchStatement.bracePosition": getValue("switchStatement.bracePosition", bracePosition, ensureBracePosition),
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
         "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition),
         // next control flow position

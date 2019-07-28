@@ -125,6 +125,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "InterpreterDirective": parseInterpreterDirective,
     "LabeledStatement": parseLabeledStatement,
     "ReturnStatement": parseReturnStatement,
+    "SwitchStatement": parseSwitchStatement,
     "ThrowStatement": parseThrowStatement,
     "TryStatement": parseTryStatement,
     "WhileStatement": parseWhileStatement,
@@ -1298,6 +1299,25 @@ function* parseReturnStatement(node: babel.ReturnStatement, context: Context): P
         yield ";";
 }
 
+function* parseSwitchStatement(node: babel.SwitchStatement, context: Context): PrintItemIterator {
+    const startHeaderInfo = createInfo("startHeader");
+    yield startHeaderInfo;
+    yield "switch (";
+    yield* parseNode(node.discriminant, context);
+    yield ")";
+
+    yield* parseMemberedBody({
+        bracePosition: context.config["switchStatement.bracePosition"],
+        context,
+        node,
+        members: node.cases,
+        startHeaderInfo,
+        shouldUseBlankLine: (previousNode, nextNode) => {
+            return nodeHelpers.hasSeparatingBlankLine(previousNode, nextNode);
+        }
+    });
+}
+
 function* parseThrowStatement(node: babel.ThrowStatement, context: Context): PrintItemIterator {
     yield "throw ";
     yield* parseNode(node.argument, context);
@@ -2402,6 +2422,8 @@ function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.No
 
         if (useNewline)
             yield context.newlineKind;
+        else
+            yield Signal.NewLine;
 
         if (isComputed)
             yield "[";

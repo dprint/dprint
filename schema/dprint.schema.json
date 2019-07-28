@@ -237,6 +237,9 @@
         "moduleDeclaration.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },
+        "switchStatement.bracePosition": {
+            "$ref": "#/definitions/bracePosition"
+        },
         "tryStatement.bracePosition": {
             "$ref": "#/definitions/bracePosition"
         },

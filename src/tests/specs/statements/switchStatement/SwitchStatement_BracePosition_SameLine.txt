@@ -1,0 +1,18 @@
+~~ switchStatement.bracePosition: "sameLine", lineWidth: 40 ~~
+== should use the same line for the brace position ==
+switch (expr)
+{
+}
+
+[expect]
+switch (expr) {
+}
+
+== should use the same line for the brace position when hanging ==
+switch (expr.testing.testing.testing.testing) {
+}
+
+[expect]
+switch (expr.testing.testing.testing
+    .testing) {
+}

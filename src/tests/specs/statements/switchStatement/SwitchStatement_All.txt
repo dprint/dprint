@@ -1,0 +1,18 @@
+~~ lineWidth: 40 ~~
+== should print ==
+switch (expr) {
+}
+
+[expect]
+switch (expr) {
+}
+
+== should put brace on newline when on multiple lines ==
+switch (expr.testing.testing.testing.testing) {
+}
+
+[expect]
+switch (expr.testing.testing.testing
+    .testing)
+{
+}
