@@ -51,6 +51,6 @@ export function singleIndentIfStartOfLine(): Condition {
         kind: PrintItemKind.Condition,
         name: "singleIndentIfStartOfLine",
         condition: conditionResolvers.isStartOfNewLine,
-        true: [Signal.SingleIndent],
+        true: [Signal.SingleIndent]
     };
 }

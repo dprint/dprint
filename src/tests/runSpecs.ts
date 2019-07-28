@@ -53,7 +53,7 @@ describe("specs", () => {
             throw new Error(`${spec.message}: The expected text did not end with a newline.`);
         if (spec.expectedText.endsWith("\n\n"))
             throw new Error(`${spec.message}: The expected text ended with multiple newlines: ${JSON.stringify(spec.expectedText)}`);
-        //expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
+        // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
         expect(actualText).to.equal(spec.expectedText, spec.message);
     }
 
@@ -75,7 +75,7 @@ function readFile(filePath: string) {
     return new Promise<string>((resolve, reject) => {
         fs.readFile(filePath, { encoding: "utf8" }, (err, text) => {
             if (err)
-                reject(err)
+                reject(err);
             else
                 resolve(text);
         });

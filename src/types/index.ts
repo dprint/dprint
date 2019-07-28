@@ -11,7 +11,7 @@ export enum PrintItemKind {
 }
 
 export interface RawString {
-    kind: PrintItemKind.RawString,
+    kind: PrintItemKind.RawString;
     text: string;
 }
 
@@ -32,7 +32,7 @@ export enum Signal {
 }
 
 export interface Condition {
-    kind: PrintItemKind.Condition,
+    kind: PrintItemKind.Condition;
     /** Name for debugging purposes. */
     name: string;
     condition: ResolveCondition | Condition;

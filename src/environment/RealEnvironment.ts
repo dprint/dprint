@@ -16,7 +16,7 @@ export class RealEnvironment implements Environment {
     }
 
     error(text: string) {
-        console.error(text)
+        console.error(text);
     }
 
     resolvePath(fileOrDirPath: string) {

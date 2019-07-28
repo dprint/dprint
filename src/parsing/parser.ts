@@ -32,7 +32,7 @@ const BAG_KEYS = {
 } as const;
 
 export interface Context {
-    file: babel.File,
+    file: babel.File;
     fileText: string;
     log: (message: string) => void;
     warn: (message: string) => void;
@@ -1698,7 +1698,7 @@ function* parseAssignmentExpression(node: babel.AssignmentExpression, context: C
 function* parseAssignmentPattern(node: babel.AssignmentPattern, context: Context): PrintItemIterator {
     yield* newlineGroup(function*() {
         yield* parseNode(node.left, context);
-        yield Signal.SpaceOrNewLine
+        yield Signal.SpaceOrNewLine;
         yield* indentIfStartOfLine(function*() {
             yield "= ";
             yield* parseNode(node.right, context);
@@ -2046,12 +2046,10 @@ function* parseTemplateLiteral(node: babel.TemplateLiteral, context: Context): P
                     yield moveNextQuasis();
                 }
             }
-            else if (currentExpression != null) {
+            else if (currentExpression != null)
                 yield moveNextExpression();
-            }
-            else {
+            else
                 return;
-            }
 
             function moveNextQuasis() {
                 quasisIndex++;
@@ -2485,7 +2483,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
             }
             else {
                 yield Signal.SpaceOrNewLine;
-                yield* indentIfStartOfLine(parsedParam)
+                yield* indentIfStartOfLine(parsedParam);
             }
         }
 

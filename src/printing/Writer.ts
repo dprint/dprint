@@ -25,7 +25,7 @@ export class Writer {
 
     private state: WriterState;
 
-    constructor(private readonly options: { indentSize: number; useTabs: boolean; newlineKind: "\r\n" | "\n" }) {
+    constructor(private readonly options: { indentSize: number; useTabs: boolean; newlineKind: "\r\n" | "\n"; }) {
         this.singleIndentationText = this.options.useTabs ? "\t" : " ".repeat(options.indentSize);
         this.state = {
             currentLineColumn: 0,
