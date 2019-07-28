@@ -56,3 +56,19 @@ const t;
 [expect]
 /* test */
 const t;
+
+== should format multi-line comments ==
+/**
+ * testing
+ * test
+ */
+class Test {
+}
+
+[expect]
+/**
+ * testing
+ * test
+ */
+class Test {
+}

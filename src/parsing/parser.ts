@@ -2807,7 +2807,10 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
 
     function* parseCommentBlock(comment: babel.CommentBlock): PrintItemIterator {
         yield "/*";
-        yield comment.value;
+        yield {
+            kind: PrintItemKind.RawString,
+            text: comment.value
+        };
         yield "*/";
     }
 
