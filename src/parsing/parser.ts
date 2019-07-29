@@ -1527,7 +1527,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 return assertNever(useBraces);
             }
         },
-        true: function*(): PrintItemIterator {
+        true: function*() {
             yield* parseBraceSeparator({
                 bracePosition,
                 bodyNode,
@@ -2022,7 +2022,7 @@ function* parseTemplateElement(node: babel.TemplateElement, context: Context): P
 }
 
 function* parseTemplateLiteral(node: babel.TemplateLiteral, context: Context): PrintItemIterator {
-    yield* newlineGroup(function*(): PrintItemIterator {
+    yield* newlineGroup(function*() {
         yield "`";
         yield Signal.StartIgnoringIndent;
         for (const item of getItems()) {
@@ -2990,7 +2990,7 @@ function* parseNodeWithPreceedingColon(node: babel.Node | null | undefined, cont
         return;
 
     yield ":";
-    yield* newlineGroup(function*(): PrintItemIterator {
+    yield* newlineGroup(function*() {
         yield Signal.SpaceOrNewLine;
         yield* indentIfStartOfLine(parseNode(node, context));
     }());
