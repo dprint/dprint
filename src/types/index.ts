@@ -22,8 +22,6 @@ export enum Signal {
     ExpectNewLine,
     StartIndent,
     FinishIndent,
-    StartHangingIndent,
-    FinishHangingIndent,
     StartNewlineGroup,
     FinishNewLineGroup,
     SingleIndent,

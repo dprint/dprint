@@ -512,7 +512,7 @@ function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItem
     yield* parseNode(node.id, context);
 
     if (node.initializer)
-        yield* withHangingIndent(parseInitializer(node.initializer));
+        yield* parseInitializer(node.initializer);
 
     function* parseInitializer(initializer: NonNullable<babel.TSEnumMember["initializer"]>): PrintItemIterator {
         if (initializer.type === "NumericLiteral" || initializer.type === "StringLiteral")
@@ -520,8 +520,10 @@ function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItem
         else
             yield " ";
 
-        yield "= ";
-        yield* withHangingIndent(parseNode(initializer, context));
+        yield* indentIfStartOfLine(function*() {
+            yield "= ";
+            yield* parseNode(initializer, context);
+        }());
     }
 }
 
@@ -756,9 +758,9 @@ function* parseTypeParameterDeclaration(
         yield "<";
 
         if (useNewLines)
-            yield* surroundWithNewLines(withIndent(parseParameterList()), context);
+            yield* surroundWithNewLines(parseParameterList(), context);
         else
-            yield* withHangingIndent(parseParameterList());
+            yield* parseParameterList();
 
         yield ">";
     }
@@ -767,14 +769,20 @@ function* parseTypeParameterDeclaration(
         const params = declaration.params;
         for (let i = 0; i < params.length; i++) {
             const param = params[i];
-            yield* parseNode(param, context);
-            if (i < params.length - 1) {
-                yield ",";
+            if (i > 0) {
                 if (useNewLines)
                     yield context.newlineKind;
                 else
                     yield Signal.SpaceOrNewLine;
             }
+
+            yield* indentIfStartOfLine(parseNode(param, context, {
+                innerParse: function*(iterator) {
+                    yield* iterator;
+                    if (i < params.length - 1)
+                        yield ",";
+                }
+            }));
         }
     }
 }
@@ -1042,7 +1050,7 @@ function* parsePropertySignature(node: babel.TSPropertySignature, context: Conte
 
     if (node.initializer) {
         yield Signal.SpaceOrNewLine;
-        yield* withHangingIndent(function*(): PrintItemIterator {
+        yield* indentIfStartOfLine(function*() {
             yield "= ";
             yield* parseNode(node.initializer, context);
         }());
@@ -1118,7 +1126,7 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
     });
     yield* parseNode(node.body, context);
     yield " while (";
-    yield* withHangingIndent(parseNode(node.test, context));
+    yield* parseNode(node.test, context);
     yield ")";
 
     if (context.config["doWhileStatement.semiColon"])
@@ -1152,7 +1160,7 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
     yield startHeaderInfo;
     yield "for ";
     yield "(";
-    yield* withHangingIndent(parseInnerHeader());
+    yield* parseInnerHeader();
     yield ")";
     yield endHeaderInfo;
 
@@ -1169,8 +1177,10 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
     function* parseInnerHeader(): PrintItemIterator {
         yield* parseNode(node.left, context);
         yield Signal.SpaceOrNewLine;
-        yield "in ";
-        yield* parseNode(node.right, context);
+        yield* indentIfStartOfLine(function*() {
+            yield "in ";
+            yield* parseNode(node.right, context);
+        }());
     }
 }
 
@@ -1182,7 +1192,7 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
     if (node.await)
         yield "await ";
     yield "(";
-    yield* withHangingIndent(parseInnerHeader());
+    yield* parseInnerHeader();
     yield ")";
     yield endHeaderInfo;
 
@@ -1199,8 +1209,10 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
     function* parseInnerHeader(): PrintItemIterator {
         yield* parseNode(node.left, context);
         yield Signal.SpaceOrNewLine;
-        yield "of ";
-        yield* parseNode(node.right, context);
+        yield* indentIfStartOfLine(function*() {
+            yield "of ";
+            yield* parseNode(node.right, context);
+        }());
     }
 }
 
@@ -1209,7 +1221,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for (";
-    yield* withHangingIndent(parseInnerHeader());
+    yield* parseInnerHeader();
     yield ")";
     yield endHeaderInfo;
 
@@ -1228,10 +1240,12 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
         if (!node.init || node.init.type !== "VariableDeclaration")
             yield ";";
         yield Signal.SpaceOrNewLine;
-        yield* parseNode(node.test, context);
-        yield ";";
+        yield* indentIfStartOfLine(function*() {
+            yield* parseNode(node.test, context);
+            yield ";";
+        }())
         yield Signal.SpaceOrNewLine;
-        yield* parseNode(node.update, context);
+        yield* indentIfStartOfLine(parseNode(node.update, context));
     }
 }
 
@@ -1388,7 +1402,7 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "while (";
-    yield* withHangingIndent(parseNode(node.test, context));
+    yield* parseNode(node.test, context);
     yield ")";
     yield endHeaderInfo;
 
@@ -1413,7 +1427,7 @@ function* parseCatchClause(node: babel.CatchClause, context: Context): PrintItem
     yield "catch";
     if (node.param != null) {
         yield " (";
-        yield* withHangingIndent(parseNode(node.param, context));
+        yield* parseNode(node.param, context);
         yield ")";
     }
 
@@ -1718,7 +1732,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
     if (wasLastSame)
         yield* parseInner();
     else
-        yield* newlineGroup(withHangingIndent(parseInner()));
+        yield* newlineGroup(parseInner());
 
     function* parseInner(): PrintItemIterator {
         yield* parseNode(node.left, context);
@@ -1728,9 +1742,11 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         else
             yield Signal.SpaceOrNewLine;
 
-        yield node.operator;
-        yield " ";
-        yield* parseNode(node.right, context);
+        yield* indentIfStartOfLine(function*() {
+            yield node.operator;
+            yield " ";
+            yield* parseNode(node.right, context);
+        }());
     }
 }
 
@@ -1765,7 +1781,7 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
 
     yield startInfo;
     yield* newlineGroup(parseNode(node.test, context));
-    yield* withHangingIndent(parseConsequentAndAlternate());
+    yield* parseConsequentAndAlternate();
 
     function* parseConsequentAndAlternate() {
         if (useNewlines)
@@ -1773,17 +1789,21 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         else
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
 
-        yield "? ";
-        yield* newlineGroup(parseNode(node.consequent, context));
+        yield* indentIfStartOfLine(function*() {
+            yield "? ";
+            yield* newlineGroup(parseNode(node.consequent, context));
+        }());
 
         if (useNewlines)
             yield context.newlineKind;
         else
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
 
-        yield ": ";
-        yield* newlineGroup(parseNode(node.alternate, context));
-        yield endInfo;
+        yield* indentIfStartOfLine(function*() {
+            yield ": ";
+            yield* newlineGroup(parseNode(node.alternate, context));
+            yield endInfo;
+        }());
     }
 }
 
@@ -1860,11 +1880,8 @@ function* parseTaggedTemplateExpression(node: babel.TaggedTemplateExpression, co
     yield* newlineGroup(function*() {
         yield* parseNode(node.tag, context);
         yield* parseNode(node.typeParameters, context);
-
-        yield* withHangingIndent(function*() {
-            yield Signal.SpaceOrNewLine;
-            yield* parseNode(node.quasi, context);
-        }());
+        yield Signal.SpaceOrNewLine;
+        yield* indentIfStartOfLine(parseNode(node.quasi, context));
     }());
 }
 
@@ -2094,30 +2111,37 @@ function* parseArrayType(node: babel.TSArrayType, context: Context): PrintItemIt
 
 function* parseConditionalType(node: babel.TSConditionalType, context: Context): PrintItemIterator {
     const useNewlines = nodeHelpers.getUseNewlinesForNodes([node.checkType, node.falseType]);
-    if (context.parent.type === "TSConditionalType")
-        yield* innerParse();
-    else
-        yield* withHangingIndent(innerParse());
+    const isParentConditionalType = context.parent.type === "TSConditionalType";
 
-    function* innerParse(): PrintItemIterator {
-        yield* withHangingIndent(newlineGroup(parseMainArea()));
-        yield* parseFalseType();
+    yield* newlineGroup(parseMainArea());
+    yield* parseFalseType();
 
-        function* parseMainArea(): PrintItemIterator {
-            yield* newlineGroup(parseNode(node.checkType, context));
-            yield Signal.SpaceOrNewLine;
+    function* parseMainArea(): PrintItemIterator {
+        yield* newlineGroup(parseNode(node.checkType, context));
+        yield Signal.SpaceOrNewLine;
+        yield* indentIfStartOfLine(function*() {
             yield "extends ";
             yield* newlineGroup(parseNode(node.extendsType, context));
-            yield Signal.SpaceOrNewLine;
+        }());
+        yield Signal.SpaceOrNewLine;
+        yield* indentIfStartOfLine(function*() {
             yield "? ";
             yield* newlineGroup(parseNode(node.trueType, context));
-        }
+        }());
+    }
 
-        function* parseFalseType(): PrintItemIterator {
-            if (useNewlines)
-                yield context.newlineKind;
-            else
-                yield Signal.SpaceOrNewLine;
+    function* parseFalseType(): PrintItemIterator {
+        if (useNewlines)
+            yield context.newlineKind;
+        else
+            yield Signal.SpaceOrNewLine;
+
+        if (isParentConditionalType)
+            yield* parseInner();
+        else
+            yield* indentIfStartOfLine(parseInner());
+
+        function* parseInner(): PrintItemIterator {
             yield ": ";
             yield* newlineGroup(parseNode(node.falseType, context));
         }
@@ -2175,7 +2199,7 @@ function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItem
     yield startInfo;
     yield "{";
 
-    yield* withHangingIndent(parseLayout());
+    yield* parseLayout();
 
     yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo);
     yield "}";
@@ -2186,7 +2210,7 @@ function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItem
         else
             yield Signal.SpaceOrNewLine;
 
-        yield* newlineGroup(parseBody());
+        yield* indentIfStartOfLine(newlineGroup(parseBody()));
     }
 
     function* parseBody(): PrintItemIterator {
@@ -2235,7 +2259,7 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
     yield "[";
 
     if (node.elementTypes.length > 0)
-        yield* withHangingIndent(parseElements());
+        yield* parseElements();
 
     yield "]";
 
@@ -2247,14 +2271,14 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
             if (i > 0 && !useNewlines)
                 yield Signal.SpaceOrNewLine;
 
-            yield* parseNode(node.elementTypes[i], context, {
+            yield* indentIfStartOfLine(parseNode(node.elementTypes[i], context, {
                 innerParse: function*(iterator) {
                     yield* iterator;
 
                     if (forceTrailingCommas || i < node.elementTypes.length - 1)
                         yield ",";
                 }
-            });
+            }));
 
             if (useNewlines)
                 yield context.newlineKind;
@@ -2317,18 +2341,19 @@ function* parseTypeReference(node: babel.TSTypeReference, context: Context): Pri
 
 function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSIntersectionType, context: Context): PrintItemIterator {
     const useNewLines = nodeHelpers.getUseNewlinesForNodes(node.types);
-    yield* withHangingIndent(function*() {
-        for (let i = 0; i < node.types.length; i++) {
-            if (i > 0) {
-                yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
-                if (node.type === "TSUnionType")
-                    yield "| ";
-                else
-                    yield "& ";
-            }
+    const separator = node.type === "TSUnionType" ? "| " : "& ";
+
+    for (let i = 0; i < node.types.length; i++) {
+        if (i > 0)
+            yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
+
+        yield* indentIfStartOfLine(function*() {
+            if (i > 0)
+                yield separator;
+
             yield* parseNode(node.types[i], context);
-        }
-    }());
+        }());
+    }
 }
 
 /* general */
@@ -2995,13 +3020,6 @@ function* withIndent(item: PrintItemIterator): PrintItemIterator {
     yield Signal.StartIndent;
     yield* item;
     yield Signal.FinishIndent;
-}
-
-// todo: deprecate this
-function* withHangingIndent(item: PrintItemIterator): PrintItemIterator {
-    yield Signal.StartHangingIndent;
-    yield* item;
-    yield Signal.FinishHangingIndent;
 }
 
 function* newlineGroup(item: PrintItemIterator): PrintItemIterator {

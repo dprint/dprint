@@ -121,12 +121,6 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
                 case Signal.FinishIndent:
                     writer.finishIndent();
                     break;
-                case Signal.StartHangingIndent:
-                    writer.startHangingIndent();
-                    break;
-                case Signal.FinishHangingIndent:
-                    writer.finishHangingIndent();
-                    break;
                 case Signal.StartNewlineGroup:
                     newlineGroupDepth++;
                     break;
