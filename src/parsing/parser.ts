@@ -1243,7 +1243,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
         yield* indentIfStartOfLine(function*() {
             yield* parseNode(node.test, context);
             yield ";";
-        }())
+        }());
         yield Signal.SpaceOrNewLine;
         yield* indentIfStartOfLine(parseNode(node.update, context));
     }
