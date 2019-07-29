@@ -86,8 +86,10 @@ export interface Configuration {
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
     "breakStatement.semiColon"?: boolean;
+    "callSignature.semiColon"?: boolean;
     "classMethod.semiColon"?: boolean;
     "classProperty.semiColon"?: boolean;
+    "constructSignature.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
@@ -98,11 +100,31 @@ export interface Configuration {
     "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
     "importEqualsDeclaration.semiColon"?: boolean;
+    "indexSignature.semiColon"?: boolean;
     "mappedType.semiColon"?: boolean;
+    "methodSignature.semiColon"?: boolean;
+    "namespaceExportDeclaration.semiColon"?: boolean;
+    "propertySignature.semiColon"?: boolean;
     "returnStatement.semiColon"?: boolean;
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     "variableStatement.semiColon"?: boolean;
+    /**
+     * If braces should be used or not.
+     * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
+     */
+    "forInStatement.useBraces"?: "maintain" | "always" | "preferNone";
+    /**
+     * If braces should be used or not.
+     * @default "maintain"
+     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
+     * @value "always" - Forces the use of braces. Will add them if they aren't used.
+     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
+     */
+    "forOfStatement.useBraces"?: "maintain" | "always" | "preferNone";
     /**
      * If braces should be used or not.
      * @default "maintain"
@@ -135,7 +157,25 @@ export interface Configuration {
      * @value "nextLine" - Forces the brace to be on the next line.
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
+    "arrowFunctionExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
     "classDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "classExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -171,6 +211,24 @@ export interface Configuration {
      * @value "nextLine" - Forces the brace to be on the next line.
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
+    "forInStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "forOfStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
     "forStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
@@ -189,7 +247,43 @@ export interface Configuration {
      * @value "nextLine" - Forces the brace to be on the next line.
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
+    "functionExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
     "ifStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "interfaceDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "moduleDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the brace.
+     * @default "nextLineIfHanging"
+     * @value "maintain" - Maintains the brace being on the next line or the same line.
+     * @value "sameLine" - Forces the brace to be on the same line.
+     * @value "nextLine" - Forces the brace to be on the next line.
+     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
+     */
+    "switchStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -239,7 +333,23 @@ export interface Configuration {
      * @value "always" - Trailing commas should always be used.
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
      */
+    "arrayPattern.trailingCommas"?: "never" | "always" | "onlyMultiLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
     "enumDeclaration.trailingCommas"?: "never" | "always" | "onlyMultiLine";
+    /**
+     * If trailing commas should be used.
+     * @default "never"
+     * @value "never" - Trailing commas should not be used.
+     * @value "always" - Trailing commas should always be used.
+     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
+     */
+    "objectExpression.trailingCommas"?: "never" | "always" | "onlyMultiLine";
     /**
      * If trailing commas should be used.
      * @default "never"
@@ -283,8 +393,10 @@ export interface ResolvedConfiguration {
     newlineKind: "auto" | "\r\n" | "\n";
     "enumDeclaration.memberSpacing": NonNullable<Configuration["enumDeclaration.memberSpacing"]>;
     "breakStatement.semiColon": boolean;
+    "callSignature.semiColon": boolean;
     "classMethod.semiColon": boolean;
     "classProperty.semiColon": boolean;
+    "constructSignature.semiColon": boolean;
     "continueStatement.semiColon": boolean;
     "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;
@@ -295,27 +407,43 @@ export interface ResolvedConfiguration {
     "ifStatement.semiColon": boolean;
     "importDeclaration.semiColon": boolean;
     "importEqualsDeclaration.semiColon": boolean;
+    "indexSignature.semiColon": boolean;
     "mappedType.semiColon": boolean;
+    "methodSignature.semiColon": boolean;
+    "namespaceExportDeclaration.semiColon": boolean;
+    "propertySignature.semiColon": boolean;
     "returnStatement.semiColon": boolean;
     "throwStatement.semiColon": boolean;
     "typeAlias.semiColon": boolean;
     "variableStatement.semiColon": boolean;
+    "forInStatement.useBraces": NonNullable<Configuration["useBraces"]>;
+    "forOfStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "forStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "ifStatement.useBraces": NonNullable<Configuration["useBraces"]>;
     "whileStatement.useBraces": NonNullable<Configuration["useBraces"]>;
+    "arrowFunctionExpression.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "classDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "classExpression.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "classMethod.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "doWhileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "enumDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "forInStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "forOfStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "forStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "functionDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "functionExpression.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "interfaceDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "moduleDeclaration.bracePosition": NonNullable<Configuration["bracePosition"]>;
+    "switchStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "tryStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "whileStatement.bracePosition": NonNullable<Configuration["bracePosition"]>;
     "ifStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
     "tryStatement.nextControlFlowPosition": NonNullable<Configuration["nextControlFlowPosition"]>;
     "arrayExpression.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
+    "arrayPattern.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
     "enumDeclaration.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
+    "objectExpression.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
     "tupleType.trailingCommas": NonNullable<Configuration["trailingCommas"]>;
 }
 
