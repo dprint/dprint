@@ -707,7 +707,12 @@ function* parseModuleDeclaration(node: babel.TSModuleDeclaration, context: Conte
     }
 
     yield* parseNode(node.id, context);
-    yield* parseNode(node.body, context);
+
+    if (node.body)
+        yield* parseNode(node.body, context);
+    else if (context.config["moduleDeclaration.semiColon"]) {
+        yield ";";
+    }
 
     function hasNamespaceKeyword() {
         // todo: something faster

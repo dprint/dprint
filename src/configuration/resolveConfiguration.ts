@@ -72,6 +72,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         "indexSignature.semiColon": getValue("indexSignature.semiColon", semiColons, ensureBoolean),
         "mappedType.semiColon": getValue("mappedType.semiColon", semiColons, ensureBoolean),
         "methodSignature.semiColon": getValue("methodSignature.semiColon", semiColons, ensureBoolean),
+        "moduleDeclaration.semiColon": getValue("moduleDeclaration.semiColon", semiColons, ensureBoolean),
         "namespaceExportDeclaration.semiColon": getValue("namespaceExportDeclaration.semiColon", semiColons, ensureBoolean),
         "propertySignature.semiColon": getValue("propertySignature.semiColon", semiColons, ensureBoolean),
         "returnStatement.semiColon": getValue("returnStatement.semiColon", semiColons, ensureBoolean),

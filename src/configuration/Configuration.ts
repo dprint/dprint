@@ -97,6 +97,7 @@ export interface Configuration {
     "indexSignature.semiColon"?: boolean;
     "mappedType.semiColon"?: boolean;
     "methodSignature.semiColon"?: boolean;
+    "moduleDeclaration.semiColon"?: boolean;
     "namespaceExportDeclaration.semiColon"?: boolean;
     "propertySignature.semiColon"?: boolean;
     "returnStatement.semiColon"?: boolean;
@@ -386,6 +387,7 @@ export interface ResolvedConfiguration {
     "indexSignature.semiColon": boolean;
     "mappedType.semiColon": boolean;
     "methodSignature.semiColon": boolean;
+    "moduleDeclaration.semiColon": boolean;
     "namespaceExportDeclaration.semiColon": boolean;
     "propertySignature.semiColon": boolean;
     "returnStatement.semiColon": boolean;

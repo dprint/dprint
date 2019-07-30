@@ -132,6 +132,7 @@ describe(nameof(resolveConfiguration), () => {
                 "indexSignature.semiColon": value,
                 "mappedType.semiColon": value,
                 "methodSignature.semiColon": value,
+                "moduleDeclaration.semiColon": value,
                 "namespaceExportDeclaration.semiColon": value,
                 "propertySignature.semiColon": value,
                 "returnStatement.semiColon": value,

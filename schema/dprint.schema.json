@@ -160,6 +160,9 @@
         "methodSignature.semiColon": {
             "type": "boolean"
         },
+        "moduleDeclaration.semiColon": {
+            "type": "boolean"
+        },
         "namespaceExportDeclaration.semiColon": {
             "type": "boolean"
         },
