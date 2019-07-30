@@ -4,7 +4,7 @@ function /* 1 */test/* 2 */() {// 3
 }// 4
 
 [expect]
-function /* 1 */test/* 2 */() { // 3
+function /* 1 */ test /* 2 */() { // 3
 } // 4
 
 == should keep blank lines between comments ==
@@ -72,3 +72,9 @@ class Test {
  */
 class Test {
 }
+
+== should format comments in arguments ==
+call(/* test */5);
+
+[expect]
+call(/* test */ 5);

@@ -2801,11 +2801,16 @@ function* parseLeadingComments(node: babel.Node, context: Context) {
 
     yield* parseCommentCollection(node.leadingComments, undefined, context);
 
-    if (lastComment != null && !hasHandled && node.loc!.start.line > lastComment.loc!.end.line) {
-        yield context.newlineKind;
-
-        if (node.loc!.start.line - 1 > lastComment.loc!.end.line)
+    if (lastComment != null && !hasHandled) {
+        if (node.loc!.start.line > lastComment.loc!.end.line) {
             yield context.newlineKind;
+
+            if (node.loc!.start.line - 1 > lastComment.loc!.end.line)
+                yield context.newlineKind;
+        }
+        else if (lastComment.type === "CommentBlock" && lastComment.loc!.end.line === node.loc!.start.line) {
+            yield " ";
+        }
     }
 }
 
@@ -2816,6 +2821,14 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
 
     // use the roslyn definition of trailing comments
     const trailingCommentsOnSameLine = trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
+    if (trailingCommentsOnSameLine.length === 0)
+        return;
+
+    // add a space between the node and comment block since they'll be on the same line
+    const firstUnhandledComment = trailingCommentsOnSameLine.find(c => !context.handledComments.has(c));
+    if (firstUnhandledComment != null && firstUnhandledComment.type === "CommentBlock")
+        yield " ";
+
     yield* parseCommentCollection(trailingCommentsOnSameLine, node, context);
 
     function getTrailingComments() {
