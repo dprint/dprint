@@ -56,4 +56,8 @@ describe(nameof(parseCommandLineArgs), () => {
     it("should parse file globs specified with a leading outputResolvedConfig", () => {
         doTest(["--outputResolvedConfig", "file.ts", "file2.ts"], { outputResolvedConfig: true, filePatterns: ["file.ts", "file2.ts"] });
     });
+
+    it("should parse file globs specified with a leading allowNodeModuleFiles", () => {
+        doTest(["--allowNodeModuleFiles", "file.ts", "file2.ts"], { allowNodeModuleFiles: true, filePatterns: ["file.ts", "file2.ts"] });
+    });
 });

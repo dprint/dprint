@@ -9,6 +9,7 @@ describe(nameof(runCliWithOptions), () => {
         environment.addFile("/dprint.config", `{ "newlineKind": "lf" }`);
         environment.addFile("/file1.ts", "5+1;");
         environment.addFile("/file2.ts", "console.log (5)  ;");
+        environment.addFile("/node_modules/otherFile.ts", ""); // should ignore this
         return environment;
     }
     function handleOptions(options: Partial<CommandLineOptions>, environment: TestEnvironment) {
@@ -35,7 +36,6 @@ describe(nameof(runCliWithOptions), () => {
 
     it("should output the file paths when specifying to", async () => {
         const logs = await getLogs({ outputFilePaths: true });
-        expect(logs.length).to.equal(2);
         expect(logs).to.deep.equal(["/file1.ts", "/file2.ts"]);
     });
 
@@ -55,5 +55,10 @@ describe(nameof(runCliWithOptions), () => {
         const logs = await getLogs({ outputResolvedConfig: true });
         expect(logs.length).to.equal(1);
         expect(logs[0].startsWith("{")).to.be.true;
+    });
+
+    it("should include node_module files when specifying to", async () => {
+        const logs = await getLogs({ outputFilePaths: true, allowNodeModuleFiles: true });
+        expect(logs).to.deep.equal(["/file1.ts", "/file2.ts", "/node_modules/otherFile.ts"]);
     });
 });

@@ -54,6 +54,6 @@ export class TestEnvironment implements Environment {
     }
 
     glob(patterns: string[]) {
-        return Promise.resolve(["/file1.ts", "/file2.ts"]);
+        return Promise.resolve(Array.from(this.files.keys()).filter(fileName => fileName.endsWith(".ts")));
     }
 }

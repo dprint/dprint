@@ -2,6 +2,7 @@ import { CommandLineOptions } from "../../cli";
 
 export function getDefaultCommandLineOptions(): CommandLineOptions {
     return {
+        allowNodeModuleFiles: false,
         config: undefined,
         showHelp: false,
         showVersion: false,

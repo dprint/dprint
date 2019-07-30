@@ -12,5 +12,6 @@ Options:
 -c, --config            Configuration file to use (default: dprint.config)
 --outputFilePaths       Outputs the list of file paths.
 --outputResolvedConfig  Outputs the resolved configuration from the dprint.config file.
+--allowNodeModuleFiles  Allows including files that have a node_modules directory in their path.
 `;
 }

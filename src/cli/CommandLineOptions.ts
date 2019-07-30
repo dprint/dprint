@@ -1,4 +1,5 @@
 export interface CommandLineOptions {
+    allowNodeModuleFiles: boolean;
     showHelp: boolean;
     showVersion: boolean;
     config: string | undefined;

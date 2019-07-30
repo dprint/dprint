@@ -34,7 +34,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     for (const diagnostic of configResult.diagnostics)
         environment.warn(diagnostic.message);
 
-    const filePaths = await environment.glob(options.filePatterns);
+    const filePaths = await getFilePaths();
 
     if (options.outputFilePaths) {
         for (const filePath of filePaths)
@@ -58,4 +58,13 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     }
 
     return Promise.all(promises);
+
+    async function getFilePaths() {
+        const isInNodeModules = /[\/|\\]node_modules[\/|\\]/i;
+        const allFilePaths = await environment.glob(options.filePatterns);
+
+        return options.allowNodeModuleFiles
+            ? allFilePaths
+            : allFilePaths.filter(filePath => !isInNodeModules.test(filePath));
+    }
 }
