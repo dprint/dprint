@@ -1,7 +1,7 @@
 import { Environment } from "../environment";
 import { Configuration } from "../configuration";
 
-const defaultFileName = "dprint.config";
+const defaultFileName = "dprint.json";
 
 export async function resolveConfigFile(filePath: string | undefined, environment: Environment): Promise<Configuration> {
     const resolvedFilePath = environment.resolvePath(filePath || defaultFileName);

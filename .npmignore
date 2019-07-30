@@ -4,7 +4,7 @@ docs
 src
 scripts
 .gitignore
-dprint.config
+dprint.json
 implemented-nodes.md
 mocha.opts
 rollup.config.js

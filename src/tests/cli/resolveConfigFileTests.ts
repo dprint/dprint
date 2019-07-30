@@ -21,7 +21,7 @@ describe(nameof(resolveConfigFile), () => {
         const environment = new TestEnvironment();
         const err = await getError(undefined, environment);
 
-        expect(err.message).to.equal("Could not find configuration file at '/dprint.config'. Did you mean to create one or specify a --config option?\n\n"
+        expect(err.message).to.equal("Could not find configuration file at '/dprint.json'. Did you mean to create one or specify a --config option?\n\n"
             + "Error: File not found.");
     });
 
@@ -35,7 +35,7 @@ describe(nameof(resolveConfigFile), () => {
 
     it("should get the default configuration file when it exists", async () => {
         const environment = new TestEnvironment();
-        environment.addFile("/dprint.config", `{ "semiColons": true }`);
+        environment.addFile("/dprint.json", `{ "semiColons": true }`);
         const config = await resolveConfigFile(undefined, environment);
 
         expect(config).to.deep.equal({ semiColons: true });
@@ -51,9 +51,9 @@ describe(nameof(resolveConfigFile), () => {
 
     it("should get the specified configuration file when it exists", async () => {
         const environment = new TestEnvironment();
-        environment.addFile("/dprint.config", `{ semiColons: true }`);
+        environment.addFile("/dprint.json", `{ semiColons: true }`);
         const err = await getError(undefined, environment);
 
-        expect(err.message).to.equal("Error parsing configuration file (/dprint.config).\n\nSyntaxError: Unexpected token s in JSON at position 2");
+        expect(err.message).to.equal("Error parsing configuration file (/dprint.json).\n\nSyntaxError: Unexpected token s in JSON at position 2");
     });
 });
