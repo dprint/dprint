@@ -9,8 +9,8 @@ interface Test
 }
 
 == should use the next line for type parameters on multiple lines ==
-interface Test<T,
-U,
+interface Test<
+T, U,
 V> {
 }
 

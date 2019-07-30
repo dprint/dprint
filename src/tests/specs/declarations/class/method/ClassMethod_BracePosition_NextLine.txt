@@ -14,8 +14,8 @@ class Test {
 
 == should use the next line for type parameters on multiple lines ==
 class Test {
-    method<T,
-U,
+    method<
+    T, U,
 V>() {
 }
 }

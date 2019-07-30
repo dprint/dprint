@@ -12,9 +12,9 @@ export { n1, n2,   n3,   n4  , n5, n6} from   "test";
 export { n1, n2, n3, n4, n5,
     n6 } from "test";
 
-== should format with newlines if the first and second are on different lines ==
-export { n1,
-    n2,   n3,   n4  , n5, n6} from   "test";
+== should format with newlines if the first is on a different line ==
+export {
+    n1, n2,   n3,   n4  , n5, n6} from   "test";
 
 [expect]
 export {

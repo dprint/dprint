@@ -5,14 +5,16 @@ type T = [   string   , number   ];
 [expect]
 type T = [string, number];
 
-== should split on multiple lines when second is on different line ==
-type T = [string, // test
-    number   ];
+== should split on multiple lines when first is on different line ==
+type T = [
+    string, // test
+    number, other   ];
 
 [expect]
 type T = [
     string, // test
-    number
+    number,
+    other
 ];
 
 == should hang when exceeding line width ==

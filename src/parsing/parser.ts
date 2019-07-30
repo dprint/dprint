@@ -751,7 +751,7 @@ function* parseTypeParameterDeclaration(
     declaration: babel.TSTypeParameterDeclaration | babel.TSTypeParameterInstantiation | babel.TypeParameterInstantiation,
     context: Context
 ): PrintItemIterator {
-    const useNewLines = nodeHelpers.getUseNewlinesForNodes(declaration.params);
+    const useNewLines = getUseNewLines();
     yield* newlineGroup(parseItems());
 
     function* parseItems(): PrintItemIterator {
@@ -784,6 +784,16 @@ function* parseTypeParameterDeclaration(
                 }
             }));
         }
+    }
+
+    function getUseNewLines() {
+        if (declaration.params.length === 0)
+            return false;
+
+        return nodeHelpers.getUseNewlinesForNodes([
+            getFirstAngleBracketToken(declaration, context),
+            declaration.params[0]
+        ]);
     }
 }
 
@@ -1633,6 +1643,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
 function* parseArrayPattern(node: babel.ArrayPattern, context: Context): PrintItemIterator {
     yield* parseArrayLikeNodes({
+        node,
         elements: node.elements,
         trailingCommas: context.config["arrayPattern.trailingCommas"],
         context
@@ -1642,6 +1653,7 @@ function* parseArrayPattern(node: babel.ArrayPattern, context: Context): PrintIt
 
 function* parseArrayExpression(node: babel.ArrayExpression, context: Context): PrintItemIterator {
     yield* parseArrayLikeNodes({
+        node,
         elements: node.elements,
         trailingCommas: context.config["arrayExpression.trailingCommas"],
         context
@@ -2253,7 +2265,7 @@ function* parseRestType(node: babel.TSRestType, context: Context): PrintItemIter
 }
 
 function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIterator {
-    const useNewlines = nodeHelpers.getUseNewlinesForNodes(node.elementTypes);
+    const useNewlines = getUseNewLines();
     const forceTrailingCommas = getForceTrailingCommas(context.config["tupleType.trailingCommas"], useNewlines);
 
     yield "[";
@@ -2283,6 +2295,16 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
             if (useNewlines)
                 yield context.newlineKind;
         }
+    }
+
+    function getUseNewLines() {
+        if (node.elementTypes.length === 0)
+            return false;
+
+        return nodeHelpers.getUseNewlinesForNodes([
+            getFirstOpenBracketToken(node, context),
+            node.elementTypes[0]
+        ]);
     }
 }
 
@@ -2551,9 +2573,13 @@ function* parseNamedImportsOrExports(
     yield "}";
 
     function getUseNewLines() {
-        if (namedImportsOrExports.length === 1 && namedImportsOrExports[0].loc!.start.line !== parentDeclaration.loc!.start.line)
-            return true;
-        return nodeHelpers.getUseNewlinesForNodes(namedImportsOrExports);
+        if (namedImportsOrExports.length === 0)
+            return false;
+
+        return nodeHelpers.getUseNewlinesForNodes([
+            getFirstOpenBraceToken(parentDeclaration, context),
+            namedImportsOrExports[0]
+        ]);
     }
 
     function* parseSpecifiers(): PrintItemIterator {
@@ -2669,14 +2695,15 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
 }
 
 interface ParseArrayLikeNodesOptions {
+    node: babel.Node;
     elements: ReadonlyArray<babel.Node | null | undefined>;
     trailingCommas: NonNullable<Configuration["trailingCommas"]>;
     context: Context;
 }
 
 function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
-    const { elements, context } = opts;
-    const useNewlines = nodeHelpers.getUseNewlinesForNodes(elements);
+    const { node, elements, context } = opts;
+    const useNewlines = nodeHelpers.getUseNewlinesForNodes(elements ? [getFirstOpenBracketToken(node, context), elements[0]] : []);
     const forceTrailingCommas = getForceTrailingCommas(opts.trailingCommas, useNewlines);
 
     yield "[";
@@ -3060,9 +3087,30 @@ function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {
     }
 }
 
+function* toPrintItemIterator(printItem: PrintItem): PrintItemIterator {
+    yield printItem;
+}
+
+/* token functions (todo: separate out) */
+
 function getFirstOpenBraceToken(node: babel.Node, context: Context) {
+    return getFirstTokenUsingType(node, "{", context);
+}
+
+function getFirstAngleBracketToken(node: babel.Node, context: Context) {
+    return getFirstTokenUsingValue(node, "<", context);
+}
+
+function getFirstOpenParenToken(node: babel.Node, context: Context) {
+    return getFirstTokenUsingType(node, "(", context);
+}
+
+function getFirstOpenBracketToken(node: babel.Node, context: Context) {
+    return getFirstTokenUsingType(node, "[", context);
+}
+
+function getFirstTokenUsingType(node: babel.Node, tokenText: String, context: Context) {
     // todo: something faster than O(n)
-    const tokenText = "{";
     return nodeHelpers.getFirstToken(context.file, token => {
         if (token.start < node.start!)
             return false;
@@ -3072,6 +3120,20 @@ function getFirstOpenBraceToken(node: babel.Node, context: Context) {
             return false;
 
         return token.type.label === tokenText;
+    });
+}
+
+function getFirstTokenUsingValue(node: babel.Node, tokenText: String, context: Context) {
+    // todo: something faster than O(n)
+    return nodeHelpers.getFirstToken(context.file, token => {
+        if (token.start < node.start!)
+            return false;
+        if (token.start > node.end!)
+            return "stop";
+        if (token.type == null)
+            return false;
+
+        return token.value === tokenText;
     });
 }
 
@@ -3088,10 +3150,6 @@ function getForceTrailingCommas(option: NonNullable<Configuration["trailingComma
             const assertNever: never = option;
             return false;
     }
-}
-
-function* toPrintItemIterator(printItem: PrintItem): PrintItemIterator {
-    yield printItem;
 }
 
 /* factory functions */

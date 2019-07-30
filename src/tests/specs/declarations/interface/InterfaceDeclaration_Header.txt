@@ -81,8 +81,8 @@ export interface Test<TestingThisOut, WithVeryLong,
 }
 
 == should print with type parameters on multiple lines ==
-export interface Test<TestingThisOut,
-    WithVeryLong, TypeParameterList> {
+export interface Test<
+    TestingThisOut, WithVeryLong, TypeParameterList> {
 }
 
 [expect]
@@ -94,8 +94,8 @@ export interface Test<
 }
 
 == should print with type parameters on multiple lines and extends ==
-export interface Test<TestingThisOut,
-    WithVeryLong, TypeParameterList> extends Test {
+export interface Test<
+    TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
 }
 
 [expect]

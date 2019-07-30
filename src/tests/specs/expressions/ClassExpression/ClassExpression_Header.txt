@@ -109,8 +109,8 @@ const t = class Test<TestingThisOut, WithVeryLong,
 };
 
 == should print with type parameters on multiple lines ==
-const t = class Test<TestingThisOut,
-    WithVeryLong, TypeParameterList> {
+const t = class Test<
+    TestingThisOut, WithVeryLong, TypeParameterList> {
 };
 
 [expect]
@@ -122,8 +122,8 @@ const t = class Test<
 };
 
 == should print with type parameters on multiple lines and extends ==
-const t = class Test<TestingThisOut,
-    WithVeryLong, TypeParameterList> extends Test {
+const t = class Test<
+    TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
 };
 
 [expect]

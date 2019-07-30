@@ -9,7 +9,8 @@ const t = class
 };
 
 == should use the next line for type parameters on multiple lines ==
-const t = class<T,
+const t = class<
+    T,
 U,
 V> {
 };
