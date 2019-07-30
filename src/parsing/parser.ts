@@ -2466,6 +2466,9 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
         const unHandledComments = lastNode.trailingComments.filter(c => !context.handledComments.has(c));
         if (unHandledComments.length > 0) {
             yield context.newlineKind;
+
+            if (nodeHelpers.hasSeparatingBlankLine(lastNode, unHandledComments[0]))
+                yield context.newlineKind;
             // treat these as if they were leading comments, so don't provide the last node
             yield* parseCommentCollection(lastNode.trailingComments, undefined, context);
         }

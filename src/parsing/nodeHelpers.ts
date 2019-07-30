@@ -5,14 +5,14 @@ export function hasBody(node: babel.Node) {
     return (node as any as babel.ClassDeclaration).body != null;
 }
 
-export function hasSeparatingBlankLine(nodeA: babel.Node, nodeB: babel.Node | undefined) {
+export function hasSeparatingBlankLine(nodeA: babel.Node | babel.Comment, nodeB: babel.Node | babel.Comment | undefined) {
     if (nodeB == null)
         return false;
 
     return getNodeBStartLine() > nodeA.loc!.end.line + 1;
 
     function getNodeBStartLine() {
-        const leadingComments = nodeB!.leadingComments;
+        const leadingComments = (nodeB! as babel.Node).leadingComments;
 
         if (leadingComments != null) {
             for (const leadingComment of leadingComments) {
