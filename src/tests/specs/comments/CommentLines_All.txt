@@ -1,0 +1,11 @@
+== should format triple slash directives ==
+/// <reference path="test" />
+
+[expect]
+/// <reference path="test" />
+
+== should format triple slash directives with a space at the beginning if it doesn't have one ==
+///<reference path="test" />
+
+[expect]
+/// <reference path="test" />

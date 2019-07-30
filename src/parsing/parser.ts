@@ -2911,7 +2911,12 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
     }
 
     function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
-        yield `// ${comment.value.trim()}`;
+        const rawCommentValue = comment.value.trim();
+        const isTripleSlashComment = rawCommentValue[0] === "/";
+        const commentValue = (isTripleSlashComment ? rawCommentValue.substring(1) : rawCommentValue).trim();
+        const prefix = isTripleSlashComment ? "///" : "//";
+
+        yield `${prefix} ${commentValue}`;
         yield Signal.ExpectNewLine;
     }
 }
