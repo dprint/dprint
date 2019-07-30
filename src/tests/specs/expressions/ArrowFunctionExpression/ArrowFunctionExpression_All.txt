@@ -14,6 +14,12 @@ const t = async <T, U>(p, u): string =>
 const t = async <T, U>(p, u): string => {
 };
 
+== should keep the body on a single line when formatted that way ==
+const t = () => {   };
+
+[expect]
+const t = () => {};
+
 == should support multiple line expressions ==
 const t = () => true || false || true || false || true || false;
 

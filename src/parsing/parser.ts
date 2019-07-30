@@ -357,6 +357,15 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
     const endStatementsInfo = createInfo("endStatementsInfo");
 
     yield "{";
+
+    // Allow: const t = () => {};
+    if (context.parent.type === "ArrowFunctionExpression" && node.loc!.start.line === node.loc!.end.line
+        && node.body.length === 0 && !node.leadingComments && !node.innerComments)
+    {
+        yield "}";
+        return;
+    }
+
     yield* parseFirstLineTrailingComments(node, node.body, context);
     yield context.newlineKind;
     yield startStatementsInfo;
@@ -710,9 +719,8 @@ function* parseModuleDeclaration(node: babel.TSModuleDeclaration, context: Conte
 
     if (node.body)
         yield* parseNode(node.body, context);
-    else if (context.config["moduleDeclaration.semiColon"]) {
+    else if (context.config["moduleDeclaration.semiColon"])
         yield ";";
-    }
 
     function hasNamespaceKeyword() {
         // todo: something faster
