@@ -9,3 +9,9 @@ console.log('"');
 
 [expect]
 console.log("\"");
+
+== should handle escaped double quotes ==
+console.log("\"testing\"");
+
+[expect]
+console.log("\"testing\"");

@@ -10,3 +10,9 @@ console.log("'");
 
 [expect]
 console.log('\'');
+
+== should handle escaped single quotes ==
+console.log('\'testing\'');
+
+[expect]
+console.log('\'testing\'');
