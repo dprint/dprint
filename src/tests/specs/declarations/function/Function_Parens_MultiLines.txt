@@ -13,10 +13,9 @@ function test(
 ) {
 }
 
-== should fix the first parameter to be on the next line ==
-function test(p1,
-    p2,
-    p3)
+== should make multi-line when the first param is on a new line ==
+function test(
+    p1, p2, p3)
 {
 }
 

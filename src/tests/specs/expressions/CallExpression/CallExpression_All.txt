@@ -1,8 +1,6 @@
 == should print the call expression ==
-test(
-    a,b,
-
-    c
+test(a,
+b, c
 );
 
 [expect]

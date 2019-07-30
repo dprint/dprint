@@ -45,10 +45,6 @@ export function hasLeadingCommentOnDifferentLine(node: babel.Node, commentsToIgn
     return getLeadingCommentOnDifferentLine(node, commentsToIgnore) != null;
 }
 
-export function useNewlinesForParametersOrArguments(params: babel.Node[]) {
-    return getUseNewlinesForNodes(params);
-}
-
 export function getUseNewlinesForNodes(nodes: ReadonlyArray<babel.Node | BabelToken | null | undefined>) {
     const nonNullNodes = getNodes();
     const firstNode = nonNullNodes.next().value;

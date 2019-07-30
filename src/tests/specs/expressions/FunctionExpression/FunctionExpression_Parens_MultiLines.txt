@@ -13,10 +13,9 @@ const t = function test(
 ) {
 };
 
-== should fix the first parameter to be on the next line ==
-const t = function test(p1,
-    p2,
-    p3)
+== should make multiline when the first param is on a different line ==
+const t = function test(
+    p1, p2, p3)
 {
 }
 
