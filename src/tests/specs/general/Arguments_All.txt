@@ -1,0 +1,15 @@
+== should use the parenthesis before the argument for deciding whether to use multiple lines ==
+function test() {
+    call(fileNames).then(() => {
+    }).catch(/*istanbul ignore next*/ err => {
+        onFinished(err);
+    });
+}
+
+[expect]
+function test() {
+    call(fileNames).then(() => {
+    }).catch(/*istanbul ignore next*/ err => {
+        onFinished(err);
+    });
+}

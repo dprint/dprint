@@ -604,7 +604,7 @@ function* parseFunctionDeclarationOrExpression(
         if (node.typeParameters)
             yield* parseNode(node.typeParameters, context);
 
-        yield* parseParametersOrArguments(node, node.params, context);
+        yield* parseParametersOrArguments(node.params, context);
 
         if (node.returnType) {
             yield ": ";
@@ -913,7 +913,7 @@ function* parseClassOrObjectMethod(
     if (node.typeParameters)
         yield* parseNode(node.typeParameters, context);
 
-    yield* parseParametersOrArguments(node, node.params, context);
+    yield* parseParametersOrArguments(node.params, context);
 
     if (node.returnType) {
         yield ": ";
@@ -988,7 +988,7 @@ function* parseParameterProperty(node: babel.TSParameterProperty, context: Conte
 
 function* parseCallSignatureDeclaration(node: babel.TSCallSignatureDeclaration, context: Context): PrintItemIterator {
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node, node.parameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 
     if (context.config["callSignature.semiColon"])
@@ -998,7 +998,7 @@ function* parseCallSignatureDeclaration(node: babel.TSCallSignatureDeclaration, 
 function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDeclaration, context: Context): PrintItemIterator {
     yield "new";
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node, node.parameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 
     if (context.config["constructSignature.semiColon"])
@@ -1046,7 +1046,7 @@ function* parseMethodSignature(node: babel.TSMethodSignature, context: Context):
         yield "?";
 
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node, node.parameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
 
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 
@@ -1684,7 +1684,7 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
 
     // todo: configuration (issue #7)
     if (node.params.length !== 1 || hasParentheses())
-        yield* parseParametersOrArguments(node, node.params, context);
+        yield* parseParametersOrArguments(node.params, context);
     else
         yield* parseNode(node.params[0], context);
 
@@ -1795,7 +1795,7 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
     if (node.optional)
         yield "?.";
 
-    yield* parseParametersOrArguments(node, node.arguments, context);
+    yield* parseParametersOrArguments(node.arguments, context);
 }
 
 function* parseConditionalExpression(node: babel.ConditionalExpression, context: Context): PrintItemIterator {
@@ -1844,7 +1844,7 @@ function* parseNewExpression(node: babel.NewExpression, context: Context): Print
     yield "new ";
     yield* parseNode(node.callee, context);
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node, node.arguments, context);
+    yield* parseParametersOrArguments(node.arguments, context);
 }
 
 function* parseNonNullExpression(node: babel.TSNonNullExpression, context: Context): PrintItemIterator {
@@ -2187,14 +2187,14 @@ function* parseConditionalType(node: babel.TSConditionalType, context: Context):
 function* parseConstructorType(node: babel.TSConstructorType, context: Context): PrintItemIterator {
     yield "new";
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node, node.parameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
     yield " => ";
     yield* parseNode(node.typeAnnotation, context);
 }
 
 function* parseFunctionType(node: babel.TSFunctionType, context: Context): PrintItemIterator {
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node, node.parameters, context);
+    yield* parseParametersOrArguments(node.parameters, context);
     yield " => ";
     yield* parseNode(node.typeAnnotation, context);
 }
@@ -2528,7 +2528,7 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
     }
 }
 
-function* parseParametersOrArguments(node: babel.Node, params: babel.Node[], context: Context): PrintItemIterator {
+function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
     const useNewLines = getUseNewLines();
     yield* newlineGroup(parseItems());
 
@@ -2577,7 +2577,7 @@ function* parseParametersOrArguments(node: babel.Node, params: babel.Node[], con
         if (params.length === 0)
             return false;
 
-        return nodeHelpers.getUseNewlinesForNodes([getFirstOpenParenToken(node, context), params[0]])
+        return nodeHelpers.getUseNewlinesForNodes([getFirstOpenParenTokenBefore(params[0], context), params[0]])
     }
 }
 
@@ -3132,8 +3132,19 @@ function getFirstAngleBracketToken(node: babel.Node, context: Context) {
     return getFirstTokenUsingValue(node, "<", context);
 }
 
-function getFirstOpenParenToken(node: babel.Node, context: Context) {
-    return getFirstTokenUsingType(node, "(", context);
+// todo: should probably do something similar to this in other places as the other
+// method cause a bug
+function getFirstOpenParenTokenBefore(node: babel.Node, context: Context) {
+    // todo: something faster than O(n)
+    let lastToken: nodeHelpers.BabelToken | undefined;
+    nodeHelpers.getFirstToken(context.file, token => {
+        if (token.type && token.type.label === "(")
+            lastToken = token;
+        else if (token.start >= node.start!)
+            return "stop";
+        return false;
+    });
+    return lastToken;
 }
 
 function getFirstOpenBracketToken(node: babel.Node, context: Context) {
