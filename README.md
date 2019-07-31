@@ -11,9 +11,8 @@ This is not recommended for use yet.
 ## Goals
 
 1. Reasonable configuration.
-2. Work well above an 80 character line width.
-3. Satisfy my formatting needs.
-4. TypeScript and probably JSON support.
+2. Satisfy my formatting needs.
+3. TypeScript and probably JSON support.
 
 ## Licence
 
