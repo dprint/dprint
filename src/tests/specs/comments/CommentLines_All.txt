@@ -9,3 +9,13 @@
 
 [expect]
 /// <reference path="test" />
+
+== should format when empty ==
+// test
+//
+// other
+
+[expect]
+// test
+//
+// other

@@ -2974,7 +2974,11 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
         const commentValue = (isTripleSlashComment ? rawCommentValue.substring(1) : rawCommentValue).trim();
         const prefix = isTripleSlashComment ? "///" : "//";
 
-        yield `${prefix} ${commentValue}`;
+        yield prefix;
+
+        if (commentValue.length > 0)
+            yield ` ${commentValue}`;
+
         yield Signal.ExpectNewLine;
     }
 }
