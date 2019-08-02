@@ -1,5 +1,0 @@
-== should format ==
-export   as   namespace   A;
-
-[expect]
-export as namespace A;

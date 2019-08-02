@@ -1,4 +1,4 @@
-import { parseToBabelAst, parseFile } from "./parsing";
+import { parseFile } from "./parsing";
 import { print } from "./printing";
 import { resolveNewLineKindFromText, ResolvedConfiguration } from "./configuration";
 
@@ -9,8 +9,7 @@ import { resolveNewLineKindFromText, ResolvedConfiguration } from "./configurati
  * @param configuration - Configuration to use for formatting.
  */
 export function formatFileText(filePath: string, fileText: string, configuration: ResolvedConfiguration) {
-    const babelAst = parseToBabelAst(filePath, fileText);
-    const printItem = parseFile(babelAst, fileText, configuration);
+    const printItem = parseFile(filePath, fileText, configuration);
 
     return print(printItem, {
         maxWidth: configuration.lineWidth,

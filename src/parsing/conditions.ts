@@ -1,5 +1,5 @@
 import { PrintItemKind, Info, Condition, Signal } from "../types";
-import { Context } from "./parser";
+import { Context } from "./typescript/parser";
 import * as infoChecks from "./infoChecks";
 import * as conditionResolvers from "./conditionResolvers";
 

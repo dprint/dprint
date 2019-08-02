@@ -1,11 +1,11 @@
 import * as babel from "@babel/types";
-import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../configuration";
-import { PrintItem, PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../types";
-import { assertNever, throwError, RepeatableIterator } from "../utils";
-import * as conditions from "./conditions";
-import * as conditionResolvers from "./conditionResolvers";
-import * as nodeHelpers from "./nodeHelpers";
-import * as infoChecks from "./infoChecks";
+import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../../configuration";
+import { PrintItem, PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../../types";
+import { assertNever, RepeatableIterator } from "../../utils";
+import * as conditions from "../conditions";
+import * as conditionResolvers from "../conditionResolvers";
+import * as nodeHelpers from "../nodeHelpers";
+import * as infoChecks from "../infoChecks";
 
 class Bag {
     private readonly bag = new Map<string, object>();
@@ -46,7 +46,7 @@ export interface Context {
     bag: Bag;
 }
 
-export function* parseFile(file: babel.File, fileText: string, options: ResolvedConfiguration): PrintItemIterator {
+export function* parseTypeScriptFile(file: babel.File, fileText: string, options: ResolvedConfiguration): PrintItemIterator {
     const context: Context = {
         file,
         fileText,

@@ -1,5 +1,5 @@
 import * as babel from "@babel/types";
-import { Context } from "./parser";
+import { Context } from "./typescript/parser";
 
 export function hasBody(node: babel.Node) {
     return (node as any as babel.ClassDeclaration).body != null;

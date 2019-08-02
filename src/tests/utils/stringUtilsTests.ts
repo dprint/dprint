@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { removeStringIndentation } from "../../utils";
 
-describe("removeStringIndentation", () => {
+describe(nameof(removeStringIndentation), () => {
     function doTest(input: string, expectedOutput: string, options: { indentSizeInSpaces?: number; isInStringAtPos?: (pos: number) => boolean; } = {}) {
         const actualResult = removeStringIndentation(input, {
             indentSizeInSpaces: options.indentSizeInSpaces || 4,

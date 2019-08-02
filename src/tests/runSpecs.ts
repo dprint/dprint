@@ -5,7 +5,7 @@ import globby from "globby";
 import { formatFileText } from "../formatFileText";
 import { parseSpecs, Spec } from "./specParser";
 import { resolveConfiguration } from "../configuration";
-import { parseToBabelAst, parseFile } from "../parsing";
+import { parseFile } from "../parsing";
 import { printTree } from "./printTree";
 
 const rootDir = path.join(__dirname, "../../");
@@ -43,8 +43,7 @@ describe("specs", () => {
             throw new Error(JSON.stringify(resolvedConfig.diagnostics));
 
         if (spec.showTree) {
-            const babelAst = parseToBabelAst(spec.filePath, spec.fileText);
-            const printItem = parseFile(babelAst, spec.fileText, resolvedConfig.config);
+            const printItem = parseFile(spec.filePath, spec.fileText, resolvedConfig.config);
             console.log(printTree(printItem));
         }
 
