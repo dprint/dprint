@@ -2577,7 +2577,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
         if (params.length === 0)
             return false;
 
-        return nodeHelpers.getUseNewlinesForNodes([getFirstOpenParenTokenBefore(params[0], context), params[0]])
+        return nodeHelpers.getUseNewlinesForNodes([getFirstOpenParenTokenBefore(params[0], context), params[0]]);
     }
 }
 
@@ -3112,7 +3112,7 @@ function* withIndentIfStartOfLineIndented(item: PrintItemIterator): PrintItemIte
         },
         true: withIndent(item),
         false: item
-    }
+    };
 }
 
 function* withIndent(item: PrintItemIterator): PrintItemIterator {

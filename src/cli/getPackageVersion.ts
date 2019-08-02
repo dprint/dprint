@@ -1,4 +1,10 @@
 export function getPackageVersion() {
-    const pjson = require("../../package.json");
-    return pjson.version;
+    return getJson().version as string;
+
+    function getJson() {
+        if (__dirname.endsWith("dist"))
+            return require("../package.json");
+
+        return require("../../package.json");
+    }
 }
