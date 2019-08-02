@@ -327,7 +327,8 @@ export function print(iterator: PrintItemIterator, options: PrintOptions) {
             lineStartIndentLevel: writer.getLineStartIndentLevel(),
             lineStartColumnNumber: writer.getLineStartColumnNumber(),
             lineNumber: writer.getLineNumber(),
-            columnNumber: writer.getLineColumn()
+            columnNumber: writer.getLineColumn(),
+            indentLevel: writer.getIndentationLevel()
         };
     }
 

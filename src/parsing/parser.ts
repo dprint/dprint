@@ -1795,7 +1795,7 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
     if (node.optional)
         yield "?.";
 
-    yield* parseParametersOrArguments(node.arguments, context);
+    yield* withIndentIfStartOfLineIndented(parseParametersOrArguments(node.arguments, context));
 }
 
 function* parseConditionalExpression(node: babel.ConditionalExpression, context: Context): PrintItemIterator {
@@ -3097,6 +3097,22 @@ function* indentIfStartOfLine(item: PrintItemIterator): PrintItemIterator {
         true: withIndent(item),
         false: item
     };
+}
+
+function* withIndentIfStartOfLineIndented(item: PrintItemIterator): PrintItemIterator {
+    // need to make this a repeatable iterator so it can be iterated multiple times
+    // between the true and false condition
+    item = new RepeatableIterator(item);
+
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "withIndentIfStartOfLineIndented",
+        condition: context => {
+            return context.writerInfo.lineStartIndentLevel > context.writerInfo.indentLevel;
+        },
+        true: withIndent(item),
+        false: item
+    }
 }
 
 function* withIndent(item: PrintItemIterator): PrintItemIterator {
