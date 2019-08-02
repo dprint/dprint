@@ -2024,22 +2024,29 @@ function* parseNumericLiteral(node: babel.NumericLiteral, context: Context): Pri
 }
 
 function* parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.DirectiveLiteral, context: Context): PrintItemIterator {
-    const stringValue = getStringValue();
+    yield {
+        kind: PrintItemKind.RawString,
+        text: getStringLiteralText()
+    };
 
-    if (context.config.singleQuotes)
-        yield `'${stringValue.replace(/'/g, `\\'`)}'`;
-    else
-        yield `"${stringValue.replace(/"/g, `\\"`)}"`;
+    function getStringLiteralText() {
+        const stringValue = getStringValue();
 
-    function getStringValue() {
-        // do not use node.value because it will not keep escaped characters as escaped characters
-        const rawStringValue = context.fileText.substring(node.start! + 1, node.end! - 1);
-        const isDoubleQuote = context.fileText[node.start!] === `"`;
-
-        if (isDoubleQuote)
-            return rawStringValue.replace(/\\"/g, `"`);
+        if (context.config.singleQuotes)
+            return `'${stringValue.replace(/'/g, `\\'`)}'`;
         else
-            return rawStringValue.replace(/\\'/g, `'`);
+            return `"${stringValue.replace(/"/g, `\\"`)}"`;
+
+        function getStringValue() {
+            // do not use node.value because it will not keep escaped characters as escaped characters
+            const rawStringValue = context.fileText.substring(node.start! + 1, node.end! - 1);
+            const isDoubleQuote = context.fileText[node.start!] === `"`;
+
+            if (isDoubleQuote)
+                return rawStringValue.replace(/\\"/g, `"`);
+            else
+                return rawStringValue.replace(/\\'/g, `'`);
+        }
     }
 }
 

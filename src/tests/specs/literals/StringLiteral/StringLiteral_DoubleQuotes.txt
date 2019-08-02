@@ -15,3 +15,17 @@ console.log("\"testing\"");
 
 [expect]
 console.log("\"testing\"");
+
+== should handle string literals that span multiple lines ==
+function test() {
+    const test = 'testing\
+this out\
+          testing';
+}
+
+[expect]
+function test() {
+    const test = "testing\
+this out\
+          testing";
+}
