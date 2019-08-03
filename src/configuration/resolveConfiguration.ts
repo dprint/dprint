@@ -20,7 +20,7 @@ export interface ConfigurationDiagnostic {
 /** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
 const defaultValues = {
     lineWidth: 120,
-    indentSize: 4,
+    indentWidth: 4,
     useTabs: false,
     semiColons: true,
     singleQuotes: false,
@@ -39,6 +39,9 @@ const defaultValues = {
 export function resolveConfiguration(config: Configuration): ResolveConfigurationResult {
     config = { ...config };
     const diagnostics: ConfigurationDiagnostic[] = [];
+    const lineWidth = getValue("lineWidth", defaultValues["lineWidth"], ensureNumber);
+    const indentWidth = getValue("indentWidth", defaultValues["indentWidth"], ensureNumber);
+    const useTabs = getValue("useTabs", defaultValues["useTabs"], ensureBoolean);
     const semiColons = getValue("semiColons", defaultValues["semiColons"], ensureBoolean);
     const useBraces = getValue("useBraces", defaultValues["useBraces"], ensureBraceUse);
     const bracePosition = getValue("bracePosition", defaultValues["bracePosition"], ensureBracePosition);
@@ -46,11 +49,15 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     const trailingCommas = getValue("trailingCommas", defaultValues["trailingCommas"], ensureTrailingCommas);
 
     const resolvedConfig: ResolvedConfiguration = {
-        lineWidth: getValue("lineWidth", defaultValues["lineWidth"], ensureNumber),
-        indentSize: getValue("indentSize", defaultValues["indentSize"], ensureNumber),
-        useTabs: getValue("useTabs", defaultValues["useTabs"], ensureBoolean),
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
         newlineKind: getNewLineKind(),
+        // language specific
+        "typescript.lineWidth": getValue("typescript.lineWidth", lineWidth, ensureNumber),
+        "json.lineWidth": getValue("json.lineWidth", lineWidth, ensureNumber),
+        "typescript.indentWidth": getValue("typescript.indentWidth", indentWidth, ensureNumber),
+        "json.indentWidth": getValue("json.indentWidth", indentWidth, ensureNumber),
+        "typescript.useTabs": getValue("typescript.useTabs", useTabs, ensureBoolean),
+        "json.useTabs": getValue("json.useTabs", useTabs, ensureBoolean),
         // declaration specific
         "enumDeclaration.memberSpacing": getValue("enumDeclaration.memberSpacing", defaultValues["enumDeclaration.memberSpacing"], ensureEnumMemberSpacing),
         // semi-colons

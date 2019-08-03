@@ -1,6 +1,8 @@
 import { parseFile } from "./parsing";
 import { print } from "./printing";
 import { resolveNewLineKindFromText, ResolvedConfiguration } from "./configuration";
+import { getFileKind } from "./getFileKind";
+import { FileKind } from "./FileKind";
 
 /**
  * Formats the provided text with the specified configuration.
@@ -9,12 +11,13 @@ import { resolveNewLineKindFromText, ResolvedConfiguration } from "./configurati
  * @param configuration - Configuration to use for formatting.
  */
 export function formatFileText(filePath: string, fileText: string, configuration: ResolvedConfiguration) {
-    const printItem = parseFile(filePath, fileText, configuration);
+    const fileKind = getFileKind(filePath);
+    const printItem = parseFile(fileKind, fileText, configuration);
 
     return print(printItem, {
-        maxWidth: configuration.lineWidth,
-        indentSize: configuration.indentSize,
         newlineKind: configuration.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : configuration.newlineKind,
-        useTabs: configuration.useTabs
+        maxWidth: fileKind === FileKind.Json ? configuration["json.lineWidth"] : configuration["typescript.lineWidth"],
+        indentWidth: fileKind === FileKind.Json ? configuration["json.indentWidth"] : configuration["typescript.indentWidth"],
+        useTabs: fileKind === FileKind.Json ? configuration["json.useTabs"] : configuration["typescript.useTabs"]
     });
 }

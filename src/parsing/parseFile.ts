@@ -1,33 +1,20 @@
 import { PrintItemIterator } from "../types";
+import { ResolvedConfiguration } from "../configuration";
+import { FileKind } from "../FileKind";
+import { assertNever } from "../utils";
 import { parseToBabelAst, parseTypeScriptFile } from "./typescript";
 import { parseToJsonAst, parseJsonFile } from "./json";
-import { ResolvedConfiguration } from "../configuration";
-import { getFileExtension, throwError } from "../utils";
 
-export function parseFile(filePath: string, fileText: string, configuration: ResolvedConfiguration): PrintItemIterator {
-    const fileExtension = getFileExtension(filePath).toLowerCase();
-
-    if (isTypeScriptFile()) {
-        const babelAst = parseToBabelAst(filePath, fileText);
+export function parseFile(fileKind: FileKind, fileText: string, configuration: ResolvedConfiguration): PrintItemIterator {
+    if (fileKind === FileKind.TypeScript || fileKind === FileKind.TypeScriptTsx) {
+        const babelAst = parseToBabelAst(fileKind, fileText);
         return parseTypeScriptFile(babelAst, fileText, configuration);
     }
-    else if (fileExtension === ".json") {
+    else if (fileKind === FileKind.Json) {
         const jsonAst = parseToJsonAst(fileText);
         return parseJsonFile(jsonAst, fileText, configuration);
     }
     else {
-        return throwError(`Could not resolve parser based on file path: ${filePath}`);
-    }
-
-    function isTypeScriptFile() {
-        switch (fileExtension) {
-            case ".ts":
-            case ".tsx":
-            case ".js":
-            case ".jsx":
-                return true;
-        }
-
-        return false;
+        return assertNever(fileKind);
     }
 }

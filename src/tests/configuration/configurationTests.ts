@@ -29,7 +29,7 @@ describe("new line configuration", () => {
 
 describe("indent size configuration", () => {
     it("should format with the specified indent size", () => {
-        doTest("if (true) {\n      //1\nconsole.log(5); }", { indentSize: 2 }, "if (true) {\n  // 1\n  console.log(5);\n}\n");
+        doTest("if (true) {\n      //1\nconsole.log(5); }", { indentWidth: 2 }, "if (true) {\n  // 1\n  console.log(5);\n}\n");
     });
 });
 

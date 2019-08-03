@@ -1,10 +1,8 @@
 import * as parser from "@babel/parser";
+import { FileKind } from "../../FileKind";
 
-const isJsxExtension = /\.(j|t)sx$/i;
-
-export function parseToBabelAst(fileName: string, code: string) {
+export function parseToBabelAst(fileKind: FileKind, code: string) {
     return parser.parse(code, {
-        sourceFilename: fileName,
         sourceType: "module",
         tokens: true,
         plugins: Array.from(getPlugins()),
@@ -16,7 +14,7 @@ export function parseToBabelAst(fileName: string, code: string) {
     });
 
     function* getPlugins(): Iterable<parser.ParserPlugin> {
-        if (isJsx())
+        if (fileKind === FileKind.TypeScriptTsx)
             yield "jsx";
 
         yield "typescript";
@@ -28,9 +26,5 @@ export function parseToBabelAst(fileName: string, code: string) {
         yield "exportNamespaceFrom";
         yield "importMeta";
         yield "optionalChaining";
-    }
-
-    function isJsx() {
-        return isJsxExtension.test(fileName);
     }
 }

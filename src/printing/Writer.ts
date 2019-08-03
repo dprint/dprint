@@ -18,8 +18,8 @@ export class Writer {
 
     private state: WriterState;
 
-    constructor(private readonly options: { indentSize: number; useTabs: boolean; newlineKind: "\r\n" | "\n"; }) {
-        this.singleIndentationText = this.options.useTabs ? "\t" : " ".repeat(options.indentSize);
+    constructor(private readonly options: { indentWidth: number; useTabs: boolean; newlineKind: "\r\n" | "\n"; }) {
+        this.singleIndentationText = this.options.useTabs ? "\t" : " ".repeat(options.indentWidth);
         this.state = {
             currentLineColumn: 0,
             currentLineNumber: 0,

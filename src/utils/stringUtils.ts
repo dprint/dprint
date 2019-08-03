@@ -1,7 +1,7 @@
 // todo: remove?
 
-export function removeStringIndentation(str: string, opts: { isInStringAtPos: (pos: number) => boolean; indentSizeInSpaces: number; }) {
-    const { isInStringAtPos, indentSizeInSpaces } = opts;
+export function removeStringIndentation(str: string, opts: { isInStringAtPos: (pos: number) => boolean; indentWidthInSpaces: number; }) {
+    const { isInStringAtPos, indentWidthInSpaces } = opts;
     const startPositions: number[] = [];
     const endPositions: number[] = [];
     let minIndentWidth: number | undefined;
@@ -36,7 +36,7 @@ export function removeStringIndentation(str: string, opts: { isInStringAtPos: (p
             }
 
             // indentation for spaces rounds up to the nearest tab size multiple
-            const indentWidth = Math.ceil(spacesCount / indentSizeInSpaces) * indentSizeInSpaces + tabsCount * indentSizeInSpaces;
+            const indentWidth = Math.ceil(spacesCount / indentWidthInSpaces) * indentWidthInSpaces + tabsCount * indentWidthInSpaces;
             if (minIndentWidth == null || indentWidth < minIndentWidth)
                 minIndentWidth = indentWidth;
 
@@ -67,7 +67,7 @@ export function removeStringIndentation(str: string, opts: { isInStringAtPos: (p
                 if (str[pos] === " ")
                     indentCount++;
                 else if (str[pos] === "\t")
-                    indentCount += indentSizeInSpaces;
+                    indentCount += indentWidthInSpaces;
             }
 
             lastEndPos = startPositions[i + 1] == null ? str.length : startPositions[i + 1];

@@ -2,9 +2,9 @@ import { expect } from "chai";
 import { removeStringIndentation } from "../../utils";
 
 describe(nameof(removeStringIndentation), () => {
-    function doTest(input: string, expectedOutput: string, options: { indentSizeInSpaces?: number; isInStringAtPos?: (pos: number) => boolean; } = {}) {
+    function doTest(input: string, expectedOutput: string, options: { indentWidthInSpaces?: number; isInStringAtPos?: (pos: number) => boolean; } = {}) {
         const actualResult = removeStringIndentation(input, {
-            indentSizeInSpaces: options.indentSizeInSpaces || 4,
+            indentWidthInSpaces: options.indentWidthInSpaces || 4,
             isInStringAtPos: options.isInStringAtPos || (() => false)
         });
 
@@ -33,11 +33,11 @@ describe(nameof(removeStringIndentation), () => {
     });
 
     it("should consider the first line's indent if only indented by one space and the tab size is 4", () => {
-        doTest(" testing\n        this", "testing\n    this", { indentSizeInSpaces: 4 });
+        doTest(" testing\n        this", "testing\n    this", { indentWidthInSpaces: 4 });
     });
 
     it("should consider the first line's indent if only indented by one space and the tab size is 2", () => {
-        doTest(" testing\n    this", "testing\n  this", { indentSizeInSpaces: 2 });
+        doTest(" testing\n    this", "testing\n  this", { indentWidthInSpaces: 2 });
     });
 
     it("should remove based on the minimum width", () => {
@@ -49,7 +49,7 @@ describe(nameof(removeStringIndentation), () => {
     });
 
     it("should treat tabs based on the tab size provided when mixing spaces and tabs", () => {
-        doTest("{\n  \t  test\n    }", "{\n  test\n}", { indentSizeInSpaces: 2 });
+        doTest("{\n  \t  test\n    }", "{\n  test\n}", { indentWidthInSpaces: 2 });
     });
 
     it("should not deindent within strings", () => {

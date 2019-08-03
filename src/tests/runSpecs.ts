@@ -5,6 +5,7 @@ import globby from "globby";
 import { formatFileText } from "../formatFileText";
 import { parseSpecs, Spec } from "./specParser";
 import { resolveConfiguration } from "../configuration";
+import { getFileKind } from "../getFileKind";
 import { parseFile } from "../parsing";
 import { printTree } from "./printTree";
 
@@ -43,7 +44,7 @@ describe("specs", () => {
             throw new Error(JSON.stringify(resolvedConfig.diagnostics));
 
         if (spec.showTree) {
-            const printItem = parseFile(spec.filePath, spec.fileText, resolvedConfig.config);
+            const printItem = parseFile(getFileKind(spec.filePath), spec.fileText, resolvedConfig.config);
             console.log(printTree(printItem));
         }
 

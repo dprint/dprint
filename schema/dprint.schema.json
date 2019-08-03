@@ -3,15 +3,20 @@
     "title": "dprint configuration",
     "type": "object",
     "definitions": {
-        "useBraces": {
-            "type": "string",
-            "description": "If braces should be used or not.",
-            "oneOf": [
-                { "const": "maintain", "description": "Uses braces if they're used. Doesn't use braces if they're not used." },
-                { "const": "always", "description": "Forces the use of braces. Will add them if they aren't used." },
-                { "const": "preferNone", "description": "Forces no braces when when the header is one line and body is one line. Otherwise forces braces." }
-            ],
-            "default": "maintain"
+        "indentWidth": {
+            "type": "number",
+            "description": "The number of spaces for an indent. This option is ignored when using tabs.",
+            "default": 4
+        },
+        "lineWidth": {
+            "type": "number",
+            "description": "The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.",
+            "default": 120
+        },
+        "useTabs": {
+            "type": "boolean",
+            "description": "Whether to use tabs (true) or spaces (false).",
+            "default": false
         },
         "bracePosition": {
             "type": "string",
@@ -43,23 +48,27 @@
                 { "const": "onlyMultiLine", "description": "Trailing commas should only be used in multi-line scenarios." }
             ],
             "default": "never"
+        },
+        "useBraces": {
+            "type": "string",
+            "description": "If braces should be used or not.",
+            "oneOf": [
+                { "const": "maintain", "description": "Uses braces if they're used. Doesn't use braces if they're not used." },
+                { "const": "always", "description": "Forces the use of braces. Will add them if they aren't used." },
+                { "const": "preferNone", "description": "Forces no braces when when the header is one line and body is one line. Otherwise forces braces." }
+            ],
+            "default": "maintain"
         }
     },
     "properties": {
         "lineWidth": {
-            "type": "number",
-            "description": "The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.",
-            "default": 120
+            "$ref": "#/definitions/lineWidth"
         },
-        "indentSize": {
-            "type": "number",
-            "description": "The number of spaces for an indent. This option is ignored when using tabs.",
-            "default": 4
+        "indentWidth": {
+            "$ref": "#/definitions/indentWidth"
         },
         "useTabs": {
-            "type": "boolean",
-            "description": "Whether to use tabs (true) or spaces (false).",
-            "default": false
+            "$ref": "#/definitions/useTabs"
         },
         "semiColons": {
             "type": "boolean",
@@ -93,6 +102,27 @@
         },
         "trailingCommas": {
             "$ref": "#/definitions/trailingCommas"
+        },
+
+        "typescript.lineWidth": {
+            "$ref": "#/definitions/lineWidth"
+        },
+        "json.lineWidth": {
+            "$ref": "#/definitions/lineWidth"
+        },
+
+        "typescript.indentWidth": {
+            "$ref": "#/definitions/indentWidth"
+        },
+        "json.indentWidth": {
+            "$ref": "#/definitions/indentWidth"
+        },
+
+        "typescript.useTabs": {
+            "$ref": "#/definitions/useTabs"
+        },
+        "json.useTabs": {
+            "$ref": "#/definitions/useTabs"
         },
 
         "enumDeclaration.memberSpacing": {

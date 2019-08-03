@@ -43,49 +43,99 @@ describe(nameof(resolveConfiguration), () => {
     });
 
     describe(nameof<Configuration>(c => c.lineWidth), () => {
-        function doSpecificTest(value: number | undefined, expectedValue: number) {
-            doTest({ lineWidth: value as any }, { lineWidth: expectedValue as any }, prop => prop === "lineWidth");
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("lineWidth"));
         }
 
-        it("should set when not set", () => {
-            doSpecificTest(undefined, 120);
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(120));
         });
 
-        it("should use what was set", () => {
-            doSpecificTest(90, 90);
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ lineWidth: 120 }, getObject(120));
         });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ lineWidth: 2 }, getObject(2));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(130);
+            const config: Configuration = { ...expectedConfig } as any;
+            config.lineWidth = 4;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: number): Partial<ResolvedConfiguration> {
+            return {
+                "typescript.lineWidth": value,
+                "json.lineWidth": value
+            };
+        }
     });
 
-    describe(nameof<Configuration>(c => c.indentSize), () => {
-        function doSpecificTest(value: number | undefined, expectedValue: number) {
-            doTest({ indentSize: value as any }, { indentSize: expectedValue as any }, prop => prop === "indentSize");
+    describe(nameof<Configuration>(c => c.indentWidth), () => {
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("indentWidth"));
         }
 
-        it("should set when not set", () => {
-            doSpecificTest(undefined, 4);
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(4));
         });
 
-        it("should use what was set", () => {
-            doSpecificTest(2, 2);
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ indentWidth: 4 }, getObject(4));
         });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ indentWidth: 2 }, getObject(2));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(2);
+            const config: Configuration = { ...expectedConfig } as any;
+            config.indentWidth = 4;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: number): Partial<ResolvedConfiguration> {
+            return {
+                "typescript.indentWidth": value,
+                "json.indentWidth": value
+            };
+        }
     });
 
     describe(nameof<Configuration>(c => c.useTabs), () => {
-        function doSpecificTest(value: boolean | undefined, expectedValue: boolean) {
-            doTest({ useTabs: value as any }, { useTabs: expectedValue as any }, prop => prop === "useTabs");
+        function doSpecificTest(config: Configuration, expectedConfig: Partial<ResolvedConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("useTabs"));
         }
 
-        it("should set when not set", () => {
-            doSpecificTest(undefined, false);
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(false));
         });
 
-        it("should use when set to the default", () => {
-            doSpecificTest(true, true);
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ useTabs: false }, getObject(false));
         });
 
-        it("should use when not set to the default", () => {
-            doSpecificTest(false, false);
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ useTabs: true }, getObject(true));
         });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(true);
+            const config: Configuration = { ...expectedConfig } as any;
+            config.useTabs = false;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: boolean): Partial<ResolvedConfiguration> {
+            return {
+                "typescript.useTabs": value,
+                "json.useTabs": value
+            };
+        }
     });
 
     describe(nameof<Configuration>(c => c.semiColons), () => {

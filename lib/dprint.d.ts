@@ -19,7 +19,7 @@ export interface Configuration {
      * The number of spaces for an indent. This option is ignored when using tabs.
      * @default 4
      */
-    indentSize?: number;
+    indentWidth?: number;
     /**
      * Whether to use tabs (true) or spaces (false).
      * @default false
@@ -77,6 +77,36 @@ export interface Configuration {
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
      */
     trailingCommas?: "never" | "always" | "onlyMultiLine";
+    /**
+     * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
+     * @default 120
+     */
+    "typescript.lineWidth"?: number;
+    /**
+     * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
+     * @default 120
+     */
+    "json.lineWidth"?: number;
+    /**
+     * The number of spaces for an indent. This option is ignored when using tabs.
+     * @default 4
+     */
+    "typescript.indentWidth"?: number;
+    /**
+     * The number of spaces for an indent. This option is ignored when using tabs.
+     * @default 4
+     */
+    "json.indentWidth"?: number;
+    /**
+     * Whether to use tabs (true) or spaces (false).
+     * @default false
+     */
+    "typescript.useTabs"?: boolean;
+    /**
+     * Whether to use tabs (true) or spaces (false).
+     * @default false
+     */
+    "json.useTabs"?: boolean;
     /**
      * How to space the members of an enum.
      * @default "newline"
@@ -387,11 +417,14 @@ export interface ResolveConfigurationResult {
  * Resolved configuration from user specified configuration.
  */
 export interface ResolvedConfiguration {
-    lineWidth: number;
-    indentSize: number;
-    useTabs: boolean;
     singleQuotes: boolean;
     newlineKind: "auto" | "\r\n" | "\n";
+    "typescript.lineWidth": NonNullable<Configuration["lineWidth"]>;
+    "json.lineWidth": NonNullable<Configuration["lineWidth"]>;
+    "typescript.indentWidth": NonNullable<Configuration["indentWidth"]>;
+    "json.indentWidth": NonNullable<Configuration["indentWidth"]>;
+    "typescript.useTabs": NonNullable<Configuration["useTabs"]>;
+    "json.useTabs": NonNullable<Configuration["useTabs"]>;
     "enumDeclaration.memberSpacing": NonNullable<Configuration["enumDeclaration.memberSpacing"]>;
     "breakStatement.semiColon": boolean;
     "callSignature.semiColon": boolean;
