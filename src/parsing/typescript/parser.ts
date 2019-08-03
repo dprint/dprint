@@ -1,29 +1,12 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../../configuration";
 import { PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../../types";
-import { assertNever } from "../../utils";
+import { assertNever, Bag } from "../../utils";
 import * as conditions from "../common/conditions";
 import * as conditionResolvers from "../common/conditionResolvers";
 import * as infoChecks from "../common/infoChecks";
 import { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterator, surroundWithNewLines } from "../common/parserHelpers";
 import * as nodeHelpers from "./nodeHelpers";
-
-class Bag {
-    private readonly bag = new Map<string, object>();
-    put(key: string, value: any) {
-        this.bag.set(key, value);
-    }
-
-    take(key: string) {
-        const value = this.bag.get(key);
-        this.bag.delete(key);
-        return value;
-    }
-
-    peek(key: string) {
-        return this.bag.get(key);
-    }
-}
 
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
