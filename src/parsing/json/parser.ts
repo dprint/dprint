@@ -75,12 +75,8 @@ function* parseObject(node: Node, context: Context): PrintItemIterator {
 function* parseString(node: Node, context: Context): PrintItemIterator {
     yield {
         kind: PrintItemKind.RawString,
-        text: `"${getStringValue()}"`
+        text: context.fileText.substr(node.offset, node.length)
     };
-
-    function getStringValue() {
-        return node.value!.replace(/\"/g, `\\"`);
-    }
 }
 
 function* parseArray(node: Node, context: Context): PrintItemIterator {
