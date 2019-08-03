@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should format ==
 type T = {
     m1 ( ) : number;
@@ -13,3 +14,37 @@ type T = {
     m3?<T, U>();
     [m4](): string;
 };
+
+== should format the return type as hanging when it's hanging ==
+interface T {
+    method(param: string): test | number;
+}
+
+[expect]
+interface T {
+    method(param: string): test
+        | number;
+}
+
+== should format the return type on the same line when the rest of the header is hanging ==
+interface T {
+    method(param: string, other: string): test | other;
+}
+
+[expect]
+interface T {
+    method(param: string,
+        other: string): test | other;
+}
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+interface T {
+    method(param: string, other: string): test | other | other;
+}
+
+[expect]
+interface T {
+    method(param: string,
+        other: string
+    ): test | other | other;
+}

@@ -80,3 +80,45 @@ abstract class Test {
     set getSet(value: string) {
     }
 }
+
+== should format the return type as hanging when it's hanging ==
+class Test {
+    method(param: string): test | other | number {
+    }
+}
+
+[expect]
+class Test {
+    method(param: string): test | other
+        | number
+    {
+    }
+}
+
+== should format the return type on the same line when the rest of the header is hanging ==
+class Test {
+    method(param: string, otherTestinging: string): test | other {
+    }
+}
+
+[expect]
+class Test {
+    method(param: string,
+        otherTestinging: string): test | other
+    {
+    }
+}
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+class Test {
+    method(param: string, otherTestinging: string): test | other | testing {
+    }
+}
+
+[expect]
+class Test {
+    method(param: string,
+        otherTestinging: string
+    ): test | other | testing {
+    }
+}

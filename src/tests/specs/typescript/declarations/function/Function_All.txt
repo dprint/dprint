@@ -1,4 +1,5 @@
-== should print everything in a function declaration ==
+~~ lineWidth: 80 ~~
+== should format everything in a function declaration ==
 export async function*
 test<T, U>
 (p, u): string
@@ -16,3 +17,36 @@ test<T, U>
 
 [expect]
 export declare async function* test<T, U>(p, u): string;
+
+== should format the return type as hanging when it's hanging ==
+function testing(param: string, other: number, finalParameter: string): testing | this {
+
+}
+
+[expect]
+function testing(param: string, other: number, finalParameter: string): testing
+    | this
+{
+}
+
+== should format the return type on the same line when the rest of the header is hanging ==
+function testing(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | this {
+}
+
+[expect]
+function testing(param: string, other: number,
+    finalParameterThatIsReallyReallyLong: string): testing | this
+{
+}
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+function testing(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut {
+}
+
+[expect]
+function testing(param: string, other: number,
+    finalParameterThatIsReallyReallyLong: string
+): testing | other | other | test | test | asdf | testingThisOut
+    | testingThisOut
+{
+}

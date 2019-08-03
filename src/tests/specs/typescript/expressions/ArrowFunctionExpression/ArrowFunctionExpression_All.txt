@@ -56,3 +56,36 @@ const t = async a => 5;
 
 [expect]
 const t = async a => 5;
+
+== should format the return type as hanging when it's hanging ==
+const t = (param: string, other: number): testing | thisOutMore => {
+
+}
+
+[expect]
+const t = (param: string, other: number): testing
+    | thisOutMore =>
+{
+};
+
+== should format the return type on the same line when the rest of the header is hanging ==
+const testing = (param: string, other: number, finalParameterThatIs: string): testing | this => {
+}
+
+[expect]
+const testing = (param: string, other: number,
+    finalParameterThatIs: string): testing | this =>
+{
+};
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+const testing = (param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut => {
+}
+
+[expect]
+const testing = (param: string, other: number,
+    finalParameterThatIsReallyReallyLong: string
+): testing | other | other | test | test | asdf
+    | testingThisOut | testingThisOut =>
+{
+};

@@ -1,3 +1,4 @@
+~~ lineWidth: 50 ~~
 == should format ==
 const obj = {
     method() {
@@ -15,5 +16,47 @@ const obj = {
     },
     *method2(): string { // testing
         return "";
+    }
+};
+
+== should format the return type as hanging when it's hanging ==
+const obj = {
+    method(param: string): test | other | number {
+    }
+}
+
+[expect]
+const obj = {
+    method(param: string): test | other
+        | number
+    {
+    }
+};
+
+== should format the return type on the same line when the rest of the header is hanging ==
+const obj = {
+    method(param: string, otherTestinging: string): test | other {
+    }
+}
+
+[expect]
+const obj = {
+    method(param: string,
+        otherTestinging: string): test | other
+    {
+    }
+};
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+const obj = {
+    method(param: string, otherTestinging: string): test | other | testing {
+    }
+}
+
+[expect]
+const obj = {
+    method(param: string,
+        otherTestinging: string
+    ): test | other | testing {
     }
 };

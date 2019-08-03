@@ -1,10 +1,9 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../../configuration";
 import { PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../../types";
-import { assertNever, Bag } from "../../utils";
+import { assertNever, Bag, RepeatableIterator } from "../../utils";
 import * as conditions from "../common/conditions";
 import * as conditionResolvers from "../common/conditionResolvers";
-import * as infoChecks from "../common/infoChecks";
 import { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterator, surroundWithNewLines } from "../common/parserHelpers";
 import * as nodeHelpers from "./nodeHelpers";
 
@@ -359,7 +358,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
         kind: PrintItemKind.Condition,
         name: "endStatementsNewLine",
         condition: conditionContext => {
-            return !infoChecks.areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
+            return !conditionResolvers.areInfoEqual(conditionContext, startStatementsInfo, endStatementsInfo, false);
         },
         true: [context.newlineKind]
     };
@@ -572,8 +571,8 @@ function* parseFunctionDeclarationOrExpression(
         yield ";";
 
     function* parseHeader(): PrintItemIterator {
-        const functionHeaderStartInfo = createInfo("functionHeaderStart");
-        yield functionHeaderStartInfo;
+        const startHeaderInfo = createInfo("functionHeaderStart");
+        yield startHeaderInfo;
         if (node.type !== "FunctionExpression" && node.declare)
             yield "declare ";
         if (node.async)
@@ -588,12 +587,13 @@ function* parseFunctionDeclarationOrExpression(
         if (node.typeParameters)
             yield* parseNode(node.typeParameters, context);
 
-        yield* parseParametersOrArguments(node.params, context);
-
-        if (node.returnType) {
-            yield ": ";
-            yield* parseNode(node.returnType, context);
-        }
+        yield* parseParametersOrArguments(node.params, context, {
+            customCloseParen: parseCloseParenWithType({
+                context,
+                startInfo: startHeaderInfo,
+                typeNode: node.returnType
+            })
+        });
 
         if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression") {
             const bracePosition = node.type === "FunctionDeclaration"
@@ -603,7 +603,7 @@ function* parseFunctionDeclarationOrExpression(
             yield* parseBraceSeparator({
                 bracePosition,
                 bodyNode: node.body,
-                startHeaderInfo: functionHeaderStartInfo,
+                startHeaderInfo: startHeaderInfo,
                 context
             });
         }
@@ -897,12 +897,13 @@ function* parseClassOrObjectMethod(
     if (node.typeParameters)
         yield* parseNode(node.typeParameters, context);
 
-    yield* parseParametersOrArguments(node.params, context);
-
-    if (node.returnType) {
-        yield ": ";
-        yield* parseNode(node.returnType, context);
-    }
+    yield* parseParametersOrArguments(node.params, context, {
+        customCloseParen: parseCloseParenWithType({
+            context,
+            startInfo: startHeaderInfo,
+            typeNode: node.returnType
+        })
+    });
 
     if (node.type !== "TSDeclareMethod") {
         yield* parseBraceSeparator({
@@ -971,19 +972,33 @@ function* parseParameterProperty(node: babel.TSParameterProperty, context: Conte
 /* interface / type element */
 
 function* parseCallSignatureDeclaration(node: babel.TSCallSignatureDeclaration, context: Context): PrintItemIterator {
+    const startInfo = createInfo("startConstructSignature");
+    yield startInfo;
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+    yield* parseParametersOrArguments(node.parameters, context, {
+        customCloseParen: parseCloseParenWithType({
+            context,
+            startInfo,
+            typeNode: node.typeAnnotation
+        })
+    });
 
     if (context.config["callSignature.semiColon"])
         yield ";";
 }
 
 function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDeclaration, context: Context): PrintItemIterator {
+    const startInfo = createInfo("startConstructSignature");
+    yield startInfo;
     yield "new";
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+    yield* parseParametersOrArguments(node.parameters, context, {
+        customCloseParen: parseCloseParenWithType({
+            context,
+            startInfo,
+            typeNode: node.typeAnnotation
+        })
+    });
 
     if (context.config["constructSignature.semiColon"])
         yield ";";
@@ -993,6 +1008,7 @@ function* parseIndexSignature(node: babel.TSIndexSignature, context: Context): P
     if (node.readonly)
         yield "readonly ";
 
+    // todo: this should do something similar to the other declarations here (the ones with customCloseParen)
     yield "[";
     yield* parseNode(node.parameters[0], context);
     yield "]";
@@ -1018,6 +1034,9 @@ function parseInterfaceBody(node: babel.TSInterfaceBody, context: Context): Prin
 }
 
 function* parseMethodSignature(node: babel.TSMethodSignature, context: Context): PrintItemIterator {
+    const startInfo = createInfo("startConstructSignature");
+    yield startInfo;
+
     if (node.computed)
         yield "[";
 
@@ -1030,9 +1049,13 @@ function* parseMethodSignature(node: babel.TSMethodSignature, context: Context):
         yield "?";
 
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-
-    yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+    yield* parseParametersOrArguments(node.parameters, context, {
+        customCloseParen: parseCloseParenWithType({
+            context,
+            startInfo,
+            typeNode: node.typeAnnotation
+        })
+    });
 
     if (context.config["methodSignature.semiColon"])
         yield ";";
@@ -1526,8 +1549,8 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 // writing an open brace might make the header hang, so assume it should
                 // not write the open brace until it's been resolved
                 return bodyRequiresBraces(bodyNode)
-                    || startHeaderInfo && endHeaderInfo && infoChecks.isMultipleLines(startHeaderInfo, endHeaderInfo, conditionContext, false)
-                    || infoChecks.isMultipleLines(startStatementsInfo, endStatementsInfo, conditionContext, false)
+                    || startHeaderInfo && endHeaderInfo && conditionResolvers.isMultipleLines(conditionContext, startHeaderInfo, endHeaderInfo, false)
+                    || conditionResolvers.isMultipleLines(conditionContext, startStatementsInfo, endStatementsInfo, false)
                     || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
             }
             else {
@@ -1580,7 +1603,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 kind: PrintItemKind.Condition,
                 name: "closeBraceNewLine",
                 condition: conditionContext => {
-                    return !infoChecks.areInfoEqual(startStatementsInfo, endStatementsInfo, conditionContext, false);
+                    return !conditionResolvers.areInfoEqual(conditionContext, startStatementsInfo, endStatementsInfo, false);
                 },
                 true: [context.newlineKind]
             }, "}"]
@@ -1667,15 +1690,17 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
     yield* parseNode(node.typeParameters, context);
 
     // todo: configuration (issue #7)
-    if (node.params.length !== 1 || hasParentheses())
-        yield* parseParametersOrArguments(node.params, context);
+    if (node.params.length !== 1 || hasParentheses() || node.returnType) {
+        yield* parseParametersOrArguments(node.params, context, {
+            customCloseParen: parseCloseParenWithType({
+                context,
+                startInfo: headerStartInfo,
+                typeNode: node.returnType
+            })
+        });
+    }
     else
         yield* parseNode(node.params[0], context);
-
-    if (node.returnType) {
-        yield ": ";
-        yield* parseNode(node.returnType, context);
-    }
 
     yield " =>";
 
@@ -2176,18 +2201,38 @@ function* parseConditionalType(node: babel.TSConditionalType, context: Context):
 }
 
 function* parseConstructorType(node: babel.TSConstructorType, context: Context): PrintItemIterator {
+    const startInfo = createInfo("startConstructorType");
+    yield startInfo;
     yield "new";
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-    yield " => ";
-    yield* parseNode(node.typeAnnotation, context);
+    yield* parseParametersOrArguments(node.parameters, context, {
+        customCloseParen: parseCloseParenWithType({
+            context,
+            startInfo,
+            typeNode: node.typeAnnotation,
+            typeNodeSeparator: function*() {
+                yield Signal.SpaceOrNewLine;
+                yield "=> ";
+            }()
+        })
+    });
 }
 
 function* parseFunctionType(node: babel.TSFunctionType, context: Context): PrintItemIterator {
+    const startInfo = createInfo("startConstructorType");
+    yield startInfo;
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context);
-    yield " => ";
-    yield* parseNode(node.typeAnnotation, context);
+    yield* parseParametersOrArguments(node.parameters, context, {
+        customCloseParen: parseCloseParenWithType({
+            context,
+            startInfo,
+            typeNode: node.typeAnnotation,
+            typeNodeSeparator: function*() {
+                yield Signal.SpaceOrNewLine;
+                yield "=> ";
+            }()
+        })
+    });
 }
 
 function* parseImportType(node: babel.TSImportType, context: Context): PrintItemIterator {
@@ -2519,7 +2564,12 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
     }
 }
 
-function* parseParametersOrArguments(params: babel.Node[], context: Context): PrintItemIterator {
+interface ParseParametersOrArgumentsOptions {
+    customCloseParen?: PrintItemIterator;
+}
+
+function* parseParametersOrArguments(params: babel.Node[], context: Context, options: ParseParametersOrArgumentsOptions = {}): PrintItemIterator {
+    const { customCloseParen } = options;
     const useNewLines = getUseNewLines();
     yield* newlineGroup(parseItems());
 
@@ -2531,7 +2581,10 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
         else
             yield* parseParameterList();
 
-        yield ")";
+        if (customCloseParen)
+            yield* customCloseParen;
+        else
+            yield ")";
     }
 
     function* parseParameterList(): PrintItemIterator {
@@ -2569,6 +2622,53 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
             return false;
 
         return nodeHelpers.getUseNewlinesForNodes([getFirstOpenParenTokenBefore(params[0], context), params[0]]);
+    }
+}
+
+interface ParseFunctionOrMethodReturnTypeWithCloseParenOptions {
+    context: Context;
+    startInfo: Info;
+    typeNode: babel.Node | null;
+    typeNodeSeparator?: PrintItemIterator;
+}
+
+function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithCloseParenOptions): PrintItemIterator {
+    const { context, startInfo, typeNode, typeNodeSeparator } = opts;
+    const returnTypeStartInfo = createInfo("returnTypeStart");
+    const returnTypeEndInfo = createInfo("returnTypeEnd");
+    const parsedReturnTypeIterator = new RepeatableIterator(parseReturnType());
+
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "newlineIfHeaderHangingAndReturnTypeMultipleLines",
+        condition: conditionContext => {
+            return conditionResolvers.isHanging(conditionContext, startInfo)
+                && conditionResolvers.isMultipleLines(conditionContext, returnTypeStartInfo, returnTypeEndInfo);
+        },
+        true: function*() {
+            yield context.newlineKind;
+            yield ")";
+            yield* parsedReturnTypeIterator;
+        }(),
+        false: function*() {
+            yield ")";
+            yield* parsedReturnTypeIterator;
+        }()
+    };
+
+    function* parseReturnType(): PrintItemIterator {
+        if (!typeNode)
+            return;
+
+        yield returnTypeStartInfo;
+
+        if (typeNodeSeparator)
+            yield* typeNodeSeparator;
+        else
+            yield ": ";
+
+        yield* parseNode(typeNode, context);
+        yield returnTypeEndInfo;
     }
 }
 
