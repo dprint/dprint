@@ -10,6 +10,14 @@
 [expect]
 /// <reference path="test" />
 
+== should allow as many slashes at the beginning as the user likes ==
+////testing
+/////other
+
+[expect]
+//// testing
+///// other
+
 == should format when empty ==
 // test
 //

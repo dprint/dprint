@@ -3061,9 +3061,9 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
 
     function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
         const rawCommentValue = comment.value.trim();
-        const isTripleSlashComment = rawCommentValue[0] === "/";
-        const commentValue = (isTripleSlashComment ? rawCommentValue.substring(1) : rawCommentValue).trim();
-        const prefix = isTripleSlashComment ? "///" : "//";
+        const nonSlashIndex = getFirstNonSlashIndex();
+        const commentValue = rawCommentValue.substring(nonSlashIndex).trim();
+        const prefix = "//" + rawCommentValue.substring(0, nonSlashIndex);
 
         yield prefix;
 
@@ -3071,6 +3071,15 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
             yield ` ${commentValue}`;
 
         yield Signal.ExpectNewLine;
+
+        function getFirstNonSlashIndex() {
+            for (let i = 0; i < rawCommentValue.length; i++) {
+                if (rawCommentValue[i] !== "/")
+                    return i;
+            }
+
+            return rawCommentValue.length;
+        }
     }
 }
 
