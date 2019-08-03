@@ -11,6 +11,13 @@ export declare function formatFileText(filePath: string, fileText: string, confi
  */
 export interface Configuration {
     /**
+     * Specify the type of project this is. You may specify any of the allowed values here according to your conscience.
+     * @value "openSource" - Dprint is formatting an open source project.
+     * @value "commercialSponsored" - Dprint is formatting a closed source commercial project and your company sponsored dprint.
+     * @value "commercialDidNotSponsor" - Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this.
+     */
+    projectType?: "openSource" | "commercialSponsored" | "commercialDidNotSponsor";
+    /**
      * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
      * @default 120
      */
@@ -394,7 +401,7 @@ export interface Configuration {
 /** Represents a problem with a configuration. */
 export interface ConfigurationDiagnostic {
     /** The property name the problem occurred on. */
-    propertyName: string;
+    propertyName: keyof Configuration;
     /** The diagnostic's message. */
     message: string;
 }
@@ -496,6 +503,7 @@ export declare class RealEnvironment implements Environment {
     log(text: string): void;
     warn(text: string): void;
     error(text: string): void;
+    basename(fileOrDirPath: string): string;
     resolvePath(fileOrDirPath: string): string;
     readFile(filePath: string): Promise<string>;
     writeFile(filePath: string, text: string): Promise<void>;
@@ -508,6 +516,7 @@ export interface Environment {
     warn(text: string): void;
     error(text: string): void;
     resolvePath(path: string): string;
+    basename(filePath: string): string;
     readFile(filePath: string): Promise<string>;
     writeFile(filePath: string, text: string): Promise<void>;
     glob(patterns: string[]): Promise<string[]>;
