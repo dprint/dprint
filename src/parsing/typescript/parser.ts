@@ -2158,7 +2158,7 @@ function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message
 /* types */
 
 function* parseArrayType(node: babel.TSArrayType, context: Context): PrintItemIterator {
-    yield* parseNode(node.elementType, context);
+    yield* newlineGroup(parseNode(node.elementType, context));
     yield "[]";
 }
 
@@ -2652,6 +2652,9 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
             yield* parsedReturnTypeIterator;
         }(),
         false: function*() {
+            if (typeNode)
+                yield Signal.NewLine;
+
             yield ")";
             yield* parsedReturnTypeIterator;
         }()

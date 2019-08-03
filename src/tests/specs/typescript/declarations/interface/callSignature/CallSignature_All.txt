@@ -5,7 +5,10 @@ interface T {
     <T>(a: T): T;
     <T, U, V>(): string;
     (a: string, b: number): string;
-    (param: string, otherParam: number): string;
+    (param: string, otherParameter: number): str;
+    (
+    param: string
+    ): number;
 }
 
 [expect]
@@ -15,7 +18,10 @@ interface T {
     <T, U, V>(): string;
     (a: string, b: number): string;
     (param: string,
-        otherParam: number): string;
+        otherParameter: number): str;
+    (
+        param: string
+    ): number;
 }
 
 == should format the return type as hanging when it's hanging ==
