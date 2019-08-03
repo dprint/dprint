@@ -1,5 +1,7 @@
 # dprint
 
+[![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
+
 This library is under construction, but will eventually serve as the formatter for all my TypeScript projects.
 
 This is not recommended for use yet.
@@ -12,4 +14,4 @@ This is not recommended for use yet.
 
 1. Reasonable configuration.
 2. Satisfy my formatting needs.
-3. TypeScript and JSON support.
+3. TypeScript and jsonc support.
