@@ -1,5 +1,6 @@
-import { Configuration, ResolvedConfiguration } from "./Configuration";
 import * as os from "os";
+import { Configuration, ResolvedConfiguration } from "./Configuration";
+import { ConfigurationDiagnostic } from "./ConfigurationDiagnostic";
 
 /** The result of resolving configuration. */
 export interface ResolveConfigurationResult {
@@ -7,14 +8,6 @@ export interface ResolveConfigurationResult {
     config: ResolvedConfiguration;
     /** The diagnostics, if any. */
     diagnostics: ConfigurationDiagnostic[];
-}
-
-/** Represents a problem with a configuration. */
-export interface ConfigurationDiagnostic {
-    /** The property name the problem occurred on. */
-    propertyName: string;
-    /** The diagnostic's message. */
-    message: string;
 }
 
 /** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
@@ -144,7 +137,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
             case "system":
                 return os.EOL === "\r\n" ? "\r\n" : "\n";
             default:
-                const propertyName = nameof<Configuration>(c => c.newlineKind);
+                const propertyName: keyof Configuration = "newlineKind";
                 diagnostics.push({
                     propertyName,
                     message: `Unknown configuration specified for '${propertyName}': ${newlineKind}`
@@ -156,7 +149,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
     function getValue<TKey extends keyof Configuration>(
         key: TKey,
         defaultValue: NonNullable<Configuration[TKey]>,
-        validateFunc: (key: string, value: NonNullable<Configuration[TKey]>) => boolean
+        validateFunc: (key: TKey, value: NonNullable<Configuration[TKey]>) => boolean
     ) {
         let actualValue = config[key] as NonNullable<Configuration[TKey]>;
         if (actualValue == null || !validateFunc(key, actualValue as NonNullable<Configuration[TKey]>))
@@ -167,7 +160,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         return actualValue;
     }
 
-    function ensureNumber(key: string, value: number) {
+    function ensureNumber(key: keyof Configuration, value: number) {
         if (typeof value === "number")
             return true;
 
@@ -178,7 +171,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         return false;
     }
 
-    function ensureBoolean(key: string, value: boolean) {
+    function ensureBoolean(key: keyof Configuration, value: boolean) {
         if (typeof value === "boolean")
             return true;
 
@@ -189,7 +182,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         return false;
     }
 
-    function ensureBraceUse(key: string, value: Configuration["useBraces"]) {
+    function ensureBraceUse(key: keyof Configuration, value: Configuration["useBraces"]) {
         switch (value) {
             case "maintain":
             case "preferNone":
@@ -207,7 +200,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         }
     }
 
-    function ensureBracePosition(key: string, value: Configuration["bracePosition"]) {
+    function ensureBracePosition(key: keyof Configuration, value: Configuration["bracePosition"]) {
         switch (value) {
             case "maintain":
             case "sameLine":
@@ -226,7 +219,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         }
     }
 
-    function ensureNextControlFlowPosition(key: string, value: Configuration["nextControlFlowPosition"]) {
+    function ensureNextControlFlowPosition(key: keyof Configuration, value: Configuration["nextControlFlowPosition"]) {
         switch (value) {
             case "maintain":
             case "sameLine":
@@ -244,7 +237,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         }
     }
 
-    function ensureTrailingCommas(key: string, value: Configuration["trailingCommas"]) {
+    function ensureTrailingCommas(key: keyof Configuration, value: Configuration["trailingCommas"]) {
         switch (value) {
             case "never":
             case "always":
@@ -262,7 +255,7 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
         }
     }
 
-    function ensureEnumMemberSpacing(key: string, value: Configuration["enumDeclaration.memberSpacing"]) {
+    function ensureEnumMemberSpacing(key: keyof Configuration, value: Configuration["enumDeclaration.memberSpacing"]) {
         switch (value) {
             case "maintain":
             case "blankline":
@@ -282,8 +275,11 @@ export function resolveConfiguration(config: Configuration): ResolveConfiguratio
 
     function addExcessPropertyDiagnostics() {
         for (const propertyName in config) {
+            if (propertyName === nameof<Configuration>(c => c.projectType))
+                continue;
+
             diagnostics.push({
-                propertyName,
+                propertyName: propertyName as keyof typeof config,
                 message: `Unexpected property in configuration: ${propertyName}`
             });
         }

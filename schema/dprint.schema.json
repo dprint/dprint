@@ -60,7 +60,26 @@
       "default": "maintain"
     }
   },
+  "required": ["projectType"],
   "properties": {
+    "projectType": {
+      "type": "string",
+      "description": "Specify the type of project this is. You may specify any of the possible values here according to your conscience.",
+      "oneOf": [
+        {
+          "const": "openSource",
+          "description": "Dprint is formatting an open source project."
+        },
+        {
+          "const": "commercialSponsored",
+          "description": "Dprint is formatting a closed source commercial project and your company sponsored dprint."
+        },
+        {
+          "const": "commercialDidNotSponsor",
+          "description": "Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this."
+        }
+      ]
+    },
     "lineWidth": {
       "$ref": "#/definitions/lineWidth"
     },

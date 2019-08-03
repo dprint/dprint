@@ -6,20 +6,25 @@ import { TestEnvironment } from "./TestEnvironment";
 describe(nameof(runCliWithOptions), () => {
     function createTestEnvironment() {
         const environment = new TestEnvironment();
-        environment.addFile("/dprint.json", `{ "newlineKind": "lf" }`);
+        environment.addFile("/dprint.json", `{ "projectType": "openSource", "newlineKind": "lf" }`);
         environment.addFile("/file1.ts", "5+1;");
         environment.addFile("/file2.ts", "console.log (5)  ;");
         environment.addFile("/node_modules/otherFile.ts", ""); // should ignore this
         return environment;
     }
+
     function handleOptions(options: Partial<CommandLineOptions>, environment: TestEnvironment) {
         return runCliWithOptions({ ...getDefaultCommandLineOptions(), ...options }, environment);
     }
 
-    async function getLogs(options: Partial<CommandLineOptions>) {
-        const environment = createTestEnvironment();
+    async function getLogs(options: Partial<CommandLineOptions>, environment = createTestEnvironment()) {
         await handleOptions(options, environment);
         return environment.getLogs();
+    }
+
+    async function getWarns(options: Partial<CommandLineOptions>, environment = createTestEnvironment()) {
+        await handleOptions(options, environment);
+        return environment.getWarns();
     }
 
     it("should output the help when specifying help", async () => {
@@ -60,5 +65,35 @@ describe(nameof(runCliWithOptions), () => {
     it("should include node_module files when specifying to", async () => {
         const logs = await getLogs({ outputFilePaths: true, allowNodeModuleFiles: true });
         expect(logs).to.deep.equal(["/file1.ts", "/file2.ts", "/node_modules/otherFile.ts"]);
+    });
+
+    const projectTypeMissingWarningText = `[dprint.json]: The "projectType" field is missing. You may specify any of the following possible values `
+        + `in the configuration file according to your conscience and that will supress this warning.\n\n`
+        + ` * openSource              Dprint is formatting an open source project.\n`
+        + ` * commercialSponsored     Dprint is formatting a closed source commercial project and your company sponsored dprint.\n`
+        + ` * commercialDidNotSponsor Dprint is formatting a closed source commercial project and you want to forever enshrine your name `
+        + `in source control for having specified this.`;
+
+    it("should warn when not specifying a project type field", async () => {
+        const environment = createTestEnvironment();
+        environment.addFile("/dprint.json", `{ "newlineKind": "lf" }`);
+        const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
+        expect(warns.length).to.equal(1);
+        expect(warns[0]).to.equal(projectTypeMissingWarningText);
+    });
+
+    it("should warn when specifying an incorrect project type field", async () => {
+        const environment = createTestEnvironment();
+        environment.addFile("/dprint.json", `{ "projectType": "asdf", "newlineKind": "lf" }`);
+        const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
+        expect(warns.length).to.equal(1);
+        expect(warns[0]).to.equal(projectTypeMissingWarningText);
+    });
+
+    it("should not warn when specifying a correct project type field", async () => {
+        const environment = createTestEnvironment();
+        environment.addFile("/dprint.json", `{ "projectType": "openSource", "newlineKind": "lf" }`);
+        const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
+        expect(warns.length).to.equal(0);
     });
 });

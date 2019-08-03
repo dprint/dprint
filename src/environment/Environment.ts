@@ -4,6 +4,7 @@ export interface Environment {
     warn(text: string): void;
     error(text: string): void;
     resolvePath(path: string): string;
+    basename(filePath: string): string;
     readFile(filePath: string): Promise<string>;
     writeFile(filePath: string, text: string): Promise<void>;
     glob(patterns: string[]): Promise<string[]>;

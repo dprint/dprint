@@ -44,7 +44,8 @@ describe(nameof(resolveConfigFile), () => {
         environment.addFile("/dprint.json", `{ "semiColons": true }`);
         const config = await resolveConfigFile(undefined, environment);
 
-        expect(config).to.deep.equal({ semiColons: true });
+        expect(config.filePath).to.equal("/dprint.json");
+        expect(config.config).to.deep.equal({ semiColons: true });
     });
 
     it("should get the specified configuration file when it exists", async () => {
@@ -52,7 +53,8 @@ describe(nameof(resolveConfigFile), () => {
         environment.addFile("/file.config", `{ "semiColons": true }`);
         const config = await resolveConfigFile("file.config", environment);
 
-        expect(config).to.deep.equal({ semiColons: true });
+        expect(config.filePath).to.equal("/file.config");
+        expect(config.config).to.deep.equal({ semiColons: true });
     });
 
     it("should get the specified configuration file when it exists", async () => {
@@ -73,6 +75,6 @@ describe(nameof(resolveConfigFile), () => {
         environment.addFile("/dprint.json", `{\n  // testing\n  /* testing */\n  "semiColons": true\n}\n`);
         const config = await resolveConfigFile(undefined, environment);
 
-        expect(config).to.deep.equal({ semiColons: true });
+        expect(config.config).to.deep.equal({ semiColons: true });
     });
 });

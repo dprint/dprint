@@ -5,7 +5,7 @@ import { getHelpText } from "./getHelpText";
 import { getPackageVersion } from "./getPackageVersion";
 import { CommandLineOptions } from "./CommandLineOptions";
 import { resolveConfigFile } from "./resolveConfigFile";
-import { resolveConfiguration } from "../configuration";
+import { getMissingProjectTypeDiagnostic, resolveConfiguration, ConfigurationDiagnostic } from "../configuration";
 
 /**
  * Function used by the cli to format files.
@@ -27,12 +27,17 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         return;
     }
 
-    const unresolvedConfiguration = await resolveConfigFile(options.config, environment);
+    const { config: unresolvedConfiguration, filePath: configFilePath } = await resolveConfigFile(options.config, environment);
+    const missingProjectTypeDiagnostic = getMissingProjectTypeDiagnostic(unresolvedConfiguration);
+
     const configResult = resolveConfiguration(unresolvedConfiguration);
     const { config } = configResult;
 
     for (const diagnostic of configResult.diagnostics)
-        environment.warn(diagnostic.message);
+        warnForConfigurationDiagnostic(diagnostic);
+
+    if (missingProjectTypeDiagnostic)
+        warnForConfigurationDiagnostic(missingProjectTypeDiagnostic);
 
     const filePaths = await getFilePaths();
 
@@ -68,5 +73,9 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         return options.allowNodeModuleFiles
             ? allFilePaths
             : allFilePaths.filter(filePath => !isInNodeModules.test(filePath));
+    }
+
+    function warnForConfigurationDiagnostic(diagnostic: ConfigurationDiagnostic) {
+        environment.warn(`[${environment.basename(configFilePath)}]: ${diagnostic.message}`);
     }
 }

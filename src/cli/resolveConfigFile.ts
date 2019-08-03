@@ -3,10 +3,15 @@ import { Environment } from "../environment";
 import { Configuration } from "../configuration";
 import { throwError, formatJsonParserDiagnostics } from "../utils";
 
-const defaultFileName = "dprint.json";
+export interface ResolveConfigFileResult {
+    /** Resolved file path of the configuration file. */
+    filePath: string;
+    /** Configuration specified in the file. */
+    config: Configuration;
+}
 
-export async function resolveConfigFile(filePath: string | undefined, environment: Environment): Promise<Configuration> {
-    const resolvedFilePath = environment.resolvePath(filePath || defaultFileName);
+export async function resolveConfigFile(filePath: string | undefined, environment: Environment): Promise<ResolveConfigFileResult> {
+    const resolvedFilePath = resolveConfigFilePath(filePath, environment);
     const fileText = await getFileText();
 
     const diagnostics: ParseError[] = [];
@@ -15,7 +20,10 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
     if (diagnostics.length > 0)
         return throwError(`Error parsing configuration file (${resolvedFilePath}).\n\n` + formatJsonParserDiagnostics(diagnostics, fileText));
 
-    return config;
+    return {
+        filePath: resolvedFilePath,
+        config
+    };
 
     async function getFileText() {
         try {
@@ -33,4 +41,8 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
             }
         }
     }
+}
+
+function resolveConfigFilePath(filePath: string | undefined, environment: Environment) {
+    return environment.resolvePath(filePath || "dprint.json");
 }

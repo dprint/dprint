@@ -19,6 +19,10 @@ export class RealEnvironment implements Environment {
         console.error(text);
     }
 
+    basename(fileOrDirPath: string) {
+        return path.basename(fileOrDirPath);
+    }
+
     resolvePath(fileOrDirPath: string) {
         return path.normalize(path.resolve(fileOrDirPath));
     }

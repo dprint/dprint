@@ -1,3 +1,4 @@
+import * as path from "path";
 import { Environment } from "../../environment";
 
 export class TestEnvironment implements Environment {
@@ -47,10 +48,14 @@ export class TestEnvironment implements Environment {
         return Promise.resolve();
     }
 
-    resolvePath(path: string) {
-        if (!path.startsWith("/"))
-            path = "/" + path;
-        return path;
+    basename(fileOrDirPath: string) {
+        return path.basename(fileOrDirPath);
+    }
+
+    resolvePath(fileOrDirPath: string) {
+        if (!fileOrDirPath.startsWith("/"))
+            fileOrDirPath = "/" + fileOrDirPath;
+        return fileOrDirPath;
     }
 
     glob(patterns: string[]) {
