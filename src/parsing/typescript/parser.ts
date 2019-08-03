@@ -1699,8 +1699,9 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
             })
         });
     }
-    else
+    else {
         yield* parseNode(node.params[0], context);
+    }
 
     yield " =>";
 
