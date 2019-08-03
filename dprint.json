@@ -1,5 +1,6 @@
 {
-    "useBraces": "preferNone",
-    "lineWidth": 160,
-    "tryStatement.nextControlFlowPosition": "sameLine"
+  "useBraces": "preferNone",
+  "lineWidth": 160,
+  "json.indentWidth": 2,
+  "tryStatement.nextControlFlowPosition": "sameLine"
 }
