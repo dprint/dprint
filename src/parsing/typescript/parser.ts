@@ -1,11 +1,12 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../../configuration";
-import { PrintItem, PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../../types";
-import { assertNever, RepeatableIterator } from "../../utils";
-import * as conditions from "../conditions";
-import * as conditionResolvers from "../conditionResolvers";
-import * as nodeHelpers from "../nodeHelpers";
-import * as infoChecks from "../infoChecks";
+import { PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../../types";
+import { assertNever } from "../../utils";
+import * as conditions from "../common/conditions";
+import * as conditionResolvers from "../common/conditionResolvers";
+import * as infoChecks from "../common/infoChecks";
+import { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterator, surroundWithNewLines } from "../common/parserHelpers";
+import * as nodeHelpers from "./nodeHelpers";
 
 class Bag {
     private readonly bag = new Map<string, object>();
@@ -31,7 +32,7 @@ const BAG_KEYS = {
     ModuleDeclarationStartHeaderInfo: "moduleDeclarationStartHeaderInfo"
 } as const;
 
-export interface Context {
+interface Context {
     file: babel.File;
     fileText: string;
     log: (message: string) => void;
@@ -454,7 +455,7 @@ function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel
         function* parseExtendsAndImplements(): PrintItemIterator {
             if (node.superClass) {
                 yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
-                yield* indentIfStartOfLine(function*() {
+                yield* conditions.indentIfStartOfLine(function*() {
                     yield "extends ";
                     yield* parseNode(node.superClass, context);
                     if (node.superTypeParameters)
@@ -529,7 +530,7 @@ function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItem
         else
             yield " ";
 
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "= ";
             yield* parseNode(initializer, context);
         }());
@@ -789,7 +790,7 @@ function* parseTypeParameterDeclaration(
                     yield Signal.SpaceOrNewLine;
             }
 
-            yield* indentIfStartOfLine(parseNode(param, context, {
+            yield* conditions.indentIfStartOfLine(parseNode(param, context, {
                 innerParse: function*(iterator) {
                     yield* iterator;
                     if (i < params.length - 1)
@@ -827,7 +828,7 @@ function* parseVariableDeclaration(node: babel.VariableDeclaration, context: Con
                 yield Signal.SpaceOrNewLine;
             }
 
-            yield* indentIfStartOfLine(parseNode(node.declarations[i], context));
+            yield* conditions.indentIfStartOfLine(parseNode(node.declarations[i], context));
         }
     }
 
@@ -1073,7 +1074,7 @@ function* parsePropertySignature(node: babel.TSPropertySignature, context: Conte
 
     if (node.initializer) {
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "= ";
             yield* parseNode(node.initializer, context);
         }());
@@ -1200,7 +1201,7 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
     function* parseInnerHeader(): PrintItemIterator {
         yield* parseNode(node.left, context);
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "in ";
             yield* parseNode(node.right, context);
         }());
@@ -1232,7 +1233,7 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
     function* parseInnerHeader(): PrintItemIterator {
         yield* parseNode(node.left, context);
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "of ";
             yield* parseNode(node.right, context);
         }());
@@ -1263,12 +1264,12 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
         if (!node.init || node.init.type !== "VariableDeclaration")
             yield ";";
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield* parseNode(node.test, context);
             yield ";";
         }());
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(parseNode(node.update, context));
+        yield* conditions.indentIfStartOfLine(parseNode(node.update, context));
     }
 }
 
@@ -1738,7 +1739,7 @@ function* parseAssignmentPattern(node: babel.AssignmentPattern, context: Context
     yield* newlineGroup(function*() {
         yield* parseNode(node.left, context);
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "= ";
             yield* parseNode(node.right, context);
         }());
@@ -1767,7 +1768,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         else
             yield Signal.SpaceOrNewLine;
 
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield node.operator;
             yield " ";
             yield* parseNode(node.right, context);
@@ -1795,7 +1796,7 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
     if (node.optional)
         yield "?.";
 
-    yield* withIndentIfStartOfLineIndented(parseParametersOrArguments(node.arguments, context));
+    yield* conditions.withIndentIfStartOfLineIndented(parseParametersOrArguments(node.arguments, context));
 }
 
 function* parseConditionalExpression(node: babel.ConditionalExpression, context: Context): PrintItemIterator {
@@ -1814,7 +1815,7 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         else
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
 
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "? ";
             yield* newlineGroup(parseNode(node.consequent, context));
         }());
@@ -1824,7 +1825,7 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         else
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
 
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield ": ";
             yield* newlineGroup(parseNode(node.alternate, context));
             yield endInfo;
@@ -1906,7 +1907,7 @@ function* parseTaggedTemplateExpression(node: babel.TaggedTemplateExpression, co
         yield* parseNode(node.tag, context);
         yield* parseNode(node.typeParameters, context);
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(parseNode(node.quasi, context));
+        yield* conditions.indentIfStartOfLine(parseNode(node.quasi, context));
     }());
 }
 
@@ -2162,12 +2163,12 @@ function* parseConditionalType(node: babel.TSConditionalType, context: Context):
     function* parseMainArea(): PrintItemIterator {
         yield* newlineGroup(parseNode(node.checkType, context));
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "extends ";
             yield* newlineGroup(parseNode(node.extendsType, context));
         }());
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             yield "? ";
             yield* newlineGroup(parseNode(node.trueType, context));
         }());
@@ -2182,7 +2183,7 @@ function* parseConditionalType(node: babel.TSConditionalType, context: Context):
         if (isParentConditionalType)
             yield* parseInner();
         else
-            yield* indentIfStartOfLine(parseInner());
+            yield* conditions.indentIfStartOfLine(parseInner());
 
         function* parseInner(): PrintItemIterator {
             yield ": ";
@@ -2253,7 +2254,7 @@ function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItem
         else
             yield Signal.SpaceOrNewLine;
 
-        yield* indentIfStartOfLine(newlineGroup(parseBody()));
+        yield* conditions.indentIfStartOfLine(newlineGroup(parseBody()));
     }
 
     function* parseBody(): PrintItemIterator {
@@ -2314,7 +2315,7 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
             if (i > 0 && !useNewlines)
                 yield Signal.SpaceOrNewLine;
 
-            yield* indentIfStartOfLine(parseNode(node.elementTypes[i], context, {
+            yield* conditions.indentIfStartOfLine(parseNode(node.elementTypes[i], context, {
                 innerParse: function*(iterator) {
                     yield* iterator;
 
@@ -2400,7 +2401,7 @@ function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSInterse
         if (i > 0)
             yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
 
-        yield* indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(function*() {
             if (i > 0)
                 yield separator;
 
@@ -2564,7 +2565,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context): Pr
             }
             else {
                 yield Signal.SpaceOrNewLine;
-                yield* indentIfStartOfLine(parsedParam);
+                yield* conditions.indentIfStartOfLine(parsedParam);
             }
         }
 
@@ -2630,7 +2631,7 @@ function* parseNamedImportsOrExports(
             if (useNewLines)
                 yield* parseNode(namedImportsOrExports[i], context);
             else
-                yield* indentIfStartOfLine(parseNode(namedImportsOrExports[i], context));
+                yield* conditions.indentIfStartOfLine(parseNode(namedImportsOrExports[i], context));
         }
     }
 }
@@ -2666,7 +2667,7 @@ function* parseDecorators(
         }
 
         if (isClassExpression)
-            yield* indentIfStartOfLine(newlineGroup(parseNode(decorators[i], context)));
+            yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(decorators[i], context)));
         else
             yield* newlineGroup(parseNode(decorators[i], context));
     }
@@ -2688,7 +2689,7 @@ function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.No
         else
             yield Signal.NewLine;
 
-        yield* indentIfStartOfLine(parseRightNode());
+        yield* conditions.indentIfStartOfLine(parseRightNode());
     }());
 
     function* parseRightNode(): PrintItemIterator {
@@ -2717,7 +2718,7 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
         return;
 
     yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
-    yield* indentIfStartOfLine(function*() {
+    yield* conditions.indentIfStartOfLine(function*() {
         yield `${text} `;
         yield* newlineGroup(function*() {
             for (let i = 0; i < items.length; i++) {
@@ -2726,7 +2727,7 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
                     yield Signal.SpaceOrNewLine;
                 }
 
-                yield* indentIfStartOfLine(parseNode(items[i], context));
+                yield* conditions.indentIfStartOfLine(parseNode(items[i], context));
             }
         }());
     }());
@@ -2761,7 +2762,7 @@ function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
 
             const element = elements[i];
             const hasComma = forceTrailingCommas || i < elements.length - 1;
-            yield* indentIfStartOfLine(parseElement(element, hasComma));
+            yield* conditions.indentIfStartOfLine(parseElement(element, hasComma));
 
             if (useNewlines)
                 yield context.newlineKind;
@@ -2832,7 +2833,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
                 if (i > 0)
                     yield Signal.SpaceOrNewLine;
 
-                yield* indentIfStartOfLine(parseNode(members[i], context, {
+                yield* conditions.indentIfStartOfLine(parseNode(members[i], context, {
                     innerParse: function*(iterator) {
                         yield* iterator;
 
@@ -3082,75 +3083,11 @@ function* parseNodeWithPreceedingColon(node: babel.Node | null | undefined, cont
     yield ":";
     yield* newlineGroup(function*() {
         yield Signal.SpaceOrNewLine;
-        yield* indentIfStartOfLine(parseNode(node, context));
+        yield* conditions.indentIfStartOfLine(parseNode(node, context));
     }());
 }
 
-function* surroundWithNewLines(item: PrintItemIterator, context: Context): PrintItemIterator {
-    yield context.newlineKind;
-    yield* item;
-    yield context.newlineKind;
-}
-
-function* indentIfStartOfLine(item: PrintItemIterator): PrintItemIterator {
-    // need to make this a repeatable iterator so it can be iterated multiple times
-    // between the true and false condition
-    item = new RepeatableIterator(item);
-
-    yield {
-        kind: PrintItemKind.Condition,
-        name: "indentIfStartOfLine",
-        condition: conditionResolvers.isStartOfNewLine,
-        true: withIndent(item),
-        false: item
-    };
-}
-
-function* withIndentIfStartOfLineIndented(item: PrintItemIterator): PrintItemIterator {
-    // need to make this a repeatable iterator so it can be iterated multiple times
-    // between the true and false condition
-    item = new RepeatableIterator(item);
-
-    yield {
-        kind: PrintItemKind.Condition,
-        name: "withIndentIfStartOfLineIndented",
-        condition: context => {
-            return context.writerInfo.lineStartIndentLevel > context.writerInfo.indentLevel;
-        },
-        true: withIndent(item),
-        false: item
-    };
-}
-
-// todo: extract out and reuse for json
-function* withIndent(item: PrintItemIterator): PrintItemIterator {
-    yield Signal.StartIndent;
-    yield* item;
-    yield Signal.FinishIndent;
-}
-
-function* newlineGroup(item: PrintItemIterator): PrintItemIterator {
-    yield Signal.StartNewlineGroup;
-    yield* item;
-    yield Signal.FinishNewLineGroup;
-}
-
-function* prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]) {
-    let found = false;
-    for (const item of iterable) {
-        if (!found) {
-            yield* items;
-            found = true;
-        }
-        yield item;
-    }
-}
-
-function* toPrintItemIterator(printItem: PrintItem): PrintItemIterator {
-    yield printItem;
-}
-
-/* token functions (todo: separate out) */
+/* token functions (todo: separate out into nodeHelpers) */
 
 function getFirstOpenBraceToken(node: babel.Node, context: Context) {
     return getFirstTokenUsingType(node, "{", context);

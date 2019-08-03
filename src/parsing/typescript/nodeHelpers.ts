@@ -1,5 +1,5 @@
 import * as babel from "@babel/types";
-import { Context } from "./typescript/parser";
+import { BaseContext } from "../common/BaseContext";
 
 export function hasBody(node: babel.Node) {
     return (node as any as babel.ClassDeclaration).body != null;
@@ -63,7 +63,7 @@ export function getUseNewlinesForNodes(nodes: ReadonlyArray<babel.Node | BabelTo
     }
 }
 
-export function isFirstNodeOnLine(node: babel.Node | BabelToken, context: Context) {
+export function isFirstNodeOnLine(node: babel.Node | BabelToken, context: BaseContext) {
     for (let i = node.start! - 1; i >= 0; i--) {
         const char = context.fileText[i];
         if (char === " " || char === "\t")

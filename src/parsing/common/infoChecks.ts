@@ -1,4 +1,4 @@
-import { Info, ResolveConditionContext, WriterInfo, PrintItemKind } from "../types";
+import { Info, ResolveConditionContext, WriterInfo, PrintItemKind } from "../../types";
 
 export function isMultipleLines(startInfo: Info, endInfo: Info | WriterInfo, conditionContext: ResolveConditionContext, defaultValue: boolean) {
     const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo);

@@ -2,6 +2,7 @@ import { Node, SyntaxKind, JSONScanner, createScanner, NodeType } from "jsonc-pa
 import { ResolvedConfiguration, resolveNewLineKindFromText } from "../../configuration";
 import { PrintItemIterator, PrintItemKind, Signal, PrintItem } from "../../types";
 import { throwError } from "../../utils";
+import { withIndent, toPrintItemIterator } from "../common/parserHelpers";
 
 export interface Context {
     file: Node;
@@ -53,11 +54,11 @@ export function* parseJsonFile(file: Node, fileText: string, options: ResolvedCo
 }
 
 const parseObj: { [name in NodeType]: (node: Node, context: Context) => PrintItemIterator; } = {
-    string: parseString,
+    string: parseNodeAsIs,
     array: parseArray,
-    boolean: parseBoolean,
-    "null": parseNull,
-    number: parseNumber,
+    boolean: parseNodeAsIs,
+    "null": parseNodeAsIs,
+    number: parseNodeAsIs,
     object: parseObject,
     property: parseProperty
 };
@@ -97,7 +98,7 @@ function* parseObject(node: Node, context: Context): PrintItemIterator {
     yield "}";
 }
 
-function* parseString(node: Node, context: Context): PrintItemIterator {
+function* parseNodeAsIs(node: Node, context: Context): PrintItemIterator {
     yield {
         kind: PrintItemKind.RawString,
         text: context.fileText.substr(node.offset, node.length)
@@ -109,18 +110,6 @@ function* parseArray(node: Node, context: Context): PrintItemIterator {
     yield* parseCommentsOnStartSameLine(node, context);
     yield* parseChildren(node, context);
     yield "]";
-}
-
-function* parseBoolean(node: Node, context: Context): PrintItemIterator {
-    yield node.value!.toString();
-}
-
-function* parseNull(node: Node, context: Context): PrintItemIterator {
-    yield "null";
-}
-
-function* parseNumber(node: Node, context: Context): PrintItemIterator {
-    yield node.value!.toString();
 }
 
 function* parseProperty(node: Node, context: Context): PrintItemIterator {
@@ -411,13 +400,6 @@ function* parseCommentBlock(commentText: string): PrintItemIterator {
         text: commentText
     };
     yield "*/";
-}
-
-// todo: extract out and reuse with others
-function* withIndent(item: PrintItemIterator): PrintItemIterator {
-    yield Signal.StartIndent;
-    yield* item;
-    yield Signal.FinishIndent;
 }
 
 function hasSeparatingNewLine(startPos: number, endPos: number, context: Context) {

@@ -1,11 +1,14 @@
-import { PrintItemKind, Info, Condition, Signal } from "../types";
-import { Context } from "./typescript/parser";
+import { PrintItemKind, Info, Condition, Signal, PrintItemIterator } from "../../types";
+import { BaseContext } from "./BaseContext";
 import * as infoChecks from "./infoChecks";
 import * as conditionResolvers from "./conditionResolvers";
+import { RepeatableIterator } from "../../utils";
+import { withIndent } from "./parserHelpers";
 
 // reusable conditions
 
-export function newlineIfHangingSpaceOtherwise(context: Context, startInfo: Info, endInfo?: Info, spaceChar: " " | Signal.SpaceOrNewLine = " "): Condition {
+export function newlineIfHangingSpaceOtherwise(
+    context: BaseContext, startInfo: Info, endInfo?: Info, spaceChar: " " | Signal.SpaceOrNewLine = " "): Condition {
     return {
         kind: PrintItemKind.Condition,
         name: "newLineIfHangingSpaceOtherwise",
@@ -36,7 +39,7 @@ export function newlineIfHangingSpaceOtherwise(context: Context, startInfo: Info
     };
 }
 
-export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: Context, startInfo: Info, endInfo?: Info): Condition {
+export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: BaseContext, startInfo: Info, endInfo?: Info): Condition {
     return {
         name: "newlineIfMultipleLinesSpaceOrNewlineOtherwise",
         kind: PrintItemKind.Condition,
@@ -52,5 +55,35 @@ export function singleIndentIfStartOfLine(): Condition {
         name: "singleIndentIfStartOfLine",
         condition: conditionResolvers.isStartOfNewLine,
         true: [Signal.SingleIndent]
+    };
+}
+
+export function* indentIfStartOfLine(item: PrintItemIterator): PrintItemIterator {
+    // need to make this a repeatable iterator so it can be iterated multiple times
+    // between the true and false condition
+    item = new RepeatableIterator(item);
+
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "indentIfStartOfLine",
+        condition: conditionResolvers.isStartOfNewLine,
+        true: withIndent(item),
+        false: item
+    };
+}
+
+export function* withIndentIfStartOfLineIndented(item: PrintItemIterator): PrintItemIterator {
+    // need to make this a repeatable iterator so it can be iterated multiple times
+    // between the true and false condition
+    item = new RepeatableIterator(item);
+
+    yield {
+        kind: PrintItemKind.Condition,
+        name: "withIndentIfStartOfLineIndented",
+        condition: context => {
+            return context.writerInfo.lineStartIndentLevel > context.writerInfo.indentLevel;
+        },
+        true: withIndent(item),
+        false: item
     };
 }
