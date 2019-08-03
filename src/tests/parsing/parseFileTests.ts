@@ -25,6 +25,10 @@ describe(nameof(parseFile), () => {
         doSuccessTest("test.jsx", "const t = <div />;");
     });
 
+    it("should parse a .json file", () => {
+        doSuccessTest("test.json", "{}");
+    });
+
     it("shoudld throw when providing an unknown file extension", () => {
         expect(() => parseFile("/src/test.txt", "", config)).to.throw("[dprint]: Could not resolve parser based on file path: /src/test.txt");
     });

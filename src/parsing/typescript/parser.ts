@@ -3122,6 +3122,7 @@ function* withIndentIfStartOfLineIndented(item: PrintItemIterator): PrintItemIte
     };
 }
 
+// todo: extract out and reuse for json
 function* withIndent(item: PrintItemIterator): PrintItemIterator {
     yield Signal.StartIndent;
     yield* item;

@@ -1,5 +1,6 @@
 import { PrintItemIterator } from "../types";
 import { parseToBabelAst, parseTypeScriptFile } from "./typescript";
+import { parseToJsonAst, parseJsonFile } from "./json";
 import { ResolvedConfiguration } from "../configuration";
 import { getFileExtension, throwError } from "../utils";
 
@@ -9,6 +10,10 @@ export function parseFile(filePath: string, fileText: string, configuration: Res
     if (isTypeScriptFile()) {
         const babelAst = parseToBabelAst(filePath, fileText);
         return parseTypeScriptFile(babelAst, fileText, configuration);
+    }
+    else if (fileExtension === ".json") {
+        const jsonAst = parseToJsonAst(fileText);
+        return parseJsonFile(jsonAst, fileText, configuration);
     }
     else {
         return throwError(`Could not resolve parser based on file path: ${filePath}`);

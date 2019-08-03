@@ -11,8 +11,11 @@ export interface Spec {
     config: Configuration;
 }
 
+// todo: write a better parser instead of this lazy stuff
+
 export function parseSpecs(fileText: string) {
     fileText = fileText.replace(/\r?\n/g, "\n");
+    const filePath = parseFilePath();
     const configResult = parseConfig();
     const lines = configResult.fileText.split("\n");
     const specStarts = getSpecStarts();
@@ -23,7 +26,7 @@ export function parseSpecs(fileText: string) {
         const startIndex = specStarts[i];
         const endIndex = specStarts[i + 1] || lines.length;
         const messageLine = lines[startIndex];
-        const spec = parseSingleSpec(messageLine, lines.slice(startIndex + 1, endIndex), configResult.config);
+        const spec = parseSingleSpec(filePath, messageLine, lines.slice(startIndex + 1, endIndex), configResult.config);
 
         if (spec.skip)
             continue;
@@ -52,6 +55,22 @@ export function parseSpecs(fileText: string) {
         return result;
     }
 
+    function parseFilePath() {
+        if (!fileText.startsWith("--"))
+            return "/fileName.ts";
+        const lastIndex = fileText.indexOf("--\n", 2);
+        if (lastIndex === -1)
+            throw new Error("Canot find last --\\n.");
+
+        const result = fileText.substring(2, lastIndex).trim();
+
+        // I was lazy while writing this and this is not ideal.
+        // This is done for parseConfig()
+        fileText = fileText.substring(lastIndex + 3);
+
+        return result;
+    }
+
     function parseConfig(): { fileText: string; config: Configuration; } {
         if (!fileText.startsWith("~~"))
             return { fileText, config: {} };
@@ -75,7 +94,7 @@ export function parseSpecs(fileText: string) {
     }
 }
 
-function parseSingleSpec(messageLine: string, lines: string[], config: Configuration): Spec {
+function parseSingleSpec(filePath: string, messageLine: string, lines: string[], config: Configuration): Spec {
     // this is temp code changed during a port... this should be better
     const fileText = lines.join("\n");
     const parts = fileText.split("[expect]");
@@ -84,7 +103,7 @@ function parseSingleSpec(messageLine: string, lines: string[], config: Configura
     const lowerCaseMessageLine = messageLine.toLowerCase();
 
     return {
-        filePath: "/file.ts", // todo: make configurable
+        filePath,
         message: parseMessage(),
         fileText: startText,
         expectedText,

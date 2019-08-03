@@ -12,7 +12,7 @@ This is not recommended for use yet.
 
 1. Reasonable configuration.
 2. Satisfy my formatting needs.
-3. TypeScript and probably JSON support.
+3. TypeScript and JSON support.
 
 ## Licence
 
