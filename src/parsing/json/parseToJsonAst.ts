@@ -1,16 +1,16 @@
 import * as parser from "jsonc-parser";
-import { throwError } from "../../utils";
+import { formatJsonParserDiagnostics, throwError } from "../../utils";
 
-export function parseToJsonAst(code: string) {
+export function parseToJsonAst(fileText: string) {
     // todo: configuration to use trailing comments
-    const errors: parser.ParseError[] = [];
-    const ast = parser.parseTree(code, errors, {
+    const diagnostics: parser.ParseError[] = [];
+    const ast = parser.parseTree(fileText, diagnostics, {
         allowTrailingComma: true,
         disallowComments: false
     });
 
-    if (errors.length > 0)
-        return throwError(`Encountered errors parsing document: ${errors.map(e => e.toString())}`);
+    if (diagnostics.length > 0)
+        return throwError(`Encountered errors parsing document: ${formatJsonParserDiagnostics(diagnostics, fileText)}`);
 
     return ast;
 }

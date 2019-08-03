@@ -21,16 +21,22 @@ describe(nameof(resolveConfigFile), () => {
         const environment = new TestEnvironment();
         const err = await getError(undefined, environment);
 
-        expect(err.message).to.equal("Could not find configuration file at '/dprint.json'. Did you mean to create one or specify a --config option?\n\n"
-            + "Error: File not found.");
+        expect(err.message).to.equal(
+            "[dprint]: Could not find configuration file at '/dprint.json'. "
+                + "Did you mean to create one or specify a --config option?\n\n"
+                + "Error: File not found."
+        );
     });
 
     it("should error when it can't find it when specifying a file", async () => {
         const environment = new TestEnvironment();
         const err = await getError("file.config", environment);
 
-        expect(err.message).to.equal("Could not find specified configuration file at '/file.config'. Did you mean to create it?\n\n"
-            + "Error: File not found.");
+        expect(err.message).to.equal(
+            "[dprint]: Could not find specified configuration file at '/file.config'. "
+                + "Did you mean to create it?\n\n"
+                + "Error: File not found."
+        );
     });
 
     it("should get the default configuration file when it exists", async () => {
@@ -54,6 +60,19 @@ describe(nameof(resolveConfigFile), () => {
         environment.addFile("/dprint.json", `{ semiColons: true }`);
         const err = await getError(undefined, environment);
 
-        expect(err.message).to.equal("Error parsing configuration file (/dprint.json).\n\nSyntaxError: Unexpected token s in JSON at position 2");
+        expect(err.message).to.equal(
+            "[dprint]: Error parsing configuration file (/dprint.json).\n\n"
+                + "InvalidSymbol: semiColons (2)\n"
+                + "PropertyNameExpected: : (12)\n"
+                + "ValueExpected: } (19)"
+        );
+    });
+
+    it("should get the configuration file when it has comments", async () => {
+        const environment = new TestEnvironment();
+        environment.addFile("/dprint.json", `{\n  // testing\n  /* testing */\n  "semiColons": true\n}\n`);
+        const config = await resolveConfigFile(undefined, environment);
+
+        expect(config).to.deep.equal({ semiColons: true });
     });
 });

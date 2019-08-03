@@ -1,8 +1,8 @@
 import * as parser from "@babel/parser";
 import { FileKind } from "../../FileKind";
 
-export function parseToBabelAst(fileKind: FileKind, code: string) {
-    return parser.parse(code, {
+export function parseToBabelAst(fileKind: FileKind.TypeScript | FileKind.TypeScriptTsx, fileText: string) {
+    return parser.parse(fileText, {
         sourceType: "module",
         tokens: true,
         plugins: Array.from(getPlugins()),
