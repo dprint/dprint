@@ -63,3 +63,13 @@
     "asdf": { // test
     }
 }
+
+== should handle escaped string literals ==
+{
+    "testing": "asdf \"test\""
+}
+
+[expect]
+{
+    "testing": "asdf \"test\""
+}
