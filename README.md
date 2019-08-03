@@ -13,9 +13,3 @@ This is not recommended for use yet.
 1. Reasonable configuration.
 2. Satisfy my formatting needs.
 3. TypeScript and JSON support.
-
-## Licence
-
-No licence for the time being. That means you are not legally allowed to use this, make any changes/derivitives, or provide contributions.
-
-Copyright (c) 2019 David Sherret.
