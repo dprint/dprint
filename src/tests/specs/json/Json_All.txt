@@ -35,35 +35,6 @@
     ]
 }
 
-== should format with comments ==
-// test
-{ // here
-    // testing
-    /* a */ // b
-    /* test *//* b */
-    "test": /* a */ "prop",
-    "other": [ // test
-        1234
-    ],
-    "asdf": { // test
-    }
-}
-
-[expect]
-// test
-{
-    // here
-    // testing
-    /* a */ // b
-    /* test */ /* b */
-    "test": /* a */ "prop",
-    "other": [ // test
-        1234
-    ],
-    "asdf": { // test
-    }
-}
-
 == should handle escaped string literals ==
 {
     "testing": "asdf \"test\""
