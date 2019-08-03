@@ -16,7 +16,7 @@ export interface Context {
 
 // const enum wasn't working for me, so using this workaround
 const LocalSyntaxKind: {
-    CommaToken: SyntaxKind.CommaToken,
+    CommaToken: SyntaxKind.CommaToken;
     CommentLineTrivia: SyntaxKind.LineCommentTrivia;
     CommentBlockTrivia: SyntaxKind.BlockCommentTrivia;
     LineBreakTrivia: SyntaxKind.LineBreakTrivia;
@@ -152,12 +152,10 @@ function* parseChildren(node: Node, context: Context) {
 
             for (let i = 0; i < innerComments.length; i++) {
                 const comment = innerComments[i];
-                if (comment.kind === LocalSyntaxKind.CommentBlockTrivia) {
+                if (comment.kind === LocalSyntaxKind.CommentBlockTrivia)
                     yield* parseCommentBlock(context.fileText.substr(comment.offset + 2, comment.length - 4));
-                }
-                else if (comment.kind === LocalSyntaxKind.CommentLineTrivia) {
+                else if (comment.kind === LocalSyntaxKind.CommentLineTrivia)
                     yield* parseCommentLine(context.fileText.substr(comment.offset + 2, comment.length - 2));
-                }
 
                 if (i < innerComments.length - 1) {
                     yield multiLine ? context.newlineKind : Signal.SpaceOrNewLine;
@@ -432,7 +430,6 @@ function hasBlankLineAfterPos(startPos: number, context: Context) {
 
             return false;
         }
-
     } finally {
         // restore to position
         scanner.setPosition(lastTokenOffset);

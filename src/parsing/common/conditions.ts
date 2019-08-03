@@ -8,7 +8,11 @@ import { withIndent } from "./parserHelpers";
 // reusable conditions
 
 export function newlineIfHangingSpaceOtherwise(
-    context: BaseContext, startInfo: Info, endInfo?: Info, spaceChar: " " | Signal.SpaceOrNewLine = " "): Condition {
+    context: BaseContext,
+    startInfo: Info,
+    endInfo?: Info,
+    spaceChar: " " | Signal.SpaceOrNewLine = " "
+): Condition {
     return {
         kind: PrintItemKind.Condition,
         name: "newLineIfHangingSpaceOtherwise",
@@ -39,7 +43,11 @@ export function newlineIfHangingSpaceOtherwise(
     };
 }
 
-export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: BaseContext, startInfo: Info, endInfo?: Info): Condition {
+export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(
+    context: BaseContext,
+    startInfo: Info,
+    endInfo?: Info
+): Condition {
     return {
         name: "newlineIfMultipleLinesSpaceOrNewlineOtherwise",
         kind: PrintItemKind.Condition,
