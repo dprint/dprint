@@ -75,3 +75,18 @@ export function* withIndentIfStartOfLineIndented(item: PrintItemIterator): Print
         false: item
     };
 }
+
+/**
+ * This condition can be used to force the printer to jump back to the point
+ * this condition exists at once the provided info is resolved.
+ * @param info - Info to force reevaluation once resolved.
+ */
+export function forceReevaluationOnceResolved(info: Info): Condition {
+    return {
+        kind: PrintItemKind.Condition,
+        name: "forceReevaluationOnceInfoResolved",
+        condition: conditionContext => {
+            return conditionContext.getResolvedInfo(info) == null ? undefined : false;
+        }
+    };
+}

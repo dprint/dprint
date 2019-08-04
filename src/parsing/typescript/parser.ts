@@ -1813,17 +1813,22 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
     const useNewlines = nodeHelpers.getUseNewlinesForNodes([node.test, node.consequent])
         || nodeHelpers.getUseNewlinesForNodes([node.consequent, node.alternate]);
     const startInfo = createInfo("startConditionalExpression");
+    const afterAlternateColonInfo = createInfo("afterAlternateColon");
     const endInfo = createInfo("endConditionalExpression");
 
     yield startInfo;
     yield* newlineGroup(parseNode(node.test, context));
     yield* parseConsequentAndAlternate();
 
-    function* parseConsequentAndAlternate() {
+    function* parseConsequentAndAlternate(): PrintItemIterator {
+        // force re-evaluation of all the conditions below
+        // once the endInfo has been reached
+        yield conditions.forceReevaluationOnceResolved(endInfo);
+
         if (useNewlines)
             yield context.newlineKind;
         else
-            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
+            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, afterAlternateColonInfo);
 
         yield* conditions.indentIfStartOfLine(function*() {
             yield "? ";
@@ -1833,10 +1838,11 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         if (useNewlines)
             yield context.newlineKind;
         else
-            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, endInfo);
+            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, afterAlternateColonInfo);
 
         yield* conditions.indentIfStartOfLine(function*() {
             yield ": ";
+            yield afterAlternateColonInfo;
             yield* newlineGroup(parseNode(node.alternate, context));
             yield endInfo;
         }());

@@ -49,6 +49,16 @@ test
     ? 1
     : 2;
 
+== should not use newlines when the first and second start on the same line, but the second goes onto multiple lines ==
+test ? test : a.b(m => {
+    return 5;
+});
+
+[expect]
+test ? test : a.b(m => {
+    return 5;
+});
+
 == should handle nested conditionals ==
 test
     ? 1
