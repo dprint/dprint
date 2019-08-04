@@ -2685,7 +2685,14 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context, opt
         if (params.length === 0)
             return false;
 
-        return nodeHelpers.getUseNewlinesForNodes([getFirstOpenParenTokenBefore(params[0], context), params[0]]);
+        return nodeHelpers.getUseNewlinesForNodes([getOpenParenToken(), params[0]]);
+
+        function getOpenParenToken() {
+            const paramHasParen = nodeHelpers.hasParentheses(params[0]);
+            const firstOpenParen = getFirstOpenParenTokenBefore(params[0], context)!;
+
+            return paramHasParen ? getFirstOpenParenTokenBefore(firstOpenParen, context) : firstOpenParen;
+        }
     }
 }
 
@@ -3284,14 +3291,14 @@ function getFirstTokenBefore(node: babel.Node, context: Context) {
 
 // todo: should probably do something similar to this in other places as the other
 // method cause a bug
-function getFirstOpenParenTokenBefore(node: babel.Node, context: Context) {
+function getFirstOpenParenTokenBefore(node: babel.Node | nodeHelpers.BabelToken, context: Context) {
     // todo: something faster than O(n)
     let lastToken: nodeHelpers.BabelToken | undefined;
     nodeHelpers.getFirstToken(context.file, token => {
-        if (token.type && token.type.label === "(")
-            lastToken = token;
-        else if (token.start >= node.start!)
+        if (token.start >= node.start!)
             return "stop";
+        else if (token.type && token.type.label === "(")
+            lastToken = token;
         return false;
     });
     return lastToken;
