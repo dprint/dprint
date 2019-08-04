@@ -32,7 +32,7 @@ interface Context {
     endStatementOrMemberInfo: Stack<Info>;
 }
 
-export function* parseTypeScriptFile(file: babel.File, fileText: string, options: ResolvedConfiguration): PrintItemIterator {
+export function parseTypeScriptFile(file: babel.File, fileText: string, options: ResolvedConfiguration): PrintItemIterator | false {
     const context: Context = {
         file,
         fileText,
@@ -48,15 +48,38 @@ export function* parseTypeScriptFile(file: babel.File, fileText: string, options
         endStatementOrMemberInfo: new Stack<Info>()
     };
 
-    yield* parseNode(file.program, context);
-    yield {
-        kind: PrintItemKind.Condition,
-        name: "endOfFileNewLine",
-        condition: conditionContext => {
-            return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
-        },
-        true: [context.newlineKind]
-    };
+    if (!shouldParseFile())
+        return false; // skip parsing
+
+    return function*(): PrintItemIterator {
+        yield* parseNode(file.program, context);
+        yield {
+            kind: PrintItemKind.Condition,
+            name: "endOfFileNewLine",
+            condition: conditionContext => {
+                return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
+            },
+            true: [context.newlineKind]
+        };
+    }();
+
+    function shouldParseFile() {
+        for (const comment of getCommentsToCheck()) {
+            if (comment.value.indexOf("dprint:ignoreFile") >= 0)
+                return false;
+        }
+
+        return true;
+
+        function* getCommentsToCheck() {
+            const program = file.program;
+            if (program.innerComments)
+                yield* program.innerComments;
+            const body = program.body;
+            if (body.length > 0 && body[0].leadingComments != null)
+                yield* body[0].leadingComments;
+        }
+    }
 }
 
 const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIterator; } = {

@@ -5,7 +5,7 @@ import { assertNever } from "../utils";
 import { parseToBabelAst, parseTypeScriptFile } from "./typescript";
 import { parseToJsonAst, parseJsonFile } from "./json";
 
-export function parseFile(fileKind: FileKind, fileText: string, configuration: ResolvedConfiguration): PrintItemIterator {
+export function parseFile(fileKind: FileKind, fileText: string, configuration: ResolvedConfiguration): PrintItemIterator | false {
     if (fileKind === FileKind.TypeScript || fileKind === FileKind.TypeScriptTsx) {
         const babelAst = parseToBabelAst(fileKind, fileText);
         return parseTypeScriptFile(babelAst, fileText, configuration);

@@ -45,6 +45,8 @@ describe("specs", () => {
 
         if (spec.showTree) {
             const printItem = parseFile(getFileKind(spec.filePath), spec.fileText, resolvedConfig.config);
+            if (printItem === false)
+                throw new Error("Can't print the tree because this file says it shouldn't be parsed.");
             console.log(printTree(printItem));
         }
 

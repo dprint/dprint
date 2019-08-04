@@ -1,0 +1,61 @@
+== should skip parsing when the file starts off with a skip comment ==
+/* dprint:ignoreFile */
+1 + 2 +         5;
+
+[expect]
+/* dprint:ignoreFile */
+1 + 2 +         5;
+
+== should skip when it's not the first comment ==
+// testing
+/* other */
+/* dprint:ignoreFile */
+1 + 2 +         5;
+
+[expect]
+// testing
+/* other */
+/* dprint:ignoreFile */
+1 + 2 +         5;
+
+== should skip when it's a comment line ==
+// testing
+/* other */
+
+
+// dprint:ignoreFile
+1 + 2 +         5;
+
+[expect]
+// testing
+/* other */
+
+
+// dprint:ignoreFile
+1 + 2 +         5;
+
+== should skip when there are only comments ==
+/* dprint:ignoreFile */
+
+//testing
+
+
+// test
+
+[expect]
+/* dprint:ignoreFile */
+
+//testing
+
+
+// test
+
+== should not skip when it's not before the first statement -- it doesn't bother searching the rest of the file ==
+testing ;
+/* dprint: skip */
+testing( 1,   5 );
+
+[expect]
+testing;
+/* dprint: skip */
+testing(1, 5);

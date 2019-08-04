@@ -14,6 +14,10 @@ export function formatFileText(filePath: string, fileText: string, configuration
     const fileKind = getFileKind(filePath);
     const printItem = parseFile(fileKind, fileText, configuration);
 
+    // the result was that it shouldn't be parsed so return the original text
+    if (printItem === false)
+        return fileText;
+
     return print(printItem, {
         newlineKind: configuration.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : configuration.newlineKind,
         maxWidth: fileKind === FileKind.Json ? configuration["json.lineWidth"] : configuration["typescript.lineWidth"],
