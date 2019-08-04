@@ -305,22 +305,23 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
     // parse
     const hasParentheses = nodeHelpers.hasParentheses(node);
     const parseFunc = parseObj[node!.type] || parseUnknownNode;
-    const initialPrintItemIterator = parseFunc(node, context);
-    const parenPrintItemIterator = hasParentheses ? surroundWithParentheses(initialPrintItemIterator) : initialPrintItemIterator;
-    const printItemIterator = opts && opts.innerParse ? opts.innerParse(parenPrintItemIterator) : parenPrintItemIterator;
+    const printItemIterator = opts && opts.innerParse ? opts.innerParse(parseNode()) : parseNode();
 
-    yield* getWithComments(node!, printItemIterator, context);
+    yield* getWithComments(node, printItemIterator, context);
 
     // replace the past info after iterating
     context.currentNode = context.parentStack.pop()!;
     context.parent = context.parentStack[context.parentStack.length - 1];
 
-    function* surroundWithParentheses(iterator: PrintItemIterator): PrintItemIterator {
-        yield Signal.StartNewlineGroup;
-        yield "(";
-        yield* iterator;
-        yield ")";
-        yield Signal.FinishNewLineGroup;
+    function parseNode() {
+        const nodeIterator = parseFunc(node, context);
+        return hasParentheses ? parseInParens(nodeIterator) : nodeIterator;
+    }
+
+    function parseInParens(nodeIterator: PrintItemIterator) {
+        const openParenToken = getFirstOpenParenTokenBefore(node!, context)!;
+        const useNewLines = nodeHelpers.getUseNewlinesForNodes([openParenToken, node]);
+        return parseIteratorInParens(nodeIterator, useNewLines, context);
     }
 }
 
@@ -2720,6 +2721,7 @@ function* parseNodeInParens(node: babel.Node, context: Context): PrintItemIterat
 }
 
 function* parseIteratorInParens(iterator: PrintItemIterator, useNewLines: boolean, context: Context) {
+    yield Signal.StartNewlineGroup;
     yield "(";
 
     if (useNewLines) {
@@ -2732,6 +2734,7 @@ function* parseIteratorInParens(iterator: PrintItemIterator, useNewLines: boolea
     }
 
     yield ")";
+    yield Signal.FinishNewLineGroup;
 }
 
 function* parseNamedImportsOrExports(

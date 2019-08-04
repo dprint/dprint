@@ -1,0 +1,14 @@
+== should format with parens ==
+(1 + 2);
+
+[expect]
+(1 + 2);
+
+== should format on a new line when the opening paren is on a different line ==
+(
+    1 + 2);
+
+[expect]
+(
+    1 + 2
+);
