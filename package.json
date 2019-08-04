@@ -1,6 +1,6 @@
 {
   "name": "dprint",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "TypeScript code formatter for my personal projects.",
   "main": "dist/index.js",
   "bin": {
