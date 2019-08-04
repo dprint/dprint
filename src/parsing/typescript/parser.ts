@@ -1304,6 +1304,10 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
             context.bag.put(BAG_KEYS.IfStatementLastBraceCondition, result.braceCondition);
 
         yield* parseControlFlowSeparator(context.config["ifStatement.nextControlFlowPosition"], node.alternate, "else", context);
+
+        // parse the leading comments before the else keyword
+        yield* parseLeadingComments(node.alternate, context);
+
         yield "else";
         if (node.alternate.type === "IfStatement") {
             yield " ";

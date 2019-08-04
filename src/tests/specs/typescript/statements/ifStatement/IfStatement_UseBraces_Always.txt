@@ -21,3 +21,24 @@ if (true)
 if (true) {
     return ""; // test
 }
+
+== should ensure comments before an else if and else stay on line before ==
+if (true) {
+}
+// comment
+else if (true)
+    call();
+// other
+else {
+}
+
+[expect]
+if (true) {
+}
+// comment
+else if (true) {
+    call();
+}
+// other
+else {
+}
