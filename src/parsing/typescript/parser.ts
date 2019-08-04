@@ -1851,15 +1851,105 @@ function* parseExternalModuleReference(node: babel.TSExternalModuleReference, co
 }
 
 function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExpression, context: Context): PrintItemIterator {
-    yield* parseNode(node.callee, context);
+    if (isTestLibraryCallExpression())
+        yield* parseTestLibraryCallExpression();
+    else
+        yield* innerParseCallExpression();
 
-    if (node.typeParameters)
-        yield* parseNode(node.typeParameters, context);
+    function* innerParseCallExpression(): PrintItemIterator {
+        yield* parseNode(node.callee, context);
 
-    if (node.optional)
-        yield "?.";
+        if (node.typeParameters)
+            yield* parseNode(node.typeParameters, context);
 
-    yield* conditions.withIndentIfStartOfLineIndented(parseParametersOrArguments(node.arguments, context));
+        if (node.optional)
+            yield "?.";
+
+        yield* conditions.withIndentIfStartOfLineIndented(parseParametersOrArguments(node.arguments, context));
+    }
+
+    function* parseTestLibraryCallExpression(): PrintItemIterator {
+        yield* parseTestLibraryCallee();
+        yield* parseTestLibraryArguments();
+
+        function* parseTestLibraryCallee(): PrintItemIterator {
+            if (node.callee.type === "MemberExpression") {
+                yield* parseNode(node.callee.object, context);
+                yield ".";
+                yield* parseNode(node.callee.property, context);
+            }
+            else {
+                yield* parseNode(node.callee, context); // identifier
+            }
+        }
+
+        function* parseTestLibraryArguments(): PrintItemIterator {
+            yield "(";
+            yield* parseNode(node.arguments[0], context, {
+                innerParse: function*(iterator) {
+                    yield* stripSignals(iterator);
+                    yield ",";
+                }
+            });
+            yield " ";
+            yield* parseNode(node.arguments[1], context);
+            yield ")";
+        }
+
+        /** Stop the iterator from providing any formatting information (ex. Signal.NewLine). */
+        function* stripSignals(iterator: PrintItemIterator): PrintItemIterator {
+            // If this function is used more generally, it should also strip
+            // signal information from conditions.
+            for (const item of iterator) {
+                if (typeof item !== "number")
+                    yield item;
+            }
+        }
+    }
+
+    /**
+     * Tests if this is a call expression from common test libraries.
+     * Be very strict here to allow the user to opt out if they'd like.
+     */
+    function isTestLibraryCallExpression() {
+        if (node.arguments.length !== 2 || node.typeArguments != null || node.optional)
+            return false;
+        if (!isValidCallee())
+            return false;
+        if (node.arguments[0].type !== "StringLiteral" && node.arguments[0].type !== "TemplateLiteral")
+            return false;
+        if (node.arguments[1].type !== "FunctionExpression" && node.arguments[1].type !== "ArrowFunctionExpression")
+            return false;
+
+        return node.loc!.start.line === node.arguments[1].loc!.start.line;
+
+        function isValidCallee() {
+            const identifier = getIdentifier();
+            if (identifier == null)
+                return false;
+            switch (identifier.name) {
+                case "it":
+                case "describe":
+                    return true;
+                default:
+                    return false;
+            }
+
+            function getIdentifier() {
+                if (node.callee.type === "Identifier")
+                    return node.callee;
+                if (
+                    node.callee.type === "MemberExpression"
+                    && node.callee.object.type === "Identifier"
+                    && node.callee.property.type === "Identifier"
+                ) {
+                    return node.callee.object;
+                }
+
+                return undefined;
+            }
+        }
+    }
 }
 
 function* parseConditionalExpression(node: babel.ConditionalExpression, context: Context): PrintItemIterator {
