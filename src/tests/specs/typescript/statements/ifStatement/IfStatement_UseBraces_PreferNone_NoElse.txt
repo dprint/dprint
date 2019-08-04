@@ -65,3 +65,22 @@ if(true){
 if (true) {
 } // 1
 // 2
+
+== should keep the comment on the inner statement when switching from no braces to having braces ==
+if (true)
+    // other
+    return ""; // test
+
+[expect]
+if (true) {
+    // other
+    return ""; // test
+}
+
+== should not switch to using braces when there are trailing header comments ==
+if (lastDotIndex <= 0) // for files like .gitignore, need to include 0
+    return ""; // same behaviour as node
+
+[expect]
+if (lastDotIndex <= 0) // for files like .gitignore, need to include 0
+    return ""; // same behaviour as node

@@ -36,3 +36,23 @@
 [expect]
 (1 + 43) + 5
     * (20 + 23);
+
+== should handle comments on a different line in-between ==
+return test
+    // some comment
+    + container;
+
+[expect]
+return test
+    // some comment
+    + container;
+
+== should handle comments on a different line in-between when the operator is on the preceeding line ==
+return test +
+    // some comment
+    container;
+
+[expect]
+return test
+    // some comment
+    + container;

@@ -304,18 +304,19 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
     const hasParentheses = nodeHelpers.hasParentheses(node);
     const parseFunc = parseObj[node!.type] || parseUnknownNode;
     const initialPrintItemIterator = parseFunc(node, context);
-    const printItemIterator = opts && opts.innerParse ? opts.innerParse(initialPrintItemIterator) : initialPrintItemIterator;
+    const parenPrintItemIterator = hasParentheses ? surroundWithParentheses(initialPrintItemIterator) : initialPrintItemIterator;
+    const printItemIterator = opts && opts.innerParse ? opts.innerParse(parenPrintItemIterator) : parenPrintItemIterator;
 
-    yield* getWithComments(node!, hasParentheses ? surroundWithParentheses() : printItemIterator, context);
+    yield* getWithComments(node!, printItemIterator, context);
 
     // replace the past info after iterating
     context.currentNode = context.parentStack.pop()!;
     context.parent = context.parentStack[context.parentStack.length - 1];
 
-    function* surroundWithParentheses(): PrintItemIterator {
+    function* surroundWithParentheses(iterator: PrintItemIterator): PrintItemIterator {
         yield Signal.StartNewlineGroup;
         yield "(";
-        yield* printItemIterator;
+        yield* iterator;
         yield ")";
         yield Signal.FinishNewLineGroup;
     }
@@ -1165,8 +1166,8 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
 }
 
 function* parseEmptyStatement(node: babel.EmptyStatement, context: Context): PrintItemIterator {
-    // this could possibly return nothing when semi-colons aren't supported,
-    // but I'm going to keep this in and let people do this
+    // Don't have configuration for this. Perhaps a change here would be
+    // to not print anything for empty statements?
     yield ";";
 }
 
@@ -1197,6 +1198,7 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
 
     yield* parseConditionalBraceBody({
         context,
+        parent: node,
         bodyNode: node.body,
         useBraces: context.config["forInStatement.useBraces"],
         bracePosition: context.config["forInStatement.bracePosition"],
@@ -1229,6 +1231,7 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
 
     yield* parseConditionalBraceBody({
         context,
+        parent: node,
         bodyNode: node.body,
         useBraces: context.config["forOfStatement.useBraces"],
         bracePosition: context.config["forOfStatement.bracePosition"],
@@ -1258,6 +1261,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
 
     yield* parseConditionalBraceBody({
         context,
+        parent: node,
         bodyNode: node.body,
         useBraces: context.config["forStatement.useBraces"],
         bracePosition: context.config["forStatement.bracePosition"],
@@ -1283,6 +1287,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
 function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItemIterator {
     const result = parseHeaderWithConditionalBraceBody({
         parseHeader: () => parseHeader(node),
+        parent: node,
         bodyNode: node.consequent,
         context,
         useBraces: context.config["ifStatement.useBraces"],
@@ -1304,6 +1309,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         }
         else {
             yield* parseConditionalBraceBody({
+                parent: node,
                 bodyNode: node.alternate,
                 context,
                 useBraces: context.config["ifStatement.useBraces"],
@@ -1439,6 +1445,7 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
 
     yield* parseConditionalBraceBody({
         context,
+        parent: node,
         bodyNode: node.body,
         useBraces: context.config["whileStatement.useBraces"],
         bracePosition: context.config["whileStatement.bracePosition"],
@@ -1465,6 +1472,7 @@ function* parseCatchClause(node: babel.CatchClause, context: Context): PrintItem
     // not conditional... required.
     yield* parseConditionalBraceBody({
         context,
+        parent: node,
         bodyNode: node.body,
         useBraces: "always",
         requiresBracesCondition: undefined,
@@ -1475,6 +1483,7 @@ function* parseCatchClause(node: babel.CatchClause, context: Context): PrintItem
 }
 
 interface ParseHeaderWithConditionalBraceBodyOptions {
+    parent: babel.Node;
     bodyNode: babel.Statement;
     parseHeader(): PrintItemIterator;
     context: Context;
@@ -1489,13 +1498,14 @@ interface ParseHeaderWithConditionalBraceBodyResult {
 }
 
 function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBraceBodyOptions): ParseHeaderWithConditionalBraceBodyResult {
-    const { bodyNode, context, requiresBracesCondition, useBraces, bracePosition } = opts;
+    const { context, parent, bodyNode, requiresBracesCondition, useBraces, bracePosition } = opts;
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
 
     const result = parseConditionalBraceBody({
-        bodyNode,
         context,
+        parent,
+        bodyNode,
         requiresBracesCondition,
         useBraces,
         bracePosition,
@@ -1519,6 +1529,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
 }
 
 interface ParseConditionalBraceBodyOptions {
+    parent: babel.Node;
     bodyNode: babel.Statement;
     context: Context;
     useBraces: NonNullable<Configuration["useBraces"]>;
@@ -1534,10 +1545,10 @@ interface ParseConditionalBraceBodyResult {
 }
 
 function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): ParseConditionalBraceBodyResult {
-    const { startHeaderInfo, endHeaderInfo, bodyNode, context, requiresBracesCondition, useBraces, bracePosition } = opts;
+    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition } = opts;
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
-    const headerTrailingComments = Array.from(getHeaderTrailingComments(bodyNode));
+    const headerTrailingComments = Array.from(getHeaderTrailingComments());
     const openBraceCondition: Condition = {
         kind: PrintItemKind.Condition,
         name: "openBrace",
@@ -1549,7 +1560,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             else if (useBraces === "preferNone") {
                 // writing an open brace might make the header hang, so assume it should
                 // not write the open brace until it's been resolved
-                return bodyRequiresBraces(bodyNode)
+                return bodyRequiresBraces()
                     || startHeaderInfo && endHeaderInfo && conditionResolvers.isMultipleLines(conditionContext, startHeaderInfo, endHeaderInfo, false)
                     || conditionResolvers.isMultipleLines(conditionContext, startStatementsInfo, endStatementsInfo, false)
                     || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
@@ -1592,7 +1603,12 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             yield* parseTrailingComments(bodyNode, context);
         }
         else {
-            yield* withIndent(parseNode(bodyNode, context));
+            yield* withIndent(function*() {
+                yield* parseNode(bodyNode, context);
+                // When there's no body, the parent's trailing comments are actually
+                // this line's trailing comment.
+                yield* parseTrailingComments(parent, context);
+            }());
         }
 
         yield endStatementsInfo;
@@ -1616,7 +1632,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
         }
     }
 
-    function bodyRequiresBraces(bodyNode: babel.Statement) {
+    function bodyRequiresBraces() {
         if (bodyNode.type === "BlockStatement") {
             if (bodyNode.body.length === 1 && !nodeHelpers.hasLeadingCommentOnDifferentLine(bodyNode.body[0], /* commentsToIgnore */ headerTrailingComments))
                 return false;
@@ -1626,7 +1642,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
         return nodeHelpers.hasLeadingCommentOnDifferentLine(bodyNode, /* commentsToIgnore */ headerTrailingComments);
     }
 
-    function* getHeaderTrailingComments(bodyNode: babel.Node) {
+    function* getHeaderTrailingComments() {
         if (bodyNode.type === "BlockStatement") {
             if (bodyNode.leadingComments != null) {
                 const commentLine = bodyNode.leadingComments.find(c => c.type === "CommentLine");
@@ -1637,21 +1653,24 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             }
 
             if (bodyNode.body.length > 0)
-                yield* checkLeadingComments(bodyNode.body[0]);
+                yield* checkComments(bodyNode.body[0].leadingComments);
             else if (bodyNode.innerComments)
                 yield* checkComments(bodyNode.innerComments);
         }
         else {
-            yield* checkLeadingComments(bodyNode);
+            if (bodyNode.leadingComments && bodyNode.leadingComments.length > 0) {
+                const lastHeaderToken = getFirstTokenBefore(bodyNode, context)!;
+                for (const comment of bodyNode.leadingComments) {
+                    if (comment.loc.start.line === lastHeaderToken.loc!.end.line)
+                        yield comment;
+                }
+            }
         }
 
-        function* checkLeadingComments(node: babel.Node) {
-            const leadingComments = node.leadingComments;
-            if (leadingComments)
-                yield* checkComments(leadingComments);
-        }
+        function* checkComments(comments: ReadonlyArray<babel.Comment> | null | undefined) {
+            if (comments == null)
+                return;
 
-        function* checkComments(comments: ReadonlyArray<babel.Comment>) {
             for (const comment of comments) {
                 if (comment.loc.start.line === bodyNode.loc!.start.line)
                     yield comment;
@@ -1778,11 +1797,13 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         else
             yield Signal.SpaceOrNewLine;
 
-        yield* conditions.indentIfStartOfLine(function*() {
-            yield node.operator;
-            yield " ";
-            yield* parseNode(node.right, context);
-        }());
+        yield* conditions.indentIfStartOfLine(parseNode(node.right, context, {
+            innerParse: function*(iterator) {
+                yield node.operator;
+                yield " ";
+                yield* iterator;
+            }
+        }));
     }
 }
 
@@ -3180,6 +3201,19 @@ function getFirstOpenBraceToken(node: babel.Node, context: Context) {
 
 function getFirstAngleBracketToken(node: babel.Node, context: Context) {
     return getFirstTokenUsingValue(node, "<", context);
+}
+
+function getFirstTokenBefore(node: babel.Node, context: Context) {
+    // todo: something faster than O(n)
+    let lastToken: nodeHelpers.BabelToken | undefined;
+    nodeHelpers.getFirstToken(context.file, token => {
+        if (token.type && token.type.label === ")")
+            lastToken = token;
+        else if (token.start >= node.start!)
+            return "stop";
+        return false;
+    });
+    return lastToken;
 }
 
 // todo: should probably do something similar to this in other places as the other

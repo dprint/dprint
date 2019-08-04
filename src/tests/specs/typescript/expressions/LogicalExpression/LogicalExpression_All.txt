@@ -20,3 +20,23 @@ test && other || asdf && test || asdf
     && asdf || asdf && asdf || test
     && other || asdf && test || asdf
     && asdf;
+
+== should handle comments on a different line in-between ==
+return test
+    // some comment
+    && container.pos !== container.end;
+
+[expect]
+return test
+    // some comment
+    && container.pos !== container.end;
+
+== should handle comments on a different line in-between when the operator is on the preceeding line ==
+return test &&
+    // some comment
+    container.pos !== container.end;
+
+[expect]
+return test
+    // some comment
+    && container.pos !== container.end;

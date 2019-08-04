@@ -12,3 +12,12 @@ if (true) {
 else {
     b;
 }
+
+== should keep the comment on the inner statement when switching from no braces to having braces ==
+if (true)
+    return ""; // test
+
+[expect]
+if (true) {
+    return ""; // test
+}
