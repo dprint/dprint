@@ -72,3 +72,15 @@ else {
     c;
     d;
 }
+
+== should ensure the comments stay on the appropriate inner statement ==
+if (true)
+    call1(); // a
+else
+    call2(); // b
+
+[expect]
+if (true)
+    call1(); // a
+else
+    call2(); // b

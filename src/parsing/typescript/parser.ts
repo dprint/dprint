@@ -1605,9 +1605,11 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
         else {
             yield* withIndent(function*() {
                 yield* parseNode(bodyNode, context);
-                // When there's no body, the parent's trailing comments are actually
-                // this line's trailing comment.
-                yield* parseTrailingComments(parent, context);
+                // When there's no body and this is the last control flow,
+                // the parent's trailing comments are actually this line's
+                // trailing comment.
+                if (bodyNode.end === parent.end)
+                    yield* parseTrailingComments(parent, context);
             }());
         }
 
@@ -3018,14 +3020,16 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
     function getTrailingComments() {
         // These will not have trailing comments for comments that appear after a comma
         // so force them to appear.
-        if (context.parent.type === "ObjectExpression")
-            return getTrailingCommentsWithNextLeading(context.parent.properties);
-        else if (context.parent.type === "ArrayExpression")
-            return getTrailingCommentsWithNextLeading(context.parent.elements);
-        else if (context.parent.type === "TSTupleType")
-            return getTrailingCommentsWithNextLeading(context.parent.elementTypes);
-
-        return node.trailingComments;
+        switch (context.parent.type) {
+            case "ObjectExpression":
+                return getTrailingCommentsWithNextLeading(context.parent.properties);
+            case "ArrayExpression":
+                return getTrailingCommentsWithNextLeading(context.parent.elements);
+            case "TSTupleType":
+                return getTrailingCommentsWithNextLeading(context.parent.elementTypes);
+            default:
+                return node.trailingComments;
+        }
 
         function getTrailingCommentsWithNextLeading(nodes: (babel.Node | null)[]) {
             // todo: something faster than O(n)
