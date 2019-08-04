@@ -1736,13 +1736,13 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
 function* parseAsExpression(node: babel.TSAsExpression, context: Context): PrintItemIterator {
     yield* parseNode(node.expression, context);
     yield " as ";
-    yield* parseNode(node.typeAnnotation, context);
+    yield* conditions.withIndentIfStartOfLineIndented(parseNode(node.typeAnnotation, context));
 }
 
 function* parseAssignmentExpression(node: babel.AssignmentExpression, context: Context): PrintItemIterator {
     yield* parseNode(node.left, context);
     yield ` ${node.operator} `;
-    yield* parseNode(node.right, context);
+    yield* conditions.withIndentIfStartOfLineIndented(parseNode(node.right, context));
 }
 
 function* parseAssignmentPattern(node: babel.AssignmentPattern, context: Context): PrintItemIterator {
