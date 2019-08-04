@@ -59,7 +59,8 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     for (const filePath of filePaths) {
         const promise = environment.readFile(filePath).then(fileText => {
             const result = formatFileText(filePath, fileText, config);
-            return environment.writeFile(filePath, result);
+            // skip writing the file if it hasn't changed
+            return result === fileText ? Promise.resolve() : environment.writeFile(filePath, result);
         }).catch(err => {
             environment.error(`Error formatting file: ${filePath}\n\n${err}`);
         });
