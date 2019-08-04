@@ -116,3 +116,21 @@
         4
     ]
 }
+
+== should allow indenting ==
+// function test() {
+//     test;
+// }
+
+[expect]
+// function test() {
+//     test;
+// }
+
+== should allow as many slashes as specified at the start ==
+/// test
+//////asdf
+
+[expect]
+/// test
+////// asdf

@@ -27,3 +27,13 @@
 // test
 //
 // other
+
+== should allow indenting ==
+// function test() {
+//     test;
+// }
+
+[expect]
+// function test() {
+//     test;
+// }

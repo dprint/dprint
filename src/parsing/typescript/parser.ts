@@ -6,6 +6,7 @@ import * as conditions from "../common/conditions";
 import * as conditionResolvers from "../common/conditionResolvers";
 import { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterator, surroundWithNewLines } from "../common/parserHelpers";
 import * as nodeHelpers from "./nodeHelpers";
+import * as commonParsing from "../common/parsing";
 
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
@@ -3064,26 +3065,8 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
     }
 
     function* parseCommentLine(comment: babel.CommentLine): PrintItemIterator {
-        const rawCommentValue = comment.value.trim();
-        const nonSlashIndex = getFirstNonSlashIndex();
-        const commentValue = rawCommentValue.substring(nonSlashIndex).trim();
-        const prefix = "//" + rawCommentValue.substring(0, nonSlashIndex);
-
-        yield prefix;
-
-        if (commentValue.length > 0)
-            yield ` ${commentValue}`;
-
+        yield commonParsing.parseJsLikeCommentLine(comment.value);
         yield Signal.ExpectNewLine;
-
-        function getFirstNonSlashIndex() {
-            for (let i = 0; i < rawCommentValue.length; i++) {
-                if (rawCommentValue[i] !== "/")
-                    return i;
-            }
-
-            return rawCommentValue.length;
-        }
     }
 }
 

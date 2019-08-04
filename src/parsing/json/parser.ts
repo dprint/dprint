@@ -2,10 +2,10 @@ import { Node, SyntaxKind, JSONScanner, createScanner, NodeType } from "jsonc-pa
 import { ResolvedConfiguration, resolveNewLineKindFromText } from "../../configuration";
 import { PrintItemIterator, PrintItemKind, Signal, PrintItem } from "../../types";
 import { throwError } from "../../utils";
-import { withIndent, toPrintItemIterator } from "../common/parserHelpers";
+import { withIndent } from "../common/parserHelpers";
+import * as commonParsing from "../common/parsing";
 
 export interface Context {
-    file: Node;
     fileText: string;
     log: (message: string) => void;
     warn: (message: string) => void;
@@ -31,9 +31,8 @@ const LocalSyntaxKind: {
     EOF: 17
 };
 
-export function* parseJsonFile(file: Node, fileText: string, options: ResolvedConfiguration): PrintItemIterator {
+export function* parseJsonFile(file: Node | undefined, fileText: string, options: ResolvedConfiguration): PrintItemIterator {
     const context: Context = {
-        file,
         fileText,
         log: message => console.log("[dprint]: " + message), // todo: use environment?
         warn: message => console.warn("[dprint]: " + message),
@@ -42,7 +41,18 @@ export function* parseJsonFile(file: Node, fileText: string, options: ResolvedCo
         scanner: createScanner(fileText, false)
     };
 
-    yield* parseNode(file, context);
+    // this will be undefined when the file has no object node
+    if (file == null) {
+        yield* parseCommentsUpToPos({
+            allowLeadingBlankLine: false,
+            allowTrailingBlankLine: false,
+            stopPos: fileText.length
+        }, context);
+    }
+    else {
+        yield* parseNode(file, context);
+    }
+
     yield {
         kind: PrintItemKind.Condition,
         name: "endOfFileNewLine",
@@ -381,13 +391,7 @@ function parseCommentsOnSameLine(context: Context): PrintItemIterator {
 }
 
 function* parseCommentLine(commentValue: string): PrintItemIterator {
-    commentValue = commentValue.trim();
-
-    yield "//";
-
-    if (commentValue.length > 0)
-        yield ` ${commentValue}`;
-
+    yield commonParsing.parseJsLikeCommentLine(commentValue);
     yield Signal.ExpectNewLine;
 }
 
