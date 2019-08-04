@@ -18,6 +18,8 @@ export async function runCli(args: string[], environment: Environment) {
 }
 
 export async function runCliWithOptions(options: CommandLineOptions, environment: Environment) {
+    const startDate = new Date();
+
     if (options.showHelp) {
         environment.log(getHelpText());
         return;
@@ -64,7 +66,12 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         promises.push(promise);
     }
 
-    return Promise.all(promises);
+    return Promise.all(promises).then(() => {
+        if (options.duration) {
+            const durationInSeconds = ((new Date()).getTime() - startDate.getTime()) / 1000;
+            environment.log(`Duration: ${durationInSeconds.toFixed(2)}`);
+        }
+    });
 
     async function getFilePaths() {
         const isInNodeModules = /[\/|\\]node_modules[\/|\\]/i;

@@ -96,4 +96,10 @@ describe(nameof(runCliWithOptions), () => {
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
         expect(warns.length).to.equal(0);
     });
+
+    it("should output the duration when specifying to", async () => {
+        const logs = await getLogs({ duration: true });
+        expect(logs.length).to.equal(1);
+        expect(/^Duration: [0-9]+\.[0-9][0-9]$/.test(logs[0])).to.be.true;
+    });
 });
