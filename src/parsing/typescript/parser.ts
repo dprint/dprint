@@ -1159,9 +1159,8 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
         context
     });
     yield* parseNode(node.body, context);
-    yield " while (";
-    yield* parseNode(node.test, context);
-    yield ")";
+    yield " while ";
+    yield* parseNodeInParens(node.test, context);
 
     if (context.config["doWhileStatement.semiColon"])
         yield ";";
@@ -1326,9 +1325,8 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     }
 
     function* parseHeader(ifStatement: babel.IfStatement): PrintItemIterator {
-        yield "if (";
-        yield* parseNode(ifStatement.test, context);
-        yield ")";
+        yield "if ";
+        yield* parseNodeInParens(ifStatement.test, context);
     }
 }
 
@@ -1390,9 +1388,8 @@ function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIt
 function* parseSwitchStatement(node: babel.SwitchStatement, context: Context): PrintItemIterator {
     const startHeaderInfo = createInfo("startHeader");
     yield startHeaderInfo;
-    yield "switch (";
-    yield* parseNode(node.discriminant, context);
-    yield ")";
+    yield "switch ";
+    yield* parseNodeInParens(node.discriminant, context);
 
     yield* parseMemberedBody({
         bracePosition: context.config["switchStatement.bracePosition"],
@@ -1444,9 +1441,8 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
-    yield "while (";
-    yield* parseNode(node.test, context);
-    yield ")";
+    yield "while ";
+    yield* parseNodeInParens(node.test, context);
     yield endHeaderInfo;
 
     yield* parseConditionalBraceBody({
@@ -2713,6 +2709,29 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
         yield* parseNode(typeNode, context);
         yield returnTypeEndInfo;
     }
+}
+
+function* parseNodeInParens(node: babel.Node, context: Context): PrintItemIterator {
+    const openParenToken = getFirstOpenParenTokenBefore(node, context)!;
+    const useNewLines = nodeHelpers.getUseNewlinesForNodes([openParenToken, node]);
+    const nodeIterator = parseNode(node, context);
+
+    yield* parseIteratorInParens(nodeIterator, useNewLines, context);
+}
+
+function* parseIteratorInParens(iterator: PrintItemIterator, useNewLines: boolean, context: Context) {
+    yield "(";
+
+    if (useNewLines) {
+        yield context.newlineKind;
+        yield* withIndent(iterator);
+        yield context.newlineKind;
+    }
+    else {
+        yield* iterator;
+    }
+
+    yield ")";
 }
 
 function* parseNamedImportsOrExports(

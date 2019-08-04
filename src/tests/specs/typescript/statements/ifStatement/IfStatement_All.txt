@@ -1,0 +1,17 @@
+== should format on multi-lines when the condition is on a different line from the open paren ==
+if (
+    true) {
+}
+else if (
+    false) {
+}
+
+[expect]
+if (
+    true
+) {
+}
+else if (
+    false
+) {
+}

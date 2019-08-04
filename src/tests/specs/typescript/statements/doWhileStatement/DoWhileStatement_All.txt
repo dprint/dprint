@@ -11,3 +11,14 @@ do {
     a;
     b;
 } while (true);
+
+== should format on multiple lines when the test is on a different line than the paren ==
+do {
+} while(
+true);
+
+[expect]
+do {
+} while (
+    true
+);

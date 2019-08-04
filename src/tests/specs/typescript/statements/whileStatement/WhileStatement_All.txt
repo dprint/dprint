@@ -24,3 +24,14 @@ while (thisIsA && veryLongHeader
     a;
     b;
 }
+
+== should use multiple lines if open paren is on a different line than condition ==
+while (
+    true) {
+    }
+
+[expect]
+while (
+    true
+) {
+}
