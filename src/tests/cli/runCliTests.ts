@@ -100,6 +100,6 @@ describe(nameof(runCliWithOptions), () => {
     it("should output the duration when specifying to", async () => {
         const logs = await getLogs({ duration: true });
         expect(logs.length).to.equal(1);
-        expect(/^Duration: [0-9]+\.[0-9][0-9]$/.test(logs[0])).to.be.true;
+        expect(/^Duration: [0-9]+\.[0-9][0-9]s$/.test(logs[0])).to.be.true;
     });
 });

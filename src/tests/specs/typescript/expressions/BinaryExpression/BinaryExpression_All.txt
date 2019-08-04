@@ -56,3 +56,23 @@ return test +
 return test
     // some comment
     + container;
+
+== should decide based on the left side's open paren token if it should be on a newline ==
+(1 + 2) + (
+    5 + 7
+);
+
+(1 + 2) +
+(
+    5 + 7
+);
+
+[expect]
+(1 + 2) + (
+    5 + 7
+);
+
+(1 + 2)
+    + (
+        5 + 7
+    );

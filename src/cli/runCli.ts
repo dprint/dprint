@@ -70,7 +70,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     return Promise.all(promises).then(() => {
         if (options.duration) {
             const durationInSeconds = ((new Date()).getTime() - startDate.getTime()) / 1000;
-            environment.log(`Duration: ${durationInSeconds.toFixed(2)}`);
+            environment.log(`Duration: ${durationInSeconds.toFixed(2)}s`);
         }
     });
 

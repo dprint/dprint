@@ -12,7 +12,8 @@ const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
     ClassStartHeaderInfo: "classStartHeaderInfo",
     InterfaceDeclarationStartHeaderInfo: "interfaceDeclarationStartHeaderInfo",
-    ModuleDeclarationStartHeaderInfo: "moduleDeclarationStartHeaderInfo"
+    ModuleDeclarationStartHeaderInfo: "moduleDeclarationStartHeaderInfo",
+    DisableIndentBool: "disableIndentBool"
 } as const;
 
 interface Context {
@@ -321,6 +322,10 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
     function parseInParens(nodeIterator: PrintItemIterator) {
         const openParenToken = getFirstOpenParenTokenBefore(node!, context)!;
         const useNewLines = nodeHelpers.getUseNewlinesForNodes([openParenToken, node]);
+
+        if (useNewLines)
+            putDisableIndentInBagIfNecessaryForNode(node!, context);
+
         return parseIteratorInParens(nodeIterator, useNewLines, context);
     }
 }
@@ -1786,7 +1791,8 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterator {
-    const useNewLines = nodeHelpers.getUseNewlinesForNodes([node.left, node.right]);
+    const shouldIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
+    const useNewLines = getUseNewLines();
     const wasLastSame = context.parent.type === node.type;
 
     if (wasLastSame)
@@ -1795,6 +1801,9 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         yield* newlineGroup(parseInner());
 
     function* parseInner(): PrintItemIterator {
+        if (!shouldIndent)
+            putDisableIndentInBagIfNecessaryForNode(node.left, context);
+
         yield* parseNode(node.left, context);
 
         if (useNewLines)
@@ -1802,13 +1811,31 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         else
             yield Signal.SpaceOrNewLine;
 
-        yield* conditions.indentIfStartOfLine(parseNode(node.right, context, {
+        if (!shouldIndent)
+            putDisableIndentInBagIfNecessaryForNode(node.right, context);
+
+        const rightIterator = parseNode(node.right, context, {
             innerParse: function*(iterator) {
                 yield node.operator;
                 yield " ";
                 yield* iterator;
             }
-        }));
+        });
+
+        yield* shouldIndent ? conditions.indentIfStartOfLine(rightIterator) : rightIterator;
+    }
+
+    function getUseNewLines() {
+        return nodeHelpers.getUseNewlinesForNodes([getLeftNode(), getRightNode()]);
+
+        function getLeftNode() {
+            const hasParentheses = nodeHelpers.hasParentheses(node.left);
+            return hasParentheses ? getFirstCloseParenTokenAfter(node.left, context)! : node.left;
+        }
+        function getRightNode() {
+            const hasParentheses = nodeHelpers.hasParentheses(node.right);
+            return hasParentheses ? getFirstOpenParenTokenBefore(node.right, context)! : node.right;
+        }
     }
 }
 
@@ -2715,6 +2742,10 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
 function* parseNodeInParens(node: babel.Node, context: Context): PrintItemIterator {
     const openParenToken = getFirstOpenParenTokenBefore(node, context)!;
     const useNewLines = nodeHelpers.getUseNewlinesForNodes([openParenToken, node]);
+
+    if (useNewLines)
+        putDisableIndentInBagIfNecessaryForNode(node, context);
+
     const nodeIterator = parseNode(node, context);
 
     yield* parseIteratorInParens(nodeIterator, useNewLines, context);
@@ -3266,6 +3297,16 @@ function getFirstOpenParenTokenBefore(node: babel.Node, context: Context) {
     return lastToken;
 }
 
+function getFirstCloseParenTokenAfter(node: babel.Node, context: Context) {
+    // todo: something faster than O(n)
+    return nodeHelpers.getFirstToken(context.file, token => {
+        if (token.end <= node.end!)
+            return false;
+
+        return token.type && token.type.label === ")" || false;
+    });
+}
+
 function getFirstOpenBracketToken(node: babel.Node, context: Context) {
     return getFirstTokenUsingType(node, "[", context);
 }
@@ -3311,6 +3352,13 @@ function getForceTrailingCommas(option: NonNullable<Configuration["trailingComma
             const assertNever: never = option;
             return false;
     }
+}
+
+function putDisableIndentInBagIfNecessaryForNode(node: babel.Node, context: Context) {
+    if (node.type !== "LogicalExpression" && node.type !== "BinaryExpression")
+        return;
+
+    context.bag.put(BAG_KEYS.DisableIndentBool, true);
 }
 
 /* factory functions */

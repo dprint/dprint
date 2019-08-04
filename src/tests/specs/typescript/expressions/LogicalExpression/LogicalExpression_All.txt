@@ -40,3 +40,23 @@ return test &&
 return test
     // some comment
     && container.pos !== container.end;
+
+== should decide based on the left side's open paren token if it should be on a newline ==
+(test && other) && (
+    test && other
+);
+
+(test && other) &&
+(
+    test || other
+);
+
+[expect]
+(test && other) && (
+    test && other
+);
+
+(test && other)
+    && (
+        test || other
+    );
