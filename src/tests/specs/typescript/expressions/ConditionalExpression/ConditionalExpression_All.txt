@@ -72,3 +72,11 @@ test
     : test
         ? 3
         : 4;
+
+== should handle when the semi-colon falls exactly on the line width ==
+test ? testingThis : outABit1;
+
+[expect]
+test
+    ? testingThis
+    : outABit1;

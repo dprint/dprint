@@ -5,3 +5,4 @@ export * from "./filePathUtils";
 export * from "./formatJsonParserDiagnostics";
 export * from "./stringUtils";
 export * from "./RepeatableIterator";
+export * from "./Stack";

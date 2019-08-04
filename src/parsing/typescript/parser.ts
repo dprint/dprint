@@ -1,7 +1,7 @@
 import * as babel from "@babel/types";
 import { ResolvedConfiguration, resolveNewLineKindFromText, Configuration } from "../../configuration";
 import { PrintItemKind, Signal, RawString, PrintItemIterator, Condition, Info } from "../../types";
-import { assertNever, Bag, RepeatableIterator } from "../../utils";
+import { assertNever, Bag, RepeatableIterator, Stack } from "../../utils";
 import * as conditions from "../common/conditions";
 import * as conditionResolvers from "../common/conditionResolvers";
 import { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterator, surroundWithNewLines } from "../common/parserHelpers";
@@ -28,6 +28,7 @@ interface Context {
     parent: babel.Node;
     newlineKind: "\r\n" | "\n";
     bag: Bag;
+    endStatementOrMemberInfo: Stack<Info>;
 }
 
 export function* parseTypeScriptFile(file: babel.File, fileText: string, options: ResolvedConfiguration): PrintItemIterator {
@@ -42,7 +43,8 @@ export function* parseTypeScriptFile(file: babel.File, fileText: string, options
         parentStack: [],
         parent: file,
         newlineKind: options.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newlineKind,
-        bag: new Bag()
+        bag: new Bag(),
+        endStatementOrMemberInfo: new Stack<Info>()
     };
 
     yield* parseNode(file.program, context);
@@ -1846,7 +1848,7 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
     function* parseConsequentAndAlternate(): PrintItemIterator {
         // force re-evaluation of all the conditions below
         // once the endInfo has been reached
-        yield conditions.forceReevaluationOnceResolved(endInfo);
+        yield conditions.forceReevaluationOnceResolved(context.endStatementOrMemberInfo.peek() || endInfo);
 
         if (useNewlines)
             yield context.newlineKind;
@@ -2559,6 +2561,8 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
                 yield context.newlineKind;
         }
 
+        const endInfo = createInfo("endStatementOrMemberInfo");
+        context.endStatementOrMemberInfo.push(endInfo);
         yield* parseNode(item, context, {
             innerParse: function*(iterator) {
                 yield* iterator;
@@ -2570,6 +2574,7 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
                 }
             }
         });
+        yield context.endStatementOrMemberInfo.popOrThrow();
 
         lastNode = item;
     }
