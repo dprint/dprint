@@ -68,11 +68,11 @@ export class Playground extends React.Component<{}, PlaygroundState> {
 }
 
 function getInitialText() {
-    return `// I quickly threw together this playground. I'll add configuration values
-// to it in the future. In the meantime, this playground has all the defaults,
+    return `// I quickly threw together this playground. I'll add configuration here
+// in the future. In the meantime, this playground has all the defaults,
 // except it uses a lineWidth of ${config["typescript.lineWidth"]} and not 120.
 
-// In the future, I'll move this overview to markdown files...
+// In the future, I'll move this overview somewhere else...
 
 /* ------- MULTILINE, HANGING INDENT, AND LINE WIDTH ------- */
 
@@ -82,23 +82,23 @@ function getInitialText() {
 callExpression(argument1, argument2,
     argument3,    argument4);
 
-// ...until you place the first arg on a different line as the open paren...
+// ...until you place the first arg on a different line...
 call.expression(
     1, 2);
 
-// ...or it exceeds the line width.
+// ...or the statement exceeds the line width.
 callExpression(argument1, argument2, argument3, argument4, argument5, argument6, argument7);
 
 //If you don't like hanging, there is
 //configuration coming in issue #14 to force newlines. Until then, place
-//the first arg on a different line as the open paren as shown above.
+//the first arg on a different line as the open paren, as shown above.
 
 /* ------- EXPLICIT NEWLINES ------- */
 
 // For the most part, dprint allows you to place certain nodes like
 // logical, binary, and property access expressions on different
-// lines as you see fit as there is often semantic information
-// in newlines.
+// lines as you see fit. It does this because newlines can often
+// convey meaning or grouping.
 const mathResult = 1+2*6+
     moreMath*math
 ;
@@ -109,7 +109,7 @@ possiblyTrue || (
 expect(someFunctionCall(1  ,2))
     .to.    equal(5 );
 
-// As seen above, placing a node on the next line from an open paren
+// As seen above, placing a node on the next line after an open paren
 // will indent the text within the parens.
 const anotherMathResult = (
 1 + 2)
