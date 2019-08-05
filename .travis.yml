@@ -1,0 +1,27 @@
+language: node_js
+node_js:
+  - 10
+cache:
+  directories:
+    - ~/.npm
+    - ~/e2e/.npm
+    - ~/.cache
+    - ~/e2e/.cache
+install:
+  - yarn install
+  - yarn add typescript-next@npm:typescript@next
+  - yarn install --modules-folder ./playground
+script:
+  - yarn test
+before_deploy:
+  - travis_wait 20 npm run predeploy
+env:
+  - CI=true
+deploy:
+  provider: pages
+  skip-cleanup: true
+  local-dir: build
+  github-token: $GITHUB_TOKEN
+  keep-history: true
+  on:
+    branch: master

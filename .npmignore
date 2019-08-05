@@ -1,8 +1,10 @@
+/playground
 .rpt2_cache
 .vscode
 docs
 src
 scripts
+.travis.yml
 .gitignore
 dprint.json
 implemented-nodes.md

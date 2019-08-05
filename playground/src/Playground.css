@@ -1,0 +1,37 @@
+/* header */
+
+.App-header {
+  background-color: #282c34;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  padding: 10px 15px;
+}
+
+h2 {
+  margin: 0;
+  padding: 0;
+  font-size: 20px;
+  color: white;
+}
+
+#viewOnGitHub {
+  color: white;
+  /* todo: this should not do this (requires duplicating right value with above padding) */
+  position: absolute;
+  right: 15px;
+}
+
+/* Code Editor */
+
+#codeEditor {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#codeEditor #editorContainer {
+  width: 100%;
+  height: 100%;
+  padding-bottom: 22px;
+}
