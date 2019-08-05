@@ -24,3 +24,9 @@ function test(test ? : string) {
 [expect]
 function test(test?: string) {
 }
+
+== should convert escape sequencies in an identifier to the character ==
+const \u0061 = "";
+
+[expect]
+const a = "";
