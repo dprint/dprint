@@ -3,3 +3,26 @@ type Test = (  string | number   );
 
 [expect]
 type Test = (string | number);
+
+== should format on multiple lines ==
+type Test = (
+    string | number);
+
+[expect]
+type Test = (
+    string | number
+);
+
+== should use indent if on a line with hanging indentation ==
+type Test = test
+    | test & (
+        test | test
+& other
+    );
+
+[expect]
+type Test = test
+    | test & (
+        test | test
+        & other
+    );

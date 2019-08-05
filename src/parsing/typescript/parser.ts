@@ -2481,9 +2481,7 @@ function* parseOptionalType(node: babel.TSOptionalType, context: Context): Print
 }
 
 function* parseParenthesizedType(node: babel.TSParenthesizedType, context: Context): PrintItemIterator {
-    yield "(";
-    yield* newlineGroup(parseNode(node.typeAnnotation, context));
-    yield ")";
+    yield* conditions.withIndentIfStartOfLineIndented(parseNodeInParens(node.typeAnnotation, context));
 }
 
 function* parseQualifiedName(node: babel.TSQualifiedName, context: Context): PrintItemIterator {
@@ -2597,17 +2595,40 @@ function* parseTypeReference(node: babel.TSTypeReference, context: Context): Pri
 function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSIntersectionType, context: Context): PrintItemIterator {
     const useNewLines = nodeHelpers.getUseNewlinesForNodes(node.types);
     const separator = node.type === "TSUnionType" ? "| " : "& ";
+    const isAncestorParenthesizedType = getIsAncestorParenthesizedType();
 
     for (let i = 0; i < node.types.length; i++) {
         if (i > 0)
             yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
 
-        yield* conditions.indentIfStartOfLine(function*() {
-            if (i > 0)
-                yield separator;
+        // probably something better needs to be done here, but this is good enough for now
+        if (isAncestorParenthesizedType)
+            yield* innerParse(i);
+        else
+            yield* conditions.indentIfStartOfLine(innerParse(i));
+    }
 
-            yield* parseNode(node.types[i], context);
-        }());
+    function* innerParse(index: number): PrintItemIterator {
+        if (index > 0)
+            yield separator;
+
+        yield* parseNode(node.types[index], context);
+    }
+
+    function getIsAncestorParenthesizedType() {
+        for (let i = context.parentStack.length - 1; i >= 0; i--) {
+            switch (context.parentStack[i].type) {
+                case "TSUnionType":
+                case "TSIntersectionType":
+                    continue;
+                case "TSParenthesizedType":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        return false;
     }
 }
 
