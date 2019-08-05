@@ -42,7 +42,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                 colors: {
                     "editorRuler.foreground": "#283430"
                 }
-            })
+            });
 
             reactMonacoEditorPromise.then(editor => {
                 this.setState({ editorComponent: editor.default });
@@ -103,6 +103,6 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                     lineNumber: 1
                 });
             }
-        })
+        });
     }
 }
