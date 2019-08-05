@@ -16,6 +16,7 @@ deploy:
   skip-cleanup: true
   local-dir: build-website
   github-token: $GITHUB_TOKEN
+  fqdn: dprint.dev
   keep-history: true
   on:
     branch: master
