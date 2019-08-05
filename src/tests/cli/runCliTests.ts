@@ -30,13 +30,13 @@ describe(nameof(runCliWithOptions), () => {
     it("should output the help when specifying help", async () => {
         const logs = await getLogs({ showHelp: true });
         expect(logs.length).to.equal(1);
-        expect(/^Version [0-9]+\.[0-9]+\.[0-9]+.*/.test(logs[0])).to.be.true;
+        expect(logs[0].startsWith("Version PACKAGE_VERSION\nSyntax:")).to.be.true;
     });
 
     it("should output the version when specifying version", async () => {
         const logs = await getLogs({ showVersion: true });
         expect(logs.length).to.equal(1);
-        expect(/^[0-9]+\.[0-9]+\.[0-9]+.*$/.test(logs[0])).to.be.true;
+        expect(logs[0]).to.equal("PACKAGE_VERSION");
     });
 
     it("should output the file paths when specifying to", async () => {

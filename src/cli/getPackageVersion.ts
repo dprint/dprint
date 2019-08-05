@@ -1,10 +1,4 @@
 export function getPackageVersion() {
-    return getJson().version as string;
-
-    function getJson() {
-        if (__dirname.endsWith("dist"))
-            return require("../package.json");
-
-        return require("../../package.json");
-    }
+    // this is replaced at build time with the correct version
+    return "PACKAGE_VERSION";
 }
