@@ -2,6 +2,7 @@
   "name": "playground",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://dprint.dev/playground",
   "dependencies": {
     "dprint": "^0.3.4",
     "monaco-editor": "^0.17.1",

@@ -1,6 +1,6 @@
-# dprint - Website
+# dprint - Playground
 
-Code for the website.
+Code for the playground.
 
 ## create-react-app
 
