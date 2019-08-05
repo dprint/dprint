@@ -327,7 +327,6 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
     context.currentNode = node;
 
     // parse
-    const hasParentheses = nodeHelpers.hasParentheses(node);
     const parseFunc = parseObj[node!.type] || parseUnknownNode;
     const printItemIterator = opts && opts.innerParse ? opts.innerParse(parseNode()) : parseNode();
 
@@ -339,7 +338,7 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
 
     function parseNode() {
         const nodeIterator = parseFunc(node, context);
-        return hasParentheses ? parseInParens(nodeIterator) : nodeIterator;
+        return nodeHelpers.hasParentheses(node!) ? parseInParens(nodeIterator) : nodeIterator;
     }
 
     function parseInParens(nodeIterator: PrintItemIterator) {
@@ -349,7 +348,7 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
         if (useNewLines)
             putDisableIndentInBagIfNecessaryForNode(node!, context);
 
-        return parseIteratorInParens(nodeIterator, useNewLines, context);
+        return conditions.withIndentIfStartOfLineIndented(parseIteratorInParens(nodeIterator, useNewLines, context));
     }
 }
 

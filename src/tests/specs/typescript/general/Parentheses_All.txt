@@ -100,3 +100,15 @@ if (
         * 7
     )
 );
+
+== should format a paren on a hanging line to have indent ==
+const binaryResult = true || false &&
+possiblyTrue || (
+  true&&false||maybeTrue
+);
+
+[expect]
+const binaryResult = true || false
+    && possiblyTrue || (
+        true && false || maybeTrue
+    );
