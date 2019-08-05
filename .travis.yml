@@ -3,7 +3,7 @@ node_js:
   - 10
 install:
   - yarn install
-  - yarn add typescript-next@npm:typescript@next
+  - yarn build
   - cd playground && yarn install && cd ../
 script:
   - yarn test

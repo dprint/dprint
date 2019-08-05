@@ -3104,9 +3104,8 @@ dotenv@6.2.0:
   version "6.2.0"
   resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-6.2.0.tgz#941c0410535d942c8becf28d3f357dbd9d476064"
 
-dprint@^0.3.4:
+"dprint@file:./../":
   version "0.3.4"
-  resolved "https://registry.yarnpkg.com/dprint/-/dprint-0.3.4.tgz#39e7947914b73006f121e1e0fca173b973d10d57"
   dependencies:
     "@babel/core" "^7.5.5"
     "@babel/parser" "^7.5.5"
