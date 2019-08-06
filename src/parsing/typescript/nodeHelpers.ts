@@ -81,7 +81,7 @@ export interface BabelToken {
     value?: string;
     type?: {
         label: string;
-    };
+    } | "CommentLine" | "CommentBlock";
     loc: babel.Node["loc"];
 }
 
