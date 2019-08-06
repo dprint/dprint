@@ -3,7 +3,6 @@ export const css = {
         id: "viewOnGitHub"
     },
     codeEditor: {
-        id: "codeEditor",
-        containerId: "editorContainer"
+        id: "codeEditor"
     }
 };

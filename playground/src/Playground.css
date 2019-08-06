@@ -25,13 +25,6 @@ h2 {
 /* Code Editor */
 
 #codeEditor {
-  width: 100%;
   height: 100%;
   position: relative;
-}
-
-#codeEditor #editorContainer {
-  width: 100%;
-  height: 100%;
-  padding-bottom: 22px;
 }

@@ -4,10 +4,12 @@ import { formatFileText, resolveConfiguration } from "dprint";
 import { CodeEditor, ExternalLink } from "./components";
 import * as constants from "./constants";
 import "./Playground.css";
+import "./external/react-splitpane.css";
 
 export interface PlaygroundState {
     text: string;
     formattedText: string;
+    scrollTop: number;
 }
 
 const config = resolveConfiguration({
@@ -21,10 +23,12 @@ export class Playground extends React.Component<{}, PlaygroundState> {
         const initialText = getInitialText();
         this.state = {
             text: initialText,
-            formattedText: this.formatText(initialText)
+            formattedText: this.formatText(initialText),
+            scrollTop: 0
         };
 
         this.onTextChange = this.onTextChange.bind(this);
+        this.onScrollTopChange = this.onScrollTopChange.bind(this);
     }
 
     render() {
@@ -35,9 +39,23 @@ export class Playground extends React.Component<{}, PlaygroundState> {
                         <h2 id="title">dprint - Playground</h2>
                         <ExternalLink id={constants.css.viewOnGitHub.id} url="https://github.com/dsherret/dprint" text="View on GitHub" />
                     </header>
-                    <SplitPane split="vertical" minSize={50} defaultSize="50%">
-                        <CodeEditor onChange={this.onTextChange} text={this.state.text} lineWidth={config["typescript.lineWidth"]} />
-                        <CodeEditor text={this.state.formattedText} readonly={true} lineWidth={config["typescript.lineWidth"]} />
+                    {/* Todo: re-enable resizing, but doesn't seem to work well with monaco editor on
+                    the right side as it won't reduce its width after being expanded. */}
+                    <SplitPane split="vertical" minSize={50} defaultSize="50%" allowResize={false}>
+                        <CodeEditor
+                            onChange={this.onTextChange}
+                            text={this.state.text}
+                            lineWidth={config["typescript.lineWidth"]}
+                            onScrollTopChange={this.onScrollTopChange}
+                            scrollTop={this.state.scrollTop}
+                        />
+                        <CodeEditor
+                            text={this.state.formattedText}
+                            readonly={true}
+                            lineWidth={config["typescript.lineWidth"]}
+                            onScrollTopChange={this.onScrollTopChange}
+                            scrollTop={this.state.scrollTop}
+                        />
                     </SplitPane>
                 </SplitPane>
             </div>
@@ -45,7 +63,7 @@ export class Playground extends React.Component<{}, PlaygroundState> {
     }
 
     private lastUpdateTimeout: NodeJS.Timeout | undefined;
-    onTextChange(newText: string) {
+    private onTextChange(newText: string) {
         if (this.lastUpdateTimeout != null)
             clearTimeout(this.lastUpdateTimeout);
 
@@ -58,7 +76,11 @@ export class Playground extends React.Component<{}, PlaygroundState> {
         }, 250);
     }
 
-    formatText(text: string) {
+    private onScrollTopChange(scrollTop: number) {
+        this.setState({ scrollTop });
+    }
+
+    private formatText(text: string) {
         try {
             return formatFileText("file.ts", text, config);
         } catch (err) {

@@ -9,6 +9,8 @@ export interface CodeEditorProps {
     text?: string;
     readonly?: boolean;
     lineWidth: number;
+    scrollTop: number;
+    onScrollTopChange: (scrollTop: number) => void;
 }
 
 export interface CodeEditorState {
@@ -57,11 +59,11 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     }
 
     render() {
+        this.updateScrollTop();
+
         return (
             <div id={cssConstants.codeEditor.id}>
-                <div id={cssConstants.codeEditor.containerId}>
-                    {this.getEditor()}
-                </div>
+                {this.getEditor()}
             </div>
         );
     }
@@ -87,6 +89,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                     readOnly: this.props.readonly || false,
                     minimap: { enabled: false },
                     quickSuggestions: false,
+                    wordBasedSuggestions: false,
                     rulers: [this.props.lineWidth - 1]
                 }}
             />
@@ -104,5 +107,22 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                 });
             }
         });
+
+        this.editor.onDidScrollChange(e => {
+            if (e.scrollTopChanged && this.props.onScrollTopChange)
+                this.props.onScrollTopChange(e.scrollTop);
+        });
+    }
+
+    private lastScrollTop = 0;
+    private updateScrollTop() {
+        if (this.editor == null || this.lastScrollTop === this.props.scrollTop)
+            return;
+
+        // todo: not sure how to not do this in the render method? I'm not a react/web person.
+        setTimeout(() => {
+            this.editor!.setScrollTop(this.props.scrollTop);
+            this.lastScrollTop = this.props.scrollTop;
+        }, 0);
     }
 }
