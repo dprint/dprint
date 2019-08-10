@@ -27,16 +27,20 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
                 else
                     resolve(config.default);
             } catch (err) {
-                if (filePath == null) {
-                    reject(getError(
-                        `Could not find configuration file at '${resolvedFilePath}'. `
-                            + `Did you mean to create one or specify a --config option?\n\n`
-                            + err
-                    ));
-                }
-                else {
-                    reject(getError(`Could not find specified configuration file at '${resolvedFilePath}'. Did you mean to create it?\n\n` + err));
-                }
+                environment.exists(resolvedFilePath).then(exists => {
+                    if (exists)
+                        reject(getError(`Could not load file at file path '${resolvedFilePath}'.\n\n${err}`));
+                    else if (filePath == null) {
+                        reject(getError(
+                            `Could not find configuration file at '${resolvedFilePath}'. `
+                                + `Did you mean to create one or specify a --config option?\n\n`
+                                + err
+                        ));
+                    }
+                    else {
+                        reject(getError(`Could not find specified configuration file at '${resolvedFilePath}'. Did you mean to create it?\n\n` + err));
+                    }
+                });
             }
         });
     }

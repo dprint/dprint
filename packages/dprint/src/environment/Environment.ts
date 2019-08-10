@@ -6,5 +6,6 @@ export interface Environment extends LoggingEnvironment {
     basename(filePath: string): string;
     readFile(filePath: string): Promise<string>;
     writeFile(filePath: string, text: string): Promise<void>;
+    exists(filePath: string): Promise<boolean>;
     glob(patterns: string[]): Promise<string[]>;
 }

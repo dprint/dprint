@@ -21,3 +21,15 @@ export async function writeFile(filePath: string, text: string) {
         });
     });
 }
+
+export async function exists(fileOrDirPath: string) {
+    return new Promise<boolean>((resolve, reject) => {
+        try {
+            fs.exists(fileOrDirPath, result => {
+                resolve(result);
+            });
+        } catch (err) {
+            reject(err);
+        }
+    });
+}

@@ -2,7 +2,7 @@ import * as path from "path";
 import globby from "globby";
 import { CliLoggingEnvironment } from "@dprint/core";
 import { Environment } from "./Environment";
-import { readFile, writeFile } from "../utils";
+import { readFile, writeFile, exists } from "../utils";
 
 /**
  * An implementation of an environment that interacts with the user's file system and outputs to the console.
@@ -22,6 +22,10 @@ export class CliEnvironment extends CliLoggingEnvironment implements Environment
 
     writeFile(filePath: string, text: string) {
         return writeFile(filePath, text);
+    }
+
+    exists(filePath: string) {
+        return exists(filePath);
     }
 
     glob(patterns: string[]) {
