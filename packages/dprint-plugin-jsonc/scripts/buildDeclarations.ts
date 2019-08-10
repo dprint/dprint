@@ -8,7 +8,7 @@ for (const file of emitResult.getFiles())
 
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project();
-const declarationFile = writeProject.addExistingSourceFile("lib/dprint.d.ts");
+const declarationFile = writeProject.addExistingSourceFile("lib/dprint-plugin-jsonc.d.ts");
 
 let text = "";
 
@@ -17,10 +17,12 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
         if (text.length > 0)
             text += "\n";
 
-        if (TypeGuards.isVariableDeclaration(declaration))
+        if (TypeGuards.isVariableDeclaration(declaration)) {
             text += declaration.getVariableStatementOrThrow().getText(true);
-        else
+        }
+        else {
             text += declaration.getText(true);
+        }
 
         text += "\n";
     }
@@ -28,6 +30,10 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 
 // todo: format using dprint
 declarationFile.replaceWithText(text);
+declarationFile.insertImportDeclaration(0, {
+    namedImports: ["PrintItemIterable", "Plugin", "ResolvedGlobalConfiguration", "ResolveConfigurationResult"],
+    moduleSpecifier: "@dprint/core"
+})
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();

@@ -8,7 +8,8 @@ for (const file of emitResult.getFiles())
 
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project();
-const declarationFile = writeProject.addExistingSourceFile("lib/dprint.d.ts");
+const declarationFile = writeProject.addExistingSourceFile("lib/dprint-development.d.ts");
+const packageVersion = require("../package.json").version;
 
 let text = "";
 
@@ -17,10 +18,13 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
         if (text.length > 0)
             text += "\n";
 
-        if (TypeGuards.isVariableDeclaration(declaration))
-            text += declaration.getVariableStatementOrThrow().getText(true);
-        else
+        if (TypeGuards.isVariableDeclaration(declaration)) {
+            // update to include the package version
+            text += declaration.getVariableStatementOrThrow().getText(true).replace("PACKAGE_VERSION", packageVersion);
+        }
+        else {
             text += declaration.getText(true);
+        }
 
         text += "\n";
     }
@@ -28,6 +32,10 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 
 // todo: format using dprint
 declarationFile.replaceWithText(text);
+declarationFile.insertImportDeclaration(0, {
+    namedImports: ["PrintItemIterable", "Plugin", "ResolvedGlobalConfiguration"],
+    moduleSpecifier: "@dprint/core"
+})
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();
