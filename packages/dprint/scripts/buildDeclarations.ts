@@ -1,4 +1,4 @@
-import { Project, TypeGuards } from "ts-morph";
+import { Project, TypeGuards, StructureKind } from "ts-morph";
 
 const readProject = new Project({ tsConfigFilePath: "tsconfig.json" });
 const emitResult = readProject.emitToMemory({ emitOnlyDtsFiles: true });
@@ -17,10 +17,17 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
         if (text.length > 0)
             text += "\n";
 
-        if (TypeGuards.isVariableDeclaration(declaration))
+        if (name === "Configuration") {
+            text += `export { Configuration } from "@dprint/core";`;
+            break;
+        }
+
+        if (TypeGuards.isVariableDeclaration(declaration)) {
             text += declaration.getVariableStatementOrThrow().getText(true);
-        else
+        }
+        else {
             text += declaration.getText(true);
+        }
 
         text += "\n";
     }
@@ -28,6 +35,16 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 
 // todo: format using dprint
 declarationFile.replaceWithText(text);
+declarationFile.insertStatements(0, [{
+    kind: StructureKind.ImportDeclaration,
+    namedImports: ["LoggingEnvironment", "CliLoggingEnvironment"],
+    moduleSpecifier: "@dprint/core"
+}, {
+
+    kind: StructureKind.ExportDeclaration,
+    namedExports: ["Configuration"],
+    moduleSpecifier: "@dprint/core"
+}])
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();

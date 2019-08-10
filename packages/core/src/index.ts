@@ -4,6 +4,6 @@ export * from "./configuration";
 export * from "./types";
 export * from "./parsing";
 export * from "./Environment";
-export * from "./plugins";
+export * from "./Plugin";
 export { makeIterableRepeatable, getFileExtension, resolveNewLineKindFromText } from "./utils";
 export * from "./formatFileText";

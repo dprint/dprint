@@ -1,58 +1,58 @@
-import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedGlobalConfiguration, resolveGlobalConfiguration, PrintItemIterable } from "@dprint/core";
+import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedConfiguration, PrintItemIterable, ConfigurationDiagnostic } from "@dprint/core";
 import { JsoncConfiguration, ResolvedJsoncConfiguration, resolveConfiguration } from "./configuration";
 import { parseToJsonAst, parseJsonFile } from "./parser";
+import { throwError } from "./utils";
 
-export default class JsoncPlugin implements Plugin<JsoncConfiguration, ResolvedJsoncConfiguration> {
+export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     /** @internal */
-    private _config: ResolvedJsoncConfiguration | undefined;
-
+    private readonly _unresolvedConfig: JsoncConfiguration;
     /** @internal */
-    private get config() {
-        if (this._config == null) {
-            const defaultGlobalConfig = resolveGlobalConfiguration({}, []).config;
-            this._config = resolveConfiguration(defaultGlobalConfig, {}).config;
-        }
+    private _resolveConfigurationResult?: ResolveConfigurationResult<ResolvedJsoncConfiguration>;
 
-        return this._config;
+    /**
+     * Constructor.
+     * @param config - The configuration to use.
+     */
+    constructor(config: JsoncConfiguration) {
+        this._unresolvedConfig = config;
     }
 
     /** @inheritdoc */
     version = "PACKAGE_VERSION"; // value is replaced at build time
 
     /** @inheritdoc */
-    name = "dprint-plugin-jsonc";
-
-    /** @inheritdoc */
-    configurationPropertyName = "jsonc";
+    name = "dprint-plugin-json";
 
     /** @inheritdoc */
     shouldParseFile(filePath: string) {
-        switch (getFileExtension(filePath).toLowerCase()) {
-            case ".ts":
-            case ".tsx":
-            case ".js":
-            case ".jsx": // todo: does jsx file path exist? I forget.
-                return true;
-            default:
-                return false;
-        }
+        return getFileExtension(filePath).toLowerCase() === ".json";
     }
 
     /** @inheritdoc */
-    setConfiguration(globalConfig: ResolvedGlobalConfiguration, pluginConfig: JsoncConfiguration): ResolveConfigurationResult<ResolvedJsoncConfiguration> {
-        const result = resolveConfiguration(globalConfig, pluginConfig);
-        this._config = result.config;
-        return result;
+    setGlobalConfiguration(globalConfig: ResolvedConfiguration) {
+        this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
     }
 
     /** @inheritdoc */
     getConfiguration(): ResolvedJsoncConfiguration {
-        return this.config;
+        return this._getResolveConfigurationResult().config;
+    }
+
+    /** @inheritdoc */
+    getConfigurationDiagnostics(): ConfigurationDiagnostic[] {
+        return this._getResolveConfigurationResult().diagnostics;
     }
 
     /** @inheritdoc */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false {
-        const babelAst = parseToJsonAst(fileText);
-        return parseJsonFile(babelAst, fileText, this.config);
+        const jsonAst = parseToJsonAst(fileText);
+        return parseJsonFile(jsonAst, fileText, this.getConfiguration());
+    }
+
+    /** @internal */
+    private _getResolveConfigurationResult() {
+        if (this._resolveConfigurationResult == null)
+            return throwError("Global configuration must be set before calling this method.");
+        return this._resolveConfigurationResult;
     }
 }

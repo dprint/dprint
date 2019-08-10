@@ -39,7 +39,6 @@
   "dependencies": {
     "@dprint/core": "~0.1.0",
     "globby": "^10.0.1",
-    "jsonc-parser": "^2.1.0",
     "minimist": "^1.2.0"
   },
   "devDependencies": {

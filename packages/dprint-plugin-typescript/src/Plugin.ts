@@ -1,19 +1,20 @@
-import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedGlobalConfiguration, resolveGlobalConfiguration, PrintItemIterable } from "@dprint/core";
+import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedConfiguration, PrintItemIterable, ConfigurationDiagnostic } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration, resolveConfiguration } from "./configuration";
 import { parseToBabelAst, parseTypeScriptFile } from "./parser";
+import { throwError } from "./utils";
 
-export default class TypeScriptPlugin implements Plugin<TypeScriptConfiguration, ResolvedTypeScriptConfiguration> {
+export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
     /** @internal */
-    private _config: ResolvedTypeScriptConfiguration | undefined;
-
+    private readonly _unresolvedConfig: TypeScriptConfiguration;
     /** @internal */
-    private get config() {
-        if (this._config == null) {
-            const defaultGlobalConfig = resolveGlobalConfiguration({}, []).config;
-            this._config = resolveConfiguration(defaultGlobalConfig, {}).config;
-        }
+    private _resolveConfigurationResult?: ResolveConfigurationResult<ResolvedTypeScriptConfiguration>;
 
-        return this._config;
+    /**
+     * Constructor.
+     * @param config - The configuration to use.
+     */
+    constructor(config: TypeScriptConfiguration) {
+        this._unresolvedConfig = config;
     }
 
     /** @inheritdoc */
@@ -21,9 +22,6 @@ export default class TypeScriptPlugin implements Plugin<TypeScriptConfiguration,
 
     /** @inheritdoc */
     name = "dprint-plugin-typescript";
-
-    /** @inheritdoc */
-    configurationPropertyName = "typescript";
 
     /** @inheritdoc */
     shouldParseFile(filePath: string) {
@@ -39,20 +37,30 @@ export default class TypeScriptPlugin implements Plugin<TypeScriptConfiguration,
     }
 
     /** @inheritdoc */
-    setConfiguration(globalConfig: ResolvedGlobalConfiguration, pluginConfig: TypeScriptConfiguration): ResolveConfigurationResult<ResolvedTypeScriptConfiguration> {
-        const result = resolveConfiguration(globalConfig, pluginConfig);
-        this._config = result.config;
-        return result;
+    setGlobalConfiguration(globalConfig: ResolvedConfiguration) {
+        this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
     }
 
     /** @inheritdoc */
     getConfiguration(): ResolvedTypeScriptConfiguration {
-        return this.config;
+        return this._getResolveConfigurationResult().config;
+    }
+
+    /** @inheritdoc */
+    getConfigurationDiagnostics(): ConfigurationDiagnostic[] {
+        return this._getResolveConfigurationResult().diagnostics;
     }
 
     /** @inheritdoc */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false {
         const babelAst = parseToBabelAst(filePath, fileText);
-        return parseTypeScriptFile(babelAst, fileText, this.config);
+        return parseTypeScriptFile(babelAst, fileText, this.getConfiguration());
+    }
+
+    /** @internal */
+    private _getResolveConfigurationResult() {
+        if (this._resolveConfigurationResult == null)
+            return throwError("Global configuration must be set before calling this method.");
+        return this._resolveConfigurationResult;
     }
 }

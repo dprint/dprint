@@ -12,16 +12,16 @@ export declare function getFileExtension(filePath: string): string;
 export declare function resolveNewLineKindFromText(text: string): "\r\n" | "\n";
 
 /**
- * User specified global configuration.
+ * Dprint's configuration.
  */
-export interface GlobalConfiguration {
+export interface Configuration {
     /**
      * Specify the type of project this is. You may specify any of the allowed values here according to your conscience.
      * @value "openSource" - Dprint is formatting an open source project.
      * @value "commercialSponsored" - Dprint is formatting a closed source commercial project and your company sponsored dprint.
      * @value "commercialDidNotSponsor" - Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this.
      */
-    projectType?: "openSource" | "commercialSponsored" | "commercialDidNotSponsor";
+    projectType: "openSource" | "commercialSponsored" | "commercialDidNotSponsor";
     /**
      * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
      * @default 120
@@ -46,9 +46,16 @@ export interface GlobalConfiguration {
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
     newlineKind?: "auto" | "crlf" | "lf" | "system";
+    /**
+     * Collection of plugins to use.
+     */
+    plugins: Plugin[];
 }
 
-export interface ResolvedGlobalConfiguration {
+export interface ResolvedConfiguration extends BaseResolvedConfiguration {
+}
+
+export interface BaseResolvedConfiguration {
     lineWidth: number;
     indentWidth: number;
     useTabs: boolean;
@@ -64,7 +71,7 @@ export interface ConfigurationDiagnostic {
 }
 
 /** The result of resolving configuration. */
-export interface ResolveConfigurationResult<ResolvedConfiguration extends ResolvedGlobalConfiguration> {
+export interface ResolveConfigurationResult<ResolvedConfiguration extends BaseResolvedConfiguration> {
     /** The diagnostics, if any. */
     diagnostics: ConfigurationDiagnostic[];
     /** The resolved configuration. */
@@ -76,7 +83,7 @@ export interface ResolveConfigurationResult<ResolvedConfiguration extends Resolv
  * @param config - Configuration to resolve.
  * @param pluginPropertyNames - Collection of plugin property names to ignore for excess property diagnostics.
  */
-export declare function resolveGlobalConfiguration(config: GlobalConfiguration, pluginPropertyNames: string[]): ResolveConfigurationResult<ResolvedGlobalConfiguration>;
+export declare function resolveConfiguration(config: Partial<Configuration>): ResolveConfigurationResult<ResolvedConfiguration>;
 
 /**
  * The different items that the printer could encounter.
@@ -273,7 +280,7 @@ export interface LoggingEnvironment {
 }
 
 /** Base interface a plugin must implement. */
-export interface Plugin<UnresolvedConfiguration = unknown, ResolvedConfiguration extends ResolvedGlobalConfiguration = ResolvedGlobalConfiguration> {
+export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
     /**
      * The package version of the plugin.
      */
@@ -283,40 +290,26 @@ export interface Plugin<UnresolvedConfiguration = unknown, ResolvedConfiguration
      */
     name: string;
     /**
-     * The property name for configuration.
-     */
-    configurationPropertyName: string;
-    /**
      * Gets whether the plugin should parse the file.
      */
     shouldParseFile(filePath: string, fileText: string): boolean;
     /**
-     * Sets the configuration the plugin should use.
+     * Sets the global configuration.
      */
-    setConfiguration(globalConfig: ResolvedGlobalConfiguration, pluginConfig: UnresolvedConfiguration): ResolveConfigurationResult<ResolvedConfiguration>;
+    setGlobalConfiguration(globalConfig: ResolvedConfiguration): void;
     /**
      * Gets the resolved configuration for the plugin.
      */
-    getConfiguration(): ResolvedConfiguration;
+    getConfiguration(): ResolvedPluginConfiguration;
+    /**
+     * Gets the configuration diagnostics.
+     */
+    getConfigurationDiagnostics(): ConfigurationDiagnostic[];
     /**
      * Parses the file to an iterable of print items.
      * @returns An iterable of print items or false if the file said to skip parsing (ex. it had an ignore comment).
      */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false;
-}
-
-export declare function resolvePlugins(pluginNames: string[]): Promise<ResolvePluginsResult>;
-
-export interface ResolvePluginsResult {
-    plugins: Plugin[];
-    diagnostics: ResolvePluginDiagnostic[];
-}
-
-export interface ResolvePluginDiagnostic {
-    /** The name of the plugin. */
-    pluginName: string;
-    /** The diagnostic message. */
-    message: string;
 }
 
 export declare function formatFileText(options: FormatFileTextOptions): string;

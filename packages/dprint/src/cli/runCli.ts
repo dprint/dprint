@@ -1,5 +1,5 @@
 import { Environment } from "../environment";
-import { formatFileText, ConfigurationDiagnostic, Plugin, resolvePlugins, ResolvePluginDiagnostic, resolveGlobalConfiguration } from "@dprint/core";
+import { formatFileText, ConfigurationDiagnostic, resolveConfiguration } from "@dprint/core";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
 import { getPackageVersion } from "./getPackageVersion";
@@ -32,7 +32,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     }
 
     const { config: unresolvedConfiguration, filePath: configFilePath } = await resolveConfigFile(options.config, environment);
-    const plugins = await resolvePluginsInternal();
+    const plugins = unresolvedConfiguration.plugins || [];
     const globalConfig = resolveGlobalConfigurationInternal();
     updatePluginsWithConfiguration();
     const filePaths = await getFilePaths();
@@ -71,18 +71,9 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         }
     });
 
-    async function resolvePluginsInternal(): Promise<Plugin[]> {
-        if (unresolvedConfiguration.plugins == null)
-            return [];
-        const resolvePluginsResult = await resolvePlugins(unresolvedConfiguration.plugins)
-        for (const diagnostic of resolvePluginsResult.diagnostics)
-            warnForResolvePluginDiagnostic(diagnostic);
-        return resolvePluginsResult.plugins;
-    }
-
     function resolveGlobalConfigurationInternal() {
         const missingProjectTypeDiagnostic = getMissingProjectTypeDiagnostic(unresolvedConfiguration);
-        const configResult = resolveGlobalConfiguration(unresolvedConfiguration, plugins.map(p => p.configurationPropertyName));
+        const configResult = resolveConfiguration(unresolvedConfiguration);
 
         for (const diagnostic of configResult.diagnostics)
             warnForConfigurationDiagnostic(diagnostic);
@@ -95,10 +86,9 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
 
     function updatePluginsWithConfiguration() {
         for (const plugin of plugins) {
-            const pluginConfigObject = unresolvedConfiguration[plugin.configurationPropertyName] || {};
-            const pluginConfigResultionResult = plugin.setConfiguration(globalConfig, pluginConfigObject);
+            plugin.setGlobalConfiguration(globalConfig);
 
-            for (const diagnostic of pluginConfigResultionResult.diagnostics)
+            for (const diagnostic of plugin.getConfigurationDiagnostics())
                 warnForConfigurationDiagnostic(diagnostic);
         }
     }
@@ -116,17 +106,14 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         environment.warn(`[${environment.basename(configFilePath)}]: ${diagnostic.message}`);
     }
 
-    function warnForResolvePluginDiagnostic(diagnostic: ResolvePluginDiagnostic) {
-        environment.warn(`[${diagnostic.pluginName}]: ${diagnostic.message}`);
-    }
-
     function outputResolvedConfiguration() {
         environment.log(getText());
 
         function getText() {
+            // todo: format json here
             let text = `Global configuration: ${JSON.stringify(globalConfig)}`;
             for (const plugin of plugins)
-                text += `\n${plugin.name} + ${plugin.getConfiguration()}`
+                text += `\n${plugin.name}: ${JSON.stringify(plugin.getConfiguration())}`
             return text;
         }
     }

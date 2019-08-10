@@ -33,7 +33,11 @@ Create a *dprint.json* file in the repo. Here's an example (you don't need to co
   },
   "typescript": {
     "tryStatement.nextControlFlowPosition": "sameLine"
-  }
+  },
+  "plugins": [
+    "dprint-plugin-typescript",
+    "dprint-plugin-jsonc"
+  ]
 }
 ```
 

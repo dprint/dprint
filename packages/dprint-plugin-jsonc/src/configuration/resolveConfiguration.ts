@@ -1,13 +1,13 @@
 import * as os from "os";
-import { ResolvedGlobalConfiguration, ConfigurationDiagnostic, ResolveConfigurationResult } from "@dprint/core";
+import { ResolvedConfiguration, ConfigurationDiagnostic, ResolveConfigurationResult } from "@dprint/core";
 import { JsoncConfiguration, ResolvedJsoncConfiguration } from "./Configuration";
 
 /**
- * Changes the provided configuration to have all its properties resolved to a value.
+ * Gets a resolved configuration from the provided global and plugin configuration.
  * @param config - Configuration to resolve.
  */
 export function resolveConfiguration(
-    globalConfig: ResolvedGlobalConfiguration,
+    globalConfig: ResolvedConfiguration,
     pluginConfig: JsoncConfiguration
 ): ResolveConfigurationResult<ResolvedJsoncConfiguration> {
     pluginConfig = { ...pluginConfig };

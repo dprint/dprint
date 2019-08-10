@@ -1,6 +1,6 @@
-import { ResolvedGlobalConfiguration } from "./configuration";
+import { ResolvedConfiguration } from "./configuration";
 import { print } from "./printing";
-import { Plugin } from "./plugins/Plugin";
+import { Plugin } from "./Plugin";
 import { resolveNewLineKindFromText, throwError } from "./utils";
 
 export interface FormatFileTextOptions {

@@ -17,12 +17,14 @@ TypeScript and JSONC code formatter mainly for use in my personal projects.
 
 ## Usage
 
-Install it as a dev dependency:
+Install dprint and the plugins you want to use as a dev dependency.
+
+For example:
 
 ```
-yarn add --dev dprint
+yarn add --dev dprint dprint-plugin-typescript dprint-plugin-jsonc
 # or
-npm install --save-dev dprint
+npm install --save-dev dprint dprint-plugin-typescript dprint-plugin-jsonc
 ```
 
 Create a *dprint.json* file in the repo. Here's an example (you don't need to copy this... use your own config):
@@ -31,12 +33,20 @@ Create a *dprint.json* file in the repo. Here's an example (you don't need to co
 {
   "projectType": "openSource",
   "lineWidth": 160,
-  "json.indentWidth": 2,
-  "tryStatement.nextControlFlowPosition": "sameLine"
+  "jsonc": {
+    "indentWidth": 2
+  },
+  "typescript": {
+    "tryStatement.nextControlFlowPosition": "sameLine"
+  },
+  "plugins": [
+    "dprint-plugin-typescript",
+    "dprint-plugin-jsonc"
+  ]
 }
 ```
 
-Add a format script to *package.json* (see `npx dprint --help` for usage):
+Add a format script to your *package.json*'s "scripts" section (see `npx dprint --help` for usage):
 
 ```json
 {

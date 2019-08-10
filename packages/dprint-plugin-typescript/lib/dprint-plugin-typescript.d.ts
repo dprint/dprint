@@ -1,4 +1,4 @@
-import { PrintItemIterable, Plugin, ResolvedGlobalConfiguration, ResolveConfigurationResult } from "@dprint/core";
+import { PrintItemIterable, Plugin, ResolvedConfiguration, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
 
 export interface TypeScriptConfiguration {
     /**
@@ -101,261 +101,41 @@ export interface TypeScriptConfiguration {
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     "variableStatement.semiColon"?: boolean;
-    /**
-     * If braces should be used or not.
-     * @default "maintain"
-     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
-     * @value "always" - Forces the use of braces. Will add them if they aren't used.
-     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
-     */
-    "forInStatement.useBraces"?: "maintain" | "always" | "preferNone";
-    /**
-     * If braces should be used or not.
-     * @default "maintain"
-     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
-     * @value "always" - Forces the use of braces. Will add them if they aren't used.
-     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
-     */
-    "forOfStatement.useBraces"?: "maintain" | "always" | "preferNone";
-    /**
-     * If braces should be used or not.
-     * @default "maintain"
-     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
-     * @value "always" - Forces the use of braces. Will add them if they aren't used.
-     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
-     */
-    "forStatement.useBraces"?: "maintain" | "always" | "preferNone";
-    /**
-     * If braces should be used or not.
-     * @default "maintain"
-     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
-     * @value "always" - Forces the use of braces. Will add them if they aren't used.
-     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
-     */
-    "ifStatement.useBraces"?: "maintain" | "always" | "preferNone";
-    /**
-     * If braces should be used or not.
-     * @default "maintain"
-     * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
-     * @value "always" - Forces the use of braces. Will add them if they aren't used.
-     * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
-     */
-    "whileStatement.useBraces"?: "maintain" | "always" | "preferNone";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "arrowFunctionExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "classDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "classExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "classMethod.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "doWhileStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "enumDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "forInStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "forOfStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "forStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "functionDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "functionExpression.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "ifStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "interfaceDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "moduleDeclaration.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "switchStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "tryStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the brace.
-     * @default "nextLineIfHanging"
-     * @value "maintain" - Maintains the brace being on the next line or the same line.
-     * @value "sameLine" - Forces the brace to be on the same line.
-     * @value "nextLine" - Forces the brace to be on the next line.
-     * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
-     */
-    "whileStatement.bracePosition"?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
-    /**
-     * Where to place the next control flow within a control flow statement.
-     * @default "nextLine"
-     * @value "maintain" - Maintains the next control flow being on the next line or the same line.
-     * @value "sameLine" - Forces the next control flow to be on the same line.
-     * @value "nextLine" - Forces the next control flow to be on the next line.
-     */
-    "ifStatement.nextControlFlowPosition"?: "maintain" | "sameLine" | "nextLine";
-    /**
-     * Where to place the next control flow within a control flow statement.
-     * @default "nextLine"
-     * @value "maintain" - Maintains the next control flow being on the next line or the same line.
-     * @value "sameLine" - Forces the next control flow to be on the same line.
-     * @value "nextLine" - Forces the next control flow to be on the next line.
-     */
-    "tryStatement.nextControlFlowPosition"?: "maintain" | "sameLine" | "nextLine";
-    /**
-     * If trailing commas should be used.
-     * @default "never"
-     * @value "never" - Trailing commas should not be used.
-     * @value "always" - Trailing commas should always be used.
-     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
-     */
-    "arrayExpression.trailingCommas"?: "never" | "always" | "onlyMultiLine";
-    /**
-     * If trailing commas should be used.
-     * @default "never"
-     * @value "never" - Trailing commas should not be used.
-     * @value "always" - Trailing commas should always be used.
-     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
-     */
-    "arrayPattern.trailingCommas"?: "never" | "always" | "onlyMultiLine";
-    /**
-     * If trailing commas should be used.
-     * @default "never"
-     * @value "never" - Trailing commas should not be used.
-     * @value "always" - Trailing commas should always be used.
-     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
-     */
-    "enumDeclaration.trailingCommas"?: "never" | "always" | "onlyMultiLine";
-    /**
-     * If trailing commas should be used.
-     * @default "never"
-     * @value "never" - Trailing commas should not be used.
-     * @value "always" - Trailing commas should always be used.
-     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
-     */
-    "objectExpression.trailingCommas"?: "never" | "always" | "onlyMultiLine";
-    /**
-     * If trailing commas should be used.
-     * @default "never"
-     * @value "never" - Trailing commas should not be used.
-     * @value "always" - Trailing commas should always be used.
-     * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
-     */
-    "tupleType.trailingCommas"?: "never" | "always" | "onlyMultiLine";
+    "forInStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
+    "forOfStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
+    "forStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
+    "ifStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
+    "whileStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
+    "arrowFunctionExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "classDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "classExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "classMethod.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "doWhileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "enumDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "forInStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "forOfStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "forStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "functionDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "functionExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "ifStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "interfaceDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "moduleDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "switchStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "tryStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "whileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "ifStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
+    "tryStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
+    "arrayExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "arrayPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "enumDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
 }
 
 /**
  * Resolved configuration from user specified configuration.
  */
-export interface ResolvedTypeScriptConfiguration extends ResolvedGlobalConfiguration {
+export interface ResolvedTypeScriptConfiguration extends ResolvedConfiguration {
     singleQuotes: boolean;
     newlineKind: "auto" | "\r\n" | "\n";
     lineWidth: NonNullable<TypeScriptConfiguration["lineWidth"]>;
@@ -418,19 +198,24 @@ export interface ResolvedTypeScriptConfiguration extends ResolvedGlobalConfigura
     "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
 }
 
-export default class TypeScriptPlugin implements Plugin<TypeScriptConfiguration, ResolvedTypeScriptConfiguration> {
+export declare class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
+    /**
+     * Constructor.
+     * @param config - The configuration to use.
+     */
+    constructor(config: TypeScriptConfiguration);
     /** @inheritdoc */
     version: string;
     /** @inheritdoc */
     name: string;
     /** @inheritdoc */
-    configurationPropertyName: string;
-    /** @inheritdoc */
     shouldParseFile(filePath: string): boolean;
     /** @inheritdoc */
-    setConfiguration(globalConfig: ResolvedGlobalConfiguration, pluginConfig: TypeScriptConfiguration): ResolveConfigurationResult<ResolvedTypeScriptConfiguration>;
+    setGlobalConfiguration(globalConfig: ResolvedConfiguration): void;
     /** @inheritdoc */
     getConfiguration(): ResolvedTypeScriptConfiguration;
+    /** @inheritdoc */
+    getConfigurationDiagnostics(): ConfigurationDiagnostic[];
     /** @inheritdoc */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false;
 }

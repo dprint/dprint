@@ -3,7 +3,6 @@
   "private": true,
   "description": "A plugable and configurable code formatter.",
   "scripts": {
-    "generate-config-from-schema": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/generateConfigFromSchema",
     "format": "ts-node --compiler ttypescript --transpile-only src/cli-bin.ts \"**/*{.ts|.tsx|.json|.js}\" \"!playground/public/vs/**/*.*\" \"!build-website/**/*.*\"",
     "build-website": "rimraf build-website && npm run --prefix playground build && mkdir -p \"build-website/playground\" && copyfiles -u 2 \"playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\""
   },

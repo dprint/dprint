@@ -1,4 +1,4 @@
-import { ResolvedGlobalConfiguration } from "@dprint/core";
+import { BaseResolvedConfiguration } from "@dprint/core";
 
 export interface JsoncConfiguration {
     /**
@@ -30,7 +30,7 @@ export interface JsoncConfiguration {
 /**
  * Resolved configuration from user specified configuration.
  */
-export interface ResolvedJsoncConfiguration extends ResolvedGlobalConfiguration {
+export interface ResolvedJsoncConfiguration extends BaseResolvedConfiguration {
     newlineKind: "auto" | "\r\n" | "\n";
     lineWidth: NonNullable<JsoncConfiguration["lineWidth"]>;
     indentWidth: NonNullable<JsoncConfiguration["indentWidth"]>;

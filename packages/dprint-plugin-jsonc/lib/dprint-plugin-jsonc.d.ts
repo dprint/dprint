@@ -1,4 +1,4 @@
-import { PrintItemIterable, Plugin, ResolvedGlobalConfiguration, ResolveConfigurationResult } from "@dprint/core";
+import { PrintItemIterable, Plugin, ResolvedConfiguration, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
 
 export interface JsoncConfiguration {
     /**
@@ -30,26 +30,31 @@ export interface JsoncConfiguration {
 /**
  * Resolved configuration from user specified configuration.
  */
-export interface ResolvedJsoncConfiguration extends ResolvedGlobalConfiguration {
+export interface ResolvedJsoncConfiguration extends BaseResolvedConfiguration {
     newlineKind: "auto" | "\r\n" | "\n";
     lineWidth: NonNullable<JsoncConfiguration["lineWidth"]>;
     indentWidth: NonNullable<JsoncConfiguration["indentWidth"]>;
     useTabs: NonNullable<JsoncConfiguration["useTabs"]>;
 }
 
-export default class JsoncPlugin implements Plugin<JsoncConfiguration, ResolvedJsoncConfiguration> {
+export declare class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
+    /**
+     * Constructor.
+     * @param config - The configuration to use.
+     */
+    constructor(config: JsoncConfiguration);
     /** @inheritdoc */
     version: string;
     /** @inheritdoc */
     name: string;
     /** @inheritdoc */
-    configurationPropertyName: string;
-    /** @inheritdoc */
     shouldParseFile(filePath: string): boolean;
     /** @inheritdoc */
-    setConfiguration(globalConfig: ResolvedGlobalConfiguration, pluginConfig: JsoncConfiguration): ResolveConfigurationResult<ResolvedJsoncConfiguration>;
+    setGlobalConfiguration(globalConfig: ResolvedConfiguration): void;
     /** @inheritdoc */
     getConfiguration(): ResolvedJsoncConfiguration;
+    /** @inheritdoc */
+    getConfigurationDiagnostics(): ConfigurationDiagnostic[];
     /** @inheritdoc */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false;
 }

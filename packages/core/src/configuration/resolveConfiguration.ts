@@ -1,10 +1,8 @@
 import * as os from "os";
-import { GlobalConfiguration, ResolvedGlobalConfiguration } from "./GlobalConfiguration";
+import { Configuration, ResolvedConfiguration } from "./Configuration";
 import { ConfigurationDiagnostic } from "./ConfigurationDiagnostic";
 import { ResolveConfigurationResult } from "./ResolveConfigurationResult";
 
-// todo: make this code generated again? or convert to not using a configuration file
-/** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
 const defaultValues = {
     lineWidth: 120,
     indentWidth: 4,
@@ -17,14 +15,14 @@ const defaultValues = {
  * @param config - Configuration to resolve.
  * @param pluginPropertyNames - Collection of plugin property names to ignore for excess property diagnostics.
  */
-export function resolveGlobalConfiguration(config: GlobalConfiguration, pluginPropertyNames: string[]): ResolveConfigurationResult<ResolvedGlobalConfiguration> {
+export function resolveConfiguration(config: Partial<Configuration>): ResolveConfigurationResult<ResolvedConfiguration> {
     config = { ...config };
     const diagnostics: ConfigurationDiagnostic[] = [];
 
-    const resolvedConfig: ResolvedGlobalConfiguration = {
-        lineWidth: getValue("lineWidth", defaultValues["lineWidth"], ensureNumber),
-        indentWidth: getValue("indentWidth", defaultValues["indentWidth"], ensureNumber),
-        useTabs: getValue("useTabs", defaultValues["useTabs"], ensureBoolean),
+    const resolvedConfig: ResolvedConfiguration = {
+        lineWidth: getValue("lineWidth", defaultValues.lineWidth, ensureNumber),
+        indentWidth: getValue("indentWidth", defaultValues.indentWidth, ensureNumber),
+        useTabs: getValue("useTabs", defaultValues.useTabs, ensureBoolean),
         newlineKind: getNewLineKind()
     };
 
@@ -47,11 +45,11 @@ export function resolveGlobalConfiguration(config: GlobalConfiguration, pluginPr
                 return "\n";
             case null:
             case undefined:
-                return defaultValues["newlineKind"];
+                return defaultValues.newlineKind;
             case "system":
                 return os.EOL === "\r\n" ? "\r\n" : "\n";
             default:
-                const propertyName: keyof ResolvedGlobalConfiguration = "newlineKind";
+                const propertyName: keyof ResolvedConfiguration = "newlineKind";
                 diagnostics.push({
                     propertyName,
                     message: `Unknown configuration specified for '${propertyName}': ${newlineKind}`
@@ -60,13 +58,13 @@ export function resolveGlobalConfiguration(config: GlobalConfiguration, pluginPr
         }
     }
 
-    function getValue<TKey extends keyof GlobalConfiguration>(
+    function getValue<TKey extends keyof Configuration>(
         key: TKey,
-        defaultValue: NonNullable<GlobalConfiguration[TKey]>,
-        validateFunc: (key: TKey, value: NonNullable<GlobalConfiguration[TKey]>) => boolean
+        defaultValue: NonNullable<Configuration[TKey]>,
+        validateFunc: (key: TKey, value: NonNullable<Configuration[TKey]>) => boolean
     ) {
-        let actualValue = config[key] as NonNullable<GlobalConfiguration[TKey]>;
-        if (actualValue == null || !validateFunc(key, actualValue as NonNullable<GlobalConfiguration[TKey]>))
+        let actualValue = config[key] as NonNullable<Configuration[TKey]>;
+        if (actualValue == null || !validateFunc(key, actualValue as NonNullable<Configuration[TKey]>))
             actualValue = defaultValue;
 
         delete config[key];
@@ -74,7 +72,7 @@ export function resolveGlobalConfiguration(config: GlobalConfiguration, pluginPr
         return actualValue;
     }
 
-    function ensureNumber(key: keyof GlobalConfiguration, value: number) {
+    function ensureNumber(key: keyof Configuration, value: number) {
         if (typeof value === "number")
             return true;
 
@@ -85,7 +83,7 @@ export function resolveGlobalConfiguration(config: GlobalConfiguration, pluginPr
         return false;
     }
 
-    function ensureBoolean(key: keyof GlobalConfiguration, value: boolean) {
+    function ensureBoolean(key: keyof Configuration, value: boolean) {
         if (typeof value === "boolean")
             return true;
 
@@ -98,11 +96,11 @@ export function resolveGlobalConfiguration(config: GlobalConfiguration, pluginPr
 
     function addExcessPropertyDiagnostics() {
         for (const propertyName in config) {
-            if (propertyName === nameof<GlobalConfiguration>(c => c.projectType))
+            if (propertyName === nameof<Configuration>(c => c.projectType)
+                || propertyName === nameof<Configuration>(c => c.plugins))
+            {
                 continue;
-            // ignore plugin property names
-            if (pluginPropertyNames.includes(propertyName))
-                continue;
+            }
 
             diagnostics.push({
                 propertyName: propertyName as keyof typeof config,

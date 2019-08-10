@@ -1,5 +1,5 @@
 import * as os from "os";
-import { ResolvedGlobalConfiguration, ConfigurationDiagnostic, ResolveConfigurationResult } from "@dprint/core";
+import { ResolvedConfiguration, ConfigurationDiagnostic, ResolveConfigurationResult } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "./Configuration";
 
 /** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
@@ -18,7 +18,7 @@ const defaultValues = {
  * @param config - Configuration to resolve.
  */
 export function resolveConfiguration(
-    globalConfig: ResolvedGlobalConfiguration,
+    globalConfig: ResolvedConfiguration,
     pluginConfig: TypeScriptConfiguration
 ): ResolveConfigurationResult<ResolvedTypeScriptConfiguration> {
     pluginConfig = { ...pluginConfig };
