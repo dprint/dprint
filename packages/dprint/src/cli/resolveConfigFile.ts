@@ -22,10 +22,10 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
         return new Promise<Configuration>((resolve, reject) => {
             try {
                 const config = require(resolvedFilePath);
-                if (typeof config !== "object" || typeof config.default !== "object")
-                    reject(getError(`Expected an object being exported as the default export of the configuration at ${resolvedFilePath}`));
+                if (typeof config !== "object" || typeof config.config !== "object")
+                    reject(getError(`Expected an object to be exported on the 'config' named export of the configuration at ${resolvedFilePath}`));
                 else
-                    resolve(config.default);
+                    resolve(config.config);
             } catch (err) {
                 environment.exists(resolvedFilePath).then(exists => {
                     if (exists)

@@ -7,7 +7,7 @@ src
 scripts
 .travis.yml
 .gitignore
-dprint.json
+dprint.config.js
 implemented-nodes.md
 mocha.opts
 rollup.config.js

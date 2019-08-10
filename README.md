@@ -22,23 +22,27 @@ yarn add --dev dprint dprint-plugin-typescript dprint-plugin-jsonc
 npm install --save-dev dprint dprint-plugin-typescript dprint-plugin-jsonc
 ```
 
-Create a *dprint.json* file in the repo. Here's an example (you don't need to copy this... use your own config):
+Create a *dprint.config.js* file in the repo. Here's an example (you don't need to copy this... use your own config):
 
-```json
-{
-  "projectType": "openSource",
-  "lineWidth": 160,
-  "jsonc": {
-    "indentWidth": 2
-  },
-  "typescript": {
-    "tryStatement.nextControlFlowPosition": "sameLine"
-  },
-  "plugins": [
-    "dprint-plugin-typescript",
-    "dprint-plugin-jsonc"
-  ]
-}
+```js
+// @ts-check
+const { TypeScriptPlugin } = require("dprint-plugin-typescript");
+const { JsoncPlugin } = require("dprint-plugin-jsonc");
+
+/** @type { import("dprint").Configuration } */
+module.exports.config = {
+    projectType: "openSource",
+    lineWidth: 160,
+    plugins: [
+        new TypeScriptPlugin({
+            useBraces: "preferNone",
+            "tryStatement.nextControlFlowPosition": "sameLine"
+        }),
+        new JsoncPlugin({
+            indentWidth: 2
+        })
+    ]
+};
 ```
 
 Add a format script to your *package.json*'s "scripts" section (see `npx dprint --help` for usage):

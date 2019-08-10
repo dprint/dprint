@@ -3,7 +3,7 @@ const { TypeScriptPlugin } = require("./packages/dprint-plugin-typescript");
 const { JsoncPlugin } = require("./packages/dprint-plugin-jsonc");
 
 /** @type { import("./packages/dprint").Configuration } */
-const config = {
+module.exports.config = {
     projectType: "openSource",
     lineWidth: 160,
     plugins: [
@@ -16,5 +16,3 @@ const config = {
         })
     ]
 };
-
-module.exports.default = config;

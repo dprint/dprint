@@ -5,7 +5,6 @@ src
 scripts
 .travis.yml
 .gitignore
-dprint.json
 implemented-nodes.md
 mocha.opts
 rollup.config.js
