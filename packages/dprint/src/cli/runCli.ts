@@ -113,7 +113,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
             // todo: format json here
             let text = `Global configuration: ${JSON.stringify(globalConfig)}`;
             for (const plugin of plugins)
-                text += `\n${plugin.name}: ${JSON.stringify(plugin.getConfiguration())}`
+                text += `\n${plugin.name}: ${JSON.stringify(plugin.getConfiguration())}`;
             return text;
         }
     }

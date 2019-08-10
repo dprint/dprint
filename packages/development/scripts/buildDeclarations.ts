@@ -35,7 +35,7 @@ declarationFile.replaceWithText(text);
 declarationFile.insertImportDeclaration(0, {
     namedImports: ["PrintItemIterable", "Plugin"],
     moduleSpecifier: "@dprint/core"
-})
+});
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();

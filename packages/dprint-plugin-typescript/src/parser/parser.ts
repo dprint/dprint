@@ -1,7 +1,7 @@
 import * as babel from "@babel/types";
-import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions,
-    conditionResolvers, resolveNewLineKindFromText } from "@dprint/core";
-import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration/Configuration"
+import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
+    resolveNewLineKindFromText } from "@dprint/core";
+import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration/Configuration";
 import { assertNever, Bag, Stack } from "../utils";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";

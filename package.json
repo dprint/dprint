@@ -17,8 +17,7 @@
     "url": "https://github.com/dsherret/dprint/issues"
   },
   "homepage": "https://github.com/dsherret/dprint#readme",
-  "dependencies": {
-  },
+  "dependencies": {},
   "devDependencies": {
     "copyfiles": "^2.1.1",
     "cross-env": "^5.2.0",

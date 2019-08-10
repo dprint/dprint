@@ -22,12 +22,10 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
             break;
         }
 
-        if (TypeGuards.isVariableDeclaration(declaration)) {
+        if (TypeGuards.isVariableDeclaration(declaration))
             text += declaration.getVariableStatementOrThrow().getText(true);
-        }
-        else {
+        else
             text += declaration.getText(true);
-        }
 
         text += "\n";
     }
@@ -40,11 +38,10 @@ declarationFile.insertStatements(0, [{
     namedImports: ["LoggingEnvironment", "CliLoggingEnvironment"],
     moduleSpecifier: "@dprint/core"
 }, {
-
     kind: StructureKind.ExportDeclaration,
     namedExports: ["Configuration"],
     moduleSpecifier: "@dprint/core"
-}])
+}]);
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();

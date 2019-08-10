@@ -29,7 +29,7 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
             } catch (err) {
                 environment.exists(resolvedFilePath).then(exists => {
                     if (exists)
-                        reject(getError(`Could not load file at file path '${resolvedFilePath}'.\n\n${err}`));
+                        reject(getError(`Error loading configuration file '${resolvedFilePath}'.\n\n${err}`));
                     else if (filePath == null) {
                         reject(getError(
                             `Could not find configuration file at '${resolvedFilePath}'. `

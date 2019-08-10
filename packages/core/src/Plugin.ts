@@ -33,4 +33,3 @@ export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfigur
      */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false;
 }
-

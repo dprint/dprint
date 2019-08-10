@@ -18,7 +18,7 @@ export function resolveConfiguration(
         newlineKind: getNewLineKind(),
         lineWidth: getValue("lineWidth", globalConfig.lineWidth, ensureNumber),
         indentWidth: getValue("indentWidth", globalConfig.indentWidth, ensureNumber),
-        useTabs: getValue("useTabs", globalConfig.useTabs, ensureBoolean),
+        useTabs: getValue("useTabs", globalConfig.useTabs, ensureBoolean)
     };
 
     addExcessPropertyDiagnostics();

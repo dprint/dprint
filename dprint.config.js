@@ -1,6 +1,6 @@
 // @ts-check
-import { TypeScriptPlugin } from "./packages/dprint-plugin-typescript";
-import { JsoncPlugin } from "./packages/dprint-plugin-jsonc";
+const { TypeScriptPlugin } = require("./packages/dprint-plugin-typescript");
+const { JsoncPlugin } = require("./packages/dprint-plugin-jsonc");
 
 /** @type { import("./packages/dprint").Configuration } */
 const config = {
@@ -17,4 +17,4 @@ const config = {
     ]
 };
 
-export default config;
+module.exports.default = config;
