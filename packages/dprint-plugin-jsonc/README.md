@@ -4,6 +4,8 @@ JSONC (JSON with comments) code formatter plugin for [dprint](https://github.com
 
 See usage instructions at the main [dprint repo](https://github.com/dsherret/dprint).
 
+* [Configuration/Api Declarations](lib/dprint-plugin-jsonc.d.ts)
+
 ## Installation
 
 ```
