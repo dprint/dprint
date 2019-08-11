@@ -2,7 +2,6 @@ import * as parser from "jsonc-parser";
 import { formatJsonParserDiagnostics, throwError } from "../utils";
 
 export function parseToJsonAst(fileText: string) {
-    // todo: configuration to use trailing comments
     const diagnostics: parser.ParseError[] = [];
     const ast = parser.parseTree(fileText, diagnostics, {
         allowTrailingComma: true,

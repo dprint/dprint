@@ -16,19 +16,18 @@ export class DPrintAnalyzer {
     }
 
     getIgnoredUnknownNodeNames() {
-        // todo: reduce code duplication with method below
-        const ole = this.getParseObjectInitializer();
-        return ole.getProperties()
-            .filter(TypeGuards.isPropertyAssignment)
-            .filter(p => p.getInitializerOrThrow().getText() === "parseUnknownNode")
-            .map(p => p.getName().slice(1, -1));
+        return this.getPropertyNamesWithInitializerText("parseUnknownNode");
     }
 
     getIgnoredFlowNodeNames() {
+        return this.getPropertyNamesWithInitializerText("parseNotSupportedFlowNode");
+    }
+
+    private getPropertyNamesWithInitializerText(initializerText: string) {
         const ole = this.getParseObjectInitializer();
         return ole.getProperties()
             .filter(TypeGuards.isPropertyAssignment)
-            .filter(p => p.getInitializerOrThrow().getText() === "parseNotSupportedFlowNode")
+            .filter(p => p.getInitializerOrThrow().getText() === initializerText)
             .map(p => p.getName().slice(1, -1));
     }
 

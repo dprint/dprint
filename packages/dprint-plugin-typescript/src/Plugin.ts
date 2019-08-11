@@ -1,7 +1,7 @@
 import { Plugin, getFileExtension, ResolveConfigurationResult, PrintItemIterable, ConfigurationDiagnostic,
     resolveConfiguration as resolveGlobalConfiguration, PluginInitializeOptions, LoggingEnvironment, CliLoggingEnvironment} from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration, resolveConfiguration } from "./configuration";
-import { parseToBabelAst, parseTypeScriptFile } from "./parser";
+import { parseToBabelAst, parseTypeScriptFile } from "./parsing";
 
 export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
     /** @internal */
