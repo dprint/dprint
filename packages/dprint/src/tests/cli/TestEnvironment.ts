@@ -70,6 +70,10 @@ export class TestEnvironment implements Environment {
         this.requireObjects.set(filePath, value);
     }
 
+    removeRequireObject(filePath: string) {
+        this.requireObjects.delete(filePath);
+    }
+
     require(filePath: string): Promise<unknown> {
         if (!this.requireObjects.has(filePath))
             return Promise.reject(new Error("File not found."));

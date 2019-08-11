@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { Configuration, Plugin } from "@dprint/core";
 import { runCliWithOptions, CommandLineOptions } from "../../cli";
 import { getDefaultCommandLineOptions } from "./getDefaultCommandLineOptions";
 import { TestEnvironment } from "./TestEnvironment";
@@ -7,17 +8,21 @@ import { TestPlugin } from "./TestPlugin";
 describe(nameof(runCliWithOptions), () => {
     function createTestEnvironment(opts: { globFileExtension?: string; } = {}) {
         const environment = new TestEnvironment(opts.globFileExtension);
-        environment.setRequireObject("/dprint.config.js", {
-            config: {
-                projectType: "openSource",
-                newlineKind: "lf",
-                plugins: [new TestPlugin()]
-            }
-        });
+        environment.setRequireObject("/dprint.config.js", createConfig());
         environment.addFile("/file1.ts", "5+1;");
         environment.addFile("/file2.ts", "7+2");
         environment.addFile("/node_modules/otherFile.ts", ""); // should ignore this
         return environment;
+    }
+
+    function createConfig(opts: { plugins?: Plugin[]; } = {}): { config: Configuration; } {
+        return {
+            config: {
+                projectType: "openSource",
+                newlineKind: "lf",
+                plugins: opts.plugins || [new TestPlugin() as Plugin]
+            }
+        }
     }
 
     function handleOptions(options: Partial<CommandLineOptions>, environment: TestEnvironment) {
@@ -36,14 +41,46 @@ describe(nameof(runCliWithOptions), () => {
 
     it("should output the help when specifying help", async () => {
         const logs = await getLogs({ showHelp: true });
+        expect(logs).to.deep.equal([
+            `dprint vPACKAGE_VERSION
+
+Syntax:   dprint [options] [...file patterns]
+Examples: dprint
+          dprint "src/**/*.ts"
+Options:
+-h, --help              Outputs this message.
+-v, --version           Outputs the version of the library and plugins.
+-c, --config            Configuration file to use (default: dprint.config.js)
+--outputFilePaths       Outputs the list of file paths found for formatting without formatting the files.
+--outputResolvedConfig  Outputs the resolved configuration from the configuration file.
+--duration              Outputs how long the format took.
+--allowNodeModuleFiles  Allows including files that have a node_modules directory in their path.
+Plugins:
+* dprint-plugin-test v0.1.0`
+        ]);
+    });
+
+    it("should output the help when there is no configuration file", async () => {
+        const environment = createTestEnvironment();
+        environment.removeRequireObject("/dprint.config.js");
+        const logs = await getLogs({ showHelp: true }, environment);
         expect(logs.length).to.equal(1);
-        expect(logs[0].startsWith("Version PACKAGE_VERSION\nSyntax:")).to.be.true;
+        expect(logs[0].endsWith("Plugins: [No plugins]")).to.be.true;
     });
 
     it("should output the version when specifying version", async () => {
         const logs = await getLogs({ showVersion: true });
-        expect(logs.length).to.equal(1);
-        expect(logs[0]).to.equal("PACKAGE_VERSION");
+        expect(logs).to.deep.equal([
+            `dprint vPACKAGE_VERSION
+dprint-plugin-test v0.1.0`
+        ]);
+    });
+
+    it("should output the version when there is no configuration file", async () => {
+        const environment = createTestEnvironment();
+        environment.removeRequireObject("/dprint.config.js");
+        const logs = await getLogs({ showVersion: true }, environment);
+        expect(logs).to.deep.equal([`dprint vPACKAGE_VERSION (No plugins)`]);
     });
 
     it("should output the file paths when specifying to", async () => {

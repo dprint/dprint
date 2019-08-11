@@ -2,7 +2,7 @@ import { Environment } from "../environment";
 import { formatFileText, ConfigurationDiagnostic, resolveConfiguration } from "@dprint/core";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
-import { getPackageVersion } from "./getPackageVersion";
+import { getVersionText } from "./getVersionText";
 import { CommandLineOptions } from "./CommandLineOptions";
 import { resolveConfigFile } from "./resolveConfigFile";
 import { getMissingProjectTypeDiagnostic } from "../configuration";
@@ -21,18 +21,15 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     const startDate = new Date();
 
     if (options.showHelp) {
-        // todo: log plugins
-        environment.log(getHelpText());
+        environment.log(getHelpText(await safeGetPlugins()));
         return;
     }
     else if (options.showVersion) {
-        // todo: log plugin versions
-        environment.log(getPackageVersion());
+        environment.log(getVersionText(await safeGetPlugins()));
         return;
     }
 
-    const { config: unresolvedConfiguration, filePath: configFilePath } = await resolveConfigFile(options.config, environment);
-    const plugins = unresolvedConfiguration.plugins || [];
+    const { unresolvedConfiguration, configFilePath, plugins } = await getUnresolvedConfigAndPlugins();
     const globalConfig = resolveGlobalConfigurationInternal();
     updatePluginsWithConfiguration();
     const filePaths = await getFilePaths();
@@ -111,11 +108,32 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         environment.log(getText());
 
         function getText() {
-            // todo: format json here
-            let text = `Global configuration: ${JSON.stringify(globalConfig)}`;
+            let text = `Global configuration: ${prettyPrintAsJson(globalConfig)}`;
             for (const plugin of plugins)
-                text += `\n${plugin.name}: ${JSON.stringify(plugin.getConfiguration())}`;
+                text += `\n${plugin.name}: ${prettyPrintAsJson(plugin.getConfiguration())}`;
             return text;
         }
+
+        function prettyPrintAsJson(obj: any) {
+            const numSpaces = 2;
+            return JSON.stringify(obj, null, numSpaces);
+        }
+    }
+
+    async function safeGetPlugins() {
+        try {
+            return (await getUnresolvedConfigAndPlugins()).plugins;
+        } catch (err) {
+            return [];
+        }
+    }
+
+    async function getUnresolvedConfigAndPlugins() {
+        const { config: unresolvedConfiguration, filePath: configFilePath } = await resolveConfigFile(options.config, environment);
+        return {
+            unresolvedConfiguration,
+            configFilePath,
+            plugins: unresolvedConfiguration.plugins || []
+        };
     }
 }
