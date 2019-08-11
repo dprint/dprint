@@ -422,8 +422,8 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
 
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 
-    if (parent.type === "ExportDefaultDeclaration")
-        yield ";"; // todo: configuration
+    if (parent.type === "ExportDefaultDeclaration" && context.config["exportDefaultDeclaration.semiColon"])
+        yield ";";
 }
 
 /* declarations */
@@ -570,7 +570,9 @@ function* parseEnumMember(node: babel.TSEnumMember, context: Context): PrintItem
 function* parseExportAllDeclaration(node: babel.ExportAllDeclaration, context: Context): PrintItemIterable {
     yield "export * from ";
     yield* parseNode(node.source, context);
-    yield ";"; // todo: configuration
+
+    if (context.config["exportAllDeclaration.semiColon"])
+        yield ";";
 }
 
 function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context): PrintItemIterable {
@@ -598,8 +600,8 @@ function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, contex
         yield* parseNode(node.source, context);
     }
 
-    if (node.declaration == null)
-        yield ";"; // todo: configuration
+    if (node.declaration == null && context.config["exportNamedDeclaration.semiColon"])
+        yield ";";
 }
 
 function* parseExportDefaultDeclaration(node: babel.ExportDefaultDeclaration, context: Context): PrintItemIterable {

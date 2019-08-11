@@ -1,0 +1,6 @@
+~~ lineWidth: 40, exportNamedDeclaration.semiColon: false ~~
+== should format without semi-colons ==
+export {};
+
+[expect]
+export {}

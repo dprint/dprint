@@ -1,4 +1,4 @@
-== should format when using a namespace export ==
+== should format ==
 export  *  from   "test"  ;
 
 [expect]

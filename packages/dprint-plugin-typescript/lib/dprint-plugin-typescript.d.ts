@@ -85,7 +85,10 @@ export interface TypeScriptConfiguration {
     "debuggerStatement.semiColon"?: boolean;
     "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
+    "exportAllDeclaration.semiColon"?: boolean;
     "exportAssignment.semiColon"?: boolean;
+    "exportDefaultDeclaration.semiColon"?: boolean;
+    "exportNamedDeclaration.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "functionDeclaration.semiColon"?: boolean;
     "ifStatement.semiColon"?: boolean;
@@ -151,7 +154,10 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     "debuggerStatement.semiColon": boolean;
     "directive.semiColon": boolean;
     "doWhileStatement.semiColon": boolean;
+    "exportAllDeclaration.semiColon": boolean;
     "exportAssignment.semiColon": boolean;
+    "exportDefaultDeclaration.semiColon": boolean;
+    "exportNamedDeclaration.semiColon": boolean;
     "expressionStatement.semiColon": boolean;
     "functionDeclaration.semiColon": boolean;
     "ifStatement.semiColon": boolean;

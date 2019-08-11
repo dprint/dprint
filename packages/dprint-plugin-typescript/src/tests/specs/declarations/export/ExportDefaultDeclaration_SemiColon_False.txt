@@ -1,0 +1,8 @@
+~~ lineWidth: 40, exportDefaultDeclaration.semiColon: false ~~
+== should format without a semi-colon ==
+const test = 5;
+export    default   test;
+
+[expect]
+const test = 5;
+export default test

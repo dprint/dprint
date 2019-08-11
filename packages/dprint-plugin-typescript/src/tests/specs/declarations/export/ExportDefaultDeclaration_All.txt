@@ -1,18 +1,4 @@
 ~~ lineWidth: 40 ~~
-== should format when using no named exports ==
-export {};
-
-[expect]
-export {};
-
-== should format when using named exports ==
-const test = 5;
-export {test};
-
-[expect]
-const test = 5;
-export { test };
-
 == should format when using a default export ==
 const test = 5;
 export    default   test;
