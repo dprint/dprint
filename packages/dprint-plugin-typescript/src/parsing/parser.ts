@@ -8,7 +8,7 @@ import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
 import { TokenFinder, isPrefixSemiColonInsertionChar } from "./utils";
 
-const { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterable, surroundWithNewLines } = parserHelpers;
+const { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterable, surroundWithNewLines, createInfo } = parserHelpers;
 
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
@@ -3497,13 +3497,4 @@ function putDisableIndentInBagIfNecessaryForNode(node: babel.Node, context: Cont
         return;
 
     context.bag.put(BAG_KEYS.DisableIndentBool, true);
-}
-
-/* factory functions */
-
-function createInfo(name: string): Info {
-    return {
-        kind: PrintItemKind.Info,
-        name
-    };
 }

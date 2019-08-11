@@ -272,6 +272,7 @@ export declare namespace parserHelpers {
      * @param rawCommentValue - The comment value without the leading two slashes.
      */
     function parseJsLikeCommentLine(rawCommentValue: string): string;
+    function createInfo(name: string): Info;
 }
 
 /**

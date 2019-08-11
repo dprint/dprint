@@ -1,4 +1,4 @@
-import { PrintItemIterable, PrintItem, Signal } from "../types";
+import { PrintItemIterable, PrintItem, Signal, PrintItemKind, Info } from "../types";
 import { BaseContext } from "./BaseContext";
 
 export namespace parserHelpers {
@@ -55,5 +55,12 @@ export namespace parserHelpers {
 
             return rawCommentValue.length;
         }
+    }
+
+    export function createInfo(name: string): Info {
+        return {
+            kind: PrintItemKind.Info,
+            name
+        };
     }
 }
