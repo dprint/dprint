@@ -4,9 +4,9 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Run Tests",
+            "name": "Run TypeScript Tests",
             "runtimeExecutable": "npm",
-            "runtimeArgs": ["run", "test:debug"],
+            "runtimeArgs": ["run", "--prefix", "packages/dprint-plugin-typescript", "test:debug"],
             "port": 9229,
             "stopOnEntry": false
         },
