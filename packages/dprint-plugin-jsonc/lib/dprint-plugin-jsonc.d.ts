@@ -1,4 +1,4 @@
-import { PrintItemIterable, Plugin, ResolvedConfiguration, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
+import { PrintItemIterable, Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
 
 export interface JsoncConfiguration {
     /**
@@ -48,9 +48,9 @@ export declare class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     /** @inheritdoc */
     name: string;
     /** @inheritdoc */
-    shouldParseFile(filePath: string): boolean;
+    initialize(options: PluginInitializeOptions): void;
     /** @inheritdoc */
-    setGlobalConfiguration(globalConfig: ResolvedConfiguration): void;
+    shouldParseFile(filePath: string): boolean;
     /** @inheritdoc */
     getConfiguration(): ResolvedJsoncConfiguration;
     /** @inheritdoc */

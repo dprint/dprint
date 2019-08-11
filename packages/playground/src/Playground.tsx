@@ -1,6 +1,6 @@
 import React from "react";
 import SplitPane from "react-split-pane";
-import { formatFileText, resolveConfiguration } from "@dprint/core";
+import { formatFileText, resolveConfiguration, LoggingEnvironment } from "@dprint/core";
 import { TypeScriptPlugin } from "dprint-plugin-typescript";
 import { CodeEditor, ExternalLink } from "./components";
 import * as constants from "./constants";
@@ -13,11 +13,19 @@ export interface PlaygroundState {
     scrollTop: number;
 }
 
+const environment: LoggingEnvironment = {
+    error: () => {},
+    log: () => {},
+    warn: () => {}
+};
 const typeScriptPlugin = new TypeScriptPlugin({});
 const config = resolveConfiguration({
     lineWidth: 80
 }).config;
-typeScriptPlugin.setGlobalConfiguration(config);
+typeScriptPlugin.initialize({
+    environment,
+    globalConfig: config
+});
 
 export class Playground extends React.Component<{}, PlaygroundState> {
     constructor(props: {}) {

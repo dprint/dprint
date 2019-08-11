@@ -1,4 +1,4 @@
-import { ResolvedConfiguration } from "@dprint/core";
+import { BaseResolvedConfiguration } from "@dprint/core";
 
 export interface TypeScriptConfiguration {
     /**
@@ -141,7 +141,7 @@ export interface TypeScriptConfiguration {
 /**
  * Resolved configuration from user specified configuration.
  */
-export interface ResolvedTypeScriptConfiguration extends ResolvedConfiguration {
+export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
     singleQuotes: boolean;
     newlineKind: "auto" | "\r\n" | "\n";
     lineWidth: NonNullable<TypeScriptConfiguration["lineWidth"]>;

@@ -1,5 +1,6 @@
-import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedConfiguration, PrintItemIterable, ConfigurationDiagnostic,
-    resolveConfiguration as resolveGlobalConfiguration } from "@dprint/core";
+import { Plugin, getFileExtension, ResolveConfigurationResult, PrintItemIterable, ConfigurationDiagnostic,
+    resolveConfiguration as resolveGlobalConfiguration, PluginInitializeOptions, LoggingEnvironment,
+    CliLoggingEnvironment } from "@dprint/core";
 import { JsoncConfiguration, ResolvedJsoncConfiguration, resolveConfiguration } from "./configuration";
 import { parseToJsonAst, parseJsonFile } from "./parser";
 
@@ -8,6 +9,8 @@ export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     private readonly _unresolvedConfig: JsoncConfiguration;
     /** @internal */
     private _resolveConfigurationResult?: ResolveConfigurationResult<ResolvedJsoncConfiguration>;
+    /** @internal */
+    private _environment?: LoggingEnvironment;
 
     /**
      * Constructor.
@@ -24,13 +27,14 @@ export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     name = "dprint-plugin-json";
 
     /** @inheritdoc */
-    shouldParseFile(filePath: string) {
-        return getFileExtension(filePath).toLowerCase() === ".json";
+    initialize(options: PluginInitializeOptions) {
+        this._resolveConfigurationResult = resolveConfiguration(options.globalConfig, this._unresolvedConfig);
+        this._environment = options.environment;
     }
 
     /** @inheritdoc */
-    setGlobalConfiguration(globalConfig: ResolvedConfiguration) {
-        this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
+    shouldParseFile(filePath: string) {
+        return getFileExtension(filePath).toLowerCase() === ".json";
     }
 
     /** @inheritdoc */
@@ -46,7 +50,13 @@ export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     /** @inheritdoc */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false {
         const jsonAst = parseToJsonAst(fileText);
-        return parseJsonFile(jsonAst, fileText, this.getConfiguration());
+        return parseJsonFile({
+            file: jsonAst,
+            filePath,
+            fileText,
+            config: this.getConfiguration(),
+            environment: this._getEnvironment()
+        });
     }
 
     /** @internal */
@@ -56,5 +66,12 @@ export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
             this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
         }
         return this._resolveConfigurationResult;
+    }
+
+    /** @internal */
+    private _getEnvironment() {
+        if (this._environment == null)
+            this._environment = new CliLoggingEnvironment();
+        return this._environment;
     }
 }

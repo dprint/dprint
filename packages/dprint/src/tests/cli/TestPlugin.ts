@@ -1,4 +1,4 @@
-import { Plugin, BaseResolvedConfiguration, ResolvedConfiguration, PrintItemIterable, PrintItemKind } from "@dprint/core";
+import { Plugin, BaseResolvedConfiguration, PluginInitializeOptions, PrintItemIterable, PrintItemKind } from "@dprint/core";
 
 export interface ResolvedTestPluginConfiguration extends BaseResolvedConfiguration {
 }
@@ -11,7 +11,7 @@ export class TestPlugin implements Plugin<ResolvedTestPluginConfiguration> {
         return filePath.endsWith(".ts");
     }
 
-    setGlobalConfiguration(globalConfig: ResolvedConfiguration): void {
+    initialize(options: PluginInitializeOptions): void {
     }
 
     getConfiguration(): ResolvedTestPluginConfiguration {

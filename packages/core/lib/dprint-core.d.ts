@@ -290,6 +290,14 @@ export interface LoggingEnvironment {
     error(text: string): void;
 }
 
+/** Options for initializing a plugin. */
+export interface PluginInitializeOptions {
+    /** Environment to use for logging. */
+    environment: LoggingEnvironment;
+    /** The resolved global configuration. */
+    globalConfig: ResolvedConfiguration;
+}
+
 /** Base interface a plugin must implement. */
 export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
     /**
@@ -301,13 +309,14 @@ export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfigur
      */
     name: string;
     /**
+     * Initializes the plugin for use.
+     * @remarks Plugins should be resilient to this never being called.
+     */
+    initialize(options: PluginInitializeOptions): void;
+    /**
      * Gets whether the plugin should parse the file.
      */
     shouldParseFile(filePath: string, fileText: string): boolean;
-    /**
-     * Sets the global configuration.
-     */
-    setGlobalConfiguration(globalConfig: ResolvedConfiguration): void;
     /**
      * Gets the resolved configuration for the plugin.
      */

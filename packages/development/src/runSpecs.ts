@@ -2,7 +2,7 @@ import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 import globby from "globby";
-import { Plugin, resolveConfiguration, formatFileText, ConfigurationDiagnostic } from "@dprint/core";
+import { Plugin, resolveConfiguration, formatFileText, ConfigurationDiagnostic, CliLoggingEnvironment } from "@dprint/core";
 import { getPrintIterableAsFormattedText } from "./getPrintIterableAsFormattedText";
 import { parseSpecs, Spec } from "./specParser";
 
@@ -15,6 +15,7 @@ export interface RunSpecsOptions {
 export function runSpecs(options: RunSpecsOptions) {
     const { createPlugin, defaultFileName } = options;
     const specsDir = path.resolve(options.specsDir).replace(/\\/g, "/");
+    const environment = new CliLoggingEnvironment();
 
     describe("specs", () => {
         // blocking here for mocha. todo: figure out how to load test cases asynchronously
@@ -74,7 +75,10 @@ export function runSpecs(options: RunSpecsOptions) {
 
             function getPlugin() {
                 const plugin = createPlugin(spec.config);
-                plugin.setGlobalConfiguration(globalConfig);
+                plugin.initialize({
+                    globalConfig,
+                    environment
+                });
                 throwIfConfigDiagnostics(plugin.getConfigurationDiagnostics());
                 return plugin;
             }

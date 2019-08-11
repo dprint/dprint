@@ -1,6 +1,7 @@
 import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
-    resolveNewLineKindFromText } from "@dprint/core";
+    resolveNewLineKindFromText,
+    LoggingEnvironment} from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration/Configuration";
 import { assertNever, Bag, Stack } from "../utils";
 import * as nodeHelpers from "./nodeHelpers";
@@ -34,18 +35,27 @@ interface Context {
     tokenFinder: TokenFinder;
 }
 
-export function parseTypeScriptFile(file: babel.File, fileText: string, options: ResolvedTypeScriptConfiguration): PrintItemIterable | false {
+export interface ParseTypeScriptFileOptions {
+    file: babel.File;
+    filePath: string;
+    fileText: string;
+    config: ResolvedTypeScriptConfiguration;
+    environment: LoggingEnvironment;
+}
+
+export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintItemIterable | false {
+    const { file, filePath, fileText, config, environment } = options;
     const context: Context = {
         file,
         fileText,
-        log: message => console.log("[dprint]: " + message), // todo: use environment?
-        warn: message => console.warn("[dprint]: " + message),
-        config: options,
+        log: message => environment.log(`${message} (${filePath})`),
+        warn: message => environment.warn(`${message} (${filePath})`),
+        config,
         handledComments: new Set<babel.Comment>(),
         currentNode: file,
         parentStack: [],
         parent: file,
-        newlineKind: options.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newlineKind,
+        newlineKind: config.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newlineKind,
         bag: new Bag(),
         endStatementOrMemberInfo: new Stack<Info>(),
         tokenFinder: new TokenFinder(file.tokens)

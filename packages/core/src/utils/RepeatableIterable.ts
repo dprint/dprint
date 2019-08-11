@@ -2,8 +2,6 @@ export function makeIterableRepeatable<T>(iterable: Iterable<T>): Iterable<T> {
     return new RepeatableIterable(iterable);
 }
 
-// todo: tests
-
 export class RepeatableIterable<T> implements Iterable<T> {
     private readonly items: T[];
 

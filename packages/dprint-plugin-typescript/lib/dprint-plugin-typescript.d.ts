@@ -1,4 +1,4 @@
-import { PrintItemIterable, Plugin, ResolvedConfiguration, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
+import { PrintItemIterable, Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
 
 export interface TypeScriptConfiguration {
     /**
@@ -135,7 +135,7 @@ export interface TypeScriptConfiguration {
 /**
  * Resolved configuration from user specified configuration.
  */
-export interface ResolvedTypeScriptConfiguration extends ResolvedConfiguration {
+export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
     singleQuotes: boolean;
     newlineKind: "auto" | "\r\n" | "\n";
     lineWidth: NonNullable<TypeScriptConfiguration["lineWidth"]>;
@@ -209,9 +209,9 @@ export declare class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfig
     /** @inheritdoc */
     name: string;
     /** @inheritdoc */
-    shouldParseFile(filePath: string): boolean;
+    initialize(options: PluginInitializeOptions): void;
     /** @inheritdoc */
-    setGlobalConfiguration(globalConfig: ResolvedConfiguration): void;
+    shouldParseFile(filePath: string): boolean;
     /** @inheritdoc */
     getConfiguration(): ResolvedTypeScriptConfiguration;
     /** @inheritdoc */

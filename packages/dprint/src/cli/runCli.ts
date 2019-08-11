@@ -84,7 +84,10 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
 
     function updatePluginsWithConfiguration() {
         for (const plugin of plugins) {
-            plugin.setGlobalConfiguration(globalConfig);
+            plugin.initialize({
+                environment,
+                globalConfig
+            });
 
             for (const diagnostic of plugin.getConfigurationDiagnostics())
                 warnForConfigurationDiagnostic(diagnostic);

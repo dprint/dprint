@@ -1,5 +1,5 @@
 import { Node, SyntaxKind, JSONScanner, createScanner, NodeType } from "jsonc-parser";
-import { parserHelpers, resolveNewLineKindFromText, PrintItemIterable, PrintItemKind, Signal, PrintItem } from "@dprint/core";
+import { parserHelpers, resolveNewLineKindFromText, PrintItemIterable, PrintItemKind, Signal, PrintItem, LoggingEnvironment } from "@dprint/core";
 import { ResolvedJsoncConfiguration } from "../configuration";
 import { throwError } from "../utils";
 
@@ -31,13 +31,22 @@ const LocalSyntaxKind: {
     EOF: 17
 };
 
-export function* parseJsonFile(file: Node | undefined, fileText: string, options: ResolvedJsoncConfiguration): PrintItemIterable {
+export interface ParseJsonFileOptions {
+    file: Node | undefined;
+    filePath: string;
+    fileText: string;
+    config: ResolvedJsoncConfiguration;
+    environment: LoggingEnvironment;
+}
+
+export function* parseJsonFile(options: ParseJsonFileOptions): PrintItemIterable {
+    const { file, filePath, fileText, config, environment } = options;
     const context: Context = {
         fileText,
-        log: message => console.log("[dprint]: " + message), // todo: use environment?
-        warn: message => console.warn("[dprint]: " + message),
-        config: options,
-        newlineKind: options.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : options.newlineKind,
+        log: message => environment.log(`${message} (${filePath})`),
+        warn: message => environment.warn(`${message} (${filePath})`),
+        config,
+        newlineKind: config.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newlineKind,
         scanner: createScanner(fileText, false)
     };
 
