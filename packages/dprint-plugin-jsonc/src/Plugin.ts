@@ -1,7 +1,7 @@
-import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedConfiguration, PrintItemIterable, ConfigurationDiagnostic } from "@dprint/core";
+import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedConfiguration, PrintItemIterable, ConfigurationDiagnostic,
+    resolveConfiguration as resolveGlobalConfiguration } from "@dprint/core";
 import { JsoncConfiguration, ResolvedJsoncConfiguration, resolveConfiguration } from "./configuration";
 import { parseToJsonAst, parseJsonFile } from "./parser";
-import { throwError } from "./utils";
 
 export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     /** @internal */
@@ -13,7 +13,7 @@ export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
      * Constructor.
      * @param config - The configuration to use.
      */
-    constructor(config: JsoncConfiguration) {
+    constructor(config: JsoncConfiguration = {}) {
         this._unresolvedConfig = config;
     }
 
@@ -51,8 +51,10 @@ export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
 
     /** @internal */
     private _getResolveConfigurationResult() {
-        if (this._resolveConfigurationResult == null)
-            return throwError("Global configuration must be set before calling this method.");
+        if (this._resolveConfigurationResult == null) {
+            const globalConfig = resolveGlobalConfiguration({}).config;
+            this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
+        }
         return this._resolveConfigurationResult;
     }
 }

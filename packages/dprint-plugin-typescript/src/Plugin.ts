@@ -1,7 +1,7 @@
-import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedConfiguration, PrintItemIterable, ConfigurationDiagnostic } from "@dprint/core";
+import { Plugin, getFileExtension, ResolveConfigurationResult, ResolvedConfiguration, PrintItemIterable, ConfigurationDiagnostic,
+    resolveConfiguration as resolveGlobalConfiguration } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration, resolveConfiguration } from "./configuration";
 import { parseToBabelAst, parseTypeScriptFile } from "./parser";
-import { throwError } from "./utils";
 
 export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
     /** @internal */
@@ -13,7 +13,7 @@ export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration>
      * Constructor.
      * @param config - The configuration to use.
      */
-    constructor(config: TypeScriptConfiguration) {
+    constructor(config: TypeScriptConfiguration = {}) {
         this._unresolvedConfig = config;
     }
 
@@ -59,8 +59,10 @@ export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration>
 
     /** @internal */
     private _getResolveConfigurationResult() {
-        if (this._resolveConfigurationResult == null)
-            return throwError("Global configuration must be set before calling this method.");
+        if (this._resolveConfigurationResult == null) {
+            const globalConfig = resolveGlobalConfiguration({}).config;
+            this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
+        }
         return this._resolveConfigurationResult;
     }
 }
