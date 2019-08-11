@@ -17,7 +17,6 @@ describe(nameof(makeIterableRepeatable), () => {
     });
 });
 
-
 function* createIterable() {
     yield 1;
     yield 2;

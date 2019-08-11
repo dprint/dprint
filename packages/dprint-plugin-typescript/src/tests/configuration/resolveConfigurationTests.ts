@@ -8,7 +8,7 @@ describe(nameof(resolveConfiguration), () => {
         expectedConfig: Partial<ResolvedTypeScriptConfiguration>,
         propertyFilter: (propName: keyof ResolvedTypeScriptConfiguration) => boolean,
         expectedDiagnostics: ConfigurationDiagnostic[] = [],
-        globalConfig: Partial<GlobalConfiguration> = { }
+        globalConfig: Partial<GlobalConfiguration> = {}
     ) {
         const resolvedGlobalConfig = resolveGlobalConfiguration(globalConfig).config;
         const resolvedConfig = resolveConfiguration(resolvedGlobalConfig, config);

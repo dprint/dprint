@@ -1,7 +1,6 @@
 import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
-    resolveNewLineKindFromText,
-    LoggingEnvironment} from "@dprint/core";
+    resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration/Configuration";
 import { assertNever, Bag, Stack } from "../utils";
 import { BabelToken } from "./BabelToken";
