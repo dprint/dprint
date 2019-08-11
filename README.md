@@ -5,10 +5,10 @@
 
 Mono-repo for dprint—a plugable and configurable code formatter.
 
-* [dprint](packages/dprint)
-* [@dprint/core](packages/core)
-* [dprint-plugin-typescript](packages/dprint-plugin-typescript)
-* [dprint-plugin-jsonc](packages/dprint-plugin-jsonc)
+* [dprint](packages/dprint) - CLI.
+* [@dprint/core](packages/core) - Core functionality.
+* [dprint-plugin-typescript](packages/dprint-plugin-typescript) - Plugin for TypeScript formatting.
+* [dprint-plugin-jsonc](packages/dprint-plugin-jsonc) - Plugin for JSONC formatting.
 
 ## Usage
 
