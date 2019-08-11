@@ -1,4 +1,4 @@
-export declare const version = "0.1.0";
+export declare const version = "0.2.0";
 
 export declare function makeIterableRepeatable<T>(iterable: Iterable<T>): Iterable<T>;
 
