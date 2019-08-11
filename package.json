@@ -3,6 +3,7 @@
   "private": true,
   "description": "A plugable and configurable code formatter.",
   "scripts": {
+    "bootstrap": "lerna bootstrap",
     "format": "node packages/dprint/dist/cli-bin.js \"**/*{.ts|.tsx|.json|.js}\" \"!playground/public/vs/**/*.*\" \"!build-website/**/*.*\"",
     "build-website": "rimraf build-website && npm run --prefix playground build && mkdir -p \"build-website/playground\" && copyfiles -u 2 \"playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\""
   },
@@ -20,12 +21,7 @@
   "dependencies": {},
   "devDependencies": {
     "copyfiles": "^2.1.1",
-    "cross-env": "^5.2.0",
     "lerna": "^3.16.4",
-    "rimraf": "^2.6.3",
-    "ts-morph": "^3.1.3",
-    "ts-node": "^8.3.0",
-    "ttypescript": "^1.5.7",
-    "typescript": "^3.5.3"
+    "rimraf": "^2.6.3"
   }
 }

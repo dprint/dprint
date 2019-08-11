@@ -22,7 +22,7 @@ describe(nameof(resolveConfigFile), () => {
         const err = await getError(undefined, environment);
 
         expect(err.message).to.equal(
-            "[dprint]: Could not find configuration file at '/dprint.json'. "
+            "[dprint]: Could not find configuration file at '/dprint.config.js'. "
                 + "Did you mean to create one or specify a --config option?\n\n"
                 + "Error: File not found."
         );
@@ -30,10 +30,10 @@ describe(nameof(resolveConfigFile), () => {
 
     it("should error when it can't find it when specifying a file", async () => {
         const environment = new TestEnvironment();
-        const err = await getError("file.config", environment);
+        const err = await getError("file.test.js", environment);
 
         expect(err.message).to.equal(
-            "[dprint]: Could not find specified configuration file at '/file.config'. "
+            "[dprint]: Could not find specified configuration file at '/file.test.js'. "
                 + "Did you mean to create it?\n\n"
                 + "Error: File not found."
         );
@@ -41,40 +41,37 @@ describe(nameof(resolveConfigFile), () => {
 
     it("should get the default configuration file when it exists", async () => {
         const environment = new TestEnvironment();
-        environment.addFile("/dprint.json", `{ "semiColons": true }`);
+        environment.setRequireObject("/dprint.config.js", {
+            config: {
+                semiColons: true
+            }
+        });
         const config = await resolveConfigFile(undefined, environment);
 
-        expect(config.filePath).to.equal("/dprint.json");
+        expect(config.filePath).to.equal("/dprint.config.js");
         expect(config.config).to.deep.equal({ semiColons: true });
     });
 
     it("should get the specified configuration file when it exists", async () => {
         const environment = new TestEnvironment();
-        environment.addFile("/file.config", `{ "semiColons": true }`);
-        const config = await resolveConfigFile("file.config", environment);
+        environment.setRequireObject("/file.js", {
+            config: {
+                semiColons: true
+            }
+        });
+        const config = await resolveConfigFile("file.js", environment);
 
-        expect(config.filePath).to.equal("/file.config");
+        expect(config.filePath).to.equal("/file.js");
         expect(config.config).to.deep.equal({ semiColons: true });
     });
 
-    it("should get the specified configuration file when it exists", async () => {
+    it("should throw when there is no config object", async () => {
         const environment = new TestEnvironment();
-        environment.addFile("/dprint.json", `{ semiColons: true }`);
-        const err = await getError(undefined, environment);
+        environment.setRequireObject("/file.js", {});
+        const err = await getError("file.js", environment);
 
         expect(err.message).to.equal(
-            "[dprint]: Error parsing configuration file (/dprint.json).\n\n"
-                + "InvalidSymbol: semiColons (2)\n"
-                + "PropertyNameExpected: : (12)\n"
-                + "ValueExpected: } (19)"
+            "[dprint]: Expected an object to be exported on the 'config' named export of the configuration at '/file.js'."
         );
-    });
-
-    it("should get the configuration file when it has comments", async () => {
-        const environment = new TestEnvironment();
-        environment.addFile("/dprint.json", `{\n  // testing\n  /* testing */\n  "semiColons": true\n}\n`);
-        const config = await resolveConfigFile(undefined, environment);
-
-        expect(config.config).to.deep.equal({ semiColons: true });
     });
 });

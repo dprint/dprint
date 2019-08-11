@@ -12,12 +12,10 @@
     "build:cli": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildCli.ts",
     "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "rollup": "rollup --config",
-    "generate-config-from-schema": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/generateConfigFromSchema",
     "type-check": "tsc --project tsconfig.json --noEmit",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts --inspect-brk",
-    "test:watch": "yarn test --watch-extensions ts --watch",
-    "build-website": "rimraf build-website && npm run --prefix playground build && mkdir -p \"build-website/playground\" && copyfiles -u 2 \"playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\""
+    "test:watch": "yarn test --watch-extensions ts --watch"
   },
   "repository": {
     "type": "git",

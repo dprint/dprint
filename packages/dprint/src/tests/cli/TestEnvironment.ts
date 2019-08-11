@@ -6,6 +6,10 @@ export class TestEnvironment implements Environment {
     private readonly warns: string[] = [];
     private readonly errors: string[] = [];
     private readonly files = new Map<string, string>();
+    private readonly requireObjects = new Map<string, object>();
+
+    constructor(private readonly globFileExtension = ".ts") {
+    }
 
     log(text: string) {
         this.logs.push(text);
@@ -48,6 +52,10 @@ export class TestEnvironment implements Environment {
         return Promise.resolve();
     }
 
+    exists(filePath: string) {
+        return Promise.resolve(this.files.has(filePath));
+    }
+
     basename(fileOrDirPath: string) {
         return path.basename(fileOrDirPath);
     }
@@ -58,7 +66,18 @@ export class TestEnvironment implements Environment {
         return fileOrDirPath;
     }
 
+    setRequireObject(filePath: string, value: object) {
+        this.requireObjects.set(filePath, value);
+    }
+
+    require(filePath: string): Promise<unknown> {
+        if (!this.requireObjects.has(filePath))
+            return Promise.reject(new Error("File not found."));
+
+        return Promise.resolve(this.requireObjects.get(filePath)!);
+    }
+
     glob(patterns: string[]) {
-        return Promise.resolve(Array.from(this.files.keys()).filter(fileName => fileName.endsWith(".ts")));
+        return Promise.resolve(Array.from(this.files.keys()).filter(fileName => fileName.endsWith(this.globFileExtension)));
     }
 }

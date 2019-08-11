@@ -31,4 +31,15 @@ export class CliEnvironment extends CliLoggingEnvironment implements Environment
     glob(patterns: string[]) {
         return globby(patterns, { absolute: true });
     }
+
+    require(filePath: string) {
+        // todo: use a dynamic import here?
+        return new Promise<unknown>((resolve, reject) => {
+            try {
+                resolve(require(filePath));
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
 }

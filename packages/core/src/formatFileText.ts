@@ -1,4 +1,3 @@
-import { ResolvedConfiguration } from "./configuration";
 import { print } from "./printing";
 import { Plugin } from "./Plugin";
 import { resolveNewLineKindFromText, throwError } from "./utils";

@@ -1,6 +1,6 @@
 import { Configuration } from "@dprint/core";
 import { Environment } from "../environment";
-import { getError } from "../utils";
+import { throwError } from "../utils";
 
 export interface ResolveConfigFileResult {
     /** Resolved file path of the configuration file. */
@@ -18,31 +18,28 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
     };
 
     async function getConfig() {
-        // todo: use a dynamic import here? (that's why this is currently using a promise)
-        return new Promise<Configuration>((resolve, reject) => {
-            try {
-                const config = require(resolvedFilePath);
-                if (typeof config !== "object" || typeof config.config !== "object")
-                    reject(getError(`Expected an object to be exported on the 'config' named export of the configuration at ${resolvedFilePath}`));
-                else
-                    resolve(config.config);
-            } catch (err) {
-                environment.exists(resolvedFilePath).then(exists => {
-                    if (exists)
-                        reject(getError(`Error loading configuration file '${resolvedFilePath}'.\n\n${err}`));
-                    else if (filePath == null) {
-                        reject(getError(
-                            `Could not find configuration file at '${resolvedFilePath}'. `
-                                + `Did you mean to create one or specify a --config option?\n\n`
-                                + err
-                        ));
-                    }
-                    else {
-                        reject(getError(`Could not find specified configuration file at '${resolvedFilePath}'. Did you mean to create it?\n\n` + err));
-                    }
-                });
+        let config: any;
+        try {
+            config = await environment.require(resolvedFilePath);
+        } catch (err) {
+            if (await environment.exists(resolvedFilePath))
+                return throwError(`Error loading configuration file '${resolvedFilePath}'.\n\n${err}`);
+            else if (filePath == null) {
+                return throwError(
+                    `Could not find configuration file at '${resolvedFilePath}'. `
+                        + `Did you mean to create one or specify a --config option?\n\n`
+                        + err
+                );
             }
-        });
+            else {
+                return throwError(`Could not find specified configuration file at '${resolvedFilePath}'. Did you mean to create it?\n\n` + err);
+            }
+        }
+
+        if (typeof config !== "object" || typeof config.config !== "object")
+            return throwError(`Expected an object to be exported on the 'config' named export of the configuration at '${resolvedFilePath}'.`);
+        else
+            return config.config;
     }
 }
 
