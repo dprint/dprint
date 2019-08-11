@@ -1,0 +1,6 @@
+~~ expressionStatement.semiColon: false ~~
+== should not output the semi colon ==
+testing.this();
+
+[expect]
+testing.this()

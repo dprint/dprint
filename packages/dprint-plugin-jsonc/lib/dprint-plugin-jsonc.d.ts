@@ -31,10 +31,6 @@ export interface JsoncConfiguration {
  * Resolved configuration from user specified configuration.
  */
 export interface ResolvedJsoncConfiguration extends BaseResolvedConfiguration {
-    newlineKind: "auto" | "\r\n" | "\n";
-    lineWidth: NonNullable<JsoncConfiguration["lineWidth"]>;
-    indentWidth: NonNullable<JsoncConfiguration["indentWidth"]>;
-    useTabs: NonNullable<JsoncConfiguration["useTabs"]>;
 }
 
 export declare class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {

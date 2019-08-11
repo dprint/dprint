@@ -43,8 +43,8 @@ export interface ResolvedConfiguration extends BaseResolvedConfiguration {
 }
 
 export interface BaseResolvedConfiguration {
-    lineWidth: number;
-    indentWidth: number;
-    useTabs: boolean;
-    newlineKind: "auto" | "\r\n" | "\n";
+    readonly lineWidth: number;
+    readonly indentWidth: number;
+    readonly useTabs: boolean;
+    readonly newlineKind: "auto" | "\r\n" | "\n";
 }

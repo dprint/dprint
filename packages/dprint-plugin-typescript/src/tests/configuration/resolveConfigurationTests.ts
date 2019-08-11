@@ -11,14 +11,19 @@ describe(nameof(resolveConfiguration), () => {
         globalConfig: Partial<GlobalConfiguration> = {}
     ) {
         const resolvedGlobalConfig = resolveGlobalConfiguration(globalConfig).config;
-        const resolvedConfig = resolveConfiguration(resolvedGlobalConfig, config);
-        for (const propName in resolvedConfig.config) {
+        const resolvedConfigResult = resolveConfiguration(resolvedGlobalConfig, config);
+        const resolvedConfig = {
+            // make a copy because the object is frozen
+            ...resolvedConfigResult.config
+        };
+
+        for (const propName in resolvedConfig) {
             if (!propertyFilter(propName as keyof ResolvedTypeScriptConfiguration))
-                delete (resolvedConfig.config as any)[propName];
+                delete (resolvedConfig as any)[propName];
         }
 
-        expect(resolvedConfig.config).to.deep.equal(expectedConfig);
-        expect(resolvedConfig.diagnostics).to.deep.equal(expectedDiagnostics);
+        expect(resolvedConfig).to.deep.equal(expectedConfig);
+        expect(resolvedConfigResult.diagnostics).to.deep.equal(expectedDiagnostics);
     }
 
     describe("diagnostics", () => {

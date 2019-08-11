@@ -1,0 +1,18 @@
+~~ expressionStatement.semiColon: false ~~
+== should insert semi-colons at the start of lines beginning with a parenthesis ==
+(test);
+
+[expect]
+;(test)
+
+== should insert semi-colons at the start of lines beginning with a template literal ==
+`testing`;
+
+[expect]
+;`testing`
+
+== should insert semi-colons at the start of lines beginning with a bracket ==
+[1, 2, 3].forEach(bar);
+
+[expect]
+;[1, 2, 3].forEach(bar)

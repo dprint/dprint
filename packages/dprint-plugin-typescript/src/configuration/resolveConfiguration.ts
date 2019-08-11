@@ -105,7 +105,7 @@ export function resolveConfiguration(
     addExcessPropertyDiagnostics();
 
     return {
-        config: resolvedConfig,
+        config: Object.freeze(resolvedConfig),
         diagnostics
     };
 

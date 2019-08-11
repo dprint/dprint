@@ -1,4 +1,6 @@
 export function makeIterableRepeatable<T>(iterable: Iterable<T>): Iterable<T> {
+    if (iterable instanceof RepeatableIterable)
+        return iterable;
     return new RepeatableIterable(iterable);
 }
 

@@ -1,12 +1,12 @@
 import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
-import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration/Configuration";
+import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
 import { assertNever, Bag, Stack } from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
-import { TokenFinder } from "./utils";
+import { TokenFinder, isPrefixSemiColonInsertionChar } from "./utils";
 
 const { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterable, surroundWithNewLines } = parserHelpers;
 
@@ -1220,10 +1220,65 @@ function* parseExportAssignment(node: babel.TSExportAssignment, context: Context
 }
 
 function* parseExpressionStatement(node: babel.ExpressionStatement, context: Context): PrintItemIterable {
-    yield* parseNode(node.expression, context);
-
     if (context.config["expressionStatement.semiColon"])
-        yield ";";
+        yield* parseInner();
+    else
+        yield* parseForPrefixSemiColonInsertion();
+
+    function* parseInner(): PrintItemIterable {
+        yield* parseNode(node.expression, context);
+
+        if (context.config["expressionStatement.semiColon"])
+            yield ";";
+    }
+
+    function* parseForPrefixSemiColonInsertion(): PrintItemIterable {
+        const parsedNode = makeIterableRepeatable(parseInner());
+        if (checkIterable(parsedNode))
+            yield ";";
+        yield* parsedNode;
+
+        function checkIterable(iterable: PrintItemIterable): boolean | undefined {
+            for (const item of iterable) {
+                if (typeof item === "string")
+                    return checkString(item);
+                else if (typeof item === "number")
+                    continue;
+                else if (item.kind === PrintItemKind.Condition) {
+                    const result = checkCondition(item);
+                    if (result != null)
+                        return result;
+                }
+                else if (item.kind === PrintItemKind.RawString)
+                    return checkString(item.text);
+                else if (item.kind === PrintItemKind.Info)
+                    continue;
+                else
+                    assertNever(item);
+            }
+            return undefined;
+        }
+
+        function checkString(item: string) {
+            return isPrefixSemiColonInsertionChar(item[0]);
+        }
+
+        function checkCondition(condition: Condition) {
+            if (condition.true) {
+                condition.true = makeIterableRepeatable(condition.true);
+                const result = checkIterable(condition.true);
+                if (result != null)
+                    return result;
+            }
+            if (condition.false) {
+                condition.false = makeIterableRepeatable(condition.false);
+                const result = checkIterable(condition.false);
+                if (result != null)
+                    return result;
+            }
+            return undefined;
+        }
+    }
 }
 
 function* parseForInStatement(node: babel.ForInStatement, context: Context): PrintItemIterable {
