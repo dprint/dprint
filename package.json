@@ -4,8 +4,10 @@
   "description": "A plugable and configurable code formatter.",
   "scripts": {
     "bootstrap": "lerna bootstrap",
+    "build": "lerna run build",
+    "test": "lerna run test",
     "format": "node packages/dprint/dist/cli-bin.js \"**/*{.ts|.tsx|.json|.js}\" \"!playground/public/vs/**/*.*\" \"!build-website/**/*.*\"",
-    "build-website": "rimraf build-website && npm run --prefix playground build && mkdir -p \"build-website/playground\" && copyfiles -u 2 \"playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\""
+    "build-website": "rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\""
   },
   "repository": {
     "type": "git",

@@ -1,6 +1,7 @@
 import React from "react";
 import SplitPane from "react-split-pane";
-import { formatFileText, resolveConfiguration } from "dprint";
+import { formatFileText, resolveConfiguration } from "@dprint/core";
+import { TypeScriptPlugin } from "dprint-plugin-typescript";
 import { CodeEditor, ExternalLink } from "./components";
 import * as constants from "./constants";
 import "./Playground.css";
@@ -12,9 +13,11 @@ export interface PlaygroundState {
     scrollTop: number;
 }
 
+const typeScriptPlugin = new TypeScriptPlugin({});
 const config = resolveConfiguration({
     lineWidth: 80
 }).config;
+typeScriptPlugin.setGlobalConfiguration(config);
 
 export class Playground extends React.Component<{}, PlaygroundState> {
     constructor(props: {}) {
@@ -45,14 +48,14 @@ export class Playground extends React.Component<{}, PlaygroundState> {
                         <CodeEditor
                             onChange={this.onTextChange}
                             text={this.state.text}
-                            lineWidth={config["typescript.lineWidth"]}
+                            lineWidth={typeScriptPlugin.getConfiguration().lineWidth}
                             onScrollTopChange={this.onScrollTopChange}
                             scrollTop={this.state.scrollTop}
                         />
                         <CodeEditor
                             text={this.state.formattedText}
                             readonly={true}
-                            lineWidth={config["typescript.lineWidth"]}
+                            lineWidth={typeScriptPlugin.getConfiguration().lineWidth}
                             onScrollTopChange={this.onScrollTopChange}
                             scrollTop={this.state.scrollTop}
                         />
@@ -82,7 +85,11 @@ export class Playground extends React.Component<{}, PlaygroundState> {
 
     private formatText(text: string) {
         try {
-            return formatFileText("file.ts", text, config);
+            return formatFileText({
+                filePath: "/file.ts",
+                fileText: text,
+                plugins: [typeScriptPlugin]
+            });
         } catch (err) {
             return err.toString();
         }
@@ -92,7 +99,7 @@ export class Playground extends React.Component<{}, PlaygroundState> {
 function getInitialText() {
     return `// I quickly threw together this playground. I'll add configuration here
 // in the future. In the meantime, this playground has all the defaults,
-// except it uses a lineWidth of ${config["typescript.lineWidth"]} and not 120.
+// except it uses a lineWidth of ${typeScriptPlugin.getConfiguration().lineWidth} and not 120.
 
 // In the future, I'll move this overview somewhere else...
 
