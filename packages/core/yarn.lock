@@ -55,6 +55,10 @@
   version "12.7.1"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-12.7.1.tgz#3b5c3a26393c19b400844ac422bd0f631a94d69d"
 
+"@types/ts-nameof@^3.2.0":
+  version "3.2.0"
+  resolved "https://registry.yarnpkg.com/@types/ts-nameof/-/ts-nameof-3.2.0.tgz#77c68c06471d3fab031ca1a2113fe1ffbe95c86f"
+
 acorn@^6.2.1:
   version "6.2.1"
   resolved "https://registry.yarnpkg.com/acorn/-/acorn-6.2.1.tgz#3ed8422d6dec09e6121cc7a843ca86a330a86b51"

@@ -164,14 +164,6 @@
     lodash "^4.17.13"
     to-fast-properties "^2.0.0"
 
-"@dprint/core@~0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@dprint/core/-/core-0.1.0.tgz#8691972592193c030be04414dd3451303e29a482"
-
-"@dprint/development@~0.0.1":
-  version "0.0.1"
-  resolved "https://registry.yarnpkg.com/@dprint/development/-/development-0.0.1.tgz#ccc6b552aed586885a7ce7edad209388440a05aa"
-
 "@dsherret/to-absolute-glob@^2.0.2":
   version "2.0.2"
   resolved "https://registry.yarnpkg.com/@dsherret/to-absolute-glob/-/to-absolute-glob-2.0.2.tgz#1f6475dc8bd974cea07a2daf3864b317b1dd332c"
@@ -249,6 +241,10 @@
 "@types/node@*", "@types/node@^12.6.9":
   version "12.7.1"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-12.7.1.tgz#3b5c3a26393c19b400844ac422bd0f631a94d69d"
+
+"@types/ts-nameof@^3.2.0":
+  version "3.2.0"
+  resolved "https://registry.yarnpkg.com/@types/ts-nameof/-/ts-nameof-3.2.0.tgz#77c68c06471d3fab031ca1a2113fe1ffbe95c86f"
 
 acorn@^6.2.1:
   version "6.2.1"

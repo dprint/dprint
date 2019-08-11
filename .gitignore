@@ -6,3 +6,4 @@
 npm-debug.log
 yarn-error.log
 package-lock.json
+/lerna-debug.log
