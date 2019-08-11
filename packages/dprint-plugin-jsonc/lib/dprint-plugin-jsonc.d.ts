@@ -42,7 +42,7 @@ export declare class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
      * Constructor.
      * @param config - The configuration to use.
      */
-    constructor(config: JsoncConfiguration);
+    constructor(config?: JsoncConfiguration);
     /** @inheritdoc */
     version: string;
     /** @inheritdoc */

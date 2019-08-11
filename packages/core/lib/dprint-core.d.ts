@@ -237,8 +237,19 @@ export declare namespace conditionResolvers {
 
 /** A collection of reusable conditions. */
 export declare namespace conditions {
-    function newlineIfHangingSpaceOtherwise(context: BaseContext, startInfo: Info, endInfo?: Info, spaceChar?: " " | Signal.SpaceOrNewLine): Condition;
-    function newlineIfMultipleLinesSpaceOrNewlineOtherwise(context: BaseContext, startInfo: Info, endInfo?: Info): Condition;
+    interface NewlineIfHangingSpaceOtherwiseOptions {
+        context: BaseContext;
+        startInfo: Info;
+        endInfo?: Info;
+        spaceChar?: " " | Signal.SpaceOrNewLine;
+    }
+    function newlineIfHangingSpaceOtherwise(options: NewlineIfHangingSpaceOtherwiseOptions): Condition;
+    interface NewlineIfMultipleLinesSpaceOrNewlineOtherwiseOptions {
+        context: BaseContext;
+        startInfo: Info;
+        endInfo?: Info;
+    }
+    function newlineIfMultipleLinesSpaceOrNewlineOtherwise(options: NewlineIfMultipleLinesSpaceOrNewlineOtherwiseOptions): Condition;
     function singleIndentIfStartOfLine(): Condition;
     function indentIfStartOfLine(item: PrintItemIterable): PrintItemIterable;
     function withIndentIfStartOfLineIndented(item: PrintItemIterable): PrintItemIterable;

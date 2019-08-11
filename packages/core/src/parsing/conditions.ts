@@ -8,13 +8,15 @@ const { withIndent } = parserHelpers;
 
 /** A collection of reusable conditions. */
 export namespace conditions {
-    // todo: update these to accept objects
-    export function newlineIfHangingSpaceOtherwise(
-        context: BaseContext,
-        startInfo: Info,
-        endInfo?: Info,
-        spaceChar: " " | Signal.SpaceOrNewLine = " "
-    ): Condition {
+    export interface NewlineIfHangingSpaceOtherwiseOptions {
+        context: BaseContext;
+        startInfo: Info;
+        endInfo?: Info;
+        spaceChar?: " " | Signal.SpaceOrNewLine;
+    }
+
+    export function newlineIfHangingSpaceOtherwise(options: NewlineIfHangingSpaceOtherwiseOptions): Condition {
+        const { context, startInfo, endInfo, spaceChar = " " } = options;
         return {
             kind: PrintItemKind.Condition,
             name: "newLineIfHangingSpaceOtherwise",
@@ -26,11 +28,14 @@ export namespace conditions {
         };
     }
 
-    export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(
-        context: BaseContext,
-        startInfo: Info,
-        endInfo?: Info
-    ): Condition {
+    export interface NewlineIfMultipleLinesSpaceOrNewlineOtherwiseOptions {
+        context: BaseContext;
+        startInfo: Info;
+        endInfo?: Info;
+    }
+
+    export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(options: NewlineIfMultipleLinesSpaceOrNewlineOtherwiseOptions): Condition {
+        const { context, startInfo, endInfo } = options;
         return {
             name: "newlineIfMultipleLinesSpaceOrNewlineOtherwise",
             kind: PrintItemKind.Condition,

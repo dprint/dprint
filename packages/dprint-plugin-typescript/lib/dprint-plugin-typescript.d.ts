@@ -203,7 +203,7 @@ export declare class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfig
      * Constructor.
      * @param config - The configuration to use.
      */
-    constructor(config: TypeScriptConfiguration);
+    constructor(config?: TypeScriptConfiguration);
     /** @inheritdoc */
     version: string;
     /** @inheritdoc */

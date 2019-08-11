@@ -471,7 +471,10 @@ function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel
 
         function* parseExtendsAndImplements(): PrintItemIterable {
             if (node.superClass) {
-                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
+                yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
+                    context,
+                    startInfo: startHeaderInfo
+                });
                 yield* conditions.indentIfStartOfLine(function*() {
                     yield "extends ";
                     yield* parseNode(node.superClass, context);
@@ -1985,8 +1988,13 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
 
         if (useNewlines)
             yield context.newlineKind;
-        else
-            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, afterAlternateColonInfo);
+        else {
+            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
+                context,
+                startInfo,
+                endInfo: afterAlternateColonInfo
+            });
+        }
 
         yield* conditions.indentIfStartOfLine(function*() {
             yield "? ";
@@ -1995,8 +2003,13 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
 
         if (useNewlines)
             yield context.newlineKind;
-        else
-            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo, afterAlternateColonInfo);
+        else {
+            yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
+                context,
+                startInfo,
+                endInfo: afterAlternateColonInfo
+            });
+        }
 
         yield* conditions.indentIfStartOfLine(function*() {
             yield ": ";
@@ -2439,7 +2452,10 @@ function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItem
 
     yield* parseLayout();
 
-    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startInfo);
+    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
+        context,
+        startInfo
+    });
     yield "}";
 
     function* parseLayout(): PrintItemIterable {
@@ -3030,7 +3046,10 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
     if (!items || items.length === 0)
         return;
 
-    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise(context, startHeaderInfo);
+    yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
+        context,
+        startInfo: startHeaderInfo
+    });
     yield* conditions.indentIfStartOfLine(function*() {
         yield `${text} `;
         yield* newlineGroup(function*() {
@@ -3333,8 +3352,12 @@ function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
     if (bracePosition === "nextLineIfHanging") {
         if (startHeaderInfo == null)
             yield " ";
-        else
-            yield conditions.newlineIfHangingSpaceOtherwise(context, startHeaderInfo);
+        else {
+            yield conditions.newlineIfHangingSpaceOtherwise({
+                context,
+                startInfo: startHeaderInfo
+            });
+        }
     }
     else if (bracePosition === "sameLine")
         yield " ";

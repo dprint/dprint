@@ -22,7 +22,7 @@ describe(nameof(runCliWithOptions), () => {
                 newlineKind: "lf",
                 plugins: opts.plugins || [new TestPlugin() as Plugin]
             }
-        }
+        };
     }
 
     function handleOptions(options: Partial<CommandLineOptions>, environment: TestEnvironment) {
@@ -103,7 +103,7 @@ dprint-plugin-test v0.1.0`
     it("should log when a file can't be formatted", async () => {
         const environment = createTestEnvironment({ globFileExtension: ".asdf" });
         environment.addFile("file.asdf", "test");
-        await handleOptions({ filePatterns: ["**/*.asdf"]}, environment);
+        await handleOptions({ filePatterns: ["**/*.asdf"] }, environment);
         expect(environment.getErrors()).to.deep.equal([
             "Error formatting file: file.asdf\n\nError: Could not find a plugin that would parse the file at path: file.asdf"
         ]);

@@ -7,7 +7,7 @@
     "build": "lerna run build",
     "clean": "lerna clean",
     "test": "lerna run test",
-    "format": "node packages/dprint/dist/cli-bin.js \"**/*{.ts|.tsx|.json|.js}\" \"!playground/public/vs/**/*.*\" \"!build-website/**/*.*\"",
+    "format": "node packages/dprint/dist/cli-bin.js \"**/*{.ts|.tsx|.json|.js}\" \"!packages/playground/public/vs/**/*.*\" \"!packages/playground/build/**/*.*\" \"!build-website/**/*.*\" \"!**/dist/**/*.*\"",
     "build-website": "rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\""
   },
   "repository": {

@@ -2,7 +2,7 @@ import { Plugin } from "@dprint/core";
 import { getPackageVersion } from "./getPackageVersion";
 
 export function getVersionText(plugins: Plugin[]) {
-    return `dprint v${getPackageVersion()}${getPluginTexts()}`
+    return `dprint v${getPackageVersion()}${getPluginTexts()}`;
 
     function getPluginTexts() {
         let result = "";
