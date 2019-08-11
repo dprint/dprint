@@ -6,7 +6,7 @@ install:
   - yarn bootstrap
   - yarn build
 script:
-  - yarn test
+  - yarn test --concurrency=1
 before_deploy:
   - travis_wait 20 yarn build-website
 env:
