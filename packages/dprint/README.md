@@ -3,18 +3,7 @@
 [![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
 [![Build Status](https://travis-ci.org/dsherret/dprint.svg?branch=master)](https://travis-ci.org/dsherret/dprint)
 
-Mono-repo for dprint—a plugable and configurable code formatter.
-
-* [dprint](packages/dprint) - CLI tool
-* [@dprint/core](packages/core) - Core functionality
-* [dprint-plugin-typescript](packages/dprint-plugin-typescript) - Plugin for TypeScript formatting
-* [dprint-plugin-jsonc](packages/dprint-plugin-jsonc) - Plugin for JSONC formatting
-
-## Goals
-
-1. Reasonable configuration.
-2. Satisfy my formatting needs.
-3. TypeScript and JSONC support.
+TypeScript and JSONC code formatter.
 
 ## Install
 

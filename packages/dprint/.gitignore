@@ -1,9 +1,7 @@
 /node_modules
-/build-website
 /dist
 /.rpt2_cache
 *.js.map
 npm-debug.log
 yarn-error.log
 package-lock.json
-/lerna-debug.log

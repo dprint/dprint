@@ -1,15 +1,10 @@
-/build-website
-/playground
 .rpt2_cache
 .vscode
-docs
 src
 scripts
-.travis.yml
 .gitignore
-dprint.config.js
-implemented-nodes.md
 mocha.opts
 rollup.config.js
 tsconfig.*
 yarn-error.log
+implemented-nodes.md

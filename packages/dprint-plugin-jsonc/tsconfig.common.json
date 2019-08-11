@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2015",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "module": "commonjs",
+    "allowJs": true,
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "downlevelIteration": true,
+    "stripInternal": true,
+    "plugins": [{ "transform": "ts-nameof", "type": "raw" }]
+  }
+}

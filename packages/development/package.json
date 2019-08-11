@@ -1,0 +1,50 @@
+{
+  "name": "@dprint/development",
+  "version": "0.1.1",
+  "description": "Reusable functionality for development of dprint libraries.",
+  "main": "dist/dprint-development.js",
+  "types": "lib/dprint-development.d.ts",
+  "scripts": {
+    "build": "rimraf dist && yarn rollup && yarn build:declarations",
+    "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
+    "rollup": "rollup --config"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsherret/dprint.git"
+  },
+  "keywords": [
+    "dprint"
+  ],
+  "author": "David Sherret",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/dsherret/dprint/issues"
+  },
+  "homepage": "https://github.com/dsherret/dprint#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@dprint/core": "~0.2.0",
+    "mocha": "^6.2.0",
+    "chai": "^4.2.0"
+  },
+  "devDependencies": {
+    "@dprint/core": "~0.2.0",
+    "@types/chai": "^4.2.0",
+    "@types/mocha": "^5.2.7",
+    "@types/ts-nameof": "^3.2.0",
+    "chai": "^4.2.0",
+    "mocha": "^6.2.0",
+    "rimraf": "^2.6.3",
+    "rollup": "^1.19.4",
+    "rollup-plugin-replace": "^2.2.0",
+    "rollup-plugin-typescript2": "^0.22.1",
+    "ts-morph": "^3.1.3",
+    "ts-nameof": "^3.2.0",
+    "ts-node": "^8.3.0",
+    "ttypescript": "^1.5.7",
+    "typescript": "^3.5.3"
+  }
+}

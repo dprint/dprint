@@ -3,8 +3,8 @@ node_js:
   - 10
 install:
   - yarn install
+  - yarn bootstrap
   - yarn build
-  - cd playground && yarn install && cd ../
 script:
   - yarn test
 before_deploy:
