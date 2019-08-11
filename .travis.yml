@@ -6,7 +6,7 @@ install:
   - yarn bootstrap
   - yarn build
 script:
-  - yarn test --no-bail
+  - yarn test
 before_deploy:
   - travis_wait 20 yarn build-website
 env:
