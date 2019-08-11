@@ -1,5 +1,6 @@
 import * as babel from "@babel/types";
 import { BaseContext } from "@dprint/core";
+import { BabelToken } from "./BabelToken";
 
 export function hasBody(node: babel.Node) {
     return (node as any as babel.ClassDeclaration).body != null;
@@ -73,44 +74,6 @@ export function isFirstNodeOnLine(node: babel.Node | BabelToken, context: BaseCo
     }
 
     return true;
-}
-
-export interface BabelToken {
-    start: number;
-    end: number;
-    value?: string;
-    type?: {
-        label: string;
-    } | "CommentLine" | "CommentBlock";
-    loc: babel.Node["loc"];
-}
-
-export function getFirstToken(file: babel.File, isMatch: (token: BabelToken) => boolean | "stop") {
-    const tokens = file.tokens as BabelToken[];
-    for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
-        const result = isMatch(token);
-        if (result === true)
-            return token;
-        else if (result === "stop")
-            return undefined;
-    }
-
-    return undefined;
-}
-
-export function getLastToken(file: babel.File, isMatch: (token: BabelToken) => boolean | "stop") {
-    const tokens = file.tokens as BabelToken[];
-    for (let i = tokens.length - 1; i >= 0; i--) {
-        const token = tokens[i];
-        const result = isMatch(token);
-        if (result === true)
-            return token;
-        else if (result === "stop")
-            return undefined;
-    }
-
-    return undefined;
 }
 
 export function hasParentheses(node: babel.Node): boolean {

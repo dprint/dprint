@@ -1,6 +1,6 @@
 import * as babel from "@babel/types";
 import { TokenFinder } from "./utils";
-import { BabelToken } from "./nodeHelpers";
+import { BabelToken } from "./BabelToken";
 
 export function getFirstOpenBraceTokenWithin(node: babel.Node, context: { tokenFinder: TokenFinder; }) {
     return context.tokenFinder.getFirstTokenWithin(node, "{");

@@ -4,6 +4,7 @@ import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIter
     LoggingEnvironment} from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration/Configuration";
 import { assertNever, Bag, Stack } from "../utils";
+import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
 import { TokenFinder } from "./utils";
@@ -757,15 +758,8 @@ function* parseModuleDeclaration(node: babel.TSModuleDeclaration, context: Conte
         yield ";";
 
     function hasNamespaceKeyword() {
-        // todo: something faster
-        const keyword = nodeHelpers.getFirstToken(context.file, token => {
-            if (token.start < node.start!)
-                return false;
-            if (token.start > node.end!)
-                return "stop";
-            if (token.value && (token.value === "namespace" || token.value === "module"))
-                return true;
-            return false;
+        const keyword = context.tokenFinder.getFirstTokenWithin(node, token => {
+            return token.value && (token.value === "namespace" || token.value === "module") || false;
         });
 
         return keyword == null || keyword.value === "namespace";
@@ -3353,7 +3347,7 @@ function* parseFirstLineTrailingComments(node: babel.Node, members: babel.Node[]
 
 interface ParseBraceSeparatorOptions {
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
-    bodyNode: babel.Node | nodeHelpers.BabelToken;
+    bodyNode: babel.Node | BabelToken;
     startHeaderInfo: Info | undefined;
     context: Context;
 }
@@ -3389,7 +3383,7 @@ function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
 function* parseControlFlowSeparator(
     nextControlFlowPosition: NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>,
     nodeBlock: babel.Node,
-    tokenText: string,
+    tokenText: "else" | "catch" | "finally",
     context: Context
 ): PrintItemIterable {
     if (nextControlFlowPosition === "sameLine")
@@ -3408,13 +3402,10 @@ function* parseControlFlowSeparator(
     }
 
     function getFirstControlFlowToken() {
-        // todo: something faster than O(n)
-        const nodeBlockStart = nodeBlock.start!;
-        return nodeHelpers.getLastToken(context.file, token => {
-            if (token.start > nodeBlockStart)
-                return false;
-            return token.value === tokenText;
-        });
+        if (tokenText === "catch")
+            return context.tokenFinder.getFirstTokenWithin(nodeBlock, tokenText);
+        else
+            return context.tokenFinder.getFirstTokenBefore(nodeBlock, tokenText);
     }
 }
 function* parseTypeAnnotationWithColonIfExists(node: babel.Node | null | undefined, context: Context) {

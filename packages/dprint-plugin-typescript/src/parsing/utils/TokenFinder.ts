@@ -1,8 +1,8 @@
 import * as babel from "@babel/types";
-import { BabelToken } from "../nodeHelpers";
+import { BabelToken } from "../BabelToken";
 import { assertNever } from "../../utils";
 
-type TokenTexts = "(" | "[" | "<" | "{" | ")" | "]" | ">" | "}";
+type TokenTexts = "(" | "[" | "<" | "{" | ")" | "]" | ">" | "}" | "else" | "catch" | "finally";
 type IsMatchFunction = (token: BabelToken) => boolean;
 
 // todo: unit test this class for the edge cases
@@ -47,6 +47,8 @@ export class TokenFinder {
 
         const isMatch = getTokenIsMatchFunction(tokenOrIsMatch);
         do {
+            if (this.tokenIndex === 0)
+                return undefined;
             this.tokenIndex--;
         } while (!isMatch(this.currentToken));
 
@@ -58,6 +60,8 @@ export class TokenFinder {
 
         const isMatch = getTokenIsMatchFunction(tokenOrIsMatch);
         do {
+            if (this.tokenIndex === this.tokens.length - 1)
+                return undefined;
             this.tokenIndex++;
         } while (!isMatch(this.currentToken));
 
@@ -101,6 +105,9 @@ function getTokenIsMatchFunction(tokenOrIsMatch: TokenTexts | IsMatchFunction) {
                 return getTokenTextFromType;
             case "<":
             case ">":
+            case "else":
+            case "catch":
+            case "finally":
                 return getTokenTextFromValue;
             default:
                 return assertNever(tokenText);
