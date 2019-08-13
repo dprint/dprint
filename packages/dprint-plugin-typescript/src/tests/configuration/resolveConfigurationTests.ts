@@ -284,11 +284,27 @@ describe(nameof(resolveConfiguration), () => {
         });
 
         it("should get the property when set", () => {
-            doSpecificTest({
-                "enumDeclaration.memberSpacing": "blankline"
-            }, {
-                "enumDeclaration.memberSpacing": "blankline"
-            });
+            doSpecificTest(
+                { "enumDeclaration.memberSpacing": "blankline" },
+                { "enumDeclaration.memberSpacing": "blankline" }
+            );
+        });
+    });
+
+    describe("arrowFunctionExpression.useParentheses", () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "arrowFunctionExpression.useParentheses");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "arrowFunctionExpression.useParentheses": "maintain" });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "arrowFunctionExpression.useParentheses": "preferNone" },
+                { "arrowFunctionExpression.useParentheses": "preferNone" }
+            );
         });
     });
 });

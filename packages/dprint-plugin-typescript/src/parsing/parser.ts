@@ -1807,8 +1807,7 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
 
     yield* parseNode(node.typeParameters, context);
 
-    // todo: configuration (issue #7)
-    if (node.params.length !== 1 || hasParentheses() || node.returnType) {
+    if (shouldUseParens()) {
         yield* parseParametersOrArguments(node.params, context, {
             customCloseParen: parseCloseParenWithType({
                 context,
@@ -1831,6 +1830,22 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
     });
 
     yield* parseNode(node.body, context);
+
+    function shouldUseParens() {
+        const firstParam = node.params[0];
+        const requiresParens = node.params.length !== 1 || node.returnType || firstParam.type !== "Identifier" || firstParam.typeAnnotation != null;
+        if (requiresParens)
+            return true;
+        const configSetting = context.config["arrowFunctionExpression.useParentheses"];
+        if (configSetting === "force")
+            return true;
+        else if (configSetting === "maintain")
+            return hasParentheses();
+        else if (configSetting === "preferNone")
+            return false;
+        else
+            return assertNever(configSetting);
+    }
 
     function hasParentheses() {
         if (node.params.length !== 1)

@@ -2,7 +2,7 @@ import * as os from "os";
 import { ResolvedConfiguration, ConfigurationDiagnostic, ResolveConfigurationResult } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "./Configuration";
 
-/** Do not edit. This variable's initializer is code generated from dprint.schema.json. */
+/** Todo: this should be code generated from the jsdocs maybe? */
 const defaultValues = {
     semiColons: true,
     singleQuotes: false,
@@ -10,7 +10,8 @@ const defaultValues = {
     bracePosition: "nextLineIfHanging",
     nextControlFlowPosition: "nextLine",
     trailingCommas: "never",
-    "enumDeclaration.memberSpacing": "newline"
+    "enumDeclaration.memberSpacing": "newline",
+    "arrowFunctionExpression.useParentheses": "maintain"
 } as const;
 
 /**
@@ -38,6 +39,8 @@ export function resolveConfiguration(
         useTabs: getValue("useTabs", globalConfig.useTabs, ensureBoolean),
         // declaration specific
         "enumDeclaration.memberSpacing": getValue("enumDeclaration.memberSpacing", defaultValues["enumDeclaration.memberSpacing"], ensureEnumMemberSpacing),
+        "arrowFunctionExpression.useParentheses": getValue("arrowFunctionExpression.useParentheses", defaultValues["arrowFunctionExpression.useParentheses"],
+            ensureArrowFunctionUseParentheses),
         // semi-colons
         "breakStatement.semiColon": getValue("breakStatement.semiColon", semiColons, ensureBoolean),
         "callSignature.semiColon": getValue("callSignature.semiColon", semiColons, ensureBoolean),
@@ -248,6 +251,24 @@ export function resolveConfiguration(
             case "maintain":
             case "blankline":
             case "newline":
+            case null:
+            case undefined:
+                return true;
+            default:
+                const assertNever: never = value;
+                diagnostics.push({
+                    propertyName: key,
+                    message: `Expected the configuration for '${key}' to equal one of the expected values, but was: ${value}`
+                });
+                return false;
+        }
+    }
+
+    function ensureArrowFunctionUseParentheses( key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]) {
+        switch (value) {
+            case "maintain":
+            case "force":
+            case "preferNone":
             case null:
             case undefined:
                 return true;

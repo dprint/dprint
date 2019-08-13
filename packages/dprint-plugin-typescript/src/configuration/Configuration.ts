@@ -78,6 +78,15 @@ export interface TypeScriptConfiguration {
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
 
+    /**
+     * Whether to use parentheses around a single parameter in an arrow function.
+     * @default "maintain"
+     * @value "force" - Forces parentheses.
+     * @value "maintain" - Maintains the current state of the parentheses.
+     * @value "preferNone" - Prefers not using parentheses when possible.
+     */
+    "arrowFunctionExpression.useParentheses"?: "force" | "maintain" | "preferNone";
+
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
     "classMethod.semiColon"?: boolean;
@@ -149,6 +158,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
 
     // declaration specific
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
+    readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
 
     // semi colons
     readonly "breakStatement.semiColon": boolean;
