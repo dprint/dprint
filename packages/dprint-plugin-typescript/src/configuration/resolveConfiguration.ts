@@ -264,7 +264,7 @@ export function resolveConfiguration(
         }
     }
 
-    function ensureArrowFunctionUseParentheses( key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]) {
+    function ensureArrowFunctionUseParentheses(key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]) {
         switch (value) {
             case "maintain":
             case "force":

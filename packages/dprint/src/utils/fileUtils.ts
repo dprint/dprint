@@ -13,7 +13,7 @@ export async function readFile(filePath: string) {
 
 export async function writeFile(filePath: string, text: string) {
     return new Promise<void>((resolve, reject) => {
-        fs.writeFile(filePath, text, { encoding: "utf8" }, (err) => {
+        fs.writeFile(filePath, text, { encoding: "utf8" }, err => {
             if (err)
                 reject(err);
             else
