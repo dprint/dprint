@@ -183,6 +183,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "ObjectPattern": parseObjectPattern,
     "ObjectProperty": parseObjectProperty,
     "RestElement": parseRestElement,
+    "SequenceExpression": parseSequenceExpression,
     "SpreadElement": parseSpreadElement,
     "TaggedTemplateExpression": parseTaggedTemplateExpression,
     "TSTypeAssertion": parseTypeAssertion,
@@ -264,7 +265,6 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "PipelineTopicExpression": parseUnknownNode,
     "PipelinePrimaryTopicReference": parseUnknownNode,
     "Placeholder": parseUnknownNode,
-    "SequenceExpression": parseUnknownNode,
     "WithStatement": parseUnknownNode, // not supported
     /* flow */
     "AnyTypeAnnotation": parseNotSupportedFlowNode,
@@ -1264,6 +1264,8 @@ function* parseExpressionStatement(node: babel.ExpressionStatement, context: Con
         }
 
         function checkCondition(condition: Condition) {
+            // It's an assumption here that the true and false paths of the
+            // condition will both contain the same the same text to look for.
             if (condition.true) {
                 condition.true = makeIterableRepeatable(condition.true);
                 const result = checkIterable(condition.true);
@@ -2159,6 +2161,14 @@ function* parseRestElement(node: babel.RestElement, context: Context): PrintItem
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
 }
 
+function* parseSequenceExpression(node: babel.SequenceExpression, context: Context): PrintItemIterable {
+    yield* parseCommaSeparatedValues({
+        values: node.expressions,
+        context,
+        useNewLines: false
+    });
+}
+
 function* parseSpreadElement(node: babel.SpreadElement, context: Context): PrintItemIterable {
     yield "...";
     yield* parseNode(node.argument, context);
@@ -2868,34 +2878,12 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context, opt
             yield ")";
     }
 
-    function* parseParameterList(): PrintItemIterable {
-        for (let i = 0; i < params.length; i++) {
-            const param = params[i];
-            const hasComma = i < params.length - 1;
-            const parsedParam = parseParam(param, hasComma);
-
-            if (i === 0)
-                yield* parsedParam;
-            else if (useNewLines) {
-                yield context.newlineKind;
-                yield* parsedParam;
-            }
-            else {
-                yield Signal.SpaceOrNewLine;
-                yield* conditions.indentIfStartOfLine(parsedParam);
-            }
-        }
-
-        function* parseParam(param: babel.Node, hasComma: boolean): PrintItemIterable {
-            yield* newlineGroup(parseNode(param, context, {
-                innerParse: function*(iterator) {
-                    yield* iterator;
-
-                    if (hasComma)
-                        yield ",";
-                }
-            }));
-        }
+    function parseParameterList(): PrintItemIterable {
+        return parseCommaSeparatedValues({
+            values: params,
+            useNewLines,
+            context
+        });
     }
 
     function getUseNewLines() {
@@ -2910,6 +2898,43 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context, opt
 
             return paramHasParen ? tokenHelpers.getFirstOpenParenTokenBefore(firstOpenParen, context) : firstOpenParen;
         }
+    }
+}
+
+export interface ParseCommaSeparatedValuesOptions {
+    values: babel.Node[];
+    context: Context;
+    useNewLines: boolean
+}
+
+function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): PrintItemIterable {
+    const { values, context, useNewLines } = options;
+    for (let i = 0; i < values.length; i++) {
+        const param = values[i];
+        const hasComma = i < values.length - 1;
+        const parsedParam = parseValue(param, hasComma);
+
+        if (i === 0)
+            yield* parsedParam;
+        else if (useNewLines) {
+            yield context.newlineKind;
+            yield* parsedParam;
+        }
+        else {
+            yield Signal.SpaceOrNewLine;
+            yield* conditions.indentIfStartOfLine(parsedParam);
+        }
+    }
+
+    function* parseValue(param: babel.Node, hasComma: boolean): PrintItemIterable {
+        yield* newlineGroup(parseNode(param, context, {
+            innerParse: function*(iterator) {
+                yield* iterator;
+
+                if (hasComma)
+                    yield ",";
+            }
+        }));
     }
 }
 

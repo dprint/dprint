@@ -1,0 +1,11 @@
+== should format ==
+const x = (2,3,4);
+
+[expect]
+const x = (2, 3, 4);
+
+== should format inside a member expression ==
+member[1,2];
+
+[expect]
+member[1, 2];
