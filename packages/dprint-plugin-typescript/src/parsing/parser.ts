@@ -2,8 +2,8 @@ import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
-import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, startingWhiteSpaceHasNewLineOccurrences, endingWhiteSpaceHasNewLineOccurrences,
-    removeIndentationFromText } from "../utils";
+import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace,
+    hasNewLineOccurrencesInTrailingWhiteSpace } from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
@@ -2830,11 +2830,8 @@ function* parseJsxIdentifier(node: babel.JSXIdentifier, context: Context): Print
 }
 
 function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable {
-    const adjustedText = removeIndentationFromText(node.value.trim(), {
-        isInStringAtPos: () => false,
-        indentSizeInSpaces: context.config.indentWidth
-    });
-    const lines = adjustedText.split(/\r?\n/g).map(line => line.trimRight());
+    // todo: how expensive is trim()?
+    const lines = node.value.trim().split(/\r?\n/g).map(line => line.trimRight());
 
     for (let i = 0; i < lines.length; i++) {
         const lineText = lines[i];
@@ -2973,9 +2970,9 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
             lastNode: undefined,
             shouldUseBlankLine: (previousElement, nextElement) => {
                 if (previousElement.type === "JSXText")
-                    return endingWhiteSpaceHasNewLineOccurrences(previousElement.value, 2);
+                    return hasNewLineOccurrencesInTrailingWhiteSpace(previousElement.value, 2);
                 if (nextElement.type === "JSXText")
-                    return startingWhiteSpaceHasNewLineOccurrences(nextElement.value, 2);
+                    return hasNewlineOccurrencesInLeadingWhitespace(nextElement.value, 2);
                 return nodeHelpers.hasSeparatingBlankLine(previousElement, nextElement);
             }
         }));
