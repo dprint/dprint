@@ -2,7 +2,7 @@ import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
-import { assertNever, Bag, Stack } from "../utils";
+import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, startingWhiteSpaceHasNewLineOccurrences, endingWhiteSpaceHasNewLineOccurrences, removeIndentationFromText } from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
@@ -251,6 +251,11 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "TSTypeQuery": parseTypeQuery,
     "TSTypeReference": parseTypeReference,
     "TSUnionType": parseUnionOrIntersectionType,
+    /* jsx */
+    "JSXFragment": parseJsxFragment,
+    "JSXOpeningFragment": parseJsxOpeningFragment,
+    "JSXClosingFragment": parseJsxClosingFragment,
+    "JSXText": parseJsxText,
     /* explicitly not implemented (most are proposals that haven't made it far enough) */
     "ArgumentPlaceholder": parseUnknownNode,
     "BindExpression": parseUnknownNode,
@@ -259,7 +264,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "DoExpression": parseUnknownNode,
     "Noop": parseUnknownNode,
     "OptionalMemberExpression": parseUnknownNode,
-    "ParenthesizedExpression": parseUnknownNode, // seems this is not used?
+    "ParenthesizedExpression": parseUnknownNode, // this is disabled via createParenthesizedExpressions: false
     "PrivateName": parseUnknownNode,
     "PipelineBareFunction": parseUnknownNode,
     "PipelineTopicExpression": parseUnknownNode,
@@ -2726,6 +2731,60 @@ function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSInterse
     }
 }
 
+/* jsx */
+
+function* parseJsxFragment(node: babel.JSXFragment, context: Context): PrintItemIterable {
+    const children = node.children.filter(c => c.type !== "JSXText" || !isStringEmptyOrWhiteSpace(c.value));
+    const useMultilines = getUseMultilines();
+
+    yield* parseNode(node.openingFragment, context);
+    yield* withIndent(parseJsxChildren({
+        node,
+        children,
+        context,
+        useMultilines
+    }));
+    yield* conditions.indentIfStartOfLine(parseNode(node.closingFragment, context));
+
+    function getUseMultilines() {
+        const firstChild = node.children[0];
+        if (firstChild != null && firstChild.type === "JSXText" && firstChild.value.indexOf("\n") >= 0)
+            return true;
+
+        return nodeHelpers.getUseNewlinesForNodes([
+            node.openingFragment,
+            children[0] || node.closingFragment
+        ]);
+    }
+}
+
+function* parseJsxOpeningFragment(node: babel.JSXOpeningFragment, context: Context): PrintItemIterable {
+    yield "<>";
+}
+
+function* parseJsxClosingFragment(node: babel.JSXClosingFragment, context: Context): PrintItemIterable {
+    yield "</>";
+}
+
+function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable {
+    const adjustedText = removeIndentationFromText(node.value.trim(), {
+        isInStringAtPos: () => false,
+        indentSizeInSpaces: context.config.indentWidth
+    });
+    const lines = adjustedText.split(/\r?\n/g).map(line => line.trimRight());
+
+    for (let i = 0; i < lines.length; i++) {
+        const lineText = lines[i];
+        if (i > 0) {
+            if (lineText.length > 0 || i === 1 || lines[i - 1].length === 0 && lines[i - 2].length > 0)
+                yield context.newlineKind;
+        }
+
+        if (lineText.length > 0)
+            yield lineText;
+    }
+}
+
 /* general */
 
 interface ParseMemberedBodyOptions {
@@ -2767,6 +2826,41 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterable {
             shouldUseBlankLine,
             trailingCommas
         });
+    }
+}
+
+export interface ParseJsxChildrenOptions {
+    node: babel.Node;
+    children: babel.Node[];
+    context: Context;
+    useMultilines: boolean;
+}
+
+function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable {
+    const { node, children, context, useMultilines } = options;
+
+    if (useMultilines) {
+        yield context.newlineKind;
+        yield* withIndent(parseStatementOrMembers({
+            context,
+            innerComments: node.innerComments,
+            items: children,
+            lastNode: undefined,
+            shouldUseBlankLine: (previousElement, nextElement) => {
+                if (previousElement.type === "JSXText")
+                    return endingWhiteSpaceHasNewLineOccurrences(previousElement.value, 2);
+                if (nextElement.type === "JSXText")
+                    return startingWhiteSpaceHasNewLineOccurrences(nextElement.value, 2);
+                return nodeHelpers.hasSeparatingBlankLine(previousElement, nextElement);
+            }
+        }));
+
+        if (children.length > 0)
+            yield context.newlineKind;
+    }
+    else {
+        for (const child of children)
+            yield* parseNode(child, context);
     }
 }
 

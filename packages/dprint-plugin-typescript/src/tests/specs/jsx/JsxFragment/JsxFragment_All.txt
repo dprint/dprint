@@ -1,0 +1,57 @@
+-- filePath: file.tsx --
+== should format when single line ==
+const t = <>Test</>;
+
+[expect]
+const t = <>Test</>;
+
+== should format when multi line ==
+const t = <>
+Test</>;
+
+[expect]
+const t = <>
+        Test
+    </>;
+
+== should use multi lines even when empty (since someone may want it that way in order to insert statements later) ==
+const t = <>
+</>;
+
+[expect]
+const t = <>
+    </>;
+
+== should format elements inside ==
+const t = <>
+Text
+
+<Element />
+<Element />
+
+Text
+<Element />
+Text
+
+
+<Element />
+
+Text
+
+    </>;
+
+[expect]
+const t = <>
+        Text
+
+        <Element />
+        <Element />
+
+        Text
+        <Element />
+        Text
+
+        <Element />
+
+        Text
+    </>;

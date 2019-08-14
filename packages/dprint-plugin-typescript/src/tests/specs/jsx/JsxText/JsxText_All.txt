@@ -1,0 +1,27 @@
+-- filePath: file.tsx --
+== should format when single line ==
+const t = <>  Testing this out  </>;
+
+[expect]
+const t = <>Testing this out</>;
+
+== should format when multi line ==
+const t = <>
+        Testing
+
+some text
+
+
+that has many blank lines between
+and a single line
+    </>;
+
+[expect]
+const t = <>
+        Testing
+
+        some text
+
+        that has many blank lines between
+        and a single line
+    </>;

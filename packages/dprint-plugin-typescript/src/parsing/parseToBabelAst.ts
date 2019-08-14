@@ -6,6 +6,9 @@ export function parseToBabelAst(filePath: string, fileText: string) {
         sourceType: "module",
         tokens: true,
         plugins: Array.from(getPlugins()),
+        // I implemented the library with this disabled,
+        // but perhaps it should be enabled
+        createParenthesizedExpressions: false,
         // be very relaxed
         allowAwaitOutsideFunction: true,
         allowImportExportEverywhere: true,
