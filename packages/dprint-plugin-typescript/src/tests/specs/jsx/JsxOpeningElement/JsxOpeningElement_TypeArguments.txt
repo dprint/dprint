@@ -1,0 +1,30 @@
+-- filePath: file.tsx --
+~~ lineWidth: 50 ~~
+== should format when it has type arguments and no attributes ==
+const t = <Testing<string>></Testing>;
+
+[expect]
+const t = <Testing<string>></Testing>;
+
+== should format when it has type args and attributes ==
+const t = <Testing<string, number> attrib={5}></Testing>;
+
+[expect]
+const t = <Testing<string, number> attrib={5}>
+</Testing>;
+
+== should format when it has type args and it's self closing ==
+const t = <Testing<string, number> />;
+
+[expect]
+const t = <Testing<string, number> />;
+
+== should format when it has type args and is multi-line ==
+const t = <Testing<
+string, number> />;
+
+[expect]
+const t = <Testing<
+    string,
+    number
+> />;

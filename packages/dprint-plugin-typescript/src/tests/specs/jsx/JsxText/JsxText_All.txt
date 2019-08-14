@@ -18,10 +18,10 @@ and a single line
 
 [expect]
 const t = <>
-        Testing
+    Testing
 
-        some text
+    some text
 
-        that has many blank lines between
-        and a single line
-    </>;
+    that has many blank lines between
+    and a single line
+</>;

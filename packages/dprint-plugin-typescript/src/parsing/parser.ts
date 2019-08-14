@@ -254,9 +254,12 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "TSUnionType": parseUnionOrIntersectionType,
     /* jsx */
     "JSXElement": parseJsxElement,
+    "JSXOpeningElement": parseJsxOpeningElement,
+    "JSXClosingElement": parseJsxClosingElement,
     "JSXFragment": parseJsxFragment,
     "JSXOpeningFragment": parseJsxOpeningFragment,
     "JSXClosingFragment": parseJsxClosingFragment,
+    "JSXIdentifier": parseJsxIdentifier,
     "JSXText": parseJsxText,
     /* explicitly not implemented (most are proposals that haven't made it far enough) */
     "ArgumentPlaceholder": parseUnknownNode,
@@ -2736,17 +2739,72 @@ function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSInterse
 /* jsx */
 
 function* parseJsxElement(node: babel.JSXElement, context: Context): PrintItemIterable {
-    if (node.selfClosing)
+    if (node.closingElement == null)
         yield* parseNode(node.openingElement, context);
     else {
         yield* parseJsxWithOpeningAndClosing({
             node,
             children: node.children,
             openingElement: node.openingElement,
-            closingElement: node.closingElement!,
+            closingElement: node.closingElement,
             context
         });
     }
+}
+
+function* parseJsxOpeningElement(node: babel.JSXOpeningElement, context: Context): PrintItemIterable {
+    const isMultiLine = getIsMultiLine();
+    const startInfo = createInfo("openingElementStartInfo");
+
+    yield startInfo;
+    yield "<";
+    yield* parseNode(node.name, context);
+    yield* parseNode(node.typeParameters, context);
+    yield* parseAttributes();
+    if (node.selfClosing) {
+        if (!isMultiLine)
+            yield " ";
+        yield "/";
+    }
+    else {
+        yield {
+            kind: PrintItemKind.Condition,
+            name: "newlineIfHanging",
+            condition: (conditionContext) => conditionResolvers.isHanging(conditionContext, startInfo),
+            true: context.newlineKind
+        };
+    }
+    yield ">";
+
+    function* parseAttributes(): PrintItemIterable {
+        if (node.attributes.length === 0)
+            return;
+
+        for (const attrib of node.attributes)
+            yield* parseAttrib(attrib);
+
+        if (isMultiLine)
+            yield context.newlineKind;
+
+        function* parseAttrib(attrib: babel.Node): PrintItemIterable {
+            if (isMultiLine)
+                yield context.newlineKind;
+            else
+                yield Signal.SpaceOrNewLine;
+
+            yield* conditions.indentIfStartOfLine(parseNode(attrib, context));
+        }
+    }
+
+    function getIsMultiLine() {
+        return nodeHelpers.getUseNewlinesForNodes([node.name, node.attributes[0]]);
+    }
+}
+
+function* parseJsxClosingElement(node: babel.JSXClosingElement, context: Context): PrintItemIterable {
+    yield "</";
+    yield* parseNode(node.name, context);
+    yield ">";
 }
 
 function* parseJsxFragment(node: babel.JSXFragment, context: Context): PrintItemIterable {
@@ -2765,6 +2823,10 @@ function* parseJsxOpeningFragment(node: babel.JSXOpeningFragment, context: Conte
 
 function* parseJsxClosingFragment(node: babel.JSXClosingFragment, context: Context): PrintItemIterable {
     yield "</>";
+}
+
+function* parseJsxIdentifier(node: babel.JSXIdentifier, context: Context): PrintItemIterable {
+    yield node.name;
 }
 
 function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable {
@@ -2842,15 +2904,21 @@ function* parseJsxWithOpeningAndClosing(opts: ParseJsxWithOpeningAndClosingOptio
     const { node, children: allChildren, openingElement, closingElement, context } = opts;
     const children = allChildren.filter(c => c.type !== "JSXText" || !isStringEmptyOrWhiteSpace(c.value));
     const useMultilines = getUseMultilines();
+    const startInfo = createInfo("startInfo");
+    const endInfo = createInfo("endInfo");
 
+    yield startInfo;
     yield* parseNode(openingElement, context);
-    yield* withIndent(parseJsxChildren({
+    yield* parseJsxChildren({
         node,
         children,
         context,
+        parentStartInfo: startInfo,
+        parentEndInfo: endInfo,
         useMultilines
-    }));
-    yield* conditions.indentIfStartOfLine(parseNode(closingElement, context));
+    });
+    yield* parseNode(closingElement, context);
+    yield endInfo;
 
     function getUseMultilines() {
         const firstChild = allChildren[0];
@@ -2868,13 +2936,35 @@ export interface ParseJsxChildrenOptions {
     node: babel.Node;
     children: babel.Node[];
     context: Context;
+    parentStartInfo: Info;
+    parentEndInfo: Info;
     useMultilines: boolean;
 }
 
 function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable {
-    const { node, children, context, useMultilines } = options;
+    const { node, children, context, parentStartInfo, parentEndInfo, useMultilines } = options;
 
-    if (useMultilines) {
+    if (useMultilines)
+        yield* parseForNewLines();
+    else {
+        // decide whether newlines should be used or not
+        yield {
+            kind: PrintItemKind.Condition,
+            name: "JsxChildrenNewLinesOrNot",
+            condition: (conditionContext) => {
+                // use newlines if the header is multiple lines
+                if (conditionResolvers.isMultipleLines(conditionContext, parentStartInfo, conditionContext.writerInfo))
+                    return true;
+
+                // use newlines if the entire jsx element is on multiple lines
+                return conditionResolvers.isMultipleLines(conditionContext, parentStartInfo, parentEndInfo);
+            },
+            true: parseForNewLines(),
+            false: parseForSingleLine()
+        };
+    }
+
+    function* parseForNewLines(): PrintItemIterable {
         yield context.newlineKind;
         yield* withIndent(parseStatementOrMembers({
             context,
@@ -2893,9 +2983,12 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
         if (children.length > 0)
             yield context.newlineKind;
     }
-    else {
-        for (const child of children)
+
+    function* parseForSingleLine(): PrintItemIterable {
+        for (const child of children) {
             yield* parseNode(child, context);
+            yield Signal.NewLine;
+        }
     }
 }
 

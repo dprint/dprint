@@ -1,4 +1,5 @@
 -- filePath: file.tsx --
+~~ lineWidth: 50 ~~
 == should format when single line ==
 const t = <Test>Test</Test>;
 
@@ -11,8 +12,8 @@ Test</Test>;
 
 [expect]
 const t = <Test>
-        Test
-    </Test>;
+    Test
+</Test>;
 
 == should use multi lines even when empty (since someone may want it that way in order to insert statements later) ==
 const t = <Test>
@@ -20,7 +21,7 @@ const t = <Test>
 
 [expect]
 const t = <Test>
-    </Test>;
+</Test>;
 
 == should format elements inside ==
 const t = <Test>
@@ -42,22 +43,44 @@ Text
 
 [expect]
 const t = <Test>
-        Text
+    Text
 
-        <Element />
-        <Element />
+    <Element />
+    <Element />
 
-        Text
-        <Element />
-        Text
+    Text
+    <Element />
+    Text
 
-        <Element />
+    <Element />
 
-        Text
-    </Test>;
+    Text
+</Test>;
 
 == should format when self closing ==
 const t = <Test />;
 
 [expect]
 const t = <Test />;
+
+== should make the children multi-line when they exceed the line width ==
+const t = <Test><Test /><Test /><Test /><Test /><Test /></Test>;
+
+[expect]
+const t = <Test>
+    <Test />
+    <Test />
+    <Test />
+    <Test />
+    <Test />
+</Test>;
+
+== should make the children multi-line when the header exceeds the line width ==
+const t = <Test testingThisOut={5} other={longVariable}><Test /></Test>;
+
+[expect]
+const t = <Test testingThisOut={5}
+    other={longVariable}
+>
+    <Test />
+</Test>;
