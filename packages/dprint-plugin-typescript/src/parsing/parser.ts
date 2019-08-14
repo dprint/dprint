@@ -253,6 +253,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "TSTypeReference": parseTypeReference,
     "TSUnionType": parseUnionOrIntersectionType,
     /* jsx */
+    "JSXElement": parseJsxElement,
     "JSXFragment": parseJsxFragment,
     "JSXOpeningFragment": parseJsxOpeningFragment,
     "JSXClosingFragment": parseJsxClosingFragment,
@@ -2734,29 +2735,28 @@ function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSInterse
 
 /* jsx */
 
-function* parseJsxFragment(node: babel.JSXFragment, context: Context): PrintItemIterable {
-    const children = node.children.filter(c => c.type !== "JSXText" || !isStringEmptyOrWhiteSpace(c.value));
-    const useMultilines = getUseMultilines();
-
-    yield* parseNode(node.openingFragment, context);
-    yield* withIndent(parseJsxChildren({
-        node,
-        children,
-        context,
-        useMultilines
-    }));
-    yield* conditions.indentIfStartOfLine(parseNode(node.closingFragment, context));
-
-    function getUseMultilines() {
-        const firstChild = node.children[0];
-        if (firstChild != null && firstChild.type === "JSXText" && firstChild.value.indexOf("\n") >= 0)
-            return true;
-
-        return nodeHelpers.getUseNewlinesForNodes([
-            node.openingFragment,
-            children[0] || node.closingFragment
-        ]);
+function* parseJsxElement(node: babel.JSXElement, context: Context): PrintItemIterable {
+    if (node.selfClosing)
+        yield* parseNode(node.openingElement, context);
+    else {
+        yield* parseJsxWithOpeningAndClosing({
+            node,
+            children: node.children,
+            openingElement: node.openingElement,
+            closingElement: node.closingElement!,
+            context
+        });
     }
+}
+
+function* parseJsxFragment(node: babel.JSXFragment, context: Context): PrintItemIterable {
+    yield* parseJsxWithOpeningAndClosing({
+        node,
+        children: node.children,
+        openingElement: node.openingFragment,
+        closingElement: node.closingFragment,
+        context
+    });
 }
 
 function* parseJsxOpeningFragment(node: babel.JSXOpeningFragment, context: Context): PrintItemIterable {
@@ -2827,6 +2827,40 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterable {
             shouldUseBlankLine,
             trailingCommas
         });
+    }
+}
+
+interface ParseJsxWithOpeningAndClosingOptions {
+    node: babel.Node;
+    openingElement: babel.Node;
+    closingElement: babel.Node;
+    children: babel.Node[];
+    context: Context;
+}
+
+function* parseJsxWithOpeningAndClosing(opts: ParseJsxWithOpeningAndClosingOptions): PrintItemIterable {
+    const { node, children: allChildren, openingElement, closingElement, context } = opts;
+    const children = allChildren.filter(c => c.type !== "JSXText" || !isStringEmptyOrWhiteSpace(c.value));
+    const useMultilines = getUseMultilines();
+
+    yield* parseNode(openingElement, context);
+    yield* withIndent(parseJsxChildren({
+        node,
+        children,
+        context,
+        useMultilines
+    }));
+    yield* conditions.indentIfStartOfLine(parseNode(closingElement, context));
+
+    function getUseMultilines() {
+        const firstChild = allChildren[0];
+        if (firstChild != null && firstChild.type === "JSXText" && firstChild.value.indexOf("\n") >= 0)
+            return true;
+
+        return nodeHelpers.getUseNewlinesForNodes([
+            openingElement,
+            children[0] || closingElement
+        ]);
     }
 }
 
