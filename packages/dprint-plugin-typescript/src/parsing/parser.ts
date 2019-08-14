@@ -2,7 +2,8 @@ import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
-import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, startingWhiteSpaceHasNewLineOccurrences, endingWhiteSpaceHasNewLineOccurrences, removeIndentationFromText } from "../utils";
+import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, startingWhiteSpaceHasNewLineOccurrences, endingWhiteSpaceHasNewLineOccurrences,
+    removeIndentationFromText } from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
@@ -2998,7 +2999,7 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context, opt
 export interface ParseCommaSeparatedValuesOptions {
     values: babel.Node[];
     context: Context;
-    useNewLines: boolean
+    useNewLines: boolean;
 }
 
 function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): PrintItemIterable {
