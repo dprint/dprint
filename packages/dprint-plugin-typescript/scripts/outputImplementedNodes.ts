@@ -75,7 +75,18 @@ function outputHeader(header: string, nodes: unknown[], additionalText?: string)
 }
 
 function outputProperty(prop: BabelNodeProperty) {
-    output += `    * ${prop.isReferenced() ? ":heavy_check_mark:" : ":x:"} ${prop.getName()}\n`;
+    output += `    * `;
+    const isIgnored = prop.isIgnored();
+    if (isIgnored)
+        output += "~~"
+    else if (prop.isReferenced())
+        output += ":heavy_check_mark: ";
+    else
+        output += ":x: ";
+    output += `${prop.getName()}`;
+    if (isIgnored)
+        output += "~~";
+    output += "\n";
 }
 
 function isAllowedProperty(prop: BabelNodeProperty) {

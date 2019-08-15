@@ -11,6 +11,11 @@ import { TokenFinder, isPrefixSemiColonInsertionChar } from "./utils";
 
 const { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterable, surroundWithNewLines, createInfo } = parserHelpers;
 
+/** Use this type to mark properties as ignored for the code analysis. */
+type AnalysisMarkIgnored<T, Reason extends string> = T | Reason;
+/** Use this type to mark properties as implemented for the code analysis. */
+type AnalysisMarkImplemented<T, Reason extends string> = T | Reason;
+
 const BAG_KEYS = {
     IfStatementLastBraceCondition: "ifStatementLastBraceCondition",
     ClassStartHeaderInfo: "classStartHeaderInfo",
@@ -45,6 +50,8 @@ export interface ParseTypeScriptFileOptions {
 }
 
 export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintItemIterable | false {
+    type _markCommentsUsed = AnalysisMarkImplemented<typeof file.comments, "Comments are accessed in other ways.">;
+
     const { file, filePath, fileText, config, environment } = options;
     const context: Context = {
         file,
@@ -384,6 +391,9 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
 
 /* file */
 function* parseProgram(node: babel.Program, context: Context): PrintItemIterable {
+    type _ignoreSourceType = AnalysisMarkIgnored<typeof node.sourceType, "Not useful.">;
+    type _ignoreSourceFile = AnalysisMarkIgnored<typeof node.sourceFile, "Not useful.">;
+
     if (node.interpreter) {
         yield* parseNode(node.interpreter, context);
         yield context.newlineKind;
@@ -446,6 +456,8 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
 /* declarations */
 
 function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel.ClassExpression, context: Context): PrintItemIterable {
+    type _ignoreMixins = AnalysisMarkIgnored<typeof node.mixins, "Probably flow... doesn't seem to be used.">;
+
     if (node.type === "ClassExpression") {
         yield* parseClassDecorators();
         yield {
@@ -593,6 +605,8 @@ function* parseExportAllDeclaration(node: babel.ExportAllDeclaration, context: C
 }
 
 function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context): PrintItemIterable {
+    type _ignoreExportKind = AnalysisMarkIgnored<typeof node.exportKind, "Maybe flow?">;
+
     const { specifiers } = node;
     const defaultExport = specifiers.find(s => s.type === "ExportDefaultSpecifier");
     const namespaceExport = specifiers.find(s => s.type === "ExportNamespaceSpecifier");
@@ -678,6 +692,8 @@ function* parseFunctionDeclarationOrExpression(
 }
 
 function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context): PrintItemIterable {
+    type _ignoreImportKind = AnalysisMarkIgnored<typeof node.importKind, "Maybe flow?">;
+
     yield "import ";
     const { specifiers } = node;
     const defaultImport = specifiers.find(s => s.type === "ImportDefaultSpecifier");
@@ -916,8 +932,10 @@ function* parseClassOrObjectMethod(
     node: babel.ClassMethod | babel.TSDeclareMethod | babel.ObjectMethod,
     context: Context
 ): PrintItemIterable {
-    if (node.type !== "ObjectMethod")
+    if (node.type !== "ObjectMethod") {
+        type _ignoreAccess = AnalysisMarkIgnored<typeof node.access, "Flow.">;
         yield* parseDecorators(node, context);
+    }
 
     const startHeaderInfo = createInfo("methodStartHeaderInfo");
     yield startHeaderInfo;
@@ -1818,6 +1836,9 @@ function* parseArrayExpression(node: babel.ArrayExpression, context: Context): P
 }
 
 function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, context: Context): PrintItemIterable {
+    type _ignoreExpression = AnalysisMarkIgnored<typeof node.expression, "This is a boolean that we don't care about.">;
+    type _ignoreGenerator = AnalysisMarkIgnored<typeof node.generator, "Arrow function expressions can't be generators.">;
+
     const headerStartInfo = createInfo("functionExpressionHeaderStart");
     yield headerStartInfo;
 
@@ -1887,6 +1908,8 @@ function* parseAssignmentExpression(node: babel.AssignmentExpression, context: C
 }
 
 function* parseAssignmentPattern(node: babel.AssignmentPattern, context: Context): PrintItemIterable {
+    type _ignoreTypeAnnotation = AnalysisMarkIgnored<typeof node.typeAnnotation, "Flow.">;
+
     yield* newlineGroup(function*() {
         yield* parseNode(node.left, context);
         yield Signal.SpaceOrNewLine;
@@ -2123,6 +2146,8 @@ function* parseMetaProperty(node: babel.MetaProperty, context: Context): PrintIt
 }
 
 function* parseNewExpression(node: babel.NewExpression, context: Context): PrintItemIterable {
+    type _ignoreTypeArguments = AnalysisMarkIgnored<typeof node.typeArguments, "Flow.">;
+
     yield "new ";
     yield* parseNode(node.callee, context);
     yield* parseNode(node.typeParameters, context);
@@ -2256,24 +2281,26 @@ function* parseYieldExpression(node: babel.YieldExpression, context: Context): P
 
 /* imports */
 
-function parseImportDefaultSpecifier(specifier: babel.ImportDefaultSpecifier, context: Context) {
-    return parseNode(specifier.local, context);
+function parseImportDefaultSpecifier(node: babel.ImportDefaultSpecifier, context: Context) {
+    return parseNode(node.local, context);
 }
 
-function* parseImportNamespaceSpecifier(specifier: babel.ImportNamespaceSpecifier, context: Context): PrintItemIterable {
+function* parseImportNamespaceSpecifier(node: babel.ImportNamespaceSpecifier, context: Context): PrintItemIterable {
     yield "* as ";
-    yield* parseNode(specifier.local, context);
+    yield* parseNode(node.local, context);
 }
 
-function* parseImportSpecifier(specifier: babel.ImportSpecifier, context: Context): PrintItemIterable {
-    if (specifier.imported.start === specifier.local.start) {
-        yield* parseNode(specifier.imported, context);
+function* parseImportSpecifier(node: babel.ImportSpecifier, context: Context): PrintItemIterable {
+    type _ignoreImportKind = AnalysisMarkIgnored<typeof node.importKind, "Not sure what this is, but doesn't seem to be useful?">;
+
+    if (node.imported.start === node.local.start) {
+        yield* parseNode(node.imported, context);
         return;
     }
 
-    yield* parseNode(specifier.imported, context);
+    yield* parseNode(node.imported, context);
     yield " as ";
-    yield* parseNode(specifier.local, context);
+    yield* parseNode(node.local, context);
 }
 
 /* exports */
@@ -2288,15 +2315,15 @@ function* parseExportNamespaceSpecifier(node: babel.ExportNamespaceSpecifier, co
     yield* parseNode(node.exported, context);
 }
 
-function* parseExportSpecifier(specifier: babel.ExportSpecifier, context: Context): PrintItemIterable {
-    if (specifier.local.start === specifier.exported.start) {
-        yield* parseNode(specifier.local, context);
+function* parseExportSpecifier(node: babel.ExportSpecifier, context: Context): PrintItemIterable {
+    if (node.local.start === node.exported.start) {
+        yield* parseNode(node.local, context);
         return;
     }
 
-    yield* parseNode(specifier.local, context);
+    yield* parseNode(node.local, context);
     yield " as ";
-    yield* parseNode(specifier.exported, context);
+    yield* parseNode(node.exported, context);
 }
 
 /* literals */
@@ -2310,10 +2337,14 @@ function* parseBooleanLiteral(node: babel.BooleanLiteral, context: Context): Pri
 }
 
 function* parseNumericLiteral(node: babel.NumericLiteral, context: Context): PrintItemIterable {
+    type _markValueUsed = AnalysisMarkImplemented<typeof node.value, "This is essentially used by accessing the text.">;
+
     yield context.fileText.substring(node.start!, node.end!);
 }
 
 function* parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.DirectiveLiteral, context: Context): PrintItemIterable {
+    type _markValueUsed = AnalysisMarkImplemented<typeof node.value, "This is essentially used by accessing the text.">;
+
     yield {
         kind: PrintItemKind.RawString,
         text: getStringLiteralText()
@@ -2348,6 +2379,9 @@ function* parseRegExpLiteral(node: babel.RegExpLiteral, context: Context): Print
 }
 
 function* parseTemplateElement(node: babel.TemplateElement, context: Context): PrintItemIterable {
+    type _markValueUsed = AnalysisMarkImplemented<typeof node.value, "Used by getting the text.">;
+    type _markTailUsed = AnalysisMarkImplemented<typeof node.tail, "Used by getting the text.">;
+
     yield {
         kind: PrintItemKind.RawString,
         text: context.fileText.substring(node.start!, node.end!)
@@ -2752,6 +2786,8 @@ function* parseJsxAttribute(node: babel.JSXAttribute, context: Context): PrintIt
 }
 
 function* parseJsxElement(node: babel.JSXElement, context: Context): PrintItemIterable {
+    type _markSelfClosingUsed = AnalysisMarkImplemented<typeof node.selfClosing, "This is used by checking the closing element.">;
+
     if (node.closingElement == null)
         yield* parseNode(node.openingElement, context);
     else {
