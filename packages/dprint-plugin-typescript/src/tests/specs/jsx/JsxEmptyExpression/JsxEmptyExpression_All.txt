@@ -1,0 +1,6 @@
+-- filePath: file.tsx --
+== should format ==
+const t = <test>{   }{/*test*/}</test>;
+
+[expect]
+const t = <test>{}{/*test*/}</test>;

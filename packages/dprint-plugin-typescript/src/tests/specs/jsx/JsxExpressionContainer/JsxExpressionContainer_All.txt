@@ -1,0 +1,6 @@
+-- filePath: file.tsx --
+== should format ==
+const t = <test other={   4  } />;
+
+[expect]
+const t = <test other={4} />;

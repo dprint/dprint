@@ -253,13 +253,20 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "TSTypeReference": parseTypeReference,
     "TSUnionType": parseUnionOrIntersectionType,
     /* jsx */
+    "JSXAttribute": parseJsxAttribute,
     "JSXElement": parseJsxElement,
+    "JSXEmptyExpression": parseJsxEmptyExpression,
+    "JSXExpressionContainer": parseJsxExpressionContainer,
     "JSXOpeningElement": parseJsxOpeningElement,
     "JSXClosingElement": parseJsxClosingElement,
     "JSXFragment": parseJsxFragment,
     "JSXOpeningFragment": parseJsxOpeningFragment,
     "JSXClosingFragment": parseJsxClosingFragment,
     "JSXIdentifier": parseJsxIdentifier,
+    "JSXMemberExpression": parseJsxMemberExpression,
+    "JSXNamespacedName": parseJsxNamespacedName,
+    "JSXSpreadAttribute": parseJsxSpreadAttribute,
+    "JSXSpreadChild": parseJsxSpreadChild,
     "JSXText": parseJsxText,
     /* explicitly not implemented (most are proposals that haven't made it far enough) */
     "ArgumentPlaceholder": parseUnknownNode,
@@ -2738,6 +2745,12 @@ function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSInterse
 
 /* jsx */
 
+function* parseJsxAttribute(node: babel.JSXAttribute, context: Context): PrintItemIterable {
+    yield* parseNode(node.name, context);
+    yield "=";
+    yield* parseNode(node.value, context);
+}
+
 function* parseJsxElement(node: babel.JSXElement, context: Context): PrintItemIterable {
     if (node.closingElement == null)
         yield* parseNode(node.openingElement, context);
@@ -2750,6 +2763,17 @@ function* parseJsxElement(node: babel.JSXElement, context: Context): PrintItemIt
             context
         });
     }
+}
+
+function* parseJsxEmptyExpression(node: babel.JSXEmptyExpression, context: Context): PrintItemIterable {
+    if (node.innerComments)
+        yield* parseCommentCollection(node.innerComments, undefined, context);
+}
+
+function* parseJsxExpressionContainer(node: babel.JSXExpressionContainer, context: Context): PrintItemIterable {
+    yield "{";
+    yield* parseNode(node.expression, context);
+    yield "}";
 }
 
 function* parseJsxOpeningElement(node: babel.JSXOpeningElement, context: Context): PrintItemIterable {
@@ -2827,6 +2851,30 @@ function* parseJsxClosingFragment(node: babel.JSXClosingFragment, context: Conte
 
 function* parseJsxIdentifier(node: babel.JSXIdentifier, context: Context): PrintItemIterable {
     yield node.name;
+}
+
+function* parseJsxMemberExpression(node: babel.JSXMemberExpression, context: Context): PrintItemIterable {
+    yield* parseNode(node.object, context);
+    yield ".";
+    yield* parseNode(node.property, context);
+}
+
+function* parseJsxNamespacedName(node: babel.JSXNamespacedName, context: Context): PrintItemIterable {
+    yield* parseNode(node.namespace, context);
+    yield ":";
+    yield* parseNode(node.name, context);
+}
+
+function* parseJsxSpreadAttribute(node: babel.JSXSpreadAttribute, context: Context): PrintItemIterable {
+    yield "{...";
+    yield* parseNode(node.argument, context);
+    yield "}";
+}
+
+function* parseJsxSpreadChild(node: babel.JSXSpreadChild, context: Context): PrintItemIterable {
+    yield "{...";
+    yield* parseNode(node.expression, context);
+    yield "}";
 }
 
 function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable {

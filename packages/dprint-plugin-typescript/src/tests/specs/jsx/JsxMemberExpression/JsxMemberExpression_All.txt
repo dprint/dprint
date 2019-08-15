@@ -1,0 +1,6 @@
+-- filePath: file.tsx --
+== should format ==
+const t = <Test.Other.Final></Test.Other.Final>;
+
+[expect]
+const t = <Test.Other.Final></Test.Other.Final>;
