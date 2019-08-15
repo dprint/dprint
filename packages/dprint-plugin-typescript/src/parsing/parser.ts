@@ -11,9 +11,9 @@ import { TokenFinder, isPrefixSemiColonInsertionChar } from "./utils";
 
 const { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterable, surroundWithNewLines, createInfo } = parserHelpers;
 
-/** Use this type to mark properties as ignored for the code analysis. */
+/** Use this type to mark properties as ignored for the implemented-nodes.md report. */
 type AnalysisMarkIgnored<T, Reason extends string> = T | Reason;
-/** Use this type to mark properties as implemented for the code analysis. */
+/** Use this type to mark properties as implemented for implemented-nodes.md report. */
 type AnalysisMarkImplemented<T, Reason extends string> = T | Reason;
 
 const BAG_KEYS = {
@@ -605,7 +605,7 @@ function* parseExportAllDeclaration(node: babel.ExportAllDeclaration, context: C
 }
 
 function* parseExportNamedDeclaration(node: babel.ExportNamedDeclaration, context: Context): PrintItemIterable {
-    type _ignoreExportKind = AnalysisMarkIgnored<typeof node.exportKind, "Maybe flow?">;
+    type _ignoreExportKind = AnalysisMarkIgnored<typeof node.exportKind, "Flow?">;
 
     const { specifiers } = node;
     const defaultExport = specifiers.find(s => s.type === "ExportDefaultSpecifier");
@@ -692,7 +692,7 @@ function* parseFunctionDeclarationOrExpression(
 }
 
 function* parseImportDeclaration(node: babel.ImportDeclaration, context: Context): PrintItemIterable {
-    type _ignoreImportKind = AnalysisMarkIgnored<typeof node.importKind, "Maybe flow?">;
+    type _ignoreImportKind = AnalysisMarkIgnored<typeof node.importKind, "Flow?">;
 
     yield "import ";
     const { specifiers } = node;
@@ -1836,7 +1836,7 @@ function* parseArrayExpression(node: babel.ArrayExpression, context: Context): P
 }
 
 function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, context: Context): PrintItemIterable {
-    type _ignoreExpression = AnalysisMarkIgnored<typeof node.expression, "This is a boolean that we don't care about.">;
+    type _ignoreExpression = AnalysisMarkIgnored<typeof node.expression, "Don't care about this boolean because the body contains this info.">;
     type _ignoreGenerator = AnalysisMarkIgnored<typeof node.generator, "Arrow function expressions can't be generators.">;
 
     const headerStartInfo = createInfo("functionExpressionHeaderStart");
@@ -2380,7 +2380,7 @@ function* parseRegExpLiteral(node: babel.RegExpLiteral, context: Context): Print
 
 function* parseTemplateElement(node: babel.TemplateElement, context: Context): PrintItemIterable {
     type _markValueUsed = AnalysisMarkImplemented<typeof node.value, "Used by getting the text.">;
-    type _markTailUsed = AnalysisMarkImplemented<typeof node.tail, "Used by getting the text.">;
+    type _markTailUsed = AnalysisMarkImplemented<typeof node.tail, "Not useful for our situation.">;
 
     yield {
         kind: PrintItemKind.RawString,
