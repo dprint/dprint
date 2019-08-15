@@ -280,7 +280,7 @@ describe(nameof(resolveConfiguration), () => {
         }
 
         it("should get the default property", () => {
-            doSpecificTest({}, { "enumDeclaration.memberSpacing": "newline" });
+            doSpecificTest({}, { "enumDeclaration.memberSpacing": "maintain" });
         });
 
         it("should get the property when set", () => {

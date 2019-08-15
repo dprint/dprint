@@ -10,7 +10,7 @@ const defaultValues = {
     bracePosition: "nextLineIfHanging",
     nextControlFlowPosition: "nextLine",
     trailingCommas: "never",
-    "enumDeclaration.memberSpacing": "newline",
+    "enumDeclaration.memberSpacing": "maintain",
     "arrowFunctionExpression.useParentheses": "maintain"
 } as const;
 

@@ -73,7 +73,7 @@ export interface TypeScriptConfiguration {
     trailingCommas?: "never" | "always" | "onlyMultiLine";
     /**
      * How to space the members of an enum.
-     * @default "newline"
+     * @default "maintain"
      * @value "newline" - Forces a new line between members.
      * @value "blankline" - Forces a blank line between members.
      * @value "maintain" - Maintains whether a newline or blankline is used.
