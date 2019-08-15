@@ -1,6 +1,6 @@
 {
   "name": "dprint",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "TypeScript and JSONC code formatter.",
   "main": "dist/dprint.js",
   "bin": {
@@ -35,7 +35,7 @@
   },
   "homepage": "https://github.com/dsherret/dprint#readme",
   "dependencies": {
-    "@dprint/core": "~0.3.0",
+    "@dprint/core": "~0.4.0",
     "globby": "^10.0.1",
     "minimist": "^1.2.0"
   },
