@@ -1,5 +1,8 @@
 import { PrintItemIterable, Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
 
+/**
+ * User specified configuration for formatting TypeScript code.
+ */
 export interface TypeScriptConfiguration {
     /**
      * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
@@ -209,6 +212,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
 }
 
+/**
+ * Plugin for formatting TypeScript code (.ts/.tsx/.js files).
+ */
 export declare class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
     /**
      * Constructor.

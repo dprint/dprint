@@ -3,6 +3,9 @@ import { Plugin, getFileExtension, ResolveConfigurationResult, PrintItemIterable
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration, resolveConfiguration } from "./configuration";
 import { parseToBabelAst, parseTypeScriptFile } from "./parsing";
 
+/**
+ * Plugin for formatting TypeScript code (.ts/.tsx/.js files).
+ */
 export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
     /** @internal */
     private readonly _unresolvedConfig: TypeScriptConfiguration;

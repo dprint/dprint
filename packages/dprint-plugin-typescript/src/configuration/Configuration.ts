@@ -1,5 +1,8 @@
 import { BaseResolvedConfiguration } from "@dprint/core";
 
+/**
+ * User specified configuration for formatting TypeScript code.
+ */
 export interface TypeScriptConfiguration {
     /**
      * The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
