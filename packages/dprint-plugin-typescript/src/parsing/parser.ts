@@ -2794,7 +2794,7 @@ function* parseJsxOpeningElement(node: babel.JSXOpeningElement, context: Context
         yield {
             kind: PrintItemKind.Condition,
             name: "newlineIfHanging",
-            condition: (conditionContext) => conditionResolvers.isHanging(conditionContext, startInfo),
+            condition: conditionContext => conditionResolvers.isHanging(conditionContext, startInfo),
             true: context.newlineKind
         };
     }
@@ -2996,7 +2996,7 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
         yield {
             kind: PrintItemKind.Condition,
             name: "JsxChildrenNewLinesOrNot",
-            condition: (conditionContext) => {
+            condition: conditionContext => {
                 // use newlines if the header is multiple lines
                 if (conditionResolvers.isMultipleLines(conditionContext, parentStartInfo, conditionContext.writerInfo))
                     return true;
