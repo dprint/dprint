@@ -207,6 +207,39 @@ describe(nameof(resolveConfiguration), () => {
         }
     });
 
+    describe(nameof<TypeScriptConfiguration>(c => c.singleLineStatementExpressionPosition), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("singleLineStatementExpressionPosition"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject("maintain"));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ singleLineStatementExpressionPosition: "maintain" }, getObject("maintain"));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ singleLineStatementExpressionPosition: "nextLine" }, getObject("nextLine"));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject("maintain");
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.singleLineStatementExpressionPosition = "sameLine";
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(
+            value: NonNullable<TypeScriptConfiguration["singleLineStatementExpressionPosition"]>
+        ): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "ifStatement.singleLineStatementExpressionPosition": value
+            };
+        }
+    });
+
     describe(nameof<TypeScriptConfiguration>(c => c.nextControlFlowPosition), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop.endsWith("nextControlFlowPosition"));

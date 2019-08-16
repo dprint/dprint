@@ -8,6 +8,7 @@ const defaultValues = {
     singleQuotes: false,
     useBraces: "maintain",
     bracePosition: "nextLineIfHanging",
+    singleLineStatementExpressionPosition: "maintain",
     nextControlFlowPosition: "nextLine",
     trailingCommas: "never",
     "enumDeclaration.memberSpacing": "maintain",
@@ -25,11 +26,13 @@ export function resolveConfiguration(
     pluginConfig = { ...pluginConfig };
 
     const diagnostics: ConfigurationDiagnostic[] = [];
-    const semiColons = getValue("semiColons", defaultValues["semiColons"], ensureBoolean);
-    const useBraces = getValue("useBraces", defaultValues["useBraces"], ensureBraceUse);
-    const bracePosition = getValue("bracePosition", defaultValues["bracePosition"], ensureBracePosition);
-    const nextControlFlowPosition = getValue("nextControlFlowPosition", defaultValues["nextControlFlowPosition"], ensureNextControlFlowPosition);
-    const trailingCommas = getValue("trailingCommas", defaultValues["trailingCommas"], ensureTrailingCommas);
+    const semiColons = getValue("semiColons", defaultValues.semiColons, ensureBoolean);
+    const useBraces = getValue("useBraces", defaultValues.useBraces, ensureBraceUse);
+    const bracePosition = getValue("bracePosition", defaultValues.bracePosition, ensureBracePosition);
+    const singleLineStatementExpressionPosition = getValue("singleLineStatementExpressionPosition", defaultValues.singleLineStatementExpressionPosition,
+        ensureSingleLineStatementExpressionPosition);
+    const nextControlFlowPosition = getValue("nextControlFlowPosition", defaultValues.nextControlFlowPosition, ensureNextControlFlowPosition);
+    const trailingCommas = getValue("trailingCommas", defaultValues.trailingCommas, ensureTrailingCommas);
 
     const resolvedConfig: ResolvedTypeScriptConfiguration = {
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
@@ -94,6 +97,9 @@ export function resolveConfiguration(
         "switchStatement.bracePosition": getValue("switchStatement.bracePosition", bracePosition, ensureBracePosition),
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
         "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition),
+        // single line statement expression position
+        "ifStatement.singleLineStatementExpressionPosition": getValue("ifStatement.singleLineStatementExpressionPosition",
+            singleLineStatementExpressionPosition, ensureSingleLineStatementExpressionPosition),
         // next control flow position
         "ifStatement.nextControlFlowPosition": getValue("ifStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
         "tryStatement.nextControlFlowPosition": getValue("tryStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
@@ -197,6 +203,26 @@ export function resolveConfiguration(
             case "sameLine":
             case "nextLine":
             case "nextLineIfHanging":
+            case null:
+            case undefined:
+                return true;
+            default:
+                const assertNever: never = value;
+                diagnostics.push({
+                    propertyName: key,
+                    message: `Expected the configuration for '${key}' to equal one of the expected values, but was: ${value}`
+                });
+                return false;
+        }
+    }
+
+    function ensureSingleLineStatementExpressionPosition(key: keyof TypeScriptConfiguration,
+        value: TypeScriptConfiguration["singleLineStatementExpressionPosition"])
+    {
+        switch (value) {
+            case "maintain":
+            case "sameLine":
+            case "nextLine":
             case null:
             case undefined:
                 return true;

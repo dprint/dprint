@@ -2,8 +2,8 @@ import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
-import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace,
-    hasNewLineOccurrencesInTrailingWhiteSpace } from "../utils";
+import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhiteSpace,
+    throwError } from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
@@ -1424,6 +1424,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         context,
         useBraces: context.config["ifStatement.useBraces"],
         bracePosition: context.config["ifStatement.bracePosition"],
+        singleLineStatementExpressionPosition: context.config["ifStatement.singleLineStatementExpressionPosition"],
         requiresBracesCondition: context.bag.take(BAG_KEYS.IfStatementLastBraceCondition) as Condition | undefined
     });
 
@@ -1450,6 +1451,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
                 context,
                 useBraces: context.config["ifStatement.useBraces"],
                 bracePosition: context.config["ifStatement.bracePosition"],
+                singleLineStatementExpressionPosition: context.config["ifStatement.singleLineStatementExpressionPosition"],
                 requiresBracesCondition: result.braceCondition
             }).iterator;
         }
@@ -1623,6 +1625,7 @@ interface ParseHeaderWithConditionalBraceBodyOptions {
     requiresBracesCondition: Condition | undefined;
     useBraces: NonNullable<TypeScriptConfiguration["useBraces"]>;
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    singleLineStatementExpressionPosition?: TypeScriptConfiguration["singleLineStatementExpressionPosition"];
 }
 
 interface ParseHeaderWithConditionalBraceBodyResult {
@@ -1631,7 +1634,7 @@ interface ParseHeaderWithConditionalBraceBodyResult {
 }
 
 function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBraceBodyOptions): ParseHeaderWithConditionalBraceBodyResult {
-    const { context, parent, bodyNode, requiresBracesCondition, useBraces, bracePosition } = opts;
+    const { context, parent, bodyNode, requiresBracesCondition, useBraces, bracePosition, singleLineStatementExpressionPosition } = opts;
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
 
@@ -1642,6 +1645,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
         requiresBracesCondition,
         useBraces,
         bracePosition,
+        singleLineStatementExpressionPosition,
         startHeaderInfo,
         endHeaderInfo
     });
@@ -1667,6 +1671,7 @@ interface ParseConditionalBraceBodyOptions {
     context: Context;
     useBraces: NonNullable<TypeScriptConfiguration["useBraces"]>;
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    singleLineStatementExpressionPosition?: TypeScriptConfiguration["singleLineStatementExpressionPosition"];
     requiresBracesCondition: Condition | undefined;
     startHeaderInfo?: Info;
     endHeaderInfo?: Info;
@@ -1678,7 +1683,8 @@ interface ParseConditionalBraceBodyResult {
 }
 
 function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): ParseConditionalBraceBodyResult {
-    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition } = opts;
+    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition, singleLineStatementExpressionPosition
+    } = opts;
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
     const headerTrailingComments = Array.from(getHeaderTrailingComments());
@@ -1723,7 +1729,55 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
         yield* parseHeaderTrailingComment();
 
-        yield context.newlineKind;
+        yield {
+            kind: PrintItemKind.Condition,
+            name: "newlineOrSpaceCondition",
+            condition: conditionContext => {
+                if (shouldUseNewline())
+                    return true;
+                if (startHeaderInfo == null)
+                    return throwError("Expected start header info in this scenario.");
+
+                const resolvedStartInfo = conditionContext.getResolvedInfo(startHeaderInfo)!;
+                if (resolvedStartInfo.lineNumber < conditionContext.writerInfo.lineNumber)
+                    return true;
+
+                const resolvedEndStatementsInfo = conditionContext.getResolvedInfo(endStatementsInfo);
+                if (resolvedEndStatementsInfo == null)
+                    return undefined;
+
+                return resolvedEndStatementsInfo.lineNumber > resolvedStartInfo.lineNumber;
+
+                function shouldUseNewline() {
+                    if (conditionContext.getResolvedCondition(openBraceCondition))
+                        return true;
+                    if (singleLineStatementExpressionPosition == null)
+                        return true;
+                    switch (singleLineStatementExpressionPosition) {
+                        case "maintain":
+                            return getBodyStatementStartLine() > parent.loc!.start.line;
+                        case "nextLine":
+                            return true;
+                        case "sameLine":
+                            return false;
+                        default:
+                            return assertNever(singleLineStatementExpressionPosition);
+                    }
+
+                    function getBodyStatementStartLine() {
+                        if (bodyNode.type === "BlockStatement") {
+                            const firstStatement = bodyNode.body[0];
+                            if (firstStatement)
+                                return firstStatement && firstStatement.loc!.start.line;
+                        }
+                        return bodyNode.loc!.start.line;
+                    }
+                }
+            },
+            true: [context.newlineKind],
+            false: [" "]
+        };
+
         yield startStatementsInfo;
 
         if (bodyNode.type === "BlockStatement") {

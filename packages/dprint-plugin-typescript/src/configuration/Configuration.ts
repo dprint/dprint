@@ -56,6 +56,14 @@ export interface TypeScriptConfiguration {
      */
     bracePosition?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
+     * Where to place the expression of a single line statement.
+     * @default "maintain"
+     * @value "maintain" - Maintains the position of the expression.
+     * @value "sameLine" - Forces the whole statement to be on one line.
+     * @value "nextLine" - Forces the expression to be on the next line.
+     */
+    singleLineStatementExpressionPosition?: "maintain" | "sameLine" | "nextLine";
+    /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
      * @value "maintain" - Maintains the next control flow being on the next line or the same line.
@@ -143,6 +151,8 @@ export interface TypeScriptConfiguration {
     "tryStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "whileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
 
+    "ifStatement.singleLineStatementExpressionPosition"?: TypeScriptConfiguration["singleLineStatementExpressionPosition"];
+
     "ifStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
     "tryStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
 
@@ -218,6 +228,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "switchStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "tryStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "whileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+
+    // single line statement expression position
+    readonly "ifStatement.singleLineStatementExpressionPosition": TypeScriptConfiguration["singleLineStatementExpressionPosition"];
 
     // next control flow position
     readonly "ifStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
