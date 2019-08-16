@@ -40,12 +40,13 @@ export interface TypeScriptConfiguration {
     newlineKind?: "auto" | "crlf" | "lf" | "system";
     /**
      * If braces should be used or not.
-     * @default "maintain"
+     * @default "whenNotSingleLine"
+     * @value "whenNotSingleLine" - Uses braces when the body is on a different line.
      * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
      * @value "always" - Forces the use of braces. Will add them if they aren't used.
      * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
      */
-    useBraces?: "maintain" | "always" | "preferNone";
+    useBraces?: "maintain" | "whenNotSingleLine" | "always" | "preferNone";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -62,7 +63,7 @@ export interface TypeScriptConfiguration {
      * @value "sameLine" - Forces the whole statement to be on one line.
      * @value "nextLine" - Forces the expression to be on the next line.
      */
-    singleLineStatementExpressionPosition?: "maintain" | "sameLine" | "nextLine";
+    singleLineStatementExpressionPosition?: "maintain" | "sameLine" | "nextLine"; //todo: rename to singleBodyPosition?
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"

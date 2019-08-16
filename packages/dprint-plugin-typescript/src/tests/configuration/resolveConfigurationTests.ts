@@ -131,11 +131,11 @@ describe(nameof(resolveConfiguration), () => {
         }
 
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject("maintain"));
+            doSpecificTest({}, getObject("whenNotSingleLine"));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ useBraces: "maintain" }, getObject("maintain"));
+            doSpecificTest({ useBraces: "whenNotSingleLine" }, getObject("whenNotSingleLine"));
         });
 
         it("should set all the values when set to a non-default", () => {

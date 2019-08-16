@@ -6,7 +6,7 @@ import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "./Conf
 const defaultValues = {
     semiColons: true,
     singleQuotes: false,
-    useBraces: "maintain",
+    useBraces: "whenNotSingleLine",
     bracePosition: "nextLineIfHanging",
     singleLineStatementExpressionPosition: "maintain",
     nextControlFlowPosition: "nextLine",
@@ -182,6 +182,7 @@ export function resolveConfiguration(
     function ensureBraceUse(key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["useBraces"]) {
         switch (value) {
             case "maintain":
+            case "whenNotSingleLine":
             case "preferNone":
             case "always":
             case null:

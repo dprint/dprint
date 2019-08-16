@@ -1439,7 +1439,10 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         // parse the leading comments before the else keyword
         yield* parseLeadingComments(node.alternate, context);
 
+        const startElseHeaderInfo = createInfo("startElseHeader");
+        yield startElseHeaderInfo;
         yield "else";
+
         if (node.alternate.type === "IfStatement") {
             yield " ";
             yield* parseNode(node.alternate, context);
@@ -1449,9 +1452,11 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
                 parent: node,
                 bodyNode: node.alternate,
                 context,
+                startHeaderInfo: startElseHeaderInfo,
                 useBraces: context.config["ifStatement.useBraces"],
                 bracePosition: context.config["ifStatement.bracePosition"],
                 singleLineStatementExpressionPosition: context.config["ifStatement.singleLineStatementExpressionPosition"],
+                headerStartToken: context.tokenFinder.getFirstTokenBefore(node.alternate, "else"),
                 requiresBracesCondition: result.braceCondition
             }).iterator;
         }
@@ -1673,6 +1678,7 @@ interface ParseConditionalBraceBodyOptions {
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
     singleLineStatementExpressionPosition?: TypeScriptConfiguration["singleLineStatementExpressionPosition"];
     requiresBracesCondition: Condition | undefined;
+    headerStartToken?: BabelToken;
     startHeaderInfo?: Info;
     endHeaderInfo?: Info;
 }
@@ -1683,8 +1689,8 @@ interface ParseConditionalBraceBodyResult {
 }
 
 function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): ParseConditionalBraceBodyResult {
-    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition, singleLineStatementExpressionPosition
-    } = opts;
+    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition, singleLineStatementExpressionPosition,
+        headerStartToken } = opts;
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
     const headerTrailingComments = Array.from(getHeaderTrailingComments());
@@ -1692,14 +1698,16 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
         kind: PrintItemKind.Condition,
         name: "openBrace",
         condition: conditionContext => {
-            if (useBraces === "maintain")
+            if (useBraces === "whenNotSingleLine")
+                return conditionContext.getResolvedCondition(newlineOrSpaceCondition);
+            else if (useBraces === "maintain")
                 return bodyNode.type === "BlockStatement";
             else if (useBraces === "always")
                 return true;
             else if (useBraces === "preferNone") {
                 // writing an open brace might make the header hang, so assume it should
                 // not write the open brace until it's been resolved
-                return bodyRequiresBraces()
+                return bodyShouldBeMultiLine()
                     || startHeaderInfo && endHeaderInfo && conditionResolvers.isMultipleLines(conditionContext, startHeaderInfo, endHeaderInfo, false)
                     || conditionResolvers.isMultipleLines(conditionContext, startStatementsInfo, endStatementsInfo, false)
                     || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
@@ -1718,6 +1726,54 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             yield "{";
         }()
     };
+    const newlineOrSpaceCondition: Condition = {
+        kind: PrintItemKind.Condition,
+        name: "newlineOrSpaceCondition",
+        condition: conditionContext => {
+            if (shouldUseNewline())
+                return true;
+            if (startHeaderInfo == null)
+                return throwError("Expected start header info in this scenario.");
+
+            const resolvedStartInfo = conditionContext.getResolvedInfo(startHeaderInfo)!;
+            if (resolvedStartInfo.lineNumber < conditionContext.writerInfo.lineNumber)
+                return true;
+
+            const resolvedEndStatementsInfo = conditionContext.getResolvedInfo(endStatementsInfo);
+            if (resolvedEndStatementsInfo == null)
+                return undefined;
+
+            return resolvedEndStatementsInfo.lineNumber > resolvedStartInfo.lineNumber;
+
+            function shouldUseNewline() {
+                if (bodyShouldBeMultiLine())
+                    return true;
+                if (singleLineStatementExpressionPosition == null)
+                    return true;
+                switch (singleLineStatementExpressionPosition) {
+                    case "maintain":
+                        return getBodyStatementStartLine() > (headerStartToken || parent).loc!.start.line;
+                    case "nextLine":
+                        return true;
+                    case "sameLine":
+                        return false;
+                    default:
+                        return assertNever(singleLineStatementExpressionPosition);
+                }
+
+                function getBodyStatementStartLine() {
+                    if (bodyNode.type === "BlockStatement") {
+                        const firstStatement = bodyNode.body[0];
+                        if (firstStatement)
+                            return firstStatement && firstStatement.loc!.start.line;
+                    }
+                    return bodyNode.loc!.start.line;
+                }
+            }
+        },
+        true: [context.newlineKind],
+        false: [" "]
+    };
 
     return {
         braceCondition: openBraceCondition,
@@ -1729,54 +1785,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
         yield* parseHeaderTrailingComment();
 
-        yield {
-            kind: PrintItemKind.Condition,
-            name: "newlineOrSpaceCondition",
-            condition: conditionContext => {
-                if (shouldUseNewline())
-                    return true;
-                if (startHeaderInfo == null)
-                    return throwError("Expected start header info in this scenario.");
-
-                const resolvedStartInfo = conditionContext.getResolvedInfo(startHeaderInfo)!;
-                if (resolvedStartInfo.lineNumber < conditionContext.writerInfo.lineNumber)
-                    return true;
-
-                const resolvedEndStatementsInfo = conditionContext.getResolvedInfo(endStatementsInfo);
-                if (resolvedEndStatementsInfo == null)
-                    return undefined;
-
-                return resolvedEndStatementsInfo.lineNumber > resolvedStartInfo.lineNumber;
-
-                function shouldUseNewline() {
-                    if (conditionContext.getResolvedCondition(openBraceCondition))
-                        return true;
-                    if (singleLineStatementExpressionPosition == null)
-                        return true;
-                    switch (singleLineStatementExpressionPosition) {
-                        case "maintain":
-                            return getBodyStatementStartLine() > parent.loc!.start.line;
-                        case "nextLine":
-                            return true;
-                        case "sameLine":
-                            return false;
-                        default:
-                            return assertNever(singleLineStatementExpressionPosition);
-                    }
-
-                    function getBodyStatementStartLine() {
-                        if (bodyNode.type === "BlockStatement") {
-                            const firstStatement = bodyNode.body[0];
-                            if (firstStatement)
-                                return firstStatement && firstStatement.loc!.start.line;
-                        }
-                        return bodyNode.loc!.start.line;
-                    }
-                }
-            },
-            true: [context.newlineKind],
-            false: [" "]
-        };
+        yield newlineOrSpaceCondition;
 
         yield startStatementsInfo;
 
@@ -1821,7 +1830,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
         }
     }
 
-    function bodyRequiresBraces() {
+    function bodyShouldBeMultiLine() {
         if (bodyNode.type === "BlockStatement") {
             if (bodyNode.body.length === 1 && !nodeHelpers.hasLeadingCommentOnDifferentLine(bodyNode.body[0], /* commentsToIgnore */ headerTrailingComments))
                 return false;
