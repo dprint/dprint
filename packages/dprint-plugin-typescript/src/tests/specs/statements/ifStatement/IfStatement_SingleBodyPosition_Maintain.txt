@@ -1,4 +1,4 @@
-~~ ifStatement.singleLineStatementExpressionPosition: "maintain", ifStatement.useBraces: "maintain", lineWidth: 40 ~~
+~~ ifStatement.singleBodyPosition: "maintain", ifStatement.useBraces: "maintain", lineWidth: 40 ~~
 == should keep on a single line ==
 if (true) console.log(5);
 

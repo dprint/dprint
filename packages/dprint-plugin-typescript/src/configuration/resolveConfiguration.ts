@@ -8,7 +8,7 @@ const defaultValues = {
     singleQuotes: false,
     useBraces: "whenNotSingleLine",
     bracePosition: "nextLineIfHanging",
-    singleLineStatementExpressionPosition: "maintain",
+    singleBodyPosition: "maintain",
     nextControlFlowPosition: "nextLine",
     trailingCommas: "never",
     "enumDeclaration.memberSpacing": "maintain",
@@ -29,8 +29,7 @@ export function resolveConfiguration(
     const semiColons = getValue("semiColons", defaultValues.semiColons, ensureBoolean);
     const useBraces = getValue("useBraces", defaultValues.useBraces, ensureBraceUse);
     const bracePosition = getValue("bracePosition", defaultValues.bracePosition, ensureBracePosition);
-    const singleLineStatementExpressionPosition = getValue("singleLineStatementExpressionPosition", defaultValues.singleLineStatementExpressionPosition,
-        ensureSingleLineStatementExpressionPosition);
+    const singleBodyPosition = getValue("singleBodyPosition", defaultValues.singleBodyPosition, ensureSingleBodyPosition);
     const nextControlFlowPosition = getValue("nextControlFlowPosition", defaultValues.nextControlFlowPosition, ensureNextControlFlowPosition);
     const trailingCommas = getValue("trailingCommas", defaultValues.trailingCommas, ensureTrailingCommas);
 
@@ -98,8 +97,7 @@ export function resolveConfiguration(
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
         "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition),
         // single line statement expression position
-        "ifStatement.singleLineStatementExpressionPosition": getValue("ifStatement.singleLineStatementExpressionPosition",
-            singleLineStatementExpressionPosition, ensureSingleLineStatementExpressionPosition),
+        "ifStatement.singleBodyPosition": getValue("ifStatement.singleBodyPosition", singleBodyPosition, ensureSingleBodyPosition),
         // next control flow position
         "ifStatement.nextControlFlowPosition": getValue("ifStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
         "tryStatement.nextControlFlowPosition": getValue("tryStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
@@ -217,9 +215,7 @@ export function resolveConfiguration(
         }
     }
 
-    function ensureSingleLineStatementExpressionPosition(key: keyof TypeScriptConfiguration,
-        value: TypeScriptConfiguration["singleLineStatementExpressionPosition"])
-    {
+    function ensureSingleBodyPosition(key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["singleBodyPosition"]) {
         switch (value) {
             case "maintain":
             case "sameLine":

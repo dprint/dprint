@@ -1,4 +1,4 @@
-~~ ifStatement.singleLineStatementExpressionPosition: "nextLine", ifStatement.useBraces: "preferNone", lineWidth: 40 ~~
+~~ ifStatement.singleBodyPosition: "nextLine", ifStatement.useBraces: "preferNone", lineWidth: 40 ~~
 == should move when on a single line ==
 if (true) console.log(5);
 

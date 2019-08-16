@@ -1424,7 +1424,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         context,
         useBraces: context.config["ifStatement.useBraces"],
         bracePosition: context.config["ifStatement.bracePosition"],
-        singleLineStatementExpressionPosition: context.config["ifStatement.singleLineStatementExpressionPosition"],
+        singleBodyPosition: context.config["ifStatement.singleBodyPosition"],
         requiresBracesCondition: context.bag.take(BAG_KEYS.IfStatementLastBraceCondition) as Condition | undefined
     });
 
@@ -1455,7 +1455,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
                 startHeaderInfo: startElseHeaderInfo,
                 useBraces: context.config["ifStatement.useBraces"],
                 bracePosition: context.config["ifStatement.bracePosition"],
-                singleLineStatementExpressionPosition: context.config["ifStatement.singleLineStatementExpressionPosition"],
+                singleBodyPosition: context.config["ifStatement.singleBodyPosition"],
                 headerStartToken: context.tokenFinder.getFirstTokenBefore(node.alternate, "else"),
                 requiresBracesCondition: result.braceCondition
             }).iterator;
@@ -1630,7 +1630,7 @@ interface ParseHeaderWithConditionalBraceBodyOptions {
     requiresBracesCondition: Condition | undefined;
     useBraces: NonNullable<TypeScriptConfiguration["useBraces"]>;
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
-    singleLineStatementExpressionPosition?: TypeScriptConfiguration["singleLineStatementExpressionPosition"];
+    singleBodyPosition?: TypeScriptConfiguration["singleBodyPosition"];
 }
 
 interface ParseHeaderWithConditionalBraceBodyResult {
@@ -1639,7 +1639,7 @@ interface ParseHeaderWithConditionalBraceBodyResult {
 }
 
 function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBraceBodyOptions): ParseHeaderWithConditionalBraceBodyResult {
-    const { context, parent, bodyNode, requiresBracesCondition, useBraces, bracePosition, singleLineStatementExpressionPosition } = opts;
+    const { context, parent, bodyNode, requiresBracesCondition, useBraces, bracePosition, singleBodyPosition } = opts;
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
 
@@ -1650,7 +1650,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
         requiresBracesCondition,
         useBraces,
         bracePosition,
-        singleLineStatementExpressionPosition,
+        singleBodyPosition,
         startHeaderInfo,
         endHeaderInfo
     });
@@ -1676,7 +1676,7 @@ interface ParseConditionalBraceBodyOptions {
     context: Context;
     useBraces: NonNullable<TypeScriptConfiguration["useBraces"]>;
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
-    singleLineStatementExpressionPosition?: TypeScriptConfiguration["singleLineStatementExpressionPosition"];
+    singleBodyPosition?: TypeScriptConfiguration["singleBodyPosition"];
     requiresBracesCondition: Condition | undefined;
     headerStartToken?: BabelToken;
     startHeaderInfo?: Info;
@@ -1689,7 +1689,7 @@ interface ParseConditionalBraceBodyResult {
 }
 
 function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): ParseConditionalBraceBodyResult {
-    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition, singleLineStatementExpressionPosition,
+    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition, singleBodyPosition,
         headerStartToken } = opts;
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
@@ -1748,9 +1748,9 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             function shouldUseNewline() {
                 if (bodyShouldBeMultiLine())
                     return true;
-                if (singleLineStatementExpressionPosition == null)
+                if (singleBodyPosition == null)
                     return true;
-                switch (singleLineStatementExpressionPosition) {
+                switch (singleBodyPosition) {
                     case "maintain":
                         return getBodyStatementStartLine() > (headerStartToken || parent).loc!.start.line;
                     case "nextLine":
@@ -1758,7 +1758,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                     case "sameLine":
                         return false;
                     default:
-                        return assertNever(singleLineStatementExpressionPosition);
+                        return assertNever(singleBodyPosition);
                 }
 
                 function getBodyStatementStartLine() {

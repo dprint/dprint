@@ -57,13 +57,13 @@ export interface TypeScriptConfiguration {
      */
     bracePosition?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
-     * Where to place the expression of a single line statement.
+     * Where to place the expression of a statement that could possibly only be on one line (ex. `if (true) console.log(5);`).
      * @default "maintain"
      * @value "maintain" - Maintains the position of the expression.
      * @value "sameLine" - Forces the whole statement to be on one line.
      * @value "nextLine" - Forces the expression to be on the next line.
      */
-    singleLineStatementExpressionPosition?: "maintain" | "sameLine" | "nextLine"; //todo: rename to singleBodyPosition?
+    singleBodyPosition?: "maintain" | "sameLine" | "nextLine";
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
@@ -152,7 +152,7 @@ export interface TypeScriptConfiguration {
     "tryStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "whileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
 
-    "ifStatement.singleLineStatementExpressionPosition"?: TypeScriptConfiguration["singleLineStatementExpressionPosition"];
+    "ifStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
 
     "ifStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
     "tryStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
@@ -231,7 +231,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "whileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
 
     // single line statement expression position
-    readonly "ifStatement.singleLineStatementExpressionPosition": TypeScriptConfiguration["singleLineStatementExpressionPosition"];
+    readonly "ifStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
 
     // next control flow position
     readonly "ifStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
