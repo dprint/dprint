@@ -32,7 +32,7 @@ export function parseToBabelAst(filePath: string, fileText: string) {
 
         function isJsx() {
             const fileExtension = getFileExtension(filePath).toLowerCase();
-            return fileExtension === ".tsx" || fileExtension === ".jsx"; // todo: I don't know if there is such thing as .jsx
+            return fileExtension === ".tsx" || fileExtension === ".jsx" || fileExtension === ".js";
         }
     }
 }

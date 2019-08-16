@@ -1,0 +1,6 @@
+-- filePath: file.js --
+== should allow jsx in js files ==
+const t = <test></test>;
+
+[expect]
+const t = <test></test>;

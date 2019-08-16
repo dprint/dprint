@@ -40,7 +40,7 @@ export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration>
             case ".ts":
             case ".tsx":
             case ".js":
-            case ".jsx": // todo: does jsx file path exist? I forget.
+            case ".jsx":
                 return true;
             default:
                 return false;

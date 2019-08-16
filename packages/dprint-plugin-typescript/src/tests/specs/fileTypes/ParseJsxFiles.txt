@@ -1,0 +1,6 @@
+-- filePath: file.jsx --
+== should parse jsx files ==
+const t = <test></test>;
+
+[expect]
+const t = <test></test>;
