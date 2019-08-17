@@ -1334,6 +1334,7 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
         bodyNode: node.body,
         useBraces: context.config["forInStatement.useBraces"],
         bracePosition: context.config["forInStatement.bracePosition"],
+        singleBodyPosition: context.config["forInStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1367,6 +1368,7 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
         bodyNode: node.body,
         useBraces: context.config["forOfStatement.useBraces"],
         bracePosition: context.config["forOfStatement.bracePosition"],
+        singleBodyPosition: context.config["forOfStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1397,6 +1399,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
         bodyNode: node.body,
         useBraces: context.config["forStatement.useBraces"],
         bracePosition: context.config["forStatement.bracePosition"],
+        singleBodyPosition: context.config["forStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1589,6 +1592,7 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
         bodyNode: node.body,
         useBraces: context.config["whileStatement.useBraces"],
         bracePosition: context.config["whileStatement.bracePosition"],
+        singleBodyPosition: context.config["whileStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1755,8 +1759,6 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                         return getBodyStatementStartLine() > (headerStartToken || parent).loc!.start.line;
                     case "nextLine":
                         return true;
-                    case "sameLine":
-                        return false;
                     default:
                         return assertNever(singleBodyPosition);
                 }

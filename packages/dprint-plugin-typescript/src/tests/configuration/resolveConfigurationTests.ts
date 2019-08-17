@@ -227,15 +227,17 @@ describe(nameof(resolveConfiguration), () => {
         it("should allow setting specific values when not the default", () => {
             const expectedConfig = getObject("maintain");
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.singleBodyPosition = "sameLine";
+            config.singleBodyPosition = "nextLine";
             doSpecificTest(config, expectedConfig);
         });
 
-        function getObject(
-            value: NonNullable<TypeScriptConfiguration["singleBodyPosition"]>
-        ): Partial<ResolvedTypeScriptConfiguration> {
+        function getObject(value: NonNullable<TypeScriptConfiguration["singleBodyPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "ifStatement.singleBodyPosition": value
+                "forInStatement.singleBodyPosition": value,
+                "forOfStatement.singleBodyPosition": value,
+                "forStatement.singleBodyPosition": value,
+                "ifStatement.singleBodyPosition": value,
+                "whileStatement.singleBodyPosition": value
             };
         }
     });

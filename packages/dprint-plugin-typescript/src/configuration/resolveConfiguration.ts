@@ -96,8 +96,12 @@ export function resolveConfiguration(
         "switchStatement.bracePosition": getValue("switchStatement.bracePosition", bracePosition, ensureBracePosition),
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
         "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition),
-        // single line statement expression position
+        // single body position
+        "forInStatement.singleBodyPosition": getValue("forInStatement.singleBodyPosition", singleBodyPosition, ensureSingleBodyPosition),
+        "forOfStatement.singleBodyPosition": getValue("forOfStatement.singleBodyPosition", singleBodyPosition, ensureSingleBodyPosition),
+        "forStatement.singleBodyPosition": getValue("forStatement.singleBodyPosition", singleBodyPosition, ensureSingleBodyPosition),
         "ifStatement.singleBodyPosition": getValue("ifStatement.singleBodyPosition", singleBodyPosition, ensureSingleBodyPosition),
+        "whileStatement.singleBodyPosition": getValue("whileStatement.singleBodyPosition", singleBodyPosition, ensureSingleBodyPosition),
         // next control flow position
         "ifStatement.nextControlFlowPosition": getValue("ifStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
         "tryStatement.nextControlFlowPosition": getValue("tryStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
@@ -218,7 +222,6 @@ export function resolveConfiguration(
     function ensureSingleBodyPosition(key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["singleBodyPosition"]) {
         switch (value) {
             case "maintain":
-            case "sameLine":
             case "nextLine":
             case null:
             case undefined:

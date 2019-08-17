@@ -60,10 +60,9 @@ export interface TypeScriptConfiguration {
      * Where to place the expression of a statement that could possibly only be on one line (ex. `if (true) console.log(5);`).
      * @default "maintain"
      * @value "maintain" - Maintains the position of the expression.
-     * @value "sameLine" - Forces the whole statement to be on one line.
      * @value "nextLine" - Forces the expression to be on the next line.
      */
-    singleBodyPosition?: "maintain" | "sameLine" | "nextLine";
+    singleBodyPosition?: "maintain" | "nextLine";
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
@@ -152,7 +151,11 @@ export interface TypeScriptConfiguration {
     "tryStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "whileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
 
+    "forInStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
+    "forOfStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
+    "forStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
     "ifStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
+    "whileStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
 
     "ifStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
     "tryStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
@@ -230,8 +233,12 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tryStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "whileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
 
-    // single line statement expression position
+    // single body position
+    readonly "forInStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
+    readonly "forOfStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
+    readonly "forStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
     readonly "ifStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
+    readonly "whileStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
 
     // next control flow position
     readonly "ifStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
