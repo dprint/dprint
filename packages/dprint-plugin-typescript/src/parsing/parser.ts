@@ -1759,6 +1759,8 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                         return getBodyStatementStartLine() > (headerStartToken || parent).loc!.start.line;
                     case "nextLine":
                         return true;
+                    case "sameLine":
+                        return bodyNode.type === "BlockStatement";
                     default:
                         return assertNever(singleBodyPosition);
                 }

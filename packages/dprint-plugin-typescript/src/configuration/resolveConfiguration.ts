@@ -222,6 +222,7 @@ export function resolveConfiguration(
     function ensureSingleBodyPosition(key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["singleBodyPosition"]) {
         switch (value) {
             case "maintain":
+            case "sameLine":
             case "nextLine":
             case null:
             case undefined:

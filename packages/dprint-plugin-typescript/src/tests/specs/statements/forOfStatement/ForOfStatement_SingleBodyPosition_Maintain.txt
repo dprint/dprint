@@ -1,15 +1,15 @@
 ~~ forInStatement.singleBodyPosition: "maintain" ~~
 == should keep on a single line ==
-for (const t in other) a;
+for (const t of other) a;
 
 [expect]
-for (const t in other) a;
+for (const t of other) a;
 
 == should keep on the next line ==
-for (const t in other)
+for (const t of other)
     a;
 
 [expect]
-for (const t in other) {
+for (const t of other) {
     a;
 }

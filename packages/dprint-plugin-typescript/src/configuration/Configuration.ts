@@ -60,9 +60,10 @@ export interface TypeScriptConfiguration {
      * Where to place the expression of a statement that could possibly only be on one line (ex. `if (true) console.log(5);`).
      * @default "maintain"
      * @value "maintain" - Maintains the position of the expression.
+     * @value "sameLine" - Forces the whole statement to be on one line.
      * @value "nextLine" - Forces the expression to be on the next line.
      */
-    singleBodyPosition?: "maintain" | "nextLine";
+    singleBodyPosition?: "maintain" | "sameLine" | "nextLine";
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
