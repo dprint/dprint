@@ -42,3 +42,13 @@ else if (true) {
 // other
 else {
 }
+
+== should use even when single line ==
+if (true) console.log(5);
+else if (false) console.log(6);
+else console.log(7);
+
+[expect]
+if (true) { console.log(5); }
+else if (false) { console.log(6); }
+else { console.log(7); }

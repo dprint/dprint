@@ -4,5 +4,6 @@ for (let i = 0; i < 5; i++)
     break
 
 [expect]
-for (let i = 0; i < 5; i++)
+for (let i = 0; i < 5; i++) {
     break
+}

@@ -40,12 +40,13 @@ export interface TypeScriptConfiguration {
     newlineKind?: "auto" | "crlf" | "lf" | "system";
     /**
      * If braces should be used or not.
-     * @default "maintain"
+     * @default "whenNotSingleLine"
+     * @value "whenNotSingleLine" - Uses braces when the body is on a different line.
      * @value "maintain" - Uses braces if they're used. Doesn't use braces if they're not used.
      * @value "always" - Forces the use of braces. Will add them if they aren't used.
      * @value "preferNone" - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
      */
-    useBraces?: "maintain" | "always" | "preferNone";
+    useBraces?: "maintain" | "whenNotSingleLine" | "always" | "preferNone";
     /**
      * Where to place the brace.
      * @default "nextLineIfHanging"
@@ -55,6 +56,14 @@ export interface TypeScriptConfiguration {
      * @value "nextLineIfHanging" - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
      */
     bracePosition?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
+    /**
+     * Where to place the expression of a statement that could possibly only be on one line (ex. `if (true) console.log(5);`).
+     * @default "maintain"
+     * @value "maintain" - Maintains the position of the expression.
+     * @value "sameLine" - Forces the whole statement to be on one line.
+     * @value "nextLine" - Forces the expression to be on the next line.
+     */
+    singleBodyPosition?: "maintain" | "sameLine" | "nextLine";
     /**
      * Where to place the next control flow within a control flow statement.
      * @default "nextLine"
@@ -137,6 +146,11 @@ export interface TypeScriptConfiguration {
     "switchStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "tryStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "whileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "forInStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
+    "forOfStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
+    "forStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
+    "ifStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
+    "whileStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
     "ifStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
     "tryStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
     "arrayExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
@@ -203,6 +217,11 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "switchStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "tryStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "whileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "forInStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
+    readonly "forOfStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
+    readonly "forStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
+    readonly "ifStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
+    readonly "whileStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
     readonly "ifStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
     readonly "tryStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
     readonly "arrayExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
