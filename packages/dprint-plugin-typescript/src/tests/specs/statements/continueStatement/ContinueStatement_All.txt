@@ -3,8 +3,9 @@ for (let i = 0; i < 5; i++)
     continue;
 
 [expect]
-for (let i = 0; i < 5; i++)
+for (let i = 0; i < 5; i++) {
     continue;
+}
 
 == should format when has a label ==
 loop1:
@@ -13,5 +14,6 @@ for (let i = 0; i < 5; i++)
 
 [expect]
 loop1:
-for (let i = 0; i < 5; i++)
+for (let i = 0; i < 5; i++) {
     continue loop1;
+}

@@ -179,7 +179,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         }
 
         function printCondition(condition: Condition) {
-            const conditionValue = getConditionValue(condition);
+            const conditionValue = getConditionValue(condition, condition);
             doUpdatingDepth(() => {
                 if (conditionValue) {
                     if (condition.true) {
@@ -265,13 +265,13 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         }
     }
 
-    function getConditionValue(condition: Condition): boolean | undefined {
+    function getConditionValue(condition: Condition, printingCondition: Condition): boolean | undefined {
         if (typeof condition.condition === "object") {
             const result = resolvedConditions.get(condition.condition);
 
             if (result == null) {
                 if (!lookAheadSavePoints.has(condition)) {
-                    const savePoint = createSavePoint(condition);
+                    const savePoint = createSavePoint(printingCondition);
                     savePoint.name = condition.name;
                     lookAheadSavePoints.set(condition, savePoint);
                 }
@@ -290,7 +290,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             const result = condition.condition({
                 getResolvedCondition,
                 writerInfo: getWriterInfo(),
-                getResolvedInfo: info => getResolvedInfo(info, condition)
+                getResolvedInfo: info => getResolvedInfo(info)
             });
             if (result != null)
                 resolvedConditions.set(condition, result);
@@ -303,10 +303,20 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         function getResolvedCondition(c: Condition): boolean | undefined;
         function getResolvedCondition(c: Condition, defaultValue: boolean): boolean;
         function getResolvedCondition(c: Condition, defaultValue?: boolean): boolean | undefined {
-            const conditionValue = getConditionValue(c);
+            const conditionValue = getConditionValue(c, printingCondition);
             if (conditionValue == null)
                 return defaultValue;
             return conditionValue;
+        }
+
+        function getResolvedInfo(info: Info) {
+            const resolvedInfo = resolvedInfos.get(info);
+            if (resolvedInfo == null && !lookAheadSavePoints.has(info)) {
+                const savePoint = createSavePoint(printingCondition);
+                savePoint.name = info.name;
+                lookAheadSavePoints.set(info, savePoint);
+            }
+            return resolvedInfo;
         }
     }
 
@@ -318,16 +328,6 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             lookAheadSavePoints.delete(info);
             revertToSavePointPossiblyThrowing(savePoint);
         }
-    }
-
-    function getResolvedInfo(info: Info, parentCondition: Condition) {
-        const resolvedInfo = resolvedInfos.get(info);
-        if (resolvedInfo == null && !lookAheadSavePoints.has(info)) {
-            const savePoint = createSavePoint(parentCondition);
-            savePoint.name = info.name;
-            lookAheadSavePoints.set(info, savePoint);
-        }
-        return resolvedInfo;
     }
 
     function getWriterInfo(): WriterInfo {

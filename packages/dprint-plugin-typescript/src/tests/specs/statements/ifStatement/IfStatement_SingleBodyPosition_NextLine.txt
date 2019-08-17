@@ -1,0 +1,24 @@
+~~ ifStatement.singleBodyPosition: "nextLine", ifStatement.useBraces: "preferNone", lineWidth: 40 ~~
+== should move when on a single line ==
+if (true) console.log(5);
+
+[expect]
+if (true)
+    console.log(5);
+
+== should keep on the next line when on the next line ==
+if (true)
+    console.log(5);
+
+[expect]
+if (true)
+    console.log(5);
+
+== should move and add braces (since useBraces is "preferNone") when exceeding line width on statement ==
+if (true) add(5345243524523452345 + 21344351345234652452345);
+
+[expect]
+if (true) {
+    add(5345243524523452345
+        + 21344351345234652452345);
+}

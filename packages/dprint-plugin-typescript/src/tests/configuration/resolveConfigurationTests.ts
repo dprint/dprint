@@ -131,11 +131,11 @@ describe(nameof(resolveConfiguration), () => {
         }
 
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject("maintain"));
+            doSpecificTest({}, getObject("whenNotSingleLine"));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ useBraces: "maintain" }, getObject("maintain"));
+            doSpecificTest({ useBraces: "whenNotSingleLine" }, getObject("whenNotSingleLine"));
         });
 
         it("should set all the values when set to a non-default", () => {
@@ -203,6 +203,41 @@ describe(nameof(resolveConfiguration), () => {
                 "switchStatement.bracePosition": value,
                 "tryStatement.bracePosition": value,
                 "whileStatement.bracePosition": value
+            };
+        }
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c.singleBodyPosition), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("singleBodyPosition"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject("maintain"));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ singleBodyPosition: "maintain" }, getObject("maintain"));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ singleBodyPosition: "nextLine" }, getObject("nextLine"));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject("maintain");
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.singleBodyPosition = "nextLine";
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<TypeScriptConfiguration["singleBodyPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "forInStatement.singleBodyPosition": value,
+                "forOfStatement.singleBodyPosition": value,
+                "forStatement.singleBodyPosition": value,
+                "ifStatement.singleBodyPosition": value,
+                "whileStatement.singleBodyPosition": value
             };
         }
     });

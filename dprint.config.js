@@ -9,6 +9,7 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             useBraces: "preferNone",
+            singleBodyPosition: "nextLine",
             "arrowFunctionExpression.useParentheses": "preferNone",
             "tryStatement.nextControlFlowPosition": "sameLine"
         }),

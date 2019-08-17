@@ -2,8 +2,8 @@ import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
-import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace,
-    hasNewLineOccurrencesInTrailingWhiteSpace } from "../utils";
+import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhiteSpace,
+    throwError } from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
@@ -1334,6 +1334,7 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
         bodyNode: node.body,
         useBraces: context.config["forInStatement.useBraces"],
         bracePosition: context.config["forInStatement.bracePosition"],
+        singleBodyPosition: context.config["forInStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1367,6 +1368,7 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
         bodyNode: node.body,
         useBraces: context.config["forOfStatement.useBraces"],
         bracePosition: context.config["forOfStatement.bracePosition"],
+        singleBodyPosition: context.config["forOfStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1397,6 +1399,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
         bodyNode: node.body,
         useBraces: context.config["forStatement.useBraces"],
         bracePosition: context.config["forStatement.bracePosition"],
+        singleBodyPosition: context.config["forStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1424,6 +1427,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         context,
         useBraces: context.config["ifStatement.useBraces"],
         bracePosition: context.config["ifStatement.bracePosition"],
+        singleBodyPosition: context.config["ifStatement.singleBodyPosition"],
         requiresBracesCondition: context.bag.take(BAG_KEYS.IfStatementLastBraceCondition) as Condition | undefined
     });
 
@@ -1438,7 +1442,10 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
         // parse the leading comments before the else keyword
         yield* parseLeadingComments(node.alternate, context);
 
+        const startElseHeaderInfo = createInfo("startElseHeader");
+        yield startElseHeaderInfo;
         yield "else";
+
         if (node.alternate.type === "IfStatement") {
             yield " ";
             yield* parseNode(node.alternate, context);
@@ -1448,8 +1455,11 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
                 parent: node,
                 bodyNode: node.alternate,
                 context,
+                startHeaderInfo: startElseHeaderInfo,
                 useBraces: context.config["ifStatement.useBraces"],
                 bracePosition: context.config["ifStatement.bracePosition"],
+                singleBodyPosition: context.config["ifStatement.singleBodyPosition"],
+                headerStartToken: context.tokenFinder.getFirstTokenBefore(node.alternate, "else"),
                 requiresBracesCondition: result.braceCondition
             }).iterator;
         }
@@ -1582,6 +1592,7 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
         bodyNode: node.body,
         useBraces: context.config["whileStatement.useBraces"],
         bracePosition: context.config["whileStatement.bracePosition"],
+        singleBodyPosition: context.config["whileStatement.singleBodyPosition"],
         requiresBracesCondition: undefined,
         startHeaderInfo,
         endHeaderInfo
@@ -1623,6 +1634,7 @@ interface ParseHeaderWithConditionalBraceBodyOptions {
     requiresBracesCondition: Condition | undefined;
     useBraces: NonNullable<TypeScriptConfiguration["useBraces"]>;
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    singleBodyPosition?: TypeScriptConfiguration["singleBodyPosition"];
 }
 
 interface ParseHeaderWithConditionalBraceBodyResult {
@@ -1631,7 +1643,7 @@ interface ParseHeaderWithConditionalBraceBodyResult {
 }
 
 function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBraceBodyOptions): ParseHeaderWithConditionalBraceBodyResult {
-    const { context, parent, bodyNode, requiresBracesCondition, useBraces, bracePosition } = opts;
+    const { context, parent, bodyNode, requiresBracesCondition, useBraces, bracePosition, singleBodyPosition } = opts;
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
 
@@ -1642,6 +1654,7 @@ function parseHeaderWithConditionalBraceBody(opts: ParseHeaderWithConditionalBra
         requiresBracesCondition,
         useBraces,
         bracePosition,
+        singleBodyPosition,
         startHeaderInfo,
         endHeaderInfo
     });
@@ -1667,7 +1680,9 @@ interface ParseConditionalBraceBodyOptions {
     context: Context;
     useBraces: NonNullable<TypeScriptConfiguration["useBraces"]>;
     bracePosition: NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    singleBodyPosition?: TypeScriptConfiguration["singleBodyPosition"];
     requiresBracesCondition: Condition | undefined;
+    headerStartToken?: BabelToken;
     startHeaderInfo?: Info;
     endHeaderInfo?: Info;
 }
@@ -1678,7 +1693,8 @@ interface ParseConditionalBraceBodyResult {
 }
 
 function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): ParseConditionalBraceBodyResult {
-    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition } = opts;
+    const { startHeaderInfo, endHeaderInfo, parent, bodyNode, context, requiresBracesCondition, useBraces, bracePosition, singleBodyPosition,
+        headerStartToken } = opts;
     const startStatementsInfo = createInfo("startStatements");
     const endStatementsInfo = createInfo("endStatements");
     const headerTrailingComments = Array.from(getHeaderTrailingComments());
@@ -1686,14 +1702,16 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
         kind: PrintItemKind.Condition,
         name: "openBrace",
         condition: conditionContext => {
-            if (useBraces === "maintain")
+            if (useBraces === "whenNotSingleLine")
+                return conditionContext.getResolvedCondition(newlineOrSpaceCondition);
+            else if (useBraces === "maintain")
                 return bodyNode.type === "BlockStatement";
             else if (useBraces === "always")
                 return true;
             else if (useBraces === "preferNone") {
                 // writing an open brace might make the header hang, so assume it should
                 // not write the open brace until it's been resolved
-                return bodyRequiresBraces()
+                return bodyShouldBeMultiLine()
                     || startHeaderInfo && endHeaderInfo && conditionResolvers.isMultipleLines(conditionContext, startHeaderInfo, endHeaderInfo, false)
                     || conditionResolvers.isMultipleLines(conditionContext, startStatementsInfo, endStatementsInfo, false)
                     || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
@@ -1712,6 +1730,54 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
             yield "{";
         }()
     };
+    const newlineOrSpaceCondition: Condition = {
+        kind: PrintItemKind.Condition,
+        name: "newlineOrSpaceCondition",
+        condition: conditionContext => {
+            if (shouldUseNewline())
+                return true;
+            if (startHeaderInfo == null)
+                return throwError("Expected start header info in this scenario.");
+
+            const resolvedStartInfo = conditionContext.getResolvedInfo(startHeaderInfo)!;
+            if (resolvedStartInfo.lineNumber < conditionContext.writerInfo.lineNumber)
+                return true;
+
+            const resolvedEndStatementsInfo = conditionContext.getResolvedInfo(endStatementsInfo);
+            if (resolvedEndStatementsInfo == null)
+                return undefined;
+
+            return resolvedEndStatementsInfo.lineNumber > resolvedStartInfo.lineNumber;
+
+            function shouldUseNewline() {
+                if (bodyShouldBeMultiLine())
+                    return true;
+                if (singleBodyPosition == null)
+                    return true;
+                switch (singleBodyPosition) {
+                    case "maintain":
+                        return getBodyStatementStartLine() > (headerStartToken || parent).loc!.start.line;
+                    case "nextLine":
+                        return true;
+                    case "sameLine":
+                        return bodyNode.type === "BlockStatement";
+                    default:
+                        return assertNever(singleBodyPosition);
+                }
+
+                function getBodyStatementStartLine() {
+                    if (bodyNode.type === "BlockStatement") {
+                        const firstStatement = bodyNode.body[0];
+                        if (firstStatement)
+                            return firstStatement && firstStatement.loc!.start.line;
+                    }
+                    return bodyNode.loc!.start.line;
+                }
+            }
+        },
+        true: [context.newlineKind],
+        false: [" "]
+    };
 
     return {
         braceCondition: openBraceCondition,
@@ -1723,7 +1789,8 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
         yield* parseHeaderTrailingComment();
 
-        yield context.newlineKind;
+        yield newlineOrSpaceCondition;
+
         yield startStatementsInfo;
 
         if (bodyNode.type === "BlockStatement") {
@@ -1755,9 +1822,19 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 kind: PrintItemKind.Condition,
                 name: "closeBraceNewLine",
                 condition: conditionContext => {
+                    if (!conditionContext.getResolvedCondition(newlineOrSpaceCondition))
+                        return false;
                     return !conditionResolvers.areInfoEqual(conditionContext, startStatementsInfo, endStatementsInfo, false);
                 },
-                true: [context.newlineKind]
+                true: [context.newlineKind],
+                false: [{
+                    kind: PrintItemKind.Condition,
+                    name: "closeBraceSpace",
+                    condition: conditionContext => {
+                        return !conditionContext.getResolvedCondition(newlineOrSpaceCondition);
+                    },
+                    true: " "
+                }]
             }, "}"]
         };
 
@@ -1767,7 +1844,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
         }
     }
 
-    function bodyRequiresBraces() {
+    function bodyShouldBeMultiLine() {
         if (bodyNode.type === "BlockStatement") {
             if (bodyNode.body.length === 1 && !nodeHelpers.hasLeadingCommentOnDifferentLine(bodyNode.body[0], /* commentsToIgnore */ headerTrailingComments))
                 return false;
