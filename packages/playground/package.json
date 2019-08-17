@@ -4,8 +4,8 @@
   "private": true,
   "homepage": "https://dprint.dev/playground",
   "dependencies": {
-    "@dprint/core": "~0.4.0",
-    "dprint-plugin-typescript": "~0.3.0",
+    "@dprint/core": "~0.4.1",
+    "dprint-plugin-typescript": "~0.4.0",
     "monaco-editor": "^0.17.1",
     "react": "^16.8.6",
     "react-dom": "^16.8.6",
