@@ -1818,9 +1818,19 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 kind: PrintItemKind.Condition,
                 name: "closeBraceNewLine",
                 condition: conditionContext => {
+                    if (!conditionContext.getResolvedCondition(newlineOrSpaceCondition))
+                        return false;
                     return !conditionResolvers.areInfoEqual(conditionContext, startStatementsInfo, endStatementsInfo, false);
                 },
-                true: [context.newlineKind]
+                true: [context.newlineKind],
+                false: [{
+                    kind: PrintItemKind.Condition,
+                    name: "closeBraceSpace",
+                    condition: conditionContext => {
+                        return !conditionContext.getResolvedCondition(newlineOrSpaceCondition);
+                    },
+                    true: " "
+                }]
             }, "}"]
         };
 
