@@ -170,15 +170,14 @@ else {
     console .   log(  'hello'
 )}
 
-// By default, dprint will maintain the brace behaviour, but this can be
-// configured with the \`useBraces\` setting. The \`preferNone\` option is
-// my favourite as it will add braces if the header or statement is hanging
-// or, in the case of the last control flow statement (ex. \`else\`), it will
-// add braces to that if the previous control flow statement required braces
-// in order to prevent dangling else/else if statements. You may want to use
-// the \`always\` option though.
+// By default, dprint will add braces when they are missing except when the
+// expression, is on the same line as the statement, but this can be configured
+// with the \`useBraces\` setting.
+// Note also that the position of the expression for single line bodies can
+// by configured with the \`singleBodyPosition\` configuration.
 if (true)
     statement;
+if (true) statement;
 
 /* ------- CLASS / INTERFACE HEADERS ------- */
 
