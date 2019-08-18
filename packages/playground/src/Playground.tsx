@@ -126,9 +126,9 @@ call.expression(
 // ...or the statement exceeds the line width.
 callExpression(argument1, argument2, argument3, argument4, argument5, argument6, argument7);
 
-//If you don't like hanging, there is
-//configuration coming in issue #14 to force newlines. Until then, place
-//the first arg on a different line as the open paren, as shown above.
+//If you don't like hanging, you can set the forceMultiLineArguments and
+//forceMultiLineParameters configuration values to true, to force each
+//param/arg to be on a newline when exceeding the line width.
 
 /* ------- EXPLICIT NEWLINES ------- */
 
