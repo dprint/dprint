@@ -80,6 +80,20 @@ export interface TypeScriptConfiguration {
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
      */
     trailingCommas?: "never" | "always" | "onlyMultiLine";
+    /**
+     * Forces an argument list to be multi-line when it exceeds the print width.
+     * @remarks - When false, it will be hanging when the first argument is on the same line
+     * as the open parenthesis and multi-line when on a different line.
+     * @default false
+     */
+    forceMultiLineArguments?: boolean;
+    /**
+     * Forces a parameter list to be multi-line when it exceeds the print width.
+     * @remarks - When false, it will be hanging when the first parameter is on the same line
+     * as the open parenthesis and multi-line when on a different line.
+     * @default false
+     */
+    forceMultiLineParameters?: boolean;
 
     /**
      * How to space the members of an enum.
@@ -166,6 +180,20 @@ export interface TypeScriptConfiguration {
     "enumDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+
+    "callExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
+    "newExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
+
+    "arrowFunctionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "callSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "classMethod.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "constructorType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "constructSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "functionDeclaration.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "functionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "functionType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "methodSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "objectMethod.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
 }
 
 /**
@@ -251,4 +279,20 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "enumDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+
+    // force multi-line arguments
+    readonly "callExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
+    readonly "newExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
+
+    // force multi-line parameters
+    readonly "arrowFunctionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "callSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "classMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "constructorType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "constructSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "functionDeclaration.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "functionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "functionType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "methodSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "objectMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
 }

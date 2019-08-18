@@ -42,3 +42,9 @@ const testing = function(param: string, other: number,
     | testingThisOut
 {
 };
+
+== should allow keeping the close brace on the same line when empty and placing the close brace on the same line ==
+const t = function(testing, this) {};
+
+[expect]
+const t = function(testing, this) {};

@@ -12,7 +12,9 @@ const defaultValues = {
     nextControlFlowPosition: "nextLine",
     trailingCommas: "never",
     "enumDeclaration.memberSpacing": "maintain",
-    "arrowFunctionExpression.useParentheses": "maintain"
+    "arrowFunctionExpression.useParentheses": "maintain",
+    forceMultiLineArguments: false,
+    forceMultiLineParameters: false
 } as const;
 
 /**
@@ -32,6 +34,8 @@ export function resolveConfiguration(
     const singleBodyPosition = getValue("singleBodyPosition", defaultValues.singleBodyPosition, ensureSingleBodyPosition);
     const nextControlFlowPosition = getValue("nextControlFlowPosition", defaultValues.nextControlFlowPosition, ensureNextControlFlowPosition);
     const trailingCommas = getValue("trailingCommas", defaultValues.trailingCommas, ensureTrailingCommas);
+    const forceMultiLineArguments = getValue("forceMultiLineArguments", defaultValues.forceMultiLineArguments, ensureBoolean);
+    const forceMultiLineParameters = getValue("forceMultiLineParameters", defaultValues.forceMultiLineParameters, ensureBoolean);
 
     const resolvedConfig: ResolvedTypeScriptConfiguration = {
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
@@ -110,7 +114,22 @@ export function resolveConfiguration(
         "arrayPattern.trailingCommas": getValue("arrayPattern.trailingCommas", trailingCommas, ensureTrailingCommas),
         "enumDeclaration.trailingCommas": getValue("enumDeclaration.trailingCommas", trailingCommas, ensureTrailingCommas),
         "objectExpression.trailingCommas": getValue("objectExpression.trailingCommas", trailingCommas, ensureTrailingCommas),
-        "tupleType.trailingCommas": getValue("tupleType.trailingCommas", trailingCommas, ensureTrailingCommas)
+        "tupleType.trailingCommas": getValue("tupleType.trailingCommas", trailingCommas, ensureTrailingCommas),
+        // force multi-line arguments
+        "callExpression.forceMultiLineArguments": getValue("callExpression.forceMultiLineArguments", forceMultiLineArguments, ensureBoolean),
+        "newExpression.forceMultiLineArguments": getValue("newExpression.forceMultiLineArguments", forceMultiLineArguments, ensureBoolean),
+        // force multi-line parameters
+        "arrowFunctionExpression.forceMultiLineParameters": getValue("arrowFunctionExpression.forceMultiLineParameters", forceMultiLineParameters,
+            ensureBoolean),
+        "callSignature.forceMultiLineParameters": getValue("callSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "classMethod.forceMultiLineParameters": getValue("classMethod.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "constructorType.forceMultiLineParameters": getValue("constructorType.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "constructSignature.forceMultiLineParameters": getValue("constructSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "functionDeclaration.forceMultiLineParameters": getValue("functionDeclaration.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "functionExpression.forceMultiLineParameters": getValue("functionExpression.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "functionType.forceMultiLineParameters": getValue("functionType.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "methodSignature.forceMultiLineParameters": getValue("methodSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        "objectMethod.forceMultiLineParameters": getValue("objectMethod.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean)
     };
 
     addExcessPropertyDiagnostics();

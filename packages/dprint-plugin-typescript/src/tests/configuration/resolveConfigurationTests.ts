@@ -309,6 +309,78 @@ describe(nameof(resolveConfiguration), () => {
         }
     });
 
+    describe(nameof<TypeScriptConfiguration>(c => c.forceMultiLineArguments), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("forceMultiLineArguments"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(false));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ forceMultiLineArguments: false }, getObject(false));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ forceMultiLineArguments: true }, getObject(true));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(false);
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.forceMultiLineArguments = true;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "callExpression.forceMultiLineArguments": value,
+                "newExpression.forceMultiLineArguments": value
+            };
+        }
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c.forceMultiLineParameters), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("forceMultiLineParameters"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(false));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ forceMultiLineParameters: false }, getObject(false));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ forceMultiLineParameters: true }, getObject(true));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(false);
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.forceMultiLineParameters = true;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "arrowFunctionExpression.forceMultiLineParameters": value,
+                "callSignature.forceMultiLineParameters": value,
+                "classMethod.forceMultiLineParameters": value,
+                "constructSignature.forceMultiLineParameters": value,
+                "constructorType.forceMultiLineParameters": value,
+                "functionDeclaration.forceMultiLineParameters": value,
+                "functionExpression.forceMultiLineParameters": value,
+                "functionType.forceMultiLineParameters": value,
+                "methodSignature.forceMultiLineParameters": value,
+                "objectMethod.forceMultiLineParameters": value
+            };
+        }
+    });
+
     describe("enumDeclaration.memberSpacing", () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop === "enumDeclaration.memberSpacing");

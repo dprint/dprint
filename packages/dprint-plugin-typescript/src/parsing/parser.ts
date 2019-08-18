@@ -1,6 +1,6 @@
 import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
-    resolveNewLineKindFromText, LoggingEnvironment } from "@dprint/core";
+    resolveNewLineKindFromText, LoggingEnvironment, ResolveConditionContext, ResolveCondition } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
 import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhiteSpace,
     throwError } from "../utils";
@@ -466,8 +466,9 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
 
     yield "{";
 
-    // Allow: const t = () => {};
-    if (context.parent.type === "ArrowFunctionExpression" && node.loc!.start.line === node.loc!.end.line
+    // Allow: const t = () => {}; and const t = function() {};
+    const isArrowOrFunctionExpression = context.parent.type === "ArrowFunctionExpression" || context.parent.type === "FunctionExpression";
+    if (isArrowOrFunctionExpression && node.loc!.start.line === node.loc!.end.line
         && node.body.length === 0 && !node.leadingComments && !node.innerComments)
     {
         yield "}";
@@ -721,7 +722,12 @@ function* parseFunctionDeclarationOrExpression(
         if (node.typeParameters)
             yield* parseNode(node.typeParameters, context);
 
-        yield* parseParametersOrArguments(node.params, context, {
+        yield* parseParametersOrArguments({
+            nodes: node.params,
+            context,
+            forceMultiLineWhenMultipleLines: node.type === "FunctionExpression"
+                ? context.config["functionExpression.forceMultiLineParameters"]
+                : context.config["functionDeclaration.forceMultiLineParameters"],
             customCloseParen: parseCloseParenWithType({
                 context,
                 startInfo: startHeaderInfo,
@@ -1028,7 +1034,12 @@ function* parseClassOrObjectMethod(
     if (node.typeParameters)
         yield* parseNode(node.typeParameters, context);
 
-    yield* parseParametersOrArguments(node.params, context, {
+    yield* parseParametersOrArguments({
+        nodes: node.params,
+        context,
+        forceMultiLineWhenMultipleLines: node.type === "ObjectMethod"
+            ? context.config["objectMethod.forceMultiLineParameters"]
+            : context.config["classMethod.forceMultiLineParameters"],
         customCloseParen: parseCloseParenWithType({
             context,
             startInfo: startHeaderInfo,
@@ -1106,7 +1117,10 @@ function* parseCallSignatureDeclaration(node: babel.TSCallSignatureDeclaration, 
     const startInfo = createInfo("startConstructSignature");
     yield startInfo;
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context, {
+    yield* parseParametersOrArguments({
+        nodes: node.parameters,
+        context,
+        forceMultiLineWhenMultipleLines: context.config["callSignature.forceMultiLineParameters"],
         customCloseParen: parseCloseParenWithType({
             context,
             startInfo,
@@ -1123,7 +1137,10 @@ function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDec
     yield startInfo;
     yield "new";
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context, {
+    yield* parseParametersOrArguments({
+        nodes: node.parameters,
+        context,
+        forceMultiLineWhenMultipleLines: context.config["constructSignature.forceMultiLineParameters"],
         customCloseParen: parseCloseParenWithType({
             context,
             startInfo,
@@ -1180,7 +1197,10 @@ function* parseMethodSignature(node: babel.TSMethodSignature, context: Context):
         yield "?";
 
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context, {
+    yield* parseParametersOrArguments({
+        nodes: node.parameters,
+        context,
+        forceMultiLineWhenMultipleLines: context.config["methodSignature.forceMultiLineParameters"],
         customCloseParen: parseCloseParenWithType({
             context,
             startInfo,
@@ -1978,7 +1998,10 @@ function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, cont
     yield* parseNode(node.typeParameters, context);
 
     if (shouldUseParens()) {
-        yield* parseParametersOrArguments(node.params, context, {
+        yield* parseParametersOrArguments({
+            nodes: node.params,
+            context,
+            forceMultiLineWhenMultipleLines: context.config["arrowFunctionExpression.forceMultiLineParameters"],
             customCloseParen: parseCloseParenWithType({
                 context,
                 startInfo: headerStartInfo,
@@ -2130,7 +2153,11 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
         if (node.optional)
             yield "?.";
 
-        yield* conditions.withIndentIfStartOfLineIndented(parseParametersOrArguments(node.arguments, context));
+        yield* conditions.withIndentIfStartOfLineIndented(parseParametersOrArguments({
+            nodes: node.arguments,
+            context,
+            forceMultiLineWhenMultipleLines: context.config["callExpression.forceMultiLineArguments"]
+        }));
     }
 
     function* parseTestLibraryCallExpression(): PrintItemIterable {
@@ -2281,7 +2308,11 @@ function* parseNewExpression(node: babel.NewExpression, context: Context): Print
     yield "new ";
     yield* parseNode(node.callee, context);
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.arguments, context);
+    yield* parseParametersOrArguments({
+        nodes: node.arguments,
+        context,
+        forceMultiLineWhenMultipleLines: context.config["newExpression.forceMultiLineArguments"]
+    });
 }
 
 function* parseNonNullExpression(node: babel.TSNonNullExpression, context: Context): PrintItemIterable {
@@ -2337,7 +2368,7 @@ function* parseSequenceExpression(node: babel.SequenceExpression, context: Conte
     yield* parseCommaSeparatedValues({
         values: node.expressions,
         context,
-        useNewLines: false
+        multiLineOrHangingConditionResolver: () => false
     });
 }
 
@@ -2656,7 +2687,10 @@ function* parseConstructorType(node: babel.TSConstructorType, context: Context):
     yield startInfo;
     yield "new";
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context, {
+    yield* parseParametersOrArguments({
+        nodes: node.parameters,
+        context,
+        forceMultiLineWhenMultipleLines: context.config["constructorType.forceMultiLineParameters"],
         customCloseParen: parseCloseParenWithType({
             context,
             startInfo,
@@ -2670,10 +2704,13 @@ function* parseConstructorType(node: babel.TSConstructorType, context: Context):
 }
 
 function* parseFunctionType(node: babel.TSFunctionType, context: Context): PrintItemIterable {
-    const startInfo = createInfo("startConstructorType");
+    const startInfo = createInfo("startFunctionType");
     yield startInfo;
     yield* parseNode(node.typeParameters, context);
-    yield* parseParametersOrArguments(node.parameters, context, {
+    yield* parseParametersOrArguments({
+        nodes: node.parameters,
+        context,
+        forceMultiLineWhenMultipleLines: context.config["functionType.forceMultiLineParameters"],
         customCloseParen: parseCloseParenWithType({
             context,
             startInfo,
@@ -3295,45 +3332,65 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
 }
 
 interface ParseParametersOrArgumentsOptions {
+    nodes: babel.Node[];
+    context: Context;
+    forceMultiLineWhenMultipleLines: boolean;
     customCloseParen?: PrintItemIterable;
 }
 
-function* parseParametersOrArguments(params: babel.Node[], context: Context, options: ParseParametersOrArgumentsOptions = {}): PrintItemIterable {
-    const { customCloseParen } = options;
+function* parseParametersOrArguments(options: ParseParametersOrArgumentsOptions): PrintItemIterable {
+    const { nodes, context, customCloseParen, forceMultiLineWhenMultipleLines = false } = options;
+    const startInfo = createInfo("startParamsOrArgs");
+    const endInfo = createInfo("endParamsOrArgs");
     const useNewLines = getUseNewLines();
+
     yield* newlineGroup(parseItems());
 
     function* parseItems(): PrintItemIterable {
+        yield startInfo;
         yield "(";
 
-        if (useNewLines)
-            yield* surroundWithNewLines(withIndent(parseParameterList()), context);
-        else
-            yield* parseParameterList();
+        yield {
+            kind: PrintItemKind.Condition,
+            name: "multiLineOrHanging",
+            condition: multiLineOrHangingConditionResolver,
+            true: surroundWithNewLines(withIndent(parseParameterList()), context),
+            false: parseParameterList()
+        };
 
         if (customCloseParen)
             yield* customCloseParen;
         else
             yield ")";
+
+        yield endInfo;
     }
 
     function parseParameterList(): PrintItemIterable {
         return parseCommaSeparatedValues({
-            values: params,
-            useNewLines,
+            values: nodes,
+            multiLineOrHangingConditionResolver,
             context
         });
     }
 
+    function multiLineOrHangingConditionResolver(conditionContext: ResolveConditionContext) {
+        if (useNewLines)
+            return true;
+        if (forceMultiLineWhenMultipleLines)
+            return conditionResolvers.isMultipleLines(conditionContext, startInfo, endInfo);
+        return false;
+    }
+
     function getUseNewLines() {
-        if (params.length === 0)
+        if (nodes.length === 0)
             return false;
 
-        return nodeHelpers.getUseNewlinesForNodes([getOpenParenToken(), params[0]]);
+        return nodeHelpers.getUseNewlinesForNodes([getOpenParenToken(), nodes[0]]);
 
         function getOpenParenToken() {
-            const paramHasParen = nodeHelpers.hasParentheses(params[0]);
-            const firstOpenParen = tokenHelpers.getFirstOpenParenTokenBefore(params[0], context)!;
+            const paramHasParen = nodeHelpers.hasParentheses(nodes[0]);
+            const firstOpenParen = tokenHelpers.getFirstOpenParenTokenBefore(nodes[0], context)!;
 
             return paramHasParen ? tokenHelpers.getFirstOpenParenTokenBefore(firstOpenParen, context) : firstOpenParen;
         }
@@ -3343,11 +3400,12 @@ function* parseParametersOrArguments(params: babel.Node[], context: Context, opt
 export interface ParseCommaSeparatedValuesOptions {
     values: babel.Node[];
     context: Context;
-    useNewLines: boolean;
+    multiLineOrHangingConditionResolver: ResolveCondition;
 }
 
 function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): PrintItemIterable {
-    const { values, context, useNewLines } = options;
+    const { values, context, multiLineOrHangingConditionResolver } = options;
+
     for (let i = 0; i < values.length; i++) {
         const param = values[i];
         const hasComma = i < values.length - 1;
@@ -3355,13 +3413,20 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
 
         if (i === 0)
             yield* parsedParam;
-        else if (useNewLines) {
-            yield context.newlineKind;
-            yield* parsedParam;
-        }
         else {
-            yield Signal.SpaceOrNewLine;
-            yield* conditions.indentIfStartOfLine(parsedParam);
+            yield {
+                kind: PrintItemKind.Condition,
+                name: "multiLineOrHangingCondition",
+                condition: multiLineOrHangingConditionResolver,
+                true: function*(): PrintItemIterable {
+                    yield context.newlineKind;
+                    yield* parsedParam
+                }(),
+                false: function*(): PrintItemIterable {
+                    yield Signal.SpaceOrNewLine;
+                    yield* conditions.indentIfStartOfLine(parsedParam);
+                }()
+            };
         }
     }
 
