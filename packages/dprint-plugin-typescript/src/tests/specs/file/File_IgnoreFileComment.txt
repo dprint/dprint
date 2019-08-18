@@ -1,21 +1,21 @@
 == should skip parsing when the file starts off with a skip comment ==
-/* dprint:ignoreFile */
+/* dprint-ignore-file */
 1 + 2 +         5;
 
 [expect]
-/* dprint:ignoreFile */
+/* dprint-ignore-file */
 1 + 2 +         5;
 
 == should skip when it's not the first comment ==
 // testing
 /* other */
-/* dprint:ignoreFile */
+/* dprint-ignore-file */
 1 + 2 +         5;
 
 [expect]
 // testing
 /* other */
-/* dprint:ignoreFile */
+/* dprint-ignore-file */
 1 + 2 +         5;
 
 == should skip when it's a comment line ==
@@ -23,7 +23,7 @@
 /* other */
 
 
-// dprint:ignoreFile
+// dprint-ignore-file
 1 + 2 +         5;
 
 [expect]
@@ -31,11 +31,11 @@
 /* other */
 
 
-// dprint:ignoreFile
+// dprint-ignore-file
 1 + 2 +         5;
 
 == should skip when there are only comments ==
-/* dprint:ignoreFile */
+/* dprint-ignore-file */
 
 //testing
 
@@ -43,7 +43,7 @@
 // test
 
 [expect]
-/* dprint:ignoreFile */
+/* dprint-ignore-file */
 
 //testing
 

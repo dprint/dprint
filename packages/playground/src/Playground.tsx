@@ -215,5 +215,15 @@ interface MyInterface {
 /* ------- IGNORING A FILE ------- */
 
 // Move the following comment to the top of the file:
-/* dprint:ignoreFile */`;
+// dprint-ignore-file
+
+/* ------- IGNORING NODES ------- */
+
+// dprint-ignore
+const identity = [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1
+];`;
 }

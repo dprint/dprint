@@ -7,7 +7,7 @@ import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrenc
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
-import { TokenFinder, isPrefixSemiColonInsertionChar } from "./utils";
+import { TokenFinder, isPrefixSemiColonInsertionChar, findNodeIndexInSortedArrayFast } from "./utils";
 
 const { withIndent, newlineGroup, prependToIterableIfHasItems, toPrintItemIterable, surroundWithNewLines, createInfo } = parserHelpers;
 
@@ -86,7 +86,7 @@ export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintI
 
     function shouldParseFile() {
         for (const comment of getCommentsToCheck()) {
-            if (comment.value.indexOf("dprint:ignoreFile") >= 0)
+            if (/\bdprint\-ignore\-file\b/.test(comment.value))
                 return false;
         }
 
@@ -364,7 +364,6 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
     context.currentNode = node;
 
     // parse
-    const parseFunc = parseObj[node!.type] || parseUnknownNode;
     const printItemIterator = opts && opts.innerParse ? opts.innerParse(parseNode()) : parseNode();
 
     yield* getWithComments(node, printItemIterator, context);
@@ -374,8 +373,16 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
     context.parent = context.parentStack[context.parentStack.length - 1];
 
     function parseNode() {
-        const nodeIterator = parseFunc(node, context);
+        const nodeIterator = getNodeIterator();
         return nodeHelpers.hasParentheses(node!) ? parseInParens(nodeIterator) : nodeIterator;
+
+        function getNodeIterator() {
+            if (node && hasIgnoreComment())
+                return toPrintItemIterable(parseNodeAsRawString(node, context));
+
+            const parseFunc = parseObj[node!.type] || parseUnknownNode;
+            return parseFunc(node, context);
+        }
     }
 
     function parseInParens(nodeIterator: PrintItemIterable) {
@@ -386,6 +393,52 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
             putDisableIndentInBagIfNecessaryForNode(node!, context);
 
         return conditions.withIndentIfStartOfLineIndented(parseIteratorInParens(nodeIterator, useNewLines, context));
+    }
+
+    function hasIgnoreComment() {
+        if (!node)
+            return false;
+
+        if (context.parent.type === "JSXElement" || context.parent.type === "JSXFragment") {
+            const previousExpressionContainer = getPreviousJsxExpressionContainer(context.parent);
+
+            if (previousExpressionContainer && previousExpressionContainer.expression.innerComments)
+                return previousExpressionContainer.expression.innerComments.some(isIgnoreComment);
+            return false;
+        }
+
+        if (!node.leadingComments)
+            return false;
+
+        for (let i = node.leadingComments.length - 1; i >= 0; i--) {
+            const comment = node.leadingComments[i];
+            if (context.handledComments.has(comment))
+                continue;
+
+            return isIgnoreComment(comment);
+        }
+
+        return false;
+
+        function isIgnoreComment(comment: babel.Comment) {
+            return /\bdprint\-ignore\b/.test(comment.value);
+        }
+
+        function getPreviousJsxExpressionContainer(parent: babel.JSXElement | babel.JSXFragment) {
+            const currentIndex = findNodeIndexInSortedArrayFast(parent.children, node!);
+            for (let i = currentIndex - 1; i >= 0; i--) {
+                const previousChild = parent.children[i];
+                if (previousChild.type === "JSXExpressionContainer")
+                    return previousChild;
+                if (previousChild.type !== "JSXText")
+                    return undefined;
+                // check if it's all white space and if so, ignore it
+                if (!/^\s*$/.test(previousChild.value))
+                    return undefined;
+            }
+
+            return undefined;
+        }
     }
 }
 
@@ -2536,9 +2589,15 @@ function parseUnknownNode(node: babel.Node, context: Context): PrintItemIterable
 }
 
 function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message: string): RawString {
-    const nodeText = context.fileText.substring(node.start!, node.end!);
+    const rawString = parseNodeAsRawString(node, context);
 
-    context.log(`${message}: ${node.type} (${nodeText.substring(0, 100)})`);
+    context.log(`${message}: ${node.type} (${rawString.text.substring(0, 100)})`);
+
+    return rawString;
+}
+
+function parseNodeAsRawString(node: babel.Node, context: Context): RawString {
+    const nodeText = context.fileText.substring(node.start!, node.end!);
 
     return {
         kind: PrintItemKind.RawString,
@@ -3731,7 +3790,7 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
         }
 
         function getTrailingCommentsWithNextLeading(nodes: (babel.Node | null)[]) {
-            // todo: something faster than O(n)
+            // todo: something faster than O(n) -- slightly harder because this includes null values
             const index = nodes.indexOf(node);
             const nextProperty = nodes[index + 1];
             if (nextProperty) {

@@ -1,0 +1,66 @@
+== should ignore formatting a node marked with an ignore comment ==
+// dprint-ignore
+call(5, 6, 7,
+    8, 9, 10);
+
+[expect]
+// dprint-ignore
+call(5, 6, 7,
+    8, 9, 10);
+
+== should ignore when a comment block ==
+/* dprint-ignore */
+[
+    5, 6, 7,
+    8, 9, 10,
+    11, 12, 13
+];
+
+[expect]
+/* dprint-ignore */
+[
+    5, 6, 7,
+    8, 9, 10,
+    11, 12, 13
+];
+
+== should not ignore when ignore word has extra characters on the end ==
+/* dprint-ignoree */
+[
+    5, 6, 7
+]
+
+[expect]
+/* dprint-ignoree */
+[
+    5,
+    6,
+    7
+];
+
+== should ignore when there is a colon after (or some other non word character) ==
+/* dprint-ignore: Some explanation */
+[
+    5, 6, 7
+]
+
+[expect]
+/* dprint-ignore: Some explanation */
+[
+    5, 6, 7
+]
+
+== should not ignore when it's not the immediately preceeding comment ==
+// dprint-ignore
+// test
+[
+    5, 6
+];
+
+[expect]
+// dprint-ignore
+// test
+[
+    5,
+    6
+];
