@@ -3742,17 +3742,17 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
     const multiLine = nodeHelpers.getUseNewlinesForNodes([tokenHelpers.getFirstOpenBraceTokenWithin(node, context), members[0]]);
     const startInfo = createInfo("startObject");
     const endInfo = createInfo("endObject");
+    const separator = multiLine ? context.newlineKind : " ";
 
     yield startInfo;
     yield "{";
+    yield separator;
     yield* getInner();
-    yield getSeparator();
+    yield separator;
     yield "}";
     yield endInfo;
 
     function* getInner(): PrintItemIterable {
-        yield getSeparator();
-
         if (multiLine) {
             yield* withIndent(parseStatementOrMembers({
                 context,
@@ -3783,13 +3783,6 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
                 })));
             }
         }
-    }
-
-    function getSeparator() {
-        if (multiLine)
-            return context.newlineKind;
-        else
-            return Signal.SpaceOrNewLine;
     }
 }
 
