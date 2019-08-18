@@ -1,3 +1,4 @@
+~~ lineWidth: 80 ~~
 == should use the parenthesis before the argument for deciding whether to use multiple lines ==
 function test() {
     call(fileNames).then(() => {
@@ -13,3 +14,14 @@ function test() {
         onFinished(err);
     });
 }
+
+== should put the argument that goes over the width on a newline rather than the property value start ==
+const obj = {
+    "testing": call(asdfasdfkjasdfasdfasdf, asdfasdfasdfasdfasdfasdfasdfasdfsadfas)
+};
+
+[expect]
+const obj = {
+    "testing": call(asdfasdfkjasdfasdfasdf,
+        asdfasdfasdfasdfasdfasdfasdfasdfsadfas)
+};

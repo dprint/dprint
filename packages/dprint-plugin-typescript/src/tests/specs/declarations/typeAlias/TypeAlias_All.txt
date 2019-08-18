@@ -1,5 +1,13 @@
+~~ lineWidth: 70 ~~
 == should print everything in a type alias ==
 export declare type MyTypeAlias<    T   > =  string|number;
 
 [expect]
 export declare type MyTypeAlias<T> = string | number;
+
+== should break up in the type when exceeding the line width (this would previous break up the type params) ==
+export type MyTypeAlias<T, U> = Testing | ThisOut | ByGoingOverTheLimit;
+
+[expect]
+export type MyTypeAlias<T, U> = Testing | ThisOut
+    | ByGoingOverTheLimit;

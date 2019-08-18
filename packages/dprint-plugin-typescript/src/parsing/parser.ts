@@ -873,7 +873,7 @@ function* parseTypeAlias(node: babel.TSTypeAliasDeclaration, context: Context): 
     if (node.typeParameters)
         yield* parseNode(node.typeParameters, context);
     yield " = ";
-    yield* newlineGroup(parseNode(node.typeAnnotation, context));
+    yield* parseNode(node.typeAnnotation, context);
 
     if (context.config["typeAlias.semiColon"])
         yield ";";
@@ -884,7 +884,7 @@ function* parseTypeParameterDeclaration(
     context: Context
 ): PrintItemIterable {
     const useNewLines = getUseNewLines();
-    yield* newlineGroup(parseItems());
+    yield* parseItems();
 
     function* parseItems(): PrintItemIterable {
         yield "<";
@@ -1479,16 +1479,18 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
     }).iterator;
 
     function* parseInnerHeader(): PrintItemIterable {
-        yield* parseNode(node.init, context);
-        if (!node.init || node.init.type !== "VariableDeclaration")
-            yield ";";
+        yield* newlineGroup(function*() {
+            yield* parseNode(node.init, context);
+            if (!node.init || node.init.type !== "VariableDeclaration")
+                yield ";";
+        }())
         yield Signal.SpaceOrNewLine;
-        yield* conditions.indentIfStartOfLine(function*() {
+        yield* conditions.indentIfStartOfLine(newlineGroup(function*() {
             yield* parseNode(node.test, context);
             yield ";";
-        }());
+        }()));
         yield Signal.SpaceOrNewLine;
-        yield* conditions.indentIfStartOfLine(parseNode(node.update, context));
+        yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(node.update, context)));
     }
 }
 
@@ -2081,12 +2083,8 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
     const shouldIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
     const useNewLines = getUseNewLines();
-    const wasLastSame = context.parent.type === node.type;
 
-    if (wasLastSame)
-        yield* parseInner();
-    else
-        yield* newlineGroup(parseInner());
+    yield* parseInner();
 
     function* parseInner(): PrintItemIterable {
         if (!shouldIndent)
@@ -2378,12 +2376,10 @@ function* parseSpreadElement(node: babel.SpreadElement, context: Context): Print
 }
 
 function* parseTaggedTemplateExpression(node: babel.TaggedTemplateExpression, context: Context): PrintItemIterable {
-    yield* newlineGroup(function*() {
-        yield* parseNode(node.tag, context);
-        yield* parseNode(node.typeParameters, context);
-        yield Signal.SpaceOrNewLine;
-        yield* conditions.indentIfStartOfLine(parseNode(node.quasi, context));
-    }());
+    yield* parseNode(node.tag, context);
+    yield* parseNode(node.typeParameters, context);
+    yield Signal.SpaceOrNewLine;
+    yield* conditions.indentIfStartOfLine(parseNode(node.quasi, context));
 }
 
 function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterable {
@@ -2639,7 +2635,7 @@ function parseNodeAsRawString(node: babel.Node, context: Context): RawString {
 /* types */
 
 function* parseArrayType(node: babel.TSArrayType, context: Context): PrintItemIterable {
-    yield* newlineGroup(parseNode(node.elementType, context));
+    yield* parseNode(node.elementType, context);
     yield "[]";
 }
 
@@ -2647,7 +2643,7 @@ function* parseConditionalType(node: babel.TSConditionalType, context: Context):
     const useNewlines = nodeHelpers.getUseNewlinesForNodes([node.checkType, node.falseType]);
     const isParentConditionalType = context.parent.type === "TSConditionalType";
 
-    yield* newlineGroup(parseMainArea());
+    yield* parseMainArea();
     yield* parseFalseType();
 
     function* parseMainArea(): PrintItemIterable {
@@ -2877,21 +2873,23 @@ function* parseTypeOperator(node: babel.TSTypeOperator, context: Context): Print
 }
 
 function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): PrintItemIterable {
-    yield node.name!;
+    yield* newlineGroup(function*(): PrintItemIterable {
+        yield node.name!;
 
-    if (node.constraint) {
-        if (context.parent.type === "TSMappedType")
-            yield " in ";
-        else
-            yield " extends ";
+        if (node.constraint) {
+            if (context.parent.type === "TSMappedType")
+                yield " in ";
+            else
+                yield " extends ";
 
-        yield* parseNode(node.constraint, context);
-    }
+            yield* parseNode(node.constraint, context);
+        }
 
-    if (node.default) {
-        yield " = ";
-        yield* parseNode(node.default, context);
-    }
+        if (node.default) {
+            yield " = ";
+            yield* parseNode(node.default, context);
+        }
+    }());
 }
 
 function* parseTypePredicate(node: babel.TSTypePredicate, context: Context): PrintItemIterable {
@@ -3344,7 +3342,7 @@ function* parseParametersOrArguments(options: ParseParametersOrArgumentsOptions)
     const endInfo = createInfo("endParamsOrArgs");
     const useNewLines = getUseNewLines();
 
-    yield* newlineGroup(parseItems());
+    yield* parseItems();
 
     function* parseItems(): PrintItemIterable {
         yield startInfo;
@@ -3506,20 +3504,20 @@ function* parseNodeInParens(node: babel.Node, context: Context): PrintItemIterab
 }
 
 function* parseIteratorInParens(iterator: PrintItemIterable, useNewLines: boolean, context: Context) {
-    yield Signal.StartNewlineGroup;
-    yield "(";
+    yield* newlineGroup(function*() {
+        yield "(";
 
-    if (useNewLines) {
-        yield context.newlineKind;
-        yield* withIndent(iterator);
-        yield context.newlineKind;
-    }
-    else {
-        yield* iterator;
-    }
+        if (useNewLines) {
+            yield context.newlineKind;
+            yield* withIndent(iterator);
+            yield context.newlineKind;
+        }
+        else {
+            yield* iterator;
+        }
 
-    yield ")";
-    yield Signal.FinishNewLineGroup;
+        yield ")";
+    }());
 }
 
 function* parseNamedImportsOrExports(
@@ -3537,9 +3535,9 @@ function* parseNamedImportsOrExports(
     yield braceSeparator;
 
     if (useNewLines)
-        yield* withIndent(newlineGroup(parseSpecifiers()));
+        yield* withIndent(parseSpecifiers());
     else
-        yield* newlineGroup(parseSpecifiers());
+        yield* parseSpecifiers();
 
     yield braceSeparator;
     yield "}";
@@ -3614,16 +3612,14 @@ function* parseDecorators(
 function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.Node, isComputed: boolean, context: Context): PrintItemIterable {
     const useNewline = nodeHelpers.getUseNewlinesForNodes([leftNode, rightNode]);
 
-    yield* newlineGroup(function*() {
-        yield* parseNode(leftNode, context);
+    yield* parseNode(leftNode, context);
 
-        if (useNewline)
-            yield context.newlineKind;
-        else
-            yield Signal.NewLine;
+    if (useNewline)
+        yield context.newlineKind;
+    else
+        yield Signal.NewLine;
 
-        yield* conditions.indentIfStartOfLine(parseRightNode());
-    }());
+    yield* conditions.indentIfStartOfLine(parseRightNode());
 
     function* parseRightNode(): PrintItemIterable {
         if (isComputed)
@@ -3655,8 +3651,9 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
         startInfo: startHeaderInfo
     });
     yield* conditions.indentIfStartOfLine(function*() {
-        yield `${text} `;
+        // this group here will force it to put the extends or implements on a new line
         yield* newlineGroup(function*() {
+            yield `${text} `;
             for (let i = 0; i < items.length; i++) {
                 if (i > 0) {
                     yield ",";
@@ -3773,7 +3770,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
                 if (i > 0)
                     yield Signal.SpaceOrNewLine;
 
-                yield* conditions.indentIfStartOfLine(parseNode(members[i], context, {
+                yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(members[i], context, {
                     innerParse: function*(iterator) {
                         yield* iterator;
 
@@ -3783,7 +3780,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
                                 yield ",";
                         }
                     }
-                }));
+                })));
             }
         }
     }
@@ -4015,10 +4012,8 @@ function* parseNodeWithPreceedingColon(node: babel.Node | null | undefined, cont
         return;
 
     yield ":";
-    yield* newlineGroup(function*() {
-        yield Signal.SpaceOrNewLine;
-        yield* conditions.indentIfStartOfLine(parseNode(node, context));
-    }());
+    yield Signal.SpaceOrNewLine;
+    yield* conditions.indentIfStartOfLine(parseNode(node, context));
 }
 
 function getForceTrailingCommas(option: NonNullable<TypeScriptConfiguration["trailingCommas"]>, useNewlines: boolean) {
