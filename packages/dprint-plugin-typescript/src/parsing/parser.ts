@@ -1483,7 +1483,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
             yield* parseNode(node.init, context);
             if (!node.init || node.init.type !== "VariableDeclaration")
                 yield ";";
-        }())
+        }());
         yield Signal.SpaceOrNewLine;
         yield* conditions.indentIfStartOfLine(newlineGroup(function*() {
             yield* parseNode(node.test, context);
@@ -3418,7 +3418,7 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
                 condition: multiLineOrHangingConditionResolver,
                 true: function*(): PrintItemIterable {
                     yield context.newlineKind;
-                    yield* parsedParam
+                    yield* parsedParam;
                 }(),
                 false: function*(): PrintItemIterable {
                     yield Signal.SpaceOrNewLine;
