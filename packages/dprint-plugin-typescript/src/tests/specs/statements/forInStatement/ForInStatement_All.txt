@@ -34,3 +34,14 @@ for (const t in test) {
 for (const t in test) {
     const u = 5;
 }
+
+== should print the inner header on next line when the open paren is on a different line ==
+for (
+const t in test) {
+}
+
+[expect]
+for (
+    const t in test
+) {
+}

@@ -2,7 +2,7 @@ import * as babel from "@babel/types";
 import { BabelToken } from "../BabelToken";
 import { assertNever } from "../../utils";
 
-type TokenTexts = "(" | "[" | "<" | "{" | ")" | "]" | ">" | "}" | "else" | "catch" | "finally";
+type TokenTexts = "(" | "[" | "<" | "{" | ")" | "]" | ">" | "}" | "else" | "catch" | "finally" | ";";
 type IsMatchFunction = (token: BabelToken) => boolean;
 
 // todo: unit test this class for the edge cases
@@ -102,6 +102,7 @@ function getTokenIsMatchFunction(tokenOrIsMatch: TokenTexts | IsMatchFunction) {
             case "]":
             case "{":
             case "}":
+            case ";":
                 return getTokenTextFromType;
             case "<":
             case ">":

@@ -1307,7 +1307,11 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
     });
     yield* parseNode(node.body, context);
     yield " while ";
-    yield* parseNodeInParens(node.test, context);
+    yield* parseNodeInParens({
+        firstInnerNode: node.test,
+        innerIterable: parseNode(node.test, context),
+        context
+    });
 
     if (context.config["doWhileStatement.semiColon"])
         yield ";";
@@ -1396,9 +1400,11 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for ";
-    yield "(";
-    yield* parseInnerHeader();
-    yield ")";
+    yield* parseNodeInParens({
+        firstInnerNode: node.left,
+        innerIterable: parseInnerHeader(),
+        context
+    });
     yield endHeaderInfo;
 
     yield* parseConditionalBraceBody({
@@ -1430,9 +1436,11 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
     yield "for ";
     if (node.await)
         yield "await ";
-    yield "(";
-    yield* parseInnerHeader();
-    yield ")";
+    yield* parseNodeInParens({
+        firstInnerNode: node.left,
+        innerIterable: parseInnerHeader(),
+        context
+    });
     yield endHeaderInfo;
 
     yield* parseConditionalBraceBody({
@@ -1461,9 +1469,13 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
-    yield "for (";
-    yield* parseInnerHeader();
-    yield ")";
+    yield "for ";
+    yield* parseNodeInParens({
+        firstInnerNode: node.init || context.tokenFinder.getFirstTokenWithin(node, ";")!,
+        innerIterable: parseInnerHeader(),
+        context
+    });
+    yield "";
     yield endHeaderInfo;
 
     yield* parseConditionalBraceBody({
@@ -1542,7 +1554,11 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 
     function* parseHeader(ifStatement: babel.IfStatement): PrintItemIterable {
         yield "if ";
-        yield* parseNodeInParens(ifStatement.test, context);
+        yield* parseNodeInParens({
+            firstInnerNode: ifStatement.test,
+            innerIterable: parseNode(ifStatement.test, context),
+            context
+        });
     }
 }
 
@@ -1605,7 +1621,11 @@ function* parseSwitchStatement(node: babel.SwitchStatement, context: Context): P
     const startHeaderInfo = createInfo("startHeader");
     yield startHeaderInfo;
     yield "switch ";
-    yield* parseNodeInParens(node.discriminant, context);
+    yield* parseNodeInParens({
+        firstInnerNode: node.discriminant,
+        innerIterable: parseNode(node.discriminant, context),
+        context
+    });
 
     yield* parseMemberedBody({
         bracePosition: context.config["switchStatement.bracePosition"],
@@ -1658,7 +1678,11 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "while ";
-    yield* parseNodeInParens(node.test, context);
+    yield* parseNodeInParens({
+        firstInnerNode: node.test,
+        innerIterable: parseNode(node.test, context),
+        context
+    });
     yield endHeaderInfo;
 
     yield* parseConditionalBraceBody({
@@ -2795,7 +2819,11 @@ function* parseOptionalType(node: babel.TSOptionalType, context: Context): Print
 }
 
 function* parseParenthesizedType(node: babel.TSParenthesizedType, context: Context): PrintItemIterable {
-    yield* conditions.withIndentIfStartOfLineIndented(parseNodeInParens(node.typeAnnotation, context));
+    yield* conditions.withIndentIfStartOfLineIndented(parseNodeInParens({
+        firstInnerNode: node.typeAnnotation,
+        innerIterable: parseNode(node.typeAnnotation, context),
+        context
+    }));
 }
 
 function* parseQualifiedName(node: babel.TSQualifiedName, context: Context): PrintItemIterable {
@@ -3491,16 +3519,21 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
     }
 }
 
-function* parseNodeInParens(node: babel.Node, context: Context): PrintItemIterable {
-    const openParenToken = tokenHelpers.getFirstOpenParenTokenBefore(node, context)!;
-    const useNewLines = nodeHelpers.getUseNewlinesForNodes([openParenToken, node]);
+export interface ParseNodeInParensOptions {
+    firstInnerNode: babel.Node | BabelToken;
+    innerIterable: PrintItemIterable;
+    context: Context;
+}
+
+function* parseNodeInParens(options: ParseNodeInParensOptions): PrintItemIterable {
+    const { firstInnerNode, innerIterable, context } = options;
+    const openParenToken = tokenHelpers.getFirstOpenParenTokenBefore(firstInnerNode, context)!;
+    const useNewLines = nodeHelpers.getUseNewlinesForNodes([openParenToken, firstInnerNode]);
 
     if (useNewLines)
-        putDisableIndentInBagIfNecessaryForNode(node, context);
+        putDisableIndentInBagIfNecessaryForNode(firstInnerNode, context);
 
-    const nodeIterator = parseNode(node, context);
-
-    yield* parseIteratorInParens(nodeIterator, useNewLines, context);
+    yield* parseIteratorInParens(innerIterable, useNewLines, context);
 }
 
 function* parseIteratorInParens(iterator: PrintItemIterable, useNewLines: boolean, context: Context) {
@@ -4024,7 +4057,7 @@ function getForceTrailingCommas(option: NonNullable<TypeScriptConfiguration["tra
     }
 }
 
-function putDisableIndentInBagIfNecessaryForNode(node: babel.Node, context: Context) {
+function putDisableIndentInBagIfNecessaryForNode(node: babel.Node | BabelToken, context: Context) {
     if (node.type !== "LogicalExpression" && node.type !== "BinaryExpression")
         return;
 
