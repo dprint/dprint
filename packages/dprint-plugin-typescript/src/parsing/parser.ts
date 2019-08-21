@@ -3991,7 +3991,8 @@ function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
     else if (bracePosition === "nextLine")
         yield context.newlineKind;
     else if (bracePosition === "maintain") {
-        if (nodeHelpers.isFirstNodeOnLine(bodyNode, context))
+        const isExpression = typeof bodyNode.type === "string" && bodyNode.type !== "BlockStatement";
+        if (!isExpression && nodeHelpers.isFirstNodeOnLine(bodyNode, context))
             yield context.newlineKind;
         else
             yield " ";
