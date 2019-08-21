@@ -1,0 +1,20 @@
+/* Configuration */
+
+#configuration {
+  padding: 10px;
+  background-color: #322834;
+  height: 100%;
+  font-size: 15px;
+}
+
+.configurationItem:not(:first-child) {
+    border-top: 1px dashed #fff;
+    margin-top: 10px;
+    padding-top: 10px;
+}
+
+.configurationItem select, .configurationItem input[type="number"] {
+    margin-top: 3px;
+    display: block;
+    width: 100%;
+}

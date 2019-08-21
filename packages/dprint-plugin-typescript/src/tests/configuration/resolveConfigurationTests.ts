@@ -90,7 +90,6 @@ describe(nameof(resolveConfiguration), () => {
                 "exportNamedDeclaration.semiColon": value,
                 "expressionStatement.semiColon": value,
                 "functionDeclaration.semiColon": value,
-                "ifStatement.semiColon": value,
                 "importDeclaration.semiColon": value,
                 "importEqualsDeclaration.semiColon": value,
                 "indexSignature.semiColon": value,

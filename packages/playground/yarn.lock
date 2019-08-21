@@ -838,6 +838,10 @@
   version "9.0.1"
   resolved "https://registry.yarnpkg.com/@csstools/normalize.css/-/normalize.css-9.0.1.tgz#c27b391d8457d1e893f1eddeaf5e5412d12ffbb5"
 
+"@dprint/core@~0.4.1":
+  version "0.4.1"
+  resolved "https://registry.yarnpkg.com/@dprint/core/-/core-0.4.1.tgz#97826de12bebc1ca35ba561c9ccb019d758ff133"
+
 "@emotion/cache@^10.0.15":
   version "10.0.15"
   resolved "https://registry.yarnpkg.com/@emotion/cache/-/cache-10.0.15.tgz#b81767b48015aae2689c60373992145c67b8de02"
@@ -2439,6 +2443,10 @@ concat-stream@^1.5.0:
     readable-stream "^2.2.2"
     typedarray "^0.0.6"
 
+conditional-type-checks@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/conditional-type-checks/-/conditional-type-checks-1.0.1.tgz#0905a8631ea11bf155e7a6edb6d6b55c2e50520e"
+
 confusing-browser-globals@^1.0.7:
   version "1.0.7"
   resolved "https://registry.yarnpkg.com/confusing-browser-globals/-/confusing-browser-globals-1.0.7.tgz#5ae852bd541a910e7ffb2dbb864a2d21a36ad29b"
@@ -3054,9 +3062,9 @@ dotenv@6.2.0:
   version "6.2.0"
   resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-6.2.0.tgz#941c0410535d942c8becf28d3f357dbd9d476064"
 
-dprint-plugin-typescript@~0.2.0:
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/dprint-plugin-typescript/-/dprint-plugin-typescript-0.2.0.tgz#8672098634a83b1f201a7a268d8d6276e9b80dff"
+dprint-plugin-typescript@~0.5.0:
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/dprint-plugin-typescript/-/dprint-plugin-typescript-0.5.0.tgz#0fe2e6a7aace265d92d01ea872de79f679a6f0e3"
   dependencies:
     "@babel/core" "^7.5.5"
     "@babel/parser" "^7.5.5"

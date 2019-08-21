@@ -63,7 +63,6 @@ export function resolveConfiguration(
         "exportNamedDeclaration.semiColon": getValue("exportNamedDeclaration.semiColon", semiColons, ensureBoolean),
         "expressionStatement.semiColon": getValue("expressionStatement.semiColon", semiColons, ensureBoolean),
         "functionDeclaration.semiColon": getValue("functionDeclaration.semiColon", semiColons, ensureBoolean),
-        "ifStatement.semiColon": getValue("ifStatement.semiColon", semiColons, ensureBoolean),
         "importDeclaration.semiColon": getValue("importDeclaration.semiColon", semiColons, ensureBoolean),
         "importEqualsDeclaration.semiColon": getValue("importEqualsDeclaration.semiColon", semiColons, ensureBoolean),
         "indexSignature.semiColon": getValue("indexSignature.semiColon", semiColons, ensureBoolean),
