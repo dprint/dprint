@@ -55,6 +55,16 @@ export class Test
 {
 }
 
+== should not split up within an extends ==
+export class Test extends SomeClassWithAnotherClass<Testing, This> {
+}
+
+[expect]
+export class Test
+    extends SomeClassWithAnotherClass<Testing, This>
+{
+}
+
 == should print an implements clause ==
 export class Test implements Other {
 }
@@ -78,6 +88,17 @@ export class Test implements Other, Other2, Other3, Other4, Other5 {
 [expect]
 export class Test
     implements Other, Other2, Other3, Other4, Other5
+{
+}
+
+== should not split up within an implements ==
+export class Test implements Testing, ThisOutABitHere<Tes, This, Out, With, A, Long> {
+}
+
+[expect]
+export class Test
+    implements Testing,
+        ThisOutABitHere<Tes, This, Out, With, A, Long>
 {
 }
 

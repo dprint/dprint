@@ -908,13 +908,13 @@ function* parseTypeParameterDeclaration(
                     yield Signal.SpaceOrNewLine;
             }
 
-            yield* conditions.indentIfStartOfLine(parseNode(param, context, {
+            yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(param, context, {
                 innerParse: function*(iterator) {
                     yield* iterator;
                     if (i < params.length - 1)
                         yield ",";
                 }
-            }));
+            })));
         }
     }
 
@@ -2480,8 +2480,11 @@ function* parseImportSpecifier(node: babel.ImportSpecifier, context: Context): P
     }
 
     yield* parseNode(node.imported, context);
-    yield " as ";
-    yield* parseNode(node.local, context);
+    yield Signal.SpaceOrNewLine;
+    yield* conditions.indentIfStartOfLine(function*() {
+        yield "as ";
+        yield* parseNode(node.local, context);
+    }());
 }
 
 /* exports */
@@ -2503,8 +2506,11 @@ function* parseExportSpecifier(node: babel.ExportSpecifier, context: Context): P
     }
 
     yield* parseNode(node.local, context);
-    yield " as ";
-    yield* parseNode(node.exported, context);
+    yield Signal.SpaceOrNewLine;
+    yield* conditions.indentIfStartOfLine(function*() {
+        yield "as ";
+        yield* parseNode(node.exported, context);
+    }());
 }
 
 /* literals */
@@ -2856,14 +2862,14 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
             if (i > 0 && !useNewlines)
                 yield Signal.SpaceOrNewLine;
 
-            yield* conditions.indentIfStartOfLine(parseNode(node.elementTypes[i], context, {
+            yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(node.elementTypes[i], context, {
                 innerParse: function*(iterator) {
                     yield* iterator;
 
                     if (forceTrailingCommas || i < node.elementTypes.length - 1)
                         yield ",";
                 }
-            }));
+            })));
 
             if (useNewlines)
                 yield context.newlineKind;
@@ -2901,23 +2907,27 @@ function* parseTypeOperator(node: babel.TSTypeOperator, context: Context): Print
 }
 
 function* parseTypeParameter(node: babel.TSTypeParameter, context: Context): PrintItemIterable {
-    yield* newlineGroup(function*(): PrintItemIterable {
-        yield node.name!;
+    yield node.name!;
 
-        if (node.constraint) {
+    if (node.constraint) {
+        yield Signal.SpaceOrNewLine;
+        yield* conditions.indentIfStartOfLine(function*() {
             if (context.parent.type === "TSMappedType")
-                yield " in ";
+                yield "in ";
             else
-                yield " extends ";
+                yield "extends ";
 
             yield* parseNode(node.constraint, context);
-        }
+        }());
+    }
 
-        if (node.default) {
-            yield " = ";
+    if (node.default) {
+        yield Signal.SpaceOrNewLine;
+        yield* conditions.indentIfStartOfLine(function*() {
+            yield "= ";
             yield* parseNode(node.default, context);
-        }
-    }());
+        }());
+    }
 }
 
 function* parseTypePredicate(node: babel.TSTypePredicate, context: Context): PrintItemIterable {
@@ -2940,13 +2950,14 @@ function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSInterse
     const useNewLines = nodeHelpers.getUseNewlinesForNodes(node.types);
     const separator = node.type === "TSUnionType" ? "| " : "& ";
     const isAncestorParenthesizedType = getIsAncestorParenthesizedType();
+    const isAncestorUnionOrIntersectionType = context.parent.type === "TSUnionType" || context.parent.type === "TSIntersectionType";
 
     for (let i = 0; i < node.types.length; i++) {
         if (i > 0)
             yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
 
         // probably something better needs to be done here, but this is good enough for now
-        if (isAncestorParenthesizedType)
+        if (isAncestorParenthesizedType || i == 0 && !isAncestorUnionOrIntersectionType)
             yield* innerParse(i);
         else
             yield* conditions.indentIfStartOfLine(innerParse(i));
@@ -3435,7 +3446,7 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
     for (let i = 0; i < values.length; i++) {
         const param = values[i];
         const hasComma = i < values.length - 1;
-        const parsedParam = parseValue(param, hasComma);
+        const parsedParam = newlineGroup(parseValue(param, hasComma));
 
         if (i === 0)
             yield* parsedParam;
@@ -3595,7 +3606,7 @@ function* parseNamedImportsOrExports(
             if (useNewLines)
                 yield* parseNode(namedImportsOrExports[i], context);
             else
-                yield* conditions.indentIfStartOfLine(parseNode(namedImportsOrExports[i], context));
+                yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(namedImportsOrExports[i], context)));
         }
     }
 }
@@ -3693,7 +3704,7 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
                     yield Signal.SpaceOrNewLine;
                 }
 
-                yield* conditions.indentIfStartOfLine(parseNode(items[i], context));
+                yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(items[i], context)));
             }
         }());
     }());
