@@ -946,7 +946,7 @@ function* parseVariableDeclaration(node: babel.VariableDeclaration, context: Con
                 yield Signal.SpaceOrNewLine;
             }
 
-            yield* conditions.indentIfStartOfLine(parseNode(node.declarations[i], context));
+            yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(node.declarations[i], context)));
         }
     }
 
@@ -3732,7 +3732,7 @@ function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
 
             const element = elements[i];
             const hasComma = forceTrailingCommas || i < elements.length - 1;
-            yield* conditions.indentIfStartOfLine(parseElement(element, hasComma));
+            yield* conditions.indentIfStartOfLine(newlineGroup(parseElement(element, hasComma)));
 
             if (useNewlines)
                 yield context.newlineKind;
