@@ -48,7 +48,7 @@ export interface TypeScriptConfiguration {
      */
     useBraces?: "maintain" | "whenNotSingleLine" | "always" | "preferNone";
     /**
-     * Where to place the brace.
+     * Where to place the opening brace.
      * @default "nextLineIfHanging"
      * @value "maintain" - Maintains the brace being on the next line or the same line.
      * @value "sameLine" - Forces the brace to be on the same line.
@@ -57,7 +57,7 @@ export interface TypeScriptConfiguration {
      */
     bracePosition?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
-     * Where to place the expression of a statement that could possibly only be on one line (ex. `if (true) console.log(5);`).
+     * Where to place the expression of a statement that could possibly be on one line (ex. `if (true) console.log(5);`).
      * @default "maintain"
      * @value "maintain" - Maintains the position of the expression.
      * @value "sameLine" - Forces the whole statement to be on one line.

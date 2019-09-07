@@ -1,5 +1,6 @@
 .rpt2_cache
 .vscode
+docs
 src
 scripts
 .gitignore
