@@ -15,19 +15,19 @@ type _assertUseBraces = AssertTrue<IsExact<typeof useBraceOptions[number], NonNu
 const bracePositionOptions = ["maintain", "sameLine", "nextLine", "nextLineIfHanging"] as const;
 type _assertBracePosition = AssertTrue<IsExact<typeof bracePositionOptions[number], NonNullable<TypeScriptConfiguration["bracePosition"]>>>;
 const nextControlFlowPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
-type _assertNextControlFlowPosition = AssertTrue<IsExact<typeof nextControlFlowPositionOptions[number], NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>>>;
+type _assertNextControlFlowPosition = AssertTrue<IsExact<typeof nextControlFlowPositionOptions[number],
+    NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>>>;
 const singleBodyPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
-type _assertSingleBodyPositionOptions = AssertTrue<IsExact<typeof singleBodyPositionOptions[number], NonNullable<TypeScriptConfiguration["singleBodyPosition"]>>>;
+type _assertSingleBodyPositionOptions = AssertTrue<IsExact<typeof singleBodyPositionOptions[number],
+    NonNullable<TypeScriptConfiguration["singleBodyPosition"]>>>;
 const arrowFunctionUseParenthesesOptions = ["force", "maintain", "preferNone"] as const;
-type _assertArrowFunctionUseParentheses = AssertTrue<IsExact<typeof arrowFunctionUseParenthesesOptions[number], NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>>>;
+type _assertArrowFunctionUseParentheses = AssertTrue<IsExact<typeof arrowFunctionUseParenthesesOptions[number],
+    NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>>>;
 const enumMemberSpacingOptions = ["newline", "blankline", "maintain"] as const;
-type _assertEnumMemberSpacing = AssertTrue<IsExact<typeof enumMemberSpacingOptions[number], NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>>>;
+type _assertEnumMemberSpacing = AssertTrue<IsExact<typeof enumMemberSpacingOptions[number],
+    NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>>>;
 
 export class ConfigurationSelection extends React.Component<ConfigurationSelectionProps> {
-    constructor(props: ConfigurationSelectionProps) {
-        super(props);
-    }
-
     render() {
         return <div id="configuration">
             <ConfigurationItem title="Line width">
@@ -79,7 +79,7 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
         const { config } = this.props;
         return (
             <input type="checkbox" checked={config[configKey] as boolean} onChange={() => this.updateConfig({ [configKey]: !config[configKey] })} />
-        )
+        );
     }
 
     private getSelectForConfig(configKey: keyof TypeScriptConfiguration, values: readonly string[]) {
@@ -91,7 +91,7 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
         );
 
         function getOptionsForValues() {
-            return values.map((value, i) => (<option key={i} value={value}>{value}</option>))
+            return values.map((value, i) => (<option key={i} value={value}>{value}</option>));
         }
     }
 

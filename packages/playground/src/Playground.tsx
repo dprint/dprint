@@ -92,7 +92,7 @@ export class Playground extends React.Component<{}, PlaygroundState> {
         );
     }
 
-    private onConfigUpdate(config: TypeScriptConfiguration){
+    private onConfigUpdate(config: TypeScriptConfiguration) {
         this.setState({ config, formattedText: this.getFormattedText(config) });
     }
 
