@@ -8,8 +8,6 @@ export interface ConfigurationSelectionProps {
     onUpdateConfig: (config: TypeScriptConfiguration) => void;
 }
 
-const trailingCommaOptions = ["never", "always", "onlyMultiLine"] as const;
-type _assertTrailingCommas = AssertTrue<IsExact<typeof trailingCommaOptions[number], NonNullable<TypeScriptConfiguration["trailingCommas"]>>>;
 const useBraceOptions = ["maintain", "whenNotSingleLine", "always", "preferNone"] as const;
 type _assertUseBraces = AssertTrue<IsExact<typeof useBraceOptions[number], NonNullable<TypeScriptConfiguration["useBraces"]>>>;
 const bracePositionOptions = ["maintain", "sameLine", "nextLine", "nextLineIfHanging"] as const;
@@ -20,6 +18,8 @@ type _assertNextControlFlowPosition = AssertTrue<IsExact<typeof nextControlFlowP
 const singleBodyPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
 type _assertSingleBodyPositionOptions = AssertTrue<IsExact<typeof singleBodyPositionOptions[number],
     NonNullable<TypeScriptConfiguration["singleBodyPosition"]>>>;
+const trailingCommaOptions = ["never", "always", "onlyMultiLine"] as const;
+type _assertTrailingCommas = AssertTrue<IsExact<typeof trailingCommaOptions[number], NonNullable<TypeScriptConfiguration["trailingCommas"]>>>;
 const arrowFunctionUseParenthesesOptions = ["force", "maintain", "preferNone"] as const;
 type _assertArrowFunctionUseParentheses = AssertTrue<IsExact<typeof arrowFunctionUseParenthesesOptions[number],
     NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>>>;
@@ -45,9 +45,6 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Single quotes">
                 {this.getBooleanConfig("singleQuotes")}
             </ConfigurationItem>
-            <ConfigurationItem title="Trailing commas">
-                {this.getSelectForConfig("trailingCommas", trailingCommaOptions)}
-            </ConfigurationItem>
             <ConfigurationItem title="Use braces">
                 {this.getSelectForConfig("useBraces", useBraceOptions)}
             </ConfigurationItem>
@@ -59,6 +56,9 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             </ConfigurationItem>
             <ConfigurationItem title="Next control flow position">
                 {this.getSelectForConfig("nextControlFlowPosition", nextControlFlowPositionOptions)}
+            </ConfigurationItem>
+            <ConfigurationItem title="Trailing commas">
+                {this.getSelectForConfig("trailingCommas", trailingCommaOptions)}
             </ConfigurationItem>
             <ConfigurationItem title="Force multi-line arguments">
                 {this.getBooleanConfig("forceMultiLineArguments")}
