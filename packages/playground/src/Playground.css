@@ -32,3 +32,10 @@ h1 {
   height: 100%;
   position: relative;
 }
+
+/* Configuration */
+
+.Pane.Pane1 {
+  overflow-y: auto;
+  background-color: #322834;
+}

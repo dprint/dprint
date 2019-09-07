@@ -65,7 +65,7 @@ export class Playground extends React.Component<{}, PlaygroundState> {
                     </header>
                     {/* Todo: re-enable resizing, but doesn't seem to work well with monaco editor on
                     the right side as it won't reduce its width after being expanded. */}
-                    <SplitPane split="vertical" minSize={50} defaultSize={175} allowResize={false}>
+                    <SplitPane split="vertical" minSize={50} defaultSize={200} allowResize={false}>
                         <ConfigurationSelection
                             config={this.state.config}
                             onUpdateConfig={this.onConfigUpdate}
