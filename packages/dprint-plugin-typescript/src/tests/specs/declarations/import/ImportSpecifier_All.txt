@@ -13,18 +13,20 @@ import { someAlias, gettingLongerSoThat, thisGoesOverThe80Limit, butOnly as insi
 import { someAlias, gettingLongerSoThat, thisGoesOverThe80Limit,
     butOnly as insideTheAlias } from "test";
 
-== should not break up on `as` when really long on the same line ==
+== should break up on `as` when really long on the same line ==
 import { loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias } from "test";
 
 [expect]
-import { loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias } from "test";
+import { loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg
+    as alias } from "test";
 
-== should not break up on `as` when really long on a different line ==
+== should break up on `as` when really long on a different line ==
 import {
     loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias
 } from "test";
 
 [expect]
 import {
-    loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg as alias
+    loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonggg
+        as alias
 } from "test";

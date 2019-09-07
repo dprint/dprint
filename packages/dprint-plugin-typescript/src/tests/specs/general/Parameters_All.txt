@@ -1,13 +1,10 @@
-== should not indent ==
-export function test() {
-    const obj = new Test({
-        prop: ""
-    });
+~~ lineWidth: 60 ~~
+== should not split up within a parameter that exceeds the line width ==
+export function test(param1: string, param2: number, t: string) {
 }
 
 [expect]
-export function test() {
-    const obj = new Test({
-        prop: ""
-    });
+export function test(param1: string, param2: number,
+    t: string)
+{
 }

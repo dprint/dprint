@@ -23,3 +23,10 @@ const t = [other, other, other, otherTest, other];
 [expect]
 const t = [other, other, other,
     otherTest, other];
+
+== should not divide up elements ==
+const t = [other, other, other, test.thisout];
+
+[expect]
+const t = [other, other, other,
+    test.thisout];
