@@ -96,15 +96,6 @@ export interface TypeScriptConfiguration {
     forceMultiLineParameters?: boolean;
 
     /**
-     * How to space the members of an enum.
-     * @default "maintain"
-     * @value "newline" - Forces a new line between members.
-     * @value "blankline" - Forces a blank line between members.
-     * @value "maintain" - Maintains whether a newline or blankline is used.
-     */
-    "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
-
-    /**
      * Whether to use parentheses around a single parameter in an arrow function.
      * @default "maintain"
      * @value "force" - Forces parentheses.
@@ -112,6 +103,15 @@ export interface TypeScriptConfiguration {
      * @value "preferNone" - Prefers not using parentheses when possible.
      */
     "arrowFunctionExpression.useParentheses"?: "force" | "maintain" | "preferNone";
+
+    /**
+     * How to space the members of an enum.
+     * @default "maintain"
+     * @value "newline" - Forces a new line between members.
+     * @value "blankline" - Forces a blank line between members.
+     * @value "maintain" - Maintains whether a newline or blankline is used.
+     */
+    "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
 
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
@@ -202,8 +202,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly singleQuotes: boolean;
 
     // declaration specific
-    readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
+    readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
 
     // semi colons
     readonly "breakStatement.semiColon": boolean;

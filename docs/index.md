@@ -190,6 +190,8 @@ If braces should be used or not.
 * `"always"` - Forces the use of braces. Will add them if they aren't used.
 * `"preferNone"` - Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
 
+[Playground](https://dprint.dev/playground/#code/JYMwBAFALgTgrgUwJRgN5gMYHsB2BnLAGwQDpCsBzCAViQG4wBfAWACg3RJZEk2x-MuAsTKUa9Nh3DR4yNJNYt2rEFhiRiUMMDABeMAAYGOgDxhqxgNSXerAYPxFS5KsAnLV6iNnxatWcCgEPChbex9hZzFQugVPSAi-bRwwIJCUVD4BCKdRKhi2JTYAdwALYGJIEABDQjxkLP4ckRdxWOUyioQq2vqUZqiqWjogA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
 ### `bracePosition`
 
 **Default:** `nextLineIfHanging`
@@ -201,6 +203,8 @@ Where to place the opening brace.
 * `"nextLine"` - Forces the brace to be on the next line.
 * `"nextLineIfHanging"` - Forces the brace to be on the next line if the same line is hanging, but otherwise uses the next.
 
+[Playground](https://dprint.dev/playground/#code/MYGwhgzhAECyCeBhcVoFMAeAXNA7AJjAMoD2AtmgPJYAWaATspBADwRb0CWuA5gDTRcAVzIAjBgOFiGAPmicyABxBoKuLDAQBJdQwBmYYGmgBvALAAoAL6XL3HPQNG48HQ6fHz12xYgB3TixgGmgACghyNFpuHgBKU0sbCzs9MJx2GOgAMizoEloGbNz8unoi6HSscpLCnIq0dmqCsrrKptL4rysgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
 ### `singleBodyPosition`
 
 **Default:** `maintain`
@@ -210,6 +214,8 @@ Where to place the expression of a statement that could possible be on one line 
 * `"maintain"` - Maintains the position of the expression.
 * `"sameLine"` - Forces the whole statement to be on one line.
 * `"nextLine"` - Forces the expression to be on the next line.
+
+[Playground](https://dprint.dev/playground/#code/JYMwBAFALgTgrgUwJRgN5gMYHsB2BnLAGwQDpCsBzCAViQG4wBfAWACg3RJZEk2x-MuAsTKUa9Nh3AQCAWwRQAFsBwUU2fEVLkqtNgkJ4EYThCxKEMdUK2iqAFl6sDRwZpE6IAZgntWILBhIYigTMABeMAAGBmAwAB4waliAahSnATdhbTFgXzYAoIgNPFDQrHAoBFKMgRLbTyh8-0DIErKTHDAqmrQ+OpsPMSa6NhY-AHdlYkgQAENDZH7+eqHdZqngGYh5xet3HPW6IA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
 ### `nextControlFlowPosition`
 
@@ -221,6 +227,8 @@ Where to place the next control flow within a control flow statement.
 * `"sameLine"` - Forces the next control flow to be on the same line.
 * `"nextLine"` - Forces the next control flow to be on the next line.
 
+[Playground](https://dprint.dev/playground/#code/JYMwBAFALgTgrgUwJRgN4FgBQYdgMYD2AdgM4EA2CAdOQQOYQCsSA3FgL4LkkJiiQEoACwQwUGTIVIVqtBgBZWHLFx5osufMTKUa9CAGYlmdliywAnuuy4pO2fvlG2J-AEMoeIZFFjrdmSpfAhgIX2N2IA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
 ### `trailingCommas`
 
 **Default:** `never`
@@ -231,6 +239,8 @@ If trailing commas should be used.
 * `"always"` - Trailing commas should always be used.
 * `"onlyMultiLine"` - Trailing commas should only be used in multi-line scenarios.
 
+[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBLC8MDaBYAUDTMCsAadWMALPmgLoDc66oksSArrjAG5kyIgBGAVlWuigBPAA4BTGABUx0DsjAMAtlzEAnZtFUBLMAHNK1NLVncecgN4wQUABZrmUGbAC+-Y7FMAmCwSwQQimKkhI7QpK7oQA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
 ### `forceMultiLineArguments`
 
 **Type:** `boolean`
@@ -240,6 +250,7 @@ Forces an argument list to be multi-line when it exceeds the print width.
 
 When false, it will be hanging when the first argument is on the same line as the open parenthesis and multi-line when on a different line.
 
+[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBCBGArGBeGwCGAbLBRAHgA4BOAFFAKbQCWYA5gCoAW1EA8gK5QA0MA7tShMAyiAC2FAEoVsWAJ4AZcIwr4eMStF6b1O7VSgBKANwBYAFAXQkWAkQAmVOlkESpCzE8aD3D15BCFMS+5l5wXBYmFlbg0DBicgCSNhhgwBROYBR8MADCWBgQEOQGtIws7Fy8AkJKUOwAZgCCxHQQvA0gxIlQDCAA4iBsAG5BzBS5TBjECtRiglHm1nEJydCp6Y5oWTn5hcV+njplzKyc6jVMdY0tbR1dPX2DI2NME1MzcwvGQA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyDLyisurG1s7cSksXse6cvq8-CAkRwAiMN5gDyx2lAAHTHQRsZzhAAOPmqnW6pD6CQeowCY1oUG8QIAonkoXI9BkpMCGDB7gTSMFGHYEb1oCAAL5AA)
 
 ### `forceMultiLineParameters`
 
@@ -249,6 +260,20 @@ When false, it will be hanging when the first argument is on the same line as th
 Forces a parameter list to be multi-line when it exceeds the print width.
 
 When false, it will be hanging when the first parameter is on the same line as the open parenthesis and multi-line when on a different line.
+
+[Playground](https://dprint.dev/playground/#code/GYVwdgxgLglg9mABFApgZ1mA5gClRmbAFQAsY0B5EKAGkQHcYoSAlFAQwBtOBPAGQRYACuwBO7ALZo6zdlADicCgDcUo0ij4wJTGeigBKRAG8AsACgAvhYuhIsBMn04LiN04LYZZStSNmrIA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyMvKKBCRHACIw3mAnix2lAAHTHQRsZzhAAOPmqnW6pD6CSeowCY1oUG8IIAonkYXI9BkpKCGDBHkTSMFGHYkb1oCAAL5A)
+
+### `"arrowFunctionExpression.useParentheses"`
+
+**Default:** `maintain`
+
+Whether to use parentheses around a single parameter in an arrow function.
+
+* `"force"` - Forces parentheses.
+* `"maintain"` - Maintains the current state of the parentheses.
+* `"preferNone"` - Prefers not using parentheses when possible.
+
+[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBCBGArAjDAvDAFAQwJToD4YBvAXwG4BYAKFElgUQCZ0ZtCSKa7o4kBmVjgBcMaACcAlmADm+NETJVa4XowAsQ7ABoY8eYq7UgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
 ### `"enumDeclaration.memberSpacing"`
 
@@ -260,15 +285,7 @@ How to space the members of an enum.
 * `"blankline"` - Forces a blank line between members.
 * `"maintain"` - Maintains whether a newline or blankline is used.
 
-### `"arrowFunctionExpression.useParentheses"`
-
-**Default:** `maintain`
-
-Whether to use parentheses around a single parameter in an arrow function.
-
-* `"force"` - Forces parentheses.
-* `"maintain"` - Maintains the current state of the parentheses.
-* `"preferNone"` - Prefers not using parentheses when possible.
+[Playground](https://dprint.dev/playground/#code/KYOwrgtgBAKsDOAXKBvAsAKCtqmdQmAgCNgAnARigF4oKAaPHQk8gJhqjcaxwHoAVANgJEASxABzKAL5NsAe0QALcgFkipMpwDMAFh7yoiUROm09mKxgC+mIA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
 ## JSONC
 
