@@ -4,6 +4,7 @@ import { formatFileText, resolveConfiguration, LoggingEnvironment } from "@dprin
 import { TypeScriptPlugin, TypeScriptConfiguration } from "dprint-plugin-typescript";
 import { CodeEditor, ConfigurationSelection, ExternalLink } from "./components";
 import * as constants from "./constants";
+import { UrlSaver } from "./utils";
 import "./Playground.css";
 import "./external/react-splitpane.css";
 
@@ -14,6 +15,7 @@ export interface PlaygroundState {
     config: TypeScriptConfiguration;
 }
 const initialLineWidth = 80;
+const urlSaver = new UrlSaver();
 const environment: LoggingEnvironment = {
     error: () => {},
     log: () => {},
@@ -24,23 +26,23 @@ export class Playground extends React.Component<{}, PlaygroundState> {
     constructor(props: {}) {
         super(props);
 
-        const defaultConfig = this.getDefaultConfiguration();
-        const initialText = getInitialText();
+        const { text: initialText, config: initialUnresolvedConfig } = urlSaver.getUrlInfo();
+        const initialConfig = this.getResolvedConfiguration(initialUnresolvedConfig);
         const config: TypeScriptConfiguration = {
-            lineWidth: defaultConfig.lineWidth,
-            indentWidth: defaultConfig.indentWidth,
-            useTabs: defaultConfig.useTabs,
-            semiColons: defaultConfig["breakStatement.semiColon"],
-            singleQuotes: defaultConfig.singleQuotes,
-            trailingCommas: defaultConfig["tupleType.trailingCommas"],
-            useBraces: defaultConfig["ifStatement.useBraces"],
-            bracePosition: defaultConfig["arrowFunctionExpression.bracePosition"],
-            singleBodyPosition: defaultConfig["ifStatement.singleBodyPosition"],
-            nextControlFlowPosition: defaultConfig["ifStatement.nextControlFlowPosition"],
-            forceMultiLineArguments: defaultConfig["callExpression.forceMultiLineArguments"],
-            forceMultiLineParameters: defaultConfig["functionDeclaration.forceMultiLineParameters"],
-            "enumDeclaration.memberSpacing": defaultConfig["enumDeclaration.memberSpacing"],
-            "arrowFunctionExpression.useParentheses": defaultConfig["arrowFunctionExpression.useParentheses"]
+            lineWidth: initialConfig.lineWidth,
+            indentWidth: initialConfig.indentWidth,
+            useTabs: initialConfig.useTabs,
+            semiColons: initialConfig["breakStatement.semiColon"],
+            singleQuotes: initialConfig.singleQuotes,
+            trailingCommas: initialConfig["tupleType.trailingCommas"],
+            useBraces: initialConfig["ifStatement.useBraces"],
+            bracePosition: initialConfig["arrowFunctionExpression.bracePosition"],
+            singleBodyPosition: initialConfig["ifStatement.singleBodyPosition"],
+            nextControlFlowPosition: initialConfig["ifStatement.nextControlFlowPosition"],
+            forceMultiLineArguments: initialConfig["callExpression.forceMultiLineArguments"],
+            forceMultiLineParameters: initialConfig["functionDeclaration.forceMultiLineParameters"],
+            "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
+            "arrowFunctionExpression.useParentheses": initialConfig["arrowFunctionExpression.useParentheses"]
         };
 
         this.state = {
@@ -94,6 +96,7 @@ export class Playground extends React.Component<{}, PlaygroundState> {
 
     private onConfigUpdate(config: TypeScriptConfiguration) {
         this.setState({ config, formattedText: this.getFormattedText(config) });
+        this.updateUrl({ text: this.state.text, config });
     }
 
     private lastUpdateTimeout: NodeJS.Timeout | undefined;
@@ -105,7 +108,12 @@ export class Playground extends React.Component<{}, PlaygroundState> {
 
         this.lastUpdateTimeout = setTimeout(() => {
             this.setState({ formattedText: this.getFormattedText() });
+            this.updateUrl({ text: newText, config: this.state.config });
         }, 250);
+    }
+
+    private updateUrl(urlInfo: { text: string; config: TypeScriptConfiguration; }) {
+        urlSaver.updateUrl(urlInfo);
     }
 
     private getFormattedText(config?: TypeScriptConfiguration) {
@@ -135,131 +143,12 @@ export class Playground extends React.Component<{}, PlaygroundState> {
         }
     }
 
-    private getDefaultConfiguration() {
-        return new TypeScriptPlugin({ lineWidth: initialLineWidth }).getConfiguration();
+    private getResolvedConfiguration(config: TypeScriptConfiguration) {
+        try {
+            return new TypeScriptPlugin(config).getConfiguration();
+        } catch (err) {
+            console.error(err);
+            return new TypeScriptPlugin({ lineWidth: 80 }).getConfiguration();
+        }
     }
-}
-
-function getInitialText() {
-    return `// I quickly threw together this playground and will improve it in the future.
-// In the meantime, this playground has all the defaults, except it uses a
-// lineWidth of ${initialLineWidth} and not 120.
-
-// In the future, I'll move this overview somewhere else...
-
-/* ------- MULTILINE, HANGING INDENT, AND LINE WIDTH ------- */
-
-// The following holds true for most nodes. Generally, nodes like
-// call expressions will prefer to be on one line...
-
-callExpression(argument1, argument2,
-    argument3,    argument4);
-
-// ...until you place the first arg on a different line...
-call.expression(
-    1, 2);
-
-// ...or the statement exceeds the line width.
-callExpression(argument1, argument2, argument3, argument4, argument5, argument6, argument7);
-
-//If you don't like hanging, you can set the forceMultiLineArguments and
-//forceMultiLineParameters configuration values to true, to force each
-//param/arg to be on a newline when exceeding the line width.
-
-/* ------- EXPLICIT NEWLINES ------- */
-
-// For the most part, dprint allows you to place certain nodes like
-// logical, binary, and property access expressions on different
-// lines as you see fit. It does this because newlines can often
-// convey meaning or grouping.
-const mathResult = 1+2*6+
-    moreMath*math
-;
-const binaryResult = true || false &&
-possiblyTrue || (
- true&&false||maybeTrue);
-
-expect(someFunctionCall(1  ,2))
-    .to.    equal(5 );
-
-// As seen above, placing a node on the next line after an open paren
-// will indent the text within the parens.
-const anotherMathResult = (
-1 + 2)
-
-// ...the same happens with statements like if statements.
-if (
-    someCondition && otherCondition) {
-
-}
-
-/* ------- BRACE POSITION ------- */
-
-// By default, when an if or similar statement hangs, it will place the brace
-// on a new line. This is to help separate the condition so it doesn't blur
-// in with the first statement. You can disable this behaviour by setting the
-// \`bracePosition\` setting to \`sameLine\` (defaults to \`newLineIfHanging\`).
-if (someCondition && otherCondition || myCondition && yourCondition && myOtherCondition) {
-    call();
-}
-else {
-    console .   log(  'hello'
-)}
-
-// By default, dprint will add braces when they are missing except when the
-// expression, is on the same line as the statement, but this can be configured
-// with the \`useBraces\` setting.
-// Note also that the position of the expression for single line bodies can
-// by configured with the \`singleBodyPosition\` configuration.
-if (true)
-    statement;
-if (true) statement;
-
-/* ------- CLASS / INTERFACE HEADERS ------- */
-
-// Classes/Interfaces will have their extends and implements clause put on
-// a new line when they exceed the line width. Again, the brace position
-// can be configured via the \`bracePosition\` option.
-class MyClass extends SomeThing implements OtherThing, LoggerThing, FunctionalityThing, OtherOtherThing, ExtendingLineWidthTwiceThing {
-}
-
-/* ------- STATEMENT / MEMBER SPACING ------- */
-
-function myFunction() {
-
-        // Line breaks will be maintained, but not when they are
-
-
-        // consecutive or if they are at the beginning or end of a block.
-
-        return 5;
-
-}
-
-interface MyInterface {
-
-    prop: string;
-
-
-    otherProp: number;
-
-    method(): number;
-    otherMethod(): void;
-
-}
-
-/* ------- IGNORING A FILE ------- */
-
-// Move the following comment to the top of the file:
-// dprint-ignore-file
-
-/* ------- IGNORING NODES ------- */
-
-// dprint-ignore
-const identity = [
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1
-];`;
 }
