@@ -40,6 +40,7 @@
     "@types/node": "^12.7.3",
     "@types/react": "^16.9.2",
     "@types/react-dom": "^16.9.0",
-    "typescript": "^3.6.2"
+    "conditional-type-checks": "^1.0.1",
+    "typescript": "^3.5.3"
   }
 }

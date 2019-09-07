@@ -128,7 +128,6 @@ export interface TypeScriptConfiguration {
     "exportNamedDeclaration.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "functionDeclaration.semiColon"?: boolean;
-    "ifStatement.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
     "importEqualsDeclaration.semiColon"?: boolean;
     "indexSignature.semiColon"?: boolean;
@@ -222,7 +221,6 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "exportNamedDeclaration.semiColon": boolean;
     readonly "expressionStatement.semiColon": boolean;
     readonly "functionDeclaration.semiColon": boolean;
-    readonly "ifStatement.semiColon": boolean;
     readonly "importDeclaration.semiColon": boolean;
     readonly "importEqualsDeclaration.semiColon": boolean;
     readonly "indexSignature.semiColon": boolean;

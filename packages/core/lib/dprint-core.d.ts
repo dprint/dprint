@@ -231,7 +231,8 @@ export interface BaseContext {
 export declare namespace conditionResolvers {
     function isStartOfNewLine(conditionContext: ResolveConditionContext): boolean;
     function isHanging(conditionContext: ResolveConditionContext, startInfo: Info, endInfo?: Info): boolean | undefined;
-    function isMultipleLines(conditionContext: ResolveConditionContext, startInfo: Info, endInfo: Info | WriterInfo, defaultValue?: boolean): boolean | undefined;
+    function isMultipleLines(conditionContext: ResolveConditionContext, startInfo: Info, endInfo: Info | WriterInfo, defaultValue?: boolean): boolean
+        | undefined;
     function areInfoEqual(conditionContext: ResolveConditionContext, startInfo: Info, endInfo: Info, defaultValue: boolean): boolean;
 }
 
