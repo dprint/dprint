@@ -1,6 +1,10 @@
 /* header */
+body {
+  background-color: #000;
+  color: white;
+}
 
-.App-header {
+.appHeader {
   background-color: #282c34;
   display: flex;
   width: 100%;
@@ -8,7 +12,7 @@
   padding: 10px 15px;
 }
 
-h2 {
+h1 {
   margin: 0;
   padding: 0;
   font-size: 20px;
@@ -27,4 +31,11 @@ h2 {
 #codeEditor {
   height: 100%;
   position: relative;
+}
+
+/* Configuration */
+
+.Pane.Pane1 {
+  overflow-y: auto;
+  background-color: #322834;
 }

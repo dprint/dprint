@@ -1,8 +1,8 @@
 import React from "react";
 import SplitPane from "react-split-pane";
 import { formatFileText, resolveConfiguration, LoggingEnvironment } from "@dprint/core";
-import { TypeScriptPlugin } from "dprint-plugin-typescript";
-import { CodeEditor, ExternalLink } from "./components";
+import { TypeScriptPlugin, TypeScriptConfiguration } from "dprint-plugin-typescript";
+import { CodeEditor, ConfigurationSelection, ExternalLink } from "./components";
 import * as constants from "./constants";
 import "./Playground.css";
 import "./external/react-splitpane.css";
@@ -11,33 +11,46 @@ export interface PlaygroundState {
     text: string;
     formattedText: string;
     scrollTop: number;
+    config: TypeScriptConfiguration;
 }
-
+const initialLineWidth = 80;
 const environment: LoggingEnvironment = {
     error: () => {},
     log: () => {},
     warn: () => {}
 };
-const typeScriptPlugin = new TypeScriptPlugin({});
-const config = resolveConfiguration({
-    lineWidth: 80
-}).config;
-typeScriptPlugin.initialize({
-    environment,
-    globalConfig: config
-});
 
 export class Playground extends React.Component<{}, PlaygroundState> {
     constructor(props: {}) {
         super(props);
 
+        const defaultConfig = this.getDefaultConfiguration();
         const initialText = getInitialText();
-        this.state = {
-            text: initialText,
-            formattedText: this.formatText(initialText),
-            scrollTop: 0
+        const config: TypeScriptConfiguration = {
+            lineWidth: defaultConfig.lineWidth,
+            indentWidth: defaultConfig.indentWidth,
+            useTabs: defaultConfig.useTabs,
+            semiColons: defaultConfig["breakStatement.semiColon"],
+            singleQuotes: defaultConfig.singleQuotes,
+            trailingCommas: defaultConfig["tupleType.trailingCommas"],
+            useBraces: defaultConfig["ifStatement.useBraces"],
+            bracePosition: defaultConfig["arrowFunctionExpression.bracePosition"],
+            singleBodyPosition: defaultConfig["ifStatement.singleBodyPosition"],
+            nextControlFlowPosition: defaultConfig["ifStatement.nextControlFlowPosition"],
+            forceMultiLineArguments: defaultConfig["callExpression.forceMultiLineArguments"],
+            forceMultiLineParameters: defaultConfig["functionDeclaration.forceMultiLineParameters"],
+            "enumDeclaration.memberSpacing": defaultConfig["enumDeclaration.memberSpacing"],
+            "arrowFunctionExpression.useParentheses": defaultConfig["arrowFunctionExpression.useParentheses"]
         };
 
+        this.state = {
+            text: initialText,
+            formattedText: this.formatText(initialText, config),
+            scrollTop: 0,
+            config
+        };
+
+        this.onConfigUpdate = this.onConfigUpdate.bind(this);
         this.onTextChange = this.onTextChange.bind(this);
         this.onScrollTopChange = this.onScrollTopChange.bind(this);
     }
@@ -46,31 +59,41 @@ export class Playground extends React.Component<{}, PlaygroundState> {
         return (
             <div className="App">
                 <SplitPane split="horizontal" defaultSize={50} allowResize={false}>
-                    <header className="App-header">
-                        <h2 id="title">dprint - Playground</h2>
+                    <header className="appHeader">
+                        <h1 id="title">dprint - Playground</h1>
                         <ExternalLink id={constants.css.viewOnGitHub.id} url="https://github.com/dsherret/dprint" text="View on GitHub" />
                     </header>
                     {/* Todo: re-enable resizing, but doesn't seem to work well with monaco editor on
                     the right side as it won't reduce its width after being expanded. */}
-                    <SplitPane split="vertical" minSize={50} defaultSize="50%" allowResize={false}>
-                        <CodeEditor
-                            onChange={this.onTextChange}
-                            text={this.state.text}
-                            lineWidth={typeScriptPlugin.getConfiguration().lineWidth}
-                            onScrollTopChange={this.onScrollTopChange}
-                            scrollTop={this.state.scrollTop}
+                    <SplitPane split="vertical" minSize={50} defaultSize={200} allowResize={false}>
+                        <ConfigurationSelection
+                            config={this.state.config}
+                            onUpdateConfig={this.onConfigUpdate}
                         />
-                        <CodeEditor
-                            text={this.state.formattedText}
-                            readonly={true}
-                            lineWidth={typeScriptPlugin.getConfiguration().lineWidth}
-                            onScrollTopChange={this.onScrollTopChange}
-                            scrollTop={this.state.scrollTop}
-                        />
+                        <SplitPane split="vertical" minSize={50} defaultSize="50%" allowResize={false}>
+                            <CodeEditor
+                                onChange={this.onTextChange}
+                                text={this.state.text}
+                                lineWidth={this.state.config.lineWidth || initialLineWidth}
+                                onScrollTopChange={this.onScrollTopChange}
+                                scrollTop={this.state.scrollTop}
+                            />
+                            <CodeEditor
+                                text={this.state.formattedText}
+                                readonly={true}
+                                lineWidth={this.state.config.lineWidth || initialLineWidth}
+                                onScrollTopChange={this.onScrollTopChange}
+                                scrollTop={this.state.scrollTop}
+                            />
+                        </SplitPane>
                     </SplitPane>
                 </SplitPane>
             </div>
         );
+    }
+
+    private onConfigUpdate(config: TypeScriptConfiguration) {
+        this.setState({ config, formattedText: this.getFormattedText(config) });
     }
 
     private lastUpdateTimeout: NodeJS.Timeout | undefined;
@@ -81,18 +104,27 @@ export class Playground extends React.Component<{}, PlaygroundState> {
         this.setState({ text: newText });
 
         this.lastUpdateTimeout = setTimeout(() => {
-            this.setState({
-                formattedText: this.formatText(newText)
-            });
+            this.setState({ formattedText: this.getFormattedText() });
         }, 250);
+    }
+
+    private getFormattedText(config?: TypeScriptConfiguration) {
+        return this.formatText(this.state.text, config || this.state.config);
     }
 
     private onScrollTopChange(scrollTop: number) {
         this.setState({ scrollTop });
     }
 
-    private formatText(text: string) {
+    private formatText(text: string, typeScriptConfig: TypeScriptConfiguration) {
         try {
+            const typeScriptPlugin = new TypeScriptPlugin(typeScriptConfig);
+            const config = resolveConfiguration({}).config;
+            typeScriptPlugin.initialize({
+                environment,
+                globalConfig: config
+            });
+
             return formatFileText({
                 filePath: "/file.ts",
                 fileText: text,
@@ -102,12 +134,16 @@ export class Playground extends React.Component<{}, PlaygroundState> {
             return err.toString();
         }
     }
+
+    private getDefaultConfiguration() {
+        return new TypeScriptPlugin({ lineWidth: initialLineWidth }).getConfiguration();
+    }
 }
 
 function getInitialText() {
-    return `// I quickly threw together this playground. I'll add configuration here
-// in the future. In the meantime, this playground has all the defaults,
-// except it uses a lineWidth of ${typeScriptPlugin.getConfiguration().lineWidth} and not 120.
+    return `// I quickly threw together this playground and will improve it in the future.
+// In the meantime, this playground has all the defaults, except it uses a
+// lineWidth of ${initialLineWidth} and not 120.
 
 // In the future, I'll move this overview somewhere else...
 
