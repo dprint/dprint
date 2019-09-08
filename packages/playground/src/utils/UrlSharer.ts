@@ -1,5 +1,5 @@
 import { TypeScriptConfiguration } from "dprint-plugin-typescript";
-import { decompressFromEncodedURIComponent, compressToEncodedURIComponent } from "lz-string"
+import { decompressFromEncodedURIComponent, compressToEncodedURIComponent } from "lz-string";
 
 export class UrlSaver {
     getUrlInfo() {
@@ -43,7 +43,7 @@ export class UrlSaver {
         }
     }
 
-    updateUrl({ text, config }: { text: string; config: TypeScriptConfiguration}) {
+    updateUrl({ text, config }: { text: string; config: TypeScriptConfiguration; }) {
         document.location.hash = `code/${compressToEncodedURIComponent(text)}/config/${compressToEncodedURIComponent(JSON.stringify(config))}`;
     }
 }

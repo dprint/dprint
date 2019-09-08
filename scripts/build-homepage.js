@@ -23,27 +23,27 @@ fs.writeFileSync(indexCssPageFilePath, new CleanCss().minify(indexCssPageText).s
 
 function initCodeHighlightExtension() {
     // from https://github.com/showdownjs/showdown/issues/215#issuecomment-168679324
-    showdown.extension('codehighlight', function() {
+    showdown.extension("codehighlight", function() {
         return [{
-            type: 'output',
-            filter: function (text, converter, options) {
+            type: "output",
+            filter: function(text, converter, options) {
                 // use new shodown's regexp engine to conditionally parse codeblocks
-                var left  = '<pre><code\\b[^>]*>',
-                    right = '</code></pre>',
-                    flags = 'g',
-                    replacement = function (wholeMatch, match, left, right) {
+                const left = "<pre><code\\b[^>]*>";
+                const right = "</code></pre>";
+                const flags = "g";
+                const replacement = (wholeMatch, match, left, right) => {
                     // unescape match to prevent double escaping
                     match = htmlunencode(match);
                     return left + hljs.highlightAuto(match).value + right;
-                    };
+                };
                 return showdown.helper.replaceRecursiveRegExp(text, replacement, left, right, flags);
             }
         }];
 
         function htmlunencode(text) {
-            return (text.replace(/&amp;/g, '&')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>'));
+            return (text.replace(/&amp;/g, "&")
+                .replace(/&lt;/g, "<")
+                .replace(/&gt;/g, ">"));
         }
     });
 }
