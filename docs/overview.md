@@ -63,7 +63,9 @@ npm run format
 
 ## Global Configuration
 
-There are certain non-language specific configuration that can be specified. Note though, that it is always possible to override these settings on a per-language basis (with the exception of `projectType`). For example:
+There are certain non-language specific configuration that can be specified. These are specified on the main configuration object, but can be overriden on a per-language basis (with the exception of `projectType`).
+
+For example:
 
 ```ts
 module.exports.config = {
@@ -71,11 +73,12 @@ module.exports.config = {
     lineWidth: 160,
     useTabs: true,
     plugins: [
-        new TypeScriptPlugin({}),
+        new TypeScriptPlugin({
+            lineWidth: 80
+        }),
         new JsoncPlugin({
-            lineWidth: 80,
             indentWidth: 2,
-            useTabs: false,
+            useTabs: false
         })
     ]
 };
@@ -93,24 +96,21 @@ You may specify any of the following values according to your conscience:
 
 ### `lineWidth`
 
-**Type:** `number`
-**Default:** `120`
-
 The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
+
+Defaults to `120`.
 
 ### `indentWidth`
 
-**Type:** `number`
-**Default:** `4`
-
 The number of spaces for an indent. This option is ignored when using tabs.
+
+Defaults to `4`.
 
 ### `useTabs`
 
-**Type:** `boolean`
-**Default:** `false`
-
 Whether to use tabs (`true`) or spaces (`false`).
+
+Defaults to `false`.
 
 ## TypeScript
 
@@ -132,62 +132,13 @@ const { TypeScriptPlugin } = require("dprint-plugin-typescript");
 module.exports.config = {
     projectType: "openSource",
     plugins: [
-        new TypeScriptPlugin({})
-    ]
-};
-```
-
-### AST Node Specific Configuration
-
-Where applicable and in most situations, configuration can be set for specific kinds of declarations and statements.
-
-For example, you can specify the general `nextControlFlowPosition`, but you can also specify a more specific `"ifStatement.nextControlFlowPosition"` option that will be used for that statement.
-
-```ts
-module.exports.config = {
-    projectType: "openSource",
-    plugins: [
         new TypeScriptPlugin({
-            nextControlFlowPosition: "maintain",
-            "ifStatement.nextControlFlowPosition": "sameLine",
-            "returnStatement.semiColon": false
+            // Specify TypeScript config here. For example...
+            semiColons: false
         })
     ]
 };
 ```
-
-### Ignoring Files
-
-Add an ignore file comment as one of the first comments in the file:
-
-```ts
-// dprint-ignore-file
-```
-
-[Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTZAzWAGxwFgAoAY03gGdFRZwclZEBPUAXlAG0LQg0AEYANKAAM4qQKFSR00bMHz5wigF0A3BQrU6DJi0Rt2AJm59lCyYutq75IbZfry2oA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
-
-### Ignoring Nodes
-
-Add an ignore comment before the node:
-
-```ts
-// dprint-ignore
-const identity = [
-    1, 0, 0,
-    0, 1, 0,
-    0, 0, 1
-];
-
-// or even...
-
-const identity = /* dprint-ignore */ [
-    1, 0, 0,
-    0, 1, 0,
-    0, 0, 1
-];
-```
-
-[Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTAsAFADGm8AzoqLODkrIgJ6gC8oA2oaF6AIwA0oAAwDhnbsN4i+YrhIk9CAXQDchQiFDZQOAG60AdIbXFSFKjTqMATC1DAAVBBgIU6LLlD2wHAt0lCpGQD-UV9xKV4lZSA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
 ### `semiColons`
 
@@ -195,9 +146,13 @@ Whether to use semi-colons are not.
 
 Note that when `semiColons` is `false` (or more specifically, when `"expressionStatement.semiColon"` is `false`), it will insert semi-colons at the beginning of some statements. Read why this is done here: https://standardjs.com/rules.html#semicolons
 
+Defaults to `true`.
+
 ### `singleQuotes`
 
-Whether to use single quotes (`true`) or double quotes (`false` -- default).
+Whether to use single quotes (`true`) or double quotes (`false`).
+
+Defaults to double quotes (`false`).
 
 ### `newlineKind`
 
@@ -295,6 +250,58 @@ How to space the members of an enum.
 * `"maintain"` - Maintains whether a newline or blankline is used (default).
 
 [Playground](https://dprint.dev/playground/#code/KYOwrgtgBAKsDOAXKBvAsAKCtqmdQmAgCNgAnARigF4oKAaPHQk8gJhqjcaxwHoAVANgJEASxABzKAL5NsAe0QALcgFkipMpwDMAFh7yoiUROm09mKxgC+mIA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
+### AST Node Specific Configuration
+
+In most situations, configuration can be set for specific kinds of declarations and statements.
+
+For example, you can specify the general `nextControlFlowPosition`, but you can also specify a more specific `"ifStatement.nextControlFlowPosition"` option that will be used for that statement.
+
+```ts
+module.exports.config = {
+    projectType: "openSource",
+    plugins: [
+        new TypeScriptPlugin({
+            nextControlFlowPosition: "maintain",
+            "ifStatement.nextControlFlowPosition": "sameLine",
+            "returnStatement.semiColon": false
+        })
+    ]
+};
+```
+
+### Ignoring Files
+
+Add an ignore file comment as one of the first comments in the file:
+
+```ts
+// dprint-ignore-file
+```
+
+[Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTZAzWAGxwFgAoAY03gGdFRZwclZEBPUAXlAG0LQg0AEYANKAAM4qQKFSR00bMHz5wigF0A3BQrU6DJi0Rt2AJm59lCyYutq75IbZfry2oA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
+### Ignoring Nodes
+
+Add an ignore comment before the node:
+
+```ts
+// dprint-ignore
+const identity = [
+    1, 0, 0,
+    0, 1, 0,
+    0, 0, 1
+];
+
+// or even...
+
+const identity = /* dprint-ignore */ [
+    1, 0, 0,
+    0, 1, 0,
+    0, 0, 1
+];
+```
+
+[Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTAsAFADGm8AzoqLODkrIgJ6gC8oA2oaF6AIwA0oAAwDhnbsN4i+YrhIk9CAXQDchQiFDZQOAG60AdIbXFSFblRp1GAJm6tgAKggwEKdFlygHYDgXP8hKRlAyUDguQEFAhUgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
 ## JSONC
 
