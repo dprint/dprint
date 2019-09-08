@@ -1,9 +1,11 @@
 ~~ arrowFunctionExpression.useParentheses: "force" ~~
 == should force using parentheses ==
-const t = a => 5;
+const obj1 = (a) => {};
+const obj2 = a => 5;
 
 [expect]
-const t = (a) => 5;
+const obj1 = (a) => {};
+const obj2 = (a) => 5;
 
 == should also use parens when specified ==
 const t = (a) => 5;

@@ -3427,9 +3427,13 @@ function* parseParametersOrArguments(options: ParseParametersOrArgumentsOptions)
 
         function getOpenParenToken() {
             const paramHasParen = nodeHelpers.hasParentheses(nodes[0]);
-            const firstOpenParen = tokenHelpers.getFirstOpenParenTokenBefore(nodes[0], context)!;
+            const firstOpenParen = tokenHelpers.getFirstOpenParenTokenBefore(nodes[0], context);
 
-            return paramHasParen ? tokenHelpers.getFirstOpenParenTokenBefore(firstOpenParen, context) : firstOpenParen;
+            // ensure this open paren is within the parent
+            if (firstOpenParen != null && firstOpenParen.start < context.parent.start!)
+                return undefined;
+
+            return paramHasParen ? tokenHelpers.getFirstOpenParenTokenBefore(firstOpenParen!, context) : firstOpenParen;
         }
     }
 }

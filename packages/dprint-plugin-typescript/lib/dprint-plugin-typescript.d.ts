@@ -48,7 +48,7 @@ export interface TypeScriptConfiguration {
      */
     useBraces?: "maintain" | "whenNotSingleLine" | "always" | "preferNone";
     /**
-     * Where to place the brace.
+     * Where to place the opening brace.
      * @default "nextLineIfHanging"
      * @value "maintain" - Maintains the brace being on the next line or the same line.
      * @value "sameLine" - Forces the brace to be on the same line.
@@ -57,7 +57,7 @@ export interface TypeScriptConfiguration {
      */
     bracePosition?: "maintain" | "sameLine" | "nextLine" | "nextLineIfHanging";
     /**
-     * Where to place the expression of a statement that could possibly only be on one line (ex. `if (true) console.log(5);`).
+     * Where to place the expression of a statement that could possibly be on one line (ex. `if (true) console.log(5);`).
      * @default "maintain"
      * @value "maintain" - Maintains the position of the expression.
      * @value "sameLine" - Forces the whole statement to be on one line.
@@ -95,14 +95,6 @@ export interface TypeScriptConfiguration {
      */
     forceMultiLineParameters?: boolean;
     /**
-     * How to space the members of an enum.
-     * @default "maintain"
-     * @value "newline" - Forces a new line between members.
-     * @value "blankline" - Forces a blank line between members.
-     * @value "maintain" - Maintains whether a newline or blankline is used.
-     */
-    "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
-    /**
      * Whether to use parentheses around a single parameter in an arrow function.
      * @default "maintain"
      * @value "force" - Forces parentheses.
@@ -110,6 +102,14 @@ export interface TypeScriptConfiguration {
      * @value "preferNone" - Prefers not using parentheses when possible.
      */
     "arrowFunctionExpression.useParentheses"?: "force" | "maintain" | "preferNone";
+    /**
+     * How to space the members of an enum.
+     * @default "maintain"
+     * @value "newline" - Forces a new line between members.
+     * @value "blankline" - Forces a blank line between members.
+     * @value "maintain" - Maintains whether a newline or blankline is used.
+     */
+    "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
     "classMethod.semiColon"?: boolean;
@@ -190,8 +190,8 @@ export interface TypeScriptConfiguration {
  */
 export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
     readonly singleQuotes: boolean;
-    readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
+    readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "breakStatement.semiColon": boolean;
     readonly "callSignature.semiColon": boolean;
     readonly "classMethod.semiColon": boolean;
