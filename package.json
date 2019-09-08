@@ -8,13 +8,18 @@
     "clean": "lerna clean",
     "test": "lerna run test",
     "format": "node packages/dprint/dist/cli-bin.js \"**/*{.ts|.tsx|.json|.js}\" \"!packages/playground/public/vs/**/*.*\" \"!packages/playground/build/**/*.*\" \"!build-website/**/*.*\" \"!**/dist/**/*.*\"",
-    "build-website": "rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\""
+    "build-website": "rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\" && node scripts/build-homepage.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dsherret/dprint.git"
   },
-  "keywords": ["code", "formatter", "typescript", "jsonc"],
+  "keywords": [
+    "code",
+    "formatter",
+    "typescript",
+    "jsonc"
+  ],
   "author": "David Sherret",
   "license": "MIT",
   "bugs": {
@@ -23,8 +28,16 @@
   "homepage": "https://github.com/dsherret/dprint#readme",
   "dependencies": {},
   "devDependencies": {
+    "@types/clean-css": "^4.2.1",
+    "@types/highlight.js": "^9.12.3",
+    "@types/html-minifier": "^3.5.3",
+    "@types/showdown": "^1.9.3",
+    "clean-css": "^4.2.1",
     "copyfiles": "^2.1.1",
+    "highlight.js": "^9.15.10",
+    "html-minifier": "^4.0.0",
     "lerna": "^3.16.4",
-    "rimraf": "^3.0.0"
+    "rimraf": "^3.0.0",
+    "showdown": "^1.9.0"
   }
 }

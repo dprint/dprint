@@ -2,7 +2,6 @@ import React from "react";
 import ReactMonacoEditorForTypes from "react-monaco-editor";
 import * as monacoEditorForTypes from "monaco-editor";
 import { Spinner } from "./Spinner";
-import { css as cssConstants } from "../constants";
 
 export interface CodeEditorProps {
     onChange?: (text: string) => void;
@@ -62,7 +61,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
         this.updateScrollTop();
 
         return (
-            <div id={cssConstants.codeEditor.id}>
+            <div id="codeEditor">
                 {this.getEditor()}
             </div>
         );

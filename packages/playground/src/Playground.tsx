@@ -3,7 +3,6 @@ import SplitPane from "react-split-pane";
 import { formatFileText, resolveConfiguration, LoggingEnvironment } from "@dprint/core";
 import { TypeScriptPlugin, TypeScriptConfiguration } from "dprint-plugin-typescript";
 import { CodeEditor, ConfigurationSelection, ExternalLink } from "./components";
-import * as constants from "./constants";
 import { UrlSaver } from "./utils";
 import "./Playground.css";
 import "./external/react-splitpane.css";
@@ -63,7 +62,11 @@ export class Playground extends React.Component<{}, PlaygroundState> {
                 <SplitPane split="horizontal" defaultSize={50} allowResize={false}>
                     <header className="appHeader">
                         <h1 id="title">dprint - Playground</h1>
-                        <ExternalLink id={constants.css.viewOnGitHub.id} url="https://github.com/dsherret/dprint" text="View on GitHub" />
+                        <div id="headerRight">
+                            <a href="/">Home</a>
+                            <a href="/playground">Playground</a>
+                            <ExternalLink url="https://github.com/dsherret/dprint" text="View on GitHub" />
+                        </div>
                     </header>
                     {/* Todo: re-enable resizing, but doesn't seem to work well with monaco editor on
                     the right side as it won't reduce its width after being expanded. */}
