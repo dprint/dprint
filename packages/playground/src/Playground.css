@@ -10,6 +10,7 @@ body {
   width: 100%;
   align-items: center;
   padding: 10px 15px;
+  border-bottom: 1px solid #000;
 }
 
 h1 {
@@ -19,11 +20,18 @@ h1 {
   color: white;
 }
 
-#viewOnGitHub {
+a {
   color: white;
+}
+
+#headerRight {
   /* todo: this should not do this (requires duplicating right value with above padding) */
   position: absolute;
   right: 15px;
+}
+
+#headerRight a:not(:first-child) {
+  margin-left: 5px;
 }
 
 /* Code Editor */

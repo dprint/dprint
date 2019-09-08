@@ -1,14 +1,16 @@
-*dprint* is a configurable and plugable code formatter.
+# dprint
+
+dprint is a configurable and plugable code formatter.
 
 Currently only TypeScript and JSONC is supported.
 
 ## Install
 
-Install *dprint* and the plugins you want to use as a dev dependency.
+Install dprint and the plugins you want to use as a dev dependency.
 
 For example:
 
-```
+```bash
 yarn add --dev dprint dprint-plugin-typescript dprint-plugin-jsonc
 # or
 npm install --save-dev dprint dprint-plugin-typescript dprint-plugin-jsonc
@@ -81,7 +83,9 @@ module.exports.config = {
 
 ### `projectType`
 
-This is required when using the cli. Specify the type of project dprint is formatting. You may specify any of the allowed values here according to your conscience.
+Specify the type of project dprint is formatting. This is required when using the cli.
+
+You may specify any of the following values according to your conscience:
 
 * `"openSource"` - Dprint is formatting an open source project.
 * `"commercialSponsored"` - Dprint is formatting a closed source commercial project and your company sponsored dprint.
@@ -112,7 +116,7 @@ Whether to use tabs (`true`) or spaces (`false`).
 
 Install plugin via:
 
-```
+```bash
 yarn add --dev dprint-plugin-typescript
 # or
 npm install --save-dev dprint-plugin-typescript
@@ -133,7 +137,7 @@ module.exports.config = {
 };
 ```
 
-### Node Specific Configuration
+### AST Node Specific Configuration
 
 Where applicable and in most situations, configuration can be set for specific kinds of declarations and statements.
 
@@ -293,7 +297,7 @@ How to space the members of an enum.
 
 Install:
 
-```
+```bash
 yarn add --dev dprint dprint-plugin-typescript dprint-plugin-jsonc
 # or
 npm install --save-dev dprint dprint-plugin-typescript dprint-plugin-jsonc

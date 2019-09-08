@@ -3,7 +3,7 @@
 [![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
 [![Build Status](https://travis-ci.org/dsherret/dprint.svg?branch=master)](https://travis-ci.org/dsherret/dprint)
 
-Mono-repo for dprint—a plugable and configurable code formatter.
+Mono-repo for dprint—a configurable and plugable code formatter.
 
 * [dprint](packages/dprint) - CLI tool
 * [@dprint/core](packages/core) - Core functionality
