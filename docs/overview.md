@@ -303,6 +303,84 @@ const identity = /* dprint-ignore */ [
 
 [Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTAsAFADGm8AzoqLODkrIgJ6gC8oA2oaF6AIwA0oAAwDhnbsN4i+YrhIk9CAXQDchQiFDZQOAG60AdIbXFSFblRp1GAJm6tgAKggwEKdFlygHYDgXP8hKRlAyUDguQEFAhUgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
+### Multi-line arguments and parameters
+
+When the first parameter or argument is placed on a different line than the open parenthesis, the entire argument or parameter list will be come multi-line.
+
+For example:
+
+```ts
+callExpr(1, 2, 3);
+// formats as
+callExpr(1, 2, 3);
+
+// but...
+callExpr(
+    1, 2, 3);
+// formats as
+callExpr(
+    1,
+    2,
+    3
+);
+```
+
+To switch back to a single line, place the first argument or parameter on the same line as the open parenthesis:
+
+```ts
+callExpr(1,
+    2,
+    3
+);
+// formats as
+callExpr(1, 2, 3);
+```
+
+### Explicit Newlines
+
+For the most part, dprint allows you to place certain nodes like binary, logical, and property access expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.
+
+```ts
+// formats this as-is
+const mathResult = 1 + 2 * 6
+    + moreMath * math;
+
+expect(someFunctionCall(1, 2))
+    .to.equal(5);
+```
+
+Also, placing a node on the next line after an open paren will indent the text within the parens.
+
+```ts
+const mathResult = (
+    1 + 2);
+// formats as
+const mathResult = (
+    1 + 2
+);
+```
+
+The same happens with statements like if statements.
+
+```ts
+if (
+    someCondition && otherCondition) {
+}
+// formats as
+if (
+    someCondition && otherCondition
+) {
+}
+```
+
+[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
+### Statement & Member Spacing
+
+Line breaks are maintained, but not when they are consecutive or if they are at the beginning or end of a block.
+
+[Playground](https://dprint.dev/playground/#code/GYVwdgxgLglg9mABAWwJ4DFzXmAFASkQG8BYAKHMSuqoHpbEAZGMAU0QCMAnVgQwGsAzogDuMADbjO7ZLxZQ5bACYAaTiCiIwcTSIAWrJFAOpEvHuUtkaNeoggJBrCBpgA3dnC6IYwRMdZTc3ZeTQDpAHMWMBYIxC9EQyV4v15OcTgIfgA6KxtqHigQLiQAVgBuKwBfK3lWLmBeCHYAWVQASTAoesbm4jzqAAcuOEGALkRBKC5Yyop5mh0DLgAFEfGtEGQOernKamRWYzglAgmwLZ2uOcWArhajvROzxDc4GCU9siqgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
 ## JSONC
 
 *dprint* has support for JSONC (JSON with comments) via the *dprint-plugin-jsonc* plugin.
