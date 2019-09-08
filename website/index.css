@@ -37,6 +37,7 @@ pre code {
   padding: 10px;
   background-color: #333;
   border-radius: 3px;
+  overflow-x: auto;
 }
 
 /* header */
