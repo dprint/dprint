@@ -276,7 +276,7 @@ When false (default), it will be hanging when the first parameter is on the same
 
 [Playground](https://dprint.dev/playground/#code/GYVwdgxgLglg9mABFApgZ1mA5gClRmbAFQAsY0B5EKAGkQHcYoSAlFAQwBtOBPAGQRYACuwBO7ALZo6zdlADicCgDcUo0ij4wJTGeigBKRAG8AsACgAvhYuhIsBMn04LiN04LYZZStSNmrIA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyMvKKBCRHACIw3mAnix2lAAHTHQRsZzhAAOPmqnW6pD6CSeowCY1oUG8IIAonkYXI9BkpKCGDBHkTSMFGHYkb1oCAAL5A)
 
-### `"arrowFunctionExpression.useParentheses"`
+### `"arrowFunctionExpression​.useParentheses"`
 
 Whether to use parentheses around a single parameter in an arrow function.
 
@@ -286,7 +286,7 @@ Whether to use parentheses around a single parameter in an arrow function.
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBCBGArAjDAvDAFAQwJToD4YBvAXwG4BYAKFElgUQCZ0ZtCSKa7o4kBmVjgBcMaACcAlmADm+NETJVa4XowAsQ7ABoY8eYq7UgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
-### `"enumDeclaration.memberSpacing"`
+### `"enumDeclaration​.memberSpacing"`
 
 How to space the members of an enum.
 
