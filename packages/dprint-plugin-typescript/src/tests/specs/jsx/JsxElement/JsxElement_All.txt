@@ -84,3 +84,45 @@ const t = <Test testingThisOut={5}
 >
     <Test />
 </Test>;
+
+== should keep jsx expressions on the same line if there is text separating them ==
+const t = <Element>
+    {title}:{other}
+</Element>;
+
+[expect]
+const t = <Element>
+    {title}:{other}
+</Element>;
+
+== should keep jsx text on the same line for a following text ==
+const t = <Element>
+    {title}:
+    {other}
+</Element>;
+
+[expect]
+const t = <Element>
+    {title}:
+    {other}
+</Element>;
+
+== should keep jsx text on the same line for a preceeding text ==
+const t = <Element>
+    Test: {title}
+</Element>;
+
+[expect]
+const t = <Element>
+    Test: {title}
+</Element>;
+
+== should keep jsx text on the same line for the following text with a space ==
+const t = <Element>
+    {title} test
+</Element>;
+
+[expect]
+const t = <Element>
+    {title} test
+</Element>;

@@ -2,8 +2,8 @@ import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment, ResolveConditionContext, ResolveCondition } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
-import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhiteSpace,
-    throwError } from "../utils";
+import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhitespace,
+    throwError, hasNoNewlinesInLeadingWhitespace, hasNoNewlinesInTrailingWhitespace} from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
@@ -3262,9 +3262,23 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
             innerComments: node.innerComments,
             items: children,
             lastNode: undefined,
+            shouldUseSpace: (previousElement, nextElement) => {
+                if (nextElement.type === "JSXText")
+                    return nextElement.value.startsWith(" ");
+                else if (previousElement.type === "JSXText")
+                    return previousElement.value.endsWith(" ");
+                return false;
+            },
+            shouldUseNewLine: (previousElement, nextElement) => {
+                if (nextElement.type === "JSXText")
+                    return !hasNoNewlinesInLeadingWhitespace(nextElement.value);
+                else if (previousElement.type === "JSXText")
+                    return !hasNoNewlinesInTrailingWhitespace(previousElement.value);
+                return true;
+            },
             shouldUseBlankLine: (previousElement, nextElement) => {
                 if (previousElement.type === "JSXText")
-                    return hasNewLineOccurrencesInTrailingWhiteSpace(previousElement.value, 2);
+                    return hasNewLineOccurrencesInTrailingWhitespace(previousElement.value, 2);
                 if (nextElement.type === "JSXText")
                     return hasNewlineOccurrencesInLeadingWhitespace(nextElement.value, 2);
                 return nodeHelpers.hasSeparatingBlankLine(previousElement, nextElement);
@@ -3313,20 +3327,27 @@ interface ParseStatementOrMembersOptions {
     innerComments: ReadonlyArray<babel.Comment> | undefined | null;
     lastNode: babel.Node | undefined;
     context: Context;
+    shouldUseSpace?: (previousMember: babel.Node, nextMember: babel.Node) => boolean;
+    shouldUseNewLine?: (previousMember: babel.Node, nextMember: babel.Node) => boolean;
     shouldUseBlankLine: (previousMember: babel.Node, nextMember: babel.Node) => boolean;
     trailingCommas?: TypeScriptConfiguration["trailingCommas"];
 }
 
 function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintItemIterable {
-    const { items, innerComments, context, shouldUseBlankLine, trailingCommas } = opts;
+    const { items, innerComments, context, shouldUseSpace, shouldUseNewLine, shouldUseBlankLine, trailingCommas } = opts;
     let { lastNode } = opts;
 
     for (const item of items) {
         if (lastNode != null) {
-            yield context.newlineKind;
-
-            if (shouldUseBlankLine(lastNode, item))
+            if (shouldUseNewLine == null || shouldUseNewLine(lastNode, item)) {
                 yield context.newlineKind;
+
+                if (shouldUseBlankLine(lastNode, item))
+                    yield context.newlineKind;
+            }
+            else if (shouldUseSpace != null && shouldUseSpace(lastNode, item)) {
+                yield Signal.SpaceOrNewLine;
+            }
         }
 
         const endInfo = createInfo("endStatementOrMemberInfo");
