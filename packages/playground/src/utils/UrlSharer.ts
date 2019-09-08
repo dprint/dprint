@@ -44,7 +44,11 @@ export class UrlSaver {
     }
 
     updateUrl({ text, config }: { text: string; config: TypeScriptConfiguration; }) {
-        window.history.replaceState(undefined, "", `#code/${compressToEncodedURIComponent(text)}/config/${compressToEncodedURIComponent(JSON.stringify(config))}`);
+        window.history.replaceState(
+            undefined,
+            "",
+            `#code/${compressToEncodedURIComponent(text)}/config/${compressToEncodedURIComponent(JSON.stringify(config))}`
+        );
     }
 }
 
