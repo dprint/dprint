@@ -2,8 +2,8 @@ import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     resolveNewLineKindFromText, LoggingEnvironment, ResolveConditionContext, ResolveCondition } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
-import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhitespace,
-    throwError, hasNoNewlinesInLeadingWhitespace, hasNoNewlinesInTrailingWhitespace} from "../utils";
+import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhitespace, throwError,
+    hasNoNewlinesInLeadingWhitespace, hasNoNewlinesInTrailingWhitespace } from "../utils";
 import { BabelToken } from "./BabelToken";
 import * as nodeHelpers from "./nodeHelpers";
 import * as tokenHelpers from "./tokenHelpers";
