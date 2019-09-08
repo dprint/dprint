@@ -107,22 +107,26 @@ const t = <Element>
     {other}
 </Element>;
 
-== should keep jsx text on the same line for a preceeding text ==
+== should keep jsx text on the same line for a preceeding text with and without a space ==
 const t = <Element>
     Test: {title}
+    Test{other}
 </Element>;
 
 [expect]
 const t = <Element>
     Test: {title}
+    Test{other}
 </Element>;
 
-== should keep jsx text on the same line for the following text with a space ==
+== should keep jsx text on the same line for the following text with and without a space ==
 const t = <Element>
     {title} test
+    {other}test
 </Element>;
 
 [expect]
 const t = <Element>
     {title} test
+    {other}test
 </Element>;
