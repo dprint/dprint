@@ -63,7 +63,7 @@ export class Playground extends React.Component<{}, PlaygroundState> {
                     <header className="appHeader">
                         <h1 id="title">dprint - Playground</h1>
                         <div id="headerRight">
-                            <a href="/">Home</a>
+                            <a href="/">Overview</a>
                             <a href="/playground">Playground</a>
                             <ExternalLink url="https://github.com/dsherret/dprint" text="View on GitHub" />
                         </div>
