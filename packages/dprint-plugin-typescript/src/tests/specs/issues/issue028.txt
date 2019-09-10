@@ -1,5 +1,5 @@
 ~~ lineWidth: 80, forceMultiLineArguments: true, singleQuotes: true ~~
-== should format (only) ==
+== should format ==
 export class Testing {
     constructor() {
         asdfasdfasdfasdf.getProxyByNameAsync<IViewModel>('asdfasdfasdfasdf', $scope).then((data) => {

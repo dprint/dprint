@@ -60,3 +60,10 @@ return test
     && (
         test || other
     );
+
+== should not cut off an inner expression midway ==
+testing && this.testing && other.testing;
+
+[expect]
+testing && this.testing
+    && other.testing;

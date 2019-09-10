@@ -2114,7 +2114,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         if (!shouldIndent)
             putDisableIndentInBagIfNecessaryForNode(node.left, context);
 
-        yield* parseNode(node.left, context);
+        yield* newlineGroupIfNecessary(node.left.type, parseNode(node.left, context));
 
         if (useNewLines)
             yield context.newlineKind;
@@ -2125,14 +2125,21 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
             putDisableIndentInBagIfNecessaryForNode(node.right, context);
 
         const rightIterator = parseNode(node.right, context, {
-            innerParse: function*(iterator) {
+            innerParse: function*(iterable) {
                 yield node.operator;
                 yield " ";
-                yield* iterator;
+                yield* newlineGroupIfNecessary(node.right.type, iterable);
             }
         });
 
         yield* shouldIndent ? conditions.indentIfStartOfLine(rightIterator) : rightIterator;
+
+        function* newlineGroupIfNecessary(nodeType: babel.Node["type"], iterable: PrintItemIterable): PrintItemIterable {
+            if (nodeType !== "BinaryExpression" && nodeType !== "LogicalExpression")
+                yield* newlineGroup(iterable);
+            else
+                yield* iterable;
+        }
     }
 
     function getUseNewLines() {
