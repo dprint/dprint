@@ -1,6 +1,6 @@
 {
   "name": "dprint-plugin-jsonc",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "JSONC plugin for dprint.",
   "main": "dist/dprint-plugin-jsonc.js",
   "types": "lib/dprint-plugin-jsonc.d.ts",
@@ -36,10 +36,10 @@
     "jsonc-parser": "^2.1.1"
   },
   "peerDependencies": {
-    "@dprint/core": "~0.4.1"
+    "@dprint/core": "~0.4.2"
   },
   "devDependencies": {
-    "@dprint/core": "~0.4.1",
+    "@dprint/core": "~0.4.2",
     "@dprint/development": "~0.2.1",
     "@types/ts-nameof": "^3.2.0",
     "chai": "^4.2.0",

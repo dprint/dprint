@@ -26,12 +26,12 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@dprint/core": "~0.4.1",
+    "@dprint/core": "~0.4.2",
     "mocha": "^6.2.0",
     "chai": "^4.2.0"
   },
   "devDependencies": {
-    "@dprint/core": "~0.4.1",
+    "@dprint/core": "~0.4.2",
     "@types/chai": "^4.2.0",
     "@types/mocha": "^5.2.7",
     "@types/ts-nameof": "^3.2.0",

@@ -1,6 +1,6 @@
 // dprint-ignore-file
 
-export declare const version = "0.4.1";
+export declare const version = "0.4.2";
 
 export declare function makeIterableRepeatable<T>(iterable: Iterable<T>): Iterable<T>;
 
