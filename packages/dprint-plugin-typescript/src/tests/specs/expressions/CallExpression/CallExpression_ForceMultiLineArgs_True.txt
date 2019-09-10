@@ -15,3 +15,21 @@ call(testing, this);
 
 [expect]
 call(testing, this);
+
+== should not move a function expression onto multiple lines when there only exists one ==
+
+call(function test() {
+});
+
+[expect]
+call(function test() {
+});
+
+== should not move an arrow function expression onto multiple lines when there only exists one ==
+
+call(() => {
+});
+
+[expect]
+call(() => {
+});

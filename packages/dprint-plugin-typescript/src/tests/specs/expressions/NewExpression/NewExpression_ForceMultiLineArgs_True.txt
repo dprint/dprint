@@ -15,3 +15,21 @@ const t = new Class(testing, this);
 
 [expect]
 const t = new Class(testing, this);
+
+== should not move a function expression onto multiple lines when there only exists one ==
+
+new Class(function test() {
+});
+
+[expect]
+new Class(function test() {
+});
+
+== should not move an arrow function expression onto multiple lines when there only exists one ==
+
+new Class(() => {
+});
+
+[expect]
+new Class(() => {
+});

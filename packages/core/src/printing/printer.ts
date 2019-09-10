@@ -23,6 +23,7 @@ interface SavePoint {
     childIndex: number;
     writerState: WriterState;
     possibleNewLineSavePoint: SavePoint | undefined;
+    lookAheadSavePoints: Map<Condition | Info, SavePoint>;
 
     minDepthFound: number;
     minDepthChildIndex: number;
@@ -43,7 +44,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
     const writer = new Writer(options);
     const resolvedConditions = new Map<Condition, boolean>();
     const resolvedInfos = new Map<Info, WriterInfo>();
-    const lookAheadSavePoints = new Map<Condition | Info, SavePoint>();
+    let lookAheadSavePoints = new Map<Condition | Info, SavePoint>();
     let possibleNewLineSavePoint: SavePoint | undefined;
     let depth = 0;
     let childIndex = 0;
@@ -248,6 +249,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         const isForNewLine = possibleNewLineSavePoint === savePoint;
         writer.setState(savePoint.writerState);
         possibleNewLineSavePoint = isForNewLine ? undefined : savePoint.possibleNewLineSavePoint;
+        lookAheadSavePoints = savePoint.lookAheadSavePoints;
         childIndex = savePoint.childIndex;
         newlineGroupDepth = savePoint.newlineGroupDepth;
 
@@ -368,7 +370,8 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             possibleNewLineSavePoint,
             uncomittedItems: [initialItem],
             minDepthFound: depth,
-            minDepthChildIndex: childIndex
+            minDepthChildIndex: childIndex,
+            lookAheadSavePoints: new Map(lookAheadSavePoints)
         };
     }
 

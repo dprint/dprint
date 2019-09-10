@@ -3290,9 +3290,14 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
     }
 
     function* parseForSingleLine(): PrintItemIterable {
-        for (const child of children) {
-            yield* parseNode(child, context);
+        if (children.length === 0) {
             yield Signal.NewLine;
+        }
+        else {
+            for (const child of children) {
+                yield* parseNode(child, context);
+                yield Signal.NewLine;
+            }
         }
     }
 }
@@ -3408,12 +3413,13 @@ function* parseParametersOrArguments(options: ParseParametersOrArgumentsOptions)
         yield startInfo;
         yield "(";
 
+        const paramList = makeIterableRepeatable(parseParameterList());
         yield {
             kind: PrintItemKind.Condition,
             name: "multiLineOrHanging",
             condition: multiLineOrHangingConditionResolver,
-            true: surroundWithNewLines(withIndent(parseParameterList()), context),
-            false: parseParameterList()
+            true: surroundWithNewLines(withIndent(paramList), context),
+            false: paramList
         };
 
         if (customCloseParen)
@@ -3435,9 +3441,13 @@ function* parseParametersOrArguments(options: ParseParametersOrArgumentsOptions)
     function multiLineOrHangingConditionResolver(conditionContext: ResolveConditionContext) {
         if (useNewLines)
             return true;
-        if (forceMultiLineWhenMultipleLines)
+        if (forceMultiLineWhenMultipleLines && !isSingleFunction())
             return conditionResolvers.isMultipleLines(conditionContext, startInfo, endInfo);
         return false;
+
+        function isSingleFunction() {
+            return nodes.length === 1 && (nodes[0].type === "FunctionExpression" || nodes[0].type === "ArrowFunctionExpression");
+        }
     }
 
     function getUseNewLines() {
@@ -3471,7 +3481,7 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
     for (let i = 0; i < values.length; i++) {
         const param = values[i];
         const hasComma = i < values.length - 1;
-        const parsedParam = newlineGroup(parseValue(param, hasComma));
+        const parsedParam = makeIterableRepeatable(newlineGroup(parseValue(param, hasComma)));
 
         if (i === 0)
             yield* parsedParam;
