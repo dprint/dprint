@@ -15,27 +15,28 @@ const writeProject = new Project({
 const declarationFile = writeProject.addExistingSourceFile("lib/dprint-core.d.ts");
 const packageVersion = require("../package.json").version;
 
-let text = "";
+const writer = readProject.createWriter();
+writer.writeLine("// dprint-ignore-file");
 
 for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
     for (const declaration of declarations) {
-        if (text.length > 0)
-            text += "\n";
+        if (writer.getLength() > 0)
+            writer.newLine();
 
         if (TypeGuards.isVariableDeclaration(declaration)) {
             // update to include the package version
-            text += declaration.getVariableStatementOrThrow().getText(true).replace("PACKAGE_VERSION", packageVersion);
+            writer.write(declaration.getVariableStatementOrThrow().getText(true).replace("PACKAGE_VERSION", packageVersion));
         }
         else {
-            text += declaration.getText(true);
+            writer.write(declaration.getText(true));
         }
 
-        text += "\n";
+        writer.newLine();
     }
 }
 
 // todo: format using dprint
-declarationFile.replaceWithText(text);
+declarationFile.replaceWithText(writer.toString());
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();

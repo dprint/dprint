@@ -3290,9 +3290,8 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
     }
 
     function* parseForSingleLine(): PrintItemIterable {
-        if (children.length === 0) {
+        if (children.length === 0)
             yield Signal.NewLine;
-        }
         else {
             for (const child of children) {
                 yield* parseNode(child, context);
