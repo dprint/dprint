@@ -140,6 +140,10 @@ module.exports.config = {
 };
 ```
 
+Links:
+
+* [Type Declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts)
+
 ### `semiColons`
 
 Whether to use semi-colons are not.
@@ -411,3 +415,7 @@ module.exports.config = {
 ### JSONC - Configuration
 
 There is currently no JSONC specific configuration beyond the global configuration (ex. `lineWidth`, `indentWidth`, etc.).
+
+Links:
+
+* [Type Declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)
