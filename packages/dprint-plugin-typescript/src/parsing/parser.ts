@@ -3132,7 +3132,7 @@ function* parseJsxSpreadChild(node: babel.JSXSpreadChild, context: Context): Pri
 
 function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable {
     // todo: how expensive is trim()?
-    const lines = node.value.trim().split(/\r?\n/g).map(line => line.trimRight());
+    const lines = getRawText().trim().split(/\r?\n/g).map(line => line.trimRight());
 
     for (let i = 0; i < lines.length; i++) {
         const lineText = lines[i];
@@ -3143,6 +3143,11 @@ function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable
 
         if (lineText.length > 0)
             yield lineText;
+    }
+
+    function getRawText() {
+        type _markValueImplemented = AnalysisMarkImplemented<typeof node.value, "Implemented via extra.raw">;
+        return (node as any).extra.raw as string;
     }
 }
 

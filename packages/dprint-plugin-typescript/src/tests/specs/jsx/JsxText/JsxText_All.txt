@@ -25,3 +25,9 @@ const t = <>
     that has many blank lines between
     and a single line
 </>;
+
+== should keep character entities ==
+const t = <span>&nbsp;|&nbsp;</span>;
+
+[expect]
+const t = <span>&nbsp;|&nbsp;</span>;
