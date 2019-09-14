@@ -82,3 +82,8 @@ export function hasParentheses(node: babel.Node): boolean {
         return false;
     return extra.parenthesized || false;
 }
+
+export function getJsxText(jsxText: babel.JSXText) {
+    // this is necessary because .value will resolve character entities (ex. &nbsp; -> space)
+    return (jsxText as any).extra.raw as string;
+}

@@ -130,3 +130,15 @@ const t = <Element>
     {title} test
     {other}test
 </Element>;
+
+== should leave a space between the text and expression when single line ==
+return (<E>Test: {type}</E>);
+return (<E>Test:   {type}</E>);
+return (<E>{type} test</E>);
+return (<E>{type}  test</E>);
+
+[expect]
+return (<E>Test: {type}</E>);
+return (<E>Test: {type}</E>);
+return (<E>{type} test</E>);
+return (<E>{type} test</E>);

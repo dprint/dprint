@@ -3131,8 +3131,9 @@ function* parseJsxSpreadChild(node: babel.JSXSpreadChild, context: Context): Pri
 }
 
 function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable {
+    type _markValueImplemented = AnalysisMarkImplemented<typeof node.value, "Implemented via extra.raw">;
     // todo: how expensive is trim()?
-    const lines = getRawText().trim().split(/\r?\n/g).map(line => line.trimRight());
+    const lines = nodeHelpers.getJsxText(node).trim().split(/\r?\n/g).map(line => line.trimRight());
 
     for (let i = 0; i < lines.length; i++) {
         const lineText = lines[i];
@@ -3143,11 +3144,6 @@ function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable
 
         if (lineText.length > 0)
             yield lineText;
-    }
-
-    function getRawText() {
-        type _markValueImplemented = AnalysisMarkImplemented<typeof node.value, "Implemented via extra.raw">;
-        return (node as any).extra.raw as string;
     }
 }
 
@@ -3274,25 +3270,19 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
             innerComments: node.innerComments,
             items: children,
             lastNode: undefined,
-            shouldUseSpace: (previousElement, nextElement) => {
-                if (nextElement.type === "JSXText")
-                    return nextElement.value.startsWith(" ");
-                else if (previousElement.type === "JSXText")
-                    return previousElement.value.endsWith(" ");
-                return false;
-            },
+            shouldUseSpace,
             shouldUseNewLine: (previousElement, nextElement) => {
                 if (nextElement.type === "JSXText")
-                    return !hasNoNewlinesInLeadingWhitespace(nextElement.value);
-                else if (previousElement.type === "JSXText")
-                    return !hasNoNewlinesInTrailingWhitespace(previousElement.value);
+                    return !hasNoNewlinesInLeadingWhitespace(nodeHelpers.getJsxText(nextElement));
+                if (previousElement.type === "JSXText")
+                    return !hasNoNewlinesInTrailingWhitespace(nodeHelpers.getJsxText(previousElement));
                 return true;
             },
             shouldUseBlankLine: (previousElement, nextElement) => {
                 if (previousElement.type === "JSXText")
-                    return hasNewLineOccurrencesInTrailingWhitespace(previousElement.value, 2);
+                    return hasNewLineOccurrencesInTrailingWhitespace(nodeHelpers.getJsxText(previousElement), 2);
                 if (nextElement.type === "JSXText")
-                    return hasNewlineOccurrencesInLeadingWhitespace(nextElement.value, 2);
+                    return hasNewlineOccurrencesInLeadingWhitespace(nodeHelpers.getJsxText(nextElement), 2);
                 return nodeHelpers.hasSeparatingBlankLine(previousElement, nextElement);
             }
         }));
@@ -3305,11 +3295,22 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
         if (children.length === 0)
             yield Signal.NewLine;
         else {
-            for (const child of children) {
-                yield* parseNode(child, context);
+            for (let i = 0; i < children.length; i++) {
+                if (i > 0 && shouldUseSpace(children[i - 1], children[i]))
+                    yield Signal.SpaceOrNewLine;
+
+                yield* parseNode(children[i], context);
                 yield Signal.NewLine;
             }
         }
+    }
+
+    function shouldUseSpace(previousElement: babel.Node, nextElement: babel.Node) {
+        if (previousElement.type === "JSXText")
+            return nodeHelpers.getJsxText(previousElement).endsWith(" ");
+        if (nextElement.type === "JSXText")
+            return nodeHelpers.getJsxText(nextElement).startsWith(" ");
+        return false;
     }
 }
 
