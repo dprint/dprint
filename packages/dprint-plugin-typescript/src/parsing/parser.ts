@@ -502,9 +502,6 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
         yield "!";
 
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
-
-    if (parent.type === "ExportDefaultDeclaration" && context.config["exportDefaultDeclaration.semiColon"])
-        yield ";";
 }
 
 /* declarations */
@@ -693,6 +690,22 @@ function* parseExportDefaultDeclaration(node: babel.ExportDefaultDeclaration, co
     yield* parseDecoratorsIfClass(node.declaration, context);
     yield "export default ";
     yield* parseNode(node.declaration, context);
+
+    if (shouldUseSemiColon())
+        yield ";";
+
+    function shouldUseSemiColon() {
+        if (!context.config["exportDefaultDeclaration.semiColon"])
+            return false;
+
+        switch (node.declaration.type) {
+            case "ClassDeclaration":
+            case "FunctionDeclaration":
+                return false;
+            default:
+                return true;
+        }
+    }
 }
 
 function* parseFunctionDeclarationOrExpression(
