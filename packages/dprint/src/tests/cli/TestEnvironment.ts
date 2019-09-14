@@ -1,4 +1,5 @@
 import * as path from "path";
+import multimatch from "multimatch";
 import { Environment } from "../../environment";
 
 export class TestEnvironment implements Environment {
@@ -7,9 +8,6 @@ export class TestEnvironment implements Environment {
     private readonly errors: string[] = [];
     private readonly files = new Map<string, string>();
     private readonly requireObjects = new Map<string, object>();
-
-    constructor(private readonly globFileExtension = ".ts") {
-    }
 
     log(text: string) {
         this.logs.push(text);
@@ -82,6 +80,11 @@ export class TestEnvironment implements Environment {
     }
 
     glob(patterns: string[]) {
-        return Promise.resolve(Array.from(this.files.keys()).filter(fileName => fileName.endsWith(this.globFileExtension)));
+        return Promise.resolve(matchGlobs(Array.from(this.files.keys()), patterns));
     }
+}
+
+function matchGlobs(paths: ReadonlyArray<string>, patterns: ReadonlyArray<string>) {
+    // @types/multimatch incorrectly specifies `string[]` type despite not modifying the array
+    return multimatch(paths as string[], patterns as string[]);
 }

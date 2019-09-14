@@ -1,11 +1,19 @@
 import { LoggingEnvironment, CliLoggingEnvironment } from "@dprint/core";
-export { Configuration } from "@dprint/core";
+import { Configuration as CoreConfiguration } from "@dprint/core";
 /**
  * Function used by the cli to format files.
  * @param args - Command line arguments.
  * @param environment - Environment to run the cli in.
  */
 export declare function runCli(args: string[], environment: Environment): Promise<void>;
+
+/** Configuration for a dprint.config.js file. */
+export interface Configuration extends CoreConfiguration {
+    /** File globs of files to format. */
+    includes?: string[];
+    /** File globs of files to not format. */
+    excludes?: string[];
+}
 
 /**
  * An implementation of an environment that interacts with the user's file system and outputs to the console.

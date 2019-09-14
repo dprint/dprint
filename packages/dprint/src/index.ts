@@ -1,2 +1,2 @@
-export { runCli } from "./cli";
+export { runCli, Configuration } from "./cli";
 export * from "./environment";

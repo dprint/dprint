@@ -1,26 +1,28 @@
 import { expect } from "chai";
-import { Configuration, Plugin } from "@dprint/core";
-import { runCliWithOptions, CommandLineOptions } from "../../cli";
+import { Plugin } from "@dprint/core";
+import { runCliWithOptions, CommandLineOptions, Configuration } from "../../cli";
 import { getDefaultCommandLineOptions } from "./getDefaultCommandLineOptions";
 import { TestEnvironment } from "./TestEnvironment";
 import { TestPlugin } from "./TestPlugin";
 
 describe(nameof(runCliWithOptions), () => {
-    function createTestEnvironment(opts: { globFileExtension?: string; } = {}) {
-        const environment = new TestEnvironment(opts.globFileExtension);
-        environment.setRequireObject("/dprint.config.js", createConfig());
+    function createTestEnvironment(opts: { config?: { config: Configuration; }; } = {}) {
+        const environment = new TestEnvironment();
+        environment.setRequireObject("/dprint.config.js", opts.config || createConfig());
         environment.addFile("/file1.ts", "5+1;");
         environment.addFile("/file2.ts", "7+2");
         environment.addFile("/node_modules/otherFile.ts", ""); // should ignore this
         return environment;
     }
 
-    function createConfig(opts: { plugins?: Plugin[]; } = {}): { config: Configuration; } {
+    function createConfig(opts: { plugins?: Plugin[]; includes?: string[]; excludes?: string[]; } = {}): { config: Configuration; } {
         return {
             config: {
                 projectType: "openSource",
                 newlineKind: "lf",
-                plugins: opts.plugins || [new TestPlugin() as Plugin]
+                plugins: opts.plugins || [new TestPlugin() as Plugin],
+                includes: opts.includes,
+                excludes: opts.excludes
             }
         };
     }
@@ -119,7 +121,7 @@ module.exports.config = {
     });
 
     it("should output the file paths when specifying to", async () => {
-        const logs = await getLogs({ outputFilePaths: true });
+        const logs = await getLogs({ outputFilePaths: true, filePatterns: ["**/*.ts"] });
         expect(logs).to.deep.equal(["/file1.ts", "/file2.ts"]);
     });
 
@@ -130,13 +132,13 @@ module.exports.config = {
 
     it("should format the files", async () => {
         const environment = createTestEnvironment();
-        await handleOptions({}, environment);
+        await handleOptions({ filePatterns: ["**/*.ts"] }, environment);
         expect(await environment.readFile("/file1.ts")).to.equal("// formatted\n5+1;");
         expect(await environment.readFile("/file2.ts")).to.equal("// formatted\n7+2");
     });
 
     it("should log when a file can't be formatted", async () => {
-        const environment = createTestEnvironment({ globFileExtension: ".asdf" });
+        const environment = createTestEnvironment();
         environment.addFile("file.asdf", "test");
         await handleOptions({ filePatterns: ["**/*.asdf"] }, environment);
         expect(environment.getErrors()).to.deep.equal([
@@ -151,7 +153,7 @@ module.exports.config = {
     });
 
     it("should include node_module files when specifying to", async () => {
-        const logs = await getLogs({ outputFilePaths: true, allowNodeModuleFiles: true });
+        const logs = await getLogs({ outputFilePaths: true, allowNodeModuleFiles: true, filePatterns: ["**/*.ts"] });
         expect(logs).to.deep.equal(["/file1.ts", "/file2.ts", "/node_modules/otherFile.ts"]);
     });
 
@@ -203,5 +205,57 @@ module.exports.config = {
         const logs = await getLogs({ duration: true });
         expect(logs.length).to.equal(1);
         expect(/^Duration: [0-9]+\.[0-9][0-9]s$/.test(logs[0])).to.be.true;
+    });
+
+    it("should format the files specified in the includes", async () => {
+        const config = createConfig({
+            includes: ["/file1.ts"]
+        });
+        const environment = createTestEnvironment({ config });
+        const logs = await getLogs({ outputFilePaths: true }, environment);
+        expect(logs).to.deep.equal(["/file1.ts"]);
+    });
+
+    it("should format the files specified in the includes and exclude the ones in the excludes", async () => {
+        const config = createConfig({
+            includes: ["**/*.ts"],
+            excludes: ["/file1.ts"]
+        });
+        const environment = createTestEnvironment({ config });
+        const logs = await getLogs({ outputFilePaths: true }, environment);
+        expect(logs).to.deep.equal(["/file2.ts"]);
+        expect(environment.getWarns()).to.deep.equal([]);
+    });
+
+    it("should format the files specified in the command args and exclude the ones in the excludes", async () => {
+        const config = createConfig({
+            excludes: ["/file1.ts"]
+        });
+        const environment = createTestEnvironment({ config });
+        const logs = await getLogs({ outputFilePaths: true, filePatterns: ["**/*.ts"] }, environment);
+        expect(logs).to.deep.equal(["/file2.ts"]);
+        expect(environment.getWarns()).to.deep.equal([]);
+    });
+
+    it("should use file patterns when both cli args and includes are specified", async () => {
+        const config = createConfig({
+            includes: ["/file1.ts"]
+        });
+        const environment = createTestEnvironment({ config });
+        const logs = await getLogs({ outputFilePaths: true, filePatterns: ["/file2.ts"] }, environment);
+        expect(logs).to.deep.equal(["/file2.ts"]);
+        expect(environment.getWarns()).to.deep.equal([]);
+    });
+
+    it("should warn when both cli args and includes are specified", async () => {
+        const config = createConfig({
+            includes: ["/file1.ts"]
+        });
+        const environment = createTestEnvironment({ config });
+        const logs = await getLogs({ filePatterns: ["/file2.ts"] }, environment);
+        expect(logs).to.deep.equal([]);
+        expect(environment.getWarns()).to.deep.equal([
+            "Ignoring the configuration file's includes because file patterns were provided to the command line."
+        ]);
     });
 });

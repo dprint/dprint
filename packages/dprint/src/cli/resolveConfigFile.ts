@@ -1,6 +1,14 @@
-import { Configuration } from "@dprint/core";
+import { Configuration as CoreConfiguration } from "@dprint/core";
 import { Environment } from "../environment";
 import { throwError } from "../utils";
+
+/** Configuration for a dprint.config.js file. */
+export interface Configuration extends CoreConfiguration {
+    /** File globs of files to format. */
+    includes?: string[];
+    /** File globs of files to not format. */
+    excludes?: string[];
+}
 
 export interface ResolveConfigFileResult {
     /** Resolved file path of the configuration file. */

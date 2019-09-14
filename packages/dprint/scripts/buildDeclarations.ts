@@ -21,11 +21,6 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
         if (text.length > 0)
             text += "\n";
 
-        if (name === "Configuration") {
-            text += `export { Configuration } from "@dprint/core";`;
-            break;
-        }
-
         if (TypeGuards.isVariableDeclaration(declaration))
             text += declaration.getVariableStatementOrThrow().getText(true);
         else
@@ -42,8 +37,8 @@ declarationFile.insertStatements(0, [{
     namedImports: ["LoggingEnvironment", "CliLoggingEnvironment"],
     moduleSpecifier: "@dprint/core"
 }, {
-    kind: StructureKind.ExportDeclaration,
-    namedExports: ["Configuration"],
+    kind: StructureKind.ImportDeclaration,
+    namedImports: ["Configuration as CoreConfiguration"],
     moduleSpecifier: "@dprint/core"
 }]);
 declarationFile.saveSync();

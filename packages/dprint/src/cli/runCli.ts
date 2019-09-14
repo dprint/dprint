@@ -75,7 +75,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
 
     function resolveGlobalConfigurationInternal() {
         const missingProjectTypeDiagnostic = getMissingProjectTypeDiagnostic(unresolvedConfiguration);
-        const configResult = resolveConfiguration(unresolvedConfiguration);
+        const configResult = resolveConfiguration(getUnresolvedConfigStrippedOfCliSpecificConfig());
 
         for (const diagnostic of configResult.diagnostics)
             warnForConfigurationDiagnostic(diagnostic);
@@ -84,6 +84,13 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
             warnForConfigurationDiagnostic(missingProjectTypeDiagnostic);
 
         return configResult.config;
+
+        function getUnresolvedConfigStrippedOfCliSpecificConfig() {
+            const obj = { ...unresolvedConfiguration };
+            delete obj.excludes;
+            delete obj.includes;
+            return obj;
+        }
     }
 
     function updatePluginsWithConfiguration() {
@@ -100,11 +107,34 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
 
     async function getFilePaths() {
         const isInNodeModules = /[\/|\\]node_modules[\/|\\]/i;
-        const allFilePaths = await environment.glob(options.filePatterns);
+        const allFilePaths = await environment.glob(getFileGlobs());
 
         return options.allowNodeModuleFiles
             ? allFilePaths
             : allFilePaths.filter(filePath => !isInNodeModules.test(filePath));
+
+        function getFileGlobs() {
+            return [...getIncludes(), ...getExcludes()];
+
+            function getIncludes() {
+                if (options.filePatterns.length > 0) {
+                    if (!options.outputFilePaths && unresolvedConfiguration.includes && unresolvedConfiguration.includes.length > 0)
+                        environment.warn("Ignoring the configuration file's includes because file patterns were provided to the command line.");
+
+                    return options.filePatterns;
+                }
+
+                return unresolvedConfiguration.includes || [];
+            }
+
+            function getExcludes() {
+                if (!unresolvedConfiguration.excludes)
+                    return [];
+
+                // negate the pattern
+                return unresolvedConfiguration.excludes.map(pattern => "!" + pattern);
+            }
+        }
     }
 
     function warnForConfigurationDiagnostic(diagnostic: ConfigurationDiagnostic) {
