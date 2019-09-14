@@ -88,7 +88,7 @@ dprint-plugin-test v0.1.0`
         const environment = createTestEnvironment();
         const logs = await getLogs({ init: true }, environment);
         expect(logs.length).to.equal(1);
-        expect(logs[0]).to.equal("Created /dprint.config.js")
+        expect(logs[0]).to.equal("Created /dprint.config.js");
         const fileText = await environment.readFile("/dprint.config.js");
         expect(fileText).to.equal(`// @ts-check
 const { TypeScriptPlugin } = require("./packages/dprint-plugin-typescript");
@@ -110,10 +110,10 @@ module.exports.config = {
 
     it("should warn when providing --init and a config file exists", async () => {
         const environment = createTestEnvironment();
-        await environment.writeFile("/dprint.config.js", "test")
+        await environment.writeFile("/dprint.config.js", "test");
         const warns = await getWarns({ init: true }, environment);
         expect(warns.length).to.equal(1);
-        expect(warns[0]).to.equal("Skipping initialization because a configuration file already exists at: /dprint.config.js")
+        expect(warns[0]).to.equal("Skipping initialization because a configuration file already exists at: /dprint.config.js");
         const fileText = await environment.readFile("/dprint.config.js");
         expect(fileText).to.equal("test");
     });

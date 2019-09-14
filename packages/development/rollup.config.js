@@ -12,4 +12,4 @@ export default {
             tsconfig: "tsconfig.rollup.json"
         })
     ]
-}
+};

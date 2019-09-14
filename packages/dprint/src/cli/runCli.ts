@@ -148,7 +148,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
 async function createConfigFile(environment: Environment) {
     const filePath = resolveConfigFilePath(undefined, environment);
     if (await environment.exists(filePath)) {
-        environment.warn(`Skipping initialization because a configuration file already exists at: ${filePath}`)
+        environment.warn(`Skipping initialization because a configuration file already exists at: ${filePath}`);
         return;
     }
 

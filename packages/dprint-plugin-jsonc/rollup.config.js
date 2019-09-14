@@ -17,7 +17,7 @@ export default {
             PACKAGE_VERSION: getVersion()
         })
     ]
-}
+};
 
 function getVersion() {
     const version = JSON.parse(fs.readFileSync("package.json", { encoding: "utf8" })).version;
