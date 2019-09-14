@@ -18,7 +18,9 @@ npm install --save-dev dprint dprint-plugin-typescript dprint-plugin-jsonc
 
 ## Setup and Usage
 
-Create a *dprint.config.js* file in the repo. Here's an example (you don't need to copy this—use your own config):
+Run `npx dprint --init` in the repository's main directory to create a *dprint.config.js* file.
+
+Here's an example:
 
 ```js
 // @ts-check
@@ -35,10 +37,13 @@ module.exports.config = {
             "tryStatement.nextControlFlowPosition": "sameLine"
         }),
         new JsoncPlugin({
-            indentWidth: 2,
-            lineWidth: 80
+            indentWidth: 2
         })
-    ]
+    ],
+    // this could also be specified as a command line argument
+    includes: ["**/*{.ts,.tsx,.json,.js}"],
+    // optionally specify file globs for files to ignore
+    excludes: []
 };
 ```
 
@@ -48,7 +53,7 @@ Add a format script to your *package.json*'s "scripts" section (see `npx dprint 
 {
   "name": "your-package-name",
   "scripts": {
-    "format": "dprint \"**/*{.ts,.tsx,.json,.js}\""
+    "format": "dprint"
   }
 }
 ```
