@@ -200,6 +200,7 @@ describe(nameof(resolveConfiguration), () => {
                 "interfaceDeclaration.bracePosition": value,
                 "moduleDeclaration.bracePosition": value,
                 "switchStatement.bracePosition": value,
+                "switchCase.bracePosition": value,
                 "tryStatement.bracePosition": value,
                 "whileStatement.bracePosition": value
             };

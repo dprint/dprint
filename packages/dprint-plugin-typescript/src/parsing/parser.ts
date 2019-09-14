@@ -1605,6 +1605,9 @@ function* parseReturnStatement(node: babel.ReturnStatement, context: Context): P
 }
 
 function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIterable {
+    const startHeaderInfo = createInfo("switchCaseStartHeader");
+    yield startHeaderInfo;
+
     if (node.test == null)
         yield "default:";
     else {
@@ -1616,17 +1619,35 @@ function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIt
     yield* parseFirstLineTrailingComments(node, node.consequent, context);
 
     if (node.consequent.length > 0) {
-        yield context.newlineKind;
+        const blockStatementBody = getBlockStatementBody();
 
-        yield* withIndent(parseStatementOrMembers({
-            items: node.consequent,
-            innerComments: node.innerComments,
-            lastNode: undefined,
-            context,
-            shouldUseBlankLine: (previousNode, nextNode) => {
-                return nodeHelpers.hasSeparatingBlankLine(previousNode, nextNode);
-            }
-        }));
+        if (blockStatementBody) {
+            yield* parseBraceSeparator({
+                bracePosition: context.config["switchCase.bracePosition"],
+                bodyNode: blockStatementBody,
+                startHeaderInfo: startHeaderInfo,
+                context
+            });
+            yield* parseNode(blockStatementBody, context);
+        }
+        else {
+            yield context.newlineKind;
+            yield* withIndent(parseStatementOrMembers({
+                items: node.consequent,
+                innerComments: node.innerComments,
+                lastNode: undefined,
+                context,
+                shouldUseBlankLine: (previousNode, nextNode) => {
+                    return nodeHelpers.hasSeparatingBlankLine(previousNode, nextNode);
+                }
+            }));
+        }
+    }
+
+    function getBlockStatementBody() {
+        if (node.consequent.length === 1 && node.consequent[0].type === "BlockStatement")
+            return node.consequent[0] as babel.BlockStatement;
+        return undefined;
     }
 }
 

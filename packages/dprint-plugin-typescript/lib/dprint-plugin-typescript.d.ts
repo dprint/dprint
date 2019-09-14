@@ -157,6 +157,7 @@ export interface TypeScriptConfiguration {
     "interfaceDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "moduleDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "switchStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "switchCase.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "tryStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "whileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "forInStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
@@ -239,6 +240,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "interfaceDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "moduleDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "switchStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "switchCase.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "tryStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "whileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forInStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];

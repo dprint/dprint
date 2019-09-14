@@ -48,6 +48,7 @@
     "@types/babel__generator": "^7.0.2",
     "@types/babel__template": "^7.0.2",
     "@types/babel__traverse": "^7.0.7",
+    "@types/chai": "^4.2.2",
     "@types/ts-nameof": "^3.2.0",
     "chai": "^4.2.0",
     "cross-env": "^5.2.0",

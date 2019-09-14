@@ -97,6 +97,7 @@ export function resolveConfiguration(
         "interfaceDeclaration.bracePosition": getValue("interfaceDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "moduleDeclaration.bracePosition": getValue("moduleDeclaration.bracePosition", bracePosition, ensureBracePosition),
         "switchStatement.bracePosition": getValue("switchStatement.bracePosition", bracePosition, ensureBracePosition),
+        "switchCase.bracePosition": getValue("switchCase.bracePosition", bracePosition, ensureBracePosition),
         "tryStatement.bracePosition": getValue("tryStatement.bracePosition", bracePosition, ensureBracePosition),
         "whileStatement.bracePosition": getValue("whileStatement.bracePosition", bracePosition, ensureBracePosition),
         // single body position

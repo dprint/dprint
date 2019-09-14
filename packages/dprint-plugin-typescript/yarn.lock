@@ -164,6 +164,14 @@
     lodash "^4.17.13"
     to-fast-properties "^2.0.0"
 
+"@dprint/core@~0.4.2":
+  version "0.4.2"
+  resolved "https://registry.yarnpkg.com/@dprint/core/-/core-0.4.2.tgz#d83216fe264dbef675e80d0cf7fa977bd79dcb1d"
+
+"@dprint/development@~0.2.1":
+  version "0.2.1"
+  resolved "https://registry.yarnpkg.com/@dprint/development/-/development-0.2.1.tgz#070a15cb38b3fc93e114fda666e0de7e8d042fbb"
+
 "@dsherret/to-absolute-glob@^2.0.2":
   version "2.0.2"
   resolved "https://registry.yarnpkg.com/@dsherret/to-absolute-glob/-/to-absolute-glob-2.0.2.tgz#1f6475dc8bd974cea07a2daf3864b317b1dd332c"
@@ -217,6 +225,10 @@
   resolved "https://registry.yarnpkg.com/@types/babel__traverse/-/babel__traverse-7.0.7.tgz#2496e9ff56196cc1429c72034e07eab6121b6f3f"
   dependencies:
     "@babel/types" "^7.3.0"
+
+"@types/chai@^4.2.2":
+  version "4.2.2"
+  resolved "https://registry.yarnpkg.com/@types/chai/-/chai-4.2.2.tgz#6b825013863d04868c15624ec8b7fdced88a47c6"
 
 "@types/estree@0.0.39":
   version "0.0.39"
