@@ -41,6 +41,10 @@ describe(nameof(parseCommandLineArgs), () => {
         doTest(["--config", "file.config", "file.ts", "file2.ts"], { config: "file.config", filePatterns: ["file.ts", "file2.ts"] });
     });
 
+    it("should parse file globs specified with a leading init", () => {
+        doTest(["--init", "file.ts", "file2.ts"], { init: true, filePatterns: ["file.ts", "file2.ts"] });
+    });
+
     it("should parse file globs specified with a leading help", () => {
         doTest(["--help", "file.ts", "file2.ts"], { showHelp: true, filePatterns: ["file.ts", "file2.ts"] });
     });

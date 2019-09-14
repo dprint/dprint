@@ -11,6 +11,7 @@ Examples: dprint
 Options:
 -h, --help              Outputs this message.
 -v, --version           Outputs the version of the library and plugins.
+--init                  Creates a dprint.config.js file in the current directory.
 -c, --config            Configuration file to use (default: dprint.config.js)
 --outputFilePaths       Outputs the list of file paths found for formatting without formatting the files.
 --outputResolvedConfig  Outputs the resolved configuration from the configuration file.

@@ -27,7 +27,7 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
             else if (filePath == null) {
                 return throwError(
                     `Could not find configuration file at '${resolvedFilePath}'. `
-                        + `Did you mean to create one or specify a --config option?\n\n`
+                        + `Did you mean to create one (dprint --init) or specify a --config option?\n\n`
                         + err
                 );
             }
@@ -43,6 +43,6 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
     }
 }
 
-function resolveConfigFilePath(filePath: string | undefined, environment: Environment) {
+export function resolveConfigFilePath(filePath: string | undefined, environment: Environment) {
     return environment.resolvePath(filePath || "dprint.config.js");
 }

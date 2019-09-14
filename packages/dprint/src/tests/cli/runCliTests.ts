@@ -50,6 +50,7 @@ Examples: dprint
 Options:
 -h, --help              Outputs this message.
 -v, --version           Outputs the version of the library and plugins.
+--init                  Creates a dprint.config.js file in the current directory.
 -c, --config            Configuration file to use (default: dprint.config.js)
 --outputFilePaths       Outputs the list of file paths found for formatting without formatting the files.
 --outputResolvedConfig  Outputs the resolved configuration from the configuration file.
@@ -81,6 +82,40 @@ dprint-plugin-test v0.1.0`
         environment.removeRequireObject("/dprint.config.js");
         const logs = await getLogs({ showVersion: true }, environment);
         expect(logs).to.deep.equal([`dprint vPACKAGE_VERSION (No plugins)`]);
+    });
+
+    it("should initialize when providing --init and no config file exists", async () => {
+        const environment = createTestEnvironment();
+        const logs = await getLogs({ init: true }, environment);
+        expect(logs.length).to.equal(1);
+        expect(logs[0]).to.equal("Created /dprint.config.js")
+        const fileText = await environment.readFile("/dprint.config.js");
+        expect(fileText).to.equal(`// @ts-check
+const { TypeScriptPlugin } = require("./packages/dprint-plugin-typescript");
+const { JsoncPlugin } = require("./packages/dprint-plugin-jsonc");
+
+/** @type { import("./packages/dprint").Configuration } */
+module.exports.config = {
+    projectType: "openSource",
+    plugins: [
+        new TypeScriptPlugin({
+        }),
+        new JsoncPlugin({
+            indentWidth: 2
+        })
+    ]
+};
+`);
+    });
+
+    it("should warn when providing --init and a config file exists", async () => {
+        const environment = createTestEnvironment();
+        await environment.writeFile("/dprint.config.js", "test")
+        const warns = await getWarns({ init: true }, environment);
+        expect(warns.length).to.equal(1);
+        expect(warns[0]).to.equal("Skipping initialization because a configuration file already exists at: /dprint.config.js")
+        const fileText = await environment.readFile("/dprint.config.js");
+        expect(fileText).to.equal("test");
     });
 
     it("should output the file paths when specifying to", async () => {

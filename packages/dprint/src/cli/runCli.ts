@@ -4,7 +4,7 @@ import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
 import { getVersionText } from "./getVersionText";
 import { CommandLineOptions } from "./CommandLineOptions";
-import { resolveConfigFile } from "./resolveConfigFile";
+import { resolveConfigFile, resolveConfigFilePath } from "./resolveConfigFile";
 import { getMissingProjectTypeDiagnostic } from "../configuration";
 
 /**
@@ -26,6 +26,10 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     }
     else if (options.showVersion) {
         environment.log(getVersionText(await safeGetPlugins()));
+        return;
+    }
+    else if (options.init) {
+        await createConfigFile(environment);
         return;
     }
 
@@ -138,5 +142,35 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
             configFilePath,
             plugins: unresolvedConfiguration.plugins || []
         };
+    }
+}
+
+async function createConfigFile(environment: Environment) {
+    const filePath = resolveConfigFilePath(undefined, environment);
+    if (await environment.exists(filePath)) {
+        environment.warn(`Skipping initialization because a configuration file already exists at: ${filePath}`)
+        return;
+    }
+
+    environment.writeFile(filePath, getDefaultConfigFileText());
+    environment.log(`Created ${filePath}`);
+
+    function getDefaultConfigFileText() {
+        return `// @ts-check
+const { TypeScriptPlugin } = require("./packages/dprint-plugin-typescript");
+const { JsoncPlugin } = require("./packages/dprint-plugin-jsonc");
+
+/** @type { import("./packages/dprint").Configuration } */
+module.exports.config = {
+    projectType: "openSource",
+    plugins: [
+        new TypeScriptPlugin({
+        }),
+        new JsoncPlugin({
+            indentWidth: 2
+        })
+    ]
+};
+`;
     }
 }

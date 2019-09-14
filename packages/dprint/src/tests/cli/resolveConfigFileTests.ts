@@ -23,7 +23,7 @@ describe(nameof(resolveConfigFile), () => {
 
         expect(err.message).to.equal(
             "[dprint]: Could not find configuration file at '/dprint.config.js'. "
-                + "Did you mean to create one or specify a --config option?\n\n"
+                + "Did you mean to create one (dprint --init) or specify a --config option?\n\n"
                 + "Error: File not found."
         );
     });
