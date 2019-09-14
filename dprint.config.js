@@ -16,5 +16,14 @@ module.exports.config = {
         new JsoncPlugin({
             indentWidth: 2
         })
+    ],
+    includes: [
+        "**/*{.ts|.tsx|.json|.js}"
+    ],
+    excludes: [
+        "packages/playground/public/vs/**/*.*",
+        "packages/playground/build/**/*.*",
+        "build-website/**/*.*",
+        "**/dist/**/*.*"
     ]
 };

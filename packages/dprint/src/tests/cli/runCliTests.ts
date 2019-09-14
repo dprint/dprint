@@ -105,7 +105,8 @@ module.exports.config = {
         new JsoncPlugin({
             indentWidth: 2
         })
-    ]
+    ],
+    includes: ["**/*{.ts,.tsx,.json,.js}"]
 };
 `);
     });
@@ -220,6 +221,17 @@ module.exports.config = {
         const config = createConfig({
             includes: ["**/*.ts"],
             excludes: ["/file1.ts"]
+        });
+        const environment = createTestEnvironment({ config });
+        const logs = await getLogs({ outputFilePaths: true }, environment);
+        expect(logs).to.deep.equal(["/file2.ts"]);
+        expect(environment.getWarns()).to.deep.equal([]);
+    });
+
+    it("should exclude the ones in the excludes even when already negated", async () => {
+        const config = createConfig({
+            includes: ["**/*.ts"],
+            excludes: ["!/file1.ts"]
         });
         const environment = createTestEnvironment({ config });
         const logs = await getLogs({ outputFilePaths: true }, environment);

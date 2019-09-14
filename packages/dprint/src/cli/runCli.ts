@@ -131,8 +131,12 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
                 if (!unresolvedConfiguration.excludes)
                     return [];
 
-                // negate the pattern
-                return unresolvedConfiguration.excludes.map(pattern => "!" + pattern);
+                // negate the pattern if it's not already negated
+                return unresolvedConfiguration.excludes.map(pattern => {
+                    if (pattern.startsWith("!"))
+                        return pattern;
+                    return "!" + pattern;
+                });
             }
         }
     }
@@ -199,7 +203,8 @@ module.exports.config = {
         new JsoncPlugin({
             indentWidth: 2
         })
-    ]
+    ],
+    includes: ["**/*{.ts,.tsx,.json,.js}"]
 };
 `;
     }
