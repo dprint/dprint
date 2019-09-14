@@ -29,6 +29,7 @@ export function parseToBabelAst(filePath: string, fileText: string) {
         yield "exportNamespaceFrom";
         yield "importMeta";
         yield "optionalChaining";
+        yield "numericSeparator";
 
         function isJsx() {
             const fileExtension = getFileExtension(filePath).toLowerCase();
