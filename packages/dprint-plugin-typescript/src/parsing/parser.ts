@@ -183,6 +183,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "TSExternalModuleReference": parseExternalModuleReference,
     "FunctionExpression": parseFunctionDeclarationOrExpression,
     "MemberExpression": parseMemberExpression,
+    "OptionalMemberExpression": parseMemberExpression,
     "MetaProperty": parseMetaProperty,
     "NewExpression": parseNewExpression,
     "TSNonNullExpression": parseNonNullExpression,
@@ -282,7 +283,6 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "ClassPrivateProperty": parseUnknownNode,
     "DoExpression": parseUnknownNode,
     "Noop": parseUnknownNode,
-    "OptionalMemberExpression": parseUnknownNode,
     "ParenthesizedExpression": parseUnknownNode, // this is disabled via createParenthesizedExpressions: false
     "PrivateName": parseUnknownNode,
     "PipelineBareFunction": parseUnknownNode,
@@ -2357,12 +2357,12 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
     }
 }
 
-function* parseMemberExpression(node: babel.MemberExpression, context: Context): PrintItemIterable {
-    yield* parseForMemberLikeExpression(node.object, node.property, node.computed, context);
+function* parseMemberExpression(node: babel.MemberExpression | babel.OptionalMemberExpression, context: Context): PrintItemIterable {
+    yield* parseForMemberLikeExpression(node, node.object, node.property, node.computed, context);
 }
 
 function* parseMetaProperty(node: babel.MetaProperty, context: Context): PrintItemIterable {
-    yield* parseForMemberLikeExpression(node.meta, node.property, false, context);
+    yield* parseForMemberLikeExpression(node, node.meta, node.property, false, context);
 }
 
 function* parseNewExpression(node: babel.NewExpression, context: Context): PrintItemIterable {
@@ -3734,7 +3734,7 @@ function* parseDecorators(
         yield context.newlineKind;
 }
 
-function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.Node, isComputed: boolean, context: Context): PrintItemIterable {
+function* parseForMemberLikeExpression(parent: babel.Node, leftNode: babel.Node, rightNode: babel.Node, isComputed: boolean, context: Context): PrintItemIterable {
     const useNewline = nodeHelpers.getUseNewlinesForNodes([leftNode, rightNode]);
 
     yield* parseNode(leftNode, context);
@@ -3747,6 +3747,12 @@ function* parseForMemberLikeExpression(leftNode: babel.Node, rightNode: babel.No
     yield* conditions.indentIfStartOfLine(parseRightNode());
 
     function* parseRightNode(): PrintItemIterable {
+        if (parent.type === "OptionalMemberExpression" && parent.optional) {
+            yield "?";
+            if (isComputed)
+                yield ".";
+        }
+
         if (isComputed)
             yield "[";
         else

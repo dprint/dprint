@@ -30,6 +30,7 @@ export function parseToBabelAst(filePath: string, fileText: string) {
         yield "importMeta";
         yield "optionalChaining";
         yield "numericSeparator";
+        yield "optionalChaining";
 
         function isJsx() {
             const fileExtension = getFileExtension(filePath).toLowerCase();

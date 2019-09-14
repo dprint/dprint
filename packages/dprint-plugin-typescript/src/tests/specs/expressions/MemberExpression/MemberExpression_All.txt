@@ -31,3 +31,15 @@ call({
     prop: 5,
     prop: 7
 }).member;
+
+== should support optional chaining ==
+obj?.test.test;
+obj.other
+    ?.test;
+obj?.["test"];
+
+[expect]
+obj?.test.test;
+obj.other
+    ?.test;
+obj?.["test"];

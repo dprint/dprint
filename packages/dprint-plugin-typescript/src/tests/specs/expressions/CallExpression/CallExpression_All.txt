@@ -28,3 +28,9 @@ callExpr(
     (5),
     6
 );
+
+== should support optional call expressions ==
+callExpr?.();
+
+[expect]
+callExpr?.();
