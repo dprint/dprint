@@ -28,7 +28,7 @@ export function parseToBabelAst(filePath: string, fileText: string) {
         yield "exportDefaultFrom";
         yield "exportNamespaceFrom";
         yield "importMeta";
-        yield "optionalChaining";
+        yield "nullishCoalescingOperator";
         yield "numericSeparator";
         yield "optionalChaining";
 

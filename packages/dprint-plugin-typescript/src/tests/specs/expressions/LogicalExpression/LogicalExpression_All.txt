@@ -67,3 +67,9 @@ testing && this.testing && other.testing;
 [expect]
 testing && this.testing
     && other.testing;
+
+== should support the nullish coalescing operator ==
+test = test ?? 5;
+
+[expect]
+test = test ?? 5;
