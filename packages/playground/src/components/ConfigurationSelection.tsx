@@ -12,12 +12,14 @@ const useBraceOptions = ["maintain", "whenNotSingleLine", "always", "preferNone"
 type _assertUseBraces = AssertTrue<IsExact<typeof useBraceOptions[number], NonNullable<TypeScriptConfiguration["useBraces"]>>>;
 const bracePositionOptions = ["maintain", "sameLine", "nextLine", "nextLineIfHanging"] as const;
 type _assertBracePosition = AssertTrue<IsExact<typeof bracePositionOptions[number], NonNullable<TypeScriptConfiguration["bracePosition"]>>>;
-const nextControlFlowPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
-type _assertNextControlFlowPosition = AssertTrue<IsExact<typeof nextControlFlowPositionOptions[number],
-    NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>>>;
 const singleBodyPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
 type _assertSingleBodyPositionOptions = AssertTrue<IsExact<typeof singleBodyPositionOptions[number],
     NonNullable<TypeScriptConfiguration["singleBodyPosition"]>>>;
+const nextControlFlowPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
+type _assertNextControlFlowPosition = AssertTrue<IsExact<typeof nextControlFlowPositionOptions[number],
+    NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>>>;
+const operatorPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
+type _assertOperatorPosition = AssertTrue<IsExact<typeof operatorPositionOptions[number], NonNullable<TypeScriptConfiguration["operatorPosition"]>>>;
 const trailingCommaOptions = ["never", "always", "onlyMultiLine"] as const;
 type _assertTrailingCommas = AssertTrue<IsExact<typeof trailingCommaOptions[number], NonNullable<TypeScriptConfiguration["trailingCommas"]>>>;
 const arrowFunctionUseParenthesesOptions = ["force", "maintain", "preferNone"] as const;
@@ -53,6 +55,9 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             </ConfigurationItem>
             <ConfigurationItem title="Single body position">
                 {this.getSelectForConfig("singleBodyPosition", singleBodyPositionOptions)}
+            </ConfigurationItem>
+            <ConfigurationItem title="Operator position">
+                {this.getSelectForConfig("operatorPosition", operatorPositionOptions)}
             </ConfigurationItem>
             <ConfigurationItem title="Next control flow position">
                 {this.getSelectForConfig("nextControlFlowPosition", nextControlFlowPositionOptions)}

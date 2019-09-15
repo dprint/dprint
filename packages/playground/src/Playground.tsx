@@ -38,6 +38,7 @@ export class Playground extends React.Component<{}, PlaygroundState> {
             bracePosition: initialConfig["arrowFunctionExpression.bracePosition"],
             singleBodyPosition: initialConfig["ifStatement.singleBodyPosition"],
             nextControlFlowPosition: initialConfig["ifStatement.nextControlFlowPosition"],
+            operatorPosition: initialConfig["binaryExpression.operatorPosition"],
             forceMultiLineArguments: initialConfig["callExpression.forceMultiLineArguments"],
             forceMultiLineParameters: initialConfig["functionDeclaration.forceMultiLineParameters"],
             "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],

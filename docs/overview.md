@@ -214,6 +214,16 @@ Where to place the next control flow within a control flow statement.
 
 [Playground](https://dprint.dev/playground/#code/JYMwBAFALgTgrgUwJRgN4FgBQYdgMYD2AdgM4EA2CAdOQQOYQCsSA3FgL4LkkJiiQEoACwQwUGTIVIVqtBgBZWHLFx5osufMTKUa9CAGYlmdliywAnuuy4pO2fvlG2J-AEMoeIZFFjrdmSpfAhgIX2N2IA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
+### `operatorPosition`
+
+Where to place the operator for expressions that span multiple lines.
+
+* `"maintain"` - Maintains the operator being on the next line or the same line.
+* `"sameLine"` - Forces the operator to be on the same line.
+* `"nextLine"` - Forces the operator to be on the next line (default)
+
+[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBATgUwgVwDawLwwJYQCpzIIwBkJMYIUAogI7ICGqeIAsAFAxenkQgC2CAMLgAJtijZwMAD4yO3GFQAWCOCLDjJ4ANxA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBGIADs4syGJy0+1z9jAFiwlcW74AsrRgWYsAgnIqtIIkyPq8-CAncueX13EpLF4nro5K9DAQSI8ACIwbxgAEbWYAOiegjYznCKx81U63VIfQSANGATGtCg3l2AFE8is5HoMlJEQwYP9aaRgow7LjetAQABfIA)
+
 ### `trailingCommas`
 
 If trailing commas should be used.
