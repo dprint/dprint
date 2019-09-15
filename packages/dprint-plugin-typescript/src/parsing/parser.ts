@@ -3640,37 +3640,34 @@ interface ParseFunctionOrMethodReturnTypeWithCloseParenOptions {
 
 function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithCloseParenOptions): PrintItemIterable {
     const { context, startInfo, typeNode, typeNodeSeparator } = opts;
-    const returnTypeStartInfo = createInfo("returnTypeStart");
-    const returnTypeEndInfo = createInfo("returnTypeEnd");
+    const typeNodeStartInfo = createInfo("typeNodeStart");
+    const typeNodeEndInfo = createInfo("typeNodeEnd");
     // this is used in the true and false condition, so make it repeatable
-    const parsedReturnTypeIterator = makeIterableRepeatable(parseReturnType());
+    const parsedTypeNodeIterator = makeIterableRepeatable(parseTypeNode());
 
     yield {
         kind: PrintItemKind.Condition,
-        name: "newlineIfHeaderHangingAndReturnTypeMultipleLines",
+        name: "newlineIfHeaderHangingAndTypeNodeMultipleLines",
         condition: conditionContext => {
             return conditionResolvers.isHanging(conditionContext, startInfo)
-                && conditionResolvers.isMultipleLines(conditionContext, returnTypeStartInfo, returnTypeEndInfo);
+                && conditionResolvers.isMultipleLines(conditionContext, typeNodeStartInfo, typeNodeEndInfo);
         },
         true: function*() {
             yield context.newlineKind;
             yield ")";
-            yield* parsedReturnTypeIterator;
+            yield* parsedTypeNodeIterator;
         }(),
         false: function*() {
-            if (typeNode)
-                yield Signal.NewLine;
-
             yield ")";
-            yield* parsedReturnTypeIterator;
+            yield* parsedTypeNodeIterator;
         }()
     };
 
-    function* parseReturnType(): PrintItemIterable {
+    function* parseTypeNode(): PrintItemIterable {
         if (!typeNode)
             return;
 
-        yield returnTypeStartInfo;
+        yield typeNodeStartInfo;
 
         if (typeNodeSeparator)
             yield* typeNodeSeparator;
@@ -3678,7 +3675,7 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
             yield ": ";
 
         yield* parseNode(typeNode, context);
-        yield returnTypeEndInfo;
+        yield typeNodeEndInfo;
     }
 }
 
@@ -3805,7 +3802,13 @@ function* parseDecorators(
         yield context.newlineKind;
 }
 
-function* parseForMemberLikeExpression(parent: babel.Node, leftNode: babel.Node, rightNode: babel.Node, isComputed: boolean, context: Context): PrintItemIterable {
+function* parseForMemberLikeExpression(
+    parent: babel.Node,
+    leftNode: babel.Node,
+    rightNode: babel.Node,
+    isComputed: boolean,
+    context: Context
+): PrintItemIterable {
     const useNewline = nodeHelpers.getUseNewlinesForNodes([leftNode, rightNode]);
 
     yield* parseNode(leftNode, context);

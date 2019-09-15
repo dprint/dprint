@@ -36,3 +36,13 @@ export function test(some, very, long, list, of, params, to, put, brace,
     overrr)
 {
 }
+
+== With return type ==
+function* testingThis(isComputed: boolean, context: Context): PrintItemIterable {
+}
+
+[expect]
+function* testingThis(isComputed: boolean,
+    context: Context): PrintItemIterable
+{
+}
