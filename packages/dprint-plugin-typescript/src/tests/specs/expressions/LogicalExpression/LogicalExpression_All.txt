@@ -73,3 +73,27 @@ test = test ?? 5;
 
 [expect]
 test = test ?? 5;
+
+== should get comments that are trailing of the left expression ==
+return test(test)
+    // test
+    // asdf
+    && asdf;
+
+[expect]
+return test(test)
+    // test
+    // asdf
+    && asdf;
+
+== should handle when the comments are after the operator ==
+return test(test) &&
+    // test
+    // asdf
+    asdf;
+
+[expect]
+return test(test)
+    // test
+    // asdf
+    && asdf;

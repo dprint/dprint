@@ -2158,13 +2158,16 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         if (!shouldIndent)
             putDisableIndentInBagIfNecessaryForNode(node.right, context);
 
-        const rightIterator = parseNode(node.right, context, {
-            innerParse: function*(iterable) {
-                yield node.operator;
-                yield " ";
-                yield* newlineGroupIfNecessary(node.right.type, iterable);
-            }
-        });
+        const rightIterator = function*() {
+            yield* parseCommentsAsLeading(node, node.left.trailingComments, context);
+            yield* parseNode(node.right, context, {
+                innerParse: function*(iterable) {
+                    yield node.operator;
+                    yield " ";
+                    yield* newlineGroupIfNecessary(node.right.type, iterable);
+                }
+            });
+        }();
 
         yield* shouldIndent ? conditions.indentIfStartOfLine(rightIterator) : rightIterator;
 
@@ -3923,13 +3926,17 @@ function* getWithComments(node: babel.Node, printItemIterator: PrintItemIterable
     yield* parseTrailingComments(node, context);
 }
 
-function* parseLeadingComments(node: babel.Node, context: Context) {
-    if (!node.leadingComments)
+function parseLeadingComments(node: babel.Node, context: Context) {
+    return parseCommentsAsLeading(node, node.leadingComments, context);
+}
+
+function* parseCommentsAsLeading(node: babel.Node, leadingComments: readonly babel.Comment[] | null, context: Context) {
+    if (!leadingComments)
         return;
-    const lastComment = node.leadingComments[node.leadingComments.length - 1];
+    const lastComment = leadingComments[leadingComments.length - 1];
     const hasHandled = lastComment == null || context.handledComments.has(lastComment);
 
-    yield* parseCommentCollection(node.leadingComments, undefined, context);
+    yield* parseCommentCollection(leadingComments, undefined, context);
 
     if (lastComment != null && !hasHandled) {
         if (node.loc!.start.line > lastComment.loc!.end.line) {
