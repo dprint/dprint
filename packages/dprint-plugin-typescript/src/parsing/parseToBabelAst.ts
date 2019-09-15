@@ -31,6 +31,7 @@ export function parseToBabelAst(filePath: string, fileText: string) {
         yield "nullishCoalescingOperator";
         yield "numericSeparator";
         yield "optionalChaining";
+        yield "v8intrinsic";
 
         function isJsx() {
             const fileExtension = getFileExtension(filePath).toLowerCase();

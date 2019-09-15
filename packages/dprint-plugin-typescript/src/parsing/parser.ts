@@ -109,6 +109,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     /* common */
     "BlockStatement": parseBlockStatement,
     "Identifier": parseIdentifier,
+    "V8IntrinsicIdentifier": parseV8IntrinsicIdentifier,
     /* declarations */
     "ClassDeclaration": parseClassDeclarationOrExpression,
     "ExportAllDeclaration": parseExportAllDeclaration,
@@ -503,6 +504,10 @@ function* parseIdentifier(node: babel.Identifier, context: Context): PrintItemIt
         yield "!";
 
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
+}
+
+function* parseV8IntrinsicIdentifier(node: babel.V8IntrinsicIdentifier, context: Context): PrintItemIterable {
+    yield `%${node.name}`;
 }
 
 /* declarations */
