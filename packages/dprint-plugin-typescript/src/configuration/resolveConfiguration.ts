@@ -10,6 +10,7 @@ const defaultValues = {
     bracePosition: "nextLineIfHanging",
     singleBodyPosition: "maintain",
     nextControlFlowPosition: "nextLine",
+    operatorPosition: "nextLine",
     trailingCommas: "never",
     "enumDeclaration.memberSpacing": "maintain",
     "arrowFunctionExpression.useParentheses": "maintain",
@@ -33,6 +34,7 @@ export function resolveConfiguration(
     const bracePosition = getValue("bracePosition", defaultValues.bracePosition, ensureBracePosition);
     const singleBodyPosition = getValue("singleBodyPosition", defaultValues.singleBodyPosition, ensureSingleBodyPosition);
     const nextControlFlowPosition = getValue("nextControlFlowPosition", defaultValues.nextControlFlowPosition, ensureNextControlFlowPosition);
+    const operatorPosition = getValue("operatorPosition", defaultValues.operatorPosition, ensureOperatorPosition);
     const trailingCommas = getValue("trailingCommas", defaultValues.trailingCommas, ensureTrailingCommas);
     const forceMultiLineArguments = getValue("forceMultiLineArguments", defaultValues.forceMultiLineArguments, ensureBoolean);
     const forceMultiLineParameters = getValue("forceMultiLineParameters", defaultValues.forceMultiLineParameters, ensureBoolean);
@@ -109,6 +111,10 @@ export function resolveConfiguration(
         // next control flow position
         "ifStatement.nextControlFlowPosition": getValue("ifStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
         "tryStatement.nextControlFlowPosition": getValue("tryStatement.nextControlFlowPosition", nextControlFlowPosition, ensureNextControlFlowPosition),
+        // operator position
+        "binaryExpression.operatorPosition": getValue("binaryExpression.operatorPosition", operatorPosition, ensureOperatorPosition),
+        "conditionalExpression.operatorPosition": getValue("conditionalExpression.operatorPosition", operatorPosition, ensureOperatorPosition),
+        "logicalExpression.operatorPosition": getValue("logicalExpression.operatorPosition", operatorPosition, ensureOperatorPosition),
         // trailing commas
         "arrayExpression.trailingCommas": getValue("arrayExpression.trailingCommas", trailingCommas, ensureTrailingCommas),
         "arrayPattern.trailingCommas": getValue("arrayPattern.trailingCommas", trailingCommas, ensureTrailingCommas),
@@ -257,6 +263,24 @@ export function resolveConfiguration(
     }
 
     function ensureNextControlFlowPosition(key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["nextControlFlowPosition"]) {
+        switch (value) {
+            case "maintain":
+            case "sameLine":
+            case "nextLine":
+            case null:
+            case undefined:
+                return true;
+            default:
+                const assertNever: never = value;
+                diagnostics.push({
+                    propertyName: key,
+                    message: `Expected the configuration for '${key}' to equal one of the expected values, but was: ${value}`
+                });
+                return false;
+        }
+    }
+
+    function ensureOperatorPosition(key: keyof TypeScriptConfiguration, value: TypeScriptConfiguration["operatorPosition"]) {
         switch (value) {
             case "maintain":
             case "sameLine":

@@ -81,6 +81,14 @@ export interface TypeScriptConfiguration {
      */
     trailingCommas?: "never" | "always" | "onlyMultiLine";
     /**
+     * Where to place the operator for expressions that span multiple lines.
+     * @default "nextLine"
+     * @value "maintain" - Maintains the operator being on the next line or the same line.
+     * @value "sameLine" - Forces the operator to be on the same line.
+     * @value "nextLine" - Forces the operator to be on the next line.
+     */
+    operatorPosition?: "maintain" | "sameLine" | "nextLine";
+    /**
      * Forces an argument list to be multi-line when it exceeds the print width.
      * @remarks - When false, it will be hanging when the first argument is on the same line
      * as the open parenthesis and multi-line when on a different line.
@@ -181,6 +189,10 @@ export interface TypeScriptConfiguration {
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
 
+    "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
+    "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
+    "logicalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
+
     "callExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
     "newExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
 
@@ -279,6 +291,11 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "enumDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+
+    // operator position
+    readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
+    readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
+    readonly "logicalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
 
     // force multi-line arguments
     readonly "callExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;

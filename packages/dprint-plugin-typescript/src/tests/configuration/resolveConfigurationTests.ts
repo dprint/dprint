@@ -274,6 +274,39 @@ describe(nameof(resolveConfiguration), () => {
         }
     });
 
+    describe(nameof<TypeScriptConfiguration>(c => c.operatorPosition), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("operatorPosition"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject("nextLine"));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ operatorPosition: "nextLine" }, getObject("nextLine"));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ operatorPosition: "sameLine" }, getObject("sameLine"));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject("sameLine");
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.operatorPosition = "nextLine";
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<TypeScriptConfiguration["operatorPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "binaryExpression.operatorPosition": value,
+                "conditionalExpression.operatorPosition": value,
+                "logicalExpression.operatorPosition": value
+            };
+        }
+    });
+
     describe(nameof<TypeScriptConfiguration>(c => c.trailingCommas), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop.endsWith("trailingCommas"));

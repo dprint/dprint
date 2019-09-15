@@ -1,8 +1,8 @@
 import * as babel from "@babel/types";
 import { BabelToken } from "../BabelToken";
-import { assertNever } from "../../utils";
 
-type TokenTexts = "(" | "[" | "<" | "{" | ")" | "]" | ">" | "}" | "else" | "catch" | "finally" | ";";
+type TokenTexts = "(" | "[" | "<" | "{" | ")" | "]" | ">" | "}" | "else" | "catch" | "finally" | ";" | "&&" | "||" | "??" | "?" | "+" | "-" | "/" | "%" | "*"
+    | "**" | "&" | "|" | ">>" | ">>>" | "<<" | "^" | "==" | "===" | "!=" | "!==" | "in" | "instanceof" | ">" | "<" | ">=" | "<=";
 type IsMatchFunction = (token: BabelToken) => boolean;
 
 // todo: unit test this class for the edge cases
@@ -91,35 +91,13 @@ function getTokenIsMatchFunction(tokenOrIsMatch: TokenTexts | IsMatchFunction) {
     if (tokenOrIsMatch instanceof Function)
         return tokenOrIsMatch;
     const tokenText = tokenOrIsMatch;
-    const getTokenText = getTokenTextFunction();
     return (token: BabelToken) => getTokenText(token) === tokenText;
-
-    function getTokenTextFunction() {
-        switch (tokenText) {
-            case "(":
-            case ")":
-            case "[":
-            case "]":
-            case "{":
-            case "}":
-            case ";":
-                return getTokenTextFromType;
-            case "<":
-            case ">":
-            case "else":
-            case "catch":
-            case "finally":
-                return getTokenTextFromValue;
-            default:
-                return assertNever(tokenText);
-        }
-    }
 }
 
-function getTokenTextFromType(token: BabelToken) {
-    return token.type && typeof token.type !== "string" && token.type.label;
-}
-
-function getTokenTextFromValue(token: BabelToken) {
-    return token.value;
+function getTokenText(token: BabelToken) {
+    if (token.value)
+        return token.value;
+    if (token.type && typeof token.type !== "string" && token.type.label)
+        return token.type.label;
+    return undefined;
 }

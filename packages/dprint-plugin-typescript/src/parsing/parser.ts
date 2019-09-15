@@ -2141,6 +2141,7 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
     const shouldIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
     const useNewLines = getUseNewLines();
+    const operatorPosition = getOperatorPosition();
 
     yield* parseInner();
 
@@ -2148,7 +2149,17 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         if (!shouldIndent)
             putDisableIndentInBagIfNecessaryForNode(node.left, context);
 
-        yield* newlineGroupIfNecessary(node.left.type, parseNode(node.left, context));
+        yield* newlineGroupIfNecessary(node.left.type, parseNode(node.left, context, {
+            innerParse: function*(iterable) {
+                yield* iterable;
+                if (operatorPosition === "sameLine") {
+                    yield " ";
+                    yield node.operator;
+                }
+            }
+        }));
+
+        yield* parseCommentsAsTrailing(node.left, node.right.leadingComments, context);
 
         if (useNewLines)
             yield context.newlineKind;
@@ -2162,8 +2173,10 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
             yield* parseCommentsAsLeading(node, node.left.trailingComments, context);
             yield* parseNode(node.right, context, {
                 innerParse: function*(iterable) {
-                    yield node.operator;
-                    yield " ";
+                    if (operatorPosition === "nextLine") {
+                        yield node.operator;
+                        yield " ";
+                    }
                     yield* newlineGroupIfNecessary(node.right.type, iterable);
                 }
             });
@@ -2189,6 +2202,32 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         function getRightNode() {
             const hasParentheses = nodeHelpers.hasParentheses(node.right);
             return hasParentheses ? tokenHelpers.getFirstOpenParenTokenBefore(node.right, context)! : node.right;
+        }
+    }
+
+    function getOperatorPosition() {
+        const configValue = getConfigValue();
+
+        switch (configValue) {
+            case "nextLine":
+            case "sameLine":
+                return configValue;
+            case "maintain":
+                const operatorToken = context.tokenFinder.getFirstTokenAfter(node.left, node.operator)!;
+                return node.left.loc!.end.line === operatorToken.loc!.start.line ? "sameLine" : "nextLine";
+            default:
+                return assertNever(configValue);
+        }
+
+        function getConfigValue() {
+            switch (node.type) {
+                case "BinaryExpression":
+                    return context.config["binaryExpression.operatorPosition"];
+                case "LogicalExpression":
+                    return context.config["logicalExpression.operatorPosition"];
+                default:
+                    return assertNever(node);
+            }
         }
     }
 }
@@ -2313,12 +2352,19 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
 function* parseConditionalExpression(node: babel.ConditionalExpression, context: Context): PrintItemIterable {
     const useNewlines = nodeHelpers.getUseNewlinesForNodes([node.test, node.consequent])
         || nodeHelpers.getUseNewlinesForNodes([node.consequent, node.alternate]);
+    const operatorPosition = getOperatorPosition();
     const startInfo = createInfo("startConditionalExpression");
-    const afterAlternateColonInfo = createInfo("afterAlternateColon");
+    const beforeAlternateInfo = createInfo("afterAlternateColon");
     const endInfo = createInfo("endConditionalExpression");
 
     yield startInfo;
-    yield* newlineGroup(parseNode(node.test, context));
+    yield* newlineGroup(parseNode(node.test, context, {
+        innerParse: function*(iterator) {
+            yield* iterator;
+            if (operatorPosition === "sameLine")
+                yield " ?";
+        }
+    }));
     yield* parseConsequentAndAlternate();
 
     function* parseConsequentAndAlternate(): PrintItemIterable {
@@ -2332,13 +2378,20 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
                 context,
                 startInfo,
-                endInfo: afterAlternateColonInfo
+                endInfo: beforeAlternateInfo
             });
         }
 
         yield* conditions.indentIfStartOfLine(function*() {
-            yield "? ";
-            yield* newlineGroup(parseNode(node.consequent, context));
+            if (operatorPosition === "nextLine")
+                yield "? ";
+            yield* newlineGroup(parseNode(node.consequent, context, {
+                innerParse: function*(iterator) {
+                    yield* iterator;
+                    if (operatorPosition === "sameLine")
+                        yield " :";
+                }
+            }));
         }());
 
         if (useNewlines)
@@ -2347,16 +2400,31 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
                 context,
                 startInfo,
-                endInfo: afterAlternateColonInfo
+                endInfo: beforeAlternateInfo
             });
         }
 
         yield* conditions.indentIfStartOfLine(function*() {
-            yield ": ";
-            yield afterAlternateColonInfo;
+            if (operatorPosition === "nextLine")
+                yield ": ";
+            yield beforeAlternateInfo;
             yield* newlineGroup(parseNode(node.alternate, context));
             yield endInfo;
         }());
+    }
+
+    function getOperatorPosition() {
+        const configValue = context.config["conditionalExpression.operatorPosition"];
+        switch (configValue) {
+            case "nextLine":
+            case "sameLine":
+                return configValue;
+            case "maintain":
+                const operatorToken = context.tokenFinder.getFirstTokenAfter(node.test, "?")!;
+                return node.test.loc!.end.line === operatorToken.loc!.start.line ? "sameLine" : "nextLine";
+            default:
+                return assertNever(configValue);
+        }
     }
 }
 
@@ -3956,17 +4024,7 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
     if (!trailingComments)
         return;
 
-    // use the roslyn definition of trailing comments
-    const trailingCommentsOnSameLine = trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
-    if (trailingCommentsOnSameLine.length === 0)
-        return;
-
-    // add a space between the node and comment block since they'll be on the same line
-    const firstUnhandledComment = trailingCommentsOnSameLine.find(c => !context.handledComments.has(c));
-    if (firstUnhandledComment != null && firstUnhandledComment.type === "CommentBlock")
-        yield " ";
-
-    yield* parseCommentCollection(trailingCommentsOnSameLine, node, context);
+    yield* parseCommentsAsTrailing(node, trailingComments, context);
 
     function getTrailingComments() {
         // These will not have trailing comments for comments that appear after a comma
@@ -3995,6 +4053,23 @@ function* parseTrailingComments(node: babel.Node, context: Context) {
             return node.trailingComments;
         }
     }
+}
+
+function* parseCommentsAsTrailing(node: babel.Node, trailingComments: readonly babel.Comment[] | null, context: Context) {
+    if (!trailingComments)
+        return;
+
+    // use the roslyn definition of trailing comments
+    const trailingCommentsOnSameLine = trailingComments.filter(c => c.loc!.start.line === node.loc!.end.line);
+    if (trailingCommentsOnSameLine.length === 0)
+        return;
+
+    // add a space between the node and comment block since they'll be on the same line
+    const firstUnhandledComment = trailingCommentsOnSameLine.find(c => !context.handledComments.has(c));
+    if (firstUnhandledComment != null && firstUnhandledComment.type === "CommentBlock")
+        yield " ";
+
+    yield* parseCommentCollection(trailingCommentsOnSameLine, node, context);
 }
 
 function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
