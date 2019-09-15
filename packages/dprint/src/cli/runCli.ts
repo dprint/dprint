@@ -191,10 +191,10 @@ async function createConfigFile(environment: Environment) {
 
     function getDefaultConfigFileText() {
         return `// @ts-check
-const { TypeScriptPlugin } = require("./packages/dprint-plugin-typescript");
-const { JsoncPlugin } = require("./packages/dprint-plugin-jsonc");
+const { TypeScriptPlugin } = require("dprint-plugin-typescript");
+const { JsoncPlugin } = require("dprint-plugin-jsonc");
 
-/** @type { import("./packages/dprint").Configuration } */
+/** @type { import("dprint").Configuration } */
 module.exports.config = {
     projectType: "openSource",
     plugins: [
@@ -204,7 +204,9 @@ module.exports.config = {
             indentWidth: 2
         })
     ],
-    includes: ["**/*{.ts,.tsx,.json,.js}"]
+    includes: [
+        "**/*{.ts,.tsx,.json,.js}"
+    ]
 };
 `;
     }

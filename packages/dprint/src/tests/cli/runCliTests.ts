@@ -93,10 +93,10 @@ dprint-plugin-test v0.1.0`
         expect(logs[0]).to.equal("Created /dprint.config.js");
         const fileText = await environment.readFile("/dprint.config.js");
         expect(fileText).to.equal(`// @ts-check
-const { TypeScriptPlugin } = require("./packages/dprint-plugin-typescript");
-const { JsoncPlugin } = require("./packages/dprint-plugin-jsonc");
+const { TypeScriptPlugin } = require("dprint-plugin-typescript");
+const { JsoncPlugin } = require("dprint-plugin-jsonc");
 
-/** @type { import("./packages/dprint").Configuration } */
+/** @type { import("dprint").Configuration } */
 module.exports.config = {
     projectType: "openSource",
     plugins: [
@@ -106,7 +106,9 @@ module.exports.config = {
             indentWidth: 2
         })
     ],
-    includes: ["**/*{.ts,.tsx,.json,.js}"]
+    includes: [
+        "**/*{.ts,.tsx,.json,.js}"
+    ]
 };
 `);
     });
