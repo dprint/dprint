@@ -1,0 +1,5 @@
+== should do a bigint keyword ==
+let t: bigint;
+
+[expect]
+let t: bigint;

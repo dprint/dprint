@@ -222,6 +222,7 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     "Super": () => toPrintItemIterable("super"),
     "ThisExpression": () => toPrintItemIterable("this"),
     "TSAnyKeyword": () => toPrintItemIterable("any"),
+    "TSBigIntKeyword": () => toPrintItemIterable("bigint"),
     "TSBooleanKeyword": () => toPrintItemIterable("boolean"),
     "TSNeverKeyword": () => toPrintItemIterable("never"),
     "TSNullKeyword": () => toPrintItemIterable("null"),
