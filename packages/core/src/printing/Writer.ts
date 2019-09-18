@@ -8,7 +8,7 @@ export interface WriterState {
     indentText: string;
     expectNewLineNext: boolean;
     items: string[];
-    indentStates: number[];
+    indentLevelStates: number[];
     ignoreIndent: boolean;
 }
 
@@ -28,7 +28,7 @@ export class Writer {
             indentText: "",
             expectNewLineNext: false,
             items: [],
-            indentStates: [],
+            indentLevelStates: [],
             ignoreIndent: false
         };
     }
@@ -60,7 +60,7 @@ export class Writer {
             indentLevel: state.indentLevel,
             indentText: state.indentText,
             items: [...state.items],
-            indentStates: [...state.indentStates],
+            indentLevelStates: [...state.indentLevelStates],
             ignoreIndent: state.ignoreIndent
         };
         return newState;
@@ -128,7 +128,7 @@ export class Writer {
     }
 
     private get indentLevelStates() {
-        return this.state.indentStates;
+        return this.state.indentLevelStates;
     }
 
     private get items() {

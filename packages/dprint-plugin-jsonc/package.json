@@ -36,11 +36,11 @@
     "jsonc-parser": "^2.1.1"
   },
   "peerDependencies": {
-    "@dprint/core": "~0.4.2"
+    "@dprint/core": "~0.4.3"
   },
   "devDependencies": {
-    "@dprint/core": "~0.4.2",
-    "@dprint/development": "~0.2.1",
+    "@dprint/core": "~0.4.3",
+    "@dprint/development": "~0.2.2",
     "@types/ts-nameof": "^3.2.0",
     "chai": "^4.2.0",
     "cross-env": "^5.2.0",

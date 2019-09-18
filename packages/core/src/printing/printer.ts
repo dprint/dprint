@@ -18,16 +18,21 @@ export interface PrintOptions {
 
 interface SavePoint {
     /** Name for debugging purposes. */
-    name?: string;
-    newlineGroupDepth: number;
-    childIndex: number;
-    writerState: WriterState;
-    possibleNewLineSavePoint: SavePoint | undefined;
-    lookAheadSavePoints: Map<Condition | Info, SavePoint>;
+    readonly name: string;
+    readonly newlineGroupDepth: number;
+    readonly childIndex: number;
+    readonly writerState: Readonly<WriterState>;
+    readonly possibleNewLineSavePoint: SavePoint | undefined;
 
     minDepthFound: number;
     minDepthChildIndex: number;
-    uncomittedItems: PrintItem[];
+    readonly uncomittedItems: UncomittedItem[];
+}
+
+interface UncomittedItem {
+    readonly printItem: PrintItem;
+    readonly depth: number;
+    readonly childIndex: number;
 }
 
 const exitSymbol = Symbol("Thrown to exit when down a depth.");
@@ -44,7 +49,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
     const writer = new Writer(options);
     const resolvedConditions = new Map<Condition, boolean>();
     const resolvedInfos = new Map<Info, WriterInfo>();
-    let lookAheadSavePoints = new Map<Condition | Info, SavePoint>();
+    const lookAheadSavePoints = new Map<Condition | Info, SavePoint>();
     let possibleNewLineSavePoint: SavePoint | undefined;
     let depth = 0;
     let childIndex = 0;
@@ -208,7 +213,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         if (possibleNewLineSavePoint != null && newlineGroupDepth > possibleNewLineSavePoint.newlineGroupDepth)
             return;
 
-        possibleNewLineSavePoint = createSavePoint(signal);
+        possibleNewLineSavePoint = createSavePoint(signal, "newline");
     }
 
     function revertToSavePointPossiblyThrowing(savePoint: SavePoint) {
@@ -236,11 +241,11 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             if (depth < savePoint.minDepthFound) {
                 savePoint.minDepthChildIndex = childIndex;
                 savePoint.minDepthFound = depth;
-                savePoint.uncomittedItems.push(printItem);
+                savePoint.uncomittedItems.push({ printItem, depth, childIndex });
             }
             else if (childIndex > savePoint.minDepthChildIndex) {
                 savePoint.minDepthChildIndex = childIndex;
-                savePoint.uncomittedItems.push(printItem);
+                savePoint.uncomittedItems.push({ printItem, depth, childIndex });
             }
         }
     }
@@ -249,21 +254,24 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         const isForNewLine = possibleNewLineSavePoint === savePoint;
         writer.setState(savePoint.writerState);
         possibleNewLineSavePoint = isForNewLine ? undefined : savePoint.possibleNewLineSavePoint;
-        lookAheadSavePoints = savePoint.lookAheadSavePoints;
         childIndex = savePoint.childIndex;
         newlineGroupDepth = savePoint.newlineGroupDepth;
+        depth = savePoint.minDepthFound;
 
         if (isForNewLine)
             writer.write(options.newlineKind);
 
         const startIndex = isForNewLine ? 1 : 0;
         childIndex += startIndex;
+
         for (let i = startIndex; i < savePoint.uncomittedItems.length; i++) {
-            const previousChildIndex = childIndex;
+            const item = savePoint.uncomittedItems[i];
+            childIndex = item.childIndex;
+            depth = item.depth;
 
-            printPrintItem(savePoint.uncomittedItems[i]);
+            printPrintItem(item.printItem);
 
-            childIndex = previousChildIndex + 1;
+            childIndex = item.childIndex + 1;
         }
     }
 
@@ -273,8 +281,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
 
             if (result == null) {
                 if (!lookAheadSavePoints.has(condition)) {
-                    const savePoint = createSavePoint(printingCondition);
-                    savePoint.name = condition.name;
+                    const savePoint = createSavePoint(printingCondition, condition.name);
                     lookAheadSavePoints.set(condition, savePoint);
                 }
             }
@@ -314,8 +321,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         function getResolvedInfo(info: Info) {
             const resolvedInfo = resolvedInfos.get(info);
             if (resolvedInfo == null && !lookAheadSavePoints.has(info)) {
-                const savePoint = createSavePoint(printingCondition);
-                savePoint.name = info.name;
+                const savePoint = createSavePoint(printingCondition, info.name);
                 lookAheadSavePoints.set(info, savePoint);
             }
             return resolvedInfo;
@@ -362,16 +368,20 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         return (writer.getLineColumn() + 1 + offset) > options.maxWidth;
     }
 
-    function createSavePoint(initialItem: PrintItem): SavePoint {
+    function createSavePoint(initialItem: PrintItem, name: string): SavePoint {
         return {
+            name,
             childIndex,
             newlineGroupDepth,
             writerState: writer.getState(),
             possibleNewLineSavePoint,
-            uncomittedItems: [initialItem],
+            uncomittedItems: [{
+                printItem: initialItem,
+                depth,
+                childIndex
+            }],
             minDepthFound: depth,
-            minDepthChildIndex: childIndex,
-            lookAheadSavePoints: new Map(lookAheadSavePoints)
+            minDepthChildIndex: childIndex
         };
     }
 
