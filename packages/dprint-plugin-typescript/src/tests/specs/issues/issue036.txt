@@ -1,0 +1,20 @@
+~~ lineWidth: 120 ~~
+== should format ==
+namespace test.something {
+    function test() {
+        if (true) {
+            testingthisout(testingThis, testingThisOutt.abittt.test === TestingThi.SOutALittleBitttt ? testingThisOudt.morrre : testingThisEeee);
+        }
+    }
+}
+
+[expect]
+namespace test.something {
+    function test() {
+        if (true) {
+            testingthisout(testingThis, testingThisOutt.abittt.test === TestingThi.SOutALittleBitttt
+                ? testingThisOudt.morrre
+                : testingThisEeee);
+        }
+    }
+}

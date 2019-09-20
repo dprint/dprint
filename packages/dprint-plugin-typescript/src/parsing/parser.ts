@@ -3353,6 +3353,11 @@ export interface ParseJsxChildrenOptions {
 
 function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable {
     const { node, children, context, parentStartInfo, parentEndInfo, useMultilines } = options;
+    // Need to parse the children here so they only get parsed once.
+    // Nodes need to be only parsed once so that their comments don't end up in
+    // the handled comments collection and the second time they're p
+    // won't be parsed out.
+    const parsedChildren = children.map(c => [c, makeIterableRepeatable(parseNode(c, context))] as const);
 
     if (useMultilines)
         yield* parseForNewLines();
@@ -3379,7 +3384,7 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
         yield* withIndent(parseStatementOrMembers({
             context,
             innerComments: node.innerComments,
-            items: children,
+            items: parsedChildren,
             lastNode: undefined,
             shouldUseSpace,
             shouldUseNewLine: (previousElement, nextElement) => {
@@ -3410,7 +3415,7 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
                 if (i > 0 && shouldUseSpace(children[i - 1], children[i]))
                     yield Signal.SpaceOrNewLine;
 
-                yield* parseNode(children[i], context);
+                yield* parsedChildren[i][1];
                 yield Signal.NewLine;
             }
         }
@@ -3451,7 +3456,7 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
 }
 
 interface ParseStatementOrMembersOptions {
-    items: babel.Node[];
+    items: (babel.Node[]) | (readonly [babel.Node, PrintItemIterable])[];
     innerComments: ReadonlyArray<babel.Comment> | undefined | null;
     lastNode: babel.Node | undefined;
     context: Context;
@@ -3465,7 +3470,18 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
     const { items, innerComments, context, shouldUseSpace, shouldUseNewLine, shouldUseBlankLine, trailingCommas } = opts;
     let { lastNode } = opts;
 
-    for (const item of items) {
+    for (const itemOrArray of items) {
+        let item: babel.Node;
+        let parsedNode: PrintItemIterable | undefined;
+        if (itemOrArray instanceof Array) {
+            item = itemOrArray[0];
+            parsedNode = itemOrArray[1];
+        }
+        else {
+            // todo: why is this assertion necessary?
+            item = itemOrArray as babel.Node;
+        }
+
         if (lastNode != null) {
             if (shouldUseNewLine == null || shouldUseNewLine(lastNode, item)) {
                 yield context.newlineKind;
@@ -3480,7 +3496,7 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
 
         const endInfo = createInfo("endStatementOrMemberInfo");
         context.endStatementOrMemberInfo.push(endInfo);
-        yield* parseNode(item, context, {
+        yield* parsedNode || parseNode(item, context, {
             innerParse: function*(iterator) {
                 yield* iterator;
 

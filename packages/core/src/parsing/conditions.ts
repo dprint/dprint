@@ -1,7 +1,7 @@
 import { PrintItemKind, Info, Condition, Signal, PrintItemIterable } from "../types";
 import { BaseContext } from "./BaseContext";
 import { conditionResolvers } from "./conditionResolvers";
-import { RepeatableIterable } from "../utils";
+import { RepeatableIterable, makeIterableRepeatable } from "../utils";
 import { parserHelpers } from "./parserHelpers";
 
 const { withIndent } = parserHelpers;
@@ -57,7 +57,7 @@ export namespace conditions {
     export function* indentIfStartOfLine(item: PrintItemIterable): PrintItemIterable {
         // need to make this a repeatable iterable so it can be iterated multiple times
         // between the true and false condition
-        item = new RepeatableIterable(item);
+        item = makeIterableRepeatable(item);
 
         yield {
             kind: PrintItemKind.Condition,
@@ -71,7 +71,7 @@ export namespace conditions {
     export function* withIndentIfStartOfLineIndented(item: PrintItemIterable): PrintItemIterable {
         // need to make this a repeatable iterable so it can be iterated multiple times
         // between the true and false condition
-        item = new RepeatableIterable(item);
+        item = makeIterableRepeatable(item);
 
         yield {
             kind: PrintItemKind.Condition,
