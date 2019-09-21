@@ -2145,13 +2145,17 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
-    const shouldIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
-    const useNewLines = getUseNewLines();
     const operatorPosition = getOperatorPosition();
 
-    yield* parseInner();
+    if (shouldParseAsBreakble())
+        yield* parseAsBreakble();
+    else
+        yield* parseAsSingle();
 
-    function* parseInner(): PrintItemIterable {
+    function* parseAsBreakble(): PrintItemIterable {
+        const shouldIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
+        const useNewLines = getUseNewLines();
+
         if (!shouldIndent)
             putDisableIndentInBagIfNecessaryForNode(node.left, context);
 
@@ -2190,24 +2194,55 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
 
         yield* shouldIndent ? conditions.indentIfStartOfLine(rightIterator) : rightIterator;
 
-        function* newlineGroupIfNecessary(nodeType: babel.Node["type"], iterable: PrintItemIterable): PrintItemIterable {
-            if (nodeType !== "BinaryExpression" && nodeType !== "LogicalExpression")
-                yield* newlineGroup(iterable);
-            else
-                yield* iterable;
+        function getUseNewLines() {
+            return nodeHelpers.getUseNewlinesForNodes([getLeftNode(), getRightNode()]);
+
+            function getLeftNode() {
+                const hasParentheses = nodeHelpers.hasParentheses(node.left);
+                return hasParentheses ? tokenHelpers.getFirstCloseParenTokenAfter(node.left, context)! : node.left;
+            }
+
+            function getRightNode() {
+                const hasParentheses = nodeHelpers.hasParentheses(node.right);
+                return hasParentheses ? tokenHelpers.getFirstOpenParenTokenBefore(node.right, context)! : node.right;
+            }
         }
     }
 
-    function getUseNewLines() {
-        return nodeHelpers.getUseNewlinesForNodes([getLeftNode(), getRightNode()]);
+    function* parseAsSingle(): PrintItemIterable {
+        yield* newlineGroup(function*() {
+            yield* newlineGroupIfNecessary(node.left.type, parseNode(node.left, context));
+            if (operatorPosition === "sameLine")
+                yield " ";
+            else
+                yield Signal.SpaceOrNewLine;
+            yield node.operator;
+            if (operatorPosition === "nextLine")
+                yield " ";
+            else
+                yield Signal.SpaceOrNewLine;
+            yield* newlineGroupIfNecessary(node.right.type, parseNode(node.right, context));
+        }());
+    }
 
-        function getLeftNode() {
-            const hasParentheses = nodeHelpers.hasParentheses(node.left);
-            return hasParentheses ? tokenHelpers.getFirstCloseParenTokenAfter(node.left, context)! : node.left;
-        }
-        function getRightNode() {
-            const hasParentheses = nodeHelpers.hasParentheses(node.right);
-            return hasParentheses ? tokenHelpers.getFirstOpenParenTokenBefore(node.right, context)! : node.right;
+    function* newlineGroupIfNecessary(nodeType: babel.Node["type"], iterable: PrintItemIterable): PrintItemIterable {
+        if (nodeType !== "BinaryExpression" && nodeType !== "LogicalExpression")
+            yield* newlineGroup(iterable);
+        else
+            yield* iterable;
+    }
+
+    function shouldParseAsBreakble() {
+        switch (node.operator) {
+            case "&&":
+            case "||":
+            case "+":
+            case "-":
+            case "*":
+            case "/":
+                return true;
+            default:
+                return false;
         }
     }
 

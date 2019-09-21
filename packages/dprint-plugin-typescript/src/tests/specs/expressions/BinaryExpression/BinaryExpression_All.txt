@@ -87,3 +87,10 @@ testing
 otherTest
     + other.test
     + 34 + 2;
+
+== should not put triple equals on new line ==
+testing && t === uv;
+
+[expect]
+testing
+    && t === uv;
