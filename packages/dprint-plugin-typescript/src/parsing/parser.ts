@@ -37,6 +37,7 @@ interface Context {
     parent: babel.Node;
     newlineKind: "\r\n" | "\n";
     bag: Bag;
+    topBinaryOrLogicalExpressionInfos: Map<babel.BinaryExpression | babel.LogicalExpression, Info | false>;
     endStatementOrMemberInfo: Stack<Info>;
     tokenFinder: TokenFinder;
 }
@@ -65,6 +66,7 @@ export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintI
         parent: file,
         newlineKind: config.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newlineKind,
         bag: new Bag(),
+        topBinaryOrLogicalExpressionInfos: new Map<babel.BinaryExpression | babel.LogicalExpression, Info | false>(),
         endStatementOrMemberInfo: new Stack<Info>(),
         tokenFinder: new TokenFinder(file.tokens)
     };
@@ -2144,18 +2146,21 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
     yield* parseNode(node.argument, context);
 }
 
-function parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
-    return shouldParseAsBreakble() ? innerParse() : newlineGroup(innerParse());
+function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
+    const topMostExpr = getTopMostBinaryOrLogicalExpression();
+    const isTopMost = topMostExpr === node;
+    const topMostInfo = getOrSetTopMostInfo();
+
+    if (isTopMost && topMostInfo !== false)
+        yield topMostInfo;
+
+    yield* isExpressionBreakable(node) ? innerParse() : newlineGroup(innerParse());
 
     function* innerParse(): PrintItemIterable {
         const operatorPosition = getOperatorPosition();
-        const shouldIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
         const useNewLines = getUseNewLines();
 
-        if (!shouldIndent)
-            putDisableIndentInBagIfNecessaryForNode(node.left, context);
-
-        yield* newlineGroupIfNecessary(node.left.type, parseNode(node.left, context, {
+        yield indentIfNecessary(node.left, newlineGroupIfNecessary(node.left, parseNode(node.left, context, {
             innerParse: function*(iterable) {
                 yield* iterable;
                 if (operatorPosition === "sameLine") {
@@ -2163,7 +2168,7 @@ function parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.Bi
                     yield node.operator;
                 }
             }
-        }));
+        })));
 
         yield* parseCommentsAsTrailing(node.left, node.right.leadingComments, context);
 
@@ -2172,10 +2177,7 @@ function parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.Bi
         else
             yield Signal.SpaceOrNewLine;
 
-        if (!shouldIndent)
-            putDisableIndentInBagIfNecessaryForNode(node.right, context);
-
-        const rightIterator = function*() {
+        yield indentIfNecessary(node.right, function*() {
             yield* parseCommentsAsLeading(node, node.left.trailingComments, context);
             yield* parseNode(node.right, context, {
                 innerParse: function*(iterable) {
@@ -2183,12 +2185,10 @@ function parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.Bi
                         yield node.operator;
                         yield " ";
                     }
-                    yield* newlineGroupIfNecessary(node.right.type, iterable);
+                    yield* newlineGroupIfNecessary(node.right, iterable);
                 }
             });
-        }();
-
-        yield* shouldIndent ? conditions.indentIfStartOfLine(rightIterator) : rightIterator;
+        }());
 
         function getUseNewLines() {
             return nodeHelpers.getUseNewlinesForNodes([getLeftNode(), getRightNode()]);
@@ -2204,8 +2204,8 @@ function parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.Bi
             }
         }
 
-        function* newlineGroupIfNecessary(nodeType: babel.Node["type"], iterable: PrintItemIterable): PrintItemIterable {
-            if (nodeType !== "BinaryExpression" && nodeType !== "LogicalExpression")
+        function* newlineGroupIfNecessary(expression: babel.Node, iterable: PrintItemIterable): PrintItemIterable {
+            if (!isBinaryOrLogicalExpression(expression))
                 yield* newlineGroup(iterable);
             else
                 yield* iterable;
@@ -2238,8 +2238,59 @@ function parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.Bi
         }
     }
 
-    function shouldParseAsBreakble() {
-        switch (node.operator) {
+    function indentIfNecessary(currentNode: babel.Node, iterable: PrintItemIterable): Condition {
+        iterable = makeIterableRepeatable(iterable);
+        return {
+            kind: PrintItemKind.Condition,
+            name: "indentIfNecessaryForBinaryAndLogicalExpressions",
+            condition: conditionContext => {
+                // do not indent if indenting is disabled
+                if (topMostInfo === false)
+                    return false;
+                // do not indent if this is the left most node
+                if (nodeHelpers.getStartOrParenStart(topMostExpr) === nodeHelpers.getStartOrParenStart(currentNode))
+                    return false;
+
+                const resolvedTopMostInfo = conditionContext.getResolvedInfo(topMostInfo)!;
+                const isSameIndent = resolvedTopMostInfo.indentLevel === conditionContext.writerInfo.indentLevel;
+                return isSameIndent && conditionResolvers.isStartOfNewLine(conditionContext);
+            },
+            true: withIndent(iterable),
+            false: iterable
+        };
+    }
+
+    function getTopMostBinaryOrLogicalExpression() {
+        let topMost = node;
+        for (let i = context.parentStack.length - 1; i >= 0; i--) {
+            if (nodeHelpers.hasParentheses(topMost))
+                break;
+            const ancestor = context.parentStack[i];
+            if (!isBinaryOrLogicalExpression(ancestor))
+                break;
+            topMost = ancestor;
+        }
+        return topMost;
+    }
+
+    function getOrSetTopMostInfo() {
+        if (isTopMost) {
+            const allowIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
+            const info = allowIndent ? createInfo("topBinaryOrLogicalExpressionStart") : false;
+            context.topBinaryOrLogicalExpressionInfos.set(topMostExpr, info);
+            return info;
+        }
+        else {
+            return context.topBinaryOrLogicalExpressionInfos.get(topMostExpr)!;
+        }
+    }
+
+    function isBinaryOrLogicalExpression(node: babel.Node): node is babel.BinaryExpression | babel.LogicalExpression {
+        return node.type === "BinaryExpression" || node.type === "LogicalExpression";
+    }
+
+    function isExpressionBreakable(expr: babel.LogicalExpression | babel.BinaryExpression) {
+        switch (expr.operator) {
             case "&&":
             case "||":
             case "+":

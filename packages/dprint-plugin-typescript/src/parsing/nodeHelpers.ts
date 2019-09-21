@@ -83,6 +83,12 @@ export function hasParentheses(node: babel.Node): boolean {
     return extra.parenthesized || false;
 }
 
+export function getStartOrParenStart(node: babel.Node): number {
+    const extra = (node as any).extra;
+    const parenStart = extra && extra.parenStart;
+    return parenStart != null ? parenStart : node.start!;
+}
+
 export function getJsxText(jsxText: babel.JSXText) {
     // this is necessary because .value will resolve character entities (ex. &nbsp; -> space)
     return (jsxText as any).extra.raw as string;

@@ -97,3 +97,67 @@ return test(test)
     // test
     // asdf
     && asdf;
+
+== should only indent once when there are nested expressions ==
+a
+    && b
+    || c
+    && d
+    && e
+    || f
+    || g
+    || h
+    && j
+    || k
+    || l
+    || m
+    || n;
+
+[expect]
+a
+    && b
+    || c
+    && d
+    && e
+    || f
+    || g
+    || h
+    && j
+    || k
+    || l
+    || m
+    || n;
+
+== should only indent once when it has binary expressions nested within ==
+a === b
+    || a !== b
+    && a !== b
+    && a === b;
+
+[expect]
+a === b
+    || a !== b
+    && a !== b
+    && a === b;
+
+== should indent only once when parens are inlined ==
+a === b && (c === d
+    && d === 4
+    || e === 3);
+
+[expect]
+a === b && (c === d
+    && d === 4
+    || e === 3);
+
+== should indent twice if the parens start on a different line ==
+a === b
+    && (c === d
+        && d === 4
+        || e === 3);
+
+[expect]
+a === b
+    && (c === d
+        && d === 4
+        || e === 3);
