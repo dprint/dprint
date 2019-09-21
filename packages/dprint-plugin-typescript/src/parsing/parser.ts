@@ -2144,15 +2144,11 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
     yield* parseNode(node.argument, context);
 }
 
-function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
-    const operatorPosition = getOperatorPosition();
+function parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
+    return shouldParseAsBreakble() ? innerParse() : newlineGroup(innerParse());
 
-    if (shouldParseAsBreakble())
-        yield* parseAsBreakble();
-    else
-        yield* parseAsSingle();
-
-    function* parseAsBreakble(): PrintItemIterable {
+    function* innerParse(): PrintItemIterable {
+        const operatorPosition = getOperatorPosition();
         const shouldIndent = context.bag.take(BAG_KEYS.DisableIndentBool) == null;
         const useNewLines = getUseNewLines();
 
@@ -2207,29 +2203,39 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
                 return hasParentheses ? tokenHelpers.getFirstOpenParenTokenBefore(node.right, context)! : node.right;
             }
         }
-    }
 
-    function* parseAsSingle(): PrintItemIterable {
-        yield* newlineGroup(function*() {
-            yield* newlineGroupIfNecessary(node.left.type, parseNode(node.left, context));
-            if (operatorPosition === "sameLine")
-                yield " ";
+        function* newlineGroupIfNecessary(nodeType: babel.Node["type"], iterable: PrintItemIterable): PrintItemIterable {
+            if (nodeType !== "BinaryExpression" && nodeType !== "LogicalExpression")
+                yield* newlineGroup(iterable);
             else
-                yield Signal.SpaceOrNewLine;
-            yield node.operator;
-            if (operatorPosition === "nextLine")
-                yield " ";
-            else
-                yield Signal.SpaceOrNewLine;
-            yield* newlineGroupIfNecessary(node.right.type, parseNode(node.right, context));
-        }());
-    }
+                yield* iterable;
+        }
 
-    function* newlineGroupIfNecessary(nodeType: babel.Node["type"], iterable: PrintItemIterable): PrintItemIterable {
-        if (nodeType !== "BinaryExpression" && nodeType !== "LogicalExpression")
-            yield* newlineGroup(iterable);
-        else
-            yield* iterable;
+        function getOperatorPosition() {
+            const configValue = getConfigValue();
+
+            switch (configValue) {
+                case "nextLine":
+                case "sameLine":
+                    return configValue;
+                case "maintain":
+                    const operatorToken = context.tokenFinder.getFirstTokenAfter(node.left, node.operator)!;
+                    return node.left.loc!.end.line === operatorToken.loc!.start.line ? "sameLine" : "nextLine";
+                default:
+                    return assertNever(configValue);
+            }
+
+            function getConfigValue() {
+                switch (node.type) {
+                    case "BinaryExpression":
+                        return context.config["binaryExpression.operatorPosition"];
+                    case "LogicalExpression":
+                        return context.config["logicalExpression.operatorPosition"];
+                    default:
+                        return assertNever(node);
+                }
+            }
+        }
     }
 
     function shouldParseAsBreakble() {
@@ -2243,32 +2249,6 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
                 return true;
             default:
                 return false;
-        }
-    }
-
-    function getOperatorPosition() {
-        const configValue = getConfigValue();
-
-        switch (configValue) {
-            case "nextLine":
-            case "sameLine":
-                return configValue;
-            case "maintain":
-                const operatorToken = context.tokenFinder.getFirstTokenAfter(node.left, node.operator)!;
-                return node.left.loc!.end.line === operatorToken.loc!.start.line ? "sameLine" : "nextLine";
-            default:
-                return assertNever(configValue);
-        }
-
-        function getConfigValue() {
-            switch (node.type) {
-                case "BinaryExpression":
-                    return context.config["binaryExpression.operatorPosition"];
-                case "LogicalExpression":
-                    return context.config["logicalExpression.operatorPosition"];
-                default:
-                    return assertNever(node);
-            }
         }
     }
 }
