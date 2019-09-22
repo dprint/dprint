@@ -1665,7 +1665,7 @@ function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIt
         const parentCases = (context.parent as babel.SwitchStatement).cases;
         const isLastSwitchCase = parentCases[parentCases.length - 1] === node;
 
-        let isEqualIndent = false;
+        let isEqualIndent = getBlockStatementBody() != null;
         let lastNode: babel.Node | babel.Comment = node;
 
         for (const comment of trailingComments) {

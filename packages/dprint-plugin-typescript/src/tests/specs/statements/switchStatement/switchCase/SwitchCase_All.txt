@@ -29,6 +29,10 @@ switch (expr) {
 
 == should keep the comments at the same level as the case's body if the last comment is on that level  ==
 switch (expr) {
+    case 1: {
+    }
+        // testing
+    // testing
     case 5:
         doSomething();
     // testing
@@ -55,6 +59,10 @@ switch (expr) {
 
 [expect]
 switch (expr) {
+    case 1: {
+    }
+    // testing
+    // testing
     case 5:
         doSomething();
     // testing
