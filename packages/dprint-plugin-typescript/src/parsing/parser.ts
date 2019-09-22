@@ -3854,7 +3854,7 @@ function* parseIteratorInParens(iterator: PrintItemIterable, useNewLines: boolea
 }
 
 function* parseNamedImportsOrExports(
-    parentDeclaration: babel.Node,
+    parentDeclaration: babel.ImportDeclaration | babel.ExportNamedDeclaration,
     namedImportsOrExports: (babel.ImportSpecifier | babel.ExportSpecifier)[],
     context: Context
 ): PrintItemIterable {
@@ -3862,7 +3862,7 @@ function* parseNamedImportsOrExports(
         return;
 
     const useNewLines = getUseNewLines();
-    const braceSeparator = useNewLines ? context.newlineKind : " ";
+    const braceSeparator = useNewLines ? context.newlineKind : (getUseSpace() ? " ": "");
 
     yield "{";
     yield braceSeparator;
@@ -3896,6 +3896,17 @@ function* parseNamedImportsOrExports(
                 yield* parseNode(namedImportsOrExports[i], context);
             else
                 yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(namedImportsOrExports[i], context)));
+        }
+    }
+
+    function getUseSpace() {
+        switch (parentDeclaration.type) {
+            case "ExportNamedDeclaration":
+                return context.config["exportDeclaration.useSpace"];
+            case "ImportDeclaration":
+                return context.config["importDeclaration.useSpace"];
+            default:
+                return assertNever(parentDeclaration);
         }
     }
 }

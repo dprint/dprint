@@ -215,10 +215,12 @@ export interface TypeScriptConfiguration {
     "constructorType.useSpace"?: boolean;
     "constructSignature.useSpace"?: boolean;
     "doWhileStatement.useSpace"?: boolean;
+    "exportDeclaration.useSpace"?: boolean;
     "forInStatement.useSpace"?: boolean;
     "forOfStatement.useSpace"?: boolean;
     "forStatement.useSpace"?: boolean;
     "ifStatement.useSpace"?: boolean;
+    "importDeclaration.useSpace"?: boolean;
     "whileStatement.useSpace"?: boolean;
     "typeAssertion.useSpace"?: boolean;
 }
@@ -331,11 +333,13 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     // use spaces
     readonly "constructorType.useSpace": boolean;
     readonly "constructSignature.useSpace": boolean;
+    readonly "exportDeclaration.useSpace": boolean;
     readonly "doWhileStatement.useSpace": boolean;
     readonly "forInStatement.useSpace": boolean;
     readonly "forOfStatement.useSpace": boolean;
     readonly "forStatement.useSpace": boolean;
     readonly "ifStatement.useSpace": boolean;
+    readonly "importDeclaration.useSpace": boolean;
     readonly "whileStatement.useSpace": boolean;
     readonly "typeAssertion.useSpace": boolean;
 }

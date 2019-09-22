@@ -142,10 +142,12 @@ export function resolveConfiguration(
         "constructorType.useSpace": getValue("constructorType.useSpace", useSpaces, ensureBoolean),
         "constructSignature.useSpace": getValue("constructSignature.useSpace", useSpaces, ensureBoolean),
         "doWhileStatement.useSpace": getValue("doWhileStatement.useSpace", useSpaces, ensureBoolean),
+        "exportDeclaration.useSpace": getValue("exportDeclaration.useSpace", useSpaces, ensureBoolean),
         "forInStatement.useSpace": getValue("forInStatement.useSpace", useSpaces, ensureBoolean),
         "forOfStatement.useSpace": getValue("forOfStatement.useSpace", useSpaces, ensureBoolean),
         "forStatement.useSpace": getValue("forStatement.useSpace", useSpaces, ensureBoolean),
         "ifStatement.useSpace": getValue("ifStatement.useSpace", useSpaces, ensureBoolean),
+        "importDeclaration.useSpace": getValue("importDeclaration.useSpace", useSpaces, ensureBoolean),
         "typeAssertion.useSpace": getValue("typeAssertion.useSpace", useSpaces, ensureBoolean),
         "whileStatement.useSpace": getValue("whileStatement.useSpace", useSpaces, ensureBoolean),
     };

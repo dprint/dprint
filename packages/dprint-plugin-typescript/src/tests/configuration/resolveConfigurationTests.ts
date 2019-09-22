@@ -478,10 +478,12 @@ describe(nameof(resolveConfiguration), () => {
                 "constructorType.useSpace": value,
                 "constructSignature.useSpace": value,
                 "doWhileStatement.useSpace": value,
+                "exportDeclaration.useSpace": value,
                 "forInStatement.useSpace": value,
                 "forOfStatement.useSpace": value,
                 "forStatement.useSpace": value,
                 "ifStatement.useSpace": value,
+                "importDeclaration.useSpace": value,
                 "typeAssertion.useSpace": value,
                 "whileStatement.useSpace": value
             };
