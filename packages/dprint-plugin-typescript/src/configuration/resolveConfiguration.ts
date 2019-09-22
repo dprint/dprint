@@ -139,6 +139,8 @@ export function resolveConfiguration(
         "methodSignature.forceMultiLineParameters": getValue("methodSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         "objectMethod.forceMultiLineParameters": getValue("objectMethod.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         // use spaces
+        "constructorType.useSpace": getValue("constructorType.useSpace", useSpaces, ensureBoolean),
+        "constructSignature.useSpace": getValue("constructSignature.useSpace", useSpaces, ensureBoolean),
         "typeAssertion.useSpace": getValue("typeAssertion.useSpace", useSpaces, ensureBoolean),
     };
 

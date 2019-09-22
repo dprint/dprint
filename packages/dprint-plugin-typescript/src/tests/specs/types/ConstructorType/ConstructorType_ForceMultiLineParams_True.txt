@@ -3,7 +3,7 @@
 type Test = new(testing, thisOut, byExceeding, theLineWidth) => Date;
 
 [expect]
-type Test = new(
+type Test = new (
     testing,
     thisOut,
     byExceeding,
@@ -11,7 +11,7 @@ type Test = new(
 ) => Date;
 
 == should not be multi-line when not exceeding the line width ==
-type Test = new(testing, out) => Date;
+type Test = new (testing, out) => Date;
 
 [expect]
-type Test = new(testing, out) => Date;
+type Test = new (testing, out) => Date;

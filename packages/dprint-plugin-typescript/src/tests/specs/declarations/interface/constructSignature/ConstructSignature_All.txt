@@ -9,11 +9,11 @@ type Test = {
 
 [expect]
 type Test = {
-    new(): string;
-    new<T>(param: string): string;
-    new(param: string,
+    new (): string;
+    new <T>(param: string): string;
+    new (param: string,
         otherParam: number): string;
-    new();
+    new ();
 };
 
 == should format the return type as hanging when it's hanging ==
@@ -23,29 +23,29 @@ interface T {
 
 [expect]
 interface T {
-    new(param: string): testing
+    new (param: string): testing
         | number;
 }
 
 == should format the return type on the same line when the rest of the header is hanging ==
 interface T {
-    new(param: string, otherTest: string): te | st;
+    new (param: string, otherTest: string): te | st;
 }
 
 [expect]
 interface T {
-    new(param: string,
+    new (param: string,
         otherTest: string): te | st;
 }
 
 == should format the return type on a new line when it's hanging and the rest of the header is hanging ==
 interface T {
-    new(param: string, otherTest: string): test | other | other;
+    new (param: string, otherTest: string): test | other | other;
 }
 
 [expect]
 interface T {
-    new(param: string,
+    new (param: string,
         otherTest: string
     ): test | other | other;
 }

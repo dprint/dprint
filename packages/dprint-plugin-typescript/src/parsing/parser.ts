@@ -1157,6 +1157,8 @@ function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDec
     const startInfo = createInfo("startConstructSignature");
     yield startInfo;
     yield "new";
+    if (context.config["constructSignature.useSpace"])
+        yield " ";
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments({
         nodes: node.parameters,
@@ -2927,6 +2929,8 @@ function* parseConstructorType(node: babel.TSConstructorType, context: Context):
     const startInfo = createInfo("startConstructorType");
     yield startInfo;
     yield "new";
+    if (context.config["constructorType.useSpace"])
+        yield " ";
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments({
         nodes: node.parameters,

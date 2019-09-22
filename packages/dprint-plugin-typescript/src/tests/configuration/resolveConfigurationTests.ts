@@ -475,6 +475,8 @@ describe(nameof(resolveConfiguration), () => {
 
         function getObject(value: boolean): Partial<ResolvedTypeScriptConfiguration> {
             return {
+                "constructorType.useSpace": value,
+                "constructSignature.useSpace": value,
                 "typeAssertion.useSpace": value
             };
         }

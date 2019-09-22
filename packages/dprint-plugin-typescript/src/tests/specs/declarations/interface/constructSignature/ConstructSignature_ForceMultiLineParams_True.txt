@@ -6,7 +6,7 @@ interface T {
 
 [expect]
 interface T {
-    new(
+    new (
         testing,
         thisOut,
         byExceeding,
@@ -16,10 +16,10 @@ interface T {
 
 == should not be multi-line when not exceeding the line width ==
 interface T {
-    new(testing, thisOut): void;
+    new (testing, thisOut): void;
 }
 
 [expect]
 interface T {
-    new(testing, thisOut): void;
+    new (testing, thisOut): void;
 }

@@ -6,5 +6,5 @@ type Test = {
 
 [expect]
 type Test = {
-    new(): string
+    new (): string
 };
