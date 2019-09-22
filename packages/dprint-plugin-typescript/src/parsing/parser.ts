@@ -1940,13 +1940,22 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                     return true;
                 switch (singleBodyPosition) {
                     case "maintain":
-                        return getBodyStatementStartLine() > (headerStartToken || parent).loc!.start.line;
+                        return getBodyStatementStartLine() > getHeaderStartLine();
                     case "nextLine":
                         return true;
                     case "sameLine":
-                        return bodyNode.type === "BlockStatement";
+                        if (bodyNode.type === "BlockStatement") {
+                            if (bodyNode.body.length !== 1)
+                                return true;
+                            return getBodyStatementStartLine() > getHeaderStartLine();
+                        }
+                        return false;
                     default:
                         return assertNever(singleBodyPosition);
+                }
+
+                function getHeaderStartLine() {
+                    return (headerStartToken || parent).loc!.start.line;
                 }
 
                 function getBodyStatementStartLine() {
