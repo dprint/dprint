@@ -1,0 +1,12 @@
+~~ forStatement.useSpace: false ~~
+== should print ==
+for (let i = 0; i < 5; i++) {
+    a;
+    b;
+}
+
+[expect]
+for(let i = 0; i < 5; i++) {
+    a;
+    b;
+}

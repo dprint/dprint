@@ -1,0 +1,8 @@
+~~ doWhileStatement.useSpace: false ~~
+== should print ==
+do {
+} while (false);
+
+[expect]
+do {
+} while(false);

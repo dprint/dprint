@@ -1,0 +1,16 @@
+~~ ifStatement.useSpace: false ~~
+== should print ==
+if (true) {
+}
+else if (false) {
+}
+else {
+}
+
+[expect]
+if(true) {
+}
+else if(false) {
+}
+else {
+}

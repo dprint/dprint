@@ -1,0 +1,12 @@
+~~ forInStatement.useSpace: false ~~
+== should print ==
+for (const t    in   test) {
+    a;
+    b;
+}
+
+[expect]
+for(const t in test) {
+    a;
+    b;
+}

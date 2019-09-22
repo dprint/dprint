@@ -1329,7 +1329,9 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
         context
     });
     yield* parseNode(node.body, context);
-    yield " while ";
+    yield " while";
+    if (context.config["doWhileStatement.useSpace"])
+        yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.test,
         innerIterable: parseNode(node.test, context),
@@ -1422,7 +1424,9 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
-    yield "for ";
+    yield "for";
+    if (context.config["forInStatement.useSpace"])
+        yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.left,
         innerIterable: parseInnerHeader(),
@@ -1456,7 +1460,9 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
-    yield "for ";
+    yield "for";
+    if (context.config["forOfStatement.useSpace"])
+        yield " ";
     if (node.await)
         yield "await ";
     yield* parseNodeInParens({
@@ -1492,7 +1498,9 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
-    yield "for ";
+    yield "for";
+    if (context.config["forStatement.useSpace"])
+        yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.init || context.tokenFinder.getFirstTokenWithin(node, ";")!,
         innerIterable: parseInnerHeader(),
@@ -1576,7 +1584,9 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
     }
 
     function* parseHeader(ifStatement: babel.IfStatement): PrintItemIterable {
-        yield "if ";
+        yield "if";
+        if (context.config["ifStatement.useSpace"])
+            yield " ";
         yield* parseNodeInParens({
             firstInnerNode: ifStatement.test,
             innerIterable: parseNode(ifStatement.test, context),
@@ -1750,7 +1760,9 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
     const startHeaderInfo = createInfo("startHeader");
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
-    yield "while ";
+    yield "while";
+    if (context.config["whileStatement.useSpace"])
+        yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.test,
         innerIterable: parseNode(node.test, context),

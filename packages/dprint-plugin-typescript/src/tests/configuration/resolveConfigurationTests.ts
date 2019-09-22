@@ -477,7 +477,13 @@ describe(nameof(resolveConfiguration), () => {
             return {
                 "constructorType.useSpace": value,
                 "constructSignature.useSpace": value,
-                "typeAssertion.useSpace": value
+                "doWhileStatement.useSpace": value,
+                "forInStatement.useSpace": value,
+                "forOfStatement.useSpace": value,
+                "forStatement.useSpace": value,
+                "ifStatement.useSpace": value,
+                "typeAssertion.useSpace": value,
+                "whileStatement.useSpace": value
             };
         }
     });
