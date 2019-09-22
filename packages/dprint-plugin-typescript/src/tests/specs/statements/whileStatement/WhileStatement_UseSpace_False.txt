@@ -1,4 +1,4 @@
-~~ whileStatement.useSpace: false ~~
+~~ whileStatement.useSpaceSeparator: false ~~
 == should print ==
 while (true) {
 }

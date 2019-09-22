@@ -12,7 +12,7 @@ const defaultValues = {
     nextControlFlowPosition: "nextLine",
     operatorPosition: "nextLine",
     trailingCommas: "never",
-    useSpaces: true,
+    useSpaceSeparators: true,
     "enumDeclaration.memberSpacing": "maintain",
     "arrowFunctionExpression.useParentheses": "maintain",
     forceMultiLineArguments: false,
@@ -39,7 +39,7 @@ export function resolveConfiguration(
     const trailingCommas = getValue("trailingCommas", defaultValues.trailingCommas, ensureTrailingCommas);
     const forceMultiLineArguments = getValue("forceMultiLineArguments", defaultValues.forceMultiLineArguments, ensureBoolean);
     const forceMultiLineParameters = getValue("forceMultiLineParameters", defaultValues.forceMultiLineParameters, ensureBoolean);
-    const useSpaces = getValue("useSpaces", defaultValues.useSpaces, ensureBoolean);
+    const useSpaceSeparators = getValue("useSpaceSeparators", defaultValues.useSpaceSeparators, ensureBoolean);
 
     const resolvedConfig: ResolvedTypeScriptConfiguration = {
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
@@ -139,17 +139,17 @@ export function resolveConfiguration(
         "methodSignature.forceMultiLineParameters": getValue("methodSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         "objectMethod.forceMultiLineParameters": getValue("objectMethod.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         // use spaces
-        "constructorType.useSpace": getValue("constructorType.useSpace", useSpaces, ensureBoolean),
-        "constructSignature.useSpace": getValue("constructSignature.useSpace", useSpaces, ensureBoolean),
-        "doWhileStatement.useSpace": getValue("doWhileStatement.useSpace", useSpaces, ensureBoolean),
-        "exportDeclaration.useSpace": getValue("exportDeclaration.useSpace", useSpaces, ensureBoolean),
-        "forInStatement.useSpace": getValue("forInStatement.useSpace", useSpaces, ensureBoolean),
-        "forOfStatement.useSpace": getValue("forOfStatement.useSpace", useSpaces, ensureBoolean),
-        "forStatement.useSpace": getValue("forStatement.useSpace", useSpaces, ensureBoolean),
-        "ifStatement.useSpace": getValue("ifStatement.useSpace", useSpaces, ensureBoolean),
-        "importDeclaration.useSpace": getValue("importDeclaration.useSpace", useSpaces, ensureBoolean),
-        "typeAssertion.useSpace": getValue("typeAssertion.useSpace", useSpaces, ensureBoolean),
-        "whileStatement.useSpace": getValue("whileStatement.useSpace", useSpaces, ensureBoolean)
+        "constructorType.useSpaceSeparator": getValue("constructorType.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "constructSignature.useSpaceSeparator": getValue("constructSignature.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "doWhileStatement.useSpaceSeparator": getValue("doWhileStatement.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "exportDeclaration.useSpaceSeparator": getValue("exportDeclaration.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "forInStatement.useSpaceSeparator": getValue("forInStatement.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "forOfStatement.useSpaceSeparator": getValue("forOfStatement.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "forStatement.useSpaceSeparator": getValue("forStatement.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "ifStatement.useSpaceSeparator": getValue("ifStatement.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "importDeclaration.useSpaceSeparator": getValue("importDeclaration.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "typeAssertion.useSpaceSeparator": getValue("typeAssertion.useSpaceSeparator", useSpaceSeparators, ensureBoolean),
+        "whileStatement.useSpaceSeparator": getValue("whileStatement.useSpaceSeparator", useSpaceSeparators, ensureBoolean)
     };
 
     addExcessPropertyDiagnostics();

@@ -106,7 +106,7 @@ export interface TypeScriptConfiguration {
      * Whether to use a space in certain scenarios where a space could be optional.
      * @default true
      */
-    useSpaces?: boolean;
+    useSpaceSeparators?: boolean;
     /**
      * Whether to use parentheses around a single parameter in an arrow function.
      * @default "maintain"
@@ -200,17 +200,17 @@ export interface TypeScriptConfiguration {
     "functionType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "methodSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "objectMethod.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "constructorType.useSpace"?: boolean;
-    "constructSignature.useSpace"?: boolean;
-    "doWhileStatement.useSpace"?: boolean;
-    "exportDeclaration.useSpace"?: boolean;
-    "forInStatement.useSpace"?: boolean;
-    "forOfStatement.useSpace"?: boolean;
-    "forStatement.useSpace"?: boolean;
-    "ifStatement.useSpace"?: boolean;
-    "importDeclaration.useSpace"?: boolean;
-    "whileStatement.useSpace"?: boolean;
-    "typeAssertion.useSpace"?: boolean;
+    "constructorType.useSpaceSeparator"?: boolean;
+    "constructSignature.useSpaceSeparator"?: boolean;
+    "doWhileStatement.useSpaceSeparator"?: boolean;
+    "exportDeclaration.useSpaceSeparator"?: boolean;
+    "forInStatement.useSpaceSeparator"?: boolean;
+    "forOfStatement.useSpaceSeparator"?: boolean;
+    "forStatement.useSpaceSeparator"?: boolean;
+    "ifStatement.useSpaceSeparator"?: boolean;
+    "importDeclaration.useSpaceSeparator"?: boolean;
+    "whileStatement.useSpaceSeparator"?: boolean;
+    "typeAssertion.useSpaceSeparator"?: boolean;
 }
 
 /**
@@ -297,17 +297,17 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "functionType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "methodSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "objectMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "constructorType.useSpace": boolean;
-    readonly "constructSignature.useSpace": boolean;
-    readonly "exportDeclaration.useSpace": boolean;
-    readonly "doWhileStatement.useSpace": boolean;
-    readonly "forInStatement.useSpace": boolean;
-    readonly "forOfStatement.useSpace": boolean;
-    readonly "forStatement.useSpace": boolean;
-    readonly "ifStatement.useSpace": boolean;
-    readonly "importDeclaration.useSpace": boolean;
-    readonly "whileStatement.useSpace": boolean;
-    readonly "typeAssertion.useSpace": boolean;
+    readonly "constructorType.useSpaceSeparator": boolean;
+    readonly "constructSignature.useSpaceSeparator": boolean;
+    readonly "exportDeclaration.useSpaceSeparator": boolean;
+    readonly "doWhileStatement.useSpaceSeparator": boolean;
+    readonly "forInStatement.useSpaceSeparator": boolean;
+    readonly "forOfStatement.useSpaceSeparator": boolean;
+    readonly "forStatement.useSpaceSeparator": boolean;
+    readonly "ifStatement.useSpaceSeparator": boolean;
+    readonly "importDeclaration.useSpaceSeparator": boolean;
+    readonly "whileStatement.useSpaceSeparator": boolean;
+    readonly "typeAssertion.useSpaceSeparator": boolean;
 }
 
 /**

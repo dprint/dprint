@@ -1,4 +1,4 @@
-~~ constructorType.useSpace: false ~~
+~~ constructorType.useSpaceSeparator: false ~~
 == should format ==
 type Test = new() => Date;
 type Test2 = new <T>() => Date;

@@ -1157,7 +1157,7 @@ function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDec
     const startInfo = createInfo("startConstructSignature");
     yield startInfo;
     yield "new";
-    if (context.config["constructSignature.useSpace"])
+    if (context.config["constructSignature.useSpaceSeparator"])
         yield " ";
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments({
@@ -1330,7 +1330,7 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
     });
     yield* parseNode(node.body, context);
     yield " while";
-    if (context.config["doWhileStatement.useSpace"])
+    if (context.config["doWhileStatement.useSpaceSeparator"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.test,
@@ -1425,7 +1425,7 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for";
-    if (context.config["forInStatement.useSpace"])
+    if (context.config["forInStatement.useSpaceSeparator"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.left,
@@ -1461,7 +1461,7 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for";
-    if (context.config["forOfStatement.useSpace"])
+    if (context.config["forOfStatement.useSpaceSeparator"])
         yield " ";
     if (node.await)
         yield "await ";
@@ -1499,7 +1499,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for";
-    if (context.config["forStatement.useSpace"])
+    if (context.config["forStatement.useSpaceSeparator"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.init || context.tokenFinder.getFirstTokenWithin(node, ";")!,
@@ -1585,7 +1585,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 
     function* parseHeader(ifStatement: babel.IfStatement): PrintItemIterable {
         yield "if";
-        if (context.config["ifStatement.useSpace"])
+        if (context.config["ifStatement.useSpaceSeparator"])
             yield " ";
         yield* parseNodeInParens({
             firstInnerNode: ifStatement.test,
@@ -1761,7 +1761,7 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "while";
-    if (context.config["whileStatement.useSpace"])
+    if (context.config["whileStatement.useSpaceSeparator"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.test,
@@ -2637,7 +2637,7 @@ function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): Pri
     yield "<";
     yield* parseNode(node.typeAnnotation, context);
     yield ">";
-    if (context.config["typeAssertion.useSpace"])
+    if (context.config["typeAssertion.useSpaceSeparator"])
         yield " ";
     yield* parseNode(node.expression, context);
 }
@@ -2941,7 +2941,7 @@ function* parseConstructorType(node: babel.TSConstructorType, context: Context):
     const startInfo = createInfo("startConstructorType");
     yield startInfo;
     yield "new";
-    if (context.config["constructorType.useSpace"])
+    if (context.config["constructorType.useSpaceSeparator"])
         yield " ";
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments({
@@ -3902,9 +3902,9 @@ function* parseNamedImportsOrExports(
     function getUseSpace() {
         switch (parentDeclaration.type) {
             case "ExportNamedDeclaration":
-                return context.config["exportDeclaration.useSpace"];
+                return context.config["exportDeclaration.useSpaceSeparator"];
             case "ImportDeclaration":
-                return context.config["importDeclaration.useSpace"];
+                return context.config["importDeclaration.useSpaceSeparator"];
             default:
                 return assertNever(parentDeclaration);
         }

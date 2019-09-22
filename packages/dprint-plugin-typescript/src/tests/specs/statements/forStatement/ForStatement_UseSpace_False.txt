@@ -1,4 +1,4 @@
-~~ forStatement.useSpace: false ~~
+~~ forStatement.useSpaceSeparator: false ~~
 == should print ==
 for (let i = 0; i < 5; i++) {
     a;
