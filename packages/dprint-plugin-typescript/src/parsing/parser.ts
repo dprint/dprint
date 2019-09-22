@@ -1652,6 +1652,35 @@ function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIt
         }
     }
 
+    yield* parseTrailingCommentStatements();
+
+    function* parseTrailingCommentStatements(): PrintItemIterable {
+        // Trailing comments in switch statements should use the child switch statement
+        // indentation until a comment is reached that uses the case indentation level.
+        // The last switch case's trailing comments should use the child indentation.
+        const trailingComments = getTrailingCommentsAsStatements(node, context);
+        if (trailingComments.length === 0)
+            return;
+
+        const parentCases = (context.parent as babel.SwitchStatement).cases;
+        const isLastSwitchCase = parentCases[parentCases.length - 1] === node;
+
+        let isEqualIndent = false;
+        let lastNode: babel.Node | babel.Comment = node;
+
+        for (const comment of trailingComments) {
+            isEqualIndent = isEqualIndent || comment.loc!.start.column <= lastNode.loc!.start.column;
+            const parsedCommentNode = parseCommentBasedOnLastNode(comment, lastNode, context);
+
+            if (!isLastSwitchCase && isEqualIndent)
+                yield* parsedCommentNode;
+            else
+                yield* withIndent(parsedCommentNode);
+
+            lastNode = comment;
+        }
+    }
+
     function getBlockStatementBody() {
         if (node.consequent.length === 1 && node.consequent[0].type === "BlockStatement")
             return node.consequent[0] as babel.BlockStatement;
@@ -3353,8 +3382,7 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterable {
     yield "}";
 
     function* parseBody(): PrintItemIterable {
-        // todo: remove filter—don't allocate a new array for this.
-        if (members.length > 0 || node.innerComments != null && node.innerComments.filter(n => !context.handledComments.has(n)).length > 0)
+        if (members.length > 0 || node.innerComments != null && node.innerComments.some(n => !context.handledComments.has(n)))
             yield context.newlineKind;
 
         yield* parseStatementOrMembers({
@@ -3579,17 +3607,8 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
     }
 
     // get the trailing comments on separate lines of the last node
-    if (lastNode != null && lastNode.trailingComments != null) {
-        const unHandledComments = lastNode.trailingComments.filter(c => !context.handledComments.has(c));
-        if (unHandledComments.length > 0) {
-            yield context.newlineKind;
-
-            if (nodeHelpers.hasSeparatingBlankLine(lastNode, unHandledComments[0]))
-                yield context.newlineKind;
-            // treat these as if they were leading comments, so don't provide the last node
-            yield* parseCommentCollection(lastNode.trailingComments, undefined, context);
-        }
-    }
+    if (lastNode != null)
+        yield* parseTrailingCommentsAsStatements(lastNode, context);
 
     if (innerComments != null && innerComments.length > 0) {
         if (lastNode != null)
@@ -3597,6 +3616,21 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
 
         yield* parseCommentCollection(innerComments, undefined, context);
     }
+}
+
+function* parseTrailingCommentsAsStatements(node: babel.Node, context: Context): PrintItemIterable {
+    const unhandledComments = getTrailingCommentsAsStatements(node, context);
+    if (unhandledComments.length === 0)
+        return;
+
+    yield* parseCommentCollection(unhandledComments, node, context);
+}
+
+function getTrailingCommentsAsStatements(node: babel.Node, context: Context) {
+    if (node.trailingComments == null)
+        return [];
+
+    return node.trailingComments.filter(c => !context.handledComments.has(c) && node.loc!.end.line < c.loc!.end.line);
 }
 
 interface ParseParametersOrArgumentsOptions {
@@ -4163,27 +4197,31 @@ function* parseCommentsAsTrailing(node: babel.Node, trailingComments: readonly b
     yield* parseCommentCollection(trailingCommentsOnSameLine, node, context);
 }
 
-function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: (babel.Node | babel.Comment | undefined), context: Context) {
+function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: babel.Node | babel.Comment | undefined, context: Context) {
     for (const comment of comments) {
         if (context.handledComments.has(comment))
             continue;
 
-        if (lastNode != null) {
-            if (comment.loc.start.line > lastNode.loc!.end.line) {
-                yield context.newlineKind;
-
-                if (comment.loc.start.line > lastNode.loc!.end.line + 1)
-                    yield context.newlineKind;
-            }
-            else if (comment.type === "CommentLine")
-                yield " ";
-            else if (lastNode.type === "CommentBlock")
-                yield " ";
-        }
-
-        yield* parseComment(comment, context);
+        yield* parseCommentBasedOnLastNode(comment, lastNode, context);
         lastNode = comment;
     }
+}
+
+function* parseCommentBasedOnLastNode(comment: babel.Comment, lastNode: babel.Node | babel.Comment | undefined, context: Context) {
+    if (lastNode != null) {
+        if (comment.loc.start.line > lastNode.loc!.end.line) {
+            yield context.newlineKind;
+
+            if (comment.loc.start.line > lastNode.loc!.end.line + 1)
+                yield context.newlineKind;
+        }
+        else if (comment.type === "CommentLine")
+            yield " ";
+        else if (lastNode.type === "CommentBlock")
+            yield " ";
+    }
+
+    yield* parseComment(comment, context);
 }
 
 function* parseComment(comment: babel.Comment, context: Context): PrintItemIterable {

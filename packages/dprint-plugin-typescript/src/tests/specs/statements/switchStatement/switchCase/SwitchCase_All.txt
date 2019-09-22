@@ -26,3 +26,55 @@ switch (expr) {
 
         return 6;
 }
+
+== should keep the comments at the same level as the case's body if the last comment is on that level  ==
+switch (expr) {
+    case 5:
+        doSomething();
+    // testing
+        // fall through
+    case 6:
+        doSomething();
+        // testing
+    // other
+    case 7:
+        return 5;
+    // testing
+    case 8:
+        // testing
+    case 9:
+        // test
+    // test
+        // test
+    // test
+    case 10:
+        testing;
+    // this should increase because
+    // it's last
+}
+
+[expect]
+switch (expr) {
+    case 5:
+        doSomething();
+    // testing
+    // fall through
+    case 6:
+        doSomething();
+        // testing
+    // other
+    case 7:
+        return 5;
+    // testing
+    case 8:
+        // testing
+    case 9:
+        // test
+    // test
+    // test
+    // test
+    case 10:
+        testing;
+        // this should increase because
+        // it's last
+}
