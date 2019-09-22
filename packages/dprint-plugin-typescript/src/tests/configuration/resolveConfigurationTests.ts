@@ -448,7 +448,6 @@ describe(nameof(resolveConfiguration), () => {
         });
     });
 
-
     describe(nameof<TypeScriptConfiguration>(c => c.useSpaces), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop.endsWith("useSpace"));

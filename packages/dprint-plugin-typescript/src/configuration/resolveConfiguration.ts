@@ -149,7 +149,7 @@ export function resolveConfiguration(
         "ifStatement.useSpace": getValue("ifStatement.useSpace", useSpaces, ensureBoolean),
         "importDeclaration.useSpace": getValue("importDeclaration.useSpace", useSpaces, ensureBoolean),
         "typeAssertion.useSpace": getValue("typeAssertion.useSpace", useSpaces, ensureBoolean),
-        "whileStatement.useSpace": getValue("whileStatement.useSpace", useSpaces, ensureBoolean),
+        "whileStatement.useSpace": getValue("whileStatement.useSpace", useSpaces, ensureBoolean)
     };
 
     addExcessPropertyDiagnostics();

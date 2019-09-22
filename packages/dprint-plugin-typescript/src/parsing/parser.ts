@@ -3862,7 +3862,7 @@ function* parseNamedImportsOrExports(
         return;
 
     const useNewLines = getUseNewLines();
-    const braceSeparator = useNewLines ? context.newlineKind : (getUseSpace() ? " ": "");
+    const braceSeparator = useNewLines ? context.newlineKind : (getUseSpace() ? " " : "");
 
     yield "{";
     yield braceSeparator;
