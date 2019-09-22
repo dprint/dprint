@@ -1,0 +1,8 @@
+~~ typeAssertion.useSpace: false ~~
+== should not use a space in a type assertion ==
+const t = <string>5;
+const u = <string> 5;
+
+[expect]
+const t = <string>5;
+const u = <string>5;

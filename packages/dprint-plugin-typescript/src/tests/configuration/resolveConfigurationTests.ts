@@ -447,4 +447,36 @@ describe(nameof(resolveConfiguration), () => {
             );
         });
     });
+
+
+    describe(nameof<TypeScriptConfiguration>(c => c.useSpaces), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.endsWith("useSpace"));
+        }
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(true));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ useSpaces: true }, getObject(true));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ useSpaces: false }, getObject(false));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(false);
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.useSpaces = true;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: boolean): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "typeAssertion.useSpace": value
+            };
+        }
+    });
 });

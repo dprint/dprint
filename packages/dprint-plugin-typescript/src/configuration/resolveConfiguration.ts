@@ -12,6 +12,7 @@ const defaultValues = {
     nextControlFlowPosition: "nextLine",
     operatorPosition: "nextLine",
     trailingCommas: "never",
+    useSpaces: true,
     "enumDeclaration.memberSpacing": "maintain",
     "arrowFunctionExpression.useParentheses": "maintain",
     forceMultiLineArguments: false,
@@ -38,6 +39,7 @@ export function resolveConfiguration(
     const trailingCommas = getValue("trailingCommas", defaultValues.trailingCommas, ensureTrailingCommas);
     const forceMultiLineArguments = getValue("forceMultiLineArguments", defaultValues.forceMultiLineArguments, ensureBoolean);
     const forceMultiLineParameters = getValue("forceMultiLineParameters", defaultValues.forceMultiLineParameters, ensureBoolean);
+    const useSpaces = getValue("useSpaces", defaultValues.useSpaces, ensureBoolean);
 
     const resolvedConfig: ResolvedTypeScriptConfiguration = {
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
@@ -135,7 +137,9 @@ export function resolveConfiguration(
         "functionExpression.forceMultiLineParameters": getValue("functionExpression.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         "functionType.forceMultiLineParameters": getValue("functionType.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         "methodSignature.forceMultiLineParameters": getValue("methodSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
-        "objectMethod.forceMultiLineParameters": getValue("objectMethod.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean)
+        "objectMethod.forceMultiLineParameters": getValue("objectMethod.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
+        // use spaces
+        "typeAssertion.useSpace": getValue("typeAssertion.useSpace", useSpaces, ensureBoolean),
     };
 
     addExcessPropertyDiagnostics();

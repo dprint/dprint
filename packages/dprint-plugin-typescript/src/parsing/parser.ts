@@ -2622,7 +2622,9 @@ function* parseTaggedTemplateExpression(node: babel.TaggedTemplateExpression, co
 function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): PrintItemIterable {
     yield "<";
     yield* parseNode(node.typeAnnotation, context);
-    yield "> ";
+    yield ">";
+    if (context.config["typeAssertion.useSpace"])
+        yield " ";
     yield* parseNode(node.expression, context);
 }
 

@@ -102,6 +102,11 @@ export interface TypeScriptConfiguration {
      * @default false
      */
     forceMultiLineParameters?: boolean;
+    /**
+     * Whether to use a space in certain scenarios where a space could be optional.
+     * @default true
+     */
+    useSpaces?: boolean;
 
     /**
      * Whether to use parentheses around a single parameter in an arrow function.
@@ -206,6 +211,14 @@ export interface TypeScriptConfiguration {
     "functionType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "methodSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "objectMethod.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+
+    /**
+     * Whether to use a space between the type and expression in a type assertion.
+     * @default true
+     * @value true - Ex. `<string> value`
+     * @value false - Ex. `<string>value`
+     */
+    "typeAssertion.useSpace"?: boolean;
 }
 
 /**
@@ -312,4 +325,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "functionType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "methodSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "objectMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+
+    // use spaces
+    readonly "typeAssertion.useSpace": boolean;
 }

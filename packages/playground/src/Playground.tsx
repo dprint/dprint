@@ -42,7 +42,8 @@ export class Playground extends React.Component<{}, PlaygroundState> {
             forceMultiLineArguments: initialConfig["callExpression.forceMultiLineArguments"],
             forceMultiLineParameters: initialConfig["functionDeclaration.forceMultiLineParameters"],
             "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
-            "arrowFunctionExpression.useParentheses": initialConfig["arrowFunctionExpression.useParentheses"]
+            "arrowFunctionExpression.useParentheses": initialConfig["arrowFunctionExpression.useParentheses"],
+            useSpaces: initialConfig["typeAssertion.useSpace"]
         };
 
         this.state = {
