@@ -1,0 +1,12 @@
+~~ constructSignature.useSpaceSeparator: true ~~
+== should format ==
+type Test = {
+    new(): string;
+    new<T>(param: string): string;
+};
+
+[expect]
+type Test = {
+    new (): string;
+    new <T>(param: string): string;
+};

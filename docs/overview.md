@@ -250,13 +250,29 @@ When false (default), it will be hanging when the first parameter is on the same
 
 [Playground](https://dprint.dev/playground/#code/GYVwdgxgLglg9mABFApgZygRgBSozMAcwBUALGNAeRCgBpEB3GKUgJRQEMAbLgTwBkEhAAocAThwC2aeiw5QA4nEoA3FGLIp+MSc1npYRAJSIA3gFgAUAF8rV0JFgJkBgEzYriLy-xFZ5KhoTCxs7SwdoeCQ8KABmXAMCQn8Kaihgq2sgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyMvKKBCRHACIw3mAnix2lAAHTHQRsZzhAAOPmqnW6pD6CSeowCY1oUG8IIAonkYXI9BkpKCGDBHkTSMFGHYkb1oCAAL5AA)
 
-### `useSpaceSeparators`
+### Space separators
 
-Uses spaces in certain scenarios where a space would be optional. Defaults to true.
+There are individual configuration options for setting the space settings on a per AST node basis. For example:
 
-It might be especially useful to adjust this on a per node basis. For example: `"constructorSignature.useSpaceSeparator": false`.
+```ts
+module.exports.config = {
+    projectType: "openSource",
+    plugins: [
+        new TypeScriptPlugin({
+            "constructorType.useSpaceSeparator": true
+        })
+    ]
+};
+```
 
-[Playground](https://dprint.dev/playground/#code/JYWwDg9gTgLgBAbzgSXNGBGANCtsBMcAvnAGZQQhwBEIAngLRgCGAxgNbMDmAptQNwBYAFAjgpOAAoYUAK48AlIhFERPADYBnHnHFTSzLYuXDVo4QHcAFsHU7pc4whUiRAEwgmS12z0kGjBSFzUmgpVggAO014eAgJGB4YpWdTV2FQqCk7eGA4AF44AAZ+XTgAHjgAVlLgAGo6lJdzCOj4ADdDeQKKmKhgSK4APjhNSh4YG0HgsUjEqANWHQBZOmQ5ngW2HVS4PbhIngspBQAuOFWAYXVmTU1gsxEYOjAdRJiew+PJJXyRq5udxmwh4AA9ILBEBc1hstktiPwgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBGIADs4syGJy0+1z9jAFiwlcW74AsrRgWYsAgnIqtIIkyPq8-CAncueX13EpLF4nro5K9DG4YOEVj4ITAoV5NiDuG8jCRHgARGDeMAAjazAB0T0EbGckJ81U63VIfQSANGATGtCg3l2AFE8is5HoMlI8QwYP9OaRgow7JTetAQABfIA)
+```ts
+// formats...
+type CtorOf<T> = new(...args) => T;
+// as...
+type CtorOf<T> = new (...args) => T;
+```
+
+See the `TypeScriptConfiguration` interface in the [type declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts) for more info.
 
 ### `"arrowFunctionExpression​.useParentheses"`
 

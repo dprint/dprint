@@ -102,11 +102,6 @@ export interface TypeScriptConfiguration {
      * @default false
      */
     forceMultiLineParameters?: boolean;
-    /**
-     * Whether to use a space in certain scenarios where a space could be optional.
-     * @default true
-     */
-    useSpaceSeparators?: boolean;
 
     /**
      * Whether to use parentheses around a single parameter in an arrow function.
@@ -125,6 +120,18 @@ export interface TypeScriptConfiguration {
      * @value "maintain" - Maintains whether a newline or blankline is used.
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
+
+    "constructorType.useSpaceSeparator"?: boolean;
+    "constructSignature.useSpaceSeparator"?: boolean;
+    "doWhileStatement.useSpaceSeparator"?: boolean;
+    "exportDeclaration.useSpaceSeparator"?: boolean;
+    "forInStatement.useSpaceSeparator"?: boolean;
+    "forOfStatement.useSpaceSeparator"?: boolean;
+    "forStatement.useSpaceSeparator"?: boolean;
+    "ifStatement.useSpaceSeparator"?: boolean;
+    "importDeclaration.useSpaceSeparator"?: boolean;
+    "whileStatement.useSpaceSeparator"?: boolean;
+    "typeAssertion.useSpaceSeparator"?: boolean;
 
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
@@ -211,18 +218,6 @@ export interface TypeScriptConfiguration {
     "functionType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "methodSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "objectMethod.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-
-    "constructorType.useSpaceSeparator"?: boolean;
-    "constructSignature.useSpaceSeparator"?: boolean;
-    "doWhileStatement.useSpaceSeparator"?: boolean;
-    "exportDeclaration.useSpaceSeparator"?: boolean;
-    "forInStatement.useSpaceSeparator"?: boolean;
-    "forOfStatement.useSpaceSeparator"?: boolean;
-    "forStatement.useSpaceSeparator"?: boolean;
-    "ifStatement.useSpaceSeparator"?: boolean;
-    "importDeclaration.useSpaceSeparator"?: boolean;
-    "whileStatement.useSpaceSeparator"?: boolean;
-    "typeAssertion.useSpaceSeparator"?: boolean;
 }
 
 /**
@@ -230,10 +225,6 @@ export interface TypeScriptConfiguration {
  */
 export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
     readonly singleQuotes: boolean;
-
-    // declaration specific
-    readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
-    readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
 
     // semi colons
     readonly "breakStatement.semiColon": boolean;
@@ -330,7 +321,11 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "methodSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "objectMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
 
-    // use spaces
+    // declaration specific
+    readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
+    readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
+
+    // use space separator
     readonly "constructorType.useSpaceSeparator": boolean;
     readonly "constructSignature.useSpaceSeparator": boolean;
     readonly "exportDeclaration.useSpaceSeparator": boolean;

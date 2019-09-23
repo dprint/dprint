@@ -447,45 +447,4 @@ describe(nameof(resolveConfiguration), () => {
             );
         });
     });
-
-    describe(nameof<TypeScriptConfiguration>(c => c.useSpaceSeparators), () => {
-        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("useSpaceSeparator"));
-        }
-
-        it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(true));
-        });
-
-        it("should set all the values when using the default", () => {
-            doSpecificTest({ useSpaceSeparators: true }, getObject(true));
-        });
-
-        it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ useSpaceSeparators: false }, getObject(false));
-        });
-
-        it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(false);
-            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.useSpaceSeparators = true;
-            doSpecificTest(config, expectedConfig);
-        });
-
-        function getObject(value: boolean): Partial<ResolvedTypeScriptConfiguration> {
-            return {
-                "constructorType.useSpaceSeparator": value,
-                "constructSignature.useSpaceSeparator": value,
-                "doWhileStatement.useSpaceSeparator": value,
-                "exportDeclaration.useSpaceSeparator": value,
-                "forInStatement.useSpaceSeparator": value,
-                "forOfStatement.useSpaceSeparator": value,
-                "forStatement.useSpaceSeparator": value,
-                "ifStatement.useSpaceSeparator": value,
-                "importDeclaration.useSpaceSeparator": value,
-                "typeAssertion.useSpaceSeparator": value,
-                "whileStatement.useSpaceSeparator": value
-            };
-        }
-    });
 });
