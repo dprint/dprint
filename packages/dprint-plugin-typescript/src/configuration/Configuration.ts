@@ -121,6 +121,7 @@ export interface TypeScriptConfiguration {
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
 
+    "binaryExpression.useSpaceSeparator"?: boolean;
     "constructorType.useSpaceSeparator"?: boolean;
     "constructSignature.useSpaceSeparator"?: boolean;
     "doWhileStatement.useSpaceSeparator"?: boolean;
@@ -326,6 +327,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
 
     // use space separator
+    readonly "binaryExpression.useSpaceSeparator": boolean;
     readonly "constructorType.useSpaceSeparator": boolean;
     readonly "constructSignature.useSpaceSeparator": boolean;
     readonly "exportDeclaration.useSpaceSeparator": boolean;

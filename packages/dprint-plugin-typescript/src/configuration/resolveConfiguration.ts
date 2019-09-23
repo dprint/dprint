@@ -16,6 +16,7 @@ const defaultValues = {
     forceMultiLineParameters: false,
     "enumDeclaration.memberSpacing": "maintain",
     "arrowFunctionExpression.useParentheses": "maintain",
+    "binaryExpression.useSpaceSeparator": true,
     "constructorType.useSpaceSeparator": false,
     "constructSignature.useSpaceSeparator": false,
     "exportDeclaration.useSpaceSeparator": true,
@@ -148,6 +149,7 @@ export function resolveConfiguration(
         "methodSignature.forceMultiLineParameters": getValue("methodSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         "objectMethod.forceMultiLineParameters": getValue("objectMethod.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         // use spaces
+        "binaryExpression.useSpaceSeparator": getValue("binaryExpression.useSpaceSeparator", defaultValues["binaryExpression.useSpaceSeparator"], ensureBoolean),
         "constructorType.useSpaceSeparator": getValue("constructorType.useSpaceSeparator", defaultValues["constructorType.useSpaceSeparator"], ensureBoolean),
         "constructSignature.useSpaceSeparator": getValue("constructSignature.useSpaceSeparator", defaultValues["constructSignature.useSpaceSeparator"],
             ensureBoolean),

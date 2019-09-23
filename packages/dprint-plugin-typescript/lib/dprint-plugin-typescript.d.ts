@@ -118,6 +118,7 @@ export interface TypeScriptConfiguration {
      * @value "maintain" - Maintains whether a newline or blankline is used.
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
+    "binaryExpression.useSpaceSeparator"?: boolean;
     "constructorType.useSpaceSeparator"?: boolean;
     "constructSignature.useSpaceSeparator"?: boolean;
     "doWhileStatement.useSpaceSeparator"?: boolean;
@@ -292,6 +293,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "objectMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
+    readonly "binaryExpression.useSpaceSeparator": boolean;
     readonly "constructorType.useSpaceSeparator": boolean;
     readonly "constructSignature.useSpaceSeparator": boolean;
     readonly "exportDeclaration.useSpaceSeparator": boolean;

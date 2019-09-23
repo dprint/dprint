@@ -2199,6 +2199,7 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
+    const useSpaceSeparator = getUseSpaceSeparator();
     const topMostExpr = getTopMostBinaryOrLogicalExpression();
     const isTopMost = topMostExpr === node;
     const topMostInfo = getOrSetTopMostInfo();
@@ -2216,7 +2217,8 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
             innerParse: function*(iterable) {
                 yield* iterable;
                 if (operatorPosition === "sameLine") {
-                    yield " ";
+                    if (useSpaceSeparator)
+                        yield " ";
                     yield node.operator;
                 }
             }
@@ -2226,8 +2228,10 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
 
         if (useNewLines)
             yield context.newlineKind;
-        else
+        else if (useSpaceSeparator)
             yield Signal.SpaceOrNewLine;
+        else
+            yield Signal.NewLine;
 
         yield indentIfNecessary(node.right, function*() {
             yield* parseCommentsAsLeading(node, node.left.trailingComments, context);
@@ -2235,7 +2239,8 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
                 innerParse: function*(iterable) {
                     if (operatorPosition === "nextLine") {
                         yield node.operator;
-                        yield " ";
+                        if (useSpaceSeparator)
+                            yield " ";
                     }
                     yield* newlineGroupIfNecessary(node.right, iterable);
                 }
@@ -2352,6 +2357,17 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
                 return true;
             default:
                 return false;
+        }
+    }
+
+    function getUseSpaceSeparator() {
+        switch (node.type) {
+            case "BinaryExpression":
+                return context.config["binaryExpression.useSpaceSeparator"];
+            case "LogicalExpression":
+                return true;
+            default:
+                return assertNever(node);
         }
     }
 }
