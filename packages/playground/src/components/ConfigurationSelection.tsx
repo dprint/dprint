@@ -77,9 +77,6 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Enum member spacing">
                 {this.getSelectForConfig("enumDeclaration.memberSpacing", enumMemberSpacingOptions)}
             </ConfigurationItem>
-            <ConfigurationItem title="Use space separators">
-                {this.getBooleanConfig("useSpaceSeparators")}
-            </ConfigurationItem>
         </div>;
     }
 
