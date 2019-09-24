@@ -213,6 +213,13 @@ export interface TypeScriptConfiguration {
      */
     "whileStatement.useSpaceSeparator"?: boolean;
     /**
+     * Whether to add a space before the colon of a type annotation.
+     * @default false
+     * @value true - Ex. `function test() : string`
+     * @value false - Ex. `function test(): string`
+     */
+    "typeAnnotation.useSpaceSeparator"?: boolean;
+    /**
      * Whether to add a space after the type in a type assertion.
      * @default true
      * @value true - Ex. `<string> myValue`
@@ -426,5 +433,6 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "ifStatement.useSpaceSeparator": boolean;
     readonly "importDeclaration.useSpaceSeparator": boolean;
     readonly "whileStatement.useSpaceSeparator": boolean;
+    readonly "typeAnnotation.useSpaceSeparator": boolean;
     readonly "typeAssertion.useSpaceSeparator": boolean;
 }

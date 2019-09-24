@@ -29,6 +29,7 @@ const defaultValues = {
     "ifStatement.useSpaceSeparator": true,
     "importDeclaration.useSpaceSeparator": true,
     "whileStatement.useSpaceSeparator": true,
+    "typeAnnotation.useSpaceSeparator": false,
     "typeAssertion.useSpaceSeparator": true
 } as const;
 
@@ -170,6 +171,7 @@ export function resolveConfiguration(
         "ifStatement.useSpaceSeparator": getValue("ifStatement.useSpaceSeparator", defaultValues["ifStatement.useSpaceSeparator"], ensureBoolean),
         "importDeclaration.useSpaceSeparator": getValue("importDeclaration.useSpaceSeparator", defaultValues["importDeclaration.useSpaceSeparator"],
             ensureBoolean),
+        "typeAnnotation.useSpaceSeparator": getValue("typeAnnotation.useSpaceSeparator", defaultValues["typeAnnotation.useSpaceSeparator"], ensureBoolean),
         "typeAssertion.useSpaceSeparator": getValue("typeAssertion.useSpaceSeparator", defaultValues["typeAssertion.useSpaceSeparator"], ensureBoolean),
         "whileStatement.useSpaceSeparator": getValue("whileStatement.useSpaceSeparator", defaultValues["whileStatement.useSpaceSeparator"], ensureBoolean)
     };

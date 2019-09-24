@@ -1,0 +1,54 @@
+~~ typeAnnotation.useSpaceSeparator: true ~~
+== should format with a space before the colon ==
+function a(): string {
+}
+const b = function(): string {};
+
+class C {
+    prop: string;
+
+    method(): string {
+    }
+
+    set test(val: string): string {
+    }
+
+    get test(): string {
+    }
+}
+
+interface I {
+    prop: string;
+    method(): string;
+    new(): MyClass;
+    (): string;
+}
+
+const t: string;
+
+[expect]
+function a() : string {
+}
+const b = function() : string {};
+
+class C {
+    prop : string;
+
+    method() : string {
+    }
+
+    set test(val : string) : string {
+    }
+
+    get test() : string {
+    }
+}
+
+interface I {
+    prop : string;
+    method() : string;
+    new() : MyClass;
+    () : string;
+}
+
+const t : string;

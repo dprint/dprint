@@ -3851,8 +3851,11 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
 
         if (typeNodeSeparator)
             yield* typeNodeSeparator;
-        else
+        else {
+            if (context.config["typeAnnotation.useSpaceSeparator"])
+                yield " ";
             yield ": ";
+        }
 
         yield* parseNode(typeNode, context);
         yield typeNodeEndInfo;
@@ -4409,6 +4412,12 @@ function* parseControlFlowSeparator(
     }
 }
 function* parseTypeAnnotationWithColonIfExists(node: babel.Node | null | undefined, context: Context) {
+    if (node == null)
+        return;
+
+    if (context.config["typeAnnotation.useSpaceSeparator"])
+        yield " ";
+
     yield* parseNodeWithPreceedingColon(node, context);
 }
 
