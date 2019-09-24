@@ -118,17 +118,89 @@ export interface TypeScriptConfiguration {
      * @value "maintain" - Maintains whether a newline or blankline is used.
      */
     "enumDeclaration.memberSpacing"?: "newline" | "blankline" | "maintain";
+    /**
+     * Whether to surround the operator in a binary expression with spaces.
+     * @default true
+     * @value true - Ex. `1 + 2`
+     * @value false - Ex. `1+2`
+     */
     "binaryExpression.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `new` keyword in a constructor type.
+     * @default false
+     * @value true - Ex. `type MyClassCtor = new () => MyClass;`
+     * @value false - Ex. `type MyClassCtor = new() => MyClass;`
+     */
     "constructorType.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `new` keyword in a construct signature.
+     * @default false
+     * @value true - Ex. `new (): MyClass;`
+     * @value false - Ex. `new(): MyClass;`
+     */
     "constructSignature.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `while` keyword in a do while statement.
+     * @default true
+     * @value true - Ex. `do {\n} while (condition);`
+     * @value false - Ex. `do {\n} while(condition);`
+     */
     "doWhileStatement.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add spaces around named exports in an export declaration.
+     * @default true
+     * @value true - Ex. `export { SomeExport, OtherExport };`
+     * @value false - Ex. `export {SomeExport, OtherExport};`
+     */
     "exportDeclaration.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `for` keyword in a "for in" statement.
+     * @default true
+     * @value true - Ex. `for (const prop in obj)`
+     * @value false - Ex. `for(const prop in obj)`
+     */
     "forInStatement.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `for` keyword in a "for of" statement.
+     * @default true
+     * @value true - Ex. `for (const value of myArray)`
+     * @value false - Ex. `for(const value of myArray)`
+     */
     "forOfStatement.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `for` keyword in a "for" statement.
+     * @default true
+     * @value true - Ex. `for (let i = 0; i < 5; i++)`
+     * @value false - Ex. `for(let i = 0; i < 5; i++)`
+     */
     "forStatement.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `if` keyword in an "if" statement.
+     * @default true
+     * @value true - Ex. `if (true)`
+     * @value false - Ex. `if(true)`
+     */
     "ifStatement.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add spaces around named exports in an import declaration.
+     * @default true
+     * @value true - Ex. `import { SomeExport, OtherExport } from "my-module";`
+     * @value false - Ex. `import {SomeExport, OtherExport} from "my-module";`
+     */
     "importDeclaration.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the `while` keyword in a while statement.
+     * @default true
+     * @value true - Ex. `while (true)`
+     * @value false - Ex. `while(true)`
+     */
     "whileStatement.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space after the type in a type assertion.
+     * @default true
+     * @value true - Ex. `<string> myValue`
+     * @value false - Ex. `<string>myValue`
+     */
     "typeAssertion.useSpaceSeparator"?: boolean;
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
