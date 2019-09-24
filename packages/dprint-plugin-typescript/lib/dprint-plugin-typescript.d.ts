@@ -175,6 +175,20 @@ export interface TypeScriptConfiguration {
      */
     "forStatement.useSpaceSeparator"?: boolean;
     /**
+     * Whether to add a space before the parentheses of a function declaration.
+     * @default false
+     * @value true - Ex. `function myFunction ()`
+     * @value false - Ex. `function myFunction()`
+     */
+    "functionDeclaration.useSpaceSeparator"?: boolean;
+    /**
+     * Whether to add a space before the parentheses of a function expression.
+     * @default false
+     * @value true - Ex. `function ()`
+     * @value false - Ex. `function()`
+     */
+    "functionExpression.useSpaceSeparator"?: boolean;
+    /**
      * Whether to add a space after the `if` keyword in an "if" statement.
      * @default true
      * @value true - Ex. `if (true)`
@@ -373,6 +387,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "forInStatement.useSpaceSeparator": boolean;
     readonly "forOfStatement.useSpaceSeparator": boolean;
     readonly "forStatement.useSpaceSeparator": boolean;
+    readonly "functionDeclaration.useSpaceSeparator": boolean;
+    readonly "functionExpression.useSpaceSeparator": boolean;
     readonly "ifStatement.useSpaceSeparator": boolean;
     readonly "importDeclaration.useSpaceSeparator": boolean;
     readonly "whileStatement.useSpaceSeparator": boolean;

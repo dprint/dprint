@@ -743,6 +743,9 @@ function* parseFunctionDeclarationOrExpression(
         if (node.typeParameters)
             yield* parseNode(node.typeParameters, context);
 
+        if (getUseSpaceBeforeParens())
+            yield " ";
+
         yield* parseParametersOrArguments({
             nodes: node.params,
             context,
@@ -767,6 +770,18 @@ function* parseFunctionDeclarationOrExpression(
                 startHeaderInfo: startHeaderInfo,
                 context
             });
+        }
+    }
+
+    function getUseSpaceBeforeParens() {
+        switch (node.type) {
+            case "TSDeclareFunction":
+            case "FunctionDeclaration":
+                return context.config["functionDeclaration.useSpaceSeparator"];
+            case "FunctionExpression":
+                return context.config["functionExpression.useSpaceSeparator"];
+            default:
+                return assertNever(node);
         }
     }
 }

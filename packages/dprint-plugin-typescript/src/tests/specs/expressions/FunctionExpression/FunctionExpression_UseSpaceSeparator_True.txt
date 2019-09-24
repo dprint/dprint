@@ -1,0 +1,18 @@
+~~ functionExpression.useSpaceSeparator: true ~~
+== should format with a space before the parens ==
+const t = function(p, u) {};
+const u = function<T>(p, u) {};
+const v = function test<T>(p, u) {};
+const w = function test<T>(
+    p, u) {
+};
+
+[expect]
+const t = function (p, u) {};
+const u = function<T> (p, u) {};
+const v = function test<T> (p, u) {};
+const w = function test<T> (
+    p,
+    u
+) {
+};

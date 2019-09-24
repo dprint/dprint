@@ -6,14 +6,16 @@ export function parseToBabelAst(filePath: string, fileText: string) {
         sourceType: "module",
         tokens: true,
         plugins: Array.from(getPlugins()),
-        // I implemented the library with this disabled,
+        // I implemented the library with this disabled (I didn't know about it),
         // but perhaps it should be enabled
         createParenthesizedExpressions: false,
         // be very relaxed
+        strictMode: false,
         allowAwaitOutsideFunction: true,
         allowImportExportEverywhere: true,
         allowReturnOutsideFunction: true,
-        allowSuperOutsideMethod: true
+        allowSuperOutsideMethod: true,
+        allowUndeclaredExports: true
     });
 
     function* getPlugins(): Iterable<parser.ParserPlugin> {
