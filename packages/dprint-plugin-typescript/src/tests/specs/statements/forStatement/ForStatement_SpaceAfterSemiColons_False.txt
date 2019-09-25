@@ -1,0 +1,17 @@
+~~ forStatement.spaceAfterSemiColons: false, lineWidth: 40 ~~
+== should print ==
+for (let i = 0; i < 5; i++) {
+}
+
+for (let testingThisOutttttt = 0; testingThisOutttttttttttttttt < 5; i++) {
+}
+
+[expect]
+for (let i = 0;i < 5;i++) {
+}
+
+for (let testingThisOutttttt = 0;
+    testingThisOutttttttttttttttt < 5;
+    i++)
+{
+}

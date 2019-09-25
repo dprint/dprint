@@ -1521,7 +1521,6 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
         innerIterable: parseInnerHeader(),
         context
     });
-    yield "";
     yield endHeaderInfo;
 
     yield* parseConditionalBraceBody({
@@ -1537,18 +1536,23 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
     }).iterator;
 
     function* parseInnerHeader(): PrintItemIterable {
+        const separatorAfterSemiColons = getSeparatorAfterSemiColons();
         yield* newlineGroup(function*() {
             yield* parseNode(node.init, context);
             if (!node.init || node.init.type !== "VariableDeclaration")
                 yield ";";
         }());
-        yield Signal.SpaceOrNewLine;
+        yield separatorAfterSemiColons;
         yield* conditions.indentIfStartOfLine(newlineGroup(function*() {
             yield* parseNode(node.test, context);
             yield ";";
         }()));
-        yield Signal.SpaceOrNewLine;
+        yield separatorAfterSemiColons;
         yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(node.update, context)));
+
+        function getSeparatorAfterSemiColons() {
+            return context.config["forStatement.spaceAfterSemiColons"] ? Signal.SpaceOrNewLine : Signal.NewLine;
+        }
     }
 }
 

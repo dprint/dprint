@@ -175,6 +175,13 @@ export interface TypeScriptConfiguration {
      */
     "forStatement.spaceAfterForKeyword"?: boolean;
     /**
+     * Whether to add a space after the semi-colons in a "for" statement.
+     * @default true
+     * @value true - Ex. `for (let i = 0; i < 5; i++)`
+     * @value false - Ex. `for (let i = 0;i < 5;i++)`
+     */
+    "forStatement.spaceAfterSemiColons"?: boolean;
+    /**
      * Whether to add a space before the parentheses of a function declaration.
      * @default false
      * @value true - Ex. `function myFunction ()`
@@ -394,6 +401,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "forInStatement.spaceAfterForKeyword": boolean;
     readonly "forOfStatement.spaceAfterForKeyword": boolean;
     readonly "forStatement.spaceAfterForKeyword": boolean;
+    readonly "forStatement.spaceAfterSemiColons": boolean;
     readonly "functionDeclaration.spaceBeforeParentheses": boolean;
     readonly "functionExpression.spaceBeforeParentheses": boolean;
     readonly "ifStatement.spaceAfterIfKeyword": boolean;
