@@ -14,11 +14,13 @@ export interface WriterState {
 
 export class Writer {
     private readonly singleIndentationText: string;
+    private indentWidth: number;
     private fireOnNewLine?: () => void;
 
     private state: WriterState;
 
     constructor(private readonly options: { indentWidth: number; useTabs: boolean; newlineKind: "\r\n" | "\n"; }) {
+        this.indentWidth = options.indentWidth;
         this.singleIndentationText = this.options.useTabs ? "\t" : " ".repeat(options.indentWidth);
         this.state = {
             currentLineColumn: 0,
@@ -182,7 +184,10 @@ export class Writer {
                 if (this.currentLineColumn === 0)
                     this.lastLineIndentLevel = this.indentLevel;
 
-                this.currentLineColumn++;
+                if (text[i] === "\t")
+                    this.currentLineColumn += this.indentWidth;
+                else
+                    this.currentLineColumn++;
             }
         }
 
@@ -229,7 +234,7 @@ export class Writer {
     /** Gets the zero-indexed line column. */
     getLineColumn() {
         if (this.currentLineColumn === 0)
-            return this.indentText.length;
+            return this.indentWidth * this.indentLevel;
         return this.currentLineColumn;
     }
 
