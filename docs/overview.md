@@ -259,7 +259,7 @@ module.exports.config = {
     projectType: "openSource",
     plugins: [
         new TypeScriptPlugin({
-            "constructorType.useSpaceSeparator": true
+            "constructorType.spaceAfterNewKeyword": true
         })
     ]
 };
