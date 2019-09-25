@@ -124,105 +124,105 @@ export interface TypeScriptConfiguration {
      * @value true - Ex. `1 + 2`
      * @value false - Ex. `1+2`
      */
-    "binaryExpression.useSpaceSeparator"?: boolean;
+    "binaryExpression.spaceSurroundingOperator"?: boolean;
     /**
      * Whether to add a space after the `new` keyword in a constructor type.
      * @default false
      * @value true - Ex. `type MyClassCtor = new () => MyClass;`
      * @value false - Ex. `type MyClassCtor = new() => MyClass;`
      */
-    "constructorType.useSpaceSeparator"?: boolean;
+    "constructorType.spaceAfterNewKeyword"?: boolean;
     /**
      * Whether to add a space after the `new` keyword in a construct signature.
      * @default false
      * @value true - Ex. `new (): MyClass;`
      * @value false - Ex. `new(): MyClass;`
      */
-    "constructSignature.useSpaceSeparator"?: boolean;
+    "constructSignature.spaceAfterNewKeyword"?: boolean;
     /**
      * Whether to add a space after the `while` keyword in a do while statement.
      * @default true
      * @value true - Ex. `do {\n} while (condition);`
      * @value false - Ex. `do {\n} while(condition);`
      */
-    "doWhileStatement.useSpaceSeparator"?: boolean;
+    "doWhileStatement.spaceAfterWhileKeyword"?: boolean;
     /**
      * Whether to add spaces around named exports in an export declaration.
      * @default true
      * @value true - Ex. `export { SomeExport, OtherExport };`
      * @value false - Ex. `export {SomeExport, OtherExport};`
      */
-    "exportDeclaration.useSpaceSeparator"?: boolean;
+    "exportDeclaration.spaceSurroundingNamedExports"?: boolean;
     /**
      * Whether to add a space after the `for` keyword in a "for in" statement.
      * @default true
      * @value true - Ex. `for (const prop in obj)`
      * @value false - Ex. `for(const prop in obj)`
      */
-    "forInStatement.useSpaceSeparator"?: boolean;
+    "forInStatement.spaceAfterForKeyword"?: boolean;
     /**
      * Whether to add a space after the `for` keyword in a "for of" statement.
      * @default true
      * @value true - Ex. `for (const value of myArray)`
      * @value false - Ex. `for(const value of myArray)`
      */
-    "forOfStatement.useSpaceSeparator"?: boolean;
+    "forOfStatement.spaceAfterForKeyword"?: boolean;
     /**
      * Whether to add a space after the `for` keyword in a "for" statement.
      * @default true
      * @value true - Ex. `for (let i = 0; i < 5; i++)`
      * @value false - Ex. `for(let i = 0; i < 5; i++)`
      */
-    "forStatement.useSpaceSeparator"?: boolean;
+    "forStatement.spaceAfterForKeyword"?: boolean;
     /**
      * Whether to add a space before the parentheses of a function declaration.
      * @default false
      * @value true - Ex. `function myFunction ()`
      * @value false - Ex. `function myFunction()`
      */
-    "functionDeclaration.useSpaceSeparator"?: boolean;
+    "functionDeclaration.spaceBeforeParentheses"?: boolean;
     /**
      * Whether to add a space before the parentheses of a function expression.
      * @default false
      * @value true - Ex. `function ()`
      * @value false - Ex. `function()`
      */
-    "functionExpression.useSpaceSeparator"?: boolean;
+    "functionExpression.spaceBeforeParentheses"?: boolean;
     /**
      * Whether to add a space after the `if` keyword in an "if" statement.
      * @default true
      * @value true - Ex. `if (true)`
      * @value false - Ex. `if(true)`
      */
-    "ifStatement.useSpaceSeparator"?: boolean;
+    "ifStatement.spaceAfterIfKeyword"?: boolean;
     /**
      * Whether to add spaces around named exports in an import declaration.
      * @default true
      * @value true - Ex. `import { SomeExport, OtherExport } from "my-module";`
      * @value false - Ex. `import {SomeExport, OtherExport} from "my-module";`
      */
-    "importDeclaration.useSpaceSeparator"?: boolean;
+    "importDeclaration.spaceSurroundingNamedExports"?: boolean;
     /**
      * Whether to add a space after the `while` keyword in a while statement.
      * @default true
      * @value true - Ex. `while (true)`
      * @value false - Ex. `while(true)`
      */
-    "whileStatement.useSpaceSeparator"?: boolean;
+    "whileStatement.spaceAfterWhileKeyword"?: boolean;
     /**
      * Whether to add a space before the colon of a type annotation.
      * @default false
      * @value true - Ex. `function test() : string`
      * @value false - Ex. `function test(): string`
      */
-    "typeAnnotation.useSpaceSeparator"?: boolean;
+    "typeAnnotation.spaceBeforeColon"?: boolean;
     /**
-     * Whether to add a space after the type in a type assertion.
+     * Whether to add a space before the expression in a type assertion.
      * @default true
      * @value true - Ex. `<string> myValue`
      * @value false - Ex. `<string>myValue`
      */
-    "typeAssertion.useSpaceSeparator"?: boolean;
+    "typeAssertion.spaceBeforeExpression"?: boolean;
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
     "classMethod.semiColon"?: boolean;
@@ -386,21 +386,21 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "objectMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
-    readonly "binaryExpression.useSpaceSeparator": boolean;
-    readonly "constructorType.useSpaceSeparator": boolean;
-    readonly "constructSignature.useSpaceSeparator": boolean;
-    readonly "exportDeclaration.useSpaceSeparator": boolean;
-    readonly "doWhileStatement.useSpaceSeparator": boolean;
-    readonly "forInStatement.useSpaceSeparator": boolean;
-    readonly "forOfStatement.useSpaceSeparator": boolean;
-    readonly "forStatement.useSpaceSeparator": boolean;
-    readonly "functionDeclaration.useSpaceSeparator": boolean;
-    readonly "functionExpression.useSpaceSeparator": boolean;
-    readonly "ifStatement.useSpaceSeparator": boolean;
-    readonly "importDeclaration.useSpaceSeparator": boolean;
-    readonly "whileStatement.useSpaceSeparator": boolean;
-    readonly "typeAnnotation.useSpaceSeparator": boolean;
-    readonly "typeAssertion.useSpaceSeparator": boolean;
+    readonly "binaryExpression.spaceSurroundingOperator": boolean;
+    readonly "constructorType.spaceAfterNewKeyword": boolean;
+    readonly "constructSignature.spaceAfterNewKeyword": boolean;
+    readonly "exportDeclaration.spaceSurroundingNamedExports": boolean;
+    readonly "doWhileStatement.spaceAfterWhileKeyword": boolean;
+    readonly "forInStatement.spaceAfterForKeyword": boolean;
+    readonly "forOfStatement.spaceAfterForKeyword": boolean;
+    readonly "forStatement.spaceAfterForKeyword": boolean;
+    readonly "functionDeclaration.spaceBeforeParentheses": boolean;
+    readonly "functionExpression.spaceBeforeParentheses": boolean;
+    readonly "ifStatement.spaceAfterIfKeyword": boolean;
+    readonly "importDeclaration.spaceSurroundingNamedExports": boolean;
+    readonly "whileStatement.spaceAfterWhileKeyword": boolean;
+    readonly "typeAnnotation.spaceBeforeColon": boolean;
+    readonly "typeAssertion.spaceBeforeExpression": boolean;
 }
 
 /**

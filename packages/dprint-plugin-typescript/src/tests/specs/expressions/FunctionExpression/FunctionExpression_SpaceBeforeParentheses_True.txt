@@ -1,4 +1,4 @@
-~~ functionExpression.useSpaceSeparator: true ~~
+~~ functionExpression.spaceBeforeParentheses: true ~~
 == should format with a space before the parens ==
 const t = function(p, u) {};
 const u = function<T>(p, u) {};

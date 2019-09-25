@@ -1,4 +1,4 @@
-~~ functionDeclaration.useSpaceSeparator: true ~~
+~~ functionDeclaration.spaceBeforeParentheses: true ~~
 == should format with a space before the parens ==
 function test<T>() {
 }

@@ -1,4 +1,4 @@
-~~ forInStatement.useSpaceSeparator: false ~~
+~~ forInStatement.spaceAfterForKeyword: false ~~
 == should print ==
 for (const t    in   test) {
     a;

@@ -1,4 +1,4 @@
-~~ constructSignature.useSpaceSeparator: true ~~
+~~ constructSignature.spaceAfterNewKeyword: true ~~
 == should format ==
 type Test = {
     new(): string;

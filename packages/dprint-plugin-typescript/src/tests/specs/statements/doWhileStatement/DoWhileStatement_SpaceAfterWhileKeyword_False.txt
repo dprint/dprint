@@ -1,4 +1,4 @@
-~~ doWhileStatement.useSpaceSeparator: false ~~
+~~ doWhileStatement.spaceAfterWhileKeyword: false ~~
 == should print ==
 do {
 } while (false);

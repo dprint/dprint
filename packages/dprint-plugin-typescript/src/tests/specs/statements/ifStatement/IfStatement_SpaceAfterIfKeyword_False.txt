@@ -1,4 +1,4 @@
-~~ ifStatement.useSpaceSeparator: false ~~
+~~ ifStatement.spaceAfterIfKeyword: false ~~
 == should print ==
 if (true) {
 }

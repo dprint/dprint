@@ -777,9 +777,9 @@ function* parseFunctionDeclarationOrExpression(
         switch (node.type) {
             case "TSDeclareFunction":
             case "FunctionDeclaration":
-                return context.config["functionDeclaration.useSpaceSeparator"];
+                return context.config["functionDeclaration.spaceBeforeParentheses"];
             case "FunctionExpression":
-                return context.config["functionExpression.useSpaceSeparator"];
+                return context.config["functionExpression.spaceBeforeParentheses"];
             default:
                 return assertNever(node);
         }
@@ -1172,7 +1172,7 @@ function* parseConstructSignatureDeclaration(node: babel.TSConstructSignatureDec
     const startInfo = createInfo("startConstructSignature");
     yield startInfo;
     yield "new";
-    if (context.config["constructSignature.useSpaceSeparator"])
+    if (context.config["constructSignature.spaceAfterNewKeyword"])
         yield " ";
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments({
@@ -1345,7 +1345,7 @@ function* parseDoWhileStatement(node: babel.DoWhileStatement, context: Context):
     });
     yield* parseNode(node.body, context);
     yield " while";
-    if (context.config["doWhileStatement.useSpaceSeparator"])
+    if (context.config["doWhileStatement.spaceAfterWhileKeyword"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.test,
@@ -1440,7 +1440,7 @@ function* parseForInStatement(node: babel.ForInStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for";
-    if (context.config["forInStatement.useSpaceSeparator"])
+    if (context.config["forInStatement.spaceAfterForKeyword"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.left,
@@ -1476,7 +1476,7 @@ function* parseForOfStatement(node: babel.ForOfStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for";
-    if (context.config["forOfStatement.useSpaceSeparator"])
+    if (context.config["forOfStatement.spaceAfterForKeyword"])
         yield " ";
     if (node.await)
         yield "await ";
@@ -1514,7 +1514,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "for";
-    if (context.config["forStatement.useSpaceSeparator"])
+    if (context.config["forStatement.spaceAfterForKeyword"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.init || context.tokenFinder.getFirstTokenWithin(node, ";")!,
@@ -1600,7 +1600,7 @@ function* parseIfStatement(node: babel.IfStatement, context: Context): PrintItem
 
     function* parseHeader(ifStatement: babel.IfStatement): PrintItemIterable {
         yield "if";
-        if (context.config["ifStatement.useSpaceSeparator"])
+        if (context.config["ifStatement.spaceAfterIfKeyword"])
             yield " ";
         yield* parseNodeInParens({
             firstInnerNode: ifStatement.test,
@@ -1776,7 +1776,7 @@ function* parseWhileStatement(node: babel.WhileStatement, context: Context): Pri
     const endHeaderInfo = createInfo("endHeader");
     yield startHeaderInfo;
     yield "while";
-    if (context.config["whileStatement.useSpaceSeparator"])
+    if (context.config["whileStatement.spaceAfterWhileKeyword"])
         yield " ";
     yield* parseNodeInParens({
         firstInnerNode: node.test,
@@ -2214,7 +2214,7 @@ function* parseAwaitExpression(node: babel.AwaitExpression, context: Context): P
 }
 
 function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.BinaryExpression, context: Context): PrintItemIterable {
-    const useSpaceSeparator = getUseSpaceSeparator();
+    const useSpaceSurroundingOperator = getUseSpaceSurroundingOperator();
     const topMostExpr = getTopMostBinaryOrLogicalExpression();
     const isTopMost = topMostExpr === node;
     const topMostInfo = getOrSetTopMostInfo();
@@ -2232,7 +2232,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
             innerParse: function*(iterable) {
                 yield* iterable;
                 if (operatorPosition === "sameLine") {
-                    if (useSpaceSeparator)
+                    if (useSpaceSurroundingOperator)
                         yield " ";
                     yield node.operator;
                 }
@@ -2243,7 +2243,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
 
         if (useNewLines)
             yield context.newlineKind;
-        else if (useSpaceSeparator)
+        else if (useSpaceSurroundingOperator)
             yield Signal.SpaceOrNewLine;
         else
             yield Signal.NewLine;
@@ -2254,7 +2254,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
                 innerParse: function*(iterable) {
                     if (operatorPosition === "nextLine") {
                         yield node.operator;
-                        if (useSpaceSeparator)
+                        if (useSpaceSurroundingOperator)
                             yield " ";
                     }
                     yield* newlineGroupIfNecessary(node.right, iterable);
@@ -2375,10 +2375,10 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         }
     }
 
-    function getUseSpaceSeparator() {
+    function getUseSpaceSurroundingOperator() {
         switch (node.type) {
             case "BinaryExpression":
-                return context.config["binaryExpression.useSpaceSeparator"];
+                return context.config["binaryExpression.spaceSurroundingOperator"];
             case "LogicalExpression":
                 return true;
             default:
@@ -2677,7 +2677,7 @@ function* parseTypeAssertion(node: babel.TSTypeAssertion, context: Context): Pri
     yield "<";
     yield* parseNode(node.typeAnnotation, context);
     yield ">";
-    if (context.config["typeAssertion.useSpaceSeparator"])
+    if (context.config["typeAssertion.spaceBeforeExpression"])
         yield " ";
     yield* parseNode(node.expression, context);
 }
@@ -2981,7 +2981,7 @@ function* parseConstructorType(node: babel.TSConstructorType, context: Context):
     const startInfo = createInfo("startConstructorType");
     yield startInfo;
     yield "new";
-    if (context.config["constructorType.useSpaceSeparator"])
+    if (context.config["constructorType.spaceAfterNewKeyword"])
         yield " ";
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments({
@@ -3852,7 +3852,7 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
         if (typeNodeSeparator)
             yield* typeNodeSeparator;
         else {
-            if (context.config["typeAnnotation.useSpaceSeparator"])
+            if (context.config["typeAnnotation.spaceBeforeColon"])
                 yield " ";
             yield ": ";
         }
@@ -3945,9 +3945,9 @@ function* parseNamedImportsOrExports(
     function getUseSpace() {
         switch (parentDeclaration.type) {
             case "ExportNamedDeclaration":
-                return context.config["exportDeclaration.useSpaceSeparator"];
+                return context.config["exportDeclaration.spaceSurroundingNamedExports"];
             case "ImportDeclaration":
-                return context.config["importDeclaration.useSpaceSeparator"];
+                return context.config["importDeclaration.spaceSurroundingNamedExports"];
             default:
                 return assertNever(parentDeclaration);
         }
@@ -4415,7 +4415,7 @@ function* parseTypeAnnotationWithColonIfExists(node: babel.Node | null | undefin
     if (node == null)
         return;
 
-    if (context.config["typeAnnotation.useSpaceSeparator"])
+    if (context.config["typeAnnotation.spaceBeforeColon"])
         yield " ";
 
     yield* parseNodeWithPreceedingColon(node, context);

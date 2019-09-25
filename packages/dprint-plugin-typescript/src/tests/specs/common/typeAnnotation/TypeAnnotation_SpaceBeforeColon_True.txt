@@ -1,4 +1,4 @@
-~~ typeAnnotation.useSpaceSeparator: true ~~
+~~ typeAnnotation.spaceBeforeColon: true ~~
 == should format with a space before the colon ==
 function a(): string {
 }
