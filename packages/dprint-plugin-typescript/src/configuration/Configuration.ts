@@ -213,17 +213,17 @@ export interface TypeScriptConfiguration {
      */
     "importDeclaration.spaceSurroundingNamedExports"?: boolean;
     /**
-     * Whether to add a space after the `while` keyword in a while statement.
-     * @default true
-     * @value true - Ex. `while (true)`
-     * @value false - Ex. `while(true)`
+     * Whether to add a space surrounding the expression of a JSX container.
+     * @default false
+     * @value true - Ex. `{ myValue }`
+     * @value false - Ex. `{myValue}`
      */
-    "whileStatement.spaceAfterWhileKeyword"?: boolean;
+    "jsxExpressionContainer.spaceSurroundingExpression"?: boolean;
     /**
      * Whether to add a space before the colon of a type annotation.
      * @default false
-     * @value true - Ex. `function test() : string`
-     * @value false - Ex. `function test(): string`
+     * @value true - Ex. `function myFunction() : string`
+     * @value false - Ex. `function myFunction(): string`
      */
     "typeAnnotation.spaceBeforeColon"?: boolean;
     /**
@@ -233,6 +233,13 @@ export interface TypeScriptConfiguration {
      * @value false - Ex. `<string>myValue`
      */
     "typeAssertion.spaceBeforeExpression"?: boolean;
+    /**
+     * Whether to add a space after the `while` keyword in a while statement.
+     * @default true
+     * @value true - Ex. `while (true)`
+     * @value false - Ex. `while(true)`
+     */
+    "whileStatement.spaceAfterWhileKeyword"?: boolean;
 
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
@@ -440,7 +447,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "functionExpression.spaceBeforeParentheses": boolean;
     readonly "ifStatement.spaceAfterIfKeyword": boolean;
     readonly "importDeclaration.spaceSurroundingNamedExports": boolean;
-    readonly "whileStatement.spaceAfterWhileKeyword": boolean;
+    readonly "jsxExpressionContainer.spaceSurroundingExpression": boolean;
     readonly "typeAnnotation.spaceBeforeColon": boolean;
     readonly "typeAssertion.spaceBeforeExpression": boolean;
+    readonly "whileStatement.spaceAfterWhileKeyword": boolean;
 }

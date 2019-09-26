@@ -3292,8 +3292,13 @@ function* parseJsxEmptyExpression(node: babel.JSXEmptyExpression, context: Conte
 }
 
 function* parseJsxExpressionContainer(node: babel.JSXExpressionContainer, context: Context): PrintItemIterable {
+    const surroundWithSpace = context.config["jsxExpressionContainer.spaceSurroundingExpression"];
     yield "{";
+    if (surroundWithSpace)
+        yield " ";
     yield* parseNode(node.expression, context);
+    if (surroundWithSpace)
+        yield " ";
     yield "}";
 }
 
