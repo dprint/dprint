@@ -1070,12 +1070,13 @@ function* parseClassOrObjectMethod(
     if (node.typeParameters)
         yield* parseNode(node.typeParameters, context);
 
+    if (getUseSpaceBeforeParens())
+        yield " ";
+
     yield* parseParametersOrArguments({
         nodes: node.params,
         context,
-        forceMultiLineWhenMultipleLines: node.type === "ObjectMethod"
-            ? context.config["objectMethod.forceMultiLineParameters"]
-            : context.config["classMethod.forceMultiLineParameters"],
+        forceMultiLineWhenMultipleLines: getForceMultiLineParameters(),
         customCloseParen: parseCloseParenWithType({
             context,
             startInfo: startHeaderInfo,
@@ -1085,15 +1086,75 @@ function* parseClassOrObjectMethod(
 
     if (node.type !== "TSDeclareMethod") {
         yield* parseBraceSeparator({
-            bracePosition: context.config["classMethod.bracePosition"],
+            bracePosition: getBracePosition(),
             bodyNode: node.body,
             startHeaderInfo: startHeaderInfo,
             context
         });
         yield* parseNode(node.body, context);
     }
-    else if (context.config["classMethod.semiColon"]) {
+    else if (getUseSemiColon()) {
         yield ";";
+    }
+
+    function getForceMultiLineParameters() {
+        switch (node.kind) {
+            case "constructor":
+                return context.config["constructor.forceMultiLineParameters"];
+            case "get":
+                return context.config["getAccessor.forceMultiLineParameters"];
+            case "set":
+                return context.config["setAccessor.forceMultiLineParameters"];
+            case "method":
+                return context.config["method.forceMultiLineParameters"];
+            default:
+                return assertNever(node);
+        }
+    }
+
+    function getUseSpaceBeforeParens() {
+        switch (node.kind) {
+            case "constructor":
+                return context.config["constructor.spaceBeforeParentheses"];
+            case "get":
+                return context.config["getAccessor.spaceBeforeParentheses"];
+            case "set":
+                return context.config["setAccessor.spaceBeforeParentheses"];
+            case "method":
+                return context.config["method.spaceBeforeParentheses"];
+            default:
+                return assertNever(node);
+        }
+    }
+
+    function getBracePosition() {
+        switch (node.kind) {
+            case "constructor":
+                return context.config["constructor.bracePosition"];
+            case "get":
+                return context.config["getAccessor.bracePosition"];
+            case "set":
+                return context.config["setAccessor.bracePosition"];
+            case "method":
+                return context.config["method.bracePosition"];
+            default:
+                return assertNever(node);
+        }
+    }
+
+    function getUseSemiColon() {
+        switch (node.kind) {
+            case "constructor":
+                return context.config["constructor.semiColon"];
+            case "get":
+                return context.config["getAccessor.semiColon"];
+            case "set":
+                return context.config["setAccessor.semiColon"];
+            case "method":
+                return context.config["method.semiColon"];
+            default:
+                return assertNever(node);
+        }
     }
 }
 

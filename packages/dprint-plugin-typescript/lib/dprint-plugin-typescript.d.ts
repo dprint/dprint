@@ -126,6 +126,13 @@ export interface TypeScriptConfiguration {
      */
     "binaryExpression.spaceSurroundingOperator"?: boolean;
     /**
+     * Whether to add a space before the parentheses of a constructor.
+     * @default false
+     * @value true - Ex. `constructor ()`
+     * @value false - Ex. `constructor()`
+     */
+    "constructor.spaceBeforeParentheses"?: boolean;
+    /**
      * Whether to add a space after the `new` keyword in a constructor type.
      * @default false
      * @value true - Ex. `type MyClassCtor = new () => MyClass;`
@@ -196,6 +203,13 @@ export interface TypeScriptConfiguration {
      */
     "functionExpression.spaceBeforeParentheses"?: boolean;
     /**
+     * Whether to add a space before the parentheses of a get accessor.
+     * @default false
+     * @value true - Ex. `get myProp ()`
+     * @value false - Ex. `get myProp()`
+     */
+    "getAccessor.spaceBeforeParentheses"?: boolean;
+    /**
      * Whether to add a space after the `if` keyword in an "if" statement.
      * @default true
      * @value true - Ex. `if (true)`
@@ -216,6 +230,20 @@ export interface TypeScriptConfiguration {
      * @value false - Ex. `{myValue}`
      */
     "jsxExpressionContainer.spaceSurroundingExpression"?: boolean;
+    /**
+     * Whether to add a space before the parentheses of a method.
+     * @default false
+     * @value true - Ex. `myMethod ()`
+     * @value false - Ex. `myMethod()`
+     */
+    "method.spaceBeforeParentheses"?: boolean;
+    /**
+     * Whether to add a space before the parentheses of a set accessor.
+     * @default false
+     * @value true - Ex. `set myProp (value: string)`
+     * @value false - Ex. `set myProp(value: string)`
+     */
+    "setAccessor.spaceBeforeParentheses"?: boolean;
     /**
      * Whether to add a space before the colon of a type annotation.
      * @default false
@@ -239,8 +267,8 @@ export interface TypeScriptConfiguration {
     "whileStatement.spaceAfterWhileKeyword"?: boolean;
     "breakStatement.semiColon"?: boolean;
     "callSignature.semiColon"?: boolean;
-    "classMethod.semiColon"?: boolean;
     "classProperty.semiColon"?: boolean;
+    "constructor.semiColon"?: boolean;
     "constructSignature.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
@@ -252,15 +280,18 @@ export interface TypeScriptConfiguration {
     "exportNamedDeclaration.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "functionDeclaration.semiColon"?: boolean;
+    "getAccessor.semiColon"?: boolean;
     "importDeclaration.semiColon"?: boolean;
     "importEqualsDeclaration.semiColon"?: boolean;
     "indexSignature.semiColon"?: boolean;
     "mappedType.semiColon"?: boolean;
+    "method.semiColon"?: boolean;
     "methodSignature.semiColon"?: boolean;
     "moduleDeclaration.semiColon"?: boolean;
     "namespaceExportDeclaration.semiColon"?: boolean;
     "propertySignature.semiColon"?: boolean;
     "returnStatement.semiColon"?: boolean;
+    "setAccessor.semiColon"?: boolean;
     "throwStatement.semiColon"?: boolean;
     "typeAlias.semiColon"?: boolean;
     "variableStatement.semiColon"?: boolean;
@@ -272,7 +303,7 @@ export interface TypeScriptConfiguration {
     "arrowFunctionExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "classDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "classExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
-    "classMethod.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "constructor.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "doWhileStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "enumDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "forInStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
@@ -280,9 +311,12 @@ export interface TypeScriptConfiguration {
     "forStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "functionDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "functionExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "getAccessor.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "ifStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "interfaceDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "moduleDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "method.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "setAccessor.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "switchStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "switchCase.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "tryStatement.bracePosition"?: TypeScriptConfiguration["bracePosition"];
@@ -306,14 +340,16 @@ export interface TypeScriptConfiguration {
     "newExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
     "arrowFunctionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "callSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "classMethod.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "constructor.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "constructorType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "constructSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "functionDeclaration.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "functionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "functionType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "getAccessor.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "method.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
     "methodSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "objectMethod.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "setAccessor.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
 }
 
 /**
@@ -323,8 +359,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly singleQuotes: boolean;
     readonly "breakStatement.semiColon": boolean;
     readonly "callSignature.semiColon": boolean;
-    readonly "classMethod.semiColon": boolean;
     readonly "classProperty.semiColon": boolean;
+    readonly "constructor.semiColon": boolean;
     readonly "constructSignature.semiColon": boolean;
     readonly "continueStatement.semiColon": boolean;
     readonly "debuggerStatement.semiColon": boolean;
@@ -336,14 +372,17 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "exportNamedDeclaration.semiColon": boolean;
     readonly "expressionStatement.semiColon": boolean;
     readonly "functionDeclaration.semiColon": boolean;
+    readonly "getAccessor.semiColon": boolean;
     readonly "importDeclaration.semiColon": boolean;
     readonly "importEqualsDeclaration.semiColon": boolean;
     readonly "indexSignature.semiColon": boolean;
     readonly "mappedType.semiColon": boolean;
+    readonly "method.semiColon": boolean;
     readonly "methodSignature.semiColon": boolean;
     readonly "moduleDeclaration.semiColon": boolean;
     readonly "namespaceExportDeclaration.semiColon": boolean;
     readonly "propertySignature.semiColon": boolean;
+    readonly "setAccessor.semiColon": boolean;
     readonly "returnStatement.semiColon": boolean;
     readonly "throwStatement.semiColon": boolean;
     readonly "typeAlias.semiColon": boolean;
@@ -356,7 +395,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "arrowFunctionExpression.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "classDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "classExpression.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
-    readonly "classMethod.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "constructor.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "doWhileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "enumDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forInStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
@@ -364,9 +403,12 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "forStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "functionDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "functionExpression.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "getAccessor.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "ifStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "interfaceDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "method.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "moduleDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "setAccessor.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "switchStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "switchCase.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "tryStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
@@ -390,30 +432,36 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "newExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
     readonly "arrowFunctionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "callSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "classMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "constructor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "constructorType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "constructSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "functionDeclaration.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "functionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "functionType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "getAccessor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "method.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "methodSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "objectMethod.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "setAccessor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingOperator": boolean;
+    readonly "constructor.spaceBeforeParentheses": boolean;
     readonly "constructorType.spaceAfterNewKeyword": boolean;
     readonly "constructSignature.spaceAfterNewKeyword": boolean;
-    readonly "exportDeclaration.spaceSurroundingNamedExports": boolean;
     readonly "doWhileStatement.spaceAfterWhileKeyword": boolean;
+    readonly "exportDeclaration.spaceSurroundingNamedExports": boolean;
     readonly "forInStatement.spaceAfterForKeyword": boolean;
     readonly "forOfStatement.spaceAfterForKeyword": boolean;
     readonly "forStatement.spaceAfterForKeyword": boolean;
     readonly "forStatement.spaceAfterSemiColons": boolean;
     readonly "functionDeclaration.spaceBeforeParentheses": boolean;
     readonly "functionExpression.spaceBeforeParentheses": boolean;
+    readonly "getAccessor.spaceBeforeParentheses": boolean;
     readonly "ifStatement.spaceAfterIfKeyword": boolean;
     readonly "importDeclaration.spaceSurroundingNamedExports": boolean;
     readonly "jsxExpressionContainer.spaceSurroundingExpression": boolean;
+    readonly "method.spaceBeforeParentheses": boolean;
+    readonly "setAccessor.spaceBeforeParentheses": boolean;
     readonly "typeAnnotation.spaceBeforeColon": boolean;
     readonly "typeAssertion.spaceBeforeExpression": boolean;
     readonly "whileStatement.spaceAfterWhileKeyword": boolean;

@@ -2,6 +2,8 @@ import { expect } from "chai";
 import { Configuration as GlobalConfiguration, ConfigurationDiagnostic, resolveConfiguration as resolveGlobalConfiguration } from "@dprint/core";
 import { TypeScriptConfiguration, resolveConfiguration, ResolvedTypeScriptConfiguration } from "../../configuration";
 
+// todo: write a test that iterates and switches between two values for all config items
+
 describe(nameof(resolveConfiguration), () => {
     function doTest(
         config: TypeScriptConfiguration,
@@ -77,8 +79,8 @@ describe(nameof(resolveConfiguration), () => {
             return {
                 "breakStatement.semiColon": value,
                 "callSignature.semiColon": value,
-                "classMethod.semiColon": value,
                 "classProperty.semiColon": value,
+                "constructor.semiColon": value,
                 "constructSignature.semiColon": value,
                 "continueStatement.semiColon": value,
                 "debuggerStatement.semiColon": value,
@@ -90,15 +92,18 @@ describe(nameof(resolveConfiguration), () => {
                 "exportNamedDeclaration.semiColon": value,
                 "expressionStatement.semiColon": value,
                 "functionDeclaration.semiColon": value,
+                "getAccessor.semiColon": value,
                 "importDeclaration.semiColon": value,
                 "importEqualsDeclaration.semiColon": value,
                 "indexSignature.semiColon": value,
                 "mappedType.semiColon": value,
+                "method.semiColon": value,
                 "methodSignature.semiColon": value,
                 "moduleDeclaration.semiColon": value,
                 "namespaceExportDeclaration.semiColon": value,
                 "propertySignature.semiColon": value,
                 "returnStatement.semiColon": value,
+                "setAccessor.semiColon": value,
                 "throwStatement.semiColon": value,
                 "typeAlias.semiColon": value,
                 "variableStatement.semiColon": value
@@ -188,7 +193,7 @@ describe(nameof(resolveConfiguration), () => {
                 "arrowFunctionExpression.bracePosition": value,
                 "classDeclaration.bracePosition": value,
                 "classExpression.bracePosition": value,
-                "classMethod.bracePosition": value,
+                "constructor.bracePosition": value,
                 "doWhileStatement.bracePosition": value,
                 "enumDeclaration.bracePosition": value,
                 "forInStatement.bracePosition": value,
@@ -196,9 +201,12 @@ describe(nameof(resolveConfiguration), () => {
                 "forStatement.bracePosition": value,
                 "functionDeclaration.bracePosition": value,
                 "functionExpression.bracePosition": value,
+                "getAccessor.bracePosition": value,
                 "ifStatement.bracePosition": value,
                 "interfaceDeclaration.bracePosition": value,
+                "method.bracePosition": value,
                 "moduleDeclaration.bracePosition": value,
+                "setAccessor.bracePosition": value,
                 "switchStatement.bracePosition": value,
                 "switchCase.bracePosition": value,
                 "tryStatement.bracePosition": value,
@@ -402,14 +410,16 @@ describe(nameof(resolveConfiguration), () => {
             return {
                 "arrowFunctionExpression.forceMultiLineParameters": value,
                 "callSignature.forceMultiLineParameters": value,
-                "classMethod.forceMultiLineParameters": value,
+                "constructor.forceMultiLineParameters": value,
                 "constructSignature.forceMultiLineParameters": value,
                 "constructorType.forceMultiLineParameters": value,
                 "functionDeclaration.forceMultiLineParameters": value,
                 "functionExpression.forceMultiLineParameters": value,
                 "functionType.forceMultiLineParameters": value,
+                "getAccessor.forceMultiLineParameters": value,
+                "method.forceMultiLineParameters": value,
                 "methodSignature.forceMultiLineParameters": value,
-                "objectMethod.forceMultiLineParameters": value
+                "setAccessor.forceMultiLineParameters": value
             };
         }
     });

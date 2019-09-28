@@ -1,0 +1,12 @@
+~~ method.spaceBeforeParentheses: true ~~
+== should format ==
+class Test {
+    myMethod<T>() {
+    }
+}
+
+[expect]
+class Test {
+    myMethod<T> () {
+    }
+}
