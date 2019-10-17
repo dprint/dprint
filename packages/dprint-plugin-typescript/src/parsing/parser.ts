@@ -470,6 +470,12 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
 
     yield "{";
 
+    // todo: isn't this a bug? These should be considered inner comments and be reported to babel
+    const innerTrailingComments = node.trailingComments && node.trailingComments.filter(c => c.end < node.end!);
+    if (innerTrailingComments && innerTrailingComments.length > 0) {
+        node.innerComments = [...node.innerComments || [], ...innerTrailingComments];
+    }
+
     // Allow: const t = () => {}; and const t = function() {};
     const isArrowOrFunctionExpression = context.parent.type === "ArrowFunctionExpression" || context.parent.type === "FunctionExpression";
     if (isArrowOrFunctionExpression && node.loc!.start.line === node.loc!.end.line
@@ -1750,7 +1756,7 @@ function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIt
         // Trailing comments in switch statements should use the child switch statement
         // indentation until a comment is reached that uses the case indentation level.
         // The last switch case's trailing comments should use the child indentation.
-        const trailingComments = getTrailingCommentsAsStatements(node, context);
+        const trailingComments = Array.from(getTrailingCommentsAsStatements(node, context));
         if (trailingComments.length === 0)
             return;
 
@@ -3738,27 +3744,34 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
     if (lastNode != null)
         yield* parseTrailingCommentsAsStatements(lastNode, context);
 
-    if (innerComments != null && innerComments.length > 0) {
-        if (lastNode != null)
+    if (innerComments != null) {
+        const result = Array.from(parseCommentCollection(innerComments, undefined, context));
+        if (result.length > 0 && lastNode != null)
             yield context.newlineKind;
-
-        yield* parseCommentCollection(innerComments, undefined, context);
+        yield* result;
     }
 }
 
 function* parseTrailingCommentsAsStatements(node: babel.Node, context: Context): PrintItemIterable {
     const unhandledComments = getTrailingCommentsAsStatements(node, context);
-    if (unhandledComments.length === 0)
-        return;
-
     yield* parseCommentCollection(unhandledComments, node, context);
 }
 
-function getTrailingCommentsAsStatements(node: babel.Node, context: Context) {
-    if (node.trailingComments == null)
-        return [];
+function* getTrailingCommentsAsStatements(node: babel.Node, context: Context) {
+    for (const comment of getPossibleComments()) {
+        if (!context.handledComments.has(comment) && node.loc!.end.line < comment.loc!.end.line)
+            yield comment;
+    }
 
-    return node.trailingComments.filter(c => !context.handledComments.has(c) && node.loc!.end.line < c.loc!.end.line);
+    function* getPossibleComments() {
+        if (node.trailingComments)
+            yield* node.trailingComments;
+
+        // if a node has a body it might have the trailing comments on the body instead
+        const nodeBody = (node as babel.ClassMethod).body;
+        if (nodeBody && nodeBody.trailingComments)
+            yield* nodeBody.trailingComments;
+    }
 }
 
 interface ParseParametersOrArgumentsOptions {
@@ -4400,6 +4413,9 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
 
 function* parseFirstLineTrailingComments(node: babel.Node, members: babel.Node[], context: Context): PrintItemIterable {
     for (const trailingComment of getComments()) {
+        if (context.handledComments.has(trailingComment))
+            continue;
+
         if (trailingComment.loc!.start.line === node.loc!.start.line) {
             if (trailingComment.type === "CommentLine")
                 yield " ";

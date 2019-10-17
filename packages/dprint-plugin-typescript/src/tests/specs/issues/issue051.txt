@@ -1,0 +1,29 @@
+== should format the comments inside the method when there is a comment following the method (weird that this wouldn't work) ==
+class Test {
+    /** @inheritdoc */
+    releaseDocument(fileName: string, compilationSettings: CompilerOptions) {
+        // ignore, handled by removeSourceFile
+    }
+
+    /** @inheritdoc */
+    releaseDocumentWithKey(path: ts.Path, key: ts.DocumentRegistryBucketKey) {
+        // ignore, handled by removeSourceFile
+    }
+
+    // test
+}
+
+[expect]
+class Test {
+    /** @inheritdoc */
+    releaseDocument(fileName: string, compilationSettings: CompilerOptions) {
+        // ignore, handled by removeSourceFile
+    }
+
+    /** @inheritdoc */
+    releaseDocumentWithKey(path: ts.Path, key: ts.DocumentRegistryBucketKey) {
+        // ignore, handled by removeSourceFile
+    }
+
+    // test
+}
