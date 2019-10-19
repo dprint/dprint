@@ -10,7 +10,6 @@ export interface Context {
     log: (message: string) => void;
     warn: (message: string) => void;
     config: ResolvedJsoncConfiguration;
-    newlineKind: "\r\n" | "\n";
     scanner: JSONScanner; // for getting the comments, since they aren't in the AST
 }
 
@@ -46,7 +45,6 @@ export function* parseJsonFile(options: ParseJsonFileOptions): PrintItemIterable
         log: message => environment.log(`${message} (${filePath})`),
         warn: message => environment.warn(`${message} (${filePath})`),
         config,
-        newlineKind: config.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newlineKind,
         scanner: createScanner(fileText, false)
     };
 
@@ -68,7 +66,7 @@ export function* parseJsonFile(options: ParseJsonFileOptions): PrintItemIterable
         condition: conditionContext => {
             return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
         },
-        true: [context.newlineKind]
+        true: [Signal.NewLine]
     };
 }
 
@@ -159,7 +157,7 @@ function* parseChildren(node: Node, context: Context) {
     const multiLine = getUseMultipleLines();
 
     if (multiLine)
-        yield context.newlineKind;
+        yield Signal.NewLine;
 
     if (children == null || children.length === 0) {
         if (innerComments.length === 0)
@@ -177,16 +175,16 @@ function* parseChildren(node: Node, context: Context) {
                     yield* parseCommentLine(context.fileText.substr(comment.offset + 2, comment.length - 2));
 
                 if (i < innerComments.length - 1) {
-                    yield multiLine ? context.newlineKind : Signal.SpaceOrNewLine;
+                    yield multiLine ? Signal.NewLine : Signal.SpaceOrNewLine;
 
                     if (multiLine && hasBlankLineAfterPos(comment.offset + comment.length, context))
-                        yield context.newlineKind;
+                        yield Signal.NewLine;
                 }
             }
         }());
 
         if (multiLine)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         else if (node.type === "object")
             yield " ";
 
@@ -214,15 +212,15 @@ function* parseChildren(node: Node, context: Context) {
 
                 yield* parseCommentsOnSameLine(context);
 
-                yield multiLine ? context.newlineKind : Signal.SpaceOrNewLine;
+                yield multiLine ? Signal.NewLine : Signal.SpaceOrNewLine;
 
                 if (multiLine && hasBlankLineAfterPos(child.offset + child.length, context))
-                    yield context.newlineKind;
+                    yield Signal.NewLine;
             }
         }
 
         if (multiLine)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         else if (node.type === "object")
             yield " ";
 
@@ -329,15 +327,15 @@ function* parseCommentsUpToPos(opts: ParseCommentsUpToPosOptions, context: Conte
 
         if (shouldDoBlankLine) {
             if (lastCommentKind != null)
-                yield context.newlineKind;
+                yield Signal.NewLine;
 
-            yield context.newlineKind;
+            yield Signal.NewLine;
         }
         else if (lastCommentKind === LocalSyntaxKind.CommentBlockTrivia) {
             if (lastLineBreakCount === 0)
                 yield " ";
             else
-                yield context.newlineKind;
+                yield Signal.NewLine;
         }
     }
 }

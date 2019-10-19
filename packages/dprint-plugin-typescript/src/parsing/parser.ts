@@ -35,7 +35,6 @@ interface Context {
     currentNode: babel.Node;
     parentStack: babel.Node[];
     parent: babel.Node;
-    newlineKind: "\r\n" | "\n";
     bag: Bag;
     topBinaryOrLogicalExpressionInfos: Map<babel.BinaryExpression | babel.LogicalExpression, Info | false>;
     endStatementOrMemberInfo: Stack<Info>;
@@ -64,7 +63,6 @@ export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintI
         currentNode: file,
         parentStack: [],
         parent: file,
-        newlineKind: config.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newlineKind,
         bag: new Bag(),
         topBinaryOrLogicalExpressionInfos: new Map<babel.BinaryExpression | babel.LogicalExpression, Info | false>(),
         endStatementOrMemberInfo: new Stack<Info>(),
@@ -82,7 +80,7 @@ export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintI
             condition: conditionContext => {
                 return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
             },
-            true: [context.newlineKind]
+            true: [Signal.NewLine]
         };
     }();
 
@@ -453,10 +451,10 @@ function* parseProgram(node: babel.Program, context: Context): PrintItemIterable
 
     if (node.interpreter) {
         yield* parseNode(node.interpreter, context);
-        yield context.newlineKind;
+        yield Signal.NewLine;
 
         if (nodeHelpers.hasSeparatingBlankLine(node.interpreter, node.directives[0] || node.body[0]))
-            yield context.newlineKind;
+            yield Signal.NewLine;
     }
 
     yield* parseStatements(node, context);
@@ -472,9 +470,8 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
 
     // todo: isn't this a bug? These should be considered inner comments and be reported to babel
     const innerTrailingComments = node.trailingComments && node.trailingComments.filter(c => c.end < node.end!);
-    if (innerTrailingComments && innerTrailingComments.length > 0) {
+    if (innerTrailingComments && innerTrailingComments.length > 0)
         node.innerComments = [...node.innerComments || [], ...innerTrailingComments];
-    }
 
     // Allow: const t = () => {}; and const t = function() {};
     const isArrowOrFunctionExpression = context.parent.type === "ArrowFunctionExpression" || context.parent.type === "FunctionExpression";
@@ -486,7 +483,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
     }
 
     yield* parseFirstLineTrailingComments(node, node.body, context);
-    yield context.newlineKind;
+    yield Signal.NewLine;
     yield startStatementsInfo;
     yield* withIndent(parseStatements(node, context));
     yield endStatementsInfo;
@@ -496,7 +493,7 @@ function* parseBlockStatement(node: babel.BlockStatement, context: Context): Pri
         condition: conditionContext => {
             return !conditionResolvers.areInfoEqual(conditionContext, startStatementsInfo, endStatementsInfo, false);
         },
-        true: [context.newlineKind]
+        true: [Signal.NewLine]
     };
     yield "}";
 }
@@ -576,7 +573,6 @@ function* parseClassDeclarationOrExpression(node: babel.ClassDeclaration | babel
         function* parseExtendsAndImplements(): PrintItemIterable {
             if (node.superClass) {
                 yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
-                    context,
                     startInfo: startHeaderInfo
                 });
                 yield* conditions.indentIfStartOfLine(function*() {
@@ -932,7 +928,7 @@ function* parseTypeParameterDeclaration(
         yield "<";
 
         if (useNewLines)
-            yield* surroundWithNewLines(parseParameterList(), context);
+            yield* surroundWithNewLines(parseParameterList());
         else
             yield* parseParameterList();
 
@@ -945,7 +941,7 @@ function* parseTypeParameterDeclaration(
             const param = params[i];
             if (i > 0) {
                 if (useNewLines)
-                    yield context.newlineKind;
+                    yield Signal.NewLine;
                 else
                     yield Signal.SpaceOrNewLine;
             }
@@ -1694,7 +1690,7 @@ function* parseLabeledStatement(node: babel.LabeledStatement, context: Context):
     if (node.body.type === "BlockStatement")
         yield " ";
     else
-        yield context.newlineKind;
+        yield Signal.NewLine;
 
     yield* parseNode(node.body, context);
 }
@@ -1737,7 +1733,7 @@ function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIt
             yield* parseNode(blockStatementBody, context);
         }
         else {
-            yield context.newlineKind;
+            yield Signal.NewLine;
             yield* withIndent(parseStatementOrMembers({
                 items: node.consequent,
                 innerComments: node.innerComments,
@@ -2054,7 +2050,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 }
             }
         },
-        true: [context.newlineKind],
+        true: [Signal.NewLine],
         false: [" "]
     };
 
@@ -2105,7 +2101,7 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                         return false;
                     return !conditionResolvers.areInfoEqual(conditionContext, startStatementsInfo, endStatementsInfo, false);
                 },
-                true: [context.newlineKind],
+                true: [Signal.NewLine],
                 false: [{
                     kind: PrintItemKind.Condition,
                     name: "closeBraceSpace",
@@ -2313,7 +2309,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         yield* parseCommentsAsTrailing(node.left, node.right.leadingComments, context);
 
         if (useNewLines)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         else if (useSpaceSurroundingOperator)
             yield Signal.SpaceOrNewLine;
         else
@@ -2599,10 +2595,9 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         yield conditions.forceReevaluationOnceResolved(context.endStatementOrMemberInfo.peek() || endInfo);
 
         if (useNewlines)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         else {
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
-                context,
                 startInfo,
                 endInfo: beforeAlternateInfo
             });
@@ -2621,10 +2616,9 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         }());
 
         if (useNewlines)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         else {
             yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
-                context,
                 startInfo,
                 endInfo: beforeAlternateInfo
             });
@@ -3032,7 +3026,7 @@ function* parseConditionalType(node: babel.TSConditionalType, context: Context):
 
     function* parseFalseType(): PrintItemIterable {
         if (useNewlines)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         else
             yield Signal.SpaceOrNewLine;
 
@@ -3130,14 +3124,13 @@ function* parseMappedType(node: babel.TSMappedType, context: Context): PrintItem
     yield* parseLayout();
 
     yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
-        context,
         startInfo
     });
     yield "}";
 
     function* parseLayout(): PrintItemIterable {
         if (useNewLines)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         else
             yield Signal.SpaceOrNewLine;
 
@@ -3198,7 +3191,7 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
 
     function* parseElements(): PrintItemIterable {
         if (useNewlines)
-            yield context.newlineKind;
+            yield Signal.NewLine;
 
         for (let i = 0; i < node.elementTypes.length; i++) {
             if (i > 0 && !useNewlines)
@@ -3214,7 +3207,7 @@ function* parseTupleType(node: babel.TSTupleType, context: Context): PrintItemIt
             })));
 
             if (useNewlines)
-                yield context.newlineKind;
+                yield Signal.NewLine;
         }
     }
 
@@ -3296,7 +3289,7 @@ function* parseUnionOrIntersectionType(node: babel.TSUnionType | babel.TSInterse
 
     for (let i = 0; i < node.types.length; i++) {
         if (i > 0)
-            yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
+            yield useNewLines ? Signal.NewLine : Signal.SpaceOrNewLine;
 
         // probably something better needs to be done here, but this is good enough for now
         if (isAncestorParenthesizedType || i == 0 && !isAncestorUnionOrIntersectionType)
@@ -3388,7 +3381,7 @@ function* parseJsxOpeningElement(node: babel.JSXOpeningElement, context: Context
             kind: PrintItemKind.Condition,
             name: "newlineIfHanging",
             condition: conditionContext => conditionResolvers.isHanging(conditionContext, startInfo),
-            true: context.newlineKind
+            true: [Signal.NewLine]
         };
     }
     yield ">";
@@ -3401,11 +3394,11 @@ function* parseJsxOpeningElement(node: babel.JSXOpeningElement, context: Context
             yield* parseAttrib(attrib);
 
         if (isMultiLine)
-            yield context.newlineKind;
+            yield Signal.NewLine;
 
         function* parseAttrib(attrib: babel.Node): PrintItemIterable {
             if (isMultiLine)
-                yield context.newlineKind;
+                yield Signal.NewLine;
             else
                 yield Signal.SpaceOrNewLine;
 
@@ -3479,7 +3472,7 @@ function* parseJsxText(node: babel.JSXText, context: Context): PrintItemIterable
         const lineText = lines[i];
         if (i > 0) {
             if (lineText.length > 0 || i === 1 || lines[i - 1].length === 0 && lines[i - 2].length > 0)
-                yield context.newlineKind;
+                yield Signal.NewLine;
         }
 
         if (lineText.length > 0)
@@ -3512,12 +3505,12 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterable {
     yield "{";
     yield* parseFirstLineTrailingComments(node, members, context);
     yield* withIndent(parseBody());
-    yield context.newlineKind;
+    yield Signal.NewLine;
     yield "}";
 
     function* parseBody(): PrintItemIterable {
         if (members.length > 0 || node.innerComments != null && node.innerComments.some(n => !context.handledComments.has(n)))
-            yield context.newlineKind;
+            yield Signal.NewLine;
 
         yield* parseStatementOrMembers({
             items: members,
@@ -3608,7 +3601,7 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
     }
 
     function* parseForNewLines(): PrintItemIterable {
-        yield context.newlineKind;
+        yield Signal.NewLine;
         yield* withIndent(parseStatementOrMembers({
             context,
             innerComments: node.innerComments,
@@ -3632,7 +3625,7 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
         }));
 
         if (children.length > 0)
-            yield context.newlineKind;
+            yield Signal.NewLine;
     }
 
     function* parseForSingleLine(): PrintItemIterable {
@@ -3662,9 +3655,9 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     let lastNode: babel.Node | undefined;
     for (const directive of block.directives) {
         if (lastNode != null) {
-            yield context.newlineKind;
+            yield Signal.NewLine;
             if (nodeHelpers.hasSeparatingBlankLine(lastNode, directive))
-                yield context.newlineKind;
+                yield Signal.NewLine;
         }
 
         yield* parseNode(directive, context);
@@ -3712,10 +3705,10 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
 
         if (lastNode != null) {
             if (shouldUseNewLine == null || shouldUseNewLine(lastNode, item)) {
-                yield context.newlineKind;
+                yield Signal.NewLine;
 
                 if (shouldUseBlankLine(lastNode, item))
-                    yield context.newlineKind;
+                    yield Signal.NewLine;
             }
             else if (shouldUseSpace != null && shouldUseSpace(lastNode, item)) {
                 yield Signal.SpaceOrNewLine;
@@ -3747,7 +3740,7 @@ function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintIt
     if (innerComments != null) {
         const result = Array.from(parseCommentCollection(innerComments, undefined, context));
         if (result.length > 0 && lastNode != null)
-            yield context.newlineKind;
+            yield Signal.NewLine;
         yield* result;
     }
 }
@@ -3798,7 +3791,7 @@ function* parseParametersOrArguments(options: ParseParametersOrArgumentsOptions)
             kind: PrintItemKind.Condition,
             name: "multiLineOrHanging",
             condition: multiLineOrHangingConditionResolver,
-            true: surroundWithNewLines(withIndent(paramList), context),
+            true: surroundWithNewLines(withIndent(paramList)),
             false: paramList
         };
 
@@ -3871,7 +3864,7 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
                 name: "multiLineOrHangingCondition",
                 condition: multiLineOrHangingConditionResolver,
                 true: function*(): PrintItemIterable {
-                    yield context.newlineKind;
+                    yield Signal.NewLine;
                     yield* parsedParam;
                 }(),
                 false: function*(): PrintItemIterable {
@@ -3916,7 +3909,7 @@ function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithClose
                 && conditionResolvers.isMultipleLines(conditionContext, typeNodeStartInfo, typeNodeEndInfo);
         },
         true: function*() {
-            yield context.newlineKind;
+            yield Signal.NewLine;
             yield ")";
             yield* parsedTypeNodeIterator;
         }(),
@@ -3967,9 +3960,9 @@ function* parseIteratorInParens(iterator: PrintItemIterable, useNewLines: boolea
         yield "(";
 
         if (useNewLines) {
-            yield context.newlineKind;
+            yield Signal.NewLine;
             yield* withIndent(iterator);
-            yield context.newlineKind;
+            yield Signal.NewLine;
         }
         else {
             yield* iterator;
@@ -3988,7 +3981,7 @@ function* parseNamedImportsOrExports(
         return;
 
     const useNewLines = getUseNewLines();
-    const braceSeparator = useNewLines ? context.newlineKind : (getUseSpace() ? " " : "");
+    const braceSeparator = useNewLines ? Signal.NewLine : (getUseSpace() ? " " : "");
 
     yield "{";
     yield braceSeparator;
@@ -4015,7 +4008,7 @@ function* parseNamedImportsOrExports(
         for (let i = 0; i < namedImportsOrExports.length; i++) {
             if (i > 0) {
                 yield ",";
-                yield useNewLines ? context.newlineKind : Signal.SpaceOrNewLine;
+                yield useNewLines ? Signal.NewLine : Signal.SpaceOrNewLine;
             }
 
             if (useNewLines)
@@ -4062,7 +4055,7 @@ function* parseDecorators(
     for (let i = 0; i < decorators.length; i++) {
         if (i > 0) {
             if (useNewlines)
-                yield context.newlineKind;
+                yield Signal.NewLine;
             else
                 yield Signal.SpaceOrNewLine;
         }
@@ -4076,7 +4069,7 @@ function* parseDecorators(
     if (isClassExpression)
         yield Signal.SpaceOrNewLine;
     else
-        yield context.newlineKind;
+        yield Signal.NewLine;
 }
 
 function* parseForMemberLikeExpression(
@@ -4091,7 +4084,7 @@ function* parseForMemberLikeExpression(
     yield* parseNode(leftNode, context);
 
     if (useNewline)
-        yield context.newlineKind;
+        yield Signal.NewLine;
     else
         yield Signal.PossibleNewLine;
 
@@ -4129,7 +4122,6 @@ function* parseExtendsOrImplements(opts: ParseExtendsOrImplementsOptions) {
         return;
 
     yield conditions.newlineIfMultipleLinesSpaceOrNewlineOtherwise({
-        context,
         startInfo: startHeaderInfo
     });
     yield* conditions.indentIfStartOfLine(function*() {
@@ -4173,7 +4165,7 @@ function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
 
     function* parseElements(): PrintItemIterable {
         if (useNewlines)
-            yield context.newlineKind;
+            yield Signal.NewLine;
 
         for (let i = 0; i < elements.length; i++) {
             if (i > 0 && !useNewlines)
@@ -4184,7 +4176,7 @@ function* parseArrayLikeNodes(opts: ParseArrayLikeNodesOptions) {
             yield* conditions.indentIfStartOfLine(newlineGroup(parseElement(element, hasComma)));
 
             if (useNewlines)
-                yield context.newlineKind;
+                yield Signal.NewLine;
         }
 
         function* parseElement(element: babel.Node | null | undefined, hasComma: boolean): PrintItemIterable {
@@ -4224,7 +4216,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
     const multiLine = nodeHelpers.getUseNewlinesForNodes([tokenHelpers.getFirstOpenBraceTokenWithin(node, context), members[0]]);
     const startInfo = createInfo("startObject");
     const endInfo = createInfo("endObject");
-    const separator = multiLine ? context.newlineKind : " ";
+    const separator = multiLine ? Signal.NewLine : " ";
 
     yield startInfo;
     yield "{";
@@ -4288,10 +4280,10 @@ function* parseCommentsAsLeading(node: babel.Node, leadingComments: readonly bab
 
     if (lastComment != null && !hasHandled) {
         if (node.loc!.start.line > lastComment.loc!.end.line) {
-            yield context.newlineKind;
+            yield Signal.NewLine;
 
             if (node.loc!.start.line - 1 > lastComment.loc!.end.line)
-                yield context.newlineKind;
+                yield Signal.NewLine;
         }
         else if (lastComment.type === "CommentBlock" && lastComment.loc!.end.line === node.loc!.start.line) {
             yield " ";
@@ -4365,10 +4357,10 @@ function* parseCommentCollection(comments: Iterable<babel.Comment>, lastNode: ba
 function* parseCommentBasedOnLastNode(comment: babel.Comment, lastNode: babel.Node | babel.Comment | undefined, context: Context) {
     if (lastNode != null) {
         if (comment.loc.start.line > lastNode.loc!.end.line) {
-            yield context.newlineKind;
+            yield Signal.NewLine;
 
             if (comment.loc.start.line > lastNode.loc!.end.line + 1)
-                yield context.newlineKind;
+                yield Signal.NewLine;
         }
         else if (comment.type === "CommentLine")
             yield " ";
@@ -4448,7 +4440,6 @@ function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
             yield " ";
         else {
             yield conditions.newlineIfHangingSpaceOtherwise({
-                context,
                 startInfo: startHeaderInfo
             });
         }
@@ -4456,11 +4447,11 @@ function* parseBraceSeparator(opts: ParseBraceSeparatorOptions) {
     else if (bracePosition === "sameLine")
         yield " ";
     else if (bracePosition === "nextLine")
-        yield context.newlineKind;
+        yield Signal.NewLine;
     else if (bracePosition === "maintain") {
         const isExpression = typeof bodyNode.type === "string" && bodyNode.type !== "BlockStatement";
-        if (!isExpression && nodeHelpers.isFirstNodeOnLine(bodyNode, context))
-            yield context.newlineKind;
+        if (!isExpression && nodeHelpers.isFirstNodeOnLine(bodyNode, context.fileText))
+            yield Signal.NewLine;
         else
             yield " ";
     }
@@ -4478,11 +4469,11 @@ function* parseControlFlowSeparator(
     if (nextControlFlowPosition === "sameLine")
         yield " ";
     else if (nextControlFlowPosition === "nextLine")
-        yield context.newlineKind;
+        yield Signal.NewLine;
     else if (nextControlFlowPosition === "maintain") {
         const token = getFirstControlFlowToken();
-        if (token != null && nodeHelpers.isFirstNodeOnLine(token, context))
-            yield context.newlineKind;
+        if (token != null && nodeHelpers.isFirstNodeOnLine(token, context.fileText))
+            yield Signal.NewLine;
         else
             yield " ";
     }

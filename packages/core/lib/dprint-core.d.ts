@@ -120,48 +120,52 @@ export interface RawString {
  */
 export declare enum Signal {
     /**
+     * Signal that a new line should occur based on the printer settings.
+     */
+    NewLine = 0,
+    /**
      * Signal that the current location could be a newline when
      * exceeding the line width.
      */
-    PossibleNewLine = 0,
+    PossibleNewLine = 1,
     /**
      * Signal that the current location should be a space, but
      * could be a newline if exceeding the line width.
      */
-    SpaceOrNewLine = 1,
+    SpaceOrNewLine = 2,
     /**
      * Expect the next character to be a newline. If it's not, force a newline.
      */
-    ExpectNewLine = 2,
+    ExpectNewLine = 3,
     /**
      * Signal the start of a section that should be indented.
      */
-    StartIndent = 3,
+    StartIndent = 4,
     /**
      * Signal the end of a section that should be indented.
      */
-    FinishIndent = 4,
+    FinishIndent = 5,
     /**
      * Signal the start of a group of print items that have a lower precedence
      * for being broken up with a newline for exceeding the line width.
      */
-    StartNewLineGroup = 5,
+    StartNewLineGroup = 6,
     /**
      * Signal the end of a newline group.
      */
-    FinishNewLineGroup = 6,
+    FinishNewLineGroup = 7,
     /**
      * Signal that a single indent should occur based on the printer settings.
      */
-    SingleIndent = 7,
+    SingleIndent = 8,
     /**
      * Signal to the printer that it should stop using indentation.
      */
-    StartIgnoringIndent = 8,
+    StartIgnoringIndent = 9,
     /**
      * Signal to the printer that it should start using indentation again.
      */
-    FinishIgnoringIndent = 9
+    FinishIgnoringIndent = 10
 }
 
 /**
@@ -225,11 +229,6 @@ export interface WriterInfo {
     lineStartColumnNumber: number;
 }
 
-export interface BaseContext {
-    fileText: string;
-    newlineKind: "\r\n" | "\n";
-}
-
 export declare namespace conditionResolvers {
     function isStartOfNewLine(conditionContext: ResolveConditionContext): boolean;
     function isHanging(conditionContext: ResolveConditionContext, startInfo: Info, endInfo?: Info): boolean | undefined;
@@ -240,14 +239,12 @@ export declare namespace conditionResolvers {
 /** A collection of reusable conditions. */
 export declare namespace conditions {
     interface NewlineIfHangingSpaceOtherwiseOptions {
-        context: BaseContext;
         startInfo: Info;
         endInfo?: Info;
         spaceChar?: " " | Signal.SpaceOrNewLine;
     }
     function newlineIfHangingSpaceOtherwise(options: NewlineIfHangingSpaceOtherwiseOptions): Condition;
     interface NewlineIfMultipleLinesSpaceOrNewlineOtherwiseOptions {
-        context: BaseContext;
         startInfo: Info;
         endInfo?: Info;
     }
@@ -268,7 +265,7 @@ export declare namespace parserHelpers {
     function newlineGroup(item: PrintItemIterable): PrintItemIterable;
     function prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]): IterableIterator<T>;
     function toPrintItemIterable(printItem: PrintItem): PrintItemIterable;
-    function surroundWithNewLines(item: PrintItemIterable, context: BaseContext): PrintItemIterable;
+    function surroundWithNewLines(item: PrintItemIterable): PrintItemIterable;
     /**
      * Reusable function for parsing a js-like single line comment (ex. // comment)
      * @param rawCommentValue - The comment value without the leading two slashes.

@@ -1,5 +1,4 @@
 import { PrintItemIterable, PrintItem, Signal, PrintItemKind, Info } from "../types";
-import { BaseContext } from "./BaseContext";
 
 export namespace parserHelpers {
     export function* withIndent(item: PrintItemIterable): PrintItemIterable {
@@ -29,10 +28,10 @@ export namespace parserHelpers {
         yield printItem;
     }
 
-    export function* surroundWithNewLines(item: PrintItemIterable, context: BaseContext): PrintItemIterable {
-        yield context.newlineKind;
+    export function* surroundWithNewLines(item: PrintItemIterable): PrintItemIterable {
+        yield Signal.NewLine;
         yield* item;
-        yield context.newlineKind;
+        yield Signal.NewLine;
     }
 
     /**

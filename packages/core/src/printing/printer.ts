@@ -91,6 +91,9 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
 
         function handleSignal(signal: Signal) {
             switch (signal) {
+                case Signal.NewLine:
+                    writer.write(options.newlineKind);
+                    break;
                 case Signal.ExpectNewLine:
                     writer.markExpectNewLine();
                     break;

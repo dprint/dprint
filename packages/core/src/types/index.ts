@@ -31,6 +31,10 @@ export interface RawString {
  */
 export enum Signal {
     /**
+     * Signal that a new line should occur based on the printer settings.
+     */
+    NewLine,
+    /**
      * Signal that the current location could be a newline when
      * exceeding the line width.
      */
@@ -61,10 +65,6 @@ export enum Signal {
      * Signal the end of a newline group.
      */
     FinishNewLineGroup,
-    /**
-     * Signal that a new line should occur based on the printer settings.
-     */
-    //NewLine,
     /**
      * Signal that a single indent should occur based on the printer settings.
      */

@@ -1,7 +1,6 @@
 import { PrintItemKind, Info, Condition, Signal, PrintItemIterable } from "../types";
-import { BaseContext } from "./BaseContext";
 import { conditionResolvers } from "./conditionResolvers";
-import { RepeatableIterable, makeIterableRepeatable } from "../utils";
+import { makeIterableRepeatable } from "../utils";
 import { parserHelpers } from "./parserHelpers";
 
 const { withIndent } = parserHelpers;
@@ -9,38 +8,36 @@ const { withIndent } = parserHelpers;
 /** A collection of reusable conditions. */
 export namespace conditions {
     export interface NewlineIfHangingSpaceOtherwiseOptions {
-        context: BaseContext;
         startInfo: Info;
         endInfo?: Info;
         spaceChar?: " " | Signal.SpaceOrNewLine;
     }
 
     export function newlineIfHangingSpaceOtherwise(options: NewlineIfHangingSpaceOtherwiseOptions): Condition {
-        const { context, startInfo, endInfo, spaceChar = " " } = options;
+        const { startInfo, endInfo, spaceChar = " " } = options;
         return {
             kind: PrintItemKind.Condition,
             name: "newLineIfHangingSpaceOtherwise",
             condition: conditionContext => {
                 return conditionResolvers.isHanging(conditionContext, startInfo, endInfo);
             },
-            true: [context.newlineKind],
+            true: [Signal.NewLine],
             false: [spaceChar]
         };
     }
 
     export interface NewlineIfMultipleLinesSpaceOrNewlineOtherwiseOptions {
-        context: BaseContext;
         startInfo: Info;
         endInfo?: Info;
     }
 
     export function newlineIfMultipleLinesSpaceOrNewlineOtherwise(options: NewlineIfMultipleLinesSpaceOrNewlineOtherwiseOptions): Condition {
-        const { context, startInfo, endInfo } = options;
+        const { startInfo, endInfo } = options;
         return {
             name: "newlineIfMultipleLinesSpaceOrNewlineOtherwise",
             kind: PrintItemKind.Condition,
             condition: conditionContext => conditionResolvers.isMultipleLines(conditionContext, startInfo, endInfo || conditionContext.writerInfo, false),
-            true: [context.newlineKind],
+            true: [Signal.NewLine],
             false: [Signal.SpaceOrNewLine]
         };
     }

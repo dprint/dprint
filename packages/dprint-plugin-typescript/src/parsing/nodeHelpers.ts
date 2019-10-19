@@ -1,5 +1,4 @@
 import * as babel from "@babel/types";
-import { BaseContext } from "@dprint/core";
 import { BabelToken } from "./BabelToken";
 
 export function hasBody(node: babel.Node) {
@@ -64,9 +63,9 @@ export function getUseNewlinesForNodes(nodes: ReadonlyArray<babel.Node | BabelTo
     }
 }
 
-export function isFirstNodeOnLine(node: babel.Node | BabelToken, context: BaseContext) {
+export function isFirstNodeOnLine(node: babel.Node | BabelToken, fileText: string) {
     for (let i = node.start! - 1; i >= 0; i--) {
-        const char = context.fileText[i];
+        const char = fileText[i];
         if (char === " " || char === "\t")
             continue;
 
