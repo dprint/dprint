@@ -1618,7 +1618,7 @@ function* parseForStatement(node: babel.ForStatement, context: Context): PrintIt
         yield* conditions.indentIfStartOfLine(newlineGroup(parseNode(node.update, context)));
 
         function getSeparatorAfterSemiColons() {
-            return context.config["forStatement.spaceAfterSemiColons"] ? Signal.SpaceOrNewLine : Signal.NewLine;
+            return context.config["forStatement.spaceAfterSemiColons"] ? Signal.SpaceOrNewLine : Signal.PossibleNewLine;
         }
     }
 }
@@ -2317,7 +2317,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         else if (useSpaceSurroundingOperator)
             yield Signal.SpaceOrNewLine;
         else
-            yield Signal.NewLine;
+            yield Signal.PossibleNewLine;
 
         yield indentIfNecessary(node.right, function*() {
             yield* parseCommentsAsLeading(node, node.left.trailingComments, context);
@@ -2519,7 +2519,7 @@ function* parseCallExpression(node: babel.CallExpression | babel.OptionalCallExp
             yield ")";
         }
 
-        /** Stop the iterator from providing any formatting information (ex. Signal.NewLine). */
+        /** Stop the iterator from providing any formatting information (ex. Signal.PossibleNewLine). */
         function* stripSignals(iterator: PrintItemIterable): PrintItemIterable {
             // If this function is used more generally, it should also strip
             // signal information from conditions.
@@ -2925,10 +2925,10 @@ function* parseTemplateLiteral(node: babel.TemplateLiteral, context: Context): P
             else {
                 yield "${";
                 yield Signal.FinishIgnoringIndent;
-                yield Signal.NewLine;
+                yield Signal.PossibleNewLine;
                 yield conditions.singleIndentIfStartOfLine();
                 yield* parseNode(item, context);
-                yield Signal.NewLine;
+                yield Signal.PossibleNewLine;
                 yield conditions.singleIndentIfStartOfLine();
                 yield "}";
                 yield Signal.StartIgnoringIndent;
@@ -3637,14 +3637,14 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
 
     function* parseForSingleLine(): PrintItemIterable {
         if (children.length === 0)
-            yield Signal.NewLine;
+            yield Signal.PossibleNewLine;
         else {
             for (let i = 0; i < children.length; i++) {
                 if (i > 0 && shouldUseSpace(children[i - 1], children[i]))
                     yield Signal.SpaceOrNewLine;
 
                 yield* parsedChildren[i][1];
-                yield Signal.NewLine;
+                yield Signal.PossibleNewLine;
             }
         }
     }
@@ -4093,7 +4093,7 @@ function* parseForMemberLikeExpression(
     if (useNewline)
         yield context.newlineKind;
     else
-        yield Signal.NewLine;
+        yield Signal.PossibleNewLine;
 
     yield* conditions.indentIfStartOfLine(parseRightNode());
 

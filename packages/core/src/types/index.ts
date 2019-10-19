@@ -32,12 +32,12 @@ export interface RawString {
 export enum Signal {
     /**
      * Signal that the current location could be a newline when
-     * exceeding the print width.
+     * exceeding the line width.
      */
-    NewLine,
+    PossibleNewLine,
     /**
      * Signal that the current location should be a space, but
-     * could be a newline if exceeding the print width.
+     * could be a newline if exceeding the line width.
      */
     SpaceOrNewLine,
     /**
@@ -56,21 +56,25 @@ export enum Signal {
      * Signal the start of a group of print items that have a lower precedence
      * for being broken up with a newline for exceeding the line width.
      */
-    StartNewlineGroup,
+    StartNewLineGroup,
     /**
      * Signal the end of a newline group.
      */
     FinishNewLineGroup,
     /**
+     * Signal that a new line should occur based on the printer settings.
+     */
+    //NewLine,
+    /**
      * Signal that a single indent should occur based on the printer settings.
      */
     SingleIndent,
     /**
-     * Signal to the writer that it should stop using indentation.
+     * Signal to the printer that it should stop using indentation.
      */
     StartIgnoringIndent,
     /**
-     * Signal to the writer that it should start using indentation again.
+     * Signal to the printer that it should start using indentation again.
      */
     FinishIgnoringIndent
 }

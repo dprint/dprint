@@ -9,7 +9,7 @@ export namespace parserHelpers {
     }
 
     export function* newlineGroup(item: PrintItemIterable): PrintItemIterable {
-        yield Signal.StartNewlineGroup;
+        yield Signal.StartNewLineGroup;
         yield* item;
         yield Signal.FinishNewLineGroup;
     }

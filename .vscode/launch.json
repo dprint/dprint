@@ -1,12 +1,22 @@
 {
     "version": "0.2.0",
     "configurations": [
+
         {
             "type": "node",
             "request": "launch",
             "name": "Run TypeScript Tests",
             "runtimeExecutable": "npm",
             "runtimeArgs": ["run", "--prefix", "packages/dprint-plugin-typescript", "test:debug"],
+            "port": 9229,
+            "stopOnEntry": false
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Run Core Tests",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "--prefix", "packages/core", "test:debug"],
             "port": 9229,
             "stopOnEntry": false
         },

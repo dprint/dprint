@@ -1,6 +1,8 @@
-import { PrintItem as GlobalPrintItem, PrintItemKind, Signal, Condition, RawString, PrintItemIterable, Info, WriterInfo, ResolveCondition } from "../types";
+import { PrintItemKind, Signal, Condition, RawString, PrintItemIterable, Info, WriterInfo } from "../types";
 import { assertNever } from "../utils";
 import { Writer, WriterState } from "./Writer";
+import { PrinterPrintItem, ConditionContainer, PrintItemContainer } from "./types";
+import { deepIterableToContainer } from "./utils";
 
 // todo: for performance reasons, when doing look aheads, it should only leap back if the condition changes
 
@@ -26,100 +28,7 @@ interface SavePoint {
     readonly possibleNewLineSavePoint: SavePoint | undefined;
 }
 
-type PrintItem = Signal | string | RawString | ConditionContainer | Info;
-
-interface PrintItemContainer {
-    parent?: PrintItemContainer;
-    items: PrintItem[];
-}
-
-interface ConditionContainer {
-    kind: PrintItemKind.Condition;
-    /** Name for debugging purposes. */
-    name: string;
-    originalCondition: Condition;
-    condition: ResolveCondition | Condition;
-    true?: PrintItemContainer;
-    false?: PrintItemContainer;
-}
-
-interface RepeatableCondition {
-    /** Name for debugging purposes. */
-    name: string;
-    originalCondition: Condition;
-    condition: ResolveCondition | Condition;
-    true?: GlobalPrintItem[];
-    false?: GlobalPrintItem[];
-}
-
 const exitSymbol = Symbol("Used in certain cases when a save point is restored.");
-
-class RepeatableConditionCache {
-    private readonly repeatableConditions = new Map<Condition, RepeatableCondition>();
-
-    getOrCreate(condition: Condition) {
-        let repeatableCondition = this.repeatableConditions.get(condition);
-
-        if (repeatableCondition == null) {
-            repeatableCondition = this.create(condition);
-            this.repeatableConditions.set(condition, repeatableCondition);
-        }
-
-        return repeatableCondition;
-    }
-
-    private create(condition: Condition): RepeatableCondition {
-        return {
-            name: condition.name,
-            originalCondition: condition,
-            condition: condition.condition,
-            true: condition.true && Array.from(condition.true),
-            false: condition.false && Array.from(condition.false)
-        };
-    }
-}
-
-function deepIterableToContainer(iterable: PrintItemIterable) {
-    const repeatableConditionCache = new RepeatableConditionCache();
-    return getContainer(iterable, undefined);
-
-    function getContainer(items: PrintItemIterable, parent: PrintItemContainer | undefined) {
-        const container: PrintItemContainer = {
-            items: [],
-            parent
-        };
-
-        for (const item of items) {
-            if (typeof item === "object" && item.kind === PrintItemKind.Condition)
-                container.items.push(createConditionContainer(repeatableConditionCache.getOrCreate(item), container));
-            else
-                container.items.push(item);
-        }
-
-        return container;
-    }
-
-    function createConditionContainer(repeatableCondition: RepeatableCondition, parent: PrintItemContainer): ConditionContainer {
-        return {
-            kind: PrintItemKind.Condition,
-            name: repeatableCondition.name,
-            condition: repeatableCondition.condition,
-            originalCondition: repeatableCondition.originalCondition,
-            get true() {
-                // lazy initialization
-                const value = repeatableCondition.true && getContainer(repeatableCondition.true, parent);
-                Object.defineProperty(this, nameof(this.true), { value });
-                return value;
-            },
-            get false() {
-                // lazy initialization
-                const value = repeatableCondition.false && getContainer(repeatableCondition.false, parent);
-                Object.defineProperty(this, nameof(this.false), { value });
-                return value;
-            }
-        };
-    }
-}
 
 /**
  * Prints out the provided print item iterable.
@@ -164,7 +73,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         }
     }
 
-    function handlePrintItem(printItem: PrintItem) {
+    function handlePrintItem(printItem: PrinterPrintItem) {
         if (typeof printItem === "number")
             handleSignal(printItem);
         else if (typeof printItem === "string")
@@ -185,7 +94,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                 case Signal.ExpectNewLine:
                     writer.markExpectNewLine();
                     break;
-                case Signal.NewLine:
+                case Signal.PossibleNewLine:
                     markPossibleNewLineIfAble();
                     break;
                 case Signal.SpaceOrNewLine:
@@ -207,7 +116,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                 case Signal.FinishIndent:
                     writer.finishIndent();
                     break;
-                case Signal.StartNewlineGroup:
+                case Signal.StartNewLineGroup:
                     newlineGroupDepth++;
                     break;
                 case Signal.FinishNewLineGroup:
@@ -232,7 +141,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             // todo: this check should only happen during testing
             const isNewLine = text === "\n" || text === "\r\n";
             if (!isNewLine && text.includes("\n"))
-                throw new Error("Praser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
+                throw new Error("Parser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
 
             if (!isNewLine && possibleNewLineSavePoint != null && isAboveMaxWidth(text.length))
                 updateStateToSavePoint(possibleNewLineSavePoint);
