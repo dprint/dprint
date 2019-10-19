@@ -1,9 +1,8 @@
+import { expect } from "chai";
 import { print } from "../../printing";
 import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem, ResolveConditionContext } from "../../types";
-import { expect } from "chai";
 
-describe.only("parsing example", () => {
-
+describe("parsing example", () => {
     // example AST nodes
 
     interface Node {
@@ -21,42 +20,38 @@ describe.only("parsing example", () => {
         text: string;
     }
 
-    // todo: remove this and implement Signal.NewLine
+    // IR generation
 
-    interface PrintContext {
-        newLineKind: "\n" | "\r\n";
-    }
-
-    function* parseArrayLiteralExpression(expr: ArrayLiteralExpression, context: PrintContext): PrintItemIterable {
+    function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIterable {
         const startInfo = createInfo("startItems");
         const endInfo = createInfo("endItems");
 
         yield startInfo;
 
         yield "[";
-        yield ifMultipleLines(context.newLineKind);
-        const items = makeRepeatable(parseItems());
+        yield ifMultipleLines(Signal.NewLine);
 
+        const elements = makeRepeatable(parseElements());
         yield {
             kind: PrintItemKind.Condition,
             name: "indentIfMultipleLines",
             condition: isMultipleLines,
-            true: withIndent(items),
-            false: items
+            true: withIndent(elements),
+            false: elements
         };
 
-        yield ifMultipleLines(context.newLineKind);
+        yield ifMultipleLines(Signal.NewLine);
         yield "]";
 
         yield endInfo;
 
-        function* parseItems(): PrintItemIterable {
+        function* parseElements(): PrintItemIterable {
             for (let i = 0; i < expr.elements.length; i++) {
                 yield expr.elements[i].text;
 
                 if (i < expr.elements.length - 1) {
                     yield ",";
-                    yield ifMultipleLines(context.newLineKind, Signal.SpaceOrNewLine);
+                    yield ifMultipleLines(Signal.NewLine, Signal.SpaceOrNewLine);
                 }
             }
         }
@@ -71,6 +66,7 @@ describe.only("parsing example", () => {
             };
         }
 
+        // condition resolver
         function isMultipleLines(conditionContext: ResolveConditionContext) {
             if (expr.elements.length === 0)
                 return false;
@@ -81,10 +77,12 @@ describe.only("parsing example", () => {
             const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo)!;
             const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
             if (resolvedEndInfo == null)
-                return false; // false for now
+                return false;
             return resolvedStartInfo.lineNumber < resolvedEndInfo.lineNumber;
         }
     }
+
+    // helper functions
 
     function createInfo(name: string): Info {
         return { kind: PrintItemKind.Info, name };
@@ -101,7 +99,7 @@ describe.only("parsing example", () => {
     }
 
     function doTest(expr: ArrayLiteralExpression, expectedText: string) {
-        const printItems = parseArrayLiteralExpression(expr, { newLineKind: "\n" });
+        const printItems = parseArrayLiteralExpression(expr);
         const result = print(printItems, {
             indentWidth: 2,
             maxWidth: 40,
