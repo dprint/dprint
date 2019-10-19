@@ -236,7 +236,7 @@ If trailing commas should be used.
 
 ### `forceMultiLineArguments`
 
-Forces an argument list to be multi-line when it exceeds the print width.
+Forces an argument list to be multi-line when it exceeds the line width.
 
 When false (default), it will be hanging when the first argument is on the same line as the open parenthesis and multi-line when on a different line.
 
@@ -244,7 +244,7 @@ When false (default), it will be hanging when the first argument is on the same 
 
 ### `forceMultiLineParameters`
 
-Forces a parameter list to be multi-line when it exceeds the print width.
+Forces a parameter list to be multi-line when it exceeds the line width.
 
 When false (default), it will be hanging when the first parameter is on the same line as the open parenthesis and multi-line when on a different line.
 

@@ -10,7 +10,7 @@ initCodeHighlightExtension();
 
 const converter = new showdown.Converter({ extensions: ["codehighlight"] });
 converter.setFlavor("github");
-const markdownAsHtml = converter.makeHtml(fs.readFileSync("docs/overview.md", { encoding: "utf8" }));
+const markdownAsHtml = converter.makeHtml(fs.readFileSync("docs/home.md", { encoding: "utf8" }));
 
 const indexPageFilePath = "build-website/index.html";
 const indexPageText = fs.readFileSync(indexPageFilePath, { encoding: "utf8" });
