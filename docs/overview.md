@@ -73,6 +73,9 @@ The printer takes the IR and outputs the final code. Its main responsibilities a
 ## Example IR Generation
 
 ```ts
+import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem,
+    ResolveConditionContext } from "@dprint/core";
+
 // example AST nodes
 
 interface Node {
