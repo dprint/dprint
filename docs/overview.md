@@ -21,7 +21,7 @@ Strings that the printer should print. For example `"async"`.
 
 ### Infos
 
-These objects are invisible in the output. They may be placed into the IR and, when resolved by the printer, report the following information about where the info ended up at:
+These objects are invisible in the output. They may be placed into the IR and when resolved by the printer, report the following information about where the info ended up at:
 
 * `lineNumber`
 * `columnNumber`
@@ -39,7 +39,7 @@ Conditions have three main properties:
 
 #### Condition Resolver
 
-Conditions are usually resolved by looking at the value of a resolved info print item, other condition, or the original AST node.
+Conditions are usually resolved by looking at the value of a resolved info, other condition, or based on the original AST node.
 
 The infos & conditions that are inspected may appear before or even after the condition.
 
@@ -47,17 +47,17 @@ The infos & conditions that are inspected may appear before or even after the co
 
 This is an enum that signals information to the printer.
 
-* NewLine - Signal that a new line should occur based on the printer settings.
-* PossibleNewLine - Signal that the current location could be a newline when exceeding the line width.
-* SpaceOrNewLine - Signal that the current location should be a space, but could be a newline if exceeding the line width.
-* ExpectNewLine - Expect the next character to be a newline. If it's not, force a newline.
-* StartIndent - Signal the start of a section that should be indented.
-* FinishIndent - Signal the end of a section that should be indented.
-* StartNewLineGroup - Signal the start of a group of print items that have a lower precedence for being broken up with a newline for exceeding the line width.
-* FinishNewLineGroup - Signal the end of a newline group.
-* SingleIndent - Signal that a single indent should occur based on the printer settings (ex. prints a tab when using tabs).
-* StartIgnoringIndent - Signal to the printer that it should stop using indentation.
-* FinishIgnoringIndent - Signal to the printer that it should start using indentation again.
+* `NewLine` - Signal that a new line should occur based on the printer settings.
+* `PossibleNewLine` - Signal that the current location could be a newline when exceeding the line width.
+* `SpaceOrNewLine` - Signal that the current location should be a space, but could be a newline if exceeding the line width.
+* `ExpectNewLine` - Expect the next character to be a newline. If it's not, force a newline. This is useful to use at the end of single line comments in JS, for example.
+* `StartIndent` - Signal the start of a section that should be indented.
+* `FinishIndent` - Signal the end of a section that should be indented.
+* `StartNewLineGroup` - Signal the start of a group of print items that have a lower precedence for being broken up with a newline for exceeding the line width.
+* `FinishNewLineGroup` - Signal the end of a newline group.
+* `SingleIndent` - Signal that a single indent should occur based on the printer settings (ex. prints a tab when using tabs).
+* `StartIgnoringIndent` - Signal to the printer that it should stop using indentation.
+* `FinishIgnoringIndent` - Signal to the printer that it should start using indentation again.
 
 ## Printer
 
@@ -72,12 +72,9 @@ The printer takes the IR and outputs the final code. Its main responsibilities a
 
 ## Example IR Generation
 
+Given the following example AST nodes:
+
 ```ts
-import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem,
-    ResolveConditionContext } from "@dprint/core";
-
-// example AST nodes
-
 interface Node {
     /** Line number in the original source code. */
     lineNumber: number;
@@ -92,12 +89,45 @@ interface ArrayLiteralExpression extends Node {
 interface ArrayElement extends Node {
     text: string;
 }
+```
 
-// IR generation
+With the following expected outputs (when max line width configured in printer is 10):
+
+```ts
+// input
+[a   ,   b
+    , c
+   ]
+// output
+[a, b, c]
+
+// input
+[four, four, four]
+// output (since it exceeds the line width of 10)
+[
+    four,
+    four,
+    four
+]
+
+// input
+[
+four]
+// output (since first element was placed on a different line)
+[
+    four
+]
+```
+
+Here's some example IR generation:
+
+```ts
+import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem,
+    ResolveConditionContext } from "@dprint/core";
 
 function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIterable {
-    const startInfo = createInfo("startItems");
-    const endInfo = createInfo("endItems");
+    const startInfo = createInfo("startArrayExpression");
+    const endInfo = createInfo("endArrayExpression");
 
     yield startInfo;
 
@@ -141,12 +171,17 @@ function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIt
 
     // condition resolver
     function isMultipleLines(conditionContext: ResolveConditionContext) {
+        // no elements, so format on the same line
         if (expr.elements.length === 0)
             return false;
+        // first element is on a different line than the start of the array expression,
+        // so format all the elements as multi-line
         if (expr.lineNumber < expr.elements[0].lineNumber)
             return true;
+        // only one element, so force it to be a single line
         if (expr.elements.length === 1)
             return false;
+        // check if the expression spans multiple lines, and if it does then make it multi-line
         const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo)!;
         const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
         if (resolvedEndInfo == null)

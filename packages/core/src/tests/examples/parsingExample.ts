@@ -23,8 +23,8 @@ describe("parsing example", () => {
     // IR generation
 
     function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIterable {
-        const startInfo = createInfo("startItems");
-        const endInfo = createInfo("endItems");
+        const startInfo = createInfo("startArrayExpression");
+        const endInfo = createInfo("endArrayExpression");
 
         yield startInfo;
 
@@ -68,12 +68,18 @@ describe("parsing example", () => {
 
         // condition resolver
         function isMultipleLines(conditionContext: ResolveConditionContext) {
+            // no elements, so format on the same line
             if (expr.elements.length === 0)
                 return false;
+            // first element is on a different line than the start of the array expression,
+            // so format all the elements as multi-line
             if (expr.lineNumber < expr.elements[0].lineNumber)
                 return true;
+            // only one element, so force it to be a single line
             if (expr.elements.length === 1)
                 return false;
+            // check if the expression spans multiple lines, and if it does then make
+            // it multi-line
             const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo)!;
             const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
             if (resolvedEndInfo == null)
