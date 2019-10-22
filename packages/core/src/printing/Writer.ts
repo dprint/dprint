@@ -8,7 +8,6 @@ export interface WriterState {
     indentText: string;
     expectNewLineNext: boolean;
     items: string[];
-    indentLevelStates: number[];
     ignoreIndent: boolean;
 }
 
@@ -30,7 +29,6 @@ export class Writer {
             indentText: "",
             expectNewLineNext: false,
             items: [],
-            indentLevelStates: [],
             ignoreIndent: false
         };
     }
@@ -62,7 +60,6 @@ export class Writer {
             indentLevel: state.indentLevel,
             indentText: state.indentText,
             items: [...state.items],
-            indentLevelStates: [...state.indentLevelStates],
             ignoreIndent: state.ignoreIndent
         };
         return newState;
@@ -129,10 +126,6 @@ export class Writer {
         this.state.ignoreIndent = value;
     }
 
-    private get indentLevelStates() {
-        return this.state.indentLevelStates;
-    }
-
     private get items() {
         return this.state.items;
     }
@@ -195,16 +188,13 @@ export class Writer {
     }
 
     startIndent() {
-        this.indentLevelStates.push(this.indentLevel);
         this.indentLevel++;
     }
 
     finishIndent(): void {
-        const originalIndentLevel = this.indentLevelStates.pop();
-        if (originalIndentLevel == null)
+        this.indentLevel--;
+        if (this.indentLevel < 0)
             return throwError(`For some reason ${nameof(this.finishIndent)} was called without a corresponding ${nameof(this.startIndent)}.`);
-
-        this.indentLevel = originalIndentLevel;
     }
 
     startIgnoringIndent() {
