@@ -1,4 +1,5 @@
 import { throwError } from "../utils";
+import { Signal } from "../types";
 
 export interface WriterState {
     currentLineColumn: number;
@@ -13,14 +14,16 @@ export interface WriterState {
 
 export class Writer {
     private readonly singleIndentationText: string;
-    private indentWidth: number;
+    private readonly indentWidth: number;
+    private readonly newLineKind: "\r\n" | "\n";
     private fireOnNewLine?: () => void;
 
     private state: WriterState;
 
-    constructor(private readonly options: { indentWidth: number; useTabs: boolean; newlineKind: "\r\n" | "\n"; }) {
+    constructor(options: { indentWidth: number; useTabs: boolean; newLineKind: "\r\n" | "\n"; }) {
+        this.singleIndentationText = options.useTabs ? "\t" : " ".repeat(options.indentWidth);
+        this.newLineKind = options.newLineKind;
         this.indentWidth = options.indentWidth;
-        this.singleIndentationText = this.options.useTabs ? "\t" : " ".repeat(options.indentWidth);
         this.state = {
             currentLineColumn: 0,
             currentLineNumber: 0,
@@ -131,7 +134,11 @@ export class Writer {
     }
 
     singleIndent() {
-        this.write(this.singleIndentationText);
+        this.baseWrite(this.singleIndentationText);
+    }
+
+    newLine() {
+        this.baseWrite(this.newLineKind);
     }
 
     write(text: string) {
@@ -143,11 +150,8 @@ export class Writer {
         // todo: this check should only be done when running the tests... otherwise
         // it should be turned off for performance reasons because it will iterate
         // the entire text
-        if (text === "\n" || text === "\r\n")
-            return;
-
         if (text.includes("\n"))
-            throwError("Printer error: The parser should write");
+            throwError(`Printer error: The IR generation should not write newlines. Use ${nameof.full(Signal.NewLine)} instead.`);
     }
 
     baseWrite(text: string) {
@@ -156,7 +160,7 @@ export class Writer {
         if (this.expectNewLineNext) {
             this.expectNewLineNext = false;
             if (!startsWithNewLine) {
-                this.baseWrite(this.options.newlineKind);
+                this.baseWrite(this.newLineKind);
                 this.baseWrite(text);
                 return;
             }

@@ -62,7 +62,7 @@ export function resolveConfiguration(
 
     const resolvedConfig: ResolvedTypeScriptConfiguration = {
         singleQuotes: getValue("singleQuotes", defaultValues["singleQuotes"], ensureBoolean),
-        newlineKind: getNewLineKind(),
+        newLineKind: getNewLineKind(),
         lineWidth: getValue("lineWidth", globalConfig.lineWidth, ensureNumber),
         indentWidth: getValue("indentWidth", globalConfig.indentWidth, ensureNumber),
         useTabs: getValue("useTabs", globalConfig.useTabs, ensureBoolean),
@@ -213,9 +213,9 @@ export function resolveConfiguration(
     };
 
     function getNewLineKind() {
-        const newlineKind = pluginConfig.newlineKind;
-        delete pluginConfig.newlineKind;
-        switch (newlineKind) {
+        const newLineKind = pluginConfig.newLineKind;
+        delete pluginConfig.newLineKind;
+        switch (newLineKind) {
             case "auto":
                 return "auto";
             case "crlf":
@@ -224,16 +224,16 @@ export function resolveConfiguration(
                 return "\n";
             case null:
             case undefined:
-                return globalConfig.newlineKind;
+                return globalConfig.newLineKind;
             case "system":
                 return os.EOL === "\r\n" ? "\r\n" : "\n";
             default:
-                const propertyName: keyof TypeScriptConfiguration = "newlineKind";
+                const propertyName: keyof TypeScriptConfiguration = "newLineKind";
                 diagnostics.push({
                     propertyName,
-                    message: `Unknown configuration specified for '${propertyName}': ${newlineKind}`
+                    message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`
                 });
-                return globalConfig.newlineKind;
+                return globalConfig.newLineKind;
         }
     }
 

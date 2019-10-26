@@ -32,7 +32,7 @@ export interface Configuration {
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
-    newlineKind?: "auto" | "crlf" | "lf" | "system";
+    newLineKind?: "auto" | "crlf" | "lf" | "system";
     /**
      * Collection of plugins to use.
      */
@@ -46,5 +46,5 @@ export interface BaseResolvedConfiguration {
     readonly lineWidth: number;
     readonly indentWidth: number;
     readonly useTabs: boolean;
-    readonly newlineKind: "auto" | "\r\n" | "\n";
+    readonly newLineKind: "auto" | "\r\n" | "\n";
 }

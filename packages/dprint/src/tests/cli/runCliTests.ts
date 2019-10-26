@@ -19,7 +19,7 @@ describe(nameof(runCliWithOptions), () => {
         return {
             config: {
                 projectType: "openSource",
-                newlineKind: "lf",
+                newLineKind: "lf",
                 plugins: opts.plugins || [new TestPlugin() as Plugin],
                 includes: opts.includes,
                 excludes: opts.excludes
@@ -171,7 +171,7 @@ module.exports.config = {
         const environment = createTestEnvironment();
         environment.setRequireObject("/dprint.config.js", {
             config: {
-                newlineKind: "lf"
+                newLineKind: "lf"
             }
         });
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
@@ -184,7 +184,7 @@ module.exports.config = {
         environment.setRequireObject("/dprint.config.js", {
             config: {
                 projectType: "asdf",
-                newlineKind: "lf"
+                newLineKind: "lf"
             }
         });
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
@@ -197,7 +197,7 @@ module.exports.config = {
         environment.setRequireObject("/dprint.config.js", {
             config: {
                 projectType: "openSource",
-                newlineKind: "lf"
+                newLineKind: "lf"
             }
         });
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);

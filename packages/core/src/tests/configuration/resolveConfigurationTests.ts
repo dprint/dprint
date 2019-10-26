@@ -47,7 +47,7 @@ describe(nameof(resolveConfiguration), () => {
             doTest({}, {
                 indentWidth: 4,
                 lineWidth: 120,
-                newlineKind: "auto",
+                newLineKind: "auto",
                 useTabs: false
             }, () => true);
         });
@@ -56,20 +56,20 @@ describe(nameof(resolveConfiguration), () => {
             doTest({
                 indentWidth: 2,
                 lineWidth: 80,
-                newlineKind: "crlf",
+                newLineKind: "crlf",
                 useTabs: true
             }, {
                 indentWidth: 2,
                 lineWidth: 80,
-                newlineKind: "\r\n",
+                newLineKind: "\r\n",
                 useTabs: true
             }, () => true);
         });
     });
 
-    describe(nameof<Configuration>(c => c.newlineKind), () => {
+    describe(nameof<Configuration>(c => c.newLineKind), () => {
         function doSpecificTest(value: string | undefined, expectedValue: string) {
-            doTest({ newlineKind: value as any }, { newlineKind: expectedValue as any }, prop => prop === "newlineKind");
+            doTest({ newLineKind: value as any }, { newLineKind: expectedValue as any }, prop => prop === "newLineKind");
         }
 
         it("should set when not set", () => {
@@ -93,9 +93,9 @@ describe(nameof(resolveConfiguration), () => {
         });
 
         it("should do a diagnostic when providing an incorrect value", () => {
-            doTest({ newlineKind: "asdf" as any }, {}, () => false, [{
-                message: "Unknown configuration specified for 'newlineKind': asdf",
-                propertyName: "newlineKind"
+            doTest({ newLineKind: "asdf" as any }, {}, () => false, [{
+                message: "Unknown configuration specified for 'newLineKind': asdf",
+                propertyName: "newLineKind"
             }]);
         });
     });

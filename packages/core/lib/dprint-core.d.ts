@@ -47,7 +47,7 @@ export interface Configuration {
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
-    newlineKind?: "auto" | "crlf" | "lf" | "system";
+    newLineKind?: "auto" | "crlf" | "lf" | "system";
     /**
      * Collection of plugins to use.
      */
@@ -61,7 +61,7 @@ export interface BaseResolvedConfiguration {
     readonly lineWidth: number;
     readonly indentWidth: number;
     readonly useTabs: boolean;
-    readonly newlineKind: "auto" | "\r\n" | "\n";
+    readonly newLineKind: "auto" | "\r\n" | "\n";
 }
 
 /** Represents a problem with a configuration. */
@@ -88,7 +88,7 @@ export interface ResolveConfigurationResult<ResolvedConfiguration extends BaseRe
 export declare function resolveConfiguration(config: Partial<Configuration>): ResolveConfigurationResult<ResolvedConfiguration>;
 
 /**
- * The different items that the printer could encounter.
+ * The different items the printer could encounter.
  */
 export declare type PrintItem = Signal | string | RawString | Condition | Info;
 
@@ -169,9 +169,19 @@ export declare enum Signal {
 }
 
 /**
+ * Can be used to get information at a certain location being printed. These can be resolved
+ * by providing the info object to a condition context's getResolvedInfo method.
+ */
+export interface Info {
+    kind: PrintItemKind.Info;
+    /** Name for debugging purposes. */
+    name: string;
+}
+
+/**
  * Conditionally print items based on a condition.
  *
- * These conditions are extremely flexible and could be resolved based on
+ * These conditions are extremely flexible and can even be resolved based on
  * information found later on in the file.
  */
 export interface Condition {
@@ -186,8 +196,14 @@ export interface Condition {
     false?: PrintItemIterable;
 }
 
+/**
+ * Function used to resolve a condition.
+ */
 export declare type ResolveCondition = (context: ResolveConditionContext) => boolean | undefined;
 
+/**
+ * Context used when resolving a condition.
+ */
 export interface ResolveConditionContext {
     /**
      * Gets if a condition was true, false, or returns undefined when not yet resolved.
@@ -206,16 +222,6 @@ export interface ResolveConditionContext {
      * Gets the writer info at the condition's location.
      */
     writerInfo: WriterInfo;
-}
-
-/**
- * Can be used to get information at a certain location being printed. These can be resolved
- * by providing the info object to a condition context's getResolvedInfo method.
- */
-export interface Info {
-    kind: PrintItemKind.Info;
-    /** Name for debugging purposes. */
-    name: string;
 }
 
 /**

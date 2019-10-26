@@ -20,7 +20,7 @@ export function formatFileText(options: FormatFileTextOptions) {
     // print it
     const config = plugin.getConfiguration();
     return print(parseResult, {
-        newlineKind: config.newlineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newlineKind,
+        newLineKind: config.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newLineKind,
         maxWidth: config.lineWidth,
         indentWidth: config.indentWidth,
         useTabs: config.useTabs

@@ -24,7 +24,7 @@ export interface JsoncConfiguration {
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
-    newlineKind?: "auto" | "crlf" | "lf" | "system";
+    newLineKind?: "auto" | "crlf" | "lf" | "system";
 }
 
 /**

@@ -1,5 +1,5 @@
 import { PrintItemKind, Signal, Condition, RawString, PrintItemIterable, Info, WriterInfo } from "../types";
-import { assertNever } from "../utils";
+import { assertNever, throwError } from "../utils";
 import { Writer, WriterState } from "./Writer";
 import { PrinterPrintItem, ConditionContainer, PrintItemContainer } from "./types";
 import { deepIterableToContainer } from "./utils";
@@ -15,13 +15,13 @@ export interface PrintOptions {
     /** Whether to use tabs for indenting. */
     useTabs: boolean;
     /** The newline character to use when doing a new line. */
-    newlineKind: "\r\n" | "\n";
+    newLineKind: "\r\n" | "\n";
 }
 
 interface SavePoint {
     /** Name for debugging purposes. */
     readonly name: string;
-    readonly newlineGroupDepth: number;
+    readonly newLineGroupDepth: number;
     readonly container: PrintItemContainer;
     readonly currentIndexes: number[];
     readonly writerState: Readonly<WriterState>;
@@ -45,7 +45,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
 
     // save point items
     let possibleNewLineSavePoint: SavePoint | undefined;
-    let newlineGroupDepth = 0;
+    let newLineGroupDepth = 0;
     let currentIndexes = [0];
     let container = deepIterableToContainer(iterable);
 
@@ -83,7 +83,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         else if (printItem.kind === PrintItemKind.Condition)
             handleCondition(printItem);
         else if (printItem.kind === PrintItemKind.Info)
-            resolveInfo(printItem);
+            handleInfo(printItem);
         else
             assertNever(printItem);
 
@@ -92,7 +92,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         function handleSignal(signal: Signal) {
             switch (signal) {
                 case Signal.NewLine:
-                    writer.write(options.newlineKind);
+                    writer.newLine();
                     break;
                 case Signal.ExpectNewLine:
                     writer.markExpectNewLine();
@@ -102,11 +102,11 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                     break;
                 case Signal.SpaceOrNewLine:
                     if (isAboveMaxWidth(1)) {
-                        const saveState = possibleNewLineSavePoint;
-                        if (saveState == null || saveState.newlineGroupDepth >= newlineGroupDepth)
-                            writer.write(options.newlineKind);
-                        else if (possibleNewLineSavePoint != null)
-                            updateStateToSavePoint(possibleNewLineSavePoint);
+                        const savePoint = possibleNewLineSavePoint;
+                        if (savePoint == null || savePoint.newLineGroupDepth >= newLineGroupDepth)
+                            writer.newLine();
+                        else if (savePoint != null)
+                            updateStateToSavePoint(savePoint);
                     }
                     else {
                         markPossibleNewLineIfAble();
@@ -120,10 +120,10 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                     writer.finishIndent();
                     break;
                 case Signal.StartNewLineGroup:
-                    newlineGroupDepth++;
+                    newLineGroupDepth++;
                     break;
                 case Signal.FinishNewLineGroup:
-                    newlineGroupDepth--;
+                    newLineGroupDepth--;
                     break;
                 case Signal.SingleIndent:
                     writer.singleIndent();
@@ -141,28 +141,28 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         }
 
         function handleString(text: string) {
+            // todo: combine with handleRawString?
             // todo: this check should only happen during testing
-            const isNewLine = text === "\n" || text === "\r\n";
-            if (!isNewLine && text.includes("\n"))
+            if (text.includes("\n"))
                 throw new Error("Parser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
 
-            if (!isNewLine && possibleNewLineSavePoint != null && isAboveMaxWidth(text.length))
+            if (possibleNewLineSavePoint != null && isAboveMaxWidth(text.length))
                 updateStateToSavePoint(possibleNewLineSavePoint);
             else
                 writer.write(text);
         }
 
-        function handleRawString(unknown: RawString) {
+        function handleRawString(rawString: RawString) {
             if (possibleNewLineSavePoint != null && isAboveMaxWidth(getLineWidth()))
                 updateStateToSavePoint(possibleNewLineSavePoint);
             else
-                writer.baseWrite(unknown.text);
+                writer.baseWrite(rawString.text);
 
             function getLineWidth() {
-                const index = unknown.text.indexOf("\n");
+                const index = rawString.text.indexOf("\n");
                 if (index === -1)
-                    return unknown.text.length;
-                else if (unknown.text[index - 1] === "\r")
+                    return rawString.text.length;
+                else if (rawString.text[index - 1] === "\r")
                     return index - 1;
                 return index;
             }
@@ -170,7 +170,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
 
         function handleCondition(condition: ConditionContainer) {
             try {
-                const conditionValue = getConditionValue(condition.originalCondition, condition.originalCondition);
+                const conditionValue = getConditionValue(condition.originalCondition);
                 if (conditionValue) {
                     if (condition.true) {
                         container = condition.true;
@@ -191,7 +191,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
     }
 
     function markPossibleNewLineIfAble() {
-        if (possibleNewLineSavePoint != null && newlineGroupDepth > possibleNewLineSavePoint.newlineGroupDepth)
+        if (possibleNewLineSavePoint != null && newLineGroupDepth > possibleNewLineSavePoint.newLineGroupDepth)
             return;
 
         possibleNewLineSavePoint = createSavePoint("newline");
@@ -203,15 +203,62 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         possibleNewLineSavePoint = isForNewLine ? undefined : savePoint.possibleNewLineSavePoint;
         container = savePoint.container;
         currentIndexes = [...savePoint.currentIndexes]; // todo: probably doesn't need to be cloned
-        newlineGroupDepth = savePoint.newlineGroupDepth;
+        newLineGroupDepth = savePoint.newLineGroupDepth;
 
         if (isForNewLine)
-            writer.write(options.newlineKind);
+            writer.newLine();
     }
 
-    function getConditionValue(condition: Condition, printingCondition: Condition): boolean | undefined {
-        if (typeof condition.condition === "object") {
-            const result = resolvedConditions.get(condition.condition);
+    function getConditionValue(printingCondition: Condition): boolean | undefined {
+        return getInnerConditionValue(printingCondition);
+
+        function getInnerConditionValue(condition: Condition) {
+            if (typeof condition.condition === "object") {
+                return tryGetValueFromCondition(condition.condition);
+            }
+            else if (condition.condition instanceof Function) {
+                if (condition === printingCondition) {
+                    const result = condition.condition({
+                        getResolvedCondition,
+                        writerInfo: getWriterInfo(),
+                        getResolvedInfo: info => getResolvedInfo(info)
+                    });
+                    if (result != null) {
+                        resolvedConditions.set(condition, result);
+                        restoreToSavePointIfNecessary(condition);
+                    }
+
+                    return result;
+                }
+                else {
+                    return tryGetValueFromCondition(condition);
+                }
+            }
+            else {
+                return assertNever(condition.condition);
+            }
+
+            function getResolvedCondition(c: Condition): boolean | undefined;
+            function getResolvedCondition(c: Condition, defaultValue: boolean): boolean;
+            function getResolvedCondition(c: Condition, defaultValue?: boolean): boolean | undefined {
+                const conditionValue = getInnerConditionValue(c);
+                if (conditionValue == null)
+                    return defaultValue;
+                return conditionValue;
+            }
+
+            function getResolvedInfo(info: Info) {
+                const resolvedInfo = resolvedInfos.get(info);
+                if (resolvedInfo == null && !lookAheadSavePoints.has(info)) {
+                    const savePoint = createSavePointForRestoringCondition(info.name);
+                    lookAheadSavePoints.set(info, savePoint);
+                }
+                return resolvedInfo;
+            }
+        }
+
+        function tryGetValueFromCondition(condition: Condition) {
+            const result = resolvedConditions.get(condition);
 
             if (result == null) {
                 if (!lookAheadSavePoints.has(condition)) {
@@ -220,50 +267,23 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                 }
             }
             else {
-                const savePoint = lookAheadSavePoints.get(condition);
-                if (savePoint != null) {
-                    lookAheadSavePoints.delete(condition);
-                    updateStateToSavePoint(savePoint);
-                    throw exitSymbol;
-                }
+                restoreToSavePointIfNecessary(condition);
             }
 
             return result;
         }
-        else if (condition.condition instanceof Function) {
-            const result = condition.condition({
-                getResolvedCondition,
-                writerInfo: getWriterInfo(),
-                getResolvedInfo: info => getResolvedInfo(info)
-            });
-            if (result != null)
-                resolvedConditions.set(condition, result);
-            return result;
-        }
-        else {
-            return assertNever(condition.condition);
-        }
 
-        function getResolvedCondition(c: Condition): boolean | undefined;
-        function getResolvedCondition(c: Condition, defaultValue: boolean): boolean;
-        function getResolvedCondition(c: Condition, defaultValue?: boolean): boolean | undefined {
-            const conditionValue = getConditionValue(c, printingCondition);
-            if (conditionValue == null)
-                return defaultValue;
-            return conditionValue;
-        }
-
-        function getResolvedInfo(info: Info) {
-            const resolvedInfo = resolvedInfos.get(info);
-            if (resolvedInfo == null && !lookAheadSavePoints.has(info)) {
-                const savePoint = createSavePointForRestoringCondition(info.name);
-                lookAheadSavePoints.set(info, savePoint);
+        function restoreToSavePointIfNecessary(condition: Condition) {
+            const savePoint = lookAheadSavePoints.get(condition);
+            if (savePoint != null) {
+                lookAheadSavePoints.delete(condition);
+                updateStateToSavePoint(savePoint);
+                throw exitSymbol;
             }
-            return resolvedInfo;
         }
     }
 
-    function resolveInfo(info: Info) {
+    function handleInfo(info: Info) {
         resolvedInfos.set(info, getWriterInfo());
 
         const savePoint = lookAheadSavePoints.get(info);
@@ -299,7 +319,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         return {
             name,
             currentIndexes: [...currentIndexes],
-            newlineGroupDepth,
+            newLineGroupDepth,
             writerState: writer.getState(),
             possibleNewLineSavePoint,
             container

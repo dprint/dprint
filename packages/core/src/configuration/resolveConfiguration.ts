@@ -7,7 +7,7 @@ const defaultValues = {
     lineWidth: 120,
     indentWidth: 4,
     useTabs: false,
-    newlineKind: "auto"
+    newLineKind: "auto"
 } as const;
 
 /**
@@ -23,7 +23,7 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
         lineWidth: getValue("lineWidth", defaultValues.lineWidth, ensureNumber),
         indentWidth: getValue("indentWidth", defaultValues.indentWidth, ensureNumber),
         useTabs: getValue("useTabs", defaultValues.useTabs, ensureBoolean),
-        newlineKind: getNewLineKind()
+        newLineKind: getNewLineKind()
     };
 
     addExcessPropertyDiagnostics();
@@ -34,9 +34,9 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
     };
 
     function getNewLineKind() {
-        const newlineKind = config.newlineKind;
-        delete config.newlineKind;
-        switch (newlineKind) {
+        const newLineKind = config.newLineKind;
+        delete config.newLineKind;
+        switch (newLineKind) {
             case "auto":
                 return "auto";
             case "crlf":
@@ -45,16 +45,16 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
                 return "\n";
             case null:
             case undefined:
-                return defaultValues.newlineKind;
+                return defaultValues.newLineKind;
             case "system":
                 return os.EOL === "\r\n" ? "\r\n" : "\n";
             default:
-                const propertyName: keyof ResolvedConfiguration = "newlineKind";
+                const propertyName: keyof ResolvedConfiguration = "newLineKind";
                 diagnostics.push({
                     propertyName,
-                    message: `Unknown configuration specified for '${propertyName}': ${newlineKind}`
+                    message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`
                 });
-                return defaultValues["newlineKind"];
+                return defaultValues["newLineKind"];
         }
     }
 

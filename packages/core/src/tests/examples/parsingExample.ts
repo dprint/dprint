@@ -109,7 +109,7 @@ describe("parsing example", () => {
         const result = print(printItems, {
             indentWidth: 2,
             maxWidth: 40,
-            newlineKind: "\n",
+            newLineKind: "\n",
             useTabs: false
         });
 
@@ -118,15 +118,15 @@ describe("parsing example", () => {
 
     it("should format when doesn't exceed line", () => {
         doTest({
-            columnNumber: 0,
             lineNumber: 0,
+            columnNumber: 0,
             elements: [{
-                columnNumber: 1,
                 lineNumber: 0,
+                columnNumber: 1,
                 text: "test"
             }, {
-                columnNumber: 6,
                 lineNumber: 0,
+                columnNumber: 6,
                 text: "other"
             }]
         }, "[test, other]");
@@ -134,11 +134,11 @@ describe("parsing example", () => {
 
     it("should format as multi-line when the first item is on a different line than the array expression", () => {
         doTest({
-            columnNumber: 0,
             lineNumber: 0,
+            columnNumber: 0,
             elements: [{
-                columnNumber: 1,
                 lineNumber: 1,
+                columnNumber: 1,
                 text: "test"
             }]
         }, "[\n  test\n]");
@@ -147,11 +147,11 @@ describe("parsing example", () => {
     it("should format as single line when exceeding the print width with only one item", () => {
         const elementText = "asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfsadfasdf";
         doTest({
-            columnNumber: 0,
             lineNumber: 0,
+            columnNumber: 0,
             elements: [{
-                columnNumber: 1,
                 lineNumber: 0,
+                columnNumber: 1,
                 text: elementText
             }]
         }, `[${elementText}]`);
@@ -159,19 +159,19 @@ describe("parsing example", () => {
 
     it("should format as multi-line when multiple items exceed the print width", () => {
         doTest({
-            columnNumber: 0,
             lineNumber: 0,
+            columnNumber: 0,
             elements: [{
-                columnNumber: 1,
                 lineNumber: 0,
+                columnNumber: 1,
                 text: "test"
             }, {
-                columnNumber: 6,
                 lineNumber: 0,
+                columnNumber: 6,
                 text: "other"
             }, {
-                columnNumber: 25,
                 lineNumber: 0,
+                columnNumber: 25,
                 text: "asdfasdfasdfasdfasdfasdfasdf"
             }]
         }, "[\n  test,\n  other,\n  asdfasdfasdfasdfasdfasdfasdf\n]");
