@@ -5,22 +5,47 @@ import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem, R
 describe("parsing example", () => {
     // example AST nodes
 
-    interface Node {
+    enum SyntaxKind {
+        ArrayLiteralExpression,
+        ArrayElement
+    }
+
+    interface BaseNode {
+        kind: SyntaxKind;
         /** Line number in the original source code. */
         lineNumber: number;
         /** Column number in the original source code. */
         columnNumber: number;
     }
 
-    interface ArrayLiteralExpression extends Node {
+    type Node = ArrayLiteralExpression | ArrayElement;
+
+    interface ArrayLiteralExpression extends BaseNode {
+        kind: SyntaxKind.ArrayLiteralExpression;
         elements: ArrayElement[];
     }
 
-    interface ArrayElement extends Node {
+    interface ArrayElement extends BaseNode {
+        kind: SyntaxKind.ArrayElement;
         text: string;
     }
 
     // IR generation
+
+    function* parseNode(node: Node) {
+        // this general function should parse comments
+
+        switch (node.kind) {
+            case SyntaxKind.ArrayLiteralExpression:
+                yield* parseArrayLiteralExpression(node);
+                break;
+            case SyntaxKind.ArrayElement:
+                yield* parseArrayElement(node);
+                break;
+        }
+    }
+
+    // node functions
 
     function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIterable {
         const startInfo = createInfo("startArrayExpression");
@@ -47,7 +72,7 @@ describe("parsing example", () => {
 
         function* parseElements(): PrintItemIterable {
             for (let i = 0; i < expr.elements.length; i++) {
-                yield expr.elements[i].text;
+                yield* parseNode(expr.elements[i]);
 
                 if (i < expr.elements.length - 1) {
                     yield ",";
@@ -78,14 +103,17 @@ describe("parsing example", () => {
             // only one element, so force it to be a single line
             if (expr.elements.length === 1)
                 return false;
-            // check if the expression spans multiple lines, and if it does then make
-            // it multi-line
+            // check if the expression spans multiple lines, and if it does then make it multi-line
             const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo)!;
             const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
             if (resolvedEndInfo == null)
                 return false;
             return resolvedStartInfo.lineNumber < resolvedEndInfo.lineNumber;
         }
+    }
+
+    function* parseArrayElement(element: ArrayElement): PrintItemIterable {
+        yield element.text;
     }
 
     // helper functions
@@ -118,13 +146,16 @@ describe("parsing example", () => {
 
     it("should format when doesn't exceed line", () => {
         doTest({
+            kind: SyntaxKind.ArrayLiteralExpression,
             lineNumber: 0,
             columnNumber: 0,
             elements: [{
+                kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 1,
                 text: "test"
             }, {
+                kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 6,
                 text: "other"
@@ -134,9 +165,11 @@ describe("parsing example", () => {
 
     it("should format as multi-line when the first item is on a different line than the array expression", () => {
         doTest({
+            kind: SyntaxKind.ArrayLiteralExpression,
             lineNumber: 0,
             columnNumber: 0,
             elements: [{
+                kind: SyntaxKind.ArrayElement,
                 lineNumber: 1,
                 columnNumber: 1,
                 text: "test"
@@ -147,9 +180,11 @@ describe("parsing example", () => {
     it("should format as single line when exceeding the print width with only one item", () => {
         const elementText = "asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfsadfasdf";
         doTest({
+            kind: SyntaxKind.ArrayLiteralExpression,
             lineNumber: 0,
             columnNumber: 0,
             elements: [{
+                kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 1,
                 text: elementText
@@ -159,17 +194,21 @@ describe("parsing example", () => {
 
     it("should format as multi-line when multiple items exceed the print width", () => {
         doTest({
+            kind: SyntaxKind.ArrayLiteralExpression,
             lineNumber: 0,
             columnNumber: 0,
             elements: [{
+                kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 1,
                 text: "test"
             }, {
+                kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 6,
                 text: "other"
             }, {
+                kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 25,
                 text: "asdfasdfasdfasdfasdfasdfasdf"

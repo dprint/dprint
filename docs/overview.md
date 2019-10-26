@@ -75,18 +75,28 @@ The printer takes the IR and outputs the final code. Its main responsibilities a
 Given the following example AST nodes:
 
 ```ts
-interface Node {
+enum SyntaxKind {
+    ArrayLiteralExpression,
+    ArrayElement
+}
+
+interface BaseNode {
+    kind: SyntaxKind;
     /** Line number in the original source code. */
     lineNumber: number;
     /** Column number in the original source code. */
     columnNumber: number;
 }
 
-interface ArrayLiteralExpression extends Node {
+type Node = ArrayLiteralExpression | ArrayElement;
+
+interface ArrayLiteralExpression extends BaseNode {
+    kind: SyntaxKind.ArrayLiteralExpression;
     elements: ArrayElement[];
 }
 
-interface ArrayElement extends Node {
+interface ArrayElement extends BaseNode {
+    kind: SyntaxKind.ArrayElement;
     text: string;
 }
 ```
@@ -125,6 +135,21 @@ Here's some example IR generation:
 import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem,
     ResolveConditionContext } from "@dprint/core";
 
+export function* parseNode(node: Node) {
+    // In a real implementation, this function would parse comments as well.
+
+    switch (node.kind) {
+        case SyntaxKind.ArrayLiteralExpression:
+            yield* parseArrayLiteralExpression(expr);
+            break;
+        case SyntaxKind.ArrayElement:
+            yield* parseArrayElement(expr);
+            break;
+    }
+}
+
+// node functions
+
 function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIterable {
     const startInfo = createInfo("startArrayExpression");
     const endInfo = createInfo("endArrayExpression");
@@ -150,7 +175,7 @@ function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIt
 
     function* parseElements(): PrintItemIterable {
         for (let i = 0; i < expr.elements.length; i++) {
-            yield expr.elements[i].text;
+            yield* parseNode(expr.elements[i]);
 
             if (i < expr.elements.length - 1) {
                 yield ",";
@@ -188,6 +213,10 @@ function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIt
             return false;
         return resolvedStartInfo.lineNumber < resolvedEndInfo.lineNumber;
     }
+}
+
+function* parseArrayElement(element: ArrayElement): PrintItemIterable {
+    yield element.text;
 }
 
 // helper functions
