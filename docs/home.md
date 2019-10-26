@@ -163,7 +163,7 @@ Whether to use single quotes (`true`) or double quotes (`false`).
 
 Defaults to double quotes (`false`).
 
-### `newlineKind`
+### `newLineKind`
 
 The kind of newline to use.
 
