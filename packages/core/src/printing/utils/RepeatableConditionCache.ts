@@ -1,10 +1,10 @@
-import { Condition, ResolveCondition, PrintItem } from "../../types";
+import { Condition, ConditionResolver, PrintItem } from "../../types";
 
 export interface RepeatableCondition {
     /** Name for debugging purposes. */
     name: string;
     originalCondition: Condition;
-    condition: ResolveCondition | Condition;
+    condition: ConditionResolver | Condition;
     true?: PrintItem[];
     false?: PrintItem[];
 }

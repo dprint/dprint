@@ -1,6 +1,6 @@
 import * as babel from "@babel/types";
 import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
-    resolveNewLineKindFromText, LoggingEnvironment, ResolveConditionContext, ResolveCondition } from "@dprint/core";
+    LoggingEnvironment, ResolveConditionContext, ConditionResolver } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
 import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhitespace, throwError,
     hasNoNewlinesInLeadingWhitespace, hasNoNewlinesInTrailingWhitespace } from "../utils";
@@ -3845,7 +3845,7 @@ function* parseParametersOrArguments(options: ParseParametersOrArgumentsOptions)
 export interface ParseCommaSeparatedValuesOptions {
     values: babel.Node[];
     context: Context;
-    multiLineOrHangingConditionResolver: ResolveCondition;
+    multiLineOrHangingConditionResolver: ConditionResolver;
 }
 
 function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): PrintItemIterable {

@@ -100,7 +100,7 @@ export interface Condition {
     /** Name for debugging purposes. */
     name: string;
     /** The condition to resolve or another condition to base this condition on. */
-    condition: ResolveCondition | Condition;
+    condition: ConditionResolver | Condition;
     /** The items to print when the condition is true. */
     true?: PrintItemIterable;
     /** The items to print when the condition is false or undefined (not yet resolved). */
@@ -110,7 +110,7 @@ export interface Condition {
 /**
  * Function used to resolve a condition.
  */
-export type ResolveCondition = (context: ResolveConditionContext) => boolean | undefined;
+export type ConditionResolver = (context: ResolveConditionContext) => boolean | undefined;
 
 /**
  * Context used when resolving a condition.

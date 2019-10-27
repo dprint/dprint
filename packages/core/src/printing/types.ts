@@ -1,4 +1,4 @@
-import { Condition, ResolveCondition, Signal, RawString, PrintItemKind, Info } from "../types";
+import { Condition, ConditionResolver, Signal, RawString, PrintItemKind, Info } from "../types";
 
 // internal types for printing
 
@@ -14,7 +14,7 @@ export interface ConditionContainer {
     /** Name for debugging purposes. */
     name: string;
     originalCondition: Condition;
-    condition: ResolveCondition | Condition;
+    condition: ConditionResolver | Condition;
     true?: PrintItemContainer;
     false?: PrintItemContainer;
 }
