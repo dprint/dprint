@@ -31,6 +31,18 @@
             "stopOnEntry": false
         },
         {
+            "name": "Run Rust-Core Tests",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/packages/rust-core/target/debug/dprint_core-0af033fef4e6bcdc.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "cargo test build"
+        },
+        {
             "type": "node",
             "request": "attach",
             "name": "Attach",
