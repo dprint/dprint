@@ -42,11 +42,11 @@ pub struct Printer {
     container: PrintItemContainer,
     current_indexes: Vec<isize>, // todo: usize?
     save_point_increment: u32,
-    writer: Box<Writer>,
-    resolved_conditions: Box<HashMap<usize, bool>>,
-    resolved_infos: Box<HashMap<usize, WriterInfo>>,
-    look_ahead_condition_save_points: Box<HashMap<usize, SavePoint>>,
-    look_ahead_info_save_points: Box<HashMap<usize, SavePoint>>,
+    writer: Writer,
+    resolved_conditions: HashMap<usize, bool>,
+    resolved_infos: HashMap<usize, WriterInfo>,
+    look_ahead_condition_save_points: HashMap<usize, SavePoint>,
+    look_ahead_info_save_points: HashMap<usize, SavePoint>,
     max_width: u32,
     is_exiting_condition: bool,
 }
@@ -62,15 +62,15 @@ impl Printer {
             },
             current_indexes: vec![0 as isize],
             save_point_increment: 0,
-            writer: Box::new(Writer::new(WriterOptions {
+            writer: Writer::new(WriterOptions {
                 indent_width: options.indent_width,
                 newline_kind: options.newline_kind,
                 use_tabs: options.use_tabs,
-            })),
-            resolved_conditions: Box::new(HashMap::new()),
-            resolved_infos: Box::new(HashMap::new()),
-            look_ahead_condition_save_points: Box::new(HashMap::new()),
-            look_ahead_info_save_points: Box::new(HashMap::new()),
+            }),
+            resolved_conditions: HashMap::new(),
+            resolved_infos: HashMap::new(),
+            look_ahead_condition_save_points: HashMap::new(),
+            look_ahead_info_save_points: HashMap::new(),
             max_width: options.max_width,
             is_exiting_condition: false,
         }
