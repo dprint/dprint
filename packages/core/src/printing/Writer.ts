@@ -9,7 +9,7 @@ export interface WriterState {
     indentText: string;
     expectNewLineNext: boolean;
     items: string[];
-    ignoreIndent: boolean;
+    ignoreIndentCount: number;
 }
 
 export class Writer {
@@ -32,7 +32,7 @@ export class Writer {
             indentText: "",
             expectNewLineNext: false,
             items: [],
-            ignoreIndent: false
+            ignoreIndentCount: 0
         };
     }
 
@@ -63,7 +63,7 @@ export class Writer {
             indentLevel: state.indentLevel,
             indentText: state.indentText,
             items: [...state.items],
-            ignoreIndent: state.ignoreIndent
+            ignoreIndentCount: state.ignoreIndentCount
         };
         return newState;
     }
@@ -121,12 +121,12 @@ export class Writer {
         return this.state.indentText;
     }
 
-    private get ignoreIndent() {
-        return this.state.ignoreIndent;
+    private get ignoreIndentCount() {
+        return this.state.ignoreIndentCount;
     }
 
-    private set ignoreIndent(value: boolean) {
-        this.state.ignoreIndent = value;
+    private set ignoreIndentCount(value: number) {
+        this.state.ignoreIndentCount = value;
     }
 
     private get items() {
@@ -166,7 +166,7 @@ export class Writer {
             }
         }
 
-        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0 && !this.ignoreIndent)
+        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0 && this.ignoreIndentCount === 0)
             text = this.indentText + text;
 
         for (let i = 0; i < text.length; i++) {
@@ -202,11 +202,11 @@ export class Writer {
     }
 
     startIgnoringIndent() {
-        this.ignoreIndent = true;
+        this.ignoreIndentCount++;
     }
 
     finishIgnoringIndent() {
-        this.ignoreIndent = false;
+        this.ignoreIndentCount--;
     }
 
     markExpectNewLine() {
