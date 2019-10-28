@@ -57,6 +57,12 @@ pub struct Info {
     pub name: &'static str,
 }
 
+impl Into<PrintItem> for Info {
+    fn into(self) -> PrintItem {
+        PrintItem::Info(self)
+    }
+}
+
 static INFO_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl Info {
@@ -71,11 +77,7 @@ impl Info {
         self.id
     }
 
-    pub fn to_item(self) -> PrintItem {
-        PrintItem::Info(self)
-    }
-
-    pub fn to_item_clone(&self) -> PrintItem {
+    pub fn into_clone(&self) -> PrintItem {
         PrintItem::Info(self.clone())
     }
 }
@@ -115,12 +117,14 @@ impl Condition {
         self.id
     }
 
-    pub fn to_item(self) -> PrintItem {
-        PrintItem::Condition(self)
-    }
-
-    pub fn to_item_clone(&self) -> PrintItem {
+    pub fn into_clone(&self) -> PrintItem {
         PrintItem::Condition(self.clone())
+    }
+}
+
+impl Into<PrintItem> for Condition {
+    fn into(self) -> PrintItem {
+        PrintItem::Condition(self)
     }
 }
 

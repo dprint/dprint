@@ -122,7 +122,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
         &end_info
     );
 
-    items.push(start_info.to_item());
+    items.push(start_info.into());
 
     items.push(PrintItem::str("["));
     items.push(if_true(is_multiple_lines.clone(), PrintItem::NewLine));
@@ -132,12 +132,12 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
         condition: Box::new(is_multiple_lines.clone()),
         true_path: Some(with_indent(parsed_elements.clone())),
         false_path: Some(parsed_elements),
-    }).to_item());
+    }).into());
 
     items.push(if_true(is_multiple_lines, PrintItem::NewLine));
     items.push(PrintItem::str("]"));
 
-    items.push(end_info.to_item());
+    items.push(end_info.into());
 
     return items;
 
@@ -214,7 +214,7 @@ fn if_true(
         true_path: Some(vec![true_item]),
         false_path: Option::None,
         condition: Box::new(resolver.clone()),
-    }).to_item()
+    }).into()
 }
 
 fn if_true_or(
@@ -226,5 +226,5 @@ fn if_true_or(
         true_path: Some(vec![true_item]),
         false_path: Some(vec![false_item]),
         condition: Box::new(resolver.clone())
-    }).to_item()
+    }).into()
 }
