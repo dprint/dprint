@@ -110,7 +110,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
 
     items.push(start_info.into());
 
-    items.push(PrintItem::str("["));
+    items.push("[".into());
     items.push(if_true(is_multiple_lines.clone(), PrintItem::NewLine));
 
     let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines);
@@ -121,7 +121,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
     }).into());
 
     items.push(if_true(is_multiple_lines, PrintItem::NewLine));
-    items.push(PrintItem::str("]"));
+    items.push("]".into());
 
     items.push(end_info.into());
 
@@ -137,7 +137,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
             items.extend_from_slice(&parse_node(Node::ArrayElement(elements[i].clone())));
 
             if i < elements.len() - 1 {
-                items.push(PrintItem::str(","));
+                items.push(",".into());
                 items.push(if_true_or(
                     is_multiple_lines.clone(),
                     PrintItem::NewLine,
@@ -151,7 +151,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
 }
 
 fn parse_array_element(element: &ArrayElement) -> Vec<PrintItem> {
-    vec![PrintItem::str(&element.text)]
+    vec![(&element.text).into()]
 }
 
 // helper functions

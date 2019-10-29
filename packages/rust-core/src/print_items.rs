@@ -37,9 +37,21 @@ pub enum PrintItem {
     FinishIgnoringIndent,
 }
 
-impl PrintItem {
-    pub fn str(text: &str) -> PrintItem {
-        PrintItem::String(String::from(text))
+impl Into<PrintItem> for &str {
+    fn into(self) -> PrintItem {
+        PrintItem::String(String::from(self))
+    }
+}
+
+impl Into<PrintItem> for String {
+    fn into(self) -> PrintItem {
+        PrintItem::String(self)
+    }
+}
+
+impl Into<PrintItem> for &String {
+    fn into(self) -> PrintItem {
+        PrintItem::String(self.clone())
     }
 }
 
