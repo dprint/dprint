@@ -2,10 +2,6 @@
 
 Rust crate to help build a code formatter.
 
-```
-cargo install dprint-core
-```
-
 ## Example
 
 This reimplements the example from [overview.md](../../docs/overview.md), but in rust.
