@@ -1,4 +1,4 @@
-import { PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterable, RawString } from "@dprint/core";
+import { PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterable } from "@dprint/core";
 import { assertNever } from "./utils";
 
 /** Prints out a parsed print item iterable for debugging purposes. */
@@ -24,8 +24,6 @@ function printItem(item: PrintItem) {
         return printCondition(item);
     else if (item.kind === PrintItemKind.Info)
         return printInfo(item);
-    else if (item.kind === PrintItemKind.RawString)
-        return printRawString(item);
     return assertNever(item);
 }
 
@@ -56,13 +54,6 @@ function printCondition(condition: Condition): string {
 
 function printInfo(info: Info) {
     return `{ kind: Info, name: ${printString(info.name || "")} }`;
-}
-
-function printRawString(unknown: RawString) {
-    return "{\n"
-        + addIndentation("kind: RawString,\n"
-            + "text: " + printString(unknown.text)) + "\n"
-        + "}";
 }
 
 function addIndentation(text: string) {

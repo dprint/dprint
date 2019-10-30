@@ -90,7 +90,7 @@ export declare function resolveConfiguration(config: Partial<Configuration>): Re
 /**
  * The different items the printer could encounter.
  */
-export declare type PrintItem = Signal | string | RawString | Condition | Info;
+export declare type PrintItem = Signal | string | Condition | Info;
 
 /**
  * An iterable of print items.
@@ -102,17 +102,8 @@ export interface PrintItemIterable extends Iterable<PrintItem> {
  * The kind of print item.
  */
 export declare enum PrintItemKind {
-    RawString = 0,
-    Condition = 1,
-    Info = 2
-}
-
-/**
- * Represents a string that should be formatted as-is.
- */
-export interface RawString {
-    kind: PrintItemKind.RawString;
-    text: string;
+    Condition = 0,
+    Info = 1
 }
 
 /**
@@ -124,48 +115,52 @@ export declare enum Signal {
      */
     NewLine = 0,
     /**
+     * Signal that a tab should occur.
+     */
+    Tab = 1,
+    /**
      * Signal that the current location could be a newline when
      * exceeding the line width.
      */
-    PossibleNewLine = 1,
+    PossibleNewLine = 2,
     /**
      * Signal that the current location should be a space, but
      * could be a newline if exceeding the line width.
      */
-    SpaceOrNewLine = 2,
+    SpaceOrNewLine = 3,
     /**
      * Expect the next character to be a newline. If it's not, force a newline.
      */
-    ExpectNewLine = 3,
+    ExpectNewLine = 4,
     /**
      * Signal the start of a section that should be indented.
      */
-    StartIndent = 4,
+    StartIndent = 5,
     /**
      * Signal the end of a section that should be indented.
      */
-    FinishIndent = 5,
+    FinishIndent = 6,
     /**
      * Signal the start of a group of print items that have a lower precedence
      * for being broken up with a newline for exceeding the line width.
      */
-    StartNewLineGroup = 6,
+    StartNewLineGroup = 7,
     /**
      * Signal the end of a newline group.
      */
-    FinishNewLineGroup = 7,
+    FinishNewLineGroup = 8,
     /**
      * Signal that a single indent should occur based on the printer settings.
      */
-    SingleIndent = 8,
+    SingleIndent = 9,
     /**
      * Signal to the printer that it should stop using indentation.
      */
-    StartIgnoringIndent = 9,
+    StartIgnoringIndent = 10,
     /**
      * Signal to the printer that it should start using indentation again.
      */
-    FinishIgnoringIndent = 10
+    FinishIgnoringIndent = 11
 }
 
 /**
@@ -278,6 +273,12 @@ export declare namespace parserHelpers {
      */
     function parseJsLikeCommentLine(rawCommentValue: string): string;
     function createInfo(name: string): Info;
+    /**
+     * Takes a string that could contain tabs or newlines and breaks it up into
+     * the correct newlines and tabs.
+     * @param text - Text to break up.
+     */
+    function parseRawString(text: string): PrintItemIterable;
 }
 
 /**

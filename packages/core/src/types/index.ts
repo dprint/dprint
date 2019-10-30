@@ -1,7 +1,7 @@
 /**
  * The different items the printer could encounter.
  */
-export type PrintItem = Signal | string | RawString | Condition | Info;
+export type PrintItem = Signal | string | Condition | Info;
 
 /**
  * An iterable of print items.
@@ -13,17 +13,8 @@ export interface PrintItemIterable extends Iterable<PrintItem> {
  * The kind of print item.
  */
 export enum PrintItemKind {
-    RawString,
     Condition,
     Info
-}
-
-/**
- * Represents a string that should be formatted as-is.
- */
-export interface RawString {
-    kind: PrintItemKind.RawString;
-    text: string;
 }
 
 /**
@@ -34,6 +25,10 @@ export enum Signal {
      * Signal that a new line should occur based on the printer settings.
      */
     NewLine,
+    /**
+     * Signal that a tab should occur.
+     */
+    Tab,
     /**
      * Signal that the current location could be a newline when
      * exceeding the line width.

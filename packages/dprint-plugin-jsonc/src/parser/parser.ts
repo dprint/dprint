@@ -1,5 +1,5 @@
 import { Node, SyntaxKind, JSONScanner, createScanner, NodeType } from "jsonc-parser";
-import { parserHelpers, resolveNewLineKindFromText, PrintItemIterable, PrintItemKind, Signal, PrintItem, LoggingEnvironment } from "@dprint/core";
+import { parserHelpers, PrintItemIterable, PrintItemKind, Signal, PrintItem, LoggingEnvironment } from "@dprint/core";
 import { ResolvedJsoncConfiguration } from "../configuration";
 import { throwError } from "../utils";
 
@@ -116,10 +116,7 @@ function* parseObject(node: Node, context: Context): PrintItemIterable {
 }
 
 function* parseNodeAsIs(node: Node, context: Context): PrintItemIterable {
-    yield {
-        kind: PrintItemKind.RawString,
-        text: context.fileText.substr(node.offset, node.length)
-    };
+    yield* parserHelpers.parseRawString(context.fileText.substr(node.offset, node.length));
 }
 
 function* parseArray(node: Node, context: Context): PrintItemIterable {
@@ -143,10 +140,7 @@ function* parseUnknownNode(node: Node, context: Context): PrintItemIterable {
 
     context.log(`"Not implemented node type": ${node.type} (${nodeText.substring(0, 100)})`);
 
-    yield {
-        kind: PrintItemKind.RawString,
-        text: nodeText
-    };
+    yield* parserHelpers.parseRawString(nodeText);
 }
 
 /* helpers */
@@ -404,10 +398,7 @@ function* parseCommentLine(commentValue: string): PrintItemIterable {
 
 function* parseCommentBlock(commentText: string): PrintItemIterable {
     yield "/*";
-    yield {
-        kind: PrintItemKind.RawString,
-        text: commentText
-    };
+    yield* parserHelpers.parseRawString(commentText);
     yield "*/";
 }
 

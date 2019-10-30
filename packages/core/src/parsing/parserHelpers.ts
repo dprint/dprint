@@ -62,4 +62,38 @@ export namespace parserHelpers {
             name
         };
     }
+
+    /**
+     * Takes a string that could contain tabs or newlines and breaks it up into
+     * the correct newlines and tabs.
+     * @param text - Text to break up.
+     */
+    export function* parseRawString(text: string): PrintItemIterable {
+        let hasIgnoredIndent = false;
+
+        const lines = text.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+            if (i > 0) {
+                if (!hasIgnoredIndent) {
+                    yield Signal.StartIgnoringIndent;
+                    hasIgnoredIndent = true;
+                }
+
+                yield Signal.NewLine;
+            }
+            yield* parseLine(lines[i]);
+        }
+
+        if (hasIgnoredIndent)
+            yield Signal.FinishIgnoringIndent;
+
+        function* parseLine(line: string): PrintItemIterable {
+            const parts = line.split("\t");
+            for (let i = 0; i < parts.length; i++) {
+                if (i > 0)
+                    yield Signal.Tab;
+                yield* parts[i];
+            }
+        }
+    }
 }

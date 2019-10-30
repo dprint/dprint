@@ -1,8 +1,8 @@
-import { Condition, ConditionResolver, Signal, RawString, PrintItemKind, Info } from "../types";
+import { Condition, ConditionResolver, Signal, PrintItemKind, Info } from "../types";
 
 // internal types for printing
 
-export type PrinterPrintItem = Signal | string | RawString | ConditionContainer | Info;
+export type PrinterPrintItem = Signal | string | ConditionContainer | Info;
 
 export interface PrintItemContainer {
     parent?: PrintItemContainer;

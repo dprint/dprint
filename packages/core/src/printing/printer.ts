@@ -1,5 +1,5 @@
-import { PrintItemKind, Signal, Condition, RawString, PrintItemIterable, Info, WriterInfo } from "../types";
-import { assertNever, throwError } from "../utils";
+import { PrintItemKind, Signal, Condition, PrintItemIterable, Info, WriterInfo } from "../types";
+import { assertNever } from "../utils";
 import { Writer, WriterState } from "./Writer";
 import { PrinterPrintItem, ConditionContainer, PrintItemContainer } from "./types";
 import { deepIterableToContainer } from "./utils";
@@ -78,8 +78,6 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             handleSignal(printItem);
         else if (typeof printItem === "string")
             handleString(printItem);
-        else if (printItem.kind === PrintItemKind.RawString)
-            handleRawString(printItem);
         else if (printItem.kind === PrintItemKind.Condition)
             handleCondition(printItem);
         else if (printItem.kind === PrintItemKind.Info)
@@ -93,6 +91,9 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             switch (signal) {
                 case Signal.NewLine:
                     writer.newLine();
+                    break;
+                case Signal.Tab:
+                    writer.write("\t");
                     break;
                 case Signal.ExpectNewLine:
                     writer.markExpectNewLine();
@@ -141,7 +142,6 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         }
 
         function handleString(text: string) {
-            // todo: combine with handleRawString?
             // todo: this check should only happen during testing
             if (text.includes("\n"))
                 throw new Error("Parser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
@@ -150,22 +150,6 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                 updateStateToSavePoint(possibleNewLineSavePoint);
             else
                 writer.write(text);
-        }
-
-        function handleRawString(rawString: RawString) {
-            if (possibleNewLineSavePoint != null && isAboveMaxWidth(getLineWidth()))
-                updateStateToSavePoint(possibleNewLineSavePoint);
-            else
-                writer.baseWrite(rawString.text);
-
-            function getLineWidth() {
-                const index = rawString.text.indexOf("\n");
-                if (index === -1)
-                    return rawString.text.length;
-                else if (rawString.text[index - 1] === "\r")
-                    return index - 1;
-                return index;
-            }
         }
 
         function handleCondition(condition: ConditionContainer) {

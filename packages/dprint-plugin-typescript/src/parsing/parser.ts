@@ -1,5 +1,5 @@
 import * as babel from "@babel/types";
-import { makeIterableRepeatable, PrintItemKind, Signal, RawString, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
+import { makeIterableRepeatable, PrintItemKind, Signal, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
     LoggingEnvironment, ResolveConditionContext, ConditionResolver } from "@dprint/core";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
 import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhitespace, throwError,
@@ -380,7 +380,7 @@ function* parseNode(node: babel.Node | null, context: Context, opts?: ParseNodeO
 
         function getNodeIterator() {
             if (node && hasIgnoreComment())
-                return toPrintItemIterable(parseNodeAsRawString(node, context));
+                return parseNodeAsRawString(node, context);
 
             const parseFunc = parseObj[node!.type] || parseUnknownNode;
             return parseFunc(node, context);
@@ -1464,8 +1464,6 @@ function* parseExpressionStatement(node: babel.ExpressionStatement, context: Con
                     if (result != null)
                         return result;
                 }
-                else if (item.kind === PrintItemKind.RawString)
-                    return checkString(item.text);
                 else if (item.kind === PrintItemKind.Info)
                     continue;
                 else
@@ -2866,10 +2864,7 @@ function* parseNumericLiteral(node: babel.NumericLiteral, context: Context): Pri
 function* parseStringOrDirectiveLiteral(node: babel.StringLiteral | babel.DirectiveLiteral, context: Context): PrintItemIterable {
     type _markValueUsed = AnalysisMarkImplemented<typeof node.value, "This is essentially used by accessing the text.">;
 
-    yield {
-        kind: PrintItemKind.RawString,
-        text: getStringLiteralText()
-    };
+    yield* parserHelpers.parseRawString(getStringLiteralText());
 
     function getStringLiteralText() {
         const stringValue = getStringValue();
@@ -2903,10 +2898,7 @@ function* parseTemplateElement(node: babel.TemplateElement, context: Context): P
     type _markValueUsed = AnalysisMarkImplemented<typeof node.value, "Used by getting the text.">;
     type _markTailUsed = AnalysisMarkImplemented<typeof node.tail, "Not useful for our situation.">;
 
-    yield {
-        kind: PrintItemKind.RawString,
-        text: context.fileText.substring(node.start!, node.end!)
-    };
+    yield* parserHelpers.parseRawString(context.fileText.substring(node.start!, node.end!));
 }
 
 function* parseTemplateLiteral(node: babel.TemplateLiteral, context: Context): PrintItemIterable {
@@ -2972,28 +2964,25 @@ function* parseTemplateLiteral(node: babel.TemplateLiteral, context: Context): P
 /* not implemented */
 
 function parseNotSupportedFlowNode(node: babel.Node, context: Context): PrintItemIterable {
-    return toPrintItemIterable(parseUnknownNodeWithMessage(node, context, "Flow node types are not supported"));
+    return parseUnknownNodeWithMessage(node, context, "Flow node types are not supported");
 }
 
 function parseUnknownNode(node: babel.Node, context: Context): PrintItemIterable {
-    return toPrintItemIterable(parseUnknownNodeWithMessage(node, context, "Not implemented node type"));
+    return parseUnknownNodeWithMessage(node, context, "Not implemented node type");
 }
 
-function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message: string): RawString {
-    const rawString = parseNodeAsRawString(node, context);
-
-    context.log(`${message}: ${node.type} (${rawString.text.substring(0, 100)})`);
-
-    return rawString;
-}
-
-function parseNodeAsRawString(node: babel.Node, context: Context): RawString {
+function parseUnknownNodeWithMessage(node: babel.Node, context: Context, message: string): PrintItemIterable {
     const nodeText = context.fileText.substring(node.start!, node.end!);
 
-    return {
-        kind: PrintItemKind.RawString,
-        text: nodeText
-    };
+    context.log(`${message}: ${node.type} (${nodeText.substring(0, 100)})`);
+
+    return parserHelpers.parseRawString(nodeText);
+}
+
+function parseNodeAsRawString(node: babel.Node, context: Context): PrintItemIterable {
+    const nodeText = context.fileText.substring(node.start!, node.end!);
+
+    return parserHelpers.parseRawString(nodeText);
 }
 
 /* types */
@@ -4390,10 +4379,7 @@ function* parseComment(comment: babel.Comment, context: Context): PrintItemItera
 
     function* parseCommentBlock(comment: babel.CommentBlock): PrintItemIterable {
         yield "/*";
-        yield {
-            kind: PrintItemKind.RawString,
-            text: comment.value
-        };
+        yield* parserHelpers.parseRawString(comment.value);
         yield "*/";
     }
 

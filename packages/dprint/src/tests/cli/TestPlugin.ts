@@ -1,4 +1,4 @@
-import { Plugin, BaseResolvedConfiguration, PluginInitializeOptions, PrintItemIterable, PrintItemKind, Signal } from "@dprint/core";
+import { Plugin, BaseResolvedConfiguration, PluginInitializeOptions, PrintItemIterable, PrintItemKind, Signal, parserHelpers } from "@dprint/core";
 
 export interface ResolvedTestPluginConfiguration extends BaseResolvedConfiguration {
 }
@@ -30,9 +30,6 @@ export class TestPlugin implements Plugin<ResolvedTestPluginConfiguration> {
     *parseFile(filePath: string, fileText: string): PrintItemIterable {
         yield "// formatted";
         yield Signal.NewLine;
-        yield {
-            kind: PrintItemKind.RawString,
-            text: fileText
-        };
+        yield* parserHelpers.parseRawString(fileText);
     }
 }
