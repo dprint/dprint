@@ -177,7 +177,7 @@ export class Writer {
                 this.fireOnNewLine!(); // expect this to be set
             }
             else {
-                // update the indent level again if on the first line
+                // update the indent level again if on the first column
                 if (this.currentLineColumn === 0)
                     this.lastLineIndentLevel = this.indentLevel;
 
@@ -222,7 +222,7 @@ export class Writer {
     }
 
     getLineStartColumnNumber() {
-        return this.singleIndentationText.length * this.lastLineIndentLevel;
+        return this.indentWidth * this.lastLineIndentLevel;
     }
 
     /** Gets the zero-indexed line column. */
