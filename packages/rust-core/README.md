@@ -2,6 +2,8 @@
 
 Rust crate to help build a code formatter.
 
+DO NOT USE THIS. This is under active early development and there's a few undocumented ways this needs to be used.
+
 ## Example
 
 This reimplements the example from [overview.md](../../docs/overview.md), but in rust.
@@ -70,16 +72,29 @@ extern crate dprint_core;
 
 use dprint_core::*;
 
-pub fn format(expr: ArrayLiteralExpression) {
+pub fn format(expr: ArrayLiteralExpression) -> String {
+    // Parse out the print items from the AST.
     let print_items = parse_node(Node::ArrayLiteralExpression(expr));
-    let printer = dprint_core::Printer::new(print_items, PrintOptions {
+
+    // Send the print items to be transformed into write items.
+    let write_items = dprint_core::get_write_items(print_items, PrintOptions {
         indent_width: 4,
         max_width: 10,
-        newline_kind: "\n",
-        use_tabs: false
+        // Set this to true while testing. It runs additional validation on the
+        // strings to ensure the print items are being parsed out correctly.
+        is_testing: false,
     });
 
-    printer.print()
+    // Write out the write items to a string.
+    // Note: This is a 3 step process because this final step could be done
+    // on the JS side rather than in Rust. Additionally PrintItem is generic
+    // and allows for an implementation that avoids copying the string over
+    // from rust. I have yet to try this out to see if it's actually faster.
+    dprint_core::print_write_items(write_items, PrintWriteItemsOptions {
+        use_tabs: false,
+        newline_kind: "\n",
+        indent_width: 4,
+    })
 }
 
 // node parsing functions

@@ -1,39 +1,30 @@
+use super::StringContainer;
+use super::WriteItem;
+
 #[derive(Clone)]
-pub struct WriterState {
+pub struct WriterState<T> where T : StringContainer {
     pub current_line_column: u32,
     pub current_line_number: u32,
     pub last_line_indent_level: u16,
     pub indent_level: u16,
     pub expect_newline_next: bool,
-    pub items: Vec<String>,
+    pub items: Vec<WriteItem<T>>,
     pub ignore_indent_count: u8,
 }
 
 pub struct WriterOptions {
     pub indent_width: u8,
-    pub use_tabs: bool,
-    pub newline_kind: &'static str,
 }
 
-pub struct Writer {
-    state: WriterState,
-    single_indentation_text: String,
+pub struct Writer<T> where T : StringContainer {
+    state: WriterState<T>,
     indent_width: u8,
-    newline_kind: String,
 }
 
-impl Writer {
-    pub fn new(options: WriterOptions) -> Writer {
-        let single_indentation_text = if options.use_tabs {
-            String::from("\t")
-        } else {
-            String::from(" ").repeat(options.indent_width as usize)
-        };
-
+impl<T> Writer<T> where T : StringContainer {
+    pub fn new(options: WriterOptions) -> Writer<T> {
         Writer {
             indent_width: options.indent_width,
-            single_indentation_text,
-            newline_kind: String::from(options.newline_kind),
             state: WriterState {
                 current_line_column: 0,
                 current_line_number: 0,
@@ -46,11 +37,11 @@ impl Writer {
         }
     }
 
-    pub fn get_state(&self) -> WriterState {
+    pub fn get_state(&self) -> WriterState<T> {
         self.state.clone()
     }
 
-    pub fn set_state(&mut self, state: WriterState) {
+    pub fn set_state(&mut self, state: WriterState<T>) {
         self.state = state;
     }
 
@@ -87,8 +78,7 @@ impl Writer {
     }
 
     pub fn get_line_start_column_number(&self) -> u32 {
-        // every char should be 1 byte so should be ok to use len() here
-        (self.single_indentation_text.len() as u32) * (self.state.last_line_indent_level as u32)
+        (self.indent_width as u32) * (self.state.last_line_indent_level as u32)
     }
 
     pub fn get_line_column(&self) -> u32 {
@@ -104,65 +94,57 @@ impl Writer {
     }
 
     pub fn single_indent(&mut self) {
-        self.base_write(&self.single_indentation_text.clone());
-    }
-
-    pub fn write(&mut self, text: &str) {
-        validate_text(text);
-        self.base_write(text);
-
-        fn validate_text(text: &str) {
-            // todo: turn this off except when testing?
-            if text.contains("\n") {
-                panic!("Printer error: The IR generation should not write newlines. Use Signal.NewLine instead.");
-            }
-        }
+        self.state.current_line_column += self.indent_width as u32;
+        self.state.items.push(WriteItem::Indent);
     }
 
     pub fn new_line(&mut self) {
-        self.base_write(&self.newline_kind.clone())
+        self.state.current_line_column = 0;
+        self.state.current_line_number += 1;
+        self.state.last_line_indent_level = self.state.indent_level;
+        self.state.expect_newline_next = false;
+        self.state.items.push(WriteItem::NewLine);
     }
 
-    pub fn base_write(&mut self, text: &str) {
-        let starts_with_new_line = text.starts_with("\n") || text.starts_with("\r\n");
+    pub fn tab(&mut self) {
+        self.state.current_line_column += self.indent_width as u32;
+        self.state.items.push(WriteItem::Tab);
+    }
+
+    pub fn space(&mut self) {
+        self.state.current_line_column += 1;
+        self.state.items.push(WriteItem::Space);
+    }
+
+    pub fn write(&mut self, text: &T) {
+        // todo: validate that the string doesn't contain newlines or tabs in testing mode
 
         if self.state.expect_newline_next {
-            self.state.expect_newline_next = false;
-            if !starts_with_new_line {
-                self.base_write(&self.newline_kind.clone());
-                self.base_write(text);
-                return;
+            self.new_line();
+        }
+
+        // add the indentation if necessary
+        if self.state.current_line_column == 0 && self.state.indent_level > 0 && self.state.ignore_indent_count == 0 {
+            // update the indent level again if on the first column
+            self.state.last_line_indent_level = self.state.indent_level;
+
+            for _ in 0..self.state.indent_level {
+                self.state.items.push(WriteItem::Indent);
             }
+
+            self.state.current_line_column += self.state.indent_level as u32 * self.indent_width as u32;
         }
 
-        let mut text = String::from(text);
-        if self.state.current_line_column == 0 && !starts_with_new_line && self.state.indent_level > 0 && self.state.ignore_indent_count == 0 {
-            text.insert_str(0, &self.single_indentation_text.repeat(self.state.indent_level as usize));
-        }
-
-        for c in text.chars() {
-            if c == '\n' {
-                self.state.current_line_column = 0;
-                self.state.current_line_number += 1;
-                self.state.last_line_indent_level = self.state.indent_level;
-            } else {
-                // update the indent level again if on the first line
-                if self.state.current_line_column == 0 {
-                    self.state.last_line_indent_level = self.state.indent_level;
-                }
-
-                if c == '\t' {
-                    self.state.current_line_column += self.indent_width as u32;
-                } else {
-                    self.state.current_line_column += 1;
-                }
-            }
-        }
-
-        self.state.items.push(text);
+        self.state.current_line_column += text.get_length() as u32;
+        self.state.items.push(WriteItem::String(text.clone()));
     }
 
-    pub fn to_string(&self) -> String {
-        self.state.items.join("")
+    pub fn get_items(self) -> Vec<WriteItem<T>> {
+        self.state.items
+    }
+
+    #[allow(dead_code)]
+    pub fn get_items_copy(&self) -> Vec<WriteItem<T>> {
+        self.state.items.clone()
     }
 }

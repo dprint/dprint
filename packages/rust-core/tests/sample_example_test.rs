@@ -90,13 +90,16 @@ fn it_formats_as_multi_line_when_items_exceed_print_width() {
 
 fn do_test(expr: ArrayLiteralExpression, expected_text: &str) {
     let print_items = parse_node(Node::ArrayLiteralExpression(expr));
-    let printer = dprint_core::Printer::new(print_items, PrintOptions {
+    let write_items = dprint_core::get_write_items(print_items, PrintOptions {
         indent_width: 2,
         max_width: 40,
-        newline_kind: "\n",
-        use_tabs: false
+        is_testing: true,
     });
-    let result = printer.print();
+    let result = print_write_items(write_items, PrintWriteItemsOptions {
+        use_tabs: false,
+        newline_kind: "\n",
+        indent_width: 2
+    });
     assert_eq!(result, expected_text);
 }
 
