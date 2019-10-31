@@ -16,14 +16,16 @@ export class Writer {
     private readonly singleIndentationText: string;
     private readonly indentWidth: number;
     private readonly newLineKind: "\r\n" | "\n";
+    private readonly isTesting: boolean;
     private fireOnNewLine?: () => void;
 
     private state: WriterState;
 
-    constructor(options: { indentWidth: number; useTabs: boolean; newLineKind: "\r\n" | "\n"; }) {
+    constructor(options: { indentWidth: number; useTabs: boolean; newLineKind: "\r\n" | "\n"; isTesting: boolean; }) {
         this.singleIndentationText = options.useTabs ? "\t" : " ".repeat(options.indentWidth);
         this.newLineKind = options.newLineKind;
         this.indentWidth = options.indentWidth;
+        this.isTesting = options.isTesting;
         this.state = {
             currentLineColumn: 0,
             currentLineNumber: 0,
@@ -133,62 +135,62 @@ export class Writer {
         return this.state.items;
     }
 
-    singleIndent() {
-        this.baseWrite(this.singleIndentationText);
+    newLine() {
+        this.currentLineColumn = 0;
+        this.currentLineNumber++;
+        this.lastLineIndentLevel = this.indentLevel;
+        this.expectNewLineNext = false;
+        this.items.push(this.newLineKind);
+        this.fireOnNewLine!(); // expect this to be set
     }
 
-    newLine() {
-        this.baseWrite(this.newLineKind);
+    singleIndent() {
+        this.handleFirstColumn();
+        this.currentLineColumn += this.indentWidth;
+        this.items.push(this.singleIndentationText);
+    }
+
+    tab() {
+        this.handleFirstColumn();
+        this.currentLineColumn += this.indentWidth;
+        this.items.push("\t");
+    }
+
+    space() {
+        this.handleFirstColumn();
+        this.currentLineColumn++;
+        this.items.push(" ");
     }
 
     write(text: string) {
-        this.validateText(text);
-        this.baseWrite(text);
+        if (this.isTesting)
+            this.validateText(text);
+
+        this.handleFirstColumn();
+
+        this.currentLineColumn += text.length;
+        this.state.items.push(text);
+    }
+
+    private handleFirstColumn() {
+        if (this.expectNewLineNext) {
+            this.newLine();
+        }
+
+        if (this.currentLineColumn === 0 && this.indentLevel > 0 && this.ignoreIndentCount === 0) {
+            // update the indent level again since on the first column
+            this.lastLineIndentLevel = this.indentLevel;
+
+            this.currentLineColumn += this.indentWidth * this.indentLevel;
+            this.items.push(this.indentText);
+        }
     }
 
     private validateText(text: string) {
-        // todo: this check should only be done when running the tests... otherwise
-        // it should be turned off for performance reasons because it will iterate
-        // the entire text
         if (text.includes("\n"))
             throwError(`Printer error: The IR generation should not write newlines. Use ${nameof.full(Signal.NewLine)} instead.`);
-    }
-
-    baseWrite(text: string) {
-        const startsWithNewLine = text[0] === "\n" || text[0] === "\r" && text[1] === "\n";
-
-        if (this.expectNewLineNext) {
-            this.expectNewLineNext = false;
-            if (!startsWithNewLine) {
-                this.baseWrite(this.newLineKind);
-                this.baseWrite(text);
-                return;
-            }
-        }
-
-        if (this.currentLineColumn === 0 && !startsWithNewLine && this.indentLevel > 0 && this.ignoreIndentCount === 0)
-            text = this.indentText + text;
-
-        for (let i = 0; i < text.length; i++) {
-            if (text[i] === "\n") {
-                this.currentLineColumn = 0;
-                this.currentLineNumber++;
-                this.lastLineIndentLevel = this.indentLevel;
-                this.fireOnNewLine!(); // expect this to be set
-            }
-            else {
-                // update the indent level again if on the first column
-                if (this.currentLineColumn === 0)
-                    this.lastLineIndentLevel = this.indentLevel;
-
-                if (text[i] === "\t")
-                    this.currentLineColumn += this.indentWidth;
-                else
-                    this.currentLineColumn++;
-            }
-        }
-
-        this.state.items.push(text);
+        if (text.includes("\t"))
+            throwError(`Printer error: The IR generation should not write tabs. Use ${nameof.full(Signal.Tab)} instead.`);
     }
 
     startIndent() {

@@ -16,6 +16,11 @@ export interface PrintOptions {
     useTabs: boolean;
     /** The newline character to use when doing a new line. */
     newLineKind: "\r\n" | "\n";
+    /**
+     * Set to true when testing in order to run additional validation on the inputted strings, which
+     * ensures the printer is being used correctly.
+     */
+    isTesting: boolean;
 }
 
 interface SavePoint {
@@ -93,7 +98,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                     writer.newLine();
                     break;
                 case Signal.Tab:
-                    writer.write("\t");
+                    writer.tab();
                     break;
                 case Signal.ExpectNewLine:
                     writer.markExpectNewLine();
@@ -111,7 +116,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
                     }
                     else {
                         markPossibleNewLineIfAble();
-                        writer.write(" ");
+                        writer.space();
                     }
                     break;
                 case Signal.StartIndent:
@@ -142,10 +147,6 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         }
 
         function handleString(text: string) {
-            // todo: this check should only happen during testing
-            if (text.includes("\n"))
-                throw new Error("Parser error: Cannot parse text that includes newlines. Newlines must be in their own string.");
-
             if (possibleNewLineSavePoint != null && isAboveMaxWidth(text.length))
                 updateStateToSavePoint(possibleNewLineSavePoint);
             else

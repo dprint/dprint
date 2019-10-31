@@ -23,7 +23,8 @@ export function formatFileText(options: FormatFileTextOptions) {
         newLineKind: config.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newLineKind,
         maxWidth: config.lineWidth,
         indentWidth: config.indentWidth,
-        useTabs: config.useTabs
+        useTabs: config.useTabs,
+        isTesting: true // todo: make this only true during testing (environment variable?)
     });
 
     function getPlugin() {
