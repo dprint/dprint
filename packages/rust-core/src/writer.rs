@@ -93,11 +93,6 @@ impl<T> Writer<T> where T : StringContainer {
         self.state.current_line_number
     }
 
-    pub fn single_indent(&mut self) {
-        self.state.current_line_column += self.indent_width as u32;
-        self.state.items.push(WriteItem::Indent);
-    }
-
     pub fn new_line(&mut self) {
         self.state.current_line_column = 0;
         self.state.current_line_number += 1;
@@ -106,19 +101,31 @@ impl<T> Writer<T> where T : StringContainer {
         self.state.items.push(WriteItem::NewLine);
     }
 
+    pub fn single_indent(&mut self) {
+        self.handle_first_column();
+        self.state.current_line_column += self.indent_width as u32;
+        self.state.items.push(WriteItem::Indent);
+    }
+
     pub fn tab(&mut self) {
+        self.handle_first_column();
         self.state.current_line_column += self.indent_width as u32;
         self.state.items.push(WriteItem::Tab);
     }
 
     pub fn space(&mut self) {
+        self.handle_first_column();
         self.state.current_line_column += 1;
         self.state.items.push(WriteItem::Space);
     }
 
     pub fn write(&mut self, text: &T) {
-        // todo: validate that the string doesn't contain newlines or tabs in testing mode
+        self.handle_first_column();
+        self.state.current_line_column += text.get_length() as u32;
+        self.state.items.push(WriteItem::String(text.clone()));
+    }
 
+    fn handle_first_column(&mut self) {
         if self.state.expect_newline_next {
             self.new_line();
         }
@@ -134,9 +141,6 @@ impl<T> Writer<T> where T : StringContainer {
 
             self.state.current_line_column += self.state.indent_level as u32 * self.indent_width as u32;
         }
-
-        self.state.current_line_column += text.get_length() as u32;
-        self.state.items.push(WriteItem::String(text.clone()));
     }
 
     pub fn get_items(self) -> Vec<WriteItem<T>> {
