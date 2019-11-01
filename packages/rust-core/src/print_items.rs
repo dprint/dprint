@@ -1,18 +1,47 @@
-use super::StringContainer;
 use super::printer::Printer;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// Traits. This allows implementing these for Wasm objects.
+
+pub trait StringRef : Clone {
+    fn get_length(&self) -> usize;
+    fn get_text(self) -> String;
+}
+
+impl StringRef for String {
+    fn get_length(&self) -> usize {
+        self.chars().count()
+    }
+
+    fn get_text(self) -> String {
+        self
+    }
+}
+
+pub trait InfoRef : Clone {
+    fn get_unique_id(&self) -> usize;
+    fn get_name(&self) -> &'static str;
+}
+
+pub trait ConditionRef<TString, TInfo> : Clone where TString : StringRef, TInfo : InfoRef {
+    fn get_unique_id(&self) -> usize;
+    fn get_name(&self) -> &'static str;
+    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, Self>) -> Option<bool>;
+    fn get_true_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>>;
+    fn get_false_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>>;
+}
+
 /// The different items the printer could encounter.
 #[derive(Clone)]
-pub enum PrintItem<T = String> where T : StringContainer {
-    String(T),
-    Condition(Condition<T>),
-    Info(Info),
-    /// Signal that a tab should occur based on the printer settings.
-    Tab,
+pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+    String(TString),
+    Condition(TCondition),
+    Info(TInfo),
     /// Signal that a new line should occur based on the printer settings.
     NewLine,
+    /// Signal that a tab should occur based on the printer settings.
+    Tab,
     /// Signal that the current location could be a newline when
     /// exceeding the line width.
     PossibleNewLine,
@@ -38,20 +67,20 @@ pub enum PrintItem<T = String> where T : StringContainer {
     FinishIgnoringIndent,
 }
 
-impl Into<PrintItem<String>> for &str {
-    fn into(self) -> PrintItem<String> {
+impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &str where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo> {
+    fn into(self) -> PrintItem<String, TInfo, TCondition> {
         PrintItem::String(String::from(self))
     }
 }
 
-impl Into<PrintItem<String>> for String {
-    fn into(self) -> PrintItem<String> {
+impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo> {
+    fn into(self) -> PrintItem<String, TInfo, TCondition> {
         PrintItem::String(self)
     }
 }
 
-impl Into<PrintItem<String>> for &String {
-    fn into(self) -> PrintItem<String> {
+impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo> {
+    fn into(self) -> PrintItem<String, TInfo, TCondition> {
         PrintItem::String(self.clone())
     }
 }
@@ -67,8 +96,18 @@ pub struct Info {
     pub name: &'static str,
 }
 
-impl<T> Into<PrintItem<T>> for Info where T : StringContainer {
-    fn into(self) -> PrintItem<T> {
+impl InfoRef for Info {
+    fn get_unique_id(&self) -> usize {
+        self.id
+    }
+
+    fn get_name(&self) -> &'static str {
+        self.name
+    }
+}
+
+impl<TString, TCondition> Into<PrintItem<TString, Info, TCondition>> for Info where TString : StringRef, TCondition : ConditionRef<TString, Info> {
+    fn into(self) -> PrintItem<TString, Info, TCondition> {
         PrintItem::Info(self)
     }
 }
@@ -83,11 +122,7 @@ impl Info {
         }
     }
 
-    pub fn get_unique_id(&self) -> usize {
-        self.id
-    }
-
-    pub fn into_clone<T>(&self) -> PrintItem<T> where T : StringContainer {
+    pub fn into_clone<TString, TCondition>(&self) -> PrintItem<TString, Info, TCondition> where TString : StringRef, TCondition : ConditionRef<TString, Info> {
         PrintItem::Info(self.clone())
     }
 }
@@ -97,23 +132,23 @@ impl Info {
 /// These conditions are extremely flexible and can even be resolved based on
 /// information found later on in the file.
 #[derive(Clone)]
-pub struct Condition<T = String> where T : StringContainer {
+pub struct Condition<TString = String, TInfo = Info> where TString : StringRef, TInfo : InfoRef {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
-    pub name: &'static str,
+    name: &'static str,
     /// The condition to resolve.
-    pub condition: Rc<Box<ConditionResolver<T>>>,
+    pub condition: Rc<Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>>,
     /// The items to print when the condition is true.
-    pub true_path: Option<Rc<Vec<PrintItem<T>>>>,
+    pub true_path: Option<Rc<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>>,
     /// The items to print when the condition is false or undefined (not yet resolved).
-    pub false_path: Option<Rc<Vec<PrintItem<T>>>>,
+    pub false_path: Option<Rc<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>>,
 }
 
 static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-impl<T> Condition<T> where T : StringContainer {
-    pub fn new(name: &'static str, properties: ConditionProperties<T>) -> Condition<T> {
+impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+    pub fn new(name: &'static str, properties: ConditionProperties<TString, TInfo>) -> Condition<TString, TInfo> {
         Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
             name,
@@ -123,57 +158,75 @@ impl<T> Condition<T> where T : StringContainer {
         }
     }
 
-    pub fn get_unique_id(&self) -> usize {
-        self.id
-    }
-
-    pub fn into_clone(&self) -> PrintItem<T> {
+    pub fn into_clone(&self) -> PrintItem<TString, TInfo, Condition<TString, TInfo>> {
         PrintItem::Condition(self.clone())
     }
 }
 
-impl<T> Into<PrintItem<T>> for Condition<T> where T : StringContainer {
-    fn into(self) -> PrintItem<T> {
+impl<TString, TInfo> ConditionRef<TString, TInfo> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+    fn get_unique_id(&self) -> usize {
+        self.id
+    }
+
+    fn get_name(&self) -> &'static str {
+        self.name
+    }
+
+    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, Self>) -> Option<bool> {
+        (self.condition)(context)
+    }
+
+    fn get_true_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>> {
+        self.true_path.clone()
+    }
+
+    fn get_false_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>> {
+        self.false_path.clone()
+    }
+}
+
+impl<TString, TInfo> Into<PrintItem<TString, TInfo, Condition<TString, TInfo>>> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+    fn into(self) -> PrintItem<TString, TInfo, Condition<TString, TInfo>> {
         PrintItem::Condition(self)
     }
 }
 
 /// Properties for the condition.
-pub struct ConditionProperties<T = String> where T : StringContainer {
+pub struct ConditionProperties<TString = String, TInfo = Info> where TString : StringRef, TInfo : InfoRef {
     /// The condition to resolve.
-    pub condition: Box<ConditionResolver<T>>,
+    pub condition: Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>,
     /// The items to print when the condition is true.
-    pub true_path: Option<Vec<PrintItem<T>>>,
+    pub true_path: Option<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>,
     /// The items to print when the condition is false or undefined (not yet resolved).
-    pub false_path: Option<Vec<PrintItem<T>>>,
+    pub false_path: Option<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>,
 }
 
 /// Function used to resolve a condition.
-pub type ConditionResolver<T> = dyn Fn(&mut ResolveConditionContext<T>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
+pub type ConditionResolver<TString, TInfo, TCondition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
 
 /// Context used when resolving a condition.
-pub struct ResolveConditionContext<'a, T = String> where T : StringContainer {
-    printer: &'a mut Printer<T>,
+pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+    printer: &'a mut Printer<TString, TInfo, TCondition>,
     /// Gets the writer info at the condition's location.
     pub writer_info: WriterInfo,
 }
 
-impl<'a, T> ResolveConditionContext<'a, T> where T : StringContainer {
-    pub fn new(printer: &'a mut Printer<T>) -> Self {
+impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+    pub fn new(printer: &'a mut Printer<TString, TInfo, TCondition>) -> Self {
         let writer_info = printer.get_writer_info();
-        ResolveConditionContext {
+        ConditionResolverContext {
             printer,
             writer_info,
         }
     }
 
     /// Gets if a condition was true, false, or returns undefined when not yet resolved.
-    pub fn get_resolved_condition(&mut self, condition: &Condition<T>) -> Option<bool> {
+    pub fn get_resolved_condition(&mut self, condition: &TCondition) -> Option<bool> {
         self.printer.get_resolved_condition(condition)
     }
 
     /// Gets if a condition was true, false, or returns the provded default value when not yet resolved.
-    pub fn get_resolved_condition_or_default(&mut self, condition: &Condition<T>, default_value: bool) -> bool {
+    pub fn get_resolved_condition_or_default(&mut self, condition: &TCondition, default_value: bool) -> bool {
         match self.get_resolved_condition(condition) {
             Some(x) => x,
             _ => default_value,
@@ -181,7 +234,7 @@ impl<'a, T> ResolveConditionContext<'a, T> where T : StringContainer {
     }
 
     /// Gets the writer info at a specified info or returns undefined when not yet resolved.
-    pub fn get_resolved_info(&mut self, info: &Info) -> Option<WriterInfo> {
+    pub fn get_resolved_info(&mut self, info: &TInfo) -> Option<WriterInfo> {
         self.printer.get_resolved_info(info)
     }
 }
