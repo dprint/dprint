@@ -140,7 +140,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
 
     fn parse_elements(
         elements: &Vec<ArrayElement>,
-        is_multiple_lines: &(impl Fn(&mut ResolveConditionContext) -> Option<bool> + Clone + 'static)
+        is_multiple_lines: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static)
     ) -> Vec<PrintItem> {
         let mut items = Vec::new();
 
@@ -172,11 +172,11 @@ fn create_is_multiple_lines_resolver(
     child_positions: Vec<Position>,
     start_info: &Info,
     end_info: &Info
-) -> impl Fn(&mut ResolveConditionContext) -> Option<bool> + Clone + 'static {
+) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
     let captured_start_info = start_info.clone();
     let captured_end_info = end_info.clone();
 
-    return move |condition_context: &mut ResolveConditionContext| {
+    return move |condition_context: &mut ConditionResolverContext| {
         // no items, so format on the same line
         if child_positions.len() == 0 {
             return Some(false);
@@ -204,7 +204,7 @@ fn with_indent(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
 }
 
 fn if_true(
-    resolver: impl Fn(&mut ResolveConditionContext) -> Option<bool> + Clone + 'static,
+    resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     true_item: PrintItem
 ) -> PrintItem {
     Condition::new("", ConditionProperties {
@@ -215,7 +215,7 @@ fn if_true(
 }
 
 fn if_true_or(
-    resolver: impl Fn(&mut ResolveConditionContext) -> Option<bool> + Clone + 'static,
+    resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     true_item: PrintItem,
     false_item: PrintItem
 ) -> PrintItem {

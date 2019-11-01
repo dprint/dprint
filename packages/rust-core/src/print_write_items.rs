@@ -1,4 +1,4 @@
-use super::StringContainer;
+use super::StringRef;
 use super::WriteItem;
 
 pub struct PrintWriteItemsOptions {
@@ -12,7 +12,7 @@ pub struct PrintWriteItemsOptions {
 }
 
 /// Prints string based writer items.
-pub fn print_write_items<T>(writer_items: Vec<WriteItem<T>>, options: PrintWriteItemsOptions) -> String where T : StringContainer {
+pub fn print_write_items<T>(writer_items: Vec<WriteItem<T>>, options: PrintWriteItemsOptions) -> String where T : StringRef {
     let mut final_string = String::new();
     let indent_string = if options.use_tabs { String::from("\t") } else { " ".repeat(options.indent_width as usize) };
 

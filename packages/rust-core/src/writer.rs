@@ -1,8 +1,8 @@
-use super::StringContainer;
+use super::StringRef;
 use super::WriteItem;
 
 #[derive(Clone)]
-pub struct WriterState<T> where T : StringContainer {
+pub struct WriterState<T> where T : StringRef {
     pub current_line_column: u32,
     pub current_line_number: u32,
     pub last_line_indent_level: u16,
@@ -16,12 +16,12 @@ pub struct WriterOptions {
     pub indent_width: u8,
 }
 
-pub struct Writer<T> where T : StringContainer {
+pub struct Writer<T> where T : StringRef {
     state: WriterState<T>,
     indent_width: u8,
 }
 
-impl<T> Writer<T> where T : StringContainer {
+impl<T> Writer<T> where T : StringRef {
     pub fn new(options: WriterOptions) -> Writer<T> {
         Writer {
             indent_width: options.indent_width,

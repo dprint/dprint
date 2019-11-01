@@ -1,4 +1,3 @@
-use super::StringContainer;
 use super::WriteItem;
 use super::print_items::*;
 use super::writer::*;
@@ -19,42 +18,42 @@ pub struct PrintOptions {
 }
 
 #[derive(Clone)]
-struct SavePoint<T> where T : StringContainer {
+struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
     // Unique id
     pub id: u32,
     /// Name for debugging purposes.
     pub name: String,
     pub new_line_group_depth: u16,
-    pub writer_state: WriterState<T>,
-    pub possible_new_line_save_point: Box<Option<SavePoint<T>>>,
-    pub container: PrintItemContainer<T>,
+    pub writer_state: WriterState<TString>,
+    pub possible_new_line_save_point: Box<Option<SavePoint<TString, TInfo, TCondition>>>,
+    pub container: PrintItemContainer<TString, TInfo, TCondition>,
     pub current_indexes: Vec<isize>,
 }
 
 #[derive(Clone)]
-struct PrintItemContainer<T> where T : StringContainer {
-    parent: Box<Option<PrintItemContainer<T>>>,
-    items: Rc<Vec<PrintItem<T>>>,
+struct PrintItemContainer<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo> {
+    parent: Box<Option<PrintItemContainer<TString, TInfo, TCondition>>>,
+    items: Rc<Vec<PrintItem<TString, TInfo, TCondition>>>,
 }
 
-pub struct Printer<T = String> where T : StringContainer {
-    possible_new_line_save_point: Option<SavePoint<T>>,
+pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+    possible_new_line_save_point: Option<SavePoint<TString, TInfo, TCondition>>,
     new_line_group_depth: u16,
-    container: PrintItemContainer<T>,
+    container: PrintItemContainer<TString, TInfo, TCondition>,
     current_indexes: Vec<isize>, // todo: usize?
     save_point_increment: u32,
-    writer: Writer<T>,
+    writer: Writer<TString>,
     resolved_conditions: HashMap<usize, bool>,
     resolved_infos: HashMap<usize, WriterInfo>,
-    look_ahead_condition_save_points: HashMap<usize, SavePoint<T>>,
-    look_ahead_info_save_points: HashMap<usize, SavePoint<T>>,
+    look_ahead_condition_save_points: HashMap<usize, SavePoint<TString, TInfo, TCondition>>,
+    look_ahead_info_save_points: HashMap<usize, SavePoint<TString, TInfo, TCondition>>,
     max_width: u32,
     is_exiting_condition: bool,
     is_testing: bool,
 }
 
-impl<T> Printer<T> where T : StringContainer {
-    pub fn new(items: Vec<PrintItem<T>>, options: PrintOptions) -> Printer<T> {
+impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+    pub fn new(items: Vec<PrintItem<TString, TInfo, TCondition>>, options: PrintOptions) -> Printer<TString, TInfo, TCondition> {
         Printer {
             possible_new_line_save_point: Option::None,
             new_line_group_depth: 0,
@@ -78,7 +77,7 @@ impl<T> Printer<T> where T : StringContainer {
     }
 
     /// Turns the print items into a collection of writer items according to the options.
-    pub fn print(mut self) -> Vec<WriteItem<T>> { // drop self
+    pub fn print(mut self) -> Vec<WriteItem<TString>> { // drop self
         loop {
             while self.current_indexes[self.current_indexes.len() - 1] < self.container.items.len() as isize {
                 let index = self.current_indexes[self.current_indexes.len() - 1];
@@ -115,22 +114,22 @@ impl<T> Printer<T> where T : StringContainer {
         }
     }
 
-    pub fn get_resolved_info(&mut self, info: &Info) -> Option<WriterInfo> {
+    pub fn get_resolved_info(&mut self, info: &TInfo) -> Option<WriterInfo> {
         let resolved_info = self.resolved_infos.get(&info.get_unique_id()).map(|x| x.to_owned());
         if resolved_info.is_none() && !self.look_ahead_info_save_points.contains_key(&info.get_unique_id()) {
-            let save_point = self.create_save_point_for_restoring_condition(&info.name);
+            let save_point = self.create_save_point_for_restoring_condition(if self.is_testing { &info.get_name() } else { "" });
             self.look_ahead_info_save_points.insert(info.get_unique_id(), save_point);
         }
 
         resolved_info.map(|x| x.to_owned())
     }
 
-    pub fn get_resolved_condition(&mut self, condition: &Condition<T>) -> Option<bool> {
+    pub fn get_resolved_condition(&mut self, condition: &TCondition) -> Option<bool> {
         let optional_result = self.resolved_conditions.get(&condition.get_unique_id()).map(|x| x.to_owned());
 
         if optional_result.is_none() {
             if !self.look_ahead_condition_save_points.contains_key(&condition.get_unique_id()) {
-                let save_point = self.create_save_point_for_restoring_condition(&condition.name);
+                let save_point = self.create_save_point_for_restoring_condition(if self.is_testing { &condition.get_name() } else { "" });
                 self.look_ahead_condition_save_points.insert(condition.get_unique_id(), save_point);
             }
         } else {
@@ -140,7 +139,7 @@ impl<T> Printer<T> where T : StringContainer {
         optional_result.map(|x| x.to_owned())
     }
 
-    fn handle_print_item(&mut self, print_item: &PrintItem<T>) {
+    fn handle_print_item(&mut self, print_item: &PrintItem<TString, TInfo, TCondition>) {
         match print_item {
             PrintItem::String(text) => self.handle_string(text),
             PrintItem::Condition(condition) => self.handle_condition(condition),
@@ -185,7 +184,7 @@ impl<T> Printer<T> where T : StringContainer {
         self.possible_new_line_save_point = Option::None;
     }
 
-    fn create_save_point(&mut self, name: &str) -> SavePoint<T> {
+    fn create_save_point(&mut self, name: &str) -> SavePoint<TString, TInfo, TCondition> {
         self.save_point_increment += 1;
         SavePoint {
             id: self.save_point_increment,
@@ -198,7 +197,7 @@ impl<T> Printer<T> where T : StringContainer {
         }
     }
 
-    fn create_save_point_for_restoring_condition(&mut self, name: &str) -> SavePoint<T> {
+    fn create_save_point_for_restoring_condition(&mut self, name: &str) -> SavePoint<TString, TInfo, TCondition> {
         let mut save_point = self.create_save_point(name);
         let last_index = save_point.current_indexes.len() - 1;
         save_point.current_indexes[last_index] -= 1;
@@ -219,7 +218,7 @@ impl<T> Printer<T> where T : StringContainer {
         self.writer.get_line_column() + 1 + offset > self.max_width
     }
 
-    fn update_state_to_save_point(&mut self, save_point: SavePoint<T>, is_for_new_line: bool) {
+    fn update_state_to_save_point(&mut self, save_point: SavePoint<TString, TInfo, TCondition>, is_for_new_line: bool) {
         self.writer.set_state(save_point.writer_state);
         self.possible_new_line_save_point = if is_for_new_line { Option::None } else { *save_point.possible_new_line_save_point };
         self.container = save_point.container;
@@ -231,7 +230,7 @@ impl<T> Printer<T> where T : StringContainer {
         }
     }
 
-    fn handle_info(&mut self, info: &Info) {
+    fn handle_info(&mut self, info: &TInfo) {
         self.resolved_infos.insert(info.get_unique_id(), self.get_writer_info());
         let option_save_point = self.look_ahead_info_save_points.remove(&info.get_unique_id());
         if let Some(save_point) = option_save_point {
@@ -239,7 +238,7 @@ impl<T> Printer<T> where T : StringContainer {
         }
     }
 
-    fn handle_condition(&mut self, condition: &Condition<T>) {
+    fn handle_condition(&mut self, condition: &TCondition) {
         let condition_value = self.get_condition_value(&condition);
 
         if self.is_exiting_condition {
@@ -248,7 +247,7 @@ impl<T> Printer<T> where T : StringContainer {
         }
 
         if condition_value.is_some() && condition_value.unwrap() {
-            if let Some(true_path) = &condition.true_path {
+            if let Some(true_path) = &condition.get_true_path() {
                 let new_parent = mem::replace(&mut self.container, PrintItemContainer { parent: Box::new(Option::None), items: Rc::new(Vec::new()) });
                 self.container = PrintItemContainer {
                     items: true_path.clone(),
@@ -257,7 +256,7 @@ impl<T> Printer<T> where T : StringContainer {
                 self.current_indexes.push(-1);
             }
         } else {
-            if let Some(false_path) = &condition.false_path {
+            if let Some(false_path) = &condition.get_false_path() {
                 let new_parent = mem::replace(&mut self.container, PrintItemContainer { parent: Box::new(Option::None), items: Rc::new(Vec::new()) });
                 self.container = PrintItemContainer {
                     items: false_path.clone(),
@@ -268,8 +267,8 @@ impl<T> Printer<T> where T : StringContainer {
         }
     }
 
-    fn get_condition_value(&mut self, condition: &Condition<T>) -> Option<bool> {
-        let optional_result = (condition.condition)(&mut ResolveConditionContext::new(self));
+    fn get_condition_value(&mut self, condition: &TCondition) -> Option<bool> {
+        let optional_result = condition.resolve(&mut ConditionResolverContext::new(self));
 
         if self.is_exiting_condition {
             return Option::None;
@@ -283,7 +282,7 @@ impl<T> Printer<T> where T : StringContainer {
         optional_result
     }
 
-    fn restore_to_condition_save_point_if_necessary(&mut self, condition: &Condition<T>) {
+    fn restore_to_condition_save_point_if_necessary(&mut self, condition: &TCondition) {
         let optional_save_point = self.look_ahead_condition_save_points.remove(&condition.get_unique_id());
         if let Some(save_point) = optional_save_point {
             self.update_state_to_save_point(save_point, false);
@@ -291,7 +290,7 @@ impl<T> Printer<T> where T : StringContainer {
         }
     }
 
-    fn handle_string(&mut self, text: &T) {
+    fn handle_string(&mut self, text: &TString) {
         if self.is_testing {
             self.validate_string(text);
         }
@@ -304,7 +303,7 @@ impl<T> Printer<T> where T : StringContainer {
         }
     }
 
-    fn validate_string(&self, text: &T) {
+    fn validate_string(&self, text: &TString) {
         if !self.is_testing {
             panic!("Don't call this method unless self.is_testing is true.");
         }
