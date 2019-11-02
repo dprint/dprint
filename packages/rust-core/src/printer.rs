@@ -17,7 +17,6 @@ pub struct PrintOptions {
     pub is_testing: bool,
 }
 
-#[derive(Clone)]
 struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     // Unique id
     pub id: u32,
@@ -30,10 +29,32 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
     pub current_indexes: Vec<isize>,
 }
 
-#[derive(Clone)]
+impl<TString, TInfo, TCondition> Clone for SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+    fn clone(&self) -> SavePoint<TString, TInfo, TCondition> {
+        SavePoint {
+            id: self.id,
+            name: self.name.clone(),
+            new_line_group_depth: self.new_line_group_depth,
+            writer_state: self.writer_state.clone(),
+            possible_new_line_save_point: Box::new((*self.possible_new_line_save_point).as_ref().map(|x| x.clone())),
+            container: self.container.clone(),
+            current_indexes: self.current_indexes.clone(),
+        }
+    }
+}
+
 struct PrintItemContainer<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     parent: Box<Option<PrintItemContainer<TString, TInfo, TCondition>>>,
     items: Rc<Vec<PrintItem<TString, TInfo, TCondition>>>,
+}
+
+impl<TString, TInfo, TCondition> Clone for PrintItemContainer<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+    fn clone(&self) -> PrintItemContainer<TString, TInfo, TCondition> {
+        PrintItemContainer {
+            parent: Box::new((*self.parent).as_ref().map(|x| x.clone())),
+            items: self.items.clone(),
+        }
+    }
 }
 
 pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
@@ -290,7 +311,7 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         }
     }
 
-    fn handle_string(&mut self, text: &TString) {
+    fn handle_string(&mut self, text: &Rc<TString>) {
         if self.is_testing {
             self.validate_string(text);
         }
@@ -303,13 +324,13 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         }
     }
 
-    fn validate_string(&self, text: &TString) {
+    fn validate_string(&self, text: &Rc<TString>) {
         if !self.is_testing {
             panic!("Don't call this method unless self.is_testing is true.");
         }
 
         // This is possibly very slow (ex. could be a JS utf16 string that gets encoded to a rust utf8 string)
-        let text_as_string = text.clone().get_text();
+        let text_as_string = text.get_text_clone();
         if text_as_string.contains("\t") {
             panic!("Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}", text_as_string);
         }

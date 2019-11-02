@@ -1,5 +1,6 @@
 use super::StringRef;
 use super::WriteItem;
+use std::rc::Rc;
 
 pub struct PrintWriteItemsOptions {
     /// The number of spaces to use when indenting when use_tabs is false,
@@ -22,7 +23,10 @@ pub fn print_write_items<T>(writer_items: Vec<WriteItem<T>>, options: PrintWrite
             WriteItem::NewLine => final_string.push_str(&options.newline_kind),
             WriteItem::Tab => final_string.push_str("\t"),
             WriteItem::Space => final_string.push_str(" "),
-            WriteItem::String(text) => final_string.push_str(&text.get_text()),
+            WriteItem::String(text) => {
+                let moved_text = Rc::try_unwrap(text).ok().unwrap();
+                final_string.push_str(&moved_text.get_text())
+            },
         }
     }
 
