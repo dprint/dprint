@@ -1,15 +1,30 @@
 use super::StringRef;
 use super::WriteItem;
+use std::rc::Rc;
 
-#[derive(Clone)]
-pub struct WriterState<T> where T : StringRef {
+pub struct WriterState<TString> where TString : StringRef {
     pub current_line_column: u32,
     pub current_line_number: u32,
     pub last_line_indent_level: u16,
     pub indent_level: u16,
     pub expect_newline_next: bool,
-    pub items: Vec<WriteItem<T>>,
+    pub items: Vec<WriteItem<TString>>,
     pub ignore_indent_count: u8,
+}
+
+// need to manually implement this for some reason instead of using #[derive(Clone)]
+impl<TString> Clone for WriterState<TString> where TString : StringRef {
+    fn clone(&self) -> WriterState<TString> {
+        WriterState {
+            current_line_column: self.current_line_column,
+            current_line_number: self.current_line_number,
+            last_line_indent_level: self.last_line_indent_level,
+            indent_level: self.indent_level,
+            expect_newline_next: self.expect_newline_next,
+            items: self.items.iter().map(|i| i.clone()).collect(),
+            ignore_indent_count: self.ignore_indent_count,
+        }
+    }
 }
 
 pub struct WriterOptions {
@@ -119,7 +134,7 @@ impl<T> Writer<T> where T : StringRef {
         self.state.items.push(WriteItem::Space);
     }
 
-    pub fn write(&mut self, text: &T) {
+    pub fn write(&mut self, text: &Rc<T>) {
         self.handle_first_column();
         self.state.current_line_column += text.get_length() as u32;
         self.state.items.push(WriteItem::String(text.clone()));
@@ -145,10 +160,5 @@ impl<T> Writer<T> where T : StringRef {
 
     pub fn get_items(self) -> Vec<WriteItem<T>> {
         self.state.items
-    }
-
-    #[allow(dead_code)]
-    pub fn get_items_copy(&self) -> Vec<WriteItem<T>> {
-        self.state.items.clone()
     }
 }

@@ -4,9 +4,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Traits. This allows implementing these for Wasm objects.
 
-pub trait StringRef : Clone {
+pub trait StringRef {
     fn get_length(&self) -> usize;
     fn get_text(self) -> String;
+    fn get_text_clone(&self) -> String;
 }
 
 impl StringRef for String {
@@ -17,14 +18,18 @@ impl StringRef for String {
     fn get_text(self) -> String {
         self
     }
+
+    fn get_text_clone(&self) -> String {
+        self.clone()
+    }
 }
 
-pub trait InfoRef : Clone {
+pub trait InfoRef {
     fn get_unique_id(&self) -> usize;
     fn get_name(&self) -> &'static str;
 }
 
-pub trait ConditionRef<TString, TInfo, TCondition> : Clone where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+pub trait ConditionRef<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     fn get_unique_id(&self) -> usize;
     fn get_name(&self) -> &'static str;
     fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>;
@@ -33,11 +38,10 @@ pub trait ConditionRef<TString, TInfo, TCondition> : Clone where TString : Strin
 }
 
 /// The different items the printer could encounter.
-#[derive(Clone)]
 pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    String(TString),
-    Condition(TCondition),
-    Info(TInfo),
+    String(Rc<TString>),
+    Condition(Rc<TCondition>),
+    Info(Rc<TInfo>),
     /// Signal that a new line should occur based on the printer settings.
     NewLine,
     /// Signal that a tab should occur based on the printer settings.
@@ -67,21 +71,44 @@ pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TStrin
     FinishIgnoringIndent,
 }
 
+// need to manually implement this for some reason instead of using #[derive(Clone)]
+impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition>  where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+    fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
+        match self {
+            PrintItem::String(text) => PrintItem::String(text.clone()),
+            PrintItem::Condition(condition) => PrintItem::Condition(condition.clone()),
+            PrintItem::Info(info) => PrintItem::Info(info.clone()),
+            PrintItem::NewLine => PrintItem::NewLine,
+            PrintItem::Tab => PrintItem::Tab,
+            PrintItem::PossibleNewLine => PrintItem::PossibleNewLine,
+            PrintItem::SpaceOrNewLine => PrintItem::SpaceOrNewLine,
+            PrintItem::ExpectNewLine => PrintItem::ExpectNewLine,
+            PrintItem::StartIndent => PrintItem:: StartIndent,
+            PrintItem::FinishIndent => PrintItem::FinishIndent,
+            PrintItem::StartNewLineGroup => PrintItem::StartNewLineGroup,
+            PrintItem::FinishNewLineGroup => PrintItem::FinishNewLineGroup,
+            PrintItem::SingleIndent => PrintItem::SingleIndent,
+            PrintItem::StartIgnoringIndent => PrintItem::StartIgnoringIndent,
+            PrintItem::FinishIgnoringIndent => PrintItem::FinishIgnoringIndent,
+        }
+    }
+}
+
 impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &str where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
     fn into(self) -> PrintItem<String, TInfo, TCondition> {
-        PrintItem::String(String::from(self))
+        PrintItem::String(Rc::new(String::from(self)))
     }
 }
 
 impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
     fn into(self) -> PrintItem<String, TInfo, TCondition> {
-        PrintItem::String(self)
+        PrintItem::String(Rc::new(self))
     }
 }
 
 impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
     fn into(self) -> PrintItem<String, TInfo, TCondition> {
-        PrintItem::String(self.clone())
+        PrintItem::String(Rc::new(self.clone()))
     }
 }
 
@@ -108,7 +135,7 @@ impl InfoRef for Info {
 
 impl<TString, TCondition> Into<PrintItem<TString, Info, TCondition>> for Info where TString : StringRef, TCondition : ConditionRef<TString, Info, TCondition> {
     fn into(self) -> PrintItem<TString, Info, TCondition> {
-        PrintItem::Info(self)
+        PrintItem::Info(Rc::new(self))
     }
 }
 
@@ -123,7 +150,7 @@ impl Info {
     }
 
     pub fn into_clone<TString, TCondition>(&self) -> PrintItem<TString, Info, TCondition> where TString : StringRef, TCondition : ConditionRef<TString, Info, TCondition> {
-        PrintItem::Info(self.clone())
+        PrintItem::Info(Rc::new(self.clone()))
     }
 }
 
@@ -131,7 +158,6 @@ impl Info {
 ///
 /// These conditions are extremely flexible and can even be resolved based on
 /// information found later on in the file.
-#[derive(Clone)]
 pub struct Condition<TString = String, TInfo = Info> where TString : StringRef, TInfo : InfoRef {
     /// Unique identifier.
     id: usize,
@@ -143,6 +169,19 @@ pub struct Condition<TString = String, TInfo = Info> where TString : StringRef, 
     pub true_path: Option<Rc<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>>,
     /// The items to print when the condition is false or undefined (not yet resolved).
     pub false_path: Option<Rc<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>>,
+}
+
+// need to manually implement this for some reason instead of using #[derive(Clone)]
+impl<TString, TInfo> Clone for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+    fn clone(&self) -> Condition<TString, TInfo> {
+        Condition {
+            id: self.id,
+            name: self.name,
+            condition: self.condition.clone(),
+            true_path: self.true_path.as_ref().map(|x| x.clone()),
+            false_path: self.false_path.as_ref().map(|x| x.clone()),
+        }
+    }
 }
 
 static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -159,7 +198,7 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo 
     }
 
     pub fn into_clone(&self) -> PrintItem<TString, TInfo, Condition<TString, TInfo>> {
-        PrintItem::Condition(self.clone())
+        PrintItem::Condition(Rc::new(self.clone()))
     }
 }
 
@@ -187,7 +226,7 @@ impl<TString, TInfo> ConditionRef<TString, TInfo, Condition<TString, TInfo>> for
 
 impl<TString, TInfo> Into<PrintItem<TString, TInfo, Condition<TString, TInfo>>> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
     fn into(self) -> PrintItem<TString, TInfo, Condition<TString, TInfo>> {
-        PrintItem::Condition(self)
+        PrintItem::Condition(Rc::new(self))
     }
 }
 
