@@ -24,17 +24,17 @@ pub trait InfoRef : Clone {
     fn get_name(&self) -> &'static str;
 }
 
-pub trait ConditionRef<TString, TInfo> : Clone where TString : StringRef, TInfo : InfoRef {
+pub trait ConditionRef<TString, TInfo, TCondition> : Clone where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     fn get_unique_id(&self) -> usize;
     fn get_name(&self) -> &'static str;
-    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, Self>) -> Option<bool>;
-    fn get_true_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>>;
-    fn get_false_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>>;
+    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>;
+    fn get_true_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, TCondition>>>>;
+    fn get_false_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, TCondition>>>>;
 }
 
 /// The different items the printer could encounter.
 #[derive(Clone)]
-pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     String(TString),
     Condition(TCondition),
     Info(TInfo),
@@ -67,19 +67,19 @@ pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TStrin
     FinishIgnoringIndent,
 }
 
-impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &str where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo> {
+impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &str where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
     fn into(self) -> PrintItem<String, TInfo, TCondition> {
         PrintItem::String(String::from(self))
     }
 }
 
-impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo> {
+impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
     fn into(self) -> PrintItem<String, TInfo, TCondition> {
         PrintItem::String(self)
     }
 }
 
-impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo> {
+impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
     fn into(self) -> PrintItem<String, TInfo, TCondition> {
         PrintItem::String(self.clone())
     }
@@ -106,7 +106,7 @@ impl InfoRef for Info {
     }
 }
 
-impl<TString, TCondition> Into<PrintItem<TString, Info, TCondition>> for Info where TString : StringRef, TCondition : ConditionRef<TString, Info> {
+impl<TString, TCondition> Into<PrintItem<TString, Info, TCondition>> for Info where TString : StringRef, TCondition : ConditionRef<TString, Info, TCondition> {
     fn into(self) -> PrintItem<TString, Info, TCondition> {
         PrintItem::Info(self)
     }
@@ -122,7 +122,7 @@ impl Info {
         }
     }
 
-    pub fn into_clone<TString, TCondition>(&self) -> PrintItem<TString, Info, TCondition> where TString : StringRef, TCondition : ConditionRef<TString, Info> {
+    pub fn into_clone<TString, TCondition>(&self) -> PrintItem<TString, Info, TCondition> where TString : StringRef, TCondition : ConditionRef<TString, Info, TCondition> {
         PrintItem::Info(self.clone())
     }
 }
@@ -163,7 +163,7 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo 
     }
 }
 
-impl<TString, TInfo> ConditionRef<TString, TInfo> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+impl<TString, TInfo> ConditionRef<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
     fn get_unique_id(&self) -> usize {
         self.id
     }
@@ -205,13 +205,13 @@ pub struct ConditionProperties<TString = String, TInfo = Info> where TString : S
 pub type ConditionResolver<TString, TInfo, TCondition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
 
 /// Context used when resolving a condition.
-pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     printer: &'a mut Printer<TString, TInfo, TCondition>,
     /// Gets the writer info at the condition's location.
     pub writer_info: WriterInfo,
 }
 
-impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     pub fn new(printer: &'a mut Printer<TString, TInfo, TCondition>) -> Self {
         let writer_info = printer.get_writer_info();
         ConditionResolverContext {

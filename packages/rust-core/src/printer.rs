@@ -18,7 +18,7 @@ pub struct PrintOptions {
 }
 
 #[derive(Clone)]
-struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     // Unique id
     pub id: u32,
     /// Name for debugging purposes.
@@ -31,12 +31,12 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
 }
 
 #[derive(Clone)]
-struct PrintItemContainer<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo> {
+struct PrintItemContainer<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     parent: Box<Option<PrintItemContainer<TString, TInfo, TCondition>>>,
     items: Rc<Vec<PrintItem<TString, TInfo, TCondition>>>,
 }
 
-pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     possible_new_line_save_point: Option<SavePoint<TString, TInfo, TCondition>>,
     new_line_group_depth: u16,
     container: PrintItemContainer<TString, TInfo, TCondition>,
@@ -52,7 +52,7 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
     is_testing: bool,
 }
 
-impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo> {
+impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     pub fn new(items: Vec<PrintItem<TString, TInfo, TCondition>>, options: PrintOptions) -> Printer<TString, TInfo, TCondition> {
         Printer {
             possible_new_line_save_point: Option::None,
