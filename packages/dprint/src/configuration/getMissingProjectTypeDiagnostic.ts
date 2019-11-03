@@ -1,4 +1,4 @@
-import { Configuration, ConfigurationDiagnostic } from "@dprint/core";
+import { Configuration, ConfigurationDiagnostic } from "@dprint/types";
 
 const projectTypeInfo = {
     values: [{

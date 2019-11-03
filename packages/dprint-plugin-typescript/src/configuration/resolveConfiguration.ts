@@ -1,5 +1,6 @@
 import * as os from "os";
-import { ResolvedConfiguration, ConfigurationDiagnostic, ResolveConfigurationResult } from "@dprint/core";
+import { ResolveConfigurationResult } from "@dprint/core";
+import { ResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "./Configuration";
 
 /** todo: this should be code generated from the jsdocs maybe? */

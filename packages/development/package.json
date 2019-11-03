@@ -25,8 +25,11 @@
   "publishConfig": {
     "access": "public"
   },
-  "peerDependencies": {
+  "dependencies": {
     "@dprint/core": "~0.4.4",
+    "@dprint/types": "~0.1.0"
+  },
+  "peerDependencies": {
     "mocha": "^6.2.0",
     "chai": "^4.2.0"
   },

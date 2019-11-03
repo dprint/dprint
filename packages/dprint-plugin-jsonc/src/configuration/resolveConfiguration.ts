@@ -1,5 +1,6 @@
 import * as os from "os";
-import { ResolvedConfiguration, ConfigurationDiagnostic, ResolveConfigurationResult } from "@dprint/core";
+import { ResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { ResolveConfigurationResult } from "@dprint/core";
 import { JsoncConfiguration, ResolvedJsoncConfiguration } from "./Configuration";
 
 /**

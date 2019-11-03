@@ -1,6 +1,7 @@
 import React from "react";
 import SplitPane from "react-split-pane";
-import { formatFileText, resolveConfiguration, LoggingEnvironment } from "@dprint/core";
+import { LoggingEnvironment } from "@dprint/types";
+import { formatFileText, resolveConfiguration } from "@dprint/core";
 import { TypeScriptPlugin, TypeScriptConfiguration } from "dprint-plugin-typescript";
 import { CodeEditor, ConfigurationSelection, ExternalLink } from "./components";
 import { UrlSaver } from "./utils";

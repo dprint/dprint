@@ -36,6 +36,7 @@
   "homepage": "https://github.com/dsherret/dprint#readme",
   "dependencies": {
     "@dprint/core": "~0.4.4",
+    "@dprint/types": "~0.1.0",
     "globby": "^10.0.1",
     "minimist": "^1.2.0"
   },

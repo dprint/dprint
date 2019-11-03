@@ -1,5 +1,5 @@
+import { Signal } from "@dprint/types";
 import { throwError } from "../utils";
-import { Signal } from "../types";
 
 export interface WriterState {
     currentLineColumn: number;

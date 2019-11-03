@@ -34,12 +34,12 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 declarationFile.replaceWithText(text);
 declarationFile.insertStatements(0, [{
     kind: StructureKind.ImportDeclaration,
-    namedImports: ["LoggingEnvironment", "CliLoggingEnvironment"],
+    namedImports: ["CliLoggingEnvironment"],
     moduleSpecifier: "@dprint/core"
 }, {
     kind: StructureKind.ImportDeclaration,
-    namedImports: ["Configuration as CoreConfiguration"],
-    moduleSpecifier: "@dprint/core"
+    namedImports: ["LoggingEnvironment", "Configuration as CoreConfiguration"],
+    moduleSpecifier: "@dprint/types"
 }]);
 declarationFile.saveSync();
 

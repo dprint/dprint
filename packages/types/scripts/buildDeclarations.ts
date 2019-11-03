@@ -12,7 +12,7 @@ const writeProject = new Project({
         newLineKind: NewLineKind.CarriageReturnLineFeed
     }
 });
-const declarationFile = writeProject.addExistingSourceFile("lib/dprint-core.d.ts");
+const declarationFile = writeProject.addExistingSourceFile("lib/dprint-types.d.ts");
 const packageVersion = require("../package.json").version;
 
 const writer = readProject.createWriter();
@@ -37,24 +37,6 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 
 // todo: format using dprint
 declarationFile.replaceWithText(writer.toString());
-declarationFile.insertImportDeclaration(0, {
-    namedImports: [
-        "Condition",
-        "Signal",
-        "Info",
-        "PrintItem",
-        "PrintItemIterable",
-        "WriterInfo",
-        "Plugin",
-        "Configuration",
-        "ConfigurationDiagnostic",
-        "ResolvedConfiguration",
-        "ResolveConditionContext",
-        "BaseResolvedConfiguration",
-        "LoggingEnvironment",
-    ],
-    moduleSpecifier: "@dprint/types"
-});
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();

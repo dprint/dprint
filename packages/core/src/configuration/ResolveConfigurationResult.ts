@@ -1,5 +1,4 @@
-import { BaseResolvedConfiguration } from "./Configuration";
-import { ConfigurationDiagnostic } from "./ConfigurationDiagnostic";
+import { BaseResolvedConfiguration, ConfigurationDiagnostic  } from "@dprint/types";
 
 /** The result of resolving configuration. */
 export interface ResolveConfigurationResult<ResolvedConfiguration extends BaseResolvedConfiguration> {

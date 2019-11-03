@@ -1,4 +1,4 @@
-import { PrintItemIterable, PrintItem, Signal, PrintItemKind, Info } from "../types";
+import { PrintItemIterable, PrintItem, Signal, PrintItemKind, Info } from "@dprint/types";
 
 export namespace parserHelpers {
     export function* withIndent(item: PrintItemIterable): PrintItemIterable {

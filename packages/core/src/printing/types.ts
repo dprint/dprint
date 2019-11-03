@@ -1,4 +1,4 @@
-import { Condition, ConditionResolver, Signal, PrintItemKind, Info } from "../types";
+import { Condition, ConditionResolver, Signal, PrintItemKind, Info } from "@dprint/types";
 
 // internal types for printing
 

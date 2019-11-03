@@ -18,18 +18,17 @@
     "url": "git+https://github.com/dsherret/dprint.git"
   },
   "scripts": {
-    "build": "rimraf dist && yarn build-rust && yarn rollup && yarn build:declarations",
-    "build-rust": "wasm-pack build --target nodejs --out-dir src-ts/pkg",
+    "build:all": "rimraf dist && yarn build:rust && yarn rollup && yarn build:declarations",
+    "build:rust": "wasm-pack build --target nodejs --out-dir src-ts/pkg",
     "build:declarations": "ts-node --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "rollup": "copyfiles -u 1 src-ts/pkg/**/* dist && rollup --config",
-    "test-rust": "yarn build-rust && cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
+    "test:all": "yarn build:rust && cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "yarn test --inspect-brk"
   },
-  "peerDependencies": {
-    "@dprint/core": "~0.4.4"
+  "dependencies": {
+    "@dprint/types": "~0.1.0"
   },
   "devDependencies": {
-    "@dprint/core": "~0.4.4",
     "@types/chai": "^4.2.3",
     "@types/mocha": "^5.2.7",
     "@types/ts-nameof": "^3.2.0",

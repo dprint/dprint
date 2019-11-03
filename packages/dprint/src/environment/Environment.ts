@@ -1,4 +1,4 @@
-import { LoggingEnvironment } from "@dprint/core";
+import { LoggingEnvironment } from "@dprint/types";
 
 /** Represents an execution environment. */
 export interface Environment extends LoggingEnvironment {

@@ -1,5 +1,5 @@
-import { Plugin, getFileExtension, ResolveConfigurationResult, PrintItemIterable, ConfigurationDiagnostic, resolveConfiguration as resolveGlobalConfiguration,
-    PluginInitializeOptions, LoggingEnvironment, CliLoggingEnvironment } from "@dprint/core";
+import { getFileExtension, ResolveConfigurationResult, resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment } from "@dprint/core";
+import { Plugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration, resolveConfiguration } from "./configuration";
 import { parseToBabelAst, parseTypeScriptFile } from "./parsing";
 

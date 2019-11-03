@@ -1,4 +1,4 @@
-import { PrintItemIterable } from "./types";
+import { PrintItemIterable } from "./printing";
 import { BaseResolvedConfiguration, ConfigurationDiagnostic, ResolvedConfiguration } from "./configuration";
 import { LoggingEnvironment } from "./environment";
 

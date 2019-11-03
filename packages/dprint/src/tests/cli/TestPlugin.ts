@@ -1,4 +1,5 @@
-import { Plugin, BaseResolvedConfiguration, PluginInitializeOptions, PrintItemIterable, PrintItemKind, Signal, parserHelpers } from "@dprint/core";
+import { Plugin, BaseResolvedConfiguration, PluginInitializeOptions, PrintItemIterable, Signal } from "@dprint/types";
+import { parserHelpers } from "@dprint/core";
 
 export interface ResolvedTestPluginConfiguration extends BaseResolvedConfiguration {
 }

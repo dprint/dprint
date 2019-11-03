@@ -1,5 +1,5 @@
-import { Plugin, getFileExtension, ResolveConfigurationResult, PrintItemIterable, ConfigurationDiagnostic, resolveConfiguration as resolveGlobalConfiguration,
-    PluginInitializeOptions, LoggingEnvironment, CliLoggingEnvironment } from "@dprint/core";
+import { getFileExtension, resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment, ResolveConfigurationResult } from "@dprint/core";
+import { Plugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
 import { JsoncConfiguration, ResolvedJsoncConfiguration, resolveConfiguration } from "./configuration";
 import { parseToJsonAst, parseJsonFile } from "./parser";
 

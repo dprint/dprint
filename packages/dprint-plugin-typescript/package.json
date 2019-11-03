@@ -36,10 +36,9 @@
   "dependencies": {
     "@babel/core": "^7.6.0",
     "@babel/parser": "^7.6.0",
-    "@babel/preset-typescript": "^7.6.0"
-  },
-  "peerDependencies": {
-    "@dprint/core": "~0.4.4"
+    "@babel/preset-typescript": "^7.6.0",
+    "@dprint/core": "~0.4.4",
+    "@dprint/types": "~0.1.0"
   },
   "devDependencies": {
     "@dprint/core": "~0.4.4",

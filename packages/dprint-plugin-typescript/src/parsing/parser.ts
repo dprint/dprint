@@ -1,6 +1,6 @@
 import * as babel from "@babel/types";
-import { makeIterableRepeatable, PrintItemKind, Signal, PrintItemIterable, Condition, Info, parserHelpers, conditions, conditionResolvers,
-    LoggingEnvironment, ResolveConditionContext, ConditionResolver } from "@dprint/core";
+import { makeIterableRepeatable, parserHelpers, conditions, conditionResolvers } from "@dprint/core";
+import { PrintItemKind, Signal, PrintItemIterable, Condition, Info, LoggingEnvironment, ResolveConditionContext, ConditionResolver } from "@dprint/types";
 import { ResolvedTypeScriptConfiguration, TypeScriptConfiguration } from "../configuration";
 import { assertNever, Bag, Stack, isStringEmptyOrWhiteSpace, hasNewlineOccurrencesInLeadingWhitespace, hasNewLineOccurrencesInTrailingWhitespace, throwError,
     hasNoNewlinesInLeadingWhitespace, hasNoNewlinesInTrailingWhitespace } from "../utils";

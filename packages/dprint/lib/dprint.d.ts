@@ -1,5 +1,5 @@
-import { LoggingEnvironment, CliLoggingEnvironment } from "@dprint/core";
-import { Configuration as CoreConfiguration } from "@dprint/core";
+import { CliLoggingEnvironment } from "@dprint/core";
+import { LoggingEnvironment, Configuration as CoreConfiguration } from "@dprint/types";
 /**
  * Function used by the cli to format files.
  * @param args - Command line arguments.

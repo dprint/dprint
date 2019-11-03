@@ -1,4 +1,4 @@
-import { Configuration as CoreConfiguration } from "@dprint/core";
+import { Configuration as CoreConfiguration } from "@dprint/types";
 import { Environment } from "../environment";
 import { throwError } from "../utils";
 

@@ -1,4 +1,4 @@
-import { LoggingEnvironment } from "./LoggingEnvironment";
+import { LoggingEnvironment } from "@dprint/types";
 
 /**
  * An implementation of an environment that outputs to the console.

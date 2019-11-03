@@ -1,6 +1,5 @@
 import * as os from "os";
-import { Configuration, ResolvedConfiguration } from "./Configuration";
-import { ConfigurationDiagnostic } from "./ConfigurationDiagnostic";
+import { Configuration, ResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 import { ResolveConfigurationResult } from "./ResolveConfigurationResult";
 
 const defaultValues = {

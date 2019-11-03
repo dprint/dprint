@@ -1,5 +1,6 @@
 import { Environment } from "../environment";
-import { formatFileText, ConfigurationDiagnostic, resolveConfiguration } from "@dprint/core";
+import { ConfigurationDiagnostic } from "@dprint/types";
+import { formatFileText, resolveConfiguration } from "@dprint/core";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
 import { getVersionText } from "./getVersionText";

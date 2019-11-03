@@ -1,4 +1,4 @@
-import { PrintItemKind, Info, Condition, Signal, PrintItemIterable } from "../types";
+import { PrintItemKind, Info, Condition, Signal, PrintItemIterable } from "@dprint/types";
 import { conditionResolvers } from "./conditionResolvers";
 import { makeIterableRepeatable } from "../utils";
 import { parserHelpers } from "./parserHelpers";

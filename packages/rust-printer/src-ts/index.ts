@@ -1,4 +1,4 @@
-import { PrintItemIterable, PrintItemKind, Condition, ResolveConditionContext, PrintItem, Info } from "@dprint/core";
+import { PrintItemIterable, PrintItemKind, Condition, ResolveConditionContext, PrintItem, Info } from "@dprint/types";
 import * as rustPrinter from "./pkg/dprint_rust_printer";
 
 /** Options for printing. */

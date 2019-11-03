@@ -1,4 +1,4 @@
-import { Plugin } from "@dprint/core";
+import { Plugin } from "@dprint/types";
 import { getPackageVersion } from "./getPackageVersion";
 
 export function getVersionText(plugins: Plugin[]) {

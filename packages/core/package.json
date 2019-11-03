@@ -29,6 +29,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@dprint/types": "~0.1.0"
+  },
   "devDependencies": {
     "@types/chai": "^4.2.3",
     "@types/mocha": "^5.2.7",

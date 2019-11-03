@@ -2,7 +2,8 @@ import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 import globby from "globby";
-import { Plugin, resolveConfiguration, formatFileText, ConfigurationDiagnostic, CliLoggingEnvironment } from "@dprint/core";
+import { resolveConfiguration, formatFileText, CliLoggingEnvironment } from "@dprint/core";
+import { Plugin, ConfigurationDiagnostic } from "@dprint/types";
 import { getPrintIterableAsFormattedText } from "./getPrintIterableAsFormattedText";
 import { parseSpecs, Spec } from "./specParser";
 

@@ -1,4 +1,4 @@
-import { Condition, ConditionResolver, PrintItem } from "../../types";
+import { Condition, ConditionResolver, PrintItem } from "@dprint/types";
 
 export interface RepeatableCondition {
     /** Name for debugging purposes. */

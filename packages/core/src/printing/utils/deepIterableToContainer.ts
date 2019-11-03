@@ -1,4 +1,4 @@
-import { PrintItemIterable, PrintItemKind } from "../../types";
+import { PrintItemIterable, PrintItemKind } from "@dprint/types";
 import { RepeatableConditionCache, RepeatableCondition } from "./RepeatableConditionCache";
 import { PrintItemContainer, ConditionContainer } from "../types";
 

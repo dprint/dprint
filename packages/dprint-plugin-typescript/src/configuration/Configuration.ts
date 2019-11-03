@@ -1,4 +1,4 @@
-import { BaseResolvedConfiguration } from "@dprint/core";
+import { BaseResolvedConfiguration } from "@dprint/types";
 
 /**
  * User specified configuration for formatting TypeScript code.

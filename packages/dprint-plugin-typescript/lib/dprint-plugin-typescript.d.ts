@@ -1,4 +1,4 @@
-import { PrintItemIterable, Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/core";
+import { PrintItemIterable, Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 /**
  * User specified configuration for formatting TypeScript code.

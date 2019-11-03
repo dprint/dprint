@@ -1,4 +1,4 @@
-import { PrintItemKind, Signal, Condition, PrintItemIterable, Info, WriterInfo } from "../types";
+import { PrintItemKind, Signal, Condition, PrintItemIterable, Info, WriterInfo } from "@dprint/types";
 import { assertNever } from "../utils";
 import { Writer, WriterState } from "./Writer";
 import { PrinterPrintItem, ConditionContainer, PrintItemContainer } from "./types";

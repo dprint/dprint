@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Plugin } from "@dprint/core";
+import { Plugin } from "@dprint/types";
 import { runCliWithOptions, CommandLineOptions, Configuration } from "../../cli";
 import { getDefaultCommandLineOptions } from "./getDefaultCommandLineOptions";
 import { TestEnvironment } from "./TestEnvironment";

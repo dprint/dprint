@@ -1,4 +1,4 @@
-import { PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterable } from "@dprint/core";
+import { PrintItem, Signal, PrintItemKind, Condition, Info, PrintItemIterable } from "@dprint/types";
 import { assertNever } from "./utils";
 
 /** Prints out a parsed print item iterable for debugging purposes. */

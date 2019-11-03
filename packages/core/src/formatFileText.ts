@@ -1,5 +1,5 @@
+import { Plugin } from "@dprint/types";
 import { print } from "./printing";
-import { Plugin } from "./Plugin";
 import { resolveNewLineKindFromText, throwError } from "./utils";
 
 export interface FormatFileTextOptions {

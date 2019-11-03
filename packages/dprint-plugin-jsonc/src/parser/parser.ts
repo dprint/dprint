@@ -1,5 +1,6 @@
 import { Node, SyntaxKind, JSONScanner, createScanner, NodeType } from "jsonc-parser";
-import { parserHelpers, PrintItemIterable, PrintItemKind, Signal, PrintItem, LoggingEnvironment } from "@dprint/core";
+import { PrintItemIterable, PrintItemKind, Signal, PrintItem, LoggingEnvironment } from "@dprint/types";
+import { parserHelpers } from "@dprint/core";
 import { ResolvedJsoncConfiguration } from "../configuration";
 import { throwError } from "../utils";
 

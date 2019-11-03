@@ -1,4 +1,4 @@
-import { ResolveConditionContext, Info, WriterInfo, PrintItemKind } from "../types";
+import { ResolveConditionContext, Info, WriterInfo, PrintItemKind } from "@dprint/types";
 
 export namespace conditionResolvers {
     export function isStartOfNewLine(conditionContext: ResolveConditionContext) {
