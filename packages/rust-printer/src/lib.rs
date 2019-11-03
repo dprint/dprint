@@ -65,13 +65,9 @@ pub struct JsConditionResolverContext {
 
 #[wasm_bindgen]
 impl JsConditionResolverContext {
-    /// Gets if a condition was true, false, or returns the default value or undefined when not yet resolved.
-    pub fn getResolvedCondition(&mut self, condition: &JsCondition, optional_default_value: Option<bool>) -> Option<bool> {
-        if let Some(default_value) = optional_default_value {
-            Some(self.context.get_resolved_condition_or_default(condition, default_value))
-        } else {
-            self.context.get_resolved_condition(condition)
-        }
+    /// Gets if a condition was true, false, or returns undefined when not yet resolved.
+    pub fn getResolvedCondition(&mut self, condition: &JsCondition) -> Option<bool> {
+        self.context.get_resolved_condition(condition)
     }
 
     /// Gets the writer info at a specified info or returns undefined when not yet resolved.

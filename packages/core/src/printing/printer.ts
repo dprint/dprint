@@ -218,16 +218,13 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             return assertNever(printingCondition.condition);
         }
 
-        function getResolvedCondition(condition: Condition): boolean | undefined;
-        function getResolvedCondition(condition: Condition, defaultValue: boolean): boolean;
-        function getResolvedCondition(condition: Condition, defaultValue?: boolean): boolean | undefined {
+        function getResolvedCondition(condition: Condition): boolean | undefined {
             if (!resolvedConditions.has(condition) && !lookAheadSavePoints.has(condition)) {
                 const savePoint = createSavePointForRestoringCondition(condition.name);
                 lookAheadSavePoints.set(condition, savePoint);
                 refreshWriterUseCommittedItems();
             }
-            const conditionValue = resolvedConditions.get(condition);
-            return conditionValue == null ? defaultValue : conditionValue;
+            return resolvedConditions.get(condition);
         }
 
         function getResolvedInfo(info: Info) {

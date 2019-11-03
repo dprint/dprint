@@ -184,11 +184,6 @@ export interface ResolveConditionContext {
      */
     getResolvedCondition(condition: Condition): boolean | undefined;
     /**
-     * Gets if a condition was true, false, or returns the provided default value when
-     * not yet resolved.
-     */
-    getResolvedCondition(condition: Condition, defaultValue: boolean): boolean;
-    /**
      * Gets the writer info at a specified info or returns undefined when not yet resolved.
      */
     getResolvedInfo(info: Info): WriterInfo | undefined;

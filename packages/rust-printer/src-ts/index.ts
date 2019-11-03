@@ -57,11 +57,9 @@ function printItemsToArray(items: PrintItemIterable) {
     const rustContext = new class {
         private innerContext: ResolveConditionContext | undefined;
 
-        getResolvedCondition(condition: Condition): boolean | undefined;
-        getResolvedCondition(condition: Condition, defaultValue: boolean): boolean;
-        getResolvedCondition(condition: Condition, defaultValue?: boolean): boolean | undefined {
+        getResolvedCondition(condition: Condition): boolean | undefined {
             updateItem(condition);
-            return this.innerContext!.getResolvedCondition(condition, defaultValue!);
+            return this.innerContext!.getResolvedCondition(condition);
         }
 
         getResolvedInfo(info: Info) {

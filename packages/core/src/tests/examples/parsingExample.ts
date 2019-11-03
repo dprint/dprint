@@ -107,7 +107,7 @@ describe("parsing example", () => {
             const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo)!;
             const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
             if (resolvedEndInfo == null)
-                return false;
+                return undefined;
             return resolvedStartInfo.lineNumber < resolvedEndInfo.lineNumber;
         }
     }

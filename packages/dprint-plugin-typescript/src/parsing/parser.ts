@@ -1978,7 +1978,8 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
                 return bodyShouldBeMultiLine()
                     || startHeaderInfo && endHeaderInfo && conditionResolvers.isMultipleLines(conditionContext, startHeaderInfo, endHeaderInfo, false)
                     || conditionResolvers.isMultipleLines(conditionContext, startStatementsInfo, endStatementsInfo, false)
-                    || requiresBracesCondition && conditionContext.getResolvedCondition(requiresBracesCondition);
+                    // ensure this returns undefined when not yet resolved
+                    || (requiresBracesCondition != null ? conditionContext.getResolvedCondition(requiresBracesCondition) : false);
             }
             else {
                 return assertNever(useBraces);
