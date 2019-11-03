@@ -264,14 +264,6 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
         self.printer.get_resolved_condition(condition)
     }
 
-    /// Gets if a condition was true, false, or returns the provded default value when not yet resolved.
-    pub fn get_resolved_condition_or_default(&mut self, condition: &TCondition, default_value: bool) -> bool {
-        match self.get_resolved_condition(condition) {
-            Some(x) => x,
-            _ => default_value,
-        }
-    }
-
     /// Gets the writer info at a specified info or returns undefined when not yet resolved.
     pub fn get_resolved_info(&mut self, info: &TInfo) -> Option<WriterInfo> {
         self.printer.get_resolved_info(info)
