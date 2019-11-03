@@ -1,0 +1,14 @@
+[package]
+name = "dprint-rust-printer"
+version = "0.1.0"
+authors = ["David Sherret <dsherret@gmail.com>"]
+edition = "2018"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2.52"
+js-sys = "0.3.29"
+dprint-core = { path = "../rust-core", version = "0.2.0" }

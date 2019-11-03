@@ -138,7 +138,8 @@ describe("parsing example", () => {
             indentWidth: 2,
             maxWidth: 40,
             newLineKind: "\n",
-            useTabs: false
+            useTabs: false,
+            isTesting: true
         });
 
         expect(result).to.equal(expectedText);

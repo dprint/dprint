@@ -7,3 +7,6 @@ npm-debug.log
 yarn-error.log
 package-lock.json
 /lerna-debug.log
+/packages/rust-printer/dist
+/packages/rust-printer/node_modules
+/packages/rust-printer/target
