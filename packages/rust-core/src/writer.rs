@@ -61,7 +61,7 @@ impl<T> Writer<T> where T : StringRef {
     }
 
     pub fn start_indent(&mut self) {
-        self.state.indent_level += 1;
+        self.set_indent_level(self.state.indent_level + 1);
     }
 
     pub fn finish_indent(&mut self) {
@@ -69,7 +69,17 @@ impl<T> Writer<T> where T : StringRef {
             panic!("For some reason finish_indent was called without a corresponding start_indent.");
         }
 
-        self.state.indent_level -= 1;
+        self.set_indent_level(self.state.indent_level - 1);
+    }
+
+    fn set_indent_level(&mut self, new_level: u16) {
+        self.state.indent_level = new_level;
+
+        // If it's on the first column, update the indent level
+        // that the line started on.
+        if self.state.current_line_column == 0 {
+            self.state.last_line_indent_level = new_level;
+        }
     }
 
     pub fn start_ignoring_indent(&mut self) {
@@ -147,7 +157,7 @@ impl<T> Writer<T> where T : StringRef {
 
         // add the indentation if necessary
         if self.state.current_line_column == 0 && self.state.indent_level > 0 && self.state.ignore_indent_count == 0 {
-            // update the indent level again if on the first column
+            // update the indent level again since on the first column
             self.state.last_line_indent_level = self.state.indent_level;
 
             for _ in 0..self.state.indent_level {
@@ -160,5 +170,10 @@ impl<T> Writer<T> where T : StringRef {
 
     pub fn get_items(self) -> Vec<WriteItem<T>> {
         self.state.items
+    }
+
+    #[allow(dead_code)]
+    pub fn get_items_clone(&self) -> Vec<WriteItem<T>> {
+        self.state.items.clone()
     }
 }
