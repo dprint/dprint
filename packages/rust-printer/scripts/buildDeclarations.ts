@@ -17,7 +17,7 @@ const packageVersion = require("../package.json").version;
 
 const writer = readProject.createWriter();
 writer.writeLine("// dprint-ignore-file");
-writer.writeLine(`import { PrintItemIterable } from "@dprint/core";`);
+writer.writeLine(`import { PrintItemIterable } from "@dprint/types";`);
 
 for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
     for (const declaration of declarations) {

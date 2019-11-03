@@ -1,5 +1,7 @@
 #![allow(non_snake_case)] // allow for js property names
 
+extern crate console_error_panic_hook;
+
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::*;
@@ -33,8 +35,8 @@ extern "C" {
     #[wasm_bindgen(method, getter)]
     pub fn id(this: &JsCondition) -> usize;
 
-    #[wasm_bindgen(method, catch)]
-    pub fn condition(this: &JsCondition, context: JsConditionResolverContext) -> Result<bool, JsValue>;
+    #[wasm_bindgen(method)]
+    pub fn condition(this: &JsCondition, context: JsConditionResolverContext) -> Option<bool>;
 
     #[wasm_bindgen(method, getter, js_name = truePath)]
     pub fn true_path(this: &JsCondition) -> Option<Vec<JsValue>>;
@@ -141,7 +143,7 @@ impl ConditionRef<JsString, JsInfo, JsCondition> for JsCondition {
                 writerInfo: writer_info,
             };
 
-            self.condition(item).ok()
+            self.condition(item)
         }
     }
 
@@ -156,6 +158,8 @@ impl ConditionRef<JsString, JsInfo, JsCondition> for JsCondition {
 
 #[wasm_bindgen]
 pub fn get_write_items(print_items: Vec<JsValue>, max_width: u32, indent_width: u8, is_testing: bool) -> Vec<JsValue> {
+    console_error_panic_hook::set_once();
+
     let rust_print_items = get_rust_print_items(print_items);
     let write_items = dprint_core::get_write_items(rust_print_items, dprint_core::PrintOptions {
         indent_width: indent_width,

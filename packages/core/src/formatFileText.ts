@@ -24,7 +24,7 @@ export function formatFileText(options: FormatFileTextOptions) {
         maxWidth: config.lineWidth,
         indentWidth: config.indentWidth,
         useTabs: config.useTabs,
-        isTesting: true // todo: make this only true during testing (environment variable?)
+        isTesting: false // todo: make this true during testing (environment variable?)
     });
 
     function getPlugin() {

@@ -64,12 +64,11 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
     current_indexes: Vec<isize>, // todo: usize?
     save_point_increment: u32,
     writer: Writer<TString>,
-    resolved_conditions: HashMap<usize, bool>,
+    resolved_conditions: HashMap<usize, Option<bool>>,
     resolved_infos: HashMap<usize, WriterInfo>,
     look_ahead_condition_save_points: HashMap<usize, SavePoint<TString, TInfo, TCondition>>,
     look_ahead_info_save_points: HashMap<usize, SavePoint<TString, TInfo, TCondition>>,
     max_width: u32,
-    is_exiting_condition: bool,
     is_testing: bool,
 }
 
@@ -92,7 +91,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             look_ahead_condition_save_points: HashMap::new(),
             look_ahead_info_save_points: HashMap::new(),
             max_width: options.max_width,
-            is_exiting_condition: false,
             is_testing: options.is_testing,
         }
     }
@@ -106,6 +104,8 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
                 self.handle_print_item(&print_item);
                 let last_index = self.current_indexes.len() - 1;
                 self.current_indexes[last_index] += 1;
+
+                // self.log_writer_for_debugging();
             }
 
             let parent_container = self.container.parent;
@@ -118,8 +118,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             self.current_indexes.pop();
             let last_index = self.current_indexes.len() - 1;
             self.current_indexes[last_index] += 1;
-
-            // self.log_writer_for_debugging();
         }
 
         self.writer.get_items()
@@ -142,22 +140,21 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             self.look_ahead_info_save_points.insert(info.get_unique_id(), save_point);
         }
 
-        resolved_info.map(|x| x.to_owned())
+        resolved_info
     }
 
     pub fn get_resolved_condition(&mut self, condition: &TCondition) -> Option<bool> {
-        let optional_result = self.resolved_conditions.get(&condition.get_unique_id()).map(|x| x.to_owned());
-
-        if optional_result.is_none() {
-            if !self.look_ahead_condition_save_points.contains_key(&condition.get_unique_id()) {
-                let save_point = self.create_save_point_for_restoring_condition(if self.is_testing { &condition.get_name() } else { "" });
-                self.look_ahead_condition_save_points.insert(condition.get_unique_id(), save_point);
-            }
-        } else {
-            self.restore_to_condition_save_point_if_necessary(&condition);
+        if !self.resolved_conditions.contains_key(&condition.get_unique_id()) && !self.look_ahead_condition_save_points.contains_key(&condition.get_unique_id()) {
+            let save_point = self.create_save_point_for_restoring_condition(if self.is_testing { &condition.get_name() } else { "" });
+            self.look_ahead_condition_save_points.insert(condition.get_unique_id(), save_point);
         }
 
-        optional_result.map(|x| x.to_owned())
+        let optional_result = self.resolved_conditions.get(&condition.get_unique_id());
+        if let Some(result) = optional_result {
+            result.map(|x| x.to_owned())
+        } else {
+            Option::None
+        }
     }
 
     fn handle_print_item(&mut self, print_item: &PrintItem<TString, TInfo, TCondition>) {
@@ -260,10 +257,13 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
     }
 
     fn handle_condition(&mut self, condition: &TCondition) {
-        let condition_value = self.get_condition_value(&condition);
+        let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
+        self.resolved_conditions.insert(condition.get_unique_id(), condition_value);
 
-        if self.is_exiting_condition {
-            self.is_exiting_condition = false;
+        let save_point = self.look_ahead_condition_save_points.get(&condition.get_unique_id());
+        if condition_value.is_some() && save_point.is_some() {
+            let save_point = self.look_ahead_condition_save_points.remove(&condition.get_unique_id());
+            self.update_state_to_save_point(save_point.unwrap(), false);
             return;
         }
 
@@ -285,29 +285,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
                 };
                 self.current_indexes.push(-1);
             }
-        }
-    }
-
-    fn get_condition_value(&mut self, condition: &TCondition) -> Option<bool> {
-        let optional_result = condition.resolve(&mut ConditionResolverContext::new(self));
-
-        if self.is_exiting_condition {
-            return Option::None;
-        }
-
-        if let Some(result) = optional_result {
-            self.resolved_conditions.insert(condition.get_unique_id(), result);
-            self.restore_to_condition_save_point_if_necessary(&condition);
-        }
-
-        optional_result
-    }
-
-    fn restore_to_condition_save_point_if_necessary(&mut self, condition: &TCondition) {
-        let optional_save_point = self.look_ahead_condition_save_points.remove(&condition.get_unique_id());
-        if let Some(save_point) = optional_save_point {
-            self.update_state_to_save_point(save_point, false);
-            self.is_exiting_condition = true;
         }
     }
 
@@ -339,11 +316,26 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         }
     }
 
-    /*#[allow(dead_code)]
+/*
     fn log_writer_for_debugging(&self) {
-        let current_text = self.writer.to_string();
+        let writer_items = self.writer.get_items_clone();
 
-        println!("----");
-        println!("{}", current_text);
-    }*/
+        console_log!("----");
+        let mut final_string = String::new();
+
+        for item in writer_items.into_iter() {
+            match item {
+                WriteItem::Indent => final_string.push_str(&"  "),
+                WriteItem::NewLine => final_string.push_str(&"\n"),
+                WriteItem::Tab => final_string.push_str("\t"),
+                WriteItem::Space => final_string.push_str(" "),
+                WriteItem::String(text) => {
+                    final_string += &text.get_text_clone();
+                },
+            }
+        }
+
+        console_log!("{}", final_string);
+    }
+*/
 }

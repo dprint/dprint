@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem, ResolveConditionContext } from "@dprint/core";
+import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem, ResolveConditionContext } from "@dprint/types";
 import { print } from "../";
 
 describe("parsing example", () => {

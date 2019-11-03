@@ -17,6 +17,8 @@ export class Writer {
     private readonly indentWidth: number;
     private readonly newLineKind: "\r\n" | "\n";
     private readonly isTesting: boolean;
+    private readonly comittedItems: string[] = [];
+    private _useComittedItems = false;
     private fireOnNewLine?: () => void;
 
     private state: WriterState;
@@ -38,6 +40,23 @@ export class Writer {
         };
     }
 
+    /**
+     * This is a performance improvement to reduce allocations when saving the state.
+     * Set this to true when the writer should write without needing to save the state
+     * of the currently written or past items.
+     */
+    setUseCommittedItems(useCommittedItems: boolean) {
+        if (this._useComittedItems === useCommittedItems)
+            return;
+
+        if (useCommittedItems) {
+            this.comittedItems.push(...this.state.items);
+            this.state.items.length = 0;
+        }
+
+        this._useComittedItems = useCommittedItems;
+    }
+
     onNewLine(action: () => void) {
         if (this.fireOnNewLine != null)
             throwError(`Cannot call ${nameof(this.onNewLine)} multiple times.`);
@@ -45,10 +64,6 @@ export class Writer {
     }
 
     getState(): Readonly<WriterState> {
-        // todo: perhaps an additional method should be added that will reduce
-        // the number of items in the "items" array (ex. join them and create
-        // a single item array). That will need to be analyzed in some
-        // performance tests though.
         return Writer.cloneState(this.state);
     }
 
@@ -57,7 +72,7 @@ export class Writer {
     }
 
     private static cloneState(state: Readonly<WriterState>): WriterState {
-        const newState: MakeRequired<WriterState> = {
+        return {
             currentLineColumn: state.currentLineColumn,
             currentLineNumber: state.currentLineNumber,
             lastLineIndentLevel: state.lastLineIndentLevel,
@@ -67,7 +82,6 @@ export class Writer {
             items: [...state.items],
             ignoreIndentCount: state.ignoreIndentCount
         };
-        return newState;
     }
 
     private get currentLineColumn() {
@@ -131,35 +145,31 @@ export class Writer {
         this.state.ignoreIndentCount = value;
     }
 
-    private get items() {
-        return this.state.items;
-    }
-
     newLine() {
         this.currentLineColumn = 0;
         this.currentLineNumber++;
         this.lastLineIndentLevel = this.indentLevel;
         this.expectNewLineNext = false;
-        this.items.push(this.newLineKind);
+        this.addItem(this.newLineKind);
         this.fireOnNewLine!(); // expect this to be set
     }
 
     singleIndent() {
         this.handleFirstColumn();
         this.currentLineColumn += this.indentWidth;
-        this.items.push(this.singleIndentationText);
+        this.addItem(this.singleIndentationText);
     }
 
     tab() {
         this.handleFirstColumn();
         this.currentLineColumn += this.indentWidth;
-        this.items.push("\t");
+        this.addItem("\t");
     }
 
     space() {
         this.handleFirstColumn();
         this.currentLineColumn++;
-        this.items.push(" ");
+        this.addItem(" ");
     }
 
     write(text: string) {
@@ -169,20 +179,19 @@ export class Writer {
         this.handleFirstColumn();
 
         this.currentLineColumn += text.length;
-        this.state.items.push(text);
+        this.addItem(text);
     }
 
     private handleFirstColumn() {
-        if (this.expectNewLineNext) {
+        if (this.expectNewLineNext)
             this.newLine();
-        }
 
         if (this.currentLineColumn === 0 && this.indentLevel > 0 && this.ignoreIndentCount === 0) {
             // update the indent level again since on the first column
             this.lastLineIndentLevel = this.indentLevel;
 
             this.currentLineColumn += this.indentWidth * this.indentLevel;
-            this.items.push(this.indentText);
+            this.addItem(this.indentText);
         }
     }
 
@@ -198,9 +207,9 @@ export class Writer {
     }
 
     finishIndent(): void {
-        this.indentLevel--;
-        if (this.indentLevel < 0)
+        if (this.indentLevel === 0)
             return throwError(`For some reason ${nameof(this.finishIndent)} was called without a corresponding ${nameof(this.startIndent)}.`);
+        this.indentLevel--;
     }
 
     startIgnoringIndent() {
@@ -240,6 +249,13 @@ export class Writer {
     }
 
     toString() {
-        return this.items.join("");
+        return this.comittedItems.join("") + this.state.items.join("");
+    }
+
+    private addItem(item: string) {
+        if (this._useComittedItems)
+            this.comittedItems.push(item);
+        else
+            this.state.items.push(item);
     }
 }

@@ -19,7 +19,8 @@
   },
   "scripts": {
     "build:all": "rimraf dist && yarn build:rust && yarn rollup && yarn build:declarations",
-    "build:rust": "wasm-pack build --target nodejs --out-dir src-ts/pkg",
+    "build:rust": "wasm-pack build --release --target nodejs --out-dir src-ts/pkg",
+    "build:rust-debug": "wasm-pack build --dev --target nodejs --out-dir src-ts/pkg",
     "build:declarations": "ts-node --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "rollup": "copyfiles -u 1 src-ts/pkg/**/* dist && rollup --config",
     "test:all": "yarn build:rust && cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",

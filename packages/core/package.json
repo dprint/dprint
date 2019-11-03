@@ -30,7 +30,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@dprint/types": "~0.1.0"
+    "@dprint/types": "~0.1.0",
+    "@dprint/rust-printer": "~0.1.0"
   },
   "devDependencies": {
     "@types/chai": "^4.2.3",

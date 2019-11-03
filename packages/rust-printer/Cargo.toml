@@ -9,6 +9,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+console_error_panic_hook = "0.1.6"
 wasm-bindgen = "0.2.52"
 js-sys = "0.3.29"
 dprint-core = { path = "../rust-core", version = "0.2.0" }

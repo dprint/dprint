@@ -10,3 +10,4 @@ package-lock.json
 /packages/rust-printer/dist
 /packages/rust-printer/node_modules
 /packages/rust-printer/target
+/packages/benchmarks

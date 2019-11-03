@@ -33,8 +33,6 @@ interface SavePoint {
     readonly possibleNewLineSavePoint: SavePoint | undefined;
 }
 
-const exitSymbol = Symbol("Used in certain cases when a save point is restored.");
-
 /**
  * Prints out the provided print item iterable.
  * @param iterable - Iterable to iterate and print.
@@ -43,7 +41,7 @@ const exitSymbol = Symbol("Used in certain cases when a save point is restored."
 export function print(iterable: PrintItemIterable, options: PrintOptions) {
     // setup
     const writer = new Writer(options);
-    const resolvedConditions = new Map<Condition, boolean>();
+    const resolvedConditions = new Map<Condition, boolean | undefined>();
     const resolvedInfos = new Map<Info, WriterInfo>();
     const lookAheadSavePoints = new Map<Condition | Info, SavePoint>();
     let lastLog: string | undefined;
@@ -56,11 +54,16 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
 
     writer.onNewLine(() => {
         possibleNewLineSavePoint = undefined;
+        refreshWriterUseCommittedItems();
     });
 
     printItems();
 
     return writer.toString();
+
+    function refreshWriterUseCommittedItems() {
+        writer.setUseCommittedItems(lookAheadSavePoints.size === 0 && possibleNewLineSavePoint == null);
+    }
 
     function printItems() {
         while (true) {
@@ -154,23 +157,27 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
         }
 
         function handleCondition(condition: ConditionContainer) {
-            try {
-                const conditionValue = getConditionValue(condition.originalCondition);
-                if (conditionValue) {
-                    if (condition.true) {
-                        container = condition.true;
-                        currentIndexes.push(-1);
-                    }
+            const conditionValue = getConditionValue(condition.originalCondition);
+            resolvedConditions.set(condition.originalCondition, conditionValue);
+
+            const savePoint = lookAheadSavePoints.get(condition.originalCondition);
+            if (conditionValue != null && savePoint != null) {
+                lookAheadSavePoints.delete(condition.originalCondition);
+                updateStateToSavePoint(savePoint);
+                return;
+            }
+
+            if (conditionValue) {
+                if (condition.true) {
+                    container = condition.true;
+                    currentIndexes.push(-1);
                 }
-                else {
-                    if (condition.false) {
-                        container = condition.false;
-                        currentIndexes.push(-1);
-                    }
+            }
+            else {
+                if (condition.false) {
+                    container = condition.false;
+                    currentIndexes.push(-1);
                 }
-            } catch (err) {
-                if (err !== exitSymbol)
-                    throw err;
             }
         }
     }
@@ -180,6 +187,7 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
             return;
 
         possibleNewLineSavePoint = createSavePoint("newline");
+        refreshWriterUseCommittedItems();
     }
 
     function updateStateToSavePoint(savePoint: SavePoint) {
@@ -192,79 +200,44 @@ export function print(iterable: PrintItemIterable, options: PrintOptions) {
 
         if (isForNewLine)
             writer.newLine();
+
+        refreshWriterUseCommittedItems();
     }
 
     function getConditionValue(printingCondition: Condition): boolean | undefined {
-        return getInnerConditionValue(printingCondition);
-
-        function getInnerConditionValue(condition: Condition) {
-            if (typeof condition.condition === "object") {
-                return tryGetValueFromCondition(condition.condition);
-            }
-            else if (condition.condition instanceof Function) {
-                if (condition === printingCondition) {
-                    const result = condition.condition({
-                        getResolvedCondition,
-                        writerInfo: getWriterInfo(),
-                        getResolvedInfo: info => getResolvedInfo(info)
-                    });
-                    if (result != null) {
-                        resolvedConditions.set(condition, result);
-                        restoreToSavePointIfNecessary(condition);
-                    }
-
-                    return result;
-                }
-                else {
-                    return tryGetValueFromCondition(condition);
-                }
-            }
-            else {
-                return assertNever(condition.condition);
-            }
-
-            function getResolvedCondition(c: Condition): boolean | undefined;
-            function getResolvedCondition(c: Condition, defaultValue: boolean): boolean;
-            function getResolvedCondition(c: Condition, defaultValue?: boolean): boolean | undefined {
-                const conditionValue = getInnerConditionValue(c);
-                if (conditionValue == null)
-                    return defaultValue;
-                return conditionValue;
-            }
-
-            function getResolvedInfo(info: Info) {
-                const resolvedInfo = resolvedInfos.get(info);
-                if (resolvedInfo == null && !lookAheadSavePoints.has(info)) {
-                    const savePoint = createSavePointForRestoringCondition(info.name);
-                    lookAheadSavePoints.set(info, savePoint);
-                }
-                return resolvedInfo;
-            }
+        if (typeof printingCondition.condition === "object")
+            return resolvedConditions.get(printingCondition.condition);
+        else if (printingCondition.condition instanceof Function) {
+            return printingCondition.condition({
+                getResolvedCondition,
+                writerInfo: getWriterInfo(),
+                getResolvedInfo
+            });
+        }
+        else {
+            return assertNever(printingCondition.condition);
         }
 
-        function tryGetValueFromCondition(condition: Condition) {
-            const result = resolvedConditions.get(condition);
-
-            if (result == null) {
-                if (!lookAheadSavePoints.has(condition)) {
-                    const savePoint = createSavePointForRestoringCondition(condition.name);
-                    lookAheadSavePoints.set(condition, savePoint);
-                }
+        function getResolvedCondition(condition: Condition): boolean | undefined;
+        function getResolvedCondition(condition: Condition, defaultValue: boolean): boolean;
+        function getResolvedCondition(condition: Condition, defaultValue?: boolean): boolean | undefined {
+            if (!resolvedConditions.has(condition) && !lookAheadSavePoints.has(condition)) {
+                const savePoint = createSavePointForRestoringCondition(condition.name);
+                lookAheadSavePoints.set(condition, savePoint);
+                refreshWriterUseCommittedItems();
             }
-            else {
-                restoreToSavePointIfNecessary(condition);
-            }
-
-            return result;
+            const conditionValue = resolvedConditions.get(condition);
+            return conditionValue == null ? defaultValue : conditionValue;
         }
 
-        function restoreToSavePointIfNecessary(condition: Condition) {
-            const savePoint = lookAheadSavePoints.get(condition);
-            if (savePoint != null) {
-                lookAheadSavePoints.delete(condition);
-                updateStateToSavePoint(savePoint);
-                throw exitSymbol;
+        function getResolvedInfo(info: Info) {
+            const resolvedInfo = resolvedInfos.get(info);
+            if (resolvedInfo == null && !lookAheadSavePoints.has(info)) {
+                const savePoint = createSavePointForRestoringCondition(info.name);
+                lookAheadSavePoints.set(info, savePoint);
+                refreshWriterUseCommittedItems();
             }
+            return resolvedInfo;
         }
     }
 

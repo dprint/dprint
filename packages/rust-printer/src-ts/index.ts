@@ -63,6 +63,7 @@ function printItemsToArray(items: PrintItemIterable) {
             updateItem(condition);
             return this.innerContext!.getResolvedCondition(condition, defaultValue!);
         }
+
         getResolvedInfo(info: Info) {
             updateItem(info);
             return this.innerContext!.getResolvedInfo(info);
@@ -103,24 +104,19 @@ function printItemsToArray(items: PrintItemIterable) {
             addPath(item, "truePath", item.true);
             addPath(item, "falsePath", item.false);
 
-            // Update the condition resolution to always be a function (since that's what rust expects),
-            // and use the local rust context to ensure all infos and conditions are tagged with a unique
+            // Update the condition resolution to always be a function (since that's what rust expects)
+            if (!(item.condition instanceof Function)) {
+                const checkingCondition = item.condition;
+                item.condition = (context: ResolveConditionContext) => context.getResolvedCondition(checkingCondition);
+            }
+
+            // Always use the local rust context to ensure all infos and conditions are tagged with a unique
             // id when they're requested for resolution (in case they already don't have one).
-            const conditionResolver = item.condition;
-            if (!(conditionResolver instanceof Function)) {
-                // force it to be a function
-                item.condition = (context: ResolveConditionContext) => {
-                    rustContext.setInnerContext(context);
-                    return rustContext.getResolvedCondition(conditionResolver);
-                };
-            }
-            else {
-                // use the global context
-                item.condition = (context: ResolveConditionContext) => {
-                    rustContext.setInnerContext(context);
-                    return conditionResolver(rustContext);
-                };
-            }
+            const originalResolver = item.condition;
+            item.condition = (context: ResolveConditionContext) => {
+                rustContext.setInnerContext(context);
+                return originalResolver(rustContext);
+            };
         }
 
         function addPath(condition: Condition, pathName: string, pathIterator: PrintItemIterable | undefined) {

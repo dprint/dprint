@@ -1,5 +1,5 @@
 // dprint-ignore-file
-import { PrintItemIterable } from "@dprint/core";
+import { PrintItemIterable } from "@dprint/types";
 
 /**
  * Print out the provided print items using the rust printer.
