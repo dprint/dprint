@@ -4,6 +4,40 @@
 
 Rust crate to help build a code formatter.
 
+## Api
+
+Use:
+
+```rust
+let result = dprint_core::print(print_items, PrintOptions {
+    indent_width: 4,
+    max_width: 10,
+    // Set this to true while testing. It runs additional validation on the
+    // strings to ensure the print items are being parsed out correctly.
+    is_testing: false,
+    use_tabs: false,
+    newline_kind: "\n",
+});
+```
+
+Or do the steps individually:
+
+```rust
+// Send the print items to be transformed into write items.
+let write_items = dprint_core::get_write_items(print_items, GetWriteItemsOptions {
+    indent_width: 4,
+    max_width: 10,
+    is_testing: false,
+});
+
+// Write out the write items to a string.
+let result = dprint_core::print_write_items(write_items, PrintWriteItemsOptions {
+    use_tabs: false,
+    newline_kind: "\n",
+    indent_width: 4,
+})
+```
+
 ## Example
 
 This reimplements the example from [overview.md](../../docs/overview.md), but in rust.
@@ -76,25 +110,14 @@ pub fn format(expr: ArrayLiteralExpression) -> String {
     // Parse out the print items from the AST.
     let print_items = parse_node(Node::ArrayLiteralExpression(expr));
 
-    // Send the print items to be transformed into write items.
-    let write_items = dprint_core::get_write_items(print_items, PrintOptions {
+    // print them
+    dprint_core::print(print_items, GetWriteItemsOptions {
         indent_width: 4,
         max_width: 10,
-        // Set this to true while testing. It runs additional validation on the
-        // strings to ensure the print items are being parsed out correctly.
         is_testing: false,
-    });
-
-    // Write out the write items to a string.
-    // Note: This is a 3 step process because this final step could be done
-    // on the JS side rather than in Rust. Additionally PrintItem is generic
-    // and allows for an implementation that avoids copying the string over
-    // from rust.
-    dprint_core::print_write_items(write_items, PrintWriteItemsOptions {
         use_tabs: false,
         newline_kind: "\n",
-        indent_width: 4,
-    })
+    });
 }
 
 // node parsing functions
