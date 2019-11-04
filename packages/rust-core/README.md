@@ -1,8 +1,8 @@
 # dprint-core
 
-Rust crate to help build a code formatter.
+[![](https://img.shields.io/crates/v/dprint-core.svg)](https://crates.io/crates/dprint-core)
 
-DO NOT USE THIS. This is under active early development and there's a few undocumented ways this needs to be used.
+Rust crate to help build a code formatter.
 
 ## Example
 
@@ -89,7 +89,7 @@ pub fn format(expr: ArrayLiteralExpression) -> String {
     // Note: This is a 3 step process because this final step could be done
     // on the JS side rather than in Rust. Additionally PrintItem is generic
     // and allows for an implementation that avoids copying the string over
-    // from rust. I have yet to try this out to see if it's actually faster.
+    // from rust.
     dprint_core::print_write_items(write_items, PrintWriteItemsOptions {
         use_tabs: false,
         newline_kind: "\n",
