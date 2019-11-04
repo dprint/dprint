@@ -14,6 +14,23 @@ export declare function getFileExtension(filePath: string): string;
  */
 export declare function resolveNewLineKindFromText(text: string): "\r\n" | "\n";
 
+/** Options for printing a print item iterable. */
+export interface PrintOptions {
+    /** The width the printer will attempt to keep the line under. */
+    maxWidth: number;
+    /** The number of spaces to use when indenting (unless useTabs is true). */
+    indentWidth: number;
+    /** Whether to use tabs for indenting. */
+    useTabs: boolean;
+    /** The newline character to use when doing a new line. */
+    newLineKind: "\r\n" | "\n";
+    /**
+     * Set to true when testing in order to run additional validation on the inputted strings, which
+     * ensures the printer is being used correctly.
+     */
+    isTesting: boolean;
+}
+
 /** The result of resolving configuration. */
 export interface ResolveConfigurationResult<ResolvedConfiguration extends BaseResolvedConfiguration> {
     /** The diagnostics, if any. */
@@ -89,10 +106,20 @@ export declare class CliLoggingEnvironment implements LoggingEnvironment {
     error(text: string): void;
 }
 
+/**
+ * Formats the provided file's text.
+ * @param options - Options to use.
+ */
 export declare function formatFileText(options: FormatFileTextOptions): string;
 
+/** Options for formatting. */
 export interface FormatFileTextOptions {
+    /** File path of the file to format. This will help select the plugin to use. */
     filePath: string;
+    /** File text of the file to format. */
     fileText: string;
+    /** Plugins to use. */
     plugins: Plugin[];
+    /** Custom printer to print out the print items (ex. use the printer from @dprint/rust-printer) */
+    customPrinter?: (iterable: PrintItemIterable, options: PrintOptions) => string;
 }

@@ -4,6 +4,7 @@ import * as path from "path";
 import globby from "globby";
 import { resolveConfiguration, formatFileText, CliLoggingEnvironment } from "@dprint/core";
 import { Plugin, ConfigurationDiagnostic } from "@dprint/types";
+import { print as rustPrinter } from "@dprint/rust-printer";
 import { getPrintIterableAsFormattedText } from "./getPrintIterableAsFormattedText";
 import { parseSpecs, Spec } from "./specParser";
 
@@ -55,18 +56,26 @@ export function runSpecs(options: RunSpecsOptions) {
                 console.log(getPrintIterableAsFormattedText(printIterable));
             }
 
+            if (!spec.expectedText.endsWith("\n"))
+                throw new Error(`${spec.message}: The expected text did not end with a newline.`);
+            if (spec.expectedText.endsWith("\n\n"))
+                throw new Error(`${spec.message}: The expected text ended with multiple newlines: ${JSON.stringify(spec.expectedText)}`);
+
             const actualText = formatFileText({
                 filePath: spec.filePath,
                 fileText: spec.fileText,
                 plugins: [plugin]
             });
 
-            if (!spec.expectedText.endsWith("\n"))
-                throw new Error(`${spec.message}: The expected text did not end with a newline.`);
-            if (spec.expectedText.endsWith("\n\n"))
-                throw new Error(`${spec.message}: The expected text ended with multiple newlines: ${JSON.stringify(spec.expectedText)}`);
             // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
             expect(actualText).to.equal(spec.expectedText, spec.message);
+
+            expect(formatFileText({
+                filePath: spec.filePath,
+                fileText: spec.fileText,
+                plugins: [plugin],
+                customPrinter: rustPrinter
+            })).to.equal(spec.expectedText, `RUST PRINTER: ${spec.message}`);
 
             function getGlobalConfiguration() {
                 const result = resolveConfiguration({});

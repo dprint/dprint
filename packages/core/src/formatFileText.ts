@@ -1,13 +1,23 @@
-import { Plugin } from "@dprint/types";
-import { print } from "./printing";
+import { Plugin, PrintItemIterable } from "@dprint/types";
+import { print, PrintOptions } from "./printing";
 import { resolveNewLineKindFromText, throwError } from "./utils";
 
+/** Options for formatting. */
 export interface FormatFileTextOptions {
+    /** File path of the file to format. This will help select the plugin to use. */
     filePath: string;
+    /** File text of the file to format. */
     fileText: string;
+    /** Plugins to use. */
     plugins: Plugin[];
+    /** Custom printer to print out the print items (ex. use the printer from @dprint/rust-printer) */
+    customPrinter?: (iterable: PrintItemIterable, options: PrintOptions) => string;
 }
 
+/**
+ * Formats the provided file's text.
+ * @param options - Options to use.
+ */
 export function formatFileText(options: FormatFileTextOptions) {
     const { filePath, fileText, plugins } = options;
     const plugin = getPlugin();
@@ -19,7 +29,7 @@ export function formatFileText(options: FormatFileTextOptions) {
 
     // print it
     const config = plugin.getConfiguration();
-    return print(parseResult, {
+    return (options.customPrinter || print)(parseResult, {
         newLineKind: config.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newLineKind,
         maxWidth: config.lineWidth,
         indentWidth: config.indentWidth,

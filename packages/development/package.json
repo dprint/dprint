@@ -27,7 +27,8 @@
   },
   "dependencies": {
     "@dprint/core": "~0.4.4",
-    "@dprint/types": "~0.1.0"
+    "@dprint/types": "~0.1.0",
+    "@dprint/rust-printer": "~0.1.0"
   },
   "peerDependencies": {
     "mocha": "^6.2.0",
