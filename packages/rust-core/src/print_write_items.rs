@@ -13,11 +13,11 @@ pub struct PrintWriteItemsOptions {
 }
 
 /// Prints string based writer items.
-pub fn print_write_items<T>(writer_items: Vec<WriteItem<T>>, options: PrintWriteItemsOptions) -> String where T : StringRef {
+pub fn print_write_items<T>(write_items: Vec<WriteItem<T>>, options: PrintWriteItemsOptions) -> String where T : StringRef {
     let mut final_string = String::new();
     let indent_string = if options.use_tabs { String::from("\t") } else { " ".repeat(options.indent_width as usize) };
 
-    for item in writer_items.into_iter() {
+    for item in write_items.into_iter() {
         match item {
             WriteItem::Indent => final_string.push_str(&indent_string),
             WriteItem::NewLine => final_string.push_str(&options.newline_kind),

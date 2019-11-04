@@ -1,21 +1,10 @@
 use super::WriteItem;
 use super::print_items::*;
 use super::writer::*;
+use super::get_write_items::{GetWriteItemsOptions};
 use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
-
-/// Options for printing the print items.
-pub struct PrintOptions {
-    /// The width the printer will attempt to keep the line under.
-    pub max_width: u32,
-    /// The number of columns to count when indenting or using a tab.
-    pub indent_width: u8,
-    // Set this to true and the printer will do additional validation
-    // on input strings to ensure the printer is being used correctly.
-    // Setting this to true will make things much slower.
-    pub is_testing: bool,
-}
 
 struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     // Unique id
@@ -73,7 +62,7 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
 }
 
 impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    pub fn new(items: Vec<PrintItem<TString, TInfo, TCondition>>, options: PrintOptions) -> Printer<TString, TInfo, TCondition> {
+    pub fn new(items: Vec<PrintItem<TString, TInfo, TCondition>>, options: GetWriteItemsOptions) -> Printer<TString, TInfo, TCondition> {
         Printer {
             possible_new_line_save_point: Option::None,
             new_line_group_depth: 0,
@@ -318,12 +307,12 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
 
 /*
     fn log_writer_for_debugging(&self) {
-        let writer_items = self.writer.get_items_clone();
+        let write_items = self.writer.get_items_clone();
 
         console_log!("----");
         let mut final_string = String::new();
 
-        for item in writer_items.into_iter() {
+        for item in write_items.into_iter() {
             match item {
                 WriteItem::Indent => final_string.push_str(&"  "),
                 WriteItem::NewLine => final_string.push_str(&"\n"),
