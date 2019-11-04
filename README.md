@@ -9,6 +9,7 @@ Mono-repo for dprint—a configurable and plugable code formatter.
 * [@dprint/core](packages/core) - Core functionality
 * [dprint-plugin-typescript](packages/dprint-plugin-typescript) - Plugin for TypeScript formatting
 * [dprint-plugin-jsonc](packages/dprint-plugin-jsonc) - Plugin for JSONC formatting
+* [dprint-core](packages/rust-core) (Rust) - Library for creating formatters in Rust.
 
 Note: This library is under active early development. I highly recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
 

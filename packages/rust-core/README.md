@@ -9,6 +9,7 @@ Rust crate to help build a code formatter.
 Use:
 
 ```rust
+let print_items = ...; // parsed out IR (see example below)
 let result = dprint_core::print(print_items, PrintOptions {
     indent_width: 4,
     max_width: 10,
@@ -37,6 +38,8 @@ let result = dprint_core::print_write_items(write_items, PrintWriteItemsOptions 
     indent_width: 4,
 })
 ```
+
+It is useful to only do the first step of getting the "write items" when using this library in WebAssembly. That allows for avoiding to copy/encode over the strings from JavaScript to Rust and back—all the strings can remain in JS. An example of this can be seen in the [@dprint/rust-printer](../rust-printer) package.
 
 ## Example
 
@@ -107,7 +110,7 @@ extern crate dprint_core;
 use dprint_core::*;
 
 pub fn format(expr: ArrayLiteralExpression) -> String {
-    // Parse out the print items from the AST.
+    // parse out the print items from the AST
     let print_items = parse_node(Node::ArrayLiteralExpression(expr));
 
     // print them
