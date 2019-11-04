@@ -1,6 +1,5 @@
-import { Condition, Signal, Info, PrintItem, PrintItemIterable, WriterInfo, Plugin, Configuration, ConfigurationDiagnostic, ResolvedConfiguration, ResolveConditionContext, BaseResolvedConfiguration, LoggingEnvironment } from "@dprint/types";
-
 // dprint-ignore-file
+import { Condition, Signal, Info, PrintItem, PrintItemIterable, WriterInfo, Plugin, Configuration, ConfigurationDiagnostic, ResolvedConfiguration, ResolveConditionContext, BaseResolvedConfiguration, LoggingEnvironment } from "@dprint/types";
 
 export declare const version = "0.4.4";
 

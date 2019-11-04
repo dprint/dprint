@@ -16,7 +16,6 @@ const declarationFile = writeProject.addExistingSourceFile("lib/dprint-core.d.ts
 const packageVersion = require("../package.json").version;
 
 const writer = readProject.createWriter();
-writer.writeLine("// dprint-ignore-file");
 
 for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
     for (const declaration of declarations) {
@@ -37,7 +36,7 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 
 // todo: format using dprint
 declarationFile.replaceWithText(writer.toString());
-declarationFile.insertImportDeclaration(0, {
+declarationFile.addImportDeclaration({
     namedImports: [
         "Condition",
         "Signal",
@@ -51,10 +50,11 @@ declarationFile.insertImportDeclaration(0, {
         "ResolvedConfiguration",
         "ResolveConditionContext",
         "BaseResolvedConfiguration",
-        "LoggingEnvironment",
+        "LoggingEnvironment"
     ],
     moduleSpecifier: "@dprint/types"
 });
+declarationFile.insertStatements(0, "// dprint-ignore-file");
 declarationFile.saveSync();
 
 const diagnostics = writeProject.getPreEmitDiagnostics();

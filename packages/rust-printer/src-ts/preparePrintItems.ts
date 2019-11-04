@@ -87,7 +87,7 @@ export function preparePrintItems(items: PrintItemIterable) {
         }
 
         function isInfoOrCondition(item: PrintItem): item is Condition | Info {
-            return (item as any).kind != null
+            return (item as any).kind != null;
         }
 
         function hasId(item: Condition | Info) {
