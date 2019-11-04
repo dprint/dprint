@@ -1,11 +1,13 @@
-language: node_js
+language: rust
 node_js:
   - 10
+before_install:
+  - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- -f
 install:
   - yarn install
   - yarn bootstrap
-  - yarn build
 script:
+  - yarn build
   - yarn test
 before_deploy:
   - travis_wait 20 yarn build-website
