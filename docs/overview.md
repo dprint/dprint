@@ -48,6 +48,7 @@ The infos & conditions that are inspected may appear before or even after the co
 This is an enum that signals information to the printer.
 
 * `NewLine` - Signal that a new line should occur based on the printer settings.
+* `Tab` - Signal that a tab should occur based on the printer settings (ex. if indent width is 4 it will increase the column width by 4 for each tab).
 * `PossibleNewLine` - Signal that the current location could be a newline when exceeding the line width.
 * `SpaceOrNewLine` - Signal that the current location should be a space, but could be a newline if exceeding the line width.
 * `ExpectNewLine` - Expect the next character to be a newline. If it's not, force a newline. This is useful to use at the end of single line comments in JS, for example.
@@ -68,7 +69,18 @@ The printer takes the IR and outputs the final code. Its main responsibilities a
 3. Seeing where lines exceed the maximum line width and breaking up the line as specified in the IR.
 
 * [Printer code](../packages/core/src/printing/printer.ts)
-* [Writer code](../packages/core/src/printing/Writer.ts) - Simple code writer used by the printer.
+* [Writer code](../packages/core/src/printing/Writer.ts) - Code writer used by the printer.
+
+#### Rules
+
+The printer never checks the contents of the provided strings—it only looks at the length of the strings. For that reason there are certain rules:
+
+1. Never use a tab in a string. Instead, use `Signal.Tab` (see *Signals* below). Tabs increase the column width based on the indent width and need to be treated differently.
+2. Never use a newline in a string. Instead use `Signal.NewLine`.
+
+Strings that include newlines or tabs should be broken up when parsed (ex. template literals in JavaScript may contain those characters).
+
+On the printer there is an `isTesting` (JS) or `is_testing` (Rust) property that when set to true will enforce these rules.
 
 ## Example IR Generation
 
