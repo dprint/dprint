@@ -1,7 +1,7 @@
-# rust-core-wasm
-
-Building:
+# rust-printer
 
 ```
-wasm-pack build --target nodejs
+yarn add @dprint/rust-printer
 ```
+
+Uses the `dprint-core` rust crate living in WebAssembly to print out parsed JavaScript ["print items"](https://github.com/dsherret/dprint/blob/master/docs/overview.md).
