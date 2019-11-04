@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem, ResolveConditionContext } from "@dprint/types";
-import { print } from "../";
+import { print } from "../print";
 
 describe("parsing example", () => {
     // example AST nodes
