@@ -67,6 +67,79 @@ export interface LoggingEnvironment {
 }
 
 /**
+ * Gets if the provided plugin is a js plugin.
+ * @param plugin - Plugin to check.
+ */
+export declare function isJsPlugin(plugin: Plugin): plugin is JsPlugin;
+
+/**
+ * Gets if the provided plugin is a WebAssembly plugin.
+ * @param plugin - Plugin to check.
+ */
+export declare function isWebAssemblyPlugin(plugin: Plugin): plugin is WebAssemblyPlugin;
+
+/** Options for initializing a plugin. */
+export interface PluginInitializeOptions {
+    /** Environment to use for logging. */
+    environment: LoggingEnvironment;
+    /** The resolved global configuration. */
+    globalConfig: ResolvedConfiguration;
+}
+
+/** Base interface a plugin must implement. */
+export interface BasePlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
+    /**
+     * The package version of the plugin.
+     */
+    version: string;
+    /**
+     * Name of this plugin.
+     */
+    name: string;
+    /**
+     * Initializes the plugin for use.
+     * @remarks Plugins should be resilient to this never being called.
+     */
+    initialize(options: PluginInitializeOptions): void;
+    /**
+     * Gets whether the plugin should format the file.
+     */
+    shouldFormatFile(filePath: string, fileText: string): boolean;
+    /**
+     * Gets the resolved configuration for the plugin.
+     */
+    getConfiguration(): ResolvedPluginConfiguration;
+    /**
+     * Gets the configuration diagnostics.
+     */
+    getConfigurationDiagnostics(): ConfigurationDiagnostic[];
+}
+
+/**
+ * A plugin that only lives in JavaScript land.
+ */
+export interface JsPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> extends BasePlugin<ResolvedPluginConfiguration> {
+    /**
+     * Parses the file to an iterable of print items.
+     * @returns An iterable of print items or false if the file said to skip parsing (ex. it had an ignore comment).
+     */
+    parseFile(filePath: string, fileText: string): PrintItemIterable | false;
+}
+
+/**
+ * A plugin that may send the string to WebAssembly, in which it will print out the print items.
+ */
+export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> extends BasePlugin<ResolvedPluginConfiguration> {
+    /**
+     * Formats the provided file text.
+     * @returns The formatted text or false if the file said to skip parsing (ex. it had an ignore comment).
+     */
+    formatText(filePath: string, fileText: string): string | false;
+}
+
+export declare type Plugin = WebAssemblyPlugin | JsPlugin;
+
+/**
  * The different items the printer could encounter.
  */
 export declare type PrintItem = Signal | string | Condition | Info;
@@ -202,46 +275,4 @@ export interface WriterInfo {
     indentLevel: number;
     lineStartIndentLevel: number;
     lineStartColumnNumber: number;
-}
-
-/** Options for initializing a plugin. */
-export interface PluginInitializeOptions {
-    /** Environment to use for logging. */
-    environment: LoggingEnvironment;
-    /** The resolved global configuration. */
-    globalConfig: ResolvedConfiguration;
-}
-
-/** Base interface a plugin must implement. */
-export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
-    /**
-     * The package version of the plugin.
-     */
-    version: string;
-    /**
-     * Name of this plugin.
-     */
-    name: string;
-    /**
-     * Initializes the plugin for use.
-     * @remarks Plugins should be resilient to this never being called.
-     */
-    initialize(options: PluginInitializeOptions): void;
-    /**
-     * Gets whether the plugin should parse the file.
-     */
-    shouldParseFile(filePath: string, fileText: string): boolean;
-    /**
-     * Gets the resolved configuration for the plugin.
-     */
-    getConfiguration(): ResolvedPluginConfiguration;
-    /**
-     * Gets the configuration diagnostics.
-     */
-    getConfigurationDiagnostics(): ConfigurationDiagnostic[];
-    /**
-     * Parses the file to an iterable of print items.
-     * @returns An iterable of print items or false if the file said to skip parsing (ex. it had an ignore comment).
-     */
-    parseFile(filePath: string, fileText: string): PrintItemIterable | false;
 }

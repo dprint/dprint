@@ -11,7 +11,7 @@ export interface PluginInitializeOptions {
 }
 
 /** Base interface a plugin must implement. */
-export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
+export interface BasePlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
     /**
      * The package version of the plugin.
      */
@@ -26,9 +26,9 @@ export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfigur
      */
     initialize(options: PluginInitializeOptions): void;
     /**
-     * Gets whether the plugin should parse the file.
+     * Gets whether the plugin should format the file.
      */
-    shouldParseFile(filePath: string, fileText: string): boolean;
+    shouldFormatFile(filePath: string, fileText: string): boolean;
     /**
      * Gets the resolved configuration for the plugin.
      */
@@ -37,9 +37,44 @@ export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfigur
      * Gets the configuration diagnostics.
      */
     getConfigurationDiagnostics(): ConfigurationDiagnostic[];
+}
+
+/**
+ * A plugin that only lives in JavaScript land.
+ */
+export interface JsPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> extends BasePlugin<ResolvedPluginConfiguration> {
     /**
      * Parses the file to an iterable of print items.
      * @returns An iterable of print items or false if the file said to skip parsing (ex. it had an ignore comment).
      */
     parseFile(filePath: string, fileText: string): PrintItemIterable | false;
+}
+
+/**
+ * A plugin that may send the string to WebAssembly, in which it will print out the print items.
+ */
+export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> extends BasePlugin<ResolvedPluginConfiguration> {
+    /**
+     * Formats the provided file text.
+     * @returns The formatted text or false if the file said to skip parsing (ex. it had an ignore comment).
+     */
+    formatText(filePath: string, fileText: string): string | false;
+}
+
+export type Plugin = WebAssemblyPlugin | JsPlugin;
+
+/**
+ * Gets if the provided plugin is a js plugin.
+ * @param plugin - Plugin to check.
+ */
+export function isJsPlugin(plugin: Plugin): plugin is JsPlugin {
+    return (plugin as any as JsPlugin).parseFile != null;
+}
+
+/**
+ * Gets if the provided plugin is a WebAssembly plugin.
+ * @param plugin - Plugin to check.
+ */
+export function isWebAssemblyPlugin(plugin: Plugin): plugin is WebAssemblyPlugin {
+    return (plugin as any as WebAssemblyPlugin).formatText != null;
 }

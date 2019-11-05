@@ -1,4 +1,4 @@
-import { PrintItemIterable, Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { PrintItemIterable, JsPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 export interface JsoncConfiguration {
     /**
@@ -33,7 +33,7 @@ export interface JsoncConfiguration {
 export interface ResolvedJsoncConfiguration extends BaseResolvedConfiguration {
 }
 
-export declare class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
+export declare class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
     /**
      * Constructor.
      * @param config - The configuration to use.
@@ -46,7 +46,7 @@ export declare class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     /** @inheritdoc */
     initialize(options: PluginInitializeOptions): void;
     /** @inheritdoc */
-    shouldParseFile(filePath: string): boolean;
+    shouldFormatFile(filePath: string): boolean;
     /** @inheritdoc */
     getConfiguration(): ResolvedJsoncConfiguration;
     /** @inheritdoc */

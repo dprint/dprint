@@ -1,9 +1,9 @@
 import { getFileExtension, resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment, ResolveConfigurationResult } from "@dprint/core";
-import { Plugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
+import { JsPlugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
 import { JsoncConfiguration, ResolvedJsoncConfiguration, resolveConfiguration } from "./configuration";
 import { parseToJsonAst, parseJsonFile } from "./parser";
 
-export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
+export class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
     /** @internal */
     private readonly _unresolvedConfig: JsoncConfiguration;
     /** @internal */
@@ -32,7 +32,7 @@ export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     }
 
     /** @inheritdoc */
-    shouldParseFile(filePath: string) {
+    shouldFormatFile(filePath: string) {
         return getFileExtension(filePath).toLowerCase() === ".json";
     }
 

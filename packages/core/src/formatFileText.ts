@@ -1,4 +1,4 @@
-import { Plugin, PrintItemIterable } from "@dprint/types";
+import { Plugin, PrintItemIterable, JsPlugin, WebAssemblyPlugin, isJsPlugin } from "@dprint/types";
 import { print, PrintOptions } from "./printing";
 import { resolveNewLineKindFromText, throwError } from "./utils";
 
@@ -22,27 +22,36 @@ export function formatFileText(options: FormatFileTextOptions) {
     const { filePath, fileText, plugins } = options;
     const plugin = getPlugin();
 
-    // parse the file
-    const parseResult = plugin.parseFile(filePath, fileText);
-    if (!parseResult)
-        return options.fileText;
+    return isJsPlugin(plugin) ? handleJsPlugin(plugin) : handleWebAssemblyPlugin(plugin);
 
-    // print it
-    const config = plugin.getConfiguration();
-    return (options.customPrinter || print)(parseResult, {
-        newLineKind: config.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newLineKind,
-        maxWidth: config.lineWidth,
-        indentWidth: config.indentWidth,
-        useTabs: config.useTabs,
-        isTesting: false // todo: make this true during testing (environment variable?)
-    });
+    function handleJsPlugin(plugin: JsPlugin) {
+        // parse the file
+        const parseResult = plugin.parseFile(filePath, fileText);
+        if (!parseResult)
+            return options.fileText;
+
+        // print it
+        const config = plugin.getConfiguration();
+        return (options.customPrinter || print)(parseResult, {
+            newLineKind: config.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newLineKind,
+            maxWidth: config.lineWidth,
+            indentWidth: config.indentWidth,
+            useTabs: config.useTabs,
+            isTesting: false // todo: make this true during testing (environment variable?)
+        });
+    }
+
+    function handleWebAssemblyPlugin(plugin: WebAssemblyPlugin) {
+        const formattedText = plugin.formatText(filePath, fileText);
+        return formattedText === false ? options.fileText : formattedText;
+    }
 
     function getPlugin() {
         if (plugins.length === 0)
             return throwError("Formatter had zero plugins to format with. Did you mean to install or provide one such as dprint-plugin-typescript?");
 
         for (const plugin of plugins) {
-            if (plugin.shouldParseFile(filePath, fileText))
+            if (plugin.shouldFormatFile(filePath, fileText))
                 return plugin;
         }
 

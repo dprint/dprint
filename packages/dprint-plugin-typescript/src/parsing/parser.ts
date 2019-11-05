@@ -69,7 +69,7 @@ export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintI
         tokenFinder: new TokenFinder(file.tokens)
     };
 
-    if (!shouldParseFile())
+    if (!shouldFormatFile())
         return false; // skip parsing
 
     return function*(): PrintItemIterable {
@@ -84,7 +84,7 @@ export function parseTypeScriptFile(options: ParseTypeScriptFileOptions): PrintI
         };
     }();
 
-    function shouldParseFile() {
+    function shouldFormatFile() {
         for (const comment of getCommentsToCheck()) {
             if (/\bdprint\-ignore\-file\b/.test(comment.value))
                 return false;

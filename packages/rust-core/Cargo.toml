@@ -1,6 +1,6 @@
 [package]
 name = "dprint-core"
-description = "Core formatter for dprint."
+description = "Core rust library for dprint."
 keywords = ["formatting", "formatter"]
 version = "0.4.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
@@ -8,7 +8,5 @@ edition = "2018"
 license = "MIT"
 homepage = "https://github.com/dsherret/dprint/tree/master/packages/rust-core"
 repository = "https://github.com/dsherret/dprint"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

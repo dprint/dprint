@@ -1,12 +1,12 @@
 import { getFileExtension, ResolveConfigurationResult, resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment } from "@dprint/core";
-import { Plugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
+import { JsPlugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration, resolveConfiguration } from "./configuration";
 import { parseToBabelAst, parseTypeScriptFile } from "./parsing";
 
 /**
  * Plugin for formatting TypeScript code (.ts/.tsx/.js files).
  */
-export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
+export class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConfiguration> {
     /** @internal */
     private readonly _unresolvedConfig: TypeScriptConfiguration;
     /** @internal */
@@ -35,7 +35,7 @@ export class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration>
     }
 
     /** @inheritdoc */
-    shouldParseFile(filePath: string) {
+    shouldFormatFile(filePath: string) {
         switch (getFileExtension(filePath).toLowerCase()) {
             case ".ts":
             case ".tsx":
