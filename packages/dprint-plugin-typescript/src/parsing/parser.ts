@@ -4261,14 +4261,14 @@ function parseLeadingComments(node: babel.Node, context: Context) {
 }
 
 function* parseCommentsAsLeading(node: babel.Node, leadingComments: readonly babel.Comment[] | null, context: Context) {
-    if (!leadingComments)
+    if (!leadingComments || leadingComments.length === 0)
         return;
     const lastComment = leadingComments[leadingComments.length - 1];
-    const hasHandled = lastComment == null || context.handledComments.has(lastComment);
+    const hasHandled = context.handledComments.has(lastComment);
 
     yield* parseCommentCollection(leadingComments, undefined, context);
 
-    if (lastComment != null && !hasHandled) {
+    if (!hasHandled) {
         if (node.loc!.start.line > lastComment.loc!.end.line) {
             yield Signal.NewLine;
 

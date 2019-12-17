@@ -10,7 +10,7 @@ homepage = "https://github.com/dsherret/dprint/tree/master/packages/rust-dprint-
 repository = "https://github.com/dsherret/dprint"
 
 [dependencies]
-dprint-core = "0.4.0"
-swc_common = "0.3.1"
-swc_ecma_ast = "0.9.3"
-swc_ecma_parser = "0.10.3"
+dprint-core = { path = "../rust-core" }
+swc_common = { path = "../../../swc/common" }
+swc_ecma_ast = { path = "../../../swc/ecmascript/ast" }
+swc_ecma_parser = { path = "../../../swc/ecmascript/parser" }

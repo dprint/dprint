@@ -5,6 +5,7 @@ mod writer;
 mod write_items;
 mod print_write_items;
 mod print;
+pub mod parser_helpers;
 
 pub use print_items::*;
 pub use write_items::*;
