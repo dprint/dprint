@@ -106,34 +106,34 @@ fn parse_jsx_text(node: &JSXText, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_num_literal(node: &Number, context: &mut Context) -> Vec<PrintItem> {
-    vec![context.get_span_text(&node.span.data()).into()]
+    vec![context.get_text_range(&node.span).text().into()]
 }
 
 fn parse_reg_exp_literal(node: &Regex, context: &mut Context) -> Vec<PrintItem> {
     // the exp and flags should not be nodes so just ignore that (swc issue #511)
     let mut items = Vec::new();
     items.push("/".into());
-    items.push(context.get_span_text(&node.exp.span.data()).into());
+    items.push(context.get_text_range(&node.exp.span).text().into());
     items.push("/".into());
     if let Some(flags) = &node.flags {
-        items.push(context.get_span_text(&flags.span.data()).into());
+        items.push(context.get_text_range(&flags.span).text().into());
     }
     items
 }
 
 fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
-    return parser_helpers::parse_raw_string(&get_string_literal_text(&node.span.data(), context));
+    return parser_helpers::parse_raw_string(&get_string_literal_text(&context.get_text_range(&node.span), context));
 
-    fn get_string_literal_text(span_data: &SpanData, context: &mut Context) -> String {
-        let string_value = get_string_value(&span_data, context);
+    fn get_string_literal_text(node: &TextRange, context: &mut Context) -> String {
+        let string_value = get_string_value(&node, context);
 
         return match context.config.single_quotes {
             true => format!("'{}'", string_value.replace("'", "\\'")),
             false => format!("\"{}\"", string_value.replace("\"", "\\\"")),
         };
 
-        fn get_string_value(span_data: &SpanData, context: &mut Context) -> String {
-            let raw_string_text = context.get_span_text(&span_data);
+        fn get_string_value(node: &TextRange, context: &mut Context) -> String {
+            let raw_string_text = node.text();
             let string_value = raw_string_text.chars().skip(1).take(raw_string_text.chars().count() - 2).collect::<String>();
             let is_double_quote = string_value.chars().next().unwrap() == '"';
 
@@ -147,12 +147,12 @@ fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
 
 /* Comments */
 
-fn parse_leading_comments(node_span_data: &SpanData, context: &mut Context) -> Vec<PrintItem> {
-    let leading_comments = context.get_leading_comments(node_span_data);
-    parse_comments_as_leading(&node_span_data, leading_comments, context)
+fn parse_leading_comments(node: &mut TextRange, context: &mut Context) -> Vec<PrintItem> {
+    let leading_comments = node.leading_comments();
+    parse_comments_as_leading(node, leading_comments, context)
 }
 
-fn parse_comments_as_leading(node_span_data: &SpanData, optional_comments: Option<Vec<Comment>>, context: &mut Context) -> Vec<PrintItem> {
+fn parse_comments_as_leading(node: &mut TextRange, optional_comments: Option<Vec<Comment>>, context: &mut Context) -> Vec<PrintItem> {
     if optional_comments.is_none() {
         return vec![];
     }
@@ -162,24 +162,25 @@ fn parse_comments_as_leading(node_span_data: &SpanData, optional_comments: Optio
         return vec![];
     }
 
-    let last_comment = comments.last().unwrap();
-    let last_comment_span_data = last_comment.span.data();
-    let last_previously_handled = context.has_handled_comment(&last_comment_span_data);
+    let (mut last_comment, last_comment_kind) = {
+        let last_comment_comment = comments.last().unwrap();
+        let last_comment = context.get_text_range(&last_comment_comment.span);
+        (last_comment, last_comment_comment.kind)
+    };
+    let last_comment_previously_handled = context.has_handled_comment(&last_comment);
     let mut items = Vec::new();
 
     items.extend(parse_comment_collection(&comments, Option::None, context));
 
-    if !last_previously_handled {
-        let node_line_start = context.get_line_start(&node_span_data);
-        let last_comment_line_end = context.get_line_end(&last_comment_span_data);
-        if node_line_start > last_comment_line_end {
+    if !last_comment_previously_handled {
+        if node.line_start() > last_comment.line_end() {
             items.push(PrintItem::NewLine);
 
-            if node_line_start - 1 > last_comment_line_end {
+            if node.line_start() - 1 > last_comment.line_end() {
                 items.push(PrintItem::NewLine);
             }
         }
-        else if last_comment.kind == CommentKind::Block && last_comment_line_end == node_line_start {
+        else if last_comment_kind == CommentKind::Block && node.line_start() == last_comment.line_end() {
             items.push(" ".into());
         }
     }
@@ -194,13 +195,13 @@ fn parse_comment_collection(comments: &Vec<Comment>, last_span_data: Option<Span
 
 fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {
     // only parse if handled
-    let comment_span_data = comment.span.data();
-    if context.has_handled_comment(&comment_span_data) {
+    let comment_range = context.get_text_range(&comment.span);
+    if context.has_handled_comment(&comment_range) {
         return Vec::new();
     }
 
     // mark handled and parse
-    context.mark_comment_handled(&comment_span_data);
+    context.mark_comment_handled(&comment_range);
     return match comment.kind {
         CommentKind::Block => parse_comment_block(comment),
         CommentKind::Line => parse_comment_line(comment),
