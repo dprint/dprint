@@ -1,22 +1,20 @@
 extern crate dprint_core;
 
 use dprint_core::*;
-use std::collections::HashSet;
 use super::*;
 use swc_ecma_ast::{Module, ModuleItem, Stmt, Expr, Lit, Bool, JSXText, Number, Regex, Str};
 use swc_common::{SpanData, comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile) -> Vec<PrintItem> {
-    let mut context = Context {
-        config: TypeScriptConfiguration {
+    let mut context = Context::new(
+        TypeScriptConfiguration {
             single_quotes: false
         },
-        comments: source_file.comments,
-        file_bytes: source_file.file_bytes,
-        current_node: Node::Module(source_file.module.clone()),
-        parent_stack: Vec::new(),
-        handled_comments: HashSet::new(),
-    };
+        source_file.comments,
+        source_file.file_bytes,
+        Node::Module(source_file.module.clone()),
+        source_file.info
+    );
     parse_node(Node::Module(source_file.module), &mut context)
 }
 
@@ -149,12 +147,12 @@ fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
 
 /* Comments */
 
-fn parse_leading_comments(span_data: SpanData, context: &mut Context) -> Vec<PrintItem> {
-    let leading_comments = context.comments.leading_comments(span_data.lo).map(|c| c.clone());
-    parse_comments_as_leading(leading_comments, context)
+fn parse_leading_comments(node_span_data: &SpanData, context: &mut Context) -> Vec<PrintItem> {
+    let leading_comments = context.get_leading_comments(node_span_data);
+    parse_comments_as_leading(&node_span_data, leading_comments, context)
 }
 
-fn parse_comments_as_leading(optional_comments: Option<Vec<Comment>>, context: &mut Context) -> Vec<PrintItem> {
+fn parse_comments_as_leading(node_span_data: &SpanData, optional_comments: Option<Vec<Comment>>, context: &mut Context) -> Vec<PrintItem> {
     if optional_comments.is_none() {
         return vec![];
     }
@@ -165,20 +163,33 @@ fn parse_comments_as_leading(optional_comments: Option<Vec<Comment>>, context: &
     }
 
     let last_comment = comments.last().unwrap();
-    let last_previously_handled = context.has_handled_comment(&last_comment.span.data());
-    let items = Vec::new();
+    let last_comment_span_data = last_comment.span.data();
+    let last_previously_handled = context.has_handled_comment(&last_comment_span_data);
+    let mut items = Vec::new();
 
     items.extend(parse_comment_collection(&comments, Option::None, context));
 
-    if (!last_previously_handled) {
-        // todo
+    if !last_previously_handled {
+        let node_line_start = context.get_line_start(&node_span_data);
+        let last_comment_line_end = context.get_line_end(&last_comment_span_data);
+        if node_line_start > last_comment_line_end {
+            items.push(PrintItem::NewLine);
+
+            if node_line_start - 1 > last_comment_line_end {
+                items.push(PrintItem::NewLine);
+            }
+        }
+        else if last_comment.kind == CommentKind::Block && last_comment_line_end == node_line_start {
+            items.push(" ".into());
+        }
     }
 
     items
 }
 
 fn parse_comment_collection(comments: &Vec<Comment>, last_span_data: Option<SpanData>, context: &mut Context) -> Vec<PrintItem> {
-
+    // todo
+    vec![]
 }
 
 fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {

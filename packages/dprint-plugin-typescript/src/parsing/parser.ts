@@ -4264,11 +4264,11 @@ function* parseCommentsAsLeading(node: babel.Node, leadingComments: readonly bab
     if (!leadingComments || leadingComments.length === 0)
         return;
     const lastComment = leadingComments[leadingComments.length - 1];
-    const hasHandled = context.handledComments.has(lastComment);
+    const lastPreviouslyHandled = context.handledComments.has(lastComment);
 
     yield* parseCommentCollection(leadingComments, undefined, context);
 
-    if (!hasHandled) {
+    if (!lastPreviouslyHandled) {
         if (node.loc!.start.line > lastComment.loc!.end.line) {
             yield Signal.NewLine;
 
