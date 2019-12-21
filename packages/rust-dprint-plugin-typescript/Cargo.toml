@@ -14,3 +14,6 @@ dprint-core = { path = "../rust-core" }
 swc_common = { path = "../../../swc/common" }
 swc_ecma_ast = { path = "../../../swc/ecmascript/ast" }
 swc_ecma_parser = { path = "../../../swc/ecmascript/parser" }
+
+[dev-dependencies]
+dprint-development = { path = "../rust-development" }

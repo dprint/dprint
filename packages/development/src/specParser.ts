@@ -69,7 +69,7 @@ export function parseSpecs(fileText: string, options: ParseSpecsOptions) {
             return options.defaultFileName;
         const lastIndex = fileText.indexOf("--\n", 2);
         if (lastIndex === -1)
-            throw new Error("Canot find last --\\n.");
+            throw new Error("Could not find last --\\n.");
 
         const result = fileText.substring(2, lastIndex).trim();
 
