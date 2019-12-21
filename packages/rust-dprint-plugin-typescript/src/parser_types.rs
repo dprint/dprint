@@ -3,7 +3,7 @@ use std::rc::Rc;
 use super::*;
 use std::collections::HashSet;
 use swc_common::{Span, SpanData, BytePos, comments::{Comments, Comment}, SourceFile};
-use swc_ecma_ast::{Bool, JSXText, Null, Number, Regex, Str, Module};
+use swc_ecma_ast::{Bool, JSXText, Null, Number, Regex, Str, Module, ExprStmt};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
@@ -104,8 +104,6 @@ impl TextRange {
 
 #[derive(Clone)]
 pub enum Node {
-    /* module */
-    Module(Module),
     /* literals */
     Bool(Bool),
     JsxText(JSXText),
@@ -113,4 +111,8 @@ pub enum Node {
     Num(Number),
     Regex(Regex),
     Str(Str),
+    /* module */
+    Module(Module),
+    /* statements */
+    ExprStmt(ExprStmt)
 }

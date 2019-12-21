@@ -2,19 +2,19 @@ use std::collections::HashMap;
 
 #[derive(PartialEq, Debug)]
 pub struct Spec {
-    file_name: String,
-    message: String,
-    file_text: String,
-    expected_text: String,
-    is_only: bool,
-    show_tree: bool,
-    skip: bool,
-    config: HashMap<String, String>,
+    pub file_name: String,
+    pub message: String,
+    pub file_text: String,
+    pub expected_text: String,
+    pub is_only: bool,
+    pub show_tree: bool,
+    pub skip: bool,
+    pub config: HashMap<String, String>,
 }
 
 pub struct ParseSpecOptions {
     /// The default file name for a parsed spec.
-    default_file_name: &'static str,
+    pub default_file_name: &'static str,
 }
 
 pub fn parse_specs(file_text: String, options: ParseSpecOptions) -> Vec<Spec> {

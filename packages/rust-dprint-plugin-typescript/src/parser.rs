@@ -2,7 +2,7 @@ extern crate dprint_core;
 
 use dprint_core::*;
 use super::*;
-use swc_ecma_ast::{Module, ModuleItem, Stmt, Expr, Lit, Bool, JSXText, Number, Regex, Str};
+use swc_ecma_ast::{Module, ModuleItem, Stmt, Expr, ExprStmt, Lit, Bool, JSXText, Number, Regex, Str};
 use swc_common::{SpanData, comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile) -> Vec<PrintItem> {
@@ -27,7 +27,7 @@ fn parse_module_item(item: ModuleItem, context: &mut Context) -> Vec<PrintItem> 
 
 fn parse_stmt(stmt: Stmt, context: &mut Context) -> Vec<PrintItem> {
     match stmt {
-        Stmt::Expr(node) => parse_expr(*node, context),
+        Stmt::Expr(node) => parse_node(Node::ExprStmt(node), context),
         _ => Vec::new(), // todo: remove this
     }
 }
@@ -71,25 +71,19 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
 
     fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
         match node {
+            /* literals */
             Node::Bool(node) => parse_bool_literal(&node),
             Node::JsxText(node) => parse_jsx_text(&node, context),
             Node::Null(_) => vec!["null".into()],
             Node::Num(node) => parse_num_literal(&node, context),
             Node::Regex(node) => parse_reg_exp_literal(&node, context),
             Node::Str(node) => parse_string_literal(&node, context),
+            /* module */
             Node::Module(node) => parse_module(node, context),
+            /* statements */
+            Node::ExprStmt(node) => parse_expr_stmt(&node, context),
         }
     }
-}
-
-/* Module */
-
-fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
-    let mut items = Vec::new();
-    for item in node.body {
-        items.extend(parse_module_item(item, context));
-    }
-    items
 }
 
 /* Literals */
@@ -113,11 +107,9 @@ fn parse_reg_exp_literal(node: &Regex, context: &mut Context) -> Vec<PrintItem> 
     // the exp and flags should not be nodes so just ignore that (swc issue #511)
     let mut items = Vec::new();
     items.push("/".into());
-    items.push(context.get_text_range(&node.exp.span).text().into());
+    items.push(String::from(&node.exp as &str).into());
     items.push("/".into());
-    if let Some(flags) = &node.flags {
-        items.push(context.get_text_range(&flags.span).text().into());
-    }
+    items.push(String::from(&node.flags as &str).into());
     items
 }
 
@@ -143,6 +135,24 @@ fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
             }
         }
     }
+}
+
+/* Module */
+
+fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    for item in node.body {
+        items.extend(parse_module_item(item, context));
+    }
+    items
+}
+
+/* Statements */
+
+fn parse_expr_stmt(stmt: &ExprStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    // todo
+    items
 }
 
 /* Comments */

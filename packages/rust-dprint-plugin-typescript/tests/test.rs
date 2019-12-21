@@ -15,8 +15,32 @@ fn it_testing() {
 
 #[test]
 fn test_specs() {
+    let specs = get_specs();
+    for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
+        let result = format_text(&spec.file_name, &spec.file_text).expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
+        if result != spec.expected_text {
+            panic!("spec assertion failed ({}):
+ expected: `{:?}`,
+   actual: `{:?}`", spec.message, result, spec.expected_text);
+        }
+    }
+}
+
+fn get_specs() -> Vec<(String, Spec)> {
+    let mut result: Vec<(String, Spec)> = Vec::new();
     let spec_files = get_spec_files();
-    assert_eq!(2, spec_files.len());
+    for (file_path, text) in spec_files {
+        let specs = parse_specs(text, ParseSpecOptions { default_file_name: "file.ts" });
+        for spec in specs {
+            result.push((file_path.clone(), spec));
+        }
+    }
+
+    if result.iter().any(|(_, spec)| spec.is_only) {
+        result.into_iter().filter(|(_, spec)| spec.is_only).collect()
+    } else {
+        result
+    }
 }
 
 fn get_spec_files() -> Vec<(String, String)> {

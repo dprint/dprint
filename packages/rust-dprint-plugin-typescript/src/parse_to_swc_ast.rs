@@ -13,17 +13,17 @@ pub struct ParsedSourceFile {
     pub file_bytes: Vec<u8>,
 }
 
-pub fn parse_to_swc_ast(file_path: String, file_text: String) -> Result<ParsedSourceFile, String> {
+pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
     // todo: investigate if there's more of a lightweight way to do this or if this doesn't matter
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, None);
     let session = Session { handler: &handler };
 
     let file_bytes = file_text.as_bytes().to_vec();
     let source_file = SourceFile::new(
-        FileName::Custom(file_path.clone()),
+        FileName::Custom(file_path.into()),
         false,
-        FileName::Custom(file_path),
-        file_text,
+        FileName::Custom(file_path.into()),
+        file_text.into(),
         BytePos(0),
     );
 
@@ -41,8 +41,6 @@ pub fn parse_to_swc_ast(file_path: String, file_text: String) -> Result<ParsedSo
         let parse_module_result = parser.parse_module();
 
         let tokens = parser.input().take();
-        println!("Tokens: {:?}", tokens);
-        println!("Comments: {:?}", comments);
 
         match parse_module_result {
             Err(error) => Err(error.message()),
