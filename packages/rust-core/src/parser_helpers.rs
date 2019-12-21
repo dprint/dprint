@@ -7,10 +7,11 @@ pub fn with_indent(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
 }
 
 pub fn if_true(
+    name: &'static str,
     resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     true_item: PrintItem
 ) -> PrintItem {
-    Condition::new("", ConditionProperties {
+    Condition::new(name, ConditionProperties {
         true_path: Some(vec![true_item]),
         false_path: Option::None,
         condition: Box::new(resolver.clone()),
@@ -18,11 +19,12 @@ pub fn if_true(
 }
 
 pub fn if_true_or(
+    name: &'static str,
     resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     true_item: PrintItem,
     false_item: PrintItem
 ) -> PrintItem {
-    Condition::new("", ConditionProperties {
+    Condition::new(name, ConditionProperties {
         true_path: Some(vec![true_item]),
         false_path: Some(vec![false_item]),
         condition: Box::new(resolver.clone())

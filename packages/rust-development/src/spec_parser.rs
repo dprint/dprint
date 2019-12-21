@@ -22,7 +22,7 @@ pub fn parse_specs(file_text: String, options: ParseSpecOptions) -> Vec<Spec> {
     let file_text = file_text.replace("\r\n", "\n");
     let (file_path, file_text) = parse_file_path(file_text, options);
     let (config, file_text) = parse_config(file_text);
-    let lines = file_text.lines().collect();
+    let lines = file_text.split("\n").collect();
     let spec_starts = get_spec_starts(&lines);
     let mut specs = Vec::new();
 
@@ -112,20 +112,24 @@ mod tests {
             "== message 1 ==",
             "start",
             "multiple",
+            "",
             "[expect]",
             "expected",
             "multiple",
+            "",
             "== message 2 (only) (tree) (skip) ==",
             "start2",
+            "",
             "[expect]",
             "expected2",
+            "",
         ].join("\n"), ParseSpecOptions { default_file_name: "test.ts" });
 
         assert_eq!(specs.len(), 2);
         assert_eq!(specs[0], Spec {
             file_name: "test.ts".into(),
-            file_text: "start\nmultiple".into(),
-            expected_text: "expected\nmultiple".into(),
+            file_text: "start\nmultiple\n".into(),
+            expected_text: "expected\nmultiple\n".into(),
             message: "message 1".into(),
             is_only: false,
             show_tree: false,
@@ -134,8 +138,8 @@ mod tests {
         });
         assert_eq!(specs[1], Spec {
             file_name: "test.ts".into(),
-            file_text: "start2".into(),
-            expected_text: "expected2".into(),
+            file_text: "start2\n".into(),
+            expected_text: "expected2\n".into(),
             message: "message 2 (only) (tree) (skip)".into(),
             is_only: true,
             show_tree: true,

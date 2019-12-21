@@ -1,21 +1,26 @@
 extern crate dprint_core;
 
 use dprint_core::*;
+use dprint_core::{parser_helpers::*};
 use super::*;
 use swc_ecma_ast::{Module, ModuleItem, Stmt, Expr, ExprStmt, Lit, Bool, JSXText, Number, Regex, Str};
 use swc_common::{SpanData, comments::{Comment, CommentKind}};
 
-pub fn parse(source_file: ParsedSourceFile) -> Vec<PrintItem> {
+pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let mut context = Context::new(
-        TypeScriptConfiguration {
-            single_quotes: false
-        },
+        config,
         source_file.comments,
         source_file.file_bytes,
         Node::Module(source_file.module.clone()),
         source_file.info
     );
-    parse_node(Node::Module(source_file.module), &mut context)
+    let mut items = parse_node(Node::Module(source_file.module), &mut context);
+    items.push(if_true(
+        "endOfFileNewLine",
+        |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
+        PrintItem::NewLine
+    ));
+    items
 }
 
 fn parse_module_item(item: ModuleItem, context: &mut Context) -> Vec<PrintItem> {
@@ -114,7 +119,7 @@ fn parse_reg_exp_literal(node: &Regex, context: &mut Context) -> Vec<PrintItem> 
 }
 
 fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
-    return parser_helpers::parse_raw_string(&get_string_literal_text(&context.get_text_range(&node.span), context));
+    return parse_raw_string(&get_string_literal_text(&context.get_text_range(&node.span), context));
 
     fn get_string_literal_text(node: &TextRange, context: &mut Context) -> String {
         let string_value = get_string_value(&node, context);
@@ -150,9 +155,57 @@ fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
 /* Statements */
 
 fn parse_expr_stmt(stmt: &ExprStmt, context: &mut Context) -> Vec<PrintItem> {
-    let mut items = Vec::new();
-    // todo
-    items
+    if context.config.expression_statement_semi_colon {
+        return parse_inner(&stmt, context);
+    } else {
+        return parse_for_prefix_semi_colon_insertion(&stmt, context);
+    }
+
+    fn parse_inner(stmt: &ExprStmt, context: &mut Context) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        items.extend(parse_expr(*stmt.expr.clone(), context));
+        if context.config.expression_statement_semi_colon {
+            items.push(";".into());
+        }
+        return items;
+    }
+
+    fn parse_for_prefix_semi_colon_insertion(stmt: &ExprStmt, context: &mut Context) -> Vec<PrintItem> {
+        let mut parsed_node = parse_inner(&stmt, context);
+        if should_add_semi_colon(&parsed_node).unwrap_or(false) {
+            parsed_node.insert(0, ";".into());
+        }
+        return parsed_node;
+
+        fn should_add_semi_colon(items: &Vec<PrintItem>) -> Option<bool> {
+            for item in items {
+                match item {
+                    PrintItem::String(value) => {
+                        if let Some(c) = value.chars().next() {
+                            return Some(utils::is_prefix_semi_colon_insertion_char(c));
+                        }
+                    },
+                    PrintItem::Condition(condition) => {
+                        // It's an assumption here that th etrue and false paths of the
+                        // condition will both contain the same text to look for.
+                        if let Some(true_path) = &condition.true_path {
+                            if let Some(result) = should_add_semi_colon(&true_path) {
+                                return Some(result);
+                            }
+                        }
+                        if let Some(false_path) = &condition.false_path {
+                            if let Some(result) = should_add_semi_colon(&false_path) {
+                                return Some(result);
+                            }
+                        }
+                    },
+                    _ => { /* do nothing */ },
+                }
+            }
+
+            Option::None
+        }
+    }
 }
 
 /* Comments */
@@ -220,7 +273,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {
     fn parse_comment_block(comment: &Comment) -> Vec<PrintItem> {
         let mut vec = Vec::new();
         vec.push("/*".into());
-        vec.extend(parser_helpers::parse_raw_string(&comment.text));
+        vec.extend(parse_raw_string(&comment.text));
         vec.push("*/".into());
         vec
     }

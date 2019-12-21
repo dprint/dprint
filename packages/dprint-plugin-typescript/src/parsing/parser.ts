@@ -1456,7 +1456,7 @@ function* parseExpressionStatement(node: babel.ExpressionStatement, context: Con
         function checkIterable(iterable: PrintItemIterable): boolean | undefined {
             for (const item of iterable) {
                 if (typeof item === "string")
-                    return checkString(item);
+                    return isPrefixSemiColonInsertionChar(item[0]);
                 else if (typeof item === "number")
                     continue;
                 else if (item.kind === PrintItemKind.Condition) {
@@ -1472,13 +1472,9 @@ function* parseExpressionStatement(node: babel.ExpressionStatement, context: Con
             return undefined;
         }
 
-        function checkString(item: string) {
-            return isPrefixSemiColonInsertionChar(item[0]);
-        }
-
         function checkCondition(condition: Condition) {
             // It's an assumption here that the true and false paths of the
-            // condition will both contain the same the same text to look for.
+            // condition will both contain the same text to look for.
             if (condition.true) {
                 condition.true = makeIterableRepeatable(condition.true);
                 const result = checkIterable(condition.true);

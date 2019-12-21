@@ -3,13 +3,12 @@ extern crate dprint_development;
 
 use dprint_plugin_typescript::*;
 use dprint_development::*;
-use std::io;
-use std::fs::{self, DirEntry};
+use std::fs::{self};
 use std::path::Path;
 
 #[test]
 fn it_testing() {
-    let result = format_text("test.ts".into(), "/* test */ // 2\nfunction test() { //3\n}\n".into()).unwrap();
+    //let result = format_text("test.ts".into(), "/* test */ // 2\nfunction test() { //3\n}\n".into()).unwrap();
     //assert_eq!(result, "'use strict';");
 }
 
@@ -17,11 +16,12 @@ fn it_testing() {
 fn test_specs() {
     let specs = get_specs();
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
-        let result = format_text(&spec.file_name, &spec.file_text).expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
+        let config = resolve_config(&spec.config);
+        let result = format_text(&spec.file_name, &spec.file_text, &config).expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
         if result != spec.expected_text {
             panic!("spec assertion failed ({}):
  expected: `{:?}`,
-   actual: `{:?}`", spec.message, result, spec.expected_text);
+   actual: `{:?}`", spec.message, spec.expected_text, result);
         }
     }
 }

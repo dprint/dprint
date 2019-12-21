@@ -1,9 +1,9 @@
 use super::*;
 use dprint_core::*;
 
-pub fn format_text(file_path: &str, file_text: &str) -> Result<String, String> {
+pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfiguration) -> Result<String, String> {
     let parsed_source_file = parse_to_swc_ast(&file_path, &file_text)?;
-    let print_items = parse(parsed_source_file);
+    let print_items = parse(parsed_source_file, config.clone());
 
     Ok(print(print_items, PrintOptions {
         // todo: configuration
