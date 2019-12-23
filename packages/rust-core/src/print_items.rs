@@ -71,8 +71,20 @@ pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TStrin
     FinishIgnoringIndent,
 }
 
+impl PrintItem {
+    // Gets if the print item is an item that signals information to the printer—not a string, condition, or info.
+    pub fn is_signal(&self) -> bool {
+        match self {
+            PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) => false,
+            PrintItem::NewLine | PrintItem::Tab | PrintItem::PossibleNewLine | PrintItem::SpaceOrNewLine | PrintItem::ExpectNewLine | PrintItem::StartIndent
+            | PrintItem::FinishIndent | PrintItem::StartNewLineGroup | PrintItem::FinishNewLineGroup | PrintItem::SingleIndent | PrintItem::StartIgnoringIndent
+            | PrintItem::FinishIgnoringIndent => true
+        }
+    }
+}
+
 // need to manually implement this for some reason instead of using #[derive(Clone)]
-impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition>  where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
         match self {
             PrintItem::String(text) => PrintItem::String(text.clone()),

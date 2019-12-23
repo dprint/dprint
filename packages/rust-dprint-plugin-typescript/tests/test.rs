@@ -7,6 +7,7 @@ use std::fs::{self};
 use std::path::Path;
 
 struct FailedTestResult {
+    file_path: String,
     expected: String,
     actual: String,
     message: String,
@@ -23,6 +24,7 @@ fn test_specs() {
         let result = format_text(&spec.file_name, &spec.file_text, &config).expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
         if result != spec.expected_text {
             failed_tests.push(FailedTestResult {
+                file_path: file_path.clone(),
                 expected: spec.expected_text.clone(),
                 actual: result,
                 message: spec.message.clone()
@@ -38,7 +40,7 @@ fn test_specs() {
     else {
         for failed_test in &failed_tests {
             println!("---");
-            println!("Failed:   {}\nExpected: `{:?}`,\nActual:   `{:?}`", failed_test.message, failed_test.expected, failed_test.actual);
+            println!("Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`", failed_test.message, failed_test.file_path, failed_test.expected, failed_test.actual);
         }
 
         println!("---");

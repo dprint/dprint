@@ -1,3 +1,5 @@
+#![feature(box_patterns)]
+
 #[macro_use]
 extern crate swc_common;
 extern crate swc_ecma_parser;

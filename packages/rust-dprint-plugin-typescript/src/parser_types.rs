@@ -2,8 +2,9 @@ use std::str;
 use std::rc::Rc;
 use super::*;
 use std::collections::HashSet;
-use swc_common::{Span, SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned};
-use swc_ecma_ast::{BigInt, Bool, JSXText, Null, Number, Regex, Str, Module, ExprStmt};
+use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
+use swc_ecma_ast::{BigInt, Bool, CallExpr, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsTypeParamInstantiation, ModuleItem, Stmt, Expr, ExprOrSuper, Lit,
+    ExprOrSpread};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
@@ -105,6 +106,9 @@ impl TextRange {
 
 #[derive(Clone)]
 pub enum Node {
+    /* expressions */
+    CallExpr(CallExpr),
+    ExprOrSpread(ExprOrSpread),
     /* literals */
     BigInt(BigInt),
     Bool(Bool),
@@ -117,6 +121,108 @@ pub enum Node {
     Module(Module),
     /* statements */
     ExprStmt(ExprStmt),
+    /* types */
+    TsTypeParamInstantiation(TsTypeParamInstantiation),
     /* unknown */
-    Unknown(TextRange),
+    Unknown(Span),
+}
+
+/* Into node implementations */
+
+impl From<ModuleItem> for Node {
+    fn from(item: ModuleItem) -> Node {
+        match item {
+            ModuleItem::Stmt(node) => node.into(),
+            _ => Node::Unknown(item.span()), // todo: implement others
+        }
+    }
+}
+
+impl From<Stmt> for Node {
+    fn from(stmt: Stmt) -> Node {
+        match stmt {
+            Stmt::Expr(node) => Node::ExprStmt(node),
+            _ => Node::Unknown(stmt.span()), // todo: implement others
+        }
+    }
+}
+
+impl From<Expr> for Node {
+    fn from(expr: Expr) -> Node {
+        match expr {
+            Expr::Lit(lit) => lit.into(),
+            _ => Node::Unknown(expr.span()), // todo: implement others
+        }
+    }
+}
+
+impl From<ExprOrSuper> for Node {
+    fn from(expr_or_super: ExprOrSuper) -> Node {
+        match expr_or_super {
+            ExprOrSuper::Expr(box expr) => expr.into(),
+            _ => Node::Unknown(expr_or_super.span()), // todo: implement others
+        }
+    }
+}
+
+impl From<Lit> for Node {
+    fn from(lit: Lit) -> Node {
+        match lit {
+            Lit::BigInt(node) => node.into(),
+            Lit::Bool(node) => node.into(),
+            Lit::JSXText(node) => node.into(),
+            Lit::Null(node) => node.into(),
+            Lit::Num(node) => node.into(),
+            Lit::Regex(node) => node.into(),
+            Lit::Str(node) => node.into(),
+        }
+    }
+}
+
+impl From<BigInt> for Node {
+    fn from(node: BigInt) -> Node {
+        Node::BigInt(node)
+    }
+}
+
+impl From<Bool> for Node {
+    fn from(node: Bool) -> Node {
+        Node::Bool(node)
+    }
+}
+
+impl From<JSXText> for Node {
+    fn from(node: JSXText) -> Node {
+        Node::JsxText(node)
+    }
+}
+
+impl From<Null> for Node {
+    fn from(node: Null) -> Node {
+        Node::Null(node)
+    }
+}
+
+impl From<Number> for Node {
+    fn from(node: Number) -> Node {
+        Node::Num(node)
+    }
+}
+
+impl From<Regex> for Node {
+    fn from(node: Regex) -> Node {
+        Node::Regex(node)
+    }
+}
+
+impl From<Str> for Node {
+    fn from(node: Str) -> Node {
+        Node::Str(node)
+    }
+}
+
+impl From<ExprOrSpread> for Node {
+    fn from(node: ExprOrSpread) -> Node {
+        Node::ExprOrSpread(node)
+    }
 }

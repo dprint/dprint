@@ -4,12 +4,15 @@ use super::*;
 pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfiguration {
     let mut config = config.clone();
     let semi_colons = get_value(&mut config, "semiColons", true);
+    let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false);
 
     let resolved_config = TypeScriptConfiguration {
         line_width: get_value(&mut config, "lineWidth", 120),
         single_quotes: get_value(&mut config, "singleQuotes", false),
         /* semi-colon */
         expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
+        /* force multi-line arguments */
+        call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
     };
 
     if !config.is_empty() {

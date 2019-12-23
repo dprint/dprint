@@ -4,4 +4,6 @@ pub struct TypeScriptConfiguration {
     pub line_width: u32,
     /* semi-colon */
     pub expression_statement_semi_colon: bool,
+    /* force multi-line arguments */
+    pub call_expression_force_multi_line_arguments: bool,
 }
