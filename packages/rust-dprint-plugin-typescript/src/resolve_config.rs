@@ -3,12 +3,13 @@ use super::*;
 
 pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfiguration {
     let mut config = config.clone();
-    let semi_colons = get_bool(&mut config, "semiColons", true);
+    let semi_colons = get_value(&mut config, "semiColons", true);
 
     let resolved_config = TypeScriptConfiguration {
-        single_quotes: get_bool(&mut config, "singleQuotes", false),
+        line_width: get_value(&mut config, "lineWidth", 120),
+        single_quotes: get_value(&mut config, "singleQuotes", false),
         /* semi-colon */
-        expression_statement_semi_colon: get_bool(&mut config, "expressionStatement.semiColon", semi_colons),
+        expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
     };
 
     if !config.is_empty() {
@@ -18,8 +19,12 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
     return resolved_config;
 }
 
-fn get_bool(config: &mut HashMap<String, String>, prop: &str, default_value: bool) -> bool {
-    let value = config.get(prop).map(|x| x.parse::<bool>().unwrap()).unwrap_or(default_value);
+fn get_value<T>(
+    config: &mut HashMap<String, String>,
+    prop: &str,
+    default_value: T
+) -> T where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Debug {
+    let value = config.get(prop).map(|x| x.parse::<T>().unwrap()).unwrap_or(default_value);
     config.remove(prop);
     return value;
 }

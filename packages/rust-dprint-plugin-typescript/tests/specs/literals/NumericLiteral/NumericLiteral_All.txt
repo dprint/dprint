@@ -1,4 +1,4 @@
-== should parse different kinds of numeric literals (skip) ==
+== should parse different kinds of numeric literals ==
 10;
 10.883;
 10e5;

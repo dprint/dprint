@@ -8,7 +8,7 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
     Ok(print(print_items, PrintOptions {
         // todo: configuration
         indent_width: 4,
-        max_width: 10,
+        max_width: config.line_width,
         is_testing: false,
         use_tabs: false,
         newline_kind: "\n",

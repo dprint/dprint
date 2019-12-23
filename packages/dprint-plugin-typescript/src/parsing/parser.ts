@@ -1728,7 +1728,7 @@ function* parseSwitchCase(node: babel.SwitchCase, context: Context): PrintItemIt
         }
         else {
             yield Signal.NewLine;
-            yield* withIndent(parseStatementOrMembers({
+            yield* withIndent(parseStatementsOrMembers({
                 items: node.consequent,
                 innerComments: node.innerComments,
                 lastNode: undefined,
@@ -3498,7 +3498,7 @@ function* parseMemberedBody(opts: ParseMemberedBodyOptions): PrintItemIterable {
         if (members.length > 0 || node.innerComments != null && node.innerComments.some(n => !context.handledComments.has(n)))
             yield Signal.NewLine;
 
-        yield* parseStatementOrMembers({
+        yield* parseStatementsOrMembers({
             items: members,
             innerComments: node.innerComments,
             lastNode: undefined,
@@ -3562,8 +3562,7 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
     const { node, children, context, parentStartInfo, parentEndInfo, useMultilines } = options;
     // Need to parse the children here so they only get parsed once.
     // Nodes need to be only parsed once so that their comments don't end up in
-    // the handled comments collection and the second time they're p
-    // won't be parsed out.
+    // the handled comments collection and the second time they won't be parsed out.
     const parsedChildren = children.map(c => [c, makeIterableRepeatable(parseNode(c, context))] as const);
 
     if (useMultilines)
@@ -3588,7 +3587,7 @@ function* parseJsxChildren(options: ParseJsxChildrenOptions): PrintItemIterable 
 
     function* parseForNewLines(): PrintItemIterable {
         yield Signal.NewLine;
-        yield* withIndent(parseStatementOrMembers({
+        yield* withIndent(parseStatementsOrMembers({
             context,
             innerComments: node.innerComments,
             items: parsedChildren,
@@ -3651,7 +3650,7 @@ function* parseStatements(block: babel.BlockStatement | babel.Program, context: 
     }
 
     const statements = block.body;
-    yield* parseStatementOrMembers({
+    yield* parseStatementsOrMembers({
         items: statements,
         innerComments: block.innerComments,
         lastNode,
@@ -3673,7 +3672,7 @@ interface ParseStatementOrMembersOptions {
     trailingCommas?: TypeScriptConfiguration["trailingCommas"];
 }
 
-function* parseStatementOrMembers(opts: ParseStatementOrMembersOptions): PrintItemIterable {
+function* parseStatementsOrMembers(opts: ParseStatementOrMembersOptions): PrintItemIterable {
     const { items, innerComments, context, shouldUseSpace, shouldUseNewLine, shouldUseBlankLine, trailingCommas } = opts;
     let { lastNode } = opts;
 
@@ -4214,7 +4213,7 @@ function* parseObjectLikeNode(opts: ParseObjectLikeNodeOptions) {
 
     function* getInner(): PrintItemIterable {
         if (multiLine) {
-            yield* withIndent(parseStatementOrMembers({
+            yield* withIndent(parseStatementsOrMembers({
                 context,
                 innerComments: node.innerComments,
                 items: members,
@@ -4348,10 +4347,9 @@ function* parseCommentBasedOnLastNode(comment: babel.Comment, lastNode: babel.No
             if (comment.loc.start.line > lastNode.loc!.end.line + 1)
                 yield Signal.NewLine;
         }
-        else if (comment.type === "CommentLine")
+        else {
             yield " ";
-        else if (lastNode.type === "CommentBlock")
-            yield " ";
+        }
     }
 
     yield* parseComment(comment, context);

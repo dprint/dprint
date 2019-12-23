@@ -6,23 +6,43 @@ use dprint_development::*;
 use std::fs::{self};
 use std::path::Path;
 
-#[test]
-fn it_testing() {
-    //let result = format_text("test.ts".into(), "/* test */ // 2\nfunction test() { //3\n}\n".into()).unwrap();
-    //assert_eq!(result, "'use strict';");
+struct FailedTestResult {
+    expected: String,
+    actual: String,
+    message: String,
 }
 
 #[test]
 fn test_specs() {
     let specs = get_specs();
+    let mut test_count = 0;
+    let mut failed_tests = Vec::new();
+
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
         let config = resolve_config(&spec.config);
         let result = format_text(&spec.file_name, &spec.file_text, &config).expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
         if result != spec.expected_text {
-            panic!("spec assertion failed ({}):
- expected: `{:?}`,
-   actual: `{:?}`", spec.message, spec.expected_text, result);
+            failed_tests.push(FailedTestResult {
+                expected: spec.expected_text.clone(),
+                actual: result,
+                message: spec.message.clone()
+            });
         }
+
+        test_count += 1;
+    }
+
+    if failed_tests.is_empty() {
+        println!("{}/{} tests passed", test_count, test_count);
+    }
+    else {
+        for failed_test in &failed_tests {
+            println!("---");
+            println!("Failed:   {}\nExpected: `{:?}`,\nActual:   `{:?}`", failed_test.message, failed_test.expected, failed_test.actual);
+        }
+
+        println!("---");
+        panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
     }
 }
 

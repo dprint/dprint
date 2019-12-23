@@ -3,7 +3,7 @@ extern crate dprint_core;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*};
 use super::*;
-use swc_ecma_ast::{Module, ModuleItem, Stmt, Expr, ExprStmt, Lit, Bool, JSXText, Number, Regex, Str};
+use swc_ecma_ast::{Module, ModuleItem, Stmt, Expr, ExprStmt, Lit, BigInt, Bool, JSXText, Number, Regex, Str};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -46,6 +46,7 @@ fn parse_expr(expr: Expr, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_literal(lit: Lit, context: &mut Context) -> Vec<PrintItem> {
     match lit {
+        Lit::BigInt(node) => parse_node(Node::BigInt(node), context),
         Lit::Bool(node) => parse_node(Node::Bool(node), context),
         Lit::JSXText(node) => parse_node(Node::JsxText(node), context),
         Lit::Null(node) => parse_node(Node::Null(node), context),
@@ -77,6 +78,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
     fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
         match node {
             /* literals */
+            Node::BigInt(node) => parse_big_int_literal(&node, context),
             Node::Bool(node) => parse_bool_literal(&node),
             Node::JsxText(node) => parse_jsx_text(&node, context),
             Node::Null(_) => vec!["null".into()],
@@ -94,6 +96,10 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
 }
 
 /* Literals */
+
+fn parse_big_int_literal(node: &BigInt, context: &mut Context) -> Vec<PrintItem> {
+    vec![context.get_text_range(&node).text().into()]
+}
 
 fn parse_bool_literal(node: &Bool) -> Vec<PrintItem> {
     vec![match node.value {
