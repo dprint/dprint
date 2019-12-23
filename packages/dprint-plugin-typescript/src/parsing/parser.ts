@@ -4347,7 +4347,7 @@ function* parseCommentBasedOnLastNode(comment: babel.Comment, lastNode: babel.No
             if (comment.loc.start.line > lastNode.loc!.end.line + 1)
                 yield Signal.NewLine;
         }
-        else {
+        else if (comment.type === "CommentLine" || lastNode.type === "CommentBlock") {
             yield " ";
         }
     }
