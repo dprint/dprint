@@ -2,7 +2,7 @@ use std::str;
 use std::rc::Rc;
 use super::*;
 use std::collections::HashSet;
-use swc_common::{Span, SpanData, BytePos, comments::{Comments, Comment}, SourceFile};
+use swc_common::{Span, SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned};
 use swc_ecma_ast::{Bool, JSXText, Null, Number, Regex, Str, Module, ExprStmt};
 
 pub struct Context {
@@ -28,8 +28,8 @@ impl Context {
         }
     }
 
-    pub fn get_text_range(self: &Context, span: &Span) -> TextRange {
-        TextRange::new(self.comments.clone(), self.info.clone(), self.file_bytes.clone(), span.data())
+    pub fn get_text_range(self: &Context, spanned: &impl Spanned) -> TextRange {
+        TextRange::new(self.comments.clone(), self.info.clone(), self.file_bytes.clone(), spanned.span().data())
     }
 
     pub fn parent(self: &Context) -> &Node {
@@ -45,6 +45,7 @@ impl Context {
     }
 }
 
+#[derive(Clone)]
 pub struct TextRange {
     comments: Rc<Comments>,
     info: Rc<SourceFile>,
@@ -74,12 +75,12 @@ impl TextRange {
         self.data.hi
     }
 
-    pub fn leading_comments(self: &TextRange) -> Option<Vec<Comment>> {
-        self.comments.leading_comments(self.data.lo).map(|c| c.clone())
+    pub fn leading_comments(self: &TextRange) -> Vec<Comment> {
+        self.comments.leading_comments(self.data.lo).map(|c| c.clone()).unwrap_or_default()
     }
 
-    pub fn trailing_comments(self: &TextRange) -> Option<Vec<Comment>> {
-        self.comments.trailing_comments(self.data.hi).map(|c| c.clone())
+    pub fn trailing_comments(self: &TextRange) -> Vec<Comment> {
+        self.comments.trailing_comments(self.data.hi).map(|c| c.clone()).unwrap_or_default()
     }
 
     pub fn line_start(self: &mut TextRange) -> usize {
@@ -114,5 +115,7 @@ pub enum Node {
     /* module */
     Module(Module),
     /* statements */
-    ExprStmt(ExprStmt)
+    ExprStmt(ExprStmt),
+    /* unknown */
+    Unknown(TextRange),
 }

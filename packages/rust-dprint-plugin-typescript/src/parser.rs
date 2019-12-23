@@ -4,7 +4,7 @@ use dprint_core::*;
 use dprint_core::{parser_helpers::*};
 use super::*;
 use swc_ecma_ast::{Module, ModuleItem, Stmt, Expr, ExprStmt, Lit, Bool, JSXText, Number, Regex, Str};
-use swc_common::{SpanData, comments::{Comment, CommentKind}};
+use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let mut context = Context::new(
@@ -26,21 +26,21 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
 fn parse_module_item(item: ModuleItem, context: &mut Context) -> Vec<PrintItem> {
     match item {
         ModuleItem::Stmt(node) => parse_stmt(node, context),
-        _ => Vec::new(), // todo: remove this
+        _ => parse_node(Node::Unknown(context.get_text_range(&item)), context), // todo: remove this
     }
 }
 
 fn parse_stmt(stmt: Stmt, context: &mut Context) -> Vec<PrintItem> {
     match stmt {
         Stmt::Expr(node) => parse_node(Node::ExprStmt(node), context),
-        _ => Vec::new(), // todo: remove this
+        _ => parse_node(Node::Unknown(context.get_text_range(&stmt)), context), // todo: remove this
     }
 }
 
 fn parse_expr(expr: Expr, context: &mut Context) -> Vec<PrintItem> {
     match expr {
         Expr::Lit(lit) => parse_literal(lit, context),
-        _ => Vec::new(), // todo: remove this
+        _ => parse_node(Node::Unknown(context.get_text_range(&expr)), context), // todo: remove this
     }
 }
 
@@ -87,6 +87,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::Module(node) => parse_module(node, context),
             /* statements */
             Node::ExprStmt(node) => parse_expr_stmt(&node, context),
+            /* unknown */
+            Node::Unknown(text_range) => vec![text_range.text().into()],
         }
     }
 }
@@ -105,7 +107,7 @@ fn parse_jsx_text(node: &JSXText, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_num_literal(node: &Number, context: &mut Context) -> Vec<PrintItem> {
-    vec![context.get_text_range(&node.span).text().into()]
+    vec![context.get_text_range(&node).text().into()]
 }
 
 fn parse_reg_exp_literal(node: &Regex, context: &mut Context) -> Vec<PrintItem> {
@@ -119,7 +121,7 @@ fn parse_reg_exp_literal(node: &Regex, context: &mut Context) -> Vec<PrintItem> 
 }
 
 fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
-    return parse_raw_string(&get_string_literal_text(&context.get_text_range(&node.span), context));
+    return parse_raw_string(&get_string_literal_text(&context.get_text_range(&node), context));
 
     fn get_string_literal_text(node: &TextRange, context: &mut Context) -> String {
         let string_value = get_string_value(&node, context);
@@ -145,11 +147,13 @@ fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
 /* Module */
 
 fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
-    let mut items = Vec::new();
-    for item in node.body {
-        items.extend(parse_module_item(item, context));
-    }
-    items
+    parse_statements_or_members(ParseStatementOrMemberOptions {
+        items: node.body.into_iter().map(|node| (context.get_text_range(&node), parse_module_item(node, context))).collect(),
+        last_node: Option::None,
+        should_use_space: Option::None,
+        should_use_new_line: Option::None,
+        should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+    }, context)
 }
 
 /* Statements */
@@ -182,7 +186,7 @@ fn parse_expr_stmt(stmt: &ExprStmt, context: &mut Context) -> Vec<PrintItem> {
                 match item {
                     PrintItem::String(value) => {
                         if let Some(c) = value.chars().next() {
-                            return Some(utils::is_prefix_semi_colon_insertion_char(c));
+                            return utils::is_prefix_semi_colon_insertion_char(c).into();
                         }
                     },
                     PrintItem::Condition(condition) => {
@@ -190,12 +194,12 @@ fn parse_expr_stmt(stmt: &ExprStmt, context: &mut Context) -> Vec<PrintItem> {
                         // condition will both contain the same text to look for.
                         if let Some(true_path) = &condition.true_path {
                             if let Some(result) = should_add_semi_colon(&true_path) {
-                                return Some(result);
+                                return result.into();
                             }
                         }
                         if let Some(false_path) = &condition.false_path {
                             if let Some(result) = should_add_semi_colon(&false_path) {
-                                return Some(result);
+                                return result.into();
                             }
                         }
                     },
@@ -215,12 +219,7 @@ fn parse_leading_comments(node: &mut TextRange, context: &mut Context) -> Vec<Pr
     parse_comments_as_leading(node, leading_comments, context)
 }
 
-fn parse_comments_as_leading(node: &mut TextRange, optional_comments: Option<Vec<Comment>>, context: &mut Context) -> Vec<PrintItem> {
-    if optional_comments.is_none() {
-        return vec![];
-    }
-
-    let comments = optional_comments.unwrap();
+fn parse_comments_as_leading(node: &mut TextRange, comments: Vec<Comment>, context: &mut Context) -> Vec<PrintItem> {
     if comments.is_empty() {
         return vec![];
     }
@@ -233,7 +232,7 @@ fn parse_comments_as_leading(node: &mut TextRange, optional_comments: Option<Vec
     let last_comment_previously_handled = context.has_handled_comment(&last_comment);
     let mut items = Vec::new();
 
-    items.extend(parse_comment_collection(&comments, Option::None, context));
+    items.extend(parse_comment_collection(&comments, &mut Option::None, context));
 
     if !last_comment_previously_handled {
         if node.line_start() > last_comment.line_end() {
@@ -251,9 +250,54 @@ fn parse_comments_as_leading(node: &mut TextRange, optional_comments: Option<Vec
     items
 }
 
-fn parse_comment_collection(comments: &Vec<Comment>, last_span_data: Option<SpanData>, context: &mut Context) -> Vec<PrintItem> {
-    // todo
-    vec![]
+fn parse_trailing_comments_as_statements(node: &mut TextRange, context: &mut Context) -> Vec<PrintItem> {
+    let unhandled_comments = get_trailing_comments_as_statements(node, context);
+    parse_comment_collection(&unhandled_comments, &mut Some(node.clone()), context)
+}
+
+fn get_trailing_comments_as_statements(node: &mut TextRange, context: &mut Context) -> Vec<Comment> {
+    let mut items = Vec::new();
+    for comment in node.trailing_comments() {
+        let mut comment_range = context.get_text_range(&comment.span);
+        if context.has_handled_comment(&comment_range) && node.line_end() < comment_range.line_end() {
+            items.push(comment);
+        }
+    }
+    items
+}
+
+fn parse_comment_collection(comments: &Vec<Comment>, last_node: &mut Option<TextRange>, context: &mut Context) -> Vec<PrintItem> {
+    let mut last_node = last_node.clone();
+    let mut items = Vec::new();
+    for comment in comments {
+        let comment_range = context.get_text_range(&comment.span);
+        if !context.has_handled_comment(&comment_range) {
+            items.extend(parse_comment_based_on_last_node(&comment, &mut last_node, context));
+            last_node = Some(comment_range);
+        }
+    }
+    items
+}
+
+fn parse_comment_based_on_last_node(comment: &Comment, last_node: &mut Option<TextRange>, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    if let Some(last_node) = last_node {
+        let mut comment_range = context.get_text_range(&comment.span);
+        if comment_range.line_start() > last_node.line_end() {
+            items.push(PrintItem::NewLine);
+
+            if comment_range.line_start() > last_node.line_end() + 1 {
+                items.push(PrintItem::NewLine);
+            }
+        } else {
+            items.push(" ".into());
+        }
+    }
+
+    items.extend(parse_comment(&comment, context));
+
+    items
 }
 
 fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {
@@ -309,5 +353,63 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {
                 return i;
             }
         }
+    }
+}
+
+/* helpers */
+
+struct ParseStatementOrMemberOptions {
+    items: Vec<(TextRange, Vec<PrintItem>)>,
+    last_node: Option<TextRange>,
+    should_use_space: Option<Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>>,
+    should_use_new_line: Option<Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>>,
+    should_use_blank_line: Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>,
+}
+
+fn parse_statements_or_members(opts: ParseStatementOrMemberOptions, context: &mut Context) -> Vec<PrintItem> {
+    let mut last_node = opts.last_node;
+    let mut items = Vec::new();
+
+    for (mut item, parsed_node) in opts.items {
+        if let Some(mut last_node) = last_node {
+            if should_use_new_line(&opts.should_use_new_line, &mut last_node, &mut item, context) {
+                items.push(PrintItem::NewLine);
+
+                if (opts.should_use_blank_line)(&mut last_node, &mut item, context) {
+                    items.push(PrintItem::NewLine);
+                }
+            }
+            else if let Some(should_use_space) = &opts.should_use_space {
+                if should_use_space(&mut last_node, &mut item, context) {
+                    items.push(PrintItem::SpaceOrNewLine);
+                }
+            }
+        }
+
+        let end_info = Info::new("endStatementOrMemberInfo");
+        items.extend(parsed_node);
+        items.push(end_info.into());
+
+        last_node = Some(item);
+    }
+
+    if let Some(mut last_node) = last_node {
+        items.extend(parse_trailing_comments_as_statements(&mut last_node, context));
+    }
+
+    // todo: inner comments?
+
+    return items;
+
+    fn should_use_new_line(
+        should_use_new_line: &Option<Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>>,
+        last_node: &mut TextRange,
+        next_node: &mut TextRange,
+        context: &mut Context
+    ) -> bool {
+        if let Some(should_use) = &should_use_new_line {
+            return (should_use)(last_node, next_node, context);
+        }
+        return true;
     }
 }
