@@ -1,8 +1,20 @@
 use super::print_items::*;
 
+pub fn surround_with_new_lines(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
+    elements.insert(0, PrintItem::NewLine);
+    elements.push(PrintItem::NewLine);
+    elements
+}
+
 pub fn with_indent(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
     elements.insert(0, PrintItem::StartIndent);
     elements.push(PrintItem::FinishIndent);
+    elements
+}
+
+pub fn new_line_group(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
+    elements.insert(0, PrintItem::StartNewLineGroup);
+    elements.push(PrintItem::FinishNewLineGroup);
     elements
 }
 

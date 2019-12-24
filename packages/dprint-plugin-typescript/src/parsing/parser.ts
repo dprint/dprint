@@ -3837,12 +3837,12 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
     const { values, context, multiLineOrHangingConditionResolver } = options;
 
     for (let i = 0; i < values.length; i++) {
-        const param = values[i];
+        const value = values[i];
         const hasComma = i < values.length - 1;
-        const parsedParam = makeIterableRepeatable(newlineGroup(parseValue(param, hasComma)));
+        const parsedValue = makeIterableRepeatable(newlineGroup(parseValue(value, hasComma)));
 
         if (i === 0)
-            yield* parsedParam;
+            yield* parsedValue;
         else {
             yield {
                 kind: PrintItemKind.Condition,
@@ -3850,18 +3850,18 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
                 condition: multiLineOrHangingConditionResolver,
                 true: function*(): PrintItemIterable {
                     yield Signal.NewLine;
-                    yield* parsedParam;
+                    yield* parsedValue;
                 }(),
                 false: function*(): PrintItemIterable {
                     yield Signal.SpaceOrNewLine;
-                    yield* conditions.indentIfStartOfLine(parsedParam);
+                    yield* conditions.indentIfStartOfLine(parsedValue);
                 }()
             };
         }
     }
 
-    function* parseValue(param: babel.Node, hasComma: boolean): PrintItemIterable {
-        yield* newlineGroup(parseNode(param, context, {
+    function* parseValue(value: babel.Node, hasComma: boolean): PrintItemIterable {
+        yield* newlineGroup(parseNode(value, context, {
             innerParse: function*(iterator) {
                 yield* iterator;
 

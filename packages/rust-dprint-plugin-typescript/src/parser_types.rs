@@ -4,7 +4,7 @@ use super::*;
 use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsTypeAnn, TsTypeParamInstantiation,
-    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread};
+    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -186,6 +186,8 @@ generate_node! [
     /* expressions */
     CallExpr,
     ExprOrSpread,
+    FnExpr,
+    ArrowExpr,
     /* literals */
     BigInt,
     Bool,
@@ -228,7 +230,9 @@ impl From<Stmt> for Node {
 impl From<Expr> for Node {
     fn from(expr: Expr) -> Node {
         match expr {
-            Expr::Lit(lit) => lit.into(),
+            Expr::Lit(node) => node.into(),
+            Expr::Arrow(node) => node.into(),
+            Expr::Fn(node) => node.into(),
             _ => Node::Unknown(expr.span()), // todo: implement others
         }
     }
@@ -272,6 +276,8 @@ impl NodeKinded for Expr {
     fn kind(&self) -> NodeKind {
         match self {
             Expr::Lit(node) => node.kind(),
+            Expr::Fn(node) => node.kind(),
+            Expr::Arrow(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
     }

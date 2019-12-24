@@ -1,7 +1,9 @@
 extern crate dprint_core;
 
+use std::rc::Rc;
+
 use dprint_core::*;
-use dprint_core::{parser_helpers::*};
+use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation};
 use swc_common::{comments::{Comment, CommentKind}};
@@ -50,6 +52,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             /* expressions */
             Node::CallExpr(node) => parse_call_expression(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
+            Node::FnExpr(node) => vec![context.get_text_range(&node).text().into()], // todo
+            Node::ArrowExpr(node) => vec![context.get_text_range(&node).text().into()], // todo
             /* literals */
             Node::BigInt(node) => parse_big_int_literal(node, context),
             Node::Bool(node) => parse_bool_literal(node),
@@ -92,12 +96,12 @@ fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
     return if is_test_library_call_expression(&node, context) {
-        parse_test_library_call_expr(&node, context)
+        parse_test_library_call_expr(node, context)
     } else {
-        inner_parse(&node, context)
+        inner_parse(node, context)
     };
 
-    fn inner_parse(node: &CallExpr, context: &mut Context) -> Vec<PrintItem> {
+    fn inner_parse(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
         let mut items = Vec::new();
 
         items.extend(parse_node(node.callee.clone().into(), context));
@@ -106,12 +110,16 @@ fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem
             items.extend(parse_node(Node::TsTypeParamInstantiation(type_args.clone()), context));
         }
 
-        // todo: args
+        items.push(conditions::with_indent_if_start_of_line_indented(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+            nodes: node.args.into_iter().map(|node| node.into()).collect(),
+            force_multi_line_when_multiple_lines: context.config.call_expression_force_multi_line_arguments,
+            custom_close_paren: Option::None,
+        }, context)).into());
 
         items
     }
 
-    fn parse_test_library_call_expr(node: &CallExpr, context: &mut Context) -> Vec<PrintItem> {
+    fn parse_test_library_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
         let mut items = Vec::new();
         items.extend(parse_test_library_callee(&node.callee, context));
         items.extend(parse_test_library_arguments(&node.args, context));
@@ -530,7 +538,7 @@ fn parse_statements_or_members(opts: ParseStatementOrMemberOptions, context: &mu
 struct ParseParametersOrArgumentsOptions {
     nodes: Vec<Node>,
     force_multi_line_when_multiple_lines: bool,
-    custom_close_paren: Option<Vec<Node>>,
+    custom_close_paren: Option<Vec<PrintItem>>,
 }
 
 fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, context: &mut Context) -> Vec<PrintItem> {
@@ -538,8 +546,38 @@ fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, contex
     let start_info = Info::new("startParamsOrArgs");
     let end_info = Info::new("endParamsOrArgs");
     let use_new_lines = get_use_new_lines(&nodes, context);
+    let force_multi_lines_when_multiple_lines = opts.force_multi_line_when_multiple_lines;
+    let is_single_function = nodes.len() == 1 && (match nodes[0].kind() { NodeKind::FnExpr | NodeKind::ArrowExpr => true, _ => false });
+    let is_multi_line_or_hanging = {
+        let start_info = start_info.clone(); // create a copy
+        move |condition_context: &mut ConditionResolverContext| {
+            if use_new_lines { return Some(true); }
+            if force_multi_lines_when_multiple_lines && !is_single_function {
+                return condition_resolvers::is_multiple_lines(condition_context, &start_info, &end_info);
+            }
+            return Some(false);
+        }
+    };
 
-    return vec![]; // todo
+    let mut items: Vec<PrintItem> = Vec::new();
+    items.push(start_info.into());
+    items.push("(".into());
+
+    let param_list = parse_comma_separated_values(nodes, is_multi_line_or_hanging.clone(), context);
+    items.push(Condition::new("multiLineOrHanging", ConditionProperties {
+        condition: Box::new(is_multi_line_or_hanging),
+        true_path: surround_with_new_lines(with_indent(param_list.clone())).into(),
+        false_path: param_list.into(),
+    }).into());
+
+    if let Some(custom_close_paren) = opts.custom_close_paren {
+        items.extend(custom_close_paren);
+    }
+    else {
+        items.push(")".into());
+    }
+
+    return items;
 
     fn get_use_new_lines(nodes: &Vec<Node>, context: &mut Context) -> bool {
         if nodes.is_empty() {
@@ -554,6 +592,54 @@ fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, contex
         } else {
             false
         }
+    }
+}
+
+fn parse_comma_separated_values(
+    values: Vec<Node>,
+    multi_line_or_hanging_condition_resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
+    context: &mut Context
+) -> Vec<PrintItem> {
+    let mut i = 0;
+    let mut items = Vec::new();
+    let values_count = values.len();
+
+    for value in values {
+        let has_comma = i < values_count - 1;
+        let parsed_value = parse_value(value, has_comma, context);
+
+        if i == 0 {
+            items.extend(parsed_value);
+        } else {
+            items.push(Condition::new("multiLineOrHangingCondition", ConditionProperties {
+                condition: Box::new(multi_line_or_hanging_condition_resolver.clone()),
+                true_path: {
+                    let mut items = Vec::new();
+                    items.push(PrintItem::NewLine);
+                    items.extend(parsed_value.clone());
+                    Some(items)
+                },
+                false_path: {
+                    let mut items = Vec::new();
+                    items.push(PrintItem::SpaceOrNewLine);
+                    items.push(conditions::indent_if_start_of_line(parsed_value).into());
+                    Some(items)
+                },
+            }).into());
+        }
+
+        i += 1;
+    }
+
+    return items;
+
+    fn parse_value(value: Node, has_comma: bool, context: &mut Context) -> Vec<PrintItem> {
+        parser_helpers::new_line_group(parse_node_with_inner_parse(value, context, move |mut items| {
+            if has_comma {
+                items.push(",".into());
+            }
+            items
+        }))
     }
 }
 
