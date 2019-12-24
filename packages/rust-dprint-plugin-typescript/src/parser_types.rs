@@ -134,7 +134,7 @@ pub trait NodeKinded {
 
 macro_rules! generate_node {
     ($($node_name:ident),*) => {
-        #[derive(Clone, PartialEq)]
+        #[derive(Clone, PartialEq, Debug)]
         pub enum NodeKind {
             $($node_name),*
         }
@@ -230,9 +230,10 @@ impl From<Stmt> for Node {
 impl From<Expr> for Node {
     fn from(expr: Expr) -> Node {
         match expr {
-            Expr::Lit(node) => node.into(),
             Expr::Arrow(node) => node.into(),
+            Expr::Call(node) => node.into(),
             Expr::Fn(node) => node.into(),
+            Expr::Lit(node) => node.into(),
             _ => Node::Unknown(expr.span()), // todo: implement others
         }
     }
@@ -275,9 +276,10 @@ impl NodeKinded for Stmt {
 impl NodeKinded for Expr {
     fn kind(&self) -> NodeKind {
         match self {
-            Expr::Lit(node) => node.kind(),
-            Expr::Fn(node) => node.kind(),
             Expr::Arrow(node) => node.kind(),
+            Expr::Call(node) => node.kind(),
+            Expr::Fn(node) => node.kind(),
+            Expr::Lit(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
     }

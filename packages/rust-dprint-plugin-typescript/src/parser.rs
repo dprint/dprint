@@ -27,6 +27,7 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
 }
 
 fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
+    //println!("Here: {:?}", node.kind());
     parse_node_with_inner_parse(node, context, |items| items)
 }
 
@@ -106,8 +107,8 @@ fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem
 
         items.extend(parse_node(node.callee.clone().into(), context));
 
-        if let Some(type_args) = &node.type_args {
-            items.extend(parse_node(Node::TsTypeParamInstantiation(type_args.clone()), context));
+        if let Some(type_args) = node.type_args {
+            items.extend(parse_node(Node::TsTypeParamInstantiation(type_args), context));
         }
 
         items.push(conditions::with_indent_if_start_of_line_indented(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
@@ -199,7 +200,7 @@ fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem
 fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     if node.spread.is_some() { items.push("...".into()); }
-    items.extend(parse_node(node.clone().into(), context));
+    items.extend(parse_node((*node.expr).into(), context));
     items
 }
 
