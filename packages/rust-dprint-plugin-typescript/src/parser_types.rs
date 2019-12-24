@@ -3,12 +3,14 @@ use std::rc::Rc;
 use super::*;
 use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
-use swc_ecma_ast::{BigInt, Bool, CallExpr, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsTypeParamInstantiation, ModuleItem, Stmt, Expr, ExprOrSuper, Lit,
-    ExprOrSpread};
+use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsTypeAnn, TsTypeParamInstantiation,
+    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread};
+use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
     comments: Rc<Comments>,
+    tokens: Rc<Vec<TokenAndSpan>>,
     file_bytes: Rc<Vec<u8>>,
     pub current_node: Node,
     pub parent_stack: Vec<Node>,
@@ -17,10 +19,18 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(config: TypeScriptConfiguration, comments: Comments, file_bytes: Vec<u8>, current_node: Node, info: SourceFile) -> Context {
+    pub fn new(
+        config: TypeScriptConfiguration,
+        comments: Comments,
+        tokens: Vec<TokenAndSpan>,
+        file_bytes: Vec<u8>,
+        current_node: Node,
+        info: SourceFile
+    ) -> Context {
         Context {
             config,
             comments: Rc::new(comments),
+            tokens: Rc::new(tokens),
             file_bytes: Rc::new(file_bytes),
             current_node,
             parent_stack: Vec::new(),
@@ -29,20 +39,34 @@ impl Context {
         }
     }
 
-    pub fn get_text_range(self: &Context, spanned: &impl Spanned) -> TextRange {
+    pub fn get_text_range(&self, spanned: &impl Spanned) -> TextRange {
         TextRange::new(self.comments.clone(), self.info.clone(), self.file_bytes.clone(), spanned.span().data())
     }
 
-    pub fn parent(self: &Context) -> &Node {
+    pub fn parent(&self) -> &Node {
         self.parent_stack.last().unwrap()
     }
 
-    pub fn has_handled_comment(self: &Context, comment: &TextRange) -> bool {
+    pub fn has_handled_comment(&self, comment: &TextRange) -> bool {
         self.handled_comments.contains(&comment.lo())
     }
 
-    pub fn mark_comment_handled(self: &mut Context, comment: &TextRange) {
+    pub fn mark_comment_handled(&mut self, comment: &TextRange) {
         self.handled_comments.insert(comment.lo());
+    }
+
+    pub fn get_first_open_paren_token_before(&self, range: &TextRange) -> Option<TokenAndSpan> {
+        let pos = range.lo();
+        let mut found_token = Option::None;
+        for token in self.tokens.iter() {
+            if token.span.data().lo >= pos {
+                break;
+            }
+            if token.token == Token::LParen {
+                found_token = Some(token);
+            }
+        }
+        found_token.map(|x| x.to_owned())
     }
 }
 
@@ -52,8 +76,8 @@ pub struct TextRange {
     info: Rc<SourceFile>,
     file_bytes: Rc<Vec<u8>>,
     data: SpanData,
-    line_start: Option<usize>,
-    line_end: Option<usize>,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
 }
 
 impl TextRange {
@@ -63,8 +87,8 @@ impl TextRange {
             info,
             file_bytes,
             data,
-            line_start: Option::None,
-            line_end: Option::None,
+            start_line: Option::None,
+            end_line: Option::None,
         }
     }
 
@@ -84,18 +108,18 @@ impl TextRange {
         self.comments.trailing_comments(self.data.hi).map(|c| c.clone()).unwrap_or_default()
     }
 
-    pub fn line_start(self: &mut TextRange) -> usize {
-        if self.line_start.is_none() {
-            self.line_start = Some(self.info.lookup_line(self.data.lo).unwrap() + 1);
+    pub fn start_line(self: &mut TextRange) -> usize {
+        if self.start_line.is_none() {
+            self.start_line = Some(self.info.lookup_line(self.data.lo).unwrap() + 1);
         }
-        self.line_start.unwrap()
+        self.start_line.unwrap()
     }
 
-    pub fn line_end(self: &mut TextRange) -> usize {
-        if self.line_end.is_none() {
-            self.line_end = Some(self.info.lookup_line(self.data.hi).unwrap() + 1);
+    pub fn end_line(self: &mut TextRange) -> usize {
+        if self.end_line.is_none() {
+            self.end_line = Some(self.info.lookup_line(self.data.hi).unwrap() + 1);
         }
-        self.line_end.unwrap()
+        self.end_line.unwrap()
     }
 
     pub fn text(self: &TextRange) -> &str {
@@ -104,28 +128,82 @@ impl TextRange {
     }
 }
 
-#[derive(Clone)]
-pub enum Node {
-    /* expressions */
-    CallExpr(CallExpr),
-    ExprOrSpread(ExprOrSpread),
-    /* literals */
-    BigInt(BigInt),
-    Bool(Bool),
-    JsxText(JSXText),
-    Null(Null),
-    Num(Number),
-    Regex(Regex),
-    Str(Str),
-    /* module */
-    Module(Module),
-    /* statements */
-    ExprStmt(ExprStmt),
-    /* types */
-    TsTypeParamInstantiation(TsTypeParamInstantiation),
-    /* unknown */
-    Unknown(Span),
+pub trait NodeKinded {
+    fn kind(&self) -> NodeKind;
 }
+
+macro_rules! generate_node {
+    ($($node_name:ident),*) => {
+        #[derive(Clone, PartialEq)]
+        pub enum NodeKind {
+            $($node_name),*
+        }
+
+        #[derive(Clone)]
+        pub enum Node {
+            $($node_name($node_name)),*
+        }
+
+        impl NodeKinded for Node {
+            fn kind(&self) -> NodeKind {
+                match self {
+                    $(Node::$node_name(_) => NodeKind::$node_name),*
+                }
+            }
+        }
+
+        $(
+        impl NodeKinded for $node_name {
+            fn kind(&self) -> NodeKind {
+                NodeKind::$node_name
+            }
+        }
+        )*
+
+        $(
+        impl From<$node_name> for Node {
+            fn from(node: $node_name) -> Node {
+                Node::$node_name(node)
+            }
+        }
+        )*
+
+        impl Spanned for Node {
+            fn span(&self) -> Span {
+                match self {
+                    $(Node::$node_name(node) => node.span()),*
+                }
+            }
+        }
+    };
+}
+
+pub type Unknown = Span;
+
+generate_node! [
+    /* common */
+    Ident,
+    /* expressions */
+    CallExpr,
+    ExprOrSpread,
+    /* literals */
+    BigInt,
+    Bool,
+    JSXText,
+    Null,
+    Number,
+    Regex,
+    Str,
+    /* module */
+    Module,
+    /* statements */
+    ExprStmt,
+    /* types */
+    TsTypeAnn,
+    TsTypeParamInstantiation,
+    /* unknown */
+    Unknown
+];
 
 /* Into node implementations */
 
@@ -179,50 +257,45 @@ impl From<Lit> for Node {
     }
 }
 
-impl From<BigInt> for Node {
-    fn from(node: BigInt) -> Node {
-        Node::BigInt(node)
+/* NodeKinded implementations */
+
+impl NodeKinded for Stmt {
+    fn kind(&self) -> NodeKind {
+        match self {
+            Stmt::Expr(node) => node.kind(),
+            _ => NodeKind::Unknown,
+        }
     }
 }
 
-impl From<Bool> for Node {
-    fn from(node: Bool) -> Node {
-        Node::Bool(node)
+impl NodeKinded for Expr {
+    fn kind(&self) -> NodeKind {
+        match self {
+            Expr::Lit(node) => node.kind(),
+            _ => NodeKind::Unknown,
+        }
     }
 }
 
-impl From<JSXText> for Node {
-    fn from(node: JSXText) -> Node {
-        Node::JsxText(node)
+impl NodeKinded for ExprOrSuper {
+    fn kind(&self) -> NodeKind {
+        match self {
+            ExprOrSuper::Expr(node) => node.kind(),
+            _ => NodeKind::Unknown,
+        }
     }
 }
 
-impl From<Null> for Node {
-    fn from(node: Null) -> Node {
-        Node::Null(node)
-    }
-}
-
-impl From<Number> for Node {
-    fn from(node: Number) -> Node {
-        Node::Num(node)
-    }
-}
-
-impl From<Regex> for Node {
-    fn from(node: Regex) -> Node {
-        Node::Regex(node)
-    }
-}
-
-impl From<Str> for Node {
-    fn from(node: Str) -> Node {
-        Node::Str(node)
-    }
-}
-
-impl From<ExprOrSpread> for Node {
-    fn from(node: ExprOrSpread) -> Node {
-        Node::ExprOrSpread(node)
+impl NodeKinded for Lit {
+    fn kind(&self) -> NodeKind {
+        match self {
+            Lit::BigInt(node) => node.kind(),
+            Lit::Bool(node) => node.kind(),
+            Lit::JSXText(node) => node.kind(),
+            Lit::Null(node) => node.kind(),
+            Lit::Num(node) => node.kind(),
+            Lit::Regex(node) => node.kind(),
+            Lit::Str(node) => node.kind(),
+        }
     }
 }

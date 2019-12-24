@@ -3,14 +3,14 @@ extern crate dprint_core;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*};
 use super::*;
-use swc_ecma_ast::{CallExpr, Module, ModuleItem, Stmt, Expr, ExprStmt, Lit, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread,
-    TsTypeParamInstantiation};
+use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let mut context = Context::new(
         config,
         source_file.comments,
+        source_file.tokens,
         source_file.file_bytes,
         Node::Module(source_file.module.clone()),
         source_file.info
@@ -45,22 +45,25 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
 
     fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
         match node {
+            /* common */
+            Node::Ident(node) => parse_identifier(node, context),
             /* expressions */
-            Node::CallExpr(node) => parse_call_expression(&node, context),
-            Node::ExprOrSpread(node) => parse_expr_or_spread(&node, context),
+            Node::CallExpr(node) => parse_call_expression(node, context),
+            Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             /* literals */
-            Node::BigInt(node) => parse_big_int_literal(&node, context),
-            Node::Bool(node) => parse_bool_literal(&node),
-            Node::JsxText(node) => parse_jsx_text(&node, context),
+            Node::BigInt(node) => parse_big_int_literal(node, context),
+            Node::Bool(node) => parse_bool_literal(node),
+            Node::JSXText(node) => parse_jsx_text(node, context),
             Node::Null(_) => vec!["null".into()],
-            Node::Num(node) => parse_num_literal(&node, context),
-            Node::Regex(node) => parse_reg_exp_literal(&node, context),
-            Node::Str(node) => parse_string_literal(&node, context),
+            Node::Number(node) => parse_num_literal(node, context),
+            Node::Regex(node) => parse_reg_exp_literal(node, context),
+            Node::Str(node) => parse_string_literal(node, context),
             /* module */
             Node::Module(node) => parse_module(node, context),
             /* statements */
-            Node::ExprStmt(node) => parse_expr_stmt(&node, context),
+            Node::ExprStmt(node) => parse_expr_stmt(node, context),
             /* types */
+            Node::TsTypeAnn(node) => vec![context.get_text_range(&node).text().into()], // todo
             Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(node, context),
             /* unknown */
             Node::Unknown(text_range) => vec![context.get_text_range(&text_range).text().into()],
@@ -68,9 +71,26 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
     }
 }
 
+/* Common */
+
+fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
+    let mut items: Vec<PrintItem> = Vec::new();
+    items.push((&node.sym as &str).into());
+
+    if node.optional {
+        items.push("?".into());
+    }
+
+    if let Some(type_ann) = node.type_ann {
+        items.extend(parse_node(type_ann.into(), context));
+    }
+
+    items
+}
+
 /* Expressions */
 
-fn parse_call_expression(node: &CallExpr, context: &mut Context) -> Vec<PrintItem> {
+fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
     return if is_test_library_call_expression(&node, context) {
         parse_test_library_call_expr(&node, context)
     } else {
@@ -133,14 +153,14 @@ fn parse_call_expression(node: &CallExpr, context: &mut Context) -> Vec<PrintIte
         if node.args.len() != 2 || node.type_args.is_some() || !is_valid_callee(&node.callee) {
             return false;
         }
-        if !is_expr_string_lit(&node.args[0].expr) && !is_expr_template(&node.args[0].expr) {
+        if (*node.args[0].expr).kind() != NodeKind::Str && !is_expr_template(&node.args[0].expr) {
             return false;
         }
         if !is_expr_func_expr(&node.args[1].expr) && !is_expr_arrow_func_expr(&node.args[1].expr) {
             return false;
         }
 
-        return context.get_text_range(&node).line_start() == context.get_text_range(&node.args[1]).line_start();
+        return context.get_text_range(&node).start_line() == context.get_text_range(&node.args[1]).start_line();
 
         fn is_valid_callee(callee: &ExprOrSuper) -> bool {
             let ident_text = get_identifier_text(&callee);
@@ -158,7 +178,7 @@ fn parse_call_expression(node: &CallExpr, context: &mut Context) -> Vec<PrintIte
                     ExprOrSuper::Expr(box expr) => {
                         match expr {
                             Expr::Ident(ident) => Some(&ident.sym),
-                            Expr::Member(member) if is_expr_identifier(&member.prop) => get_identifier_text(&member.obj),
+                            Expr::Member(member) if (*member.prop).kind() == NodeKind::Ident => get_identifier_text(&member.obj),
                             _ => Option::None,
                         }
                     }
@@ -168,7 +188,7 @@ fn parse_call_expression(node: &CallExpr, context: &mut Context) -> Vec<PrintIte
     }
 }
 
-fn parse_expr_or_spread(node: &ExprOrSpread, context: &mut Context) -> Vec<PrintItem> {
+fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     if node.spread.is_some() { items.push("...".into()); }
     items.extend(parse_node(node.clone().into(), context));
@@ -177,26 +197,26 @@ fn parse_expr_or_spread(node: &ExprOrSpread, context: &mut Context) -> Vec<Print
 
 /* Literals */
 
-fn parse_big_int_literal(node: &BigInt, context: &mut Context) -> Vec<PrintItem> {
+fn parse_big_int_literal(node: BigInt, context: &mut Context) -> Vec<PrintItem> {
     vec![context.get_text_range(&node).text().into()]
 }
 
-fn parse_bool_literal(node: &Bool) -> Vec<PrintItem> {
+fn parse_bool_literal(node: Bool) -> Vec<PrintItem> {
     vec![match node.value {
         true => "true",
         false => "false",
     }.into()]
 }
 
-fn parse_jsx_text(node: &JSXText, context: &mut Context) -> Vec<PrintItem> {
+fn parse_jsx_text(node: JSXText, context: &mut Context) -> Vec<PrintItem> {
     vec![]
 }
 
-fn parse_num_literal(node: &Number, context: &mut Context) -> Vec<PrintItem> {
+fn parse_num_literal(node: Number, context: &mut Context) -> Vec<PrintItem> {
     vec![context.get_text_range(&node).text().into()]
 }
 
-fn parse_reg_exp_literal(node: &Regex, context: &mut Context) -> Vec<PrintItem> {
+fn parse_reg_exp_literal(node: Regex, context: &mut Context) -> Vec<PrintItem> {
     // the exp and flags should not be nodes so just ignore that (swc issue #511)
     let mut items = Vec::new();
     items.push("/".into());
@@ -206,7 +226,7 @@ fn parse_reg_exp_literal(node: &Regex, context: &mut Context) -> Vec<PrintItem> 
     items
 }
 
-fn parse_string_literal(node: &Str, context: &mut Context) -> Vec<PrintItem> {
+fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
     return parse_raw_string(&get_string_literal_text(&context.get_text_range(&node), context));
 
     fn get_string_literal_text(node: &TextRange, context: &mut Context) -> String {
@@ -244,7 +264,7 @@ fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
 
 /* Statements */
 
-fn parse_expr_stmt(stmt: &ExprStmt, context: &mut Context) -> Vec<PrintItem> {
+fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
     if context.config.expression_statement_semi_colon {
         return parse_inner(&stmt, context);
     } else {
@@ -328,14 +348,14 @@ fn parse_comments_as_leading(node: &mut TextRange, comments: Vec<Comment>, conte
     items.extend(parse_comment_collection(&comments, &mut Option::None, context));
 
     if !last_comment_previously_handled {
-        if node.line_start() > last_comment.line_end() {
+        if node.start_line() > last_comment.end_line() {
             items.push(PrintItem::NewLine);
 
-            if node.line_start() - 1 > last_comment.line_end() {
+            if node.start_line() - 1 > last_comment.end_line() {
                 items.push(PrintItem::NewLine);
             }
         }
-        else if last_comment_kind == CommentKind::Block && node.line_start() == last_comment.line_end() {
+        else if last_comment_kind == CommentKind::Block && node.start_line() == last_comment.end_line() {
             items.push(" ".into());
         }
     }
@@ -352,7 +372,7 @@ fn get_trailing_comments_as_statements(node: &mut TextRange, context: &mut Conte
     let mut items = Vec::new();
     for comment in node.trailing_comments() {
         let mut comment_range = context.get_text_range(&comment.span);
-        if context.has_handled_comment(&comment_range) && node.line_end() < comment_range.line_end() {
+        if context.has_handled_comment(&comment_range) && node.end_line() < comment_range.end_line() {
             items.push(comment);
         }
     }
@@ -377,15 +397,15 @@ fn parse_comment_based_on_last_node(comment: &Comment, last_node: &mut Option<Te
 
     if let Some(last_node) = last_node {
         let mut comment_range = context.get_text_range(&comment.span);
-        if comment_range.line_start() > last_node.line_end() {
+        if comment_range.start_line() > last_node.end_line() {
             items.push(PrintItem::NewLine);
 
-            if comment_range.line_start() > last_node.line_end() + 1 {
+            if comment_range.start_line() > last_node.end_line() + 1 {
                 items.push(PrintItem::NewLine);
             }
-        } else {
+        } else if comment.kind == CommentKind::Line {
             items.push(" ".into());
-        }
+        } //else let // todo: last_node is comment block
     }
 
     items.extend(parse_comment(&comment, context));
@@ -507,21 +527,37 @@ fn parse_statements_or_members(opts: ParseStatementOrMemberOptions, context: &mu
     }
 }
 
+struct ParseParametersOrArgumentsOptions {
+    nodes: Vec<Node>,
+    force_multi_line_when_multiple_lines: bool,
+    custom_close_paren: Option<Vec<Node>>,
+}
+
+fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, context: &mut Context) -> Vec<PrintItem> {
+    let nodes = opts.nodes;
+    let start_info = Info::new("startParamsOrArgs");
+    let end_info = Info::new("endParamsOrArgs");
+    let use_new_lines = get_use_new_lines(&nodes, context);
+
+    return vec![]; // todo
+
+    fn get_use_new_lines(nodes: &Vec<Node>, context: &mut Context) -> bool {
+        if nodes.is_empty() {
+            return false;
+        }
+
+        let mut first_node = context.get_text_range(&nodes[0]);
+        let open_paren_token = context.get_first_open_paren_token_before(&first_node);
+
+        if let Some(open_paren_token) = open_paren_token {
+            node_helpers::get_use_new_lines_for_nodes(&mut context.get_text_range(&open_paren_token.span), &mut first_node)
+        } else {
+            false
+        }
+    }
+}
+
 /* is functions */
-
-fn is_expr_identifier(node: &Expr) -> bool {
-    match node {
-        Expr::Ident(_) => true,
-        _ => false
-    }
-}
-
-fn is_expr_string_lit(node: &Expr) -> bool {
-    match node {
-        Expr::Lit(Lit::Str(_)) => true,
-        _ => false
-    }
-}
 
 fn is_expr_template(node: &Expr) -> bool {
     match node {
