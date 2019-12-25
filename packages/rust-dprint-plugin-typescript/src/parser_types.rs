@@ -3,7 +3,7 @@ use std::rc::Rc;
 use super::*;
 use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
-use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsTypeAnn, TsTypeParamInstantiation,
+use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
@@ -56,13 +56,21 @@ impl Context {
     }
 
     pub fn get_first_open_paren_token_before(&self, range: &TextRange) -> Option<TokenAndSpan> {
+        self.get_first_token_before(&range, Token::LParen)
+    }
+
+    pub fn get_first_angle_bracket_token_before(&self, range: &TextRange) -> Option<TokenAndSpan> {
+        self.get_first_token_before(&range, Token::LBracket)
+    }
+
+    fn get_first_token_before(&self, range: &TextRange, searching_token: Token) -> Option<TokenAndSpan> {
         let pos = range.lo();
         let mut found_token = Option::None;
         for token in self.tokens.iter() {
             if token.span.data().lo >= pos {
                 break;
             }
-            if token.token == Token::LParen {
+            if token.token == searching_token {
                 found_token = Some(token);
             }
         }
@@ -263,6 +271,14 @@ impl From<Lit> for Node {
     }
 }
 
+impl From<TsType> for Node {
+    fn from(ts_type: TsType) -> Node {
+        match ts_type {
+            _ => Node::Unknown(ts_type.span()), // todo: implement others
+        }
+    }
+}
+
 /* NodeKinded implementations */
 
 impl NodeKinded for Stmt {
@@ -306,6 +322,14 @@ impl NodeKinded for Lit {
             Lit::Num(node) => node.kind(),
             Lit::Regex(node) => node.kind(),
             Lit::Str(node) => node.kind(),
+        }
+    }
+}
+
+impl NodeKinded for TsType {
+    fn kind(&self) -> NodeKind {
+        match self {
+            _ => NodeKind::Unknown, // todo: implement others
         }
     }
 }

@@ -330,8 +330,54 @@ fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
 /* Types */
 
 fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut Context) -> Vec<PrintItem> {
-    // todo: this
-    vec![]
+    let use_new_lines = get_use_new_lines(&node, context);
+    let mut items = Vec::new();
+    let parsed_params = parse_parameter_list(node, use_new_lines, context);
+
+    items.push("<".into());
+    items.extend(if use_new_lines {
+        parser_helpers::surround_with_new_lines(parsed_params)
+    } else {
+        parsed_params
+    });
+    items.push(">".into());
+
+    return items;
+
+    fn parse_parameter_list(node: TsTypeParamInstantiation, use_new_lines: bool, context: &mut Context) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        let params_count = node.params.len();
+
+        for (i, box param) in node.params.into_iter().enumerate() {
+            if i > 0 {
+                items.push(if use_new_lines { PrintItem::NewLine } else { PrintItem::SpaceOrNewLine });
+            }
+
+            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(param.into(), context, move |mut items| {
+                if i < params_count - 1 {
+                    items.push(",".into());
+                }
+
+                items
+            }))).into());
+        }
+
+        items
+    }
+
+    fn get_use_new_lines(node: &TsTypeParamInstantiation, context: &mut Context) -> bool {
+        if node.params.len() == 0 {
+            false
+        } else {
+            let mut first_param = context.get_text_range(&node.params[0]);
+            let angle_bracket_token = context.get_first_angle_bracket_token_before(&first_param);
+            if let Some(angle_bracket_token) = angle_bracket_token {
+                node_helpers::get_use_new_lines_for_nodes(&mut context.get_text_range(&angle_bracket_token.span), &mut first_param)
+            } else {
+                false
+            }
+        }
+    }
 }
 
 /* Comments */
@@ -604,11 +650,10 @@ fn parse_comma_separated_values(
     multi_line_or_hanging_condition_resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     context: &mut Context
 ) -> Vec<PrintItem> {
-    let mut i = 0;
     let mut items = Vec::new();
     let values_count = values.len();
 
-    for value in values {
+    for (i, value) in values.into_iter().enumerate() {
         let has_comma = i < values_count - 1;
         let parsed_value = parse_value(value, has_comma, context);
 
@@ -631,8 +676,6 @@ fn parse_comma_separated_values(
                 },
             }).into());
         }
-
-        i += 1;
     }
 
     return items;
