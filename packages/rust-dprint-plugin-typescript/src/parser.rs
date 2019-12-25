@@ -7,7 +7,7 @@ use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
 use super::configuration::{TrailingCommas};
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation,
-    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn};
+    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -52,6 +52,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
         match node {
             /* common */
             Node::Ident(node) => parse_identifier(node, context),
+            /* declarations */
             /* expressions */
             Node::ArrayLit(node) => parse_array_expression(node, context),
             Node::CallExpr(node) => parse_call_expression(node, context),
@@ -77,8 +78,10 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExprStmt(node) => parse_expr_stmt(node, context),
             Node::EmptyStmt(node) => parse_empty_stmt(node, context),
             Node::TsExportAssignment(node) => parse_export_assignment(node, context),
+            Node::VarDecl(node) => parse_var_decl(node, context),
+            Node::VarDeclarator(node) => parse_var_declarator(node, context),
             /* types */
-            Node::TsTypeAnn(node) => vec![context.get_text_range(&node).text().into()], // todo
+            Node::TsTypeAnn(node) => parse_type_ann(node, context), // todo
             Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(node, context),
             /* unknown */
             Node::Unknown(text_range) => vec![context.get_text_range(&text_range).text().into()],
@@ -86,7 +89,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
     }
 }
 
-/* Common */
+/* common */
 
 fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
     let mut items: Vec<PrintItem> = Vec::new();
@@ -95,15 +98,20 @@ fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
     if node.optional {
         items.push("?".into());
     }
-
-    if let Some(type_ann) = node.type_ann {
-        items.extend(parse_node(type_ann.into(), context));
+    if let Node::VarDeclarator(node) = context.parent() {
+        if node.definite {
+            items.push("!".into());
+        }
     }
+
+    items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
 
     items
 }
 
-/* Expressions */
+/* declarations */
+
+/* expressions */
 
 fn parse_array_expression(node: ArrayLit, context: &mut Context) -> Vec<PrintItem> {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
@@ -222,7 +230,7 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
     items
 }
 
-/* Literals */
+/* literals */
 
 fn parse_big_int_literal(node: BigInt, context: &mut Context) -> Vec<PrintItem> {
     vec![context.get_text_range(&node).text().into()]
@@ -277,7 +285,7 @@ fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
     }
 }
 
-/* Module */
+/* module */
 
 fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
     parse_statements_or_members(ParseStatementOrMemberOptions {
@@ -289,7 +297,7 @@ fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
     }, context)
 }
 
-/* Patterns */
+/* patterns */
 
 fn parse_array_pat(node: ArrayPat, context: &mut Context) -> Vec<PrintItem> {
     let mut items = parse_array_like_nodes(ParseArrayLikeNodesOptions {
@@ -301,7 +309,7 @@ fn parse_array_pat(node: ArrayPat, context: &mut Context) -> Vec<PrintItem> {
     items
 }
 
-/* Statements */
+/* statements */
 
 fn parse_break_stmt(node: BreakStmt, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
@@ -416,7 +424,55 @@ fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
     }
 }
 
-/* Types */
+fn parse_var_decl(node: VarDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if node.declare { items.push("declare ".into()); }
+    items.push(match node.kind {
+        VarDeclKind::Const => "const ",
+        VarDeclKind::Let => "let ",
+        VarDeclKind::Var => "var ",
+    }.into());
+
+    for (i, decl) in node.decls.into_iter().enumerate() {
+        if i > 0 {
+            items.push(",".into());
+            items.push(PrintItem::SpaceOrNewLine);
+        }
+
+        items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node(decl.into(), context))).into());
+    }
+
+    if requires_semi_colon(context) { items.push(";".into()); }
+
+    return items;
+
+    fn requires_semi_colon(context: &mut Context) -> bool {
+        /*let parent_kind = context.parent().kind();
+
+        parent_kind == NodeKind::ForOfStmt
+            || parent_kind == NodeKind::ForInStmt
+            || parent_kind == NodeKind::ForStmt
+            || context.config.variable_statement_semi_colon*/
+        context.config.variable_statement_semi_colon
+    }
+}
+
+fn parse_var_declarator(node: VarDeclarator, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node(node.name.into(), context);
+
+    if let Some(box init) = node.init {
+        items.push(" = ".into());
+        items.extend(parse_node(init.into(), context));
+    }
+
+    items
+}
+
+/* types */
+
+fn parse_type_ann(node: TsTypeAnn, context: &mut Context) -> Vec<PrintItem> {
+    parse_node((*node.type_ann).into(), context)
+}
 
 fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut Context) -> Vec<PrintItem> {
     let use_new_lines = get_use_new_lines(&node, context);
@@ -469,7 +525,7 @@ fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut 
     }
 }
 
-/* Comments */
+/* comments */
 
 fn parse_leading_comments(node: &mut TextRange, context: &mut Context) -> Vec<PrintItem> {
     let leading_comments = node.leading_comments();

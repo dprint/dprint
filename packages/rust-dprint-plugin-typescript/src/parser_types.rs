@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
-    ArrayLit, ArrayPat, Pat};
+    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -232,6 +232,7 @@ pub type Unknown = Span;
 generate_node! [
     /* common */
     Ident,
+    /* declarations */
     /* expressions */
     ArrayLit,
     ArrowExpr,
@@ -255,8 +256,10 @@ generate_node! [
     ContinueStmt,
     DebuggerStmt,
     EmptyStmt,
-    TsExportAssignment,
     ExprStmt,
+    TsExportAssignment,
+    VarDecl,
+    VarDeclarator,
     /* types */
     TsTypeAnn,
     TsTypeParamInstantiation,
@@ -265,6 +268,15 @@ generate_node! [
 ];
 
 /* Into node implementations */
+
+impl From<Decl> for Node {
+    fn from(decl: Decl) -> Node {
+        match decl {
+            Decl::Var(node) => node.into(),
+            _ => Node::Unknown(decl.span()), // todo: implement others
+        }
+    }
+}
 
 impl From<ModuleItem> for Node {
     fn from(item: ModuleItem) -> Node {
@@ -278,11 +290,12 @@ impl From<ModuleItem> for Node {
 impl From<Stmt> for Node {
     fn from(stmt: Stmt) -> Node {
         match stmt {
-            Stmt::Break(node) => Node::BreakStmt(node),
-            Stmt::Continue(node) => Node::ContinueStmt(node),
-            Stmt::Debugger(node) => Node::DebuggerStmt(node),
-            Stmt::Empty(node) => Node::EmptyStmt(node),
-            Stmt::Expr(node) => Node::ExprStmt(node),
+            Stmt::Break(node) => node.into(),
+            Stmt::Continue(node) => node.into(),
+            Stmt::Debugger(node) => node.into(),
+            Stmt::Decl(node) => node.into(),
+            Stmt::Empty(node) => node.into(),
+            Stmt::Expr(node) => node.into(),
             _ => Node::Unknown(stmt.span()), // todo: implement others
         }
     }
@@ -338,6 +351,7 @@ impl From<Pat> for Node {
     fn from(pat: Pat) -> Node {
         match pat {
             Pat::Array(node) => node.into(),
+            Pat::Ident(node) => node.into(),
             _ => Node::Unknown(pat.span()), // todo: implement others
         }
     }
@@ -353,6 +367,15 @@ impl From<TsType> for Node {
 
 /* NodeKinded implementations */
 
+impl NodeKinded for Decl {
+    fn kind(&self) -> NodeKind {
+        match self {
+            Decl::Var(node) => node.kind(),
+            _ => NodeKind::Unknown,
+        }
+    }
+}
+
 impl NodeKinded for ModuleItem {
     fn kind(&self) -> NodeKind {
         match self {
@@ -367,6 +390,7 @@ impl NodeKinded for Stmt {
         match self {
             Stmt::Break(node) => node.kind(),
             Stmt::Continue(node) => node.kind(),
+            Stmt::Decl(node) => node.kind(),
             Stmt::Debugger(node) => node.kind(),
             Stmt::Empty(node) => node.kind(),
             Stmt::Expr(node) => node.kind(),
@@ -424,6 +448,7 @@ impl NodeKinded for Pat {
     fn kind(&self) -> NodeKind {
         match self {
             Pat::Array(node) => node.kind(),
+            Pat::Ident(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
         }
     }

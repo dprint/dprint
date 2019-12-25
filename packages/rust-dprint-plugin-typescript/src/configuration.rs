@@ -11,6 +11,7 @@ pub struct TypeScriptConfiguration {
     pub empty_statement_semi_colon: bool,
     pub export_assignment_semi_colon: bool,
     pub expression_statement_semi_colon: bool,
+    pub variable_statement_semi_colon: bool,
     /* force multi-line arguments */
     pub call_expression_force_multi_line_arguments: bool,
     /* trailing commas */
@@ -47,6 +48,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons),
         export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons),
         expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
+        variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
         /* force multi-line arguments */
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
         /* trailing commas */
