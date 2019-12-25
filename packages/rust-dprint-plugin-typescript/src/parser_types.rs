@@ -4,7 +4,8 @@ use super::*;
 use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
-    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl};
+    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
+    ArrayLit, ArrayPat, Pat};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -75,6 +76,46 @@ impl Context {
             }
         }
         found_token.map(|x| x.to_owned())
+    }
+
+    pub fn get_first_open_bracket_token_within(&self, range: &TextRange) -> Option<TokenAndSpan> {
+        self.get_first_token_within(&range, Token::LBracket)
+    }
+
+    fn get_first_token_within(&self, range: &TextRange, searching_token: Token) -> Option<TokenAndSpan> {
+        let pos = range.lo();
+        let end = range.hi();
+        let mut found_token = Option::None;
+        for token in self.tokens.iter() {
+            let token_pos = token.span.data().lo;
+            if token_pos >= end {
+                break;
+            } else if token_pos >= pos && token.token == searching_token {
+                found_token = Some(token);
+            }
+        }
+        found_token.map(|x| x.to_owned())
+    }
+
+    pub fn get_first_comma_after(&self, range: &TextRange) -> Option<TokenAndSpan> {
+        self.get_first_token_after(&range, Token::Comma)
+    }
+
+    fn get_first_token_after(&self, range: &TextRange, searching_token: Token) -> Option<TokenAndSpan> {
+        let pos = range.lo();
+        let end = range.hi();
+        for token in self.tokens.iter() {
+            let token_pos = token.span.data().lo;
+            if token_pos >= end {
+                break;
+            } else if token_pos >= pos {
+                if token.token == searching_token {
+                    return Some(token.to_owned());
+                }
+            }
+        }
+
+        Option::None
     }
 }
 
@@ -192,10 +233,11 @@ generate_node! [
     /* common */
     Ident,
     /* expressions */
+    ArrayLit,
+    ArrowExpr,
     CallExpr,
     ExprOrSpread,
     FnExpr,
-    ArrowExpr,
     /* literals */
     BigInt,
     Bool,
@@ -206,6 +248,8 @@ generate_node! [
     Str,
     /* module */
     Module,
+    /* patterns */
+    ArrayPat,
     /* statements */
     BreakStmt,
     ContinueStmt,
@@ -247,6 +291,7 @@ impl From<Stmt> for Node {
 impl From<Expr> for Node {
     fn from(expr: Expr) -> Node {
         match expr {
+            Expr::Array(node) => node.into(),
             Expr::Arrow(node) => node.into(),
             Expr::Call(node) => node.into(),
             Expr::Fn(node) => node.into(),
@@ -285,6 +330,15 @@ impl From<ModuleDecl> for Node {
         match dec {
             ModuleDecl::TsExportAssignment(node) => node.into(),
             _ => Node::Unknown(dec.span()), // todo: implement others
+        }
+    }
+}
+
+impl From<Pat> for Node {
+    fn from(pat: Pat) -> Node {
+        match pat {
+            Pat::Array(node) => node.into(),
+            _ => Node::Unknown(pat.span()), // todo: implement others
         }
     }
 }
@@ -361,6 +415,15 @@ impl NodeKinded for ModuleDecl {
     fn kind(&self) -> NodeKind {
         match self {
             ModuleDecl::TsExportAssignment(node) => node.kind(),
+            _ => NodeKind::Unknown, // todo: implement others
+        }
+    }
+}
+
+impl NodeKinded for Pat {
+    fn kind(&self) -> NodeKind {
+        match self {
+            Pat::Array(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
         }
     }

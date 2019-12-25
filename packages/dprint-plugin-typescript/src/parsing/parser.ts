@@ -167,8 +167,8 @@ const parseObj: { [name: string]: (node: any, context: Context) => PrintItemIter
     /* clauses */
     "CatchClause": parseCatchClause,
     /* expressions */
-    "ArrayPattern": parseArrayPattern,
     "ArrayExpression": parseArrayExpression,
+    "ArrayPattern": parseArrayPattern,
     "ArrowFunctionExpression": parseArrowFunctionExpression,
     "TSAsExpression": parseAsExpression,
     "AssignmentExpression": parseAssignmentExpression,
@@ -2163,6 +2163,15 @@ function parseConditionalBraceBody(opts: ParseConditionalBraceBodyOptions): Pars
 
 /* expressions */
 
+function* parseArrayExpression(node: babel.ArrayExpression, context: Context): PrintItemIterable {
+    yield* parseArrayLikeNodes({
+        node,
+        elements: node.elements,
+        trailingCommas: context.config["arrayExpression.trailingCommas"],
+        context
+    });
+}
+
 function* parseArrayPattern(node: babel.ArrayPattern, context: Context): PrintItemIterable {
     yield* parseArrayLikeNodes({
         node,
@@ -2171,15 +2180,6 @@ function* parseArrayPattern(node: babel.ArrayPattern, context: Context): PrintIt
         context
     });
     yield* parseTypeAnnotationWithColonIfExists(node.typeAnnotation, context);
-}
-
-function* parseArrayExpression(node: babel.ArrayExpression, context: Context): PrintItemIterable {
-    yield* parseArrayLikeNodes({
-        node,
-        elements: node.elements,
-        trailingCommas: context.config["arrayExpression.trailingCommas"],
-        context
-    });
 }
 
 function* parseArrowFunctionExpression(node: babel.ArrowFunctionExpression, context: Context): PrintItemIterable {

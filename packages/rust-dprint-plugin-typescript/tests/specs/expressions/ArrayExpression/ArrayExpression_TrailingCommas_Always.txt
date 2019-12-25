@@ -1,4 +1,4 @@
-~~ arrayExpression.trailingCommas: "always" ~~
+~~ arrayExpression.trailingCommas: always ~~
 == should format with trailing commas when multiline ==
 const t = [
     5    ,

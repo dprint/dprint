@@ -1,4 +1,4 @@
-~~ arrayPattern.trailingCommas: "onlyMultiLine" ~~
+~~ arrayPattern.trailingCommas: always ~~
 == should format with trailing commas when multiline ==
 function test([
     a    ,
@@ -13,10 +13,10 @@ function test([
 ]) {
 }
 
-== should not format with trailing commas when single line ==
+== should format with trailing commas when single line ==
 function test([a, b]) {
 }
 
 [expect]
-function test([a, b]) {
+function test([a, b,]) {
 }
