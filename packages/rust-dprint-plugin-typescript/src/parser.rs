@@ -5,7 +5,8 @@ use std::rc::Rc;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
-use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation};
+use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation,
+    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -66,7 +67,12 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             /* module */
             Node::Module(node) => parse_module(node, context),
             /* statements */
+            Node::BreakStmt(node) => parse_break_stmt(node, context),
+            Node::ContinueStmt(node) => parse_continue_stmt(node, context),
+            Node::DebuggerStmt(node) => parse_debugger_stmt(node, context),
             Node::ExprStmt(node) => parse_expr_stmt(node, context),
+            Node::EmptyStmt(node) => parse_empty_stmt(node, context),
+            Node::TsExportAssignment(node) => parse_export_assignment(node, context),
             /* types */
             Node::TsTypeAnn(node) => vec![context.get_text_range(&node).text().into()], // todo
             Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(node, context),
@@ -272,6 +278,65 @@ fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
 }
 
 /* Statements */
+
+fn parse_break_stmt(node: BreakStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    items.push("break".into());
+    if let Some(label) = node.label {
+        items.push(" ".into());
+        items.extend(parse_node(label.into(), context));
+    }
+    if context.config.break_statement_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
+
+fn parse_continue_stmt(node: ContinueStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    items.push("continue".into());
+    if let Some(label) = node.label {
+        items.push(" ".into());
+        items.extend(parse_node(label.into(), context));
+    }
+    if context.config.continue_statement_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
+
+fn parse_debugger_stmt(node: DebuggerStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    items.push("debugger".into());
+    if context.config.debugger_statement_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
+
+fn parse_empty_stmt(node: EmptyStmt, context: &mut Context) -> Vec<PrintItem> {
+    // Don't have configuration for this. Perhaps a change here would be
+    // to not print anything for empty statements?
+    vec![";".into()]
+}
+
+fn parse_export_assignment(node: TsExportAssignment, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    items.push("export = ".into());
+    items.extend(parse_node((*node.expr).into(), context));
+    if context.config.export_assignment_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
 
 fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
     if context.config.expression_statement_semi_colon {

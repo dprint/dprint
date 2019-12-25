@@ -10,6 +10,11 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         line_width: get_value(&mut config, "lineWidth", 120),
         single_quotes: get_value(&mut config, "singleQuotes", false),
         /* semi-colon */
+        break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons),
+        continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons),
+        debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons),
+        empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons),
+        export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons),
         expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
         /* force multi-line arguments */
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),

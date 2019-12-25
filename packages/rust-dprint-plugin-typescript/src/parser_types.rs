@@ -4,7 +4,7 @@ use super::*;
 use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
-    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr};
+    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -207,6 +207,11 @@ generate_node! [
     /* module */
     Module,
     /* statements */
+    BreakStmt,
+    ContinueStmt,
+    DebuggerStmt,
+    EmptyStmt,
+    TsExportAssignment,
     ExprStmt,
     /* types */
     TsTypeAnn,
@@ -221,7 +226,7 @@ impl From<ModuleItem> for Node {
     fn from(item: ModuleItem) -> Node {
         match item {
             ModuleItem::Stmt(node) => node.into(),
-            _ => Node::Unknown(item.span()), // todo: implement others
+            ModuleItem::ModuleDecl(node) => node.into(),
         }
     }
 }
@@ -229,6 +234,10 @@ impl From<ModuleItem> for Node {
 impl From<Stmt> for Node {
     fn from(stmt: Stmt) -> Node {
         match stmt {
+            Stmt::Break(node) => Node::BreakStmt(node),
+            Stmt::Continue(node) => Node::ContinueStmt(node),
+            Stmt::Debugger(node) => Node::DebuggerStmt(node),
+            Stmt::Empty(node) => Node::EmptyStmt(node),
             Stmt::Expr(node) => Node::ExprStmt(node),
             _ => Node::Unknown(stmt.span()), // todo: implement others
         }
@@ -271,6 +280,15 @@ impl From<Lit> for Node {
     }
 }
 
+impl From<ModuleDecl> for Node {
+    fn from(dec: ModuleDecl) -> Node {
+        match dec {
+            ModuleDecl::TsExportAssignment(node) => node.into(),
+            _ => Node::Unknown(dec.span()), // todo: implement others
+        }
+    }
+}
+
 impl From<TsType> for Node {
     fn from(ts_type: TsType) -> Node {
         match ts_type {
@@ -281,9 +299,22 @@ impl From<TsType> for Node {
 
 /* NodeKinded implementations */
 
+impl NodeKinded for ModuleItem {
+    fn kind(&self) -> NodeKind {
+        match self {
+            ModuleItem::Stmt(node) => node.kind(),
+            ModuleItem::ModuleDecl(node) => node.kind(),
+        }
+    }
+}
+
 impl NodeKinded for Stmt {
     fn kind(&self) -> NodeKind {
         match self {
+            Stmt::Break(node) => node.kind(),
+            Stmt::Continue(node) => node.kind(),
+            Stmt::Debugger(node) => node.kind(),
+            Stmt::Empty(node) => node.kind(),
             Stmt::Expr(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
@@ -322,6 +353,15 @@ impl NodeKinded for Lit {
             Lit::Num(node) => node.kind(),
             Lit::Regex(node) => node.kind(),
             Lit::Str(node) => node.kind(),
+        }
+    }
+}
+
+impl NodeKinded for ModuleDecl {
+    fn kind(&self) -> NodeKind {
+        match self {
+            ModuleDecl::TsExportAssignment(node) => node.kind(),
+            _ => NodeKind::Unknown, // todo: implement others
         }
     }
 }
