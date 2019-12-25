@@ -27,7 +27,7 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
 }
 
 fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
-    //println!("Here: {:?}", node.kind());
+    //println!("Node kind: {:?}", node.kind());
     parse_node_with_inner_parse(node, context, |items| items)
 }
 
@@ -248,12 +248,12 @@ fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
 
         fn get_string_value(node: &TextRange, context: &mut Context) -> String {
             let raw_string_text = node.text();
-            let string_value = raw_string_text.chars().skip(1).take(raw_string_text.chars().count() - 2).collect::<String>();
-            let is_double_quote = string_value.chars().next().unwrap() == '"';
+            let string_value = &raw_string_text[1..raw_string_text.len() - 1];
+            let is_single_quote = raw_string_text.chars().next().unwrap() == '\'';
 
-            match is_double_quote {
-                true => string_value.replace("\\\"", "\""),
-                false => string_value.replace("\\'", "'"),
+            match is_single_quote {
+                true => string_value.replace("\\'", "'"),
+                false => string_value.replace("\\\"", "\""),
             }
         }
     }
@@ -550,7 +550,8 @@ fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, contex
     let force_multi_lines_when_multiple_lines = opts.force_multi_line_when_multiple_lines;
     let is_single_function = nodes.len() == 1 && (match nodes[0].kind() { NodeKind::FnExpr | NodeKind::ArrowExpr => true, _ => false });
     let is_multi_line_or_hanging = {
-        let start_info = start_info.clone(); // create a copy
+        let start_info = start_info.clone(); // create copies
+        let end_info = end_info.clone();
         move |condition_context: &mut ConditionResolverContext| {
             if use_new_lines { return Some(true); }
             if force_multi_lines_when_multiple_lines && !is_single_function {
@@ -577,6 +578,8 @@ fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, contex
     else {
         items.push(")".into());
     }
+
+    items.push(end_info.into());
 
     return items;
 

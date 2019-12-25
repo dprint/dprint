@@ -233,6 +233,7 @@ impl From<Expr> for Node {
             Expr::Arrow(node) => node.into(),
             Expr::Call(node) => node.into(),
             Expr::Fn(node) => node.into(),
+            Expr::Ident(node) => node.into(),
             Expr::Lit(node) => node.into(),
             _ => Node::Unknown(expr.span()), // todo: implement others
         }
@@ -279,6 +280,7 @@ impl NodeKinded for Expr {
             Expr::Arrow(node) => node.kind(),
             Expr::Call(node) => node.kind(),
             Expr::Fn(node) => node.kind(),
+            Expr::Ident(node) => node.kind(),
             Expr::Lit(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
