@@ -16,3 +16,23 @@ pub fn with_indent_if_start_of_line_indented(elements: Vec<PrintItem>) -> Condit
         false_path: elements.into(),
     })
 }
+
+pub struct NewLineIfHangingSpaceOtherwiseOptions {
+    pub start_info: Info,
+    pub end_info: Option<Info>,
+    pub space_char: Option<PrintItem>,
+}
+
+pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseOptions) -> Condition {
+    let space_char = opts.space_char.unwrap_or(" ".into());
+    let start_info = opts.start_info;
+    let end_info = opts.end_info;
+
+    Condition::new("newLineIfHangingSpaceOtherwise", ConditionProperties {
+        condition: Box::new(move |context| {
+            return condition_resolvers::is_hanging(context, &start_info, &end_info);
+        }),
+        true_path: Some(vec![PrintItem::NewLine]),
+        false_path: Some(vec![space_char]),
+    })
+}

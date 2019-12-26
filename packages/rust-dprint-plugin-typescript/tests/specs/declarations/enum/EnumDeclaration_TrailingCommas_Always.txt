@@ -1,4 +1,4 @@
-~~ enumDeclaration.trailingCommas: "always" ~~
+~~ enumDeclaration.trailingCommas: always ~~
 == should format with trailing commas ==
 declare enum Test
 {

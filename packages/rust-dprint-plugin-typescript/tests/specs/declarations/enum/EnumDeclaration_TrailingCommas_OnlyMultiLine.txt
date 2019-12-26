@@ -1,4 +1,4 @@
-~~ enumDeclaration.trailingCommas: "onlyMultiLine" ~~
+~~ enumDeclaration.trailingCommas: onlyMultiLine ~~
 == should format with trailing commas ==
 declare enum Test
 {

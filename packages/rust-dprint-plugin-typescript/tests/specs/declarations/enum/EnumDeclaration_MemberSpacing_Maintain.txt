@@ -1,5 +1,5 @@
-~~ enumDeclaration.memberSpacing: "newline" ~~
-== should format with newlines ==
+~~ enumDeclaration.memberSpacing: maintain ~~
+== should format keeping the spacing ==
 declare enum Test {
     member1,
 
@@ -13,8 +13,10 @@ declare enum Test {
 [expect]
 declare enum Test {
     member1,
+
     member2,
     member3,
+
     /** test */
     member4
 }

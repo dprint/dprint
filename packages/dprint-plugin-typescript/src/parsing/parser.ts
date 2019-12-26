@@ -605,9 +605,8 @@ function* parseEnumDeclaration(node: babel.TSEnumDeclaration, context: Context):
             yield "declare ";
         if (node.const)
             yield "const ";
-        yield "enum";
+        yield "enum ";
 
-        yield " ";
         yield* parseNode(node.id, context);
     }
 

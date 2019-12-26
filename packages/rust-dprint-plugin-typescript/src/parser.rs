@@ -5,9 +5,10 @@ use std::rc::Rc;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
-use super::configuration::{TrailingCommas};
+use super::configuration::{BracePosition, MemberSpacing, TrailingCommas};
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation,
-    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll};
+    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
+    TsEnumDecl, TsEnumMember};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -53,12 +54,14 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             /* common */
             Node::Ident(node) => parse_identifier(node, context),
             /* declarations */
+            Node::TsEnumDecl(node) => parse_enum_decl(node, context),
+            Node::TsEnumMember(node) => parse_enum_member(node, context),
             /* expressions */
             Node::ArrayLit(node) => parse_array_expression(node, context),
             Node::CallExpr(node) => parse_call_expression(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
-            Node::FnExpr(node) => vec![context.get_text_range(&node).text().into()], // todo
-            Node::ArrowExpr(node) => vec![context.get_text_range(&node).text().into()], // todo
+            Node::FnExpr(node) => vec![node.text(context).into()], // todo
+            Node::ArrowExpr(node) => vec![node.text(context).into()], // todo
             /* literals */
             Node::BigInt(node) => parse_big_int_literal(node, context),
             Node::Bool(node) => parse_bool_literal(node),
@@ -85,7 +88,9 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsTypeAnn(node) => parse_type_ann(node, context), // todo
             Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(node, context),
             /* unknown */
-            Node::Unknown(text_range) => vec![context.get_text_range(&text_range).text().into()],
+            Node::TokenAndSpan(span) => vec![context.get_text(&span.span.data()).into()],
+            Node::Comment(comment) => vec![context.get_text(&comment.span.data()).into()],
+            Node::Unknown(span) => vec![context.get_text(&span.data()).into()],
         }
     }
 }
@@ -112,11 +117,64 @@ fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
 
 /* declarations */
 
+fn parse_enum_decl(node: TsEnumDecl, context: &mut Context) -> Vec<PrintItem> {
+    let start_header_info = Info::new("startHeader");
+    let mut items = Vec::new();
+    let node_clone = node.clone();
+
+    // header
+    items.push(start_header_info.into_clone());
+
+    if node.declare { items.push("declare ".into()); }
+    if node.is_const { items.push("const ".into()); }
+    items.push("enum ".into());
+    items.extend(parse_node(node.id.into(), context));
+
+    // body
+    let member_spacing = context.config.enum_declaration_member_spacing.clone();
+    items.extend(parse_membered_body(ParseMemberedBodyOptions {
+        node: node_clone.into(),
+        members: node.members.into_iter().map(|x| x.into()).collect(),
+        start_header_info: Some(start_header_info),
+        brace_position: context.config.enum_declaration_brace_position.clone(),
+        should_use_blank_line: Box::new(move |previous, next, context| {
+            match member_spacing {
+                MemberSpacing::BlankLine => true,
+                MemberSpacing::NewLine => false,
+                MemberSpacing::Maintain => node_helpers::has_separating_blank_line(previous, next, context),
+            }
+        }),
+        trailing_commas: Some(context.config.enum_declaration_trailing_commas.clone()),
+    }, context));
+
+    return items;
+}
+
+fn parse_enum_member(node: TsEnumMember, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node(node.id.into(), context);
+
+    if let Some(box init) = node.init {
+        items.push(match init.kind() {
+            NodeKind::Number | NodeKind::Str => PrintItem::SpaceOrNewLine,
+            _ => " ".into(),
+        });
+
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push("= ".into());
+            items.extend(parse_node(init.into(), context));
+            items
+        }).into());
+    }
+
+    items
+}
+
 /* expressions */
 
 fn parse_array_expression(node: ArrayLit, context: &mut Context) -> Vec<PrintItem> {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
-        node: context.get_text_range(&node),
+        node: node.clone().into(),
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
         trailing_commas: context.config.array_expression_trialing_commas.clone(),
     }, context)
@@ -196,7 +254,7 @@ fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem
             return false;
         }
 
-        return context.get_text_range(&node).start_line() == context.get_text_range(&node.args[1]).start_line();
+        return node.start_line(context) == node.args[1].start_line(context);
 
         fn is_valid_callee(callee: &ExprOrSuper) -> bool {
             let ident_text = get_identifier_text(&callee);
@@ -234,7 +292,7 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
 /* literals */
 
 fn parse_big_int_literal(node: BigInt, context: &mut Context) -> Vec<PrintItem> {
-    vec![context.get_text_range(&node).text().into()]
+    vec![node.text(context).into()]
 }
 
 fn parse_bool_literal(node: Bool) -> Vec<PrintItem> {
@@ -249,7 +307,7 @@ fn parse_jsx_text(node: JSXText, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_num_literal(node: Number, context: &mut Context) -> Vec<PrintItem> {
-    vec![context.get_text_range(&node).text().into()]
+    vec![node.text(context).into()]
 }
 
 fn parse_reg_exp_literal(node: Regex, context: &mut Context) -> Vec<PrintItem> {
@@ -276,12 +334,13 @@ fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
 /* module */
 
 fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
-    parse_statements_or_members(ParseStatementOrMemberOptions {
-        items: node.body.into_iter().map(|node| (context.get_text_range(&node), parse_node(node.into(), context))).collect(),
+    parse_statements_or_members(ParseStatementsOrMembersOptions {
+        items: node.body.into_iter().map(|module_item| (module_item.into(), Option::None)).collect(),
         last_node: Option::None,
         should_use_space: Option::None,
         should_use_new_line: Option::None,
         should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+        trailing_commas: Option::None,
     }, context)
 }
 
@@ -289,7 +348,7 @@ fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_array_pat(node: ArrayPat, context: &mut Context) -> Vec<PrintItem> {
     let mut items = parse_array_like_nodes(ParseArrayLikeNodesOptions {
-        node: context.get_text_range(&node),
+        node: node.clone().into(),
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
         trailing_commas: context.config.array_pattern_trialing_commas.clone(),
     }, context);
@@ -513,10 +572,10 @@ fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut 
         if node.params.is_empty() {
             false
         } else {
-            let mut first_param = context.get_text_range(&node.params[0]);
-            let angle_bracket_token = context.get_first_angle_bracket_token_before(&first_param);
+            let first_param = &*node.params[0];
+            let angle_bracket_token = context.get_first_angle_bracket_token_before(first_param);
             if let Some(angle_bracket_token) = angle_bracket_token {
-                node_helpers::get_use_new_lines_for_nodes(&mut context.get_text_range(&angle_bracket_token), &mut first_param)
+                node_helpers::get_use_new_lines_for_nodes(&angle_bracket_token, first_param, context)
             } else {
                 false
             }
@@ -526,35 +585,33 @@ fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut 
 
 /* comments */
 
-fn parse_leading_comments(node: &mut TextRange, context: &mut Context) -> Vec<PrintItem> {
-    let leading_comments = node.leading_comments();
+fn parse_leading_comments(node: &Node, context: &mut Context) -> Vec<PrintItem> {
+    let leading_comments = node.leading_comments(context);
     parse_comments_as_leading(node, leading_comments, context)
 }
 
-fn parse_comments_as_leading(node: &mut TextRange, comments: Vec<Comment>, context: &mut Context) -> Vec<PrintItem> {
+fn parse_comments_as_leading(node: &Node, comments: Vec<Comment>, context: &mut Context) -> Vec<PrintItem> {
     if comments.is_empty() {
         return vec![];
     }
 
-    let (mut last_comment, last_comment_kind) = {
-        let last_comment_comment = comments.last().unwrap();
-        let last_comment = context.get_text_range(&last_comment_comment);
-        (last_comment, last_comment_comment.kind)
-    };
+    let last_comment = comments.last().unwrap().clone();
     let last_comment_previously_handled = context.has_handled_comment(&last_comment);
     let mut items = Vec::new();
 
-    items.extend(parse_comment_collection(&comments, &mut Option::None, context));
+    items.extend(parse_comment_collection(comments, Option::None, context));
 
     if !last_comment_previously_handled {
-        if node.start_line() > last_comment.end_line() {
+        let node_start_line = node.start_line(context);
+        let last_comment_end_line = last_comment.end_line(context);
+        if node_start_line > last_comment_end_line {
             items.push(PrintItem::NewLine);
 
-            if node.start_line() - 1 > last_comment.end_line() {
+            if node_start_line - 1 > last_comment_end_line {
                 items.push(PrintItem::NewLine);
             }
         }
-        else if last_comment_kind == CommentKind::Block && node.start_line() == last_comment.end_line() {
+        else if last_comment.kind == CommentKind::Block && node_start_line == last_comment_end_line {
             items.push(" ".into());
         }
     }
@@ -562,44 +619,41 @@ fn parse_comments_as_leading(node: &mut TextRange, comments: Vec<Comment>, conte
     items
 }
 
-fn parse_trailing_comments_as_statements(node: &mut TextRange, context: &mut Context) -> Vec<PrintItem> {
-    let unhandled_comments = get_trailing_comments_as_statements(node, context);
-    parse_comment_collection(&unhandled_comments, &mut Some(node.clone()), context)
+fn parse_trailing_comments_as_statements(node: Node, context: &mut Context) -> Vec<PrintItem> {
+    let unhandled_comments = get_trailing_comments_as_statements(node.clone(), context);
+    parse_comment_collection(unhandled_comments, Some(node), context)
 }
 
-fn get_trailing_comments_as_statements(node: &mut TextRange, context: &mut Context) -> Vec<Comment> {
+fn get_trailing_comments_as_statements(node: Node, context: &mut Context) -> Vec<Comment> {
     let mut items = Vec::new();
-    for comment in node.trailing_comments() {
-        let mut comment_range = context.get_text_range(&comment);
-        if context.has_handled_comment(&comment_range) && node.end_line() < comment_range.end_line() {
+    for comment in node.trailing_comments(context) {
+        if context.has_handled_comment(&comment) && node.end_line(context) < comment.end_line(context) {
             items.push(comment);
         }
     }
     items
 }
 
-fn parse_comment_collection(comments: &Vec<Comment>, last_node: &mut Option<TextRange>, context: &mut Context) -> Vec<PrintItem> {
-    let mut last_node = last_node.clone();
+fn parse_comment_collection(comments: Vec<Comment>, last_node: Option<Node>, context: &mut Context) -> Vec<PrintItem> {
+    let mut last_node = last_node;
     let mut items = Vec::new();
     for comment in comments {
-        let comment_range = context.get_text_range(&comment);
-        if !context.has_handled_comment(&comment_range) {
-            items.extend(parse_comment_based_on_last_node(&comment, &mut last_node, context));
-            last_node = Some(comment_range);
+        if !context.has_handled_comment(&comment) {
+            items.extend(parse_comment_based_on_last_node(&comment, &last_node, context));
+            last_node = Some(comment.into());
         }
     }
     items
 }
 
-fn parse_comment_based_on_last_node(comment: &Comment, last_node: &mut Option<TextRange>, context: &mut Context) -> Vec<PrintItem> {
+fn parse_comment_based_on_last_node(comment: &Comment, last_node: &Option<Node>, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
 
     if let Some(last_node) = last_node {
-        let mut comment_range = context.get_text_range(&comment);
-        if comment_range.start_line() > last_node.end_line() {
+        if comment.start_line(context) > last_node.end_line(context) {
             items.push(PrintItem::NewLine);
 
-            if comment_range.start_line() > last_node.end_line() + 1 {
+            if comment.start_line(context) > last_node.end_line(context) + 1 {
                 items.push(PrintItem::NewLine);
             }
         } else if comment.kind == CommentKind::Line {
@@ -614,13 +668,12 @@ fn parse_comment_based_on_last_node(comment: &Comment, last_node: &mut Option<Te
 
 fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {
     // only parse if handled
-    let comment_range = context.get_text_range(&comment);
-    if context.has_handled_comment(&comment_range) {
+    if context.has_handled_comment(comment) {
         return Vec::new();
     }
 
     // mark handled and parse
-    context.mark_comment_handled(&comment_range);
+    context.mark_comment_handled(comment);
     return match comment.kind {
         CommentKind::Block => parse_comment_block(comment),
         CommentKind::Line => parse_comment_line(comment),
@@ -671,7 +724,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {
 /* helpers */
 
 struct ParseArrayLikeNodesOptions {
-    node: TextRange,
+    node: Node,
     elements: Vec<Option<Node>>,
     trailing_commas: TrailingCommas,
 }
@@ -723,18 +776,18 @@ fn parse_array_like_nodes(opts: ParseArrayLikeNodesOptions, context: &mut Contex
         }
     }
 
-    fn get_use_new_lines(node: &TextRange, elements: &Vec<Option<Node>>, context: &mut Context) -> bool {
+    fn get_use_new_lines(node: &Node, elements: &Vec<Option<Node>>, context: &mut Context) -> bool {
         if elements.is_empty() {
             false
         } else {
-            let open_bracket_token = context.get_first_open_bracket_token_within(&node).expect("Expected to find an open bracket token.");
+            let open_bracket_token = context.get_first_open_bracket_token_within(node).expect("Expected to find an open bracket token.");
             if let Some(first_node) = &elements[0] {
-                node_helpers::get_use_new_lines_for_nodes(&mut context.get_text_range(&open_bracket_token), &mut context.get_text_range(&first_node))
+                node_helpers::get_use_new_lines_for_nodes(&open_bracket_token, first_node, context)
             } else {
                 // todo: tests for this (ex. [\n,] -> [\n    ,\n])
                 let first_comma = context.get_first_comma_after(&node);
                 if let Some(first_comma) = first_comma {
-                    node_helpers::get_use_new_lines_for_nodes(&mut context.get_text_range(&open_bracket_token), &mut context.get_text_range(&first_comma))
+                    node_helpers::get_use_new_lines_for_nodes(&open_bracket_token, &first_comma, context)
                 } else {
                     false
                 }
@@ -743,43 +796,102 @@ fn parse_array_like_nodes(opts: ParseArrayLikeNodesOptions, context: &mut Contex
     }
 }
 
-struct ParseStatementOrMemberOptions {
-    items: Vec<(TextRange, Vec<PrintItem>)>,
-    last_node: Option<TextRange>,
-    should_use_space: Option<Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>>,
-    should_use_new_line: Option<Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>>,
-    should_use_blank_line: Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>,
+struct ParseMemberedBodyOptions {
+    node: Node,
+    members: Vec<Node>,
+    start_header_info: Option<Info>,
+    brace_position: BracePosition,
+    should_use_blank_line: Box<dyn Fn(&Node, &Node, &mut Context) -> bool>,
+    trailing_commas: Option<TrailingCommas>
 }
 
-fn parse_statements_or_members(opts: ParseStatementOrMemberOptions, context: &mut Context) -> Vec<PrintItem> {
+fn parse_membered_body(opts: ParseMemberedBodyOptions, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let node = opts.node;
+
+    items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
+        brace_position: opts.brace_position,
+        body_node: context.get_first_open_brace_token_within(&node).map(|x| Node::from(x)).unwrap_or(node),
+        start_header_info: opts.start_header_info,
+    }, context));
+
+    items.push("{".into());
+    // items.extend(parse_first_line_trailing_comments()); // todo
+    items.extend(parser_helpers::with_indent({
+        let mut items = Vec::new();
+        if !opts.members.is_empty() {
+            items.push(PrintItem::NewLine);
+        }
+
+        items.extend(parse_statements_or_members(ParseStatementsOrMembersOptions {
+            items: opts.members.into_iter().map(|node| (node, Option::None)).collect(),
+            last_node: Option::None,
+            should_use_space: Option::None,
+            should_use_new_line: Option::None,
+            should_use_blank_line: opts.should_use_blank_line,
+            trailing_commas: opts.trailing_commas,
+        }, context));
+
+        items
+    }));
+    items.push(PrintItem::NewLine);
+    items.push("}".into());
+
+    items
+}
+
+struct ParseStatementsOrMembersOptions {
+    items: Vec<(Node, Option<Vec<PrintItem>>)>,
+    last_node: Option<Node>,
+    should_use_space: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
+    should_use_new_line: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
+    should_use_blank_line: Box<dyn Fn(&Node, &Node, &mut Context) -> bool>,
+    trailing_commas: Option<TrailingCommas>,
+}
+
+fn parse_statements_or_members(opts: ParseStatementsOrMembersOptions, context: &mut Context) -> Vec<PrintItem> {
     let mut last_node = opts.last_node;
     let mut items = Vec::new();
+    let children_len = opts.items.len();
 
-    for (mut item, parsed_node) in opts.items {
-        if let Some(mut last_node) = last_node {
-            if should_use_new_line(&opts.should_use_new_line, &mut last_node, &mut item, context) {
+    for (i, (node, optional_print_items)) in opts.items.into_iter().enumerate() {
+        if let Some(last_node) = last_node {
+            if should_use_new_line(&opts.should_use_new_line, &last_node, &node, context) {
                 items.push(PrintItem::NewLine);
 
-                if (opts.should_use_blank_line)(&mut last_node, &mut item, context) {
+                if (opts.should_use_blank_line)(&last_node, &node, context) {
                     items.push(PrintItem::NewLine);
                 }
             }
             else if let Some(should_use_space) = &opts.should_use_space {
-                if should_use_space(&mut last_node, &mut item, context) {
+                if should_use_space(&last_node, &node, context) {
                     items.push(PrintItem::SpaceOrNewLine);
                 }
             }
         }
 
         let end_info = Info::new("endStatementOrMemberInfo");
-        items.extend(parsed_node);
+        items.extend(if let Some(print_items) = optional_print_items {
+            print_items
+        } else {
+            let trailing_commas = opts.trailing_commas.clone();
+            parse_node_with_inner_parse(node.clone(), context, move |mut items| {
+                if let Some(trailing_commas) = &trailing_commas {
+                    let force_trailing_commas = get_force_trailing_commas(trailing_commas, true);
+                    if force_trailing_commas || i < children_len - 1 {
+                        items.push(",".into())
+                    }
+                }
+                items
+            })
+        });
         items.push(end_info.into());
 
-        last_node = Some(item);
+        last_node = Some(node);
     }
 
-    if let Some(mut last_node) = last_node {
-        items.extend(parse_trailing_comments_as_statements(&mut last_node, context));
+    if let Some(last_node) = last_node {
+        items.extend(parse_trailing_comments_as_statements(last_node, context));
     }
 
     // todo: inner comments?
@@ -787,9 +899,9 @@ fn parse_statements_or_members(opts: ParseStatementOrMemberOptions, context: &mu
     return items;
 
     fn should_use_new_line(
-        should_use_new_line: &Option<Box<dyn Fn(&mut TextRange, &mut TextRange, &mut Context) -> bool>>,
-        last_node: &mut TextRange,
-        next_node: &mut TextRange,
+        should_use_new_line: &Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
+        last_node: &Node,
+        next_node: &Node,
         context: &mut Context
     ) -> bool {
         if let Some(should_use) = &should_use_new_line {
@@ -851,11 +963,11 @@ fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, contex
             return false;
         }
 
-        let mut first_node = context.get_text_range(&nodes[0]);
-        let open_paren_token = context.get_first_open_paren_token_before(&first_node);
+        let first_node = &nodes[0];
+        let open_paren_token = context.get_first_open_paren_token_before(first_node);
 
         if let Some(open_paren_token) = open_paren_token {
-            node_helpers::get_use_new_lines_for_nodes(&mut context.get_text_range(&open_paren_token), &mut first_node)
+            node_helpers::get_use_new_lines_for_nodes(&open_paren_token, first_node, context)
         } else {
             false
         }
@@ -926,6 +1038,37 @@ fn parse_node_with_preceeding_colon(node: Option<Node>, context: &mut Context) -
         items.push(conditions::indent_if_start_of_line(parse_node(node, context)).into());
     }
     items
+}
+
+struct ParseBraceSeparatorOptions {
+    brace_position: BracePosition,
+    body_node: Node,
+    start_header_info: Option<Info>,
+}
+
+fn parse_brace_separator(opts: ParseBraceSeparatorOptions, context: &mut Context) -> Vec<PrintItem> {
+    match opts.brace_position {
+        BracePosition::NextLineIfHanging => {
+            if let Some(start_header_info) = opts.start_header_info {
+                vec![conditions::new_line_if_hanging_space_otherwise(conditions::NewLineIfHangingSpaceOtherwiseOptions {
+                    start_info: start_header_info,
+                    end_info: Option::None,
+                    space_char: Option::None,
+                }).into()]
+            } else {
+                vec![" ".into()]
+            }
+        },
+        BracePosition::SameLine => {
+            vec![" ".into()]
+        },
+        BracePosition::NextLine => {
+            vec![PrintItem::NewLine]
+        },
+        BracePosition::Maintain => {
+            vec![] // todo
+        },
+    }
 }
 
 /* is functions */

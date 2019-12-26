@@ -5,18 +5,18 @@ use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
-    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll};
+    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
-    comments: Rc<Comments>,
+    pub comments: Rc<Comments>,
     tokens: Rc<Vec<TokenAndSpan>>,
     file_bytes: Rc<Vec<u8>>,
     pub current_node: Node,
     pub parent_stack: Vec<Node>,
     handled_comments: HashSet<BytePos>,
-    info: Rc<SourceFile>,
+    pub info: Rc<SourceFile>,
 }
 
 impl Context {
@@ -40,32 +40,33 @@ impl Context {
         }
     }
 
-    pub fn get_text_range(&self, spanned: &impl Spanned) -> TextRange {
-        TextRange::new(self.comments.clone(), self.info.clone(), self.file_bytes.clone(), spanned.span().data())
-    }
-
     pub fn parent(&self) -> &Node {
         self.parent_stack.last().unwrap()
     }
 
-    pub fn has_handled_comment(&self, comment: &TextRange) -> bool {
+    pub fn has_handled_comment(&self, comment: &Comment) -> bool {
         self.handled_comments.contains(&comment.lo())
     }
 
-    pub fn mark_comment_handled(&mut self, comment: &TextRange) {
+    pub fn mark_comment_handled(&mut self, comment: &Comment) {
         self.handled_comments.insert(comment.lo());
     }
 
-    pub fn get_first_open_paren_token_before(&self, range: &TextRange) -> Option<TokenAndSpan> {
-        self.get_first_token_before(&range, Token::LParen)
+    pub fn get_text(&self, span_data: &SpanData) -> &str {
+        let bytes = &self.file_bytes[(span_data.lo.0 as usize)..(span_data.hi.0 as usize)];
+        str::from_utf8(&bytes).unwrap()
     }
 
-    pub fn get_first_angle_bracket_token_before(&self, range: &TextRange) -> Option<TokenAndSpan> {
-        self.get_first_token_before(&range, Token::LBracket)
+    pub fn get_first_open_paren_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_before(node, Token::LParen)
     }
 
-    fn get_first_token_before(&self, range: &TextRange, searching_token: Token) -> Option<TokenAndSpan> {
-        let pos = range.lo();
+    pub fn get_first_angle_bracket_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_before(node, Token::LBracket)
+    }
+
+    fn get_first_token_before(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
+        let pos = node.lo();
         let mut found_token = Option::None;
         for token in self.tokens.iter() {
             if token.span.data().lo >= pos {
@@ -78,13 +79,18 @@ impl Context {
         found_token.map(|x| x.to_owned())
     }
 
-    pub fn get_first_open_bracket_token_within(&self, range: &TextRange) -> Option<TokenAndSpan> {
-        self.get_first_token_within(&range, Token::LBracket)
+    pub fn get_first_open_brace_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_within(node, Token::LBrace)
     }
 
-    fn get_first_token_within(&self, range: &TextRange, searching_token: Token) -> Option<TokenAndSpan> {
-        let pos = range.lo();
-        let end = range.hi();
+    pub fn get_first_open_bracket_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_within(node, Token::LBracket)
+    }
+
+    fn get_first_token_within(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
+        let node_span_data = node.span().data();
+        let pos = node_span_data.lo;
+        let end = node_span_data.hi;
         let mut found_token = Option::None;
         for token in self.tokens.iter() {
             let token_pos = token.span.data().lo;
@@ -97,13 +103,14 @@ impl Context {
         found_token.map(|x| x.to_owned())
     }
 
-    pub fn get_first_comma_after(&self, range: &TextRange) -> Option<TokenAndSpan> {
-        self.get_first_token_after(&range, Token::Comma)
+    pub fn get_first_comma_after(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_after(node, Token::Comma)
     }
 
-    fn get_first_token_after(&self, range: &TextRange, searching_token: Token) -> Option<TokenAndSpan> {
-        let pos = range.lo();
-        let end = range.hi();
+    fn get_first_token_after(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
+        let node_span_data = node.span().data();
+        let pos = node_span_data.lo;
+        let end = node_span_data.hi;
         for token in self.tokens.iter() {
             let token_pos = token.span.data().lo;
             if token_pos >= end {
@@ -119,66 +126,52 @@ impl Context {
     }
 }
 
-#[derive(Clone)]
-pub struct TextRange {
-    comments: Rc<Comments>,
-    info: Rc<SourceFile>,
-    file_bytes: Rc<Vec<u8>>,
-    data: SpanData,
-    start_line: Option<usize>,
-    end_line: Option<usize>,
-}
-
-impl TextRange {
-    pub fn new(comments: Rc<Comments>, info: Rc<SourceFile>, file_bytes: Rc<Vec<u8>>, data: SpanData) -> TextRange {
-        TextRange {
-            comments,
-            info,
-            file_bytes,
-            data,
-            start_line: Option::None,
-            end_line: Option::None,
-        }
-    }
-
-    pub fn lo(self: &TextRange) -> BytePos {
-        self.data.lo
-    }
-
-    pub fn hi(self: &TextRange) -> BytePos {
-        self.data.hi
-    }
-
-    pub fn leading_comments(self: &TextRange) -> Vec<Comment> {
-        self.comments.leading_comments(self.data.lo).map(|c| c.clone()).unwrap_or_default()
-    }
-
-    pub fn trailing_comments(self: &TextRange) -> Vec<Comment> {
-        self.comments.trailing_comments(self.data.hi).map(|c| c.clone()).unwrap_or_default()
-    }
-
-    pub fn start_line(self: &mut TextRange) -> usize {
-        if self.start_line.is_none() {
-            self.start_line = Some(self.info.lookup_line(self.data.lo).unwrap() + 1);
-        }
-        self.start_line.unwrap()
-    }
-
-    pub fn end_line(self: &mut TextRange) -> usize {
-        if self.end_line.is_none() {
-            self.end_line = Some(self.info.lookup_line(self.data.hi).unwrap() + 1);
-        }
-        self.end_line.unwrap()
-    }
-
-    pub fn text(self: &TextRange) -> &str {
-        let bytes = &self.file_bytes[(self.data.lo.0 as usize)..(self.data.hi.0 as usize)];
-        str::from_utf8(&bytes).unwrap()
-    }
-}
-
 pub trait NodeKinded {
     fn kind(&self) -> NodeKind;
+}
+
+pub trait Ranged : Spanned {
+    fn lo(&self) -> BytePos;
+    fn hi(&self) -> BytePos;
+    fn start_line(&self, context: &mut Context) -> usize;
+    fn end_line(&self, context: &mut Context) -> usize;
+    fn text<'a>(&self, context: &'a Context) -> &'a str;
+    fn leading_comments(&self, context: &Context) -> Vec<Comment>;
+    fn trailing_comments(&self, context: &Context) -> Vec<Comment>;
+}
+
+impl<T> Ranged for T where T : Spanned {
+    fn lo(&self) -> BytePos {
+        self.span().data().lo
+    }
+
+    fn hi(&self) -> BytePos {
+        self.span().data().hi
+    }
+
+    fn start_line(&self, context: &mut Context) -> usize {
+        context.info.lookup_line(self.lo()).unwrap() + 1
+    }
+
+    fn end_line(&self, context: &mut Context) -> usize {
+        context.info.lookup_line(self.hi()).unwrap() + 1
+    }
+
+    fn text<'a>(&self, context: &'a Context) -> &'a str {
+        let span_data = self.span().data();
+        context.get_text(&span_data)
+    }
+
+    fn leading_comments(&self, context: &Context) -> Vec<Comment> {
+        context.comments.leading_comments(self.lo()).map(|c| c.clone()).unwrap_or_default()
+    }
+
+    fn trailing_comments(&self, context: &Context) -> Vec<Comment> {
+        context.comments.trailing_comments(self.hi()).map(|c| c.clone()).unwrap_or_default()
+    }
+}
+
+pub trait NodeLike : NodeKinded + Spanned + Ranged {
 }
 
 macro_rules! generate_node {
@@ -233,6 +226,8 @@ generate_node! [
     /* common */
     Ident,
     /* declarations */
+    TsEnumDecl,
+    TsEnumMember,
     /* expressions */
     ArrayLit,
     ArrowExpr,
@@ -265,25 +260,46 @@ generate_node! [
     TsTypeAnn,
     TsTypeParamInstantiation,
     /* unknown */
+    TokenAndSpan,
+    Comment,
     Unknown
 ];
 
-/* Into node implementations */
+
+/* fully implemented From and NodeKinded implementations */
+
+macro_rules! generate_traits {
+    ($enum_name:ident, $($member_name:ident),*) => {
+        impl From<$enum_name> for Node {
+            fn from(id: $enum_name) -> Node {
+                match id {
+                    $($enum_name::$member_name(node) => node.into()),*
+                }
+            }
+        }
+
+        impl NodeKinded for $enum_name {
+            fn kind(&self) -> NodeKind {
+                match self {
+                    $($enum_name::$member_name(node) => node.kind()),*
+                }
+            }
+        }
+    };
+}
+
+generate_traits![Lit, BigInt, Bool, JSXText, Null, Num, Regex, Str];
+generate_traits![ModuleItem, Stmt, ModuleDecl];
+generate_traits![TsEnumMemberId, Ident, Str];
+
+/* temporary manual from implementations */
 
 impl From<Decl> for Node {
     fn from(decl: Decl) -> Node {
         match decl {
+            Decl::TsEnum(node) => node.into(),
             Decl::Var(node) => node.into(),
             _ => Node::Unknown(decl.span()), // todo: implement others
-        }
-    }
-}
-
-impl From<ModuleItem> for Node {
-    fn from(item: ModuleItem) -> Node {
-        match item {
-            ModuleItem::Stmt(node) => node.into(),
-            ModuleItem::ModuleDecl(node) => node.into(),
         }
     }
 }
@@ -325,20 +341,6 @@ impl From<ExprOrSuper> for Node {
     }
 }
 
-impl From<Lit> for Node {
-    fn from(lit: Lit) -> Node {
-        match lit {
-            Lit::BigInt(node) => node.into(),
-            Lit::Bool(node) => node.into(),
-            Lit::JSXText(node) => node.into(),
-            Lit::Null(node) => node.into(),
-            Lit::Num(node) => node.into(),
-            Lit::Regex(node) => node.into(),
-            Lit::Str(node) => node.into(),
-        }
-    }
-}
-
 impl From<ModuleDecl> for Node {
     fn from(dec: ModuleDecl) -> Node {
         match dec {
@@ -367,22 +369,14 @@ impl From<TsType> for Node {
     }
 }
 
-/* NodeKinded implementations */
+/* temporary manual NodeKinded implementations */
 
 impl NodeKinded for Decl {
     fn kind(&self) -> NodeKind {
         match self {
+            Decl::TsEnum(node) => node.kind(),
             Decl::Var(node) => node.kind(),
             _ => NodeKind::Unknown,
-        }
-    }
-}
-
-impl NodeKinded for ModuleItem {
-    fn kind(&self) -> NodeKind {
-        match self {
-            ModuleItem::Stmt(node) => node.kind(),
-            ModuleItem::ModuleDecl(node) => node.kind(),
         }
     }
 }
@@ -419,20 +413,6 @@ impl NodeKinded for ExprOrSuper {
         match self {
             ExprOrSuper::Expr(node) => node.kind(),
             _ => NodeKind::Unknown,
-        }
-    }
-}
-
-impl NodeKinded for Lit {
-    fn kind(&self) -> NodeKind {
-        match self {
-            Lit::BigInt(node) => node.kind(),
-            Lit::Bool(node) => node.kind(),
-            Lit::JSXText(node) => node.kind(),
-            Lit::Null(node) => node.kind(),
-            Lit::Num(node) => node.kind(),
-            Lit::Regex(node) => node.kind(),
-            Lit::Str(node) => node.kind(),
         }
     }
 }
