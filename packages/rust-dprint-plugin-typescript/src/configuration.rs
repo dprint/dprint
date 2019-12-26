@@ -18,6 +18,7 @@ pub struct TypeScriptConfiguration {
     pub export_all_declaration_semi_colon: bool,
     pub export_assignment_semi_colon: bool,
     pub expression_statement_semi_colon: bool,
+    pub type_alias_semi_colon: bool,
     pub variable_statement_semi_colon: bool,
     /* trailing commas */
     pub array_expression_trialing_commas: TrailingCommas,
@@ -86,6 +87,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         export_all_declaration_semi_colon: get_value(&mut config, "exportAllDeclaration.semiColon", semi_colons),
         export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons),
         expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
+        type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
         variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
         /* trailing commas */
         array_expression_trialing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", &trailing_commas),

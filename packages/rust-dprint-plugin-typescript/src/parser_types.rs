@@ -5,7 +5,8 @@ use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
-    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId};
+    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId, TsTypeAliasDecl, TsTypeParamDecl, TsTypeParam,
+    TsLitType, TsLit};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -228,6 +229,7 @@ generate_node! [
     /* declarations */
     TsEnumDecl,
     TsEnumMember,
+    TsTypeAliasDecl,
     /* expressions */
     ArrayLit,
     ArrowExpr,
@@ -257,14 +259,32 @@ generate_node! [
     VarDecl,
     VarDeclarator,
     /* types */
+    TsLitType,
     TsTypeAnn,
     TsTypeParamInstantiation,
+    TsTypeParamDecl,
+    TsTypeParam,
     /* unknown */
     TokenAndSpan,
     Comment,
     Unknown
 ];
 
+/* custom enums */
+
+pub enum TypeParamNode {
+    Instantiation(TsTypeParamInstantiation),
+    Decl(TsTypeParamDecl)
+}
+
+impl TypeParamNode {
+    pub fn params(self) -> Vec<Node> {
+        match self {
+            TypeParamNode::Instantiation(node) => node.params.into_iter().map(|box p| p.into()).collect(),
+            TypeParamNode::Decl(node) => node.params.into_iter().map(|p| p.into()).collect(),
+        }
+    }
+}
 
 /* fully implemented From and NodeKinded implementations */
 
@@ -291,6 +311,8 @@ macro_rules! generate_traits {
 generate_traits![Lit, BigInt, Bool, JSXText, Null, Num, Regex, Str];
 generate_traits![ModuleItem, Stmt, ModuleDecl];
 generate_traits![TsEnumMemberId, Ident, Str];
+generate_traits![TypeParamNode, Instantiation, Decl];
+generate_traits![TsLit, Number, Str, Bool];
 
 /* temporary manual from implementations */
 
@@ -298,6 +320,7 @@ impl From<Decl> for Node {
     fn from(decl: Decl) -> Node {
         match decl {
             Decl::TsEnum(node) => node.into(),
+            Decl::TsTypeAlias(node) => node.into(),
             Decl::Var(node) => node.into(),
             _ => Node::Unknown(decl.span()), // todo: implement others
         }
@@ -364,6 +387,7 @@ impl From<Pat> for Node {
 impl From<TsType> for Node {
     fn from(ts_type: TsType) -> Node {
         match ts_type {
+            TsType::TsLitType(node) => node.into(),
             _ => Node::Unknown(ts_type.span()), // todo: implement others
         }
     }
@@ -375,6 +399,7 @@ impl NodeKinded for Decl {
     fn kind(&self) -> NodeKind {
         match self {
             Decl::TsEnum(node) => node.kind(),
+            Decl::TsTypeAlias(node) => node.kind(),
             Decl::Var(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
@@ -440,6 +465,7 @@ impl NodeKinded for Pat {
 impl NodeKinded for TsType {
     fn kind(&self) -> NodeKind {
         match self {
+            TsType::TsLitType(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
         }
     }

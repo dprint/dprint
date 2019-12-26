@@ -6,9 +6,9 @@ use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
 use super::configuration::{BracePosition, MemberSpacing, TrailingCommas};
-use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation,
-    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
-    TsEnumDecl, TsEnumMember};
+use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, BreakStmt,
+    ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
+    TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -30,7 +30,8 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
 }
 
 fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
-    //println!("Node kind: {:?}", node.kind());
+    // println!("Node kind: {:?}", node.kind());
+    // println!("Text: {:?}", node.text(context));
     parse_node_with_inner_parse(node, context, |items| items)
 }
 
@@ -56,6 +57,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             /* declarations */
             Node::TsEnumDecl(node) => parse_enum_decl(node, context),
             Node::TsEnumMember(node) => parse_enum_member(node, context),
+            Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
             /* expressions */
             Node::ArrayLit(node) => parse_array_expression(node, context),
             Node::CallExpr(node) => parse_call_expression(node, context),
@@ -85,8 +87,11 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::VarDecl(node) => parse_var_decl(node, context),
             Node::VarDeclarator(node) => parse_var_declarator(node, context),
             /* types */
-            Node::TsTypeAnn(node) => parse_type_ann(node, context), // todo
-            Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(node, context),
+            Node::TsLitType(node) => parse_lit_type(node, context),
+            Node::TsTypeAnn(node) => parse_type_ann(node, context),
+            Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(TypeParamNode::Instantiation(node), context),
+            Node::TsTypeParamDecl(node) => parse_type_param_instantiation(TypeParamNode::Decl(node), context),
+            Node::TsTypeParam(node) => vec![node.text(context).into()], // todo
             /* unknown */
             Node::TokenAndSpan(span) => vec![context.get_text(&span.span.data()).into()],
             Node::Comment(comment) => vec![context.get_text(&comment.span.data()).into()],
@@ -166,6 +171,22 @@ fn parse_enum_member(node: TsEnumMember, context: &mut Context) -> Vec<PrintItem
             items
         }).into());
     }
+
+    items
+}
+
+fn parse_type_alias(node: TsTypeAliasDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if node.declare { items.push("declare ".into()); }
+    items.push("type ".into());
+    items.extend(parse_node(node.id.into(), context));
+    if let Some(type_params) = node.type_params {
+        items.extend(parse_node(type_params.into(), context));
+    }
+    items.push(" = ".into());
+    items.extend(parse_node((*node.type_ann).into(), context));
+
+    if context.config.type_alias_semi_colon { items.push(";".into()); }
 
     items
 }
@@ -528,14 +549,19 @@ fn parse_var_declarator(node: VarDeclarator, context: &mut Context) -> Vec<Print
 
 /* types */
 
+fn parse_lit_type(node: TsLitType, context: &mut Context) -> Vec<PrintItem> {
+    parse_node(node.lit.into(), context)
+}
+
 fn parse_type_ann(node: TsTypeAnn, context: &mut Context) -> Vec<PrintItem> {
     parse_node((*node.type_ann).into(), context)
 }
 
-fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut Context) -> Vec<PrintItem> {
-    let use_new_lines = get_use_new_lines(&node, context);
+fn parse_type_param_instantiation(node: TypeParamNode, context: &mut Context) -> Vec<PrintItem> {
+    let params = node.params();
+    let use_new_lines = get_use_new_lines(&params, context);
+    let parsed_params = parse_parameter_list(params, use_new_lines, context);
     let mut items = Vec::new();
-    let parsed_params = parse_parameter_list(node, use_new_lines, context);
 
     items.push("<".into());
     items.extend(if use_new_lines {
@@ -547,16 +573,16 @@ fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut 
 
     return items;
 
-    fn parse_parameter_list(node: TsTypeParamInstantiation, use_new_lines: bool, context: &mut Context) -> Vec<PrintItem> {
+    fn parse_parameter_list(params: Vec<Node>, use_new_lines: bool, context: &mut Context) -> Vec<PrintItem> {
         let mut items = Vec::new();
-        let params_count = node.params.len();
+        let params_count = params.len();
 
-        for (i, box param) in node.params.into_iter().enumerate() {
+        for (i, param) in params.into_iter().enumerate() {
             if i > 0 {
                 items.push(if use_new_lines { PrintItem::NewLine } else { PrintItem::SpaceOrNewLine });
             }
 
-            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(param.into(), context, move |mut items| {
+            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(param, context, move |mut items| {
                 if i < params_count - 1 {
                     items.push(",".into());
                 }
@@ -568,11 +594,11 @@ fn parse_type_param_instantiation(node: TsTypeParamInstantiation, context: &mut 
         items
     }
 
-    fn get_use_new_lines(node: &TsTypeParamInstantiation, context: &mut Context) -> bool {
-        if node.params.is_empty() {
+    fn get_use_new_lines(params: &Vec<Node>, context: &mut Context) -> bool {
+        if params.is_empty() {
             false
         } else {
-            let first_param = &*node.params[0];
+            let first_param = &params[0];
             let angle_bracket_token = context.get_first_angle_bracket_token_before(first_param);
             if let Some(angle_bracket_token) = angle_bracket_token {
                 node_helpers::get_use_new_lines_for_nodes(&angle_bracket_token, first_param, context)
