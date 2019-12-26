@@ -7,7 +7,7 @@ use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
 use super::configuration::{TrailingCommas};
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, TsTypeParamInstantiation,
-    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator};
+    BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -75,6 +75,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::BreakStmt(node) => parse_break_stmt(node, context),
             Node::ContinueStmt(node) => parse_continue_stmt(node, context),
             Node::DebuggerStmt(node) => parse_debugger_stmt(node, context),
+            Node::ExportAll(node) => parse_export_all(node, context),
             Node::ExprStmt(node) => parse_expr_stmt(node, context),
             Node::EmptyStmt(node) => parse_empty_stmt(node, context),
             Node::TsExportAssignment(node) => parse_export_assignment(node, context),
@@ -262,26 +263,13 @@ fn parse_reg_exp_literal(node: Regex, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
-    return parse_raw_string(&get_string_literal_text(&context.get_text_range(&node), context));
+    return parse_raw_string(&get_string_literal_text(&node.value as &str, context));
 
-    fn get_string_literal_text(node: &TextRange, context: &mut Context) -> String {
-        let string_value = get_string_value(&node, context);
-
+    fn get_string_literal_text(string_value: &str, context: &mut Context) -> String {
         return match context.config.single_quotes {
             true => format!("'{}'", string_value.replace("'", "\\'")),
             false => format!("\"{}\"", string_value.replace("\"", "\\\"")),
         };
-
-        fn get_string_value(node: &TextRange, context: &mut Context) -> String {
-            let raw_string_text = node.text();
-            let string_value = &raw_string_text[1..raw_string_text.len() - 1];
-            let is_single_quote = raw_string_text.chars().next().unwrap() == '\'';
-
-            match is_single_quote {
-                true => string_value.replace("\\'", "'"),
-                false => string_value.replace("\\\"", "\""),
-            }
-        }
     }
 }
 
@@ -346,6 +334,18 @@ fn parse_debugger_stmt(node: DebuggerStmt, context: &mut Context) -> Vec<PrintIt
 
     items.push("debugger".into());
     if context.config.debugger_statement_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
+
+fn parse_export_all(node: ExportAll, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("export * from ".into());
+    items.extend(parse_node(node.src.into(), context));
+
+    if context.config.export_all_declaration_semi_colon {
         items.push(";".into());
     }
 
@@ -447,12 +447,11 @@ fn parse_var_decl(node: VarDecl, context: &mut Context) -> Vec<PrintItem> {
     return items;
 
     fn requires_semi_colon(context: &mut Context) -> bool {
-        /*let parent_kind = context.parent().kind();
+        // let parent_kind = context.parent().kind();
+        //if (context.parent.type === "ForOfStatement" || context.parent.type === "ForInStatement")
+        //    return context.parent.left !== node;
 
-        parent_kind == NodeKind::ForOfStmt
-            || parent_kind == NodeKind::ForInStmt
-            || parent_kind == NodeKind::ForStmt
-            || context.config.variable_statement_semi_colon*/
+        //return context.config["variableStatement.semiColon"] || context.parent.type === "ForStatement";
         context.config.variable_statement_semi_colon
     }
 }

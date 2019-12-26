@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
-    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl};
+    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -256,6 +256,7 @@ generate_node! [
     ContinueStmt,
     DebuggerStmt,
     EmptyStmt,
+    ExportAll,
     ExprStmt,
     TsExportAssignment,
     VarDecl,
@@ -342,6 +343,7 @@ impl From<ModuleDecl> for Node {
     fn from(dec: ModuleDecl) -> Node {
         match dec {
             ModuleDecl::TsExportAssignment(node) => node.into(),
+            ModuleDecl::ExportAll(node) => node.into(),
             _ => Node::Unknown(dec.span()), // todo: implement others
         }
     }
@@ -439,6 +441,7 @@ impl NodeKinded for ModuleDecl {
     fn kind(&self) -> NodeKind {
         match self {
             ModuleDecl::TsExportAssignment(node) => node.kind(),
+            ModuleDecl::ExportAll(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
         }
     }
