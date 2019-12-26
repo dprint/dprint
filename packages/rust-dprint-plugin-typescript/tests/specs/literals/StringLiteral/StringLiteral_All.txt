@@ -1,5 +1,5 @@
 == should not replace escaped character with actual character ==
-const t = "\t";
+const t = "\t"  ;
 
 [expect]
 const t = "\t";

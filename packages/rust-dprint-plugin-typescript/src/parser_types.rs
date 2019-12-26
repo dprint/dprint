@@ -6,7 +6,7 @@ use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, S
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
     ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId, TsTypeAliasDecl, TsTypeParamDecl, TsTypeParam,
-    TsLitType, TsLit};
+    TsLitType, TsLit, TsNamespaceExportDecl};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -56,6 +56,16 @@ impl Context {
     pub fn get_text(&self, span_data: &SpanData) -> &str {
         let bytes = &self.file_bytes[(span_data.lo.0 as usize)..(span_data.hi.0 as usize)];
         str::from_utf8(&bytes).unwrap()
+    }
+
+    pub fn get_token_at(&self, node: &dyn Ranged) -> TokenAndSpan {
+        let pos = node.lo();
+        for token in self.tokens.iter() {
+            if token.span.data().lo == pos {
+                return token.clone();
+            }
+        }
+        panic!("Could not find expected token.");
     }
 
     pub fn get_first_open_paren_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
@@ -256,6 +266,7 @@ generate_node! [
     ExportAll,
     ExprStmt,
     TsExportAssignment,
+    TsNamespaceExportDecl,
     VarDecl,
     VarDeclarator,
     /* types */
@@ -367,8 +378,9 @@ impl From<ExprOrSuper> for Node {
 impl From<ModuleDecl> for Node {
     fn from(dec: ModuleDecl) -> Node {
         match dec {
-            ModuleDecl::TsExportAssignment(node) => node.into(),
             ModuleDecl::ExportAll(node) => node.into(),
+            ModuleDecl::TsExportAssignment(node) => node.into(),
+            ModuleDecl::TsNamespaceExport(node) => node.into(),
             _ => Node::Unknown(dec.span()), // todo: implement others
         }
     }
@@ -445,8 +457,9 @@ impl NodeKinded for ExprOrSuper {
 impl NodeKinded for ModuleDecl {
     fn kind(&self) -> NodeKind {
         match self {
-            ModuleDecl::TsExportAssignment(node) => node.kind(),
             ModuleDecl::ExportAll(node) => node.kind(),
+            ModuleDecl::TsExportAssignment(node) => node.kind(),
+            ModuleDecl::TsNamespaceExport(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
         }
     }

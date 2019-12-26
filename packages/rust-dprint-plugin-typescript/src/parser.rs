@@ -8,7 +8,7 @@ use super::*;
 use super::configuration::{BracePosition, MemberSpacing, TrailingCommas};
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, BreakStmt,
     ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
-    TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType};
+    TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType, TsNamespaceExportDecl};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -84,6 +84,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExprStmt(node) => parse_expr_stmt(node, context),
             Node::EmptyStmt(node) => parse_empty_stmt(node, context),
             Node::TsExportAssignment(node) => parse_export_assignment(node, context),
+            Node::TsNamespaceExportDecl(node) => parse_namespace_export(node, context),
             Node::VarDecl(node) => parse_var_decl(node, context),
             Node::VarDeclarator(node) => parse_var_declarator(node, context),
             /* types */
@@ -342,13 +343,26 @@ fn parse_reg_exp_literal(node: Regex, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
-    return parse_raw_string(&get_string_literal_text(&node.value as &str, context));
+    return parse_raw_string(&get_string_literal_text(get_string_value(&node, context), context));
 
-    fn get_string_literal_text(string_value: &str, context: &mut Context) -> String {
-        return match context.config.single_quotes {
+    fn get_string_literal_text(string_value: String, context: &mut Context) -> String {
+        match context.config.single_quotes {
             true => format!("'{}'", string_value.replace("'", "\\'")),
             false => format!("\"{}\"", string_value.replace("\"", "\\\"")),
-        };
+        }
+    }
+
+    fn get_string_value(node: &Str, context: &mut Context) -> String {
+        // this is done because the string literal token has the wrong position, so get the token (temp workaround for swc bug)
+        let token = context.get_token_at(node);
+        let raw_string_text = token.text(context);
+        let string_value = raw_string_text.chars().skip(1).take(raw_string_text.chars().count() - 2).collect::<String>();
+        let is_double_quote = string_value.chars().next().unwrap() == '"';
+
+        match is_double_quote {
+            true => string_value.replace("\\\"", "\""),
+            false => string_value.replace("\\'", "'"),
+        }
     }
 }
 
@@ -444,6 +458,18 @@ fn parse_export_assignment(node: TsExportAssignment, context: &mut Context) -> V
     items.push("export = ".into());
     items.extend(parse_node((*node.expr).into(), context));
     if context.config.export_assignment_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
+
+fn parse_namespace_export(node: TsNamespaceExportDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("export as namespace ".into());
+    items.extend(parse_node(node.id.into(), context));
+
+    if context.config.namespace_export_declaration_semi_colon {
         items.push(";".into());
     }
 
