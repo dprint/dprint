@@ -8,7 +8,8 @@ use super::*;
 use super::configuration::{BracePosition, MemberSpacing, TrailingCommas};
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, BreakStmt,
     ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
-    TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType, TsNamespaceExportDecl};
+    TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, ExportSpecifier,
+    DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -30,12 +31,13 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
 }
 
 fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
-    // println!("Node kind: {:?}", node.kind());
-    // println!("Text: {:?}", node.text(context));
     parse_node_with_inner_parse(node, context, |items| items)
 }
 
 fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: impl Fn(Vec<PrintItem>) -> Vec<PrintItem> + Clone + 'static) -> Vec<PrintItem> {
+    println!("Node kind: {:?}", node.kind());
+    println!("Text: {:?}", node.text(context));
+
     // store info
     let past_current_node = std::mem::replace(&mut context.current_node, node.clone());
     context.parent_stack.push(past_current_node);
@@ -55,6 +57,10 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             /* common */
             Node::Ident(node) => parse_identifier(node, context),
             /* declarations */
+            Node::ExportDecl(node) => parse_export_decl(node, context),
+            Node::ExportDefaultDecl(node) => parse_export_default_decl(node, context),
+            Node::ExportDefaultExpr(node) => parse_export_default_expr(node, context),
+            Node::NamedExport(node) => parse_export_named_decl(node, context),
             Node::TsEnumDecl(node) => parse_enum_decl(node, context),
             Node::TsEnumMember(node) => parse_enum_member(node, context),
             Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
@@ -64,6 +70,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             Node::FnExpr(node) => vec![node.text(context).into()], // todo
             Node::ArrowExpr(node) => vec![node.text(context).into()], // todo
+            /* exports */
+            Node::NamedExportSpecifier(node) => parse_named_export_specifier(node, context),
             /* literals */
             Node::BigInt(node) => parse_big_int_literal(node, context),
             Node::Bool(node) => parse_bool_literal(node),
@@ -97,6 +105,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TokenAndSpan(span) => vec![context.get_text(&span.span.data()).into()],
             Node::Comment(comment) => vec![context.get_text(&comment.span.data()).into()],
             Node::Unknown(span) => vec![context.get_text(&span.data()).into()],
+            _ => vec![node.text(context).into()]
         }
     }
 }
@@ -122,6 +131,26 @@ fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
 }
 
 /* declarations */
+
+fn parse_export_decl(node: ExportDecl, context: &mut Context) -> Vec<PrintItem> {
+    vec![]
+}
+
+fn parse_export_default_decl(node: ExportDefaultDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    // todo: parse decorators if class
+    items.push("export default ".into());
+    items.extend(parse_node(node.decl.into(), context));
+    items
+}
+
+fn parse_export_default_expr(node: ExportDefaultExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("export default ".into());
+    items.extend(parse_node((*node.expr).into(), context));
+    if context.config.export_default_expression_semi_colon { items.push(";".into()); }
+    items
+}
 
 fn parse_enum_decl(node: TsEnumDecl, context: &mut Context) -> Vec<PrintItem> {
     let start_header_info = Info::new("startHeader");
@@ -176,6 +205,55 @@ fn parse_enum_member(node: TsEnumMember, context: &mut Context) -> Vec<PrintItem
     items
 }
 
+fn parse_export_named_decl(node: NamedExport, context: &mut Context) -> Vec<PrintItem> {
+    // todo: rewrite this so that it doesn't need to clone the current node
+
+    // fill specifiers
+    let mut default_export: Option<DefaultExportSpecifier> = Option::None;
+    let mut namespace_export: Option<NamespaceExportSpecifier> = Option::None;
+    let mut named_exports: Vec<NamedExportSpecifier> = Vec::new();
+    let decl = NamedImportOrExportDeclaration::Export(node.clone()); // todo: rewrite without this
+
+    for specifier in node.specifiers {
+        match specifier {
+            ExportSpecifier::Default(node) => default_export = Some(node),
+            ExportSpecifier::Namespace(node) => namespace_export = Some(node),
+            ExportSpecifier::Named(node) => named_exports.push(node),
+        }
+    }
+
+    // parse
+    let mut items = Vec::new();
+    let node_src = node.src;
+
+    items.push("export ".into());
+
+    if let Some(default_export) = default_export {
+        items.extend(parse_node(default_export.into(), context));
+    } else if !named_exports.is_empty() {
+        items.extend(parse_named_import_or_export_specifiers(
+            decl,
+            named_exports.into_iter().map(|x| x.into()).collect(),
+            context
+        ));
+    } else if let Some(namespace_export) = namespace_export {
+        items.extend(parse_node(namespace_export.into(), context));
+    } else {
+        items.push("{}".into());
+    }
+
+    if let Some(src) = node_src {
+        items.push(" from ".into());
+        items.extend(parse_node(src.into(), context));
+    }
+
+    if context.config.export_named_declaration_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
+
 fn parse_type_alias(node: TsTypeAliasDecl, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     if node.declare { items.push("declare ".into()); }
@@ -190,6 +268,62 @@ fn parse_type_alias(node: TsTypeAliasDecl, context: &mut Context) -> Vec<PrintIt
     if context.config.type_alias_semi_colon { items.push(";".into()); }
 
     items
+}
+
+/* exports */
+
+fn parse_named_import_or_export_specifiers(parent_decl: NamedImportOrExportDeclaration, specifiers: Vec<Node>, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if specifiers.is_empty() {
+        return items;
+    }
+
+    let use_space = get_use_space(&parent_decl, context);
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(
+        &context.get_first_open_brace_token_within(&Node::from(parent_decl)),
+        &specifiers[0],
+        context
+    );
+    let brace_separator = if use_new_lines { PrintItem::NewLine } else { if use_space { " ".into() } else { "".into() } };
+
+    items.push("{".into());
+    items.push(brace_separator.clone());
+
+    let specifiers = {
+        let mut items = Vec::new();
+        for (i, specifier) in specifiers.into_iter().enumerate() {
+            if i > 0 {
+                items.push(",".into());
+                items.push(if use_new_lines { PrintItem::NewLine } else { PrintItem::SpaceOrNewLine });
+            }
+
+            let parsed_specifier = parse_node(specifier.into(), context);
+            items.extend(if use_new_lines {
+                parsed_specifier
+            } else {
+                vec![conditions::indent_if_start_of_line(parser_helpers::new_line_group(parsed_specifier)).into()]
+            });
+        }
+        items
+    };
+
+    items.extend(if use_new_lines {
+        parser_helpers::with_indent(specifiers)
+    } else {
+        specifiers
+    });
+
+    items.push(brace_separator);
+    items.push("}".into());
+
+    return items;
+
+    fn get_use_space(parent_decl: &NamedImportOrExportDeclaration, context: &mut Context) -> bool {
+        match parent_decl {
+            NamedImportOrExportDeclaration::Export(_) => context.config.export_declaration_space_surrounding_named_exports,
+            NamedImportOrExportDeclaration::Import(_) => context.config.import_declaration_space_surrounding_named_imports,
+        }
+    }
 }
 
 /* expressions */
@@ -308,6 +442,25 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
     let mut items = Vec::new();
     if node.spread.is_some() { items.push("...".into()); }
     items.extend(parse_node((*node.expr).into(), context));
+    items
+}
+
+/* exports */
+
+fn parse_named_export_specifier(node: NamedExportSpecifier, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    items.extend(parse_node(node.orig.into(), context));
+    if let Some(exported) = node.exported {
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push("as ".into());
+            items.extend(parse_node(exported.into(), context));
+            items
+        }).into());
+    }
+
     items
 }
 

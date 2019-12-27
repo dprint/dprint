@@ -1,4 +1,4 @@
-~~ lineWidth: 40, exportDefaultDeclaration.semiColon: false ~~
+~~ lineWidth: 40, exportDefaultExpression.semiColon: false ~~
 == should format without a semi-colon ==
 const test = 5;
 export    default   test;

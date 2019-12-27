@@ -17,6 +17,8 @@ pub struct TypeScriptConfiguration {
     pub empty_statement_semi_colon: bool,
     pub export_all_declaration_semi_colon: bool,
     pub export_assignment_semi_colon: bool,
+    pub export_default_expression_semi_colon: bool,
+    pub export_named_declaration_semi_colon: bool,
     pub expression_statement_semi_colon: bool,
     pub namespace_export_declaration_semi_colon: bool,
     pub type_alias_semi_colon: bool,
@@ -25,7 +27,17 @@ pub struct TypeScriptConfiguration {
     pub array_expression_trialing_commas: TrailingCommas,
     pub array_pattern_trialing_commas: TrailingCommas,
     pub enum_declaration_trailing_commas: TrailingCommas,
+
     /* use space separator */
+
+    /// Whether to add spaces around named exports in an export declaration.
+    /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
+    /// * `false` - Ex. `export {SomeExport, OtherExport};`
+    pub export_declaration_space_surrounding_named_exports: bool,
+    /// Whether to add spaces around named imports in an import declaration.
+    /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
+    /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
+    pub import_declaration_space_surrounding_named_imports: bool,
     pub type_annotation_space_before_colon: bool,
 }
 
@@ -87,6 +99,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons),
         export_all_declaration_semi_colon: get_value(&mut config, "exportAllDeclaration.semiColon", semi_colons),
         export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons),
+        export_default_expression_semi_colon: get_value(&mut config, "exportDefaultExpression.semiColon", semi_colons),
+        export_named_declaration_semi_colon: get_value(&mut config, "exportNamedDeclaration.semiColon", semi_colons),
         expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
         namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons),
         type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
@@ -95,7 +109,9 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         array_expression_trialing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", &trailing_commas),
         array_pattern_trialing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", &trailing_commas),
         enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", &trailing_commas),
-        /* space separator */
+        /* space settings */
+        export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
+        import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),
     };
 

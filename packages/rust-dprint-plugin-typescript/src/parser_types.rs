@@ -6,7 +6,8 @@ use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, S
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
     ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId, TsTypeAliasDecl, TsTypeParamDecl, TsTypeParam,
-    TsLitType, TsLit, TsNamespaceExportDecl};
+    TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
+    ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -237,9 +238,21 @@ generate_node! [
     /* common */
     Ident,
     /* declarations */
+    ExportDecl,
+    ExportDefaultDecl,
+    ExportDefaultExpr,
+    NamedExport,
+    ImportDecl,
     TsEnumDecl,
     TsEnumMember,
     TsTypeAliasDecl,
+    /* exports */
+    DefaultExportSpecifier,
+    ImportDefault,
+    ImportSpecific,
+    ImportStarAs,
+    NamespaceExportSpecifier,
+    NamedExportSpecifier,
     /* expressions */
     ArrayLit,
     ArrowExpr,
@@ -297,6 +310,11 @@ impl TypeParamNode {
     }
 }
 
+pub enum NamedImportOrExportDeclaration {
+    Import(ImportDecl),
+    Export(NamedExport),
+}
+
 /* fully implemented From and NodeKinded implementations */
 
 macro_rules! generate_traits {
@@ -323,6 +341,8 @@ generate_traits![Lit, BigInt, Bool, JSXText, Null, Num, Regex, Str];
 generate_traits![ModuleItem, Stmt, ModuleDecl];
 generate_traits![TsEnumMemberId, Ident, Str];
 generate_traits![TypeParamNode, Instantiation, Decl];
+generate_traits![ImportSpecifier, Specific, Default, Namespace];
+generate_traits![NamedImportOrExportDeclaration, Import, Export];
 generate_traits![TsLit, Number, Str, Bool];
 
 /* temporary manual from implementations */
@@ -338,16 +358,10 @@ impl From<Decl> for Node {
     }
 }
 
-impl From<Stmt> for Node {
-    fn from(stmt: Stmt) -> Node {
-        match stmt {
-            Stmt::Break(node) => node.into(),
-            Stmt::Continue(node) => node.into(),
-            Stmt::Debugger(node) => node.into(),
-            Stmt::Decl(node) => node.into(),
-            Stmt::Empty(node) => node.into(),
-            Stmt::Expr(node) => node.into(),
-            _ => Node::Unknown(stmt.span()), // todo: implement others
+impl From<DefaultDecl> for Node {
+    fn from(decl: DefaultDecl) -> Node {
+        match decl {
+            _ => Node::Unknown(decl.span()), // todo: implement others
         }
     }
 }
@@ -379,6 +393,11 @@ impl From<ModuleDecl> for Node {
     fn from(dec: ModuleDecl) -> Node {
         match dec {
             ModuleDecl::ExportAll(node) => node.into(),
+            ModuleDecl::ExportDecl(node) => node.into(),
+            ModuleDecl::ExportDefaultDecl(node) => node.into(),
+            ModuleDecl::ExportDefaultExpr(node) => node.into(),
+            ModuleDecl::ExportNamed(node) => node.into(),
+            ModuleDecl::Import(node) => node.into(),
             ModuleDecl::TsExportAssignment(node) => node.into(),
             ModuleDecl::TsNamespaceExport(node) => node.into(),
             _ => Node::Unknown(dec.span()), // todo: implement others
@@ -396,6 +415,20 @@ impl From<Pat> for Node {
     }
 }
 
+impl From<Stmt> for Node {
+    fn from(stmt: Stmt) -> Node {
+        match stmt {
+            Stmt::Break(node) => node.into(),
+            Stmt::Continue(node) => node.into(),
+            Stmt::Debugger(node) => node.into(),
+            Stmt::Decl(node) => node.into(),
+            Stmt::Empty(node) => node.into(),
+            Stmt::Expr(node) => node.into(),
+            _ => Node::Unknown(stmt.span()), // todo: implement others
+        }
+    }
+}
+
 impl From<TsType> for Node {
     fn from(ts_type: TsType) -> Node {
         match ts_type {
@@ -407,26 +440,20 @@ impl From<TsType> for Node {
 
 /* temporary manual NodeKinded implementations */
 
+impl NodeKinded for DefaultDecl {
+    fn kind(&self) -> NodeKind {
+        match self {
+            _ => NodeKind::Unknown, // todo: implement others
+        }
+    }
+}
+
 impl NodeKinded for Decl {
     fn kind(&self) -> NodeKind {
         match self {
             Decl::TsEnum(node) => node.kind(),
             Decl::TsTypeAlias(node) => node.kind(),
             Decl::Var(node) => node.kind(),
-            _ => NodeKind::Unknown,
-        }
-    }
-}
-
-impl NodeKinded for Stmt {
-    fn kind(&self) -> NodeKind {
-        match self {
-            Stmt::Break(node) => node.kind(),
-            Stmt::Continue(node) => node.kind(),
-            Stmt::Decl(node) => node.kind(),
-            Stmt::Debugger(node) => node.kind(),
-            Stmt::Empty(node) => node.kind(),
-            Stmt::Expr(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
     }
@@ -458,6 +485,11 @@ impl NodeKinded for ModuleDecl {
     fn kind(&self) -> NodeKind {
         match self {
             ModuleDecl::ExportAll(node) => node.kind(),
+            ModuleDecl::ExportDecl(node) => node.kind(),
+            ModuleDecl::ExportDefaultDecl(node) => node.kind(),
+            ModuleDecl::ExportDefaultExpr(node) => node.kind(),
+            ModuleDecl::ExportNamed(node) => node.kind(),
+            ModuleDecl::Import(node) => node.kind(),
             ModuleDecl::TsExportAssignment(node) => node.kind(),
             ModuleDecl::TsNamespaceExport(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
@@ -471,6 +503,20 @@ impl NodeKinded for Pat {
             Pat::Array(node) => node.kind(),
             Pat::Ident(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
+        }
+    }
+}
+
+impl NodeKinded for Stmt {
+    fn kind(&self) -> NodeKind {
+        match self {
+            Stmt::Break(node) => node.kind(),
+            Stmt::Continue(node) => node.kind(),
+            Stmt::Decl(node) => node.kind(),
+            Stmt::Debugger(node) => node.kind(),
+            Stmt::Empty(node) => node.kind(),
+            Stmt::Expr(node) => node.kind(),
+            _ => NodeKind::Unknown,
         }
     }
 }

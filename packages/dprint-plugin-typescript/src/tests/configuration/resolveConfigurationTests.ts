@@ -88,7 +88,7 @@ describe(nameof(resolveConfiguration), () => {
                 "doWhileStatement.semiColon": value,
                 "exportAllDeclaration.semiColon": value,
                 "exportAssignment.semiColon": value,
-                "exportDefaultDeclaration.semiColon": value,
+                "exportDefaultExpression.semiColon": value,
                 "exportNamedDeclaration.semiColon": value,
                 "expressionStatement.semiColon": value,
                 "functionDeclaration.semiColon": value,

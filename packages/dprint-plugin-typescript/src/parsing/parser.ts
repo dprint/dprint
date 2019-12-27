@@ -704,7 +704,7 @@ function* parseExportDefaultDeclaration(node: babel.ExportDefaultDeclaration, co
         yield ";";
 
     function shouldUseSemiColon() {
-        if (!context.config["exportDefaultDeclaration.semiColon"])
+        if (!context.config["exportDefaultExpression.semiColon"])
             return false;
 
         switch (node.declaration.type) {
@@ -4007,7 +4007,7 @@ function* parseNamedImportsOrExports(
             case "ExportNamedDeclaration":
                 return context.config["exportDeclaration.spaceSurroundingNamedExports"];
             case "ImportDeclaration":
-                return context.config["importDeclaration.spaceSurroundingNamedExports"];
+                return context.config["importDeclaration.spaceSurroundingNamedImports"];
             default:
                 return assertNever(parentDeclaration);
         }

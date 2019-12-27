@@ -1,0 +1,16 @@
+~~ lineWidth: 40 ~~
+== should not have a semi-colon when exporting a class ==
+export default class Test {
+}
+
+[expect]
+export default class Test {
+}
+
+== should not have a semi-colon when exporting a function ==
+export default function test() {
+}
+
+[expect]
+export default function test() {
+}

@@ -6,7 +6,7 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
     let print_items = parse(parsed_source_file, config.clone());
 
     Ok(print(print_items, PrintOptions {
-        // todo: configuration
+        // todo: more configuration
         indent_width: 4,
         max_width: config.line_width,
         is_testing: false,

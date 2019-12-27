@@ -13,24 +13,8 @@ export default {} // test
 [expect]
 export default {}; // test
 
-== should have semi-colon when exporting function ==
+== should have semi-colon when exporting function call ==
 export default connect()
 
 [expect]
 export default connect();
-
-== should not have a semi-colon when exporting a class ==
-export default class Test {
-}
-
-[expect]
-export default class Test {
-}
-
-== should not have a semi-colon when exporting a function ==
-export default function test() {
-}
-
-[expect]
-export default function test() {
-}

@@ -12,9 +12,3 @@ export {test};
 [expect]
 const test = 5;
 export { test };
-
-== should format when using a namespace export with alias ==
-export  *  as   test   from   "test"  ;
-
-[expect]
-export * as test from "test";

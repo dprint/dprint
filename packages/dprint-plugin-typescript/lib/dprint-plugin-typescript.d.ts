@@ -217,12 +217,12 @@ export interface TypeScriptConfiguration {
      */
     "ifStatement.spaceAfterIfKeyword"?: boolean;
     /**
-     * Whether to add spaces around named exports in an import declaration.
+     * Whether to add spaces around named imports in an import declaration.
      * @default true
      * @value true - Ex. `import { SomeExport, OtherExport } from "my-module";`
      * @value false - Ex. `import {SomeExport, OtherExport} from "my-module";`
      */
-    "importDeclaration.spaceSurroundingNamedExports"?: boolean;
+    "importDeclaration.spaceSurroundingNamedImports"?: boolean;
     /**
      * Whether to add a space surrounding the expression of a JSX container.
      * @default false
@@ -276,7 +276,7 @@ export interface TypeScriptConfiguration {
     "doWhileStatement.semiColon"?: boolean;
     "exportAllDeclaration.semiColon"?: boolean;
     "exportAssignment.semiColon"?: boolean;
-    "exportDefaultDeclaration.semiColon"?: boolean;
+    "exportDefaultExpression.semiColon"?: boolean;
     "exportNamedDeclaration.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "functionDeclaration.semiColon"?: boolean;
@@ -368,7 +368,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "doWhileStatement.semiColon": boolean;
     readonly "exportAllDeclaration.semiColon": boolean;
     readonly "exportAssignment.semiColon": boolean;
-    readonly "exportDefaultDeclaration.semiColon": boolean;
+    readonly "exportDefaultExpression.semiColon": boolean;
     readonly "exportNamedDeclaration.semiColon": boolean;
     readonly "expressionStatement.semiColon": boolean;
     readonly "functionDeclaration.semiColon": boolean;
@@ -458,7 +458,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "functionExpression.spaceBeforeParentheses": boolean;
     readonly "getAccessor.spaceBeforeParentheses": boolean;
     readonly "ifStatement.spaceAfterIfKeyword": boolean;
-    readonly "importDeclaration.spaceSurroundingNamedExports": boolean;
+    readonly "importDeclaration.spaceSurroundingNamedImports": boolean;
     readonly "jsxExpressionContainer.spaceSurroundingExpression": boolean;
     readonly "method.spaceBeforeParentheses": boolean;
     readonly "setAccessor.spaceBeforeParentheses": boolean;
