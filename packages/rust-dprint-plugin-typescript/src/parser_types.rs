@@ -7,7 +7,7 @@ use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, 
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
     ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId, TsTypeAliasDecl, TsTypeParamDecl, TsTypeParam,
     TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
-    ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr};
+    ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, TsImportEqualsDecl, TsModuleRef};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -245,6 +245,7 @@ generate_node! [
     ImportDecl,
     TsEnumDecl,
     TsEnumMember,
+    TsImportEqualsDecl,
     TsTypeAliasDecl,
     /* exports */
     DefaultExportSpecifier,
@@ -399,6 +400,7 @@ impl From<ModuleDecl> for Node {
             ModuleDecl::ExportNamed(node) => node.into(),
             ModuleDecl::Import(node) => node.into(),
             ModuleDecl::TsExportAssignment(node) => node.into(),
+            ModuleDecl::TsImportEquals(node) => node.into(),
             ModuleDecl::TsNamespaceExport(node) => node.into(),
             _ => Node::Unknown(dec.span()), // todo: implement others
         }
@@ -425,6 +427,14 @@ impl From<Stmt> for Node {
             Stmt::Empty(node) => node.into(),
             Stmt::Expr(node) => node.into(),
             _ => Node::Unknown(stmt.span()), // todo: implement others
+        }
+    }
+}
+
+impl From<TsModuleRef> for Node {
+    fn from(module_ref: TsModuleRef) -> Node {
+        match module_ref {
+            _ => Node::Unknown(module_ref.span()), // todo: implement others
         }
     }
 }
@@ -491,6 +501,7 @@ impl NodeKinded for ModuleDecl {
             ModuleDecl::ExportNamed(node) => node.kind(),
             ModuleDecl::Import(node) => node.kind(),
             ModuleDecl::TsExportAssignment(node) => node.kind(),
+            ModuleDecl::TsImportEquals(node) => node.kind(),
             ModuleDecl::TsNamespaceExport(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
         }
@@ -517,6 +528,14 @@ impl NodeKinded for Stmt {
             Stmt::Empty(node) => node.kind(),
             Stmt::Expr(node) => node.kind(),
             _ => NodeKind::Unknown,
+        }
+    }
+}
+
+impl NodeKinded for TsModuleRef {
+    fn kind(&self) -> NodeKind {
+        match self {
+            _ => NodeKind::Unknown, // todo: implement others
         }
     }
 }

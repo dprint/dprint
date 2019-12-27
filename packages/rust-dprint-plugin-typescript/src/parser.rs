@@ -9,7 +9,8 @@ use super::configuration::{BracePosition, MemberSpacing, TrailingCommas};
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, BreakStmt,
     ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
     TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, ExportSpecifier,
-    DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr};
+    DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr, ImportDecl, ImportDefault, ImportSpecific,
+    ImportStarAs, ImportSpecifier, TsImportEqualsDecl};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -35,8 +36,8 @@ fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: impl Fn(Vec<PrintItem>) -> Vec<PrintItem> + Clone + 'static) -> Vec<PrintItem> {
-    println!("Node kind: {:?}", node.kind());
-    println!("Text: {:?}", node.text(context));
+    // println!("Node kind: {:?}", node.kind());
+    // println!("Text: {:?}", node.text(context));
 
     // store info
     let past_current_node = std::mem::replace(&mut context.current_node, node.clone());
@@ -60,9 +61,11 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExportDecl(node) => parse_export_decl(node, context),
             Node::ExportDefaultDecl(node) => parse_export_default_decl(node, context),
             Node::ExportDefaultExpr(node) => parse_export_default_expr(node, context),
+            Node::ImportDecl(node) => parse_import_decl(node, context),
             Node::NamedExport(node) => parse_export_named_decl(node, context),
             Node::TsEnumDecl(node) => parse_enum_decl(node, context),
             Node::TsEnumMember(node) => parse_enum_member(node, context),
+            Node::TsImportEqualsDecl(node) => parse_import_equals_decl(node, context),
             Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
             /* expressions */
             Node::ArrayLit(node) => parse_array_expression(node, context),
@@ -71,7 +74,11 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::FnExpr(node) => vec![node.text(context).into()], // todo
             Node::ArrowExpr(node) => vec![node.text(context).into()], // todo
             /* exports */
-            Node::NamedExportSpecifier(node) => parse_named_export_specifier(node, context),
+            Node::NamedExportSpecifier(node) => parse_export_named_specifier(node, context),
+            /* imports */
+            Node::ImportSpecific(node) => parse_import_named_specifier(node, context),
+            Node::ImportStarAs(node) => parse_import_namespace_specifier(node, context),
+            Node::ImportDefault(node) => parse_node(node.local.into(), context),
             /* literals */
             Node::BigInt(node) => parse_big_int_literal(node, context),
             Node::Bool(node) => parse_bool_literal(node),
@@ -133,7 +140,11 @@ fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
 /* declarations */
 
 fn parse_export_decl(node: ExportDecl, context: &mut Context) -> Vec<PrintItem> {
-    vec![]
+    let mut items = Vec::new();
+    // todo: parse decorators if class
+    items.push("export ".into());
+    items.extend(parse_node(node.decl.into(), context));
+    items
 }
 
 fn parse_export_default_decl(node: ExportDefaultDecl, context: &mut Context) -> Vec<PrintItem> {
@@ -250,6 +261,69 @@ fn parse_export_named_decl(node: NamedExport, context: &mut Context) -> Vec<Prin
     if context.config.export_named_declaration_semi_colon {
         items.push(";".into());
     }
+
+    items
+}
+
+fn parse_import_decl(node: ImportDecl, context: &mut Context) -> Vec<PrintItem> {
+    // todo: rewrite this so that it doesn't need to clone the current node
+
+    // fill specifiers
+    let mut default_import: Option<ImportDefault> = Option::None;
+    let mut namespace_import: Option<ImportStarAs> = Option::None;
+    let mut named_imports: Vec<ImportSpecific> = Vec::new();
+    let decl = NamedImportOrExportDeclaration::Import(node.clone()); // todo: rewrite without this
+
+    for specifier in node.specifiers {
+        match specifier {
+            ImportSpecifier::Default(node) => default_import = Some(node),
+            ImportSpecifier::Namespace(node) => namespace_import = Some(node),
+            ImportSpecifier::Specific(node) => named_imports.push(node),
+        }
+    }
+
+    let mut items = Vec::new();
+    let has_from = default_import.is_some() || namespace_import.is_some() || !named_imports.is_empty();
+    items.push("import ".into());
+
+    if let Some(default_import) = default_import {
+        items.extend(parse_node(default_import.into(), context));
+        if namespace_import.is_some() || !named_imports.is_empty() {
+            items.push(", ".into());
+        }
+    }
+    if let Some(namespace_import) = namespace_import {
+        items.extend(parse_node(namespace_import.into(), context));
+    }
+    items.extend(parse_named_import_or_export_specifiers(
+        decl,
+        named_imports.into_iter().map(|x| x.into()).collect(),
+        context
+    ));
+
+    if has_from { items.push(" from ".into()); }
+
+    items.extend(parse_node(node.src.into(), context));
+
+    if context.config.import_declaration_semi_colon {
+        items.push(";".into());
+    }
+
+    items
+}
+
+fn parse_import_equals_decl(node: TsImportEqualsDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if node.is_export {
+        items.push("export ".into());
+    }
+
+    items.push("import ".into());
+    items.extend(parse_node(node.id.into(), context));
+    items.push(" = ".into());
+    items.extend(parse_node(node.module_ref.into(), context));
+
+    if context.config.import_equals_semi_colon { items.push(";".into()); }
 
     items
 }
@@ -447,7 +521,7 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
 
 /* exports */
 
-fn parse_named_export_specifier(node: NamedExportSpecifier, context: &mut Context) -> Vec<PrintItem> {
+fn parse_export_named_specifier(node: NamedExportSpecifier, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
 
     items.extend(parse_node(node.orig.into(), context));
@@ -461,6 +535,34 @@ fn parse_named_export_specifier(node: NamedExportSpecifier, context: &mut Contex
         }).into());
     }
 
+    items
+}
+
+/* imports */
+
+fn parse_import_named_specifier(node: ImportSpecific, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    if let Some(imported) = node.imported {
+        items.extend(parse_node(imported.into(), context));
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push("as ".into());
+            items.extend(parse_node(node.local.into(), context));
+            items
+        }).into());
+    } else {
+        items.extend(parse_node(node.local.into(), context));
+    }
+
+    items
+}
+
+fn parse_import_namespace_specifier(node: ImportStarAs, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("* as ".into());
+    items.extend(parse_node(node.local.into(), context));
     items
 }
 
