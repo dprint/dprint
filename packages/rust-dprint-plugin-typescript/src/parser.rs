@@ -10,7 +10,9 @@ use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Numb
     ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
     TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, ExportSpecifier,
     DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr, ImportDecl, ImportDefault, ImportSpecific,
-    ImportStarAs, ImportSpecifier, TsImportEqualsDecl};
+    ImportStarAs, ImportSpecifier, TsImportEqualsDecl, TsTypeAssertion, UnaryExpr, UnaryOp, UpdateExpr, UpdateOp, YieldExpr,
+    RestPat, SeqExpr, SpreadElement, TaggedTpl, TplElement, AssignPatProp, AssignPat, AssignExpr, TsAsExpr, AwaitExpr, TsNonNullExpr, NewExpr,
+    ReturnStmt, ThrowStmt};
 use swc_common::{comments::{Comment, CommentKind}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -68,11 +70,23 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsImportEqualsDecl(node) => parse_import_equals_decl(node, context),
             Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
             /* expressions */
-            Node::ArrayLit(node) => parse_array_expression(node, context),
-            Node::CallExpr(node) => parse_call_expression(node, context),
+            Node::ArrayLit(node) => parse_array_expr(node, context),
+            Node::ArrowExpr(node) => vec![node.text(context).into()], // todo
+            Node::AssignExpr(node) => parse_assignment_expr(node, context),
+            Node::AwaitExpr(node) => parse_await_expr(node, context),
+            Node::CallExpr(node) => parse_call_expr(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             Node::FnExpr(node) => vec![node.text(context).into()], // todo
-            Node::ArrowExpr(node) => vec![node.text(context).into()], // todo
+            Node::NewExpr(node) => parse_new_expr(node, context),
+            Node::SeqExpr(node) => parse_sequence_expr(node, context),
+            Node::SpreadElement(node) => parse_spread_element(node, context),
+            Node::TaggedTpl(node) => parse_tagged_tpl(node, context),
+            Node::TsAsExpr(node) => parse_as_expr(node, context),
+            Node::TsNonNullExpr(node) => parse_non_null_expr(node, context),
+            Node::TsTypeAssertion(node) => parse_type_assertion(node, context),
+            Node::UnaryExpr(node) => parse_unary_expr(node, context),
+            Node::UpdateExpr(node) => parse_update_expr(node, context),
+            Node::YieldExpr(node) => parse_yield_expr(node, context),
             /* exports */
             Node::NamedExportSpecifier(node) => parse_export_named_specifier(node, context),
             /* imports */
@@ -91,6 +105,9 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::Module(node) => parse_module(node, context),
             /* patterns */
             Node::ArrayPat(node) => parse_array_pat(node, context),
+            Node::AssignPat(node) => parse_assign_pat(node, context),
+            Node::AssignPatProp(node) => parse_assign_pat_prop(node, context),
+            Node::RestPat(node) => parse_rest_pat(node, context),
             /* statements */
             Node::BreakStmt(node) => parse_break_stmt(node, context),
             Node::ContinueStmt(node) => parse_continue_stmt(node, context),
@@ -98,6 +115,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExportAll(node) => parse_export_all(node, context),
             Node::ExprStmt(node) => parse_expr_stmt(node, context),
             Node::EmptyStmt(node) => parse_empty_stmt(node, context),
+            Node::ReturnStmt(node) => parse_return_stmt(node, context),
+            Node::ThrowStmt(node) => parse_throw_stmt(node, context),
             Node::TsExportAssignment(node) => parse_export_assignment(node, context),
             Node::TsNamespaceExportDecl(node) => parse_namespace_export(node, context),
             Node::VarDecl(node) => parse_var_decl(node, context),
@@ -402,7 +421,7 @@ fn parse_named_import_or_export_specifiers(parent_decl: NamedImportOrExportDecla
 
 /* expressions */
 
-fn parse_array_expression(node: ArrayLit, context: &mut Context) -> Vec<PrintItem> {
+fn parse_array_expr(node: ArrayLit, context: &mut Context) -> Vec<PrintItem> {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
         node: node.clone().into(),
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
@@ -410,8 +429,29 @@ fn parse_array_expression(node: ArrayLit, context: &mut Context) -> Vec<PrintIte
     }, context)
 }
 
-fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
-    return if is_test_library_call_expression(&node, context) {
+fn parse_as_expr(node: TsAsExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node((*node.expr).into(), context);
+    items.push(" as ".into());
+    items.push(conditions::with_indent_if_start_of_line_indented(parse_node((*node.type_ann).into(), context)).into());
+    items
+}
+
+fn parse_assignment_expr(node: AssignExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node(node.left.into(), context);
+    items.push(format!(" {} ", node.op).into());
+    items.push(conditions::with_indent_if_start_of_line_indented(parse_node((*node.right).into(), context)).into());
+    items
+}
+
+fn parse_await_expr(node: AwaitExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("await ".into());
+    items.extend(parse_node((*node.arg).into(), context));
+    items
+}
+
+fn parse_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
+    return if is_test_library_call_expr(&node, context) {
         parse_test_library_call_expr(node, context)
     } else {
         inner_parse(node, context)
@@ -473,7 +513,7 @@ fn parse_call_expression(node: CallExpr, context: &mut Context) -> Vec<PrintItem
 
     // Tests if this is a call expression from common test libraries.
     // Be very strict here to allow the user to opt out if they'd like.
-    fn is_test_library_call_expression(node: &CallExpr, context: &mut Context) -> bool {
+    fn is_test_library_call_expr(node: &CallExpr, context: &mut Context) -> bool {
         if node.args.len() != 2 || node.type_args.is_some() || !is_valid_callee(&node.callee) {
             return false;
         }
@@ -516,6 +556,106 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
     let mut items = Vec::new();
     if node.spread.is_some() { items.push("...".into()); }
     items.extend(parse_node((*node.expr).into(), context));
+    items
+}
+
+fn parse_new_expr(node: NewExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("new ".into());
+    items.extend(parse_node((*node.callee).into(), context));
+    if let Some(type_args) = node.type_args { items.extend(parse_node(type_args.into(), context)); }
+    items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+        nodes: node.args.unwrap_or(Vec::new()).into_iter().map(|node| node.into()).collect(),
+        force_multi_line_when_multiple_lines: context.config.new_expression_force_multi_line_arguments,
+        custom_close_paren: Option::None,
+    }, context));
+    items
+}
+
+fn parse_non_null_expr(node: TsNonNullExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node((*node.expr).into(), context);
+    items.push("!".into());
+    items
+}
+
+fn parse_sequence_expr(node: SeqExpr, context: &mut Context) -> Vec<PrintItem> {
+    parse_comma_separated_values(node.exprs.into_iter().map(|box x| x.into()).collect(), |_| { Some(false) }, context)
+}
+
+fn parse_spread_element(node: SpreadElement, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("...".into());
+    items.extend(parse_node((*node.expr).into(), context));
+    items
+}
+
+fn parse_tagged_tpl(node: TaggedTpl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node((*node.tag).into(), context);
+    if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
+    items.push(PrintItem::SpaceOrNewLine);
+    items.push(conditions::indent_if_start_of_line(parse_template_literal(node.quasis, node.exprs.into_iter().map(|box x| x).collect())).into());
+    return items;
+
+    fn parse_template_literal(quasis: Vec<TplElement>, exprs: Vec<Expr>) -> Vec<PrintItem> {
+        vec![] // todo
+    }
+}
+
+fn parse_type_assertion(node: TsTypeAssertion, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("<".into());
+    items.extend(parse_node((*node.type_ann).into(), context));
+    items.push(">".into());
+    if context.config.type_assertion_space_before_expression { items.push(" ".into()); }
+    items.extend(parse_node((*node.expr).into(), context));
+    items
+}
+
+fn parse_unary_expr(node: UnaryExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.insert(0, get_operator_text(node.op).into());
+    items.extend(parse_node((*node.arg).into(), context));
+    return items;
+
+    fn get_operator_text<'a>(op: UnaryOp) -> &'a str {
+        match op {
+            UnaryOp::Void => "void ",
+            UnaryOp::TypeOf => "typeof ",
+            UnaryOp::Delete => "delete ",
+            UnaryOp::Bang => "!",
+            UnaryOp::Plus => "+",
+            UnaryOp::Minus => "-",
+            UnaryOp::Tilde => "~",
+        }
+    }
+}
+
+fn parse_update_expr(node: UpdateExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node((*node.arg).into(), context);
+    let operator_text = get_operator_text(node.op);
+    if node.prefix {
+        items.insert(0, operator_text.into());
+    } else {
+        items.push(operator_text.into());
+    }
+    return items;
+
+    fn get_operator_text<'a>(operator: UpdateOp) -> &'a str {
+        match operator {
+            UpdateOp::MinusMinus => "--",
+            UpdateOp::PlusPlus => "++",
+        }
+    }
+}
+
+fn parse_yield_expr(node: YieldExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("yield".into());
+    if node.delegate { items.push("*".into()); }
+    if let Some(box arg) = node.arg {
+        items.push(" ".into());
+        items.extend(parse_node(arg.into(), context));
+    }
     items
 }
 
@@ -642,6 +782,31 @@ fn parse_array_pat(node: ArrayPat, context: &mut Context) -> Vec<PrintItem> {
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
         trailing_commas: context.config.array_pattern_trialing_commas.clone(),
     }, context);
+    items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
+    items
+}
+
+fn parse_assign_pat(node: AssignPat, context: &mut Context) -> Vec<PrintItem> {
+    parser_helpers::new_line_group({
+        let mut items = parse_node((*node.left).into(), context);
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = vec!["= ".into()];
+            items.extend(parse_node((*node.right).into(), context));
+            items
+        }).into());
+        items
+    })
+}
+
+fn parse_assign_pat_prop(node: AssignPatProp, context: &mut Context) -> Vec<PrintItem> {
+    vec![] // todo
+}
+
+fn parse_rest_pat(node: RestPat, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("...".into());
+    items.extend(parse_node((*node.arg).into(), context));
     items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
     items
 }
@@ -783,6 +948,25 @@ fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
             Option::None
         }
     }
+}
+
+fn parse_return_stmt(node: ReturnStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("return".into());
+    if let Some(box arg) = node.arg {
+        items.push(" ".into());
+        items.extend(parse_node(arg.into(), context));
+    }
+    if context.config.return_statement_semi_colon { items.push(";".into()); }
+    items
+}
+
+fn parse_throw_stmt(node: ThrowStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("throw ".into());
+    items.extend(parse_node((*node.arg).into(), context));
+    if context.config.throw_statement_semi_colon { items.push(";".into()); }
+    items
 }
 
 fn parse_var_decl(node: VarDecl, context: &mut Context) -> Vec<PrintItem> {

@@ -1,0 +1,5 @@
+== should format ==
+throw    new Error()
+
+[expect]
+throw new Error();

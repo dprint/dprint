@@ -8,6 +8,7 @@ pub struct TypeScriptConfiguration {
     pub enum_declaration_brace_position: BracePosition,
     /* force multi-line arguments */
     pub call_expression_force_multi_line_arguments: bool,
+    pub new_expression_force_multi_line_arguments: bool,
     /* member spacing */
     pub enum_declaration_member_spacing: MemberSpacing,
     /* semi-colon */
@@ -23,6 +24,8 @@ pub struct TypeScriptConfiguration {
     pub import_declaration_semi_colon: bool,
     pub import_equals_semi_colon: bool,
     pub namespace_export_declaration_semi_colon: bool,
+    pub return_statement_semi_colon: bool,
+    pub throw_statement_semi_colon: bool,
     pub type_alias_semi_colon: bool,
     pub variable_statement_semi_colon: bool,
     /* trailing commas */
@@ -40,7 +43,14 @@ pub struct TypeScriptConfiguration {
     /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
     /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
     pub import_declaration_space_surrounding_named_imports: bool,
+    /// Whether to add a space before the colon of a type annotation.
+    /// * `true` - Ex. `function myFunction() : string`
+    /// * `false` (default) - Ex. `function myFunction(): string`
     pub type_annotation_space_before_colon: bool,
+    /// Whether to add a space before the expression in a type assertion.
+    /// * `true` (default) - Ex. `<string> myValue`
+    /// * `false` - Ex. `<string>myValue`
+    pub type_assertion_space_before_expression: bool,
 }
 
 /// Trailing comma possibilities.
@@ -92,6 +102,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", &brace_position),
         /* force multi-line arguments */
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
+        new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
         /* member spacing */
         enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
         /* semi-colon */
@@ -107,6 +118,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons),
         import_equals_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons),
         namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons),
+        return_statement_semi_colon: get_value(&mut config, "returnStatement.semiColon", semi_colons),
+        throw_statement_semi_colon: get_value(&mut config, "throwStatement.semiColon", semi_colons),
         type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
         variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
         /* trailing commas */
@@ -117,6 +130,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
         import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),
+        type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true),
     };
 
     if !config.is_empty() {

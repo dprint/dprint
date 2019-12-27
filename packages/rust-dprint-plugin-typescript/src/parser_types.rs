@@ -7,7 +7,9 @@ use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, 
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
     ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId, TsTypeAliasDecl, TsTypeParamDecl, TsTypeParam,
     TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
-    ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, TsImportEqualsDecl, TsModuleRef};
+    ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, RestPat, SeqExpr, SpreadElement, TaggedTpl,
+    TsImportEqualsDecl, TsModuleRef, TsTypeAssertion, UnaryExpr, UpdateExpr, YieldExpr, ObjectPatProp, KeyValuePatProp, AssignPatProp, AssignPat, PatOrExpr,
+    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -257,9 +259,21 @@ generate_node! [
     /* expressions */
     ArrayLit,
     ArrowExpr,
+    AssignExpr,
+    AwaitExpr,
     CallExpr,
     ExprOrSpread,
     FnExpr,
+    NewExpr,
+    SeqExpr,
+    SpreadElement,
+    TaggedTpl,
+    TsAsExpr,
+    TsNonNullExpr,
+    TsTypeAssertion,
+    UnaryExpr,
+    UpdateExpr,
+    YieldExpr,
     /* literals */
     BigInt,
     Bool,
@@ -272,6 +286,10 @@ generate_node! [
     Module,
     /* patterns */
     ArrayPat,
+    AssignPat,
+    AssignPatProp,
+    KeyValuePatProp,
+    RestPat,
     /* statements */
     BreakStmt,
     ContinueStmt,
@@ -279,6 +297,8 @@ generate_node! [
     EmptyStmt,
     ExportAll,
     ExprStmt,
+    ReturnStmt,
+    ThrowStmt,
     TsExportAssignment,
     TsNamespaceExportDecl,
     VarDecl,
@@ -345,6 +365,22 @@ generate_traits![TypeParamNode, Instantiation, Decl];
 generate_traits![ImportSpecifier, Specific, Default, Namespace];
 generate_traits![NamedImportOrExportDeclaration, Import, Export];
 generate_traits![TsLit, Number, Str, Bool];
+generate_traits![ObjectPatProp, KeyValue, Assign, Rest];
+generate_traits![PatOrExpr, Pat, Expr];
+
+/* manual From implementations */
+
+impl From<Box<Expr>> for Node {
+    fn from(expr: Box<Expr>) -> Node {
+        (*expr).into()
+    }
+}
+
+impl From<Box<Pat>> for Node {
+    fn from(pat: Box<Pat>) -> Node {
+        (*pat).into()
+    }
+}
 
 /* temporary manual from implementations */
 
@@ -372,10 +408,21 @@ impl From<Expr> for Node {
         match expr {
             Expr::Array(node) => node.into(),
             Expr::Arrow(node) => node.into(),
+            Expr::Assign(node) => node.into(),
+            Expr::Await(node) => node.into(),
             Expr::Call(node) => node.into(),
             Expr::Fn(node) => node.into(),
             Expr::Ident(node) => node.into(),
             Expr::Lit(node) => node.into(),
+            Expr::New(node) => node.into(),
+            Expr::Seq(node) => node.into(),
+            Expr::TaggedTpl(node) => node.into(),
+            Expr::TsAs(node) => node.into(),
+            Expr::TsNonNull(node) => node.into(),
+            Expr::TsTypeAssertion(node) => node.into(),
+            Expr::Unary(node) => node.into(),
+            Expr::Update(node) => node.into(),
+            Expr::Yield(node) => node.into(),
             _ => Node::Unknown(expr.span()), // todo: implement others
         }
     }
@@ -411,6 +458,7 @@ impl From<Pat> for Node {
     fn from(pat: Pat) -> Node {
         match pat {
             Pat::Array(node) => node.into(),
+            Pat::Assign(node) => node.into(),
             Pat::Ident(node) => node.into(),
             _ => Node::Unknown(pat.span()), // todo: implement others
         }
@@ -426,6 +474,8 @@ impl From<Stmt> for Node {
             Stmt::Decl(node) => node.into(),
             Stmt::Empty(node) => node.into(),
             Stmt::Expr(node) => node.into(),
+            Stmt::Return(node) => node.into(),
+            Stmt::Throw(node) => node.into(),
             _ => Node::Unknown(stmt.span()), // todo: implement others
         }
     }
@@ -472,11 +522,23 @@ impl NodeKinded for Decl {
 impl NodeKinded for Expr {
     fn kind(&self) -> NodeKind {
         match self {
+            Expr::Array(node) => node.kind(),
             Expr::Arrow(node) => node.kind(),
+            Expr::Assign(node) => node.kind(),
+            Expr::Await(node) => node.kind(),
             Expr::Call(node) => node.kind(),
             Expr::Fn(node) => node.kind(),
             Expr::Ident(node) => node.kind(),
             Expr::Lit(node) => node.kind(),
+            Expr::New(node) => node.kind(),
+            Expr::Seq(node) => node.kind(),
+            Expr::TaggedTpl(node) => node.kind(),
+            Expr::TsAs(node) => node.kind(),
+            Expr::TsNonNull(node) => node.kind(),
+            Expr::TsTypeAssertion(node) => node.kind(),
+            Expr::Unary(node) => node.kind(),
+            Expr::Update(node) => node.kind(),
+            Expr::Yield(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
     }
@@ -512,6 +574,7 @@ impl NodeKinded for Pat {
     fn kind(&self) -> NodeKind {
         match self {
             Pat::Array(node) => node.kind(),
+            Pat::Assign(node) => node.kind(),
             Pat::Ident(node) => node.kind(),
             _ => NodeKind::Unknown, // todo: implement others
         }
@@ -527,6 +590,8 @@ impl NodeKinded for Stmt {
             Stmt::Debugger(node) => node.kind(),
             Stmt::Empty(node) => node.kind(),
             Stmt::Expr(node) => node.kind(),
+            Stmt::Return(node) => node.kind(),
+            Stmt::Throw(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
     }
