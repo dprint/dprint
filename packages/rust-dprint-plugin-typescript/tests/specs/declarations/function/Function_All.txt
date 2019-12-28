@@ -1,22 +1,39 @@
 ~~ lineWidth: 80 ~~
 == should format everything in a function declaration ==
-export async function*
+export async function
 test<T, U>
 (p, u): string
 {
 }
 
 [expect]
-export async function* test<T, U>(p, u): string {
+export async function test<T, U>(p, u): string {
 }
 
-== should format a declare function ==
-export declare async function*
+== should format a generator ==
+export function* test (  )  :   string
+{
+}
+
+[expect]
+export function* test(): string {
+}
+
+== should format a declare function with an export keyword ==
+export declare function
 test<T, U>
 (p, u): string;
 
 [expect]
-export declare async function* test<T, U>(p, u): string;
+export declare function test<T, U>(p, u): string;
+
+== should format a declare function without an export keyword ==
+declare function
+test<T, U>
+(p, u): string;
+
+[expect]
+declare function test<T, U>(p, u): string;
 
 == should format the return type as hanging when it's hanging ==
 function testing(param: string, other: number, finalParameter: string): testing | this {

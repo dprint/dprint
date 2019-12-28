@@ -53,7 +53,9 @@ fn get_specs() -> Vec<(String, Spec)> {
     let spec_files = get_spec_files();
     for (file_path, text) in spec_files {
         let specs = parse_specs(text, ParseSpecOptions { default_file_name: "file.ts" });
-        for spec in specs {
+        let is_only_file = file_path.to_ascii_lowercase().contains("_only.txt") && !specs.iter().any(|spec| spec.is_only);
+        for mut spec in specs {
+            if is_only_file { spec.is_only = true; }
             result.push((file_path.clone(), spec));
         }
     }

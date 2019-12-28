@@ -160,10 +160,6 @@ impl Info {
             name
         }
     }
-
-    pub fn into_clone<TString, TCondition>(&self) -> PrintItem<TString, Info, TCondition> where TString : StringRef, TCondition : ConditionRef<TString, Info, TCondition> {
-        PrintItem::Info(Rc::new(self.clone()))
-    }
 }
 
 /// Conditionally print items based on a condition.
@@ -207,10 +203,6 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo 
             true_path: properties.true_path.map(|x| Rc::new(x)),
             false_path: properties.false_path.map(|x| Rc::new(x)),
         }
-    }
-
-    pub fn into_clone(&self) -> PrintItem<TString, TInfo, Condition<TString, TInfo>> {
-        PrintItem::Condition(Rc::new(self.clone()))
     }
 }
 

@@ -1,5 +1,0 @@
-== should format ==
-throw    new Error("testing")
-
-[expect]
-throw new Error("testing");

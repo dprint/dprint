@@ -6,9 +6,14 @@ pub struct TypeScriptConfiguration {
     pub line_width: u32,
     /* brace position */
     pub enum_declaration_brace_position: BracePosition,
+    pub function_declaration_brace_position: BracePosition,
+    pub function_expression_brace_position: BracePosition,
     /* force multi-line arguments */
     pub call_expression_force_multi_line_arguments: bool,
     pub new_expression_force_multi_line_arguments: bool,
+    /* force multi-line parameters */
+    pub function_declaration_force_multi_line_parameters: bool,
+    pub function_expression_force_multi_line_parameters: bool,
     /* member spacing */
     pub enum_declaration_member_spacing: MemberSpacing,
     /* semi-colon */
@@ -21,6 +26,7 @@ pub struct TypeScriptConfiguration {
     pub export_default_expression_semi_colon: bool,
     pub export_named_declaration_semi_colon: bool,
     pub expression_statement_semi_colon: bool,
+    pub function_declaration_semi_colon: bool,
     pub import_declaration_semi_colon: bool,
     pub import_equals_semi_colon: bool,
     pub namespace_export_declaration_semi_colon: bool,
@@ -39,6 +45,14 @@ pub struct TypeScriptConfiguration {
     /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
     /// * `false` - Ex. `export {SomeExport, OtherExport};`
     pub export_declaration_space_surrounding_named_exports: bool,
+    /// Whether to add a space before the parentheses of a function declaration.
+    /// * `true` - Ex. `function myFunction ()`
+    /// * `false` (default) - Ex. `function myFunction()`
+    pub function_declaration_space_before_parentheses: bool,
+    /// Whether to add a space before the parentheses of a function expression.
+    /// `true` - Ex. `function ()`
+    /// `false` (default) - Ex. `function()`
+    pub function_expression_space_before_parentheses: bool,
     /// Whether to add spaces around named imports in an import declaration.
     /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
     /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
@@ -92,6 +106,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
     let mut config = config.clone();
     let semi_colons = get_value(&mut config, "semiColons", true);
     let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false);
+    let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false);
     let trailing_commas = get_trailing_commas(&mut config, "trailingCommas", &TrailingCommas::Never);
     let brace_position = get_brace_position(&mut config, "bracePosition", &BracePosition::NextLineIfHanging);
 
@@ -100,9 +115,14 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         single_quotes: get_value(&mut config, "singleQuotes", false),
         /* brace position */
         enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", &brace_position),
+        function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", &brace_position),
+        function_expression_brace_position: get_brace_position(&mut config, "functionExpression.bracePosition", &brace_position),
         /* force multi-line arguments */
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
         new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
+        /* force multi-line parameters */
+        function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters),
+        function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters),
         /* member spacing */
         enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
         /* semi-colon */
@@ -115,6 +135,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         export_default_expression_semi_colon: get_value(&mut config, "exportDefaultExpression.semiColon", semi_colons),
         export_named_declaration_semi_colon: get_value(&mut config, "exportNamedDeclaration.semiColon", semi_colons),
         expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
+        function_declaration_semi_colon: get_value(&mut config, "functionDeclaration.semiColon", semi_colons),
         import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons),
         import_equals_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons),
         namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons),
@@ -128,6 +149,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", &trailing_commas),
         /* space settings */
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
+        function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false),
+        function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false),
         import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),
         type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true),

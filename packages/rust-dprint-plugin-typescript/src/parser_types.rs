@@ -9,14 +9,14 @@ use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, 
     TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
     ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, RestPat, SeqExpr, SpreadElement, TaggedTpl,
     TsImportEqualsDecl, TsModuleRef, TsTypeAssertion, UnaryExpr, UpdateExpr, YieldExpr, ObjectPatProp, KeyValuePatProp, AssignPatProp, AssignPat, PatOrExpr,
-    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt};
+    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
     pub comments: Rc<Comments>,
     tokens: Rc<Vec<TokenAndSpan>>,
-    file_bytes: Rc<Vec<u8>>,
+    pub file_bytes: Rc<Vec<u8>>,
     pub current_node: Node,
     pub parent_stack: Vec<Node>,
     handled_comments: HashSet<BytePos>,
@@ -243,6 +243,8 @@ generate_node! [
     ExportDecl,
     ExportDefaultDecl,
     ExportDefaultExpr,
+    FnDecl,
+    Function,
     NamedExport,
     ImportDecl,
     TsEnumDecl,
@@ -291,6 +293,7 @@ generate_node! [
     KeyValuePatProp,
     RestPat,
     /* statements */
+    BlockStmt,
     BreakStmt,
     ContinueStmt,
     DebuggerStmt,
@@ -387,6 +390,7 @@ impl From<Box<Pat>> for Node {
 impl From<Decl> for Node {
     fn from(decl: Decl) -> Node {
         match decl {
+            Decl::Fn(node) => node.into(),
             Decl::TsEnum(node) => node.into(),
             Decl::TsTypeAlias(node) => node.into(),
             Decl::Var(node) => node.into(),
@@ -468,6 +472,7 @@ impl From<Pat> for Node {
 impl From<Stmt> for Node {
     fn from(stmt: Stmt) -> Node {
         match stmt {
+            Stmt::Block(node) => node.into(),
             Stmt::Break(node) => node.into(),
             Stmt::Continue(node) => node.into(),
             Stmt::Debugger(node) => node.into(),
@@ -511,6 +516,7 @@ impl NodeKinded for DefaultDecl {
 impl NodeKinded for Decl {
     fn kind(&self) -> NodeKind {
         match self {
+            Decl::Fn(node) => node.kind(),
             Decl::TsEnum(node) => node.kind(),
             Decl::TsTypeAlias(node) => node.kind(),
             Decl::Var(node) => node.kind(),
@@ -584,6 +590,7 @@ impl NodeKinded for Pat {
 impl NodeKinded for Stmt {
     fn kind(&self) -> NodeKind {
         match self {
+            Stmt::Block(node) => node.kind(),
             Stmt::Break(node) => node.kind(),
             Stmt::Continue(node) => node.kind(),
             Stmt::Decl(node) => node.kind(),

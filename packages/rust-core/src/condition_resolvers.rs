@@ -35,3 +35,14 @@ pub fn is_hanging(condition_context: &mut ConditionResolverContext, start_info: 
         }
     }
 }
+
+pub fn are_infos_equal(condition_context: &mut ConditionResolverContext, start_info: &Info, end_info: &Info) -> Option<bool> {
+    if let Some(start_info) = condition_context.get_resolved_info(start_info) {
+        if let Some(end_info) = condition_context.get_resolved_info(end_info) {
+            return Some(start_info.line_number == end_info.line_number
+                && start_info.column_number == end_info.column_number);
+        }
+    }
+
+    return Option::None;
+}

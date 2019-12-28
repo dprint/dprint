@@ -43,7 +43,10 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         let tokens = parser.input().take();
 
         match parse_module_result {
-            Err(error) => Err(error.message()),
+            Err(error) => {
+                println!("Error: {}", error.message());
+                Err(error.message())
+            },
             Ok(module) => Ok((module, tokens))
         }
     }?;

@@ -1,6 +1,6 @@
 ~~ throwStatement.semiColon: false ~~
 == should remove the semi-colon ==
-throw 5  ;
+throw "test";
 
 [expect]
-throw 5
+throw "test"

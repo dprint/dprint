@@ -3871,14 +3871,14 @@ function* parseCommaSeparatedValues(options: ParseCommaSeparatedValuesOptions): 
     }
 }
 
-interface ParseFunctionOrMethodReturnTypeWithCloseParenOptions {
+interface ParseCloseParenWithTypeOptions {
     context: Context;
     startInfo: Info;
     typeNode: babel.Node | null;
     typeNodeSeparator?: PrintItemIterable;
 }
 
-function* parseCloseParenWithType(opts: ParseFunctionOrMethodReturnTypeWithCloseParenOptions): PrintItemIterable {
+function* parseCloseParenWithType(opts: ParseCloseParenWithTypeOptions): PrintItemIterable {
     const { context, startInfo, typeNode, typeNodeSeparator } = opts;
     const typeNodeStartInfo = createInfo("typeNodeStart");
     const typeNodeEndInfo = createInfo("typeNodeEnd");

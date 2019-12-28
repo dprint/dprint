@@ -1,7 +1,5 @@
 extern crate dprint_core;
 
-use std::rc::Rc;
-
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
@@ -12,8 +10,8 @@ use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Numb
     DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr, ImportDecl, ImportDefault, ImportSpecific,
     ImportStarAs, ImportSpecifier, TsImportEqualsDecl, TsTypeAssertion, UnaryExpr, UnaryOp, UpdateExpr, UpdateOp, YieldExpr,
     RestPat, SeqExpr, SpreadElement, TaggedTpl, TplElement, AssignPatProp, AssignPat, AssignExpr, TsAsExpr, AwaitExpr, TsNonNullExpr, NewExpr,
-    ReturnStmt, ThrowStmt};
-use swc_common::{comments::{Comment, CommentKind}};
+    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt};
+use swc_common::{comments::{Comment, CommentKind}, Spanned};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let mut context = Context::new(
@@ -63,6 +61,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExportDecl(node) => parse_export_decl(node, context),
             Node::ExportDefaultDecl(node) => parse_export_default_decl(node, context),
             Node::ExportDefaultExpr(node) => parse_export_default_expr(node, context),
+            Node::FnDecl(node) => parse_function_decl(node, context),
             Node::ImportDecl(node) => parse_import_decl(node, context),
             Node::NamedExport(node) => parse_export_named_decl(node, context),
             Node::TsEnumDecl(node) => parse_enum_decl(node, context),
@@ -109,6 +108,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::AssignPatProp(node) => parse_assign_pat_prop(node, context),
             Node::RestPat(node) => parse_rest_pat(node, context),
             /* statements */
+            Node::BlockStmt(node) => parse_block_stmt(node, context),
             Node::BreakStmt(node) => parse_break_stmt(node, context),
             Node::ContinueStmt(node) => parse_continue_stmt(node, context),
             Node::DebuggerStmt(node) => parse_debugger_stmt(node, context),
@@ -188,7 +188,7 @@ fn parse_enum_decl(node: TsEnumDecl, context: &mut Context) -> Vec<PrintItem> {
     let node_clone = node.clone();
 
     // header
-    items.push(start_header_info.into_clone());
+    items.push(start_header_info.clone().into());
 
     if node.declare { items.push("declare ".into()); }
     if node.is_const { items.push("const ".into()); }
@@ -282,6 +282,85 @@ fn parse_export_named_decl(node: NamedExport, context: &mut Context) -> Vec<Prin
     }
 
     items
+}
+
+fn parse_function_decl(node: FnDecl, context: &mut Context) -> Vec<PrintItem> {
+    parse_function_decl_or_expr(FunctionDeclOrExprNode {
+        is_func_decl: true,
+        ident: Some(node.ident),
+        declare: node.declare,
+        func: node.function,
+    }, context)
+}
+
+struct FunctionDeclOrExprNode {
+    is_func_decl: bool,
+    ident: Option<Ident>,
+    declare: bool,
+    func: Function,
+}
+
+fn parse_function_decl_or_expr(node: FunctionDeclOrExprNode, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let start_header_info = Info::new("functionHeaderStart");
+    let func = node.func;
+
+    items.push(start_header_info.clone().into());
+    if node.declare { items.push("declare ".into()); }
+    if func.is_async { items.push("async ".into()); }
+    items.push("function".into());
+    if func.is_generator { items.push("*".into()); }
+    if let Some(ident) = node.ident {
+        items.push(" ".into());
+        items.extend(parse_node(ident.into(), context));
+    }
+    if let Some(type_params) = func.type_params { items.extend(parse_node(type_params.into(), context)); }
+    if get_use_space_before_parens(node.is_func_decl, context) { items.push(" ".into()); }
+
+    items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+        nodes: func.params.into_iter().map(|node| node.into()).collect(),
+        force_multi_line_when_multiple_lines: if node.is_func_decl {
+            context.config.function_declaration_force_multi_line_parameters
+        } else {
+            context.config.function_expression_force_multi_line_parameters
+        },
+        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+            start_info: start_header_info.clone(),
+            type_node: func.return_type.map(|x| x.into()),
+            type_node_separator: Option::None,
+        }, context)),
+    }, context));
+
+    if let Some(body) = func.body {
+        let brace_position = if node.is_func_decl {
+            context.config.function_declaration_brace_position.clone()
+        } else {
+            context.config.function_expression_brace_position.clone()
+        };
+        let body_node = Node::from(body);
+
+        items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
+            brace_position: &brace_position,
+            body_node: &body_node,
+            start_header_info: Some(start_header_info),
+        }, context));
+
+        items.extend(parse_node(body_node, context));
+    } else {
+        if context.config.function_declaration_semi_colon {
+            items.push(";".into());
+        }
+    }
+
+    return items;
+
+    fn get_use_space_before_parens(is_func_decl: bool, context: &mut Context) -> bool {
+        if is_func_decl {
+            context.config.function_declaration_space_before_parentheses
+        } else {
+            context.config.function_expression_space_before_parentheses
+        }
+    }
 }
 
 fn parse_import_decl(node: ImportDecl, context: &mut Context) -> Vec<PrintItem> {
@@ -766,7 +845,6 @@ fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
 fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
     parse_statements_or_members(ParseStatementsOrMembersOptions {
         items: node.body.into_iter().map(|module_item| (module_item.into(), Option::None)).collect(),
-        last_node: Option::None,
         should_use_space: Option::None,
         should_use_new_line: Option::None,
         should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
@@ -812,6 +890,39 @@ fn parse_rest_pat(node: RestPat, context: &mut Context) -> Vec<PrintItem> {
 }
 
 /* statements */
+
+fn parse_block_stmt(node: BlockStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let start_statements_info = Info::new("startStatementsInfo");
+    let end_statements_info = Info::new("endStatementsInfo");
+
+    items.push("{".into());
+
+    // todo: inner comments
+
+    let is_arrow_or_fn_expr = match context.parent().kind() { NodeKind::ArrowExpr | NodeKind::FnExpr => true, _ => false };
+    // todo: inner comments on this condition
+    if is_arrow_or_fn_expr && node.start_line(context) == node.end_line(context) && node.stmts.is_empty() && node.leading_comments(context).is_empty() {
+        items.push("}".into());
+        return items;
+    }
+
+    items.extend(parse_first_line_trailing_comments(&node, node.stmts.iter().next().map(|x| x as &dyn Spanned), context));
+    items.push(PrintItem::NewLine);
+    items.push(start_statements_info.clone().into());
+    items.extend(parser_helpers::with_indent(parse_statements(node.stmts.into_iter().map(|stmt| stmt.into()).collect(), context)));
+    items.push(end_statements_info.clone().into());
+    items.push(Condition::new("endStatementsNewLine", ConditionProperties {
+        condition: Box::new(move |context| {
+            condition_resolvers::are_infos_equal(context, &start_statements_info, &end_statements_info)
+        }),
+        true_path: Option::None,
+        false_path: Some(vec![PrintItem::NewLine]),
+    }).into());
+    items.push("}".into());
+
+    return items;
+}
 
 fn parse_break_stmt(node: BreakStmt, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
@@ -1212,6 +1323,36 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Vec<PrintItem> {
     }
 }
 
+fn parse_first_line_trailing_comments(node: &dyn Spanned, first_member: Option<&dyn Spanned>, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let node_start_line = node.start_line(context);
+
+    for comment in get_comments(&node, &first_member, context) {
+        if context.has_handled_comment(&comment) {
+            continue;
+        }
+
+        if comment.start_line(context) == node_start_line {
+            if comment.kind == CommentKind::Line {
+                items.push(" ".into());
+            }
+            items.extend(parse_comment(&comment, context));
+        }
+    }
+
+    return items;
+
+    fn get_comments(node: &dyn Spanned, first_member: &Option<&dyn Spanned>, context: &mut Context) -> Vec<Comment> {
+        let mut comments = Vec::new();
+        // todo: inner comments?
+        if let Some(first_member) = first_member {
+            comments.extend(first_member.leading_comments(context));
+        }
+        comments.extend(node.trailing_comments(context));
+        return comments;
+    }
+}
+
 /* helpers */
 
 struct ParseArrayLikeNodesOptions {
@@ -1301,8 +1442,8 @@ fn parse_membered_body(opts: ParseMemberedBodyOptions, context: &mut Context) ->
     let node = opts.node;
 
     items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
-        brace_position: opts.brace_position,
-        body_node: context.get_first_open_brace_token_within(&node).map(|x| Node::from(x)).unwrap_or(node),
+        brace_position: &opts.brace_position,
+        body_node: &context.get_first_open_brace_token_within(&node).map(|x| Node::from(x)).unwrap_or(node),
         start_header_info: opts.start_header_info,
     }, context));
 
@@ -1316,7 +1457,6 @@ fn parse_membered_body(opts: ParseMemberedBodyOptions, context: &mut Context) ->
 
         items.extend(parse_statements_or_members(ParseStatementsOrMembersOptions {
             items: opts.members.into_iter().map(|node| (node, Option::None)).collect(),
-            last_node: Option::None,
             should_use_space: Option::None,
             should_use_new_line: Option::None,
             should_use_blank_line: opts.should_use_blank_line,
@@ -1331,9 +1471,18 @@ fn parse_membered_body(opts: ParseMemberedBodyOptions, context: &mut Context) ->
     items
 }
 
+fn parse_statements(stmts: Vec<Node>, context: &mut Context) -> Vec<PrintItem> {
+    parse_statements_or_members(ParseStatementsOrMembersOptions {
+        items: stmts.into_iter().map(|stmt| (stmt, Option::None)).collect(),
+        should_use_space: Option::None,
+        should_use_new_line: Option::None,
+        should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+        trailing_commas: Option::None,
+    }, context)
+}
+
 struct ParseStatementsOrMembersOptions {
     items: Vec<(Node, Option<Vec<PrintItem>>)>,
-    last_node: Option<Node>,
     should_use_space: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
     should_use_new_line: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
     should_use_blank_line: Box<dyn Fn(&Node, &Node, &mut Context) -> bool>,
@@ -1341,7 +1490,7 @@ struct ParseStatementsOrMembersOptions {
 }
 
 fn parse_statements_or_members(opts: ParseStatementsOrMembersOptions, context: &mut Context) -> Vec<PrintItem> {
-    let mut last_node = opts.last_node;
+    let mut last_node: Option<Node> = Option::None;
     let mut items = Vec::new();
     let children_len = opts.items.len();
 
@@ -1465,6 +1614,58 @@ fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, contex
     }
 }
 
+struct ParseCloseParenWithTypeOptions {
+    start_info: Info,
+    type_node: Option<Node>,
+    type_node_separator: Option<Vec<PrintItem>>,
+}
+
+fn parse_close_paren_with_type(opts: ParseCloseParenWithTypeOptions, context: &mut Context) -> Vec<PrintItem> {
+    let type_node_start_info = Info::new("typeNodeStart");
+    let type_node_end_info = Info::new("typeNodeEnd");
+    let start_info = opts.start_info;
+    let parsed_type_node = parse_type_node(opts.type_node, opts.type_node_separator, type_node_start_info.clone(), type_node_end_info.clone(), context);
+    let mut items = Vec::new();
+
+    items.push(Condition::new("newLineIfHeaderHangingAndTypeNodeMultipleLines", ConditionProperties {
+        condition: Box::new(move |context| {
+            if let Some(is_hanging) = condition_resolvers::is_hanging(context, &start_info, &Option::None) {
+                if let Some(is_multiple_lines) = condition_resolvers::is_multiple_lines(context, &type_node_start_info, &type_node_end_info) {
+                    return Some(is_hanging && is_multiple_lines);
+                }
+            }
+            return Option::None;
+        }),
+        true_path: Some(vec![PrintItem::NewLine]),
+        false_path: Option::None,
+    }).into());
+    items.push(")".into());
+    items.extend(parsed_type_node);
+    return items;
+
+    fn parse_type_node(
+        type_node: Option<Node>,
+        type_node_separator: Option<Vec<PrintItem>>,
+        type_node_start_info: Info,
+        type_node_end_info: Info,
+        context: &mut Context
+    ) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        if let Some(type_node) = type_node {
+            items.push(type_node_start_info.into());
+            if let Some(type_node_separator) = type_node_separator {
+                items.extend(type_node_separator);
+            } else {
+                if context.config.type_annotation_space_before_colon { items.push(" ".into()); }
+                items.push(": ".into());
+            }
+            items.extend(parse_node(type_node.into(), context));
+            items.push(type_node_end_info.into());
+        }
+        return items;
+    }
+}
+
 fn parse_comma_separated_values(
     values: Vec<Node>,
     multi_line_or_hanging_condition_resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
@@ -1531,13 +1732,13 @@ fn parse_node_with_preceeding_colon(node: Option<Node>, context: &mut Context) -
     items
 }
 
-struct ParseBraceSeparatorOptions {
-    brace_position: BracePosition,
-    body_node: Node,
+struct ParseBraceSeparatorOptions<'a> {
+    brace_position: &'a BracePosition,
+    body_node: &'a Node,
     start_header_info: Option<Info>,
 }
 
-fn parse_brace_separator(opts: ParseBraceSeparatorOptions, context: &mut Context) -> Vec<PrintItem> {
+fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut Context) -> Vec<PrintItem> {
     match opts.brace_position {
         BracePosition::NextLineIfHanging => {
             if let Some(start_header_info) = opts.start_header_info {
@@ -1557,7 +1758,12 @@ fn parse_brace_separator(opts: ParseBraceSeparatorOptions, context: &mut Context
             vec![PrintItem::NewLine]
         },
         BracePosition::Maintain => {
-            vec![] // todo
+            let is_expr = match opts.body_node.kind() { NodeKind::BlockStmt | NodeKind::TokenAndSpan => false, _ => true };
+            if !is_expr && node_helpers::is_first_node_on_line(&opts.body_node, context) {
+                vec![PrintItem::NewLine]
+            } else {
+                vec![" ".into()]
+            }
         },
     }
 }
