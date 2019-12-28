@@ -4,7 +4,10 @@ use std::collections::HashMap;
 pub struct TypeScriptConfiguration {
     pub single_quotes: bool,
     pub line_width: u32,
+    /* use parentheses */
+    pub arrow_function_expression_use_parentheses: UseParentheses,
     /* brace position */
+    pub arrow_function_expression_brace_position: BracePosition,
     pub enum_declaration_brace_position: BracePosition,
     pub function_declaration_brace_position: BracePosition,
     pub function_expression_brace_position: BracePosition,
@@ -12,6 +15,7 @@ pub struct TypeScriptConfiguration {
     pub call_expression_force_multi_line_arguments: bool,
     pub new_expression_force_multi_line_arguments: bool,
     /* force multi-line parameters */
+    pub arrow_function_expression_force_multi_line_parameters: bool,
     pub function_declaration_force_multi_line_parameters: bool,
     pub function_expression_force_multi_line_parameters: bool,
     /* member spacing */
@@ -102,6 +106,17 @@ pub enum MemberSpacing {
     BlankLine,
 }
 
+/// Whether to use parentheses around a single parameter in an arrow function.
+#[derive(Clone)]
+pub enum UseParentheses {
+    /// Maintains the current state of the parentheses.
+    Maintain,
+    /// Forces parentheses.
+    Force,
+    /// Prefers not using parentheses when possible.
+    PreferNone,
+}
+
 pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfiguration {
     let mut config = config.clone();
     let semi_colons = get_value(&mut config, "semiColons", true);
@@ -113,7 +128,10 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
     let resolved_config = TypeScriptConfiguration {
         line_width: get_value(&mut config, "lineWidth", 120),
         single_quotes: get_value(&mut config, "singleQuotes", false),
+        /* use parentheses */
+        arrow_function_expression_use_parentheses: get_use_parentheses(&mut config, "arrowFunctionExpression.useParentheses", &UseParentheses::Maintain),
         /* brace position */
+        arrow_function_expression_brace_position: get_brace_position(&mut config, "arrowFunctionExpression.bracePosition", &brace_position),
         enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", &brace_position),
         function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", &brace_position),
         function_expression_brace_position: get_brace_position(&mut config, "functionExpression.bracePosition", &brace_position),
@@ -121,6 +139,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
         new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
         /* force multi-line parameters */
+        arrow_function_expression_force_multi_line_parameters: get_value(&mut config, "arrowFunctionExpression.forceMultiLineParameters", force_multi_line_parameters),
         function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters),
         function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters),
         /* member spacing */
@@ -226,6 +245,26 @@ fn get_member_spacing(
             "maintain" => MemberSpacing::Maintain,
             "blankline" => MemberSpacing::BlankLine,
             "newline" => MemberSpacing::NewLine,
+            "" => default_value.clone(),
+            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
+        }
+    } else {
+        default_value.clone()
+    }
+}
+
+fn get_use_parentheses(
+    config: &mut HashMap<String, String>,
+    prop: &str,
+    default_value: &UseParentheses
+) -> UseParentheses {
+    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
+    config.remove(prop);
+    if let Some(value) = value {
+        match value.as_ref() {
+            "maintain" => UseParentheses::Maintain,
+            "force" => UseParentheses::Force,
+            "preferNone" => UseParentheses::PreferNone,
             "" => default_value.clone(),
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }

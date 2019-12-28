@@ -3,15 +3,16 @@ extern crate dprint_core;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
-use super::configuration::{BracePosition, MemberSpacing, TrailingCommas};
+use super::configuration::{BracePosition, MemberSpacing, TrailingCommas, UseParentheses};
 use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, BreakStmt,
     ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
     TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, ExportSpecifier,
     DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr, ImportDecl, ImportDefault, ImportSpecific,
     ImportStarAs, ImportSpecifier, TsImportEqualsDecl, TsTypeAssertion, UnaryExpr, UnaryOp, UpdateExpr, UpdateOp, YieldExpr,
     RestPat, SeqExpr, SpreadElement, TaggedTpl, TplElement, AssignPatProp, AssignPat, AssignExpr, TsAsExpr, AwaitExpr, TsNonNullExpr, NewExpr,
-    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt};
+    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt, ArrowExpr, Pat};
 use swc_common::{comments::{Comment, CommentKind}, Spanned};
+use swc_ecma_parser::{token::{Token}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let mut context = Context::new(
@@ -70,7 +71,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
             /* expressions */
             Node::ArrayLit(node) => parse_array_expr(node, context),
-            Node::ArrowExpr(node) => vec![node.text(context).into()], // todo
+            Node::ArrowExpr(node) => parse_arrow_func_expr(node, context),
             Node::AssignExpr(node) => parse_assignment_expr(node, context),
             Node::AwaitExpr(node) => parse_await_expr(node, context),
             Node::CallExpr(node) => parse_call_expr(node, context),
@@ -508,6 +509,73 @@ fn parse_array_expr(node: ArrayLit, context: &mut Context) -> Vec<PrintItem> {
     }, context)
 }
 
+fn parse_arrow_func_expr(node: ArrowExpr, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let header_start_info = Info::new("arrowFunctionExpressionHeaderStart");
+    let should_use_params = get_should_use_params(&node, context);
+
+    items.push(header_start_info.clone().into());
+    if node.is_async { items.push("async ".into()); }
+    if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
+
+    if should_use_params {
+        items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+            nodes: node.params.into_iter().map(|node| node.into()).collect(),
+            force_multi_line_when_multiple_lines: context.config.arrow_function_expression_force_multi_line_parameters,
+            custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+                start_info: header_start_info.clone(),
+                type_node: node.return_type.map(|x| x.into()),
+                type_node_separator: Option::None,
+            }, context)),
+        }, context));
+    } else {
+        items.extend(parse_node(node.params.into_iter().next().unwrap().into(), context));
+    }
+
+    items.push(" =>".into());
+
+    let body_node = Node::from(node.body);
+    items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
+        brace_position: &context.config.arrow_function_expression_brace_position.clone(),
+        body_node: &body_node,
+        start_header_info: Some(header_start_info),
+    }, context));
+
+    items.extend(parse_node(body_node, context));
+
+    return items;
+
+    fn get_should_use_params(node: &ArrowExpr, context: &mut Context) -> bool {
+        let requires_parens = node.params.len() != 1 || node.return_type.is_some() || is_first_param_not_identifier_or_has_type_annotation(&node.params);
+
+        return if requires_parens {
+            true
+        } else {
+            match context.config.arrow_function_expression_use_parentheses {
+                UseParentheses::Force => true,
+                UseParentheses::PreferNone => false,
+                UseParentheses::Maintain => has_parentheses(&node, context),
+            }
+        };
+
+        fn is_first_param_not_identifier_or_has_type_annotation(params: &Vec<Pat>) -> bool {
+            let first_param = params.iter().next();
+            match first_param {
+                Some(Pat::Ident(node)) => node.type_ann.is_some(),
+                _ => true
+            }
+        }
+
+        fn has_parentheses(node: &ArrowExpr, context: &mut Context) -> bool {
+            if node.params.len() != 1 {
+                true
+            } else {
+                context.get_token_at(node).token == Token::LParen
+            }
+        }
+    }
+}
+
 fn parse_as_expr(node: TsAsExpr, context: &mut Context) -> Vec<PrintItem> {
     let mut items = parse_node((*node.expr).into(), context);
     items.push(" as ".into());
@@ -831,7 +899,7 @@ fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
         let token = context.get_token_at(node);
         let raw_string_text = token.text(context);
         let string_value = raw_string_text.chars().skip(1).take(raw_string_text.chars().count() - 2).collect::<String>();
-        let is_double_quote = string_value.chars().next().unwrap() == '"';
+        let is_double_quote = raw_string_text.chars().next().unwrap() == '"';
 
         match is_double_quote {
             true => string_value.replace("\\\"", "\""),

@@ -9,7 +9,7 @@ use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, 
     TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
     ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, RestPat, SeqExpr, SpreadElement, TaggedTpl,
     TsImportEqualsDecl, TsModuleRef, TsTypeAssertion, UnaryExpr, UpdateExpr, YieldExpr, ObjectPatProp, KeyValuePatProp, AssignPatProp, AssignPat, PatOrExpr,
-    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt};
+    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt, BlockStmtOrExpr};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -361,15 +361,16 @@ macro_rules! generate_traits {
     };
 }
 
+generate_traits![BlockStmtOrExpr, BlockStmt, Expr];
 generate_traits![Lit, BigInt, Bool, JSXText, Null, Num, Regex, Str];
-generate_traits![ModuleItem, Stmt, ModuleDecl];
-generate_traits![TsEnumMemberId, Ident, Str];
-generate_traits![TypeParamNode, Instantiation, Decl];
 generate_traits![ImportSpecifier, Specific, Default, Namespace];
+generate_traits![ModuleItem, Stmt, ModuleDecl];
 generate_traits![NamedImportOrExportDeclaration, Import, Export];
-generate_traits![TsLit, Number, Str, Bool];
 generate_traits![ObjectPatProp, KeyValue, Assign, Rest];
 generate_traits![PatOrExpr, Pat, Expr];
+generate_traits![TsEnumMemberId, Ident, Str];
+generate_traits![TsLit, Number, Str, Bool];
+generate_traits![TypeParamNode, Instantiation, Decl];
 
 /* manual From implementations */
 
