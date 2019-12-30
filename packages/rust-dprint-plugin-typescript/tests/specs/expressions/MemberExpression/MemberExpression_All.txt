@@ -37,9 +37,13 @@ obj?.test.test;
 obj.other
     ?.test;
 obj?.["test"];
+obj.other
+        ?.["test"];
 
 [expect]
 obj?.test.test;
 obj.other
     ?.test;
 obj?.["test"];
+obj.other
+    ?.["test"];

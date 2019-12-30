@@ -16,7 +16,7 @@ struct FailedTestResult {
 #[test]
 fn test_specs() {
     let specs = get_specs();
-    let mut test_count = 0;
+    let test_count = specs.len();
     let mut failed_tests = Vec::new();
 
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
@@ -30,22 +30,17 @@ fn test_specs() {
                 message: spec.message.clone()
             });
         }
-
-        test_count += 1;
     }
 
-    if failed_tests.is_empty() {
-        println!("{}/{} tests passed", test_count, test_count);
-    }
-    else {
-        for failed_test in &failed_tests {
-            println!("---");
-            println!("Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`", failed_test.message, failed_test.file_path, failed_test.expected, failed_test.actual);
-        }
-
+    for failed_test in &failed_tests {
         println!("---");
-        panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
+        println!("Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`", failed_test.message, failed_test.file_path, failed_test.expected, failed_test.actual);
     }
+
+    if !failed_tests.is_empty() {
+        println!("---");
+    }
+    panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
 }
 
 fn get_specs() -> Vec<(String, Spec)> {

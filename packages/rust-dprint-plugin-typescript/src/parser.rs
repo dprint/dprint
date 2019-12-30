@@ -5,7 +5,7 @@ use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
 use super::configuration::{BracePosition, MemberSpacing, OperatorPosition, TrailingCommas, UseParentheses};
 use swc_ecma_ast::*;
-use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, SpanData};
+use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span, SpanData};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -48,7 +48,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
     let node_span = node.span();
     let node_span_data = node_span.data();
     items.extend(parse_leading_comments(&node, context));
-    items.extend(inner_parse(parse_node(node, context)));
+    items.extend(inner_parse(parse_node_inner(node, context)));
     if context.parent().kind() == NodeKind::Module || node_span_data.hi != parent_span_data.hi {
         items.extend(parse_trailing_comments(&node_span, context));
     }
@@ -58,7 +58,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
 
     return items;
 
-    fn parse_node(node: Node, context: &mut Context) -> Vec<PrintItem> {
+    fn parse_node_inner(node: Node, context: &mut Context) -> Vec<PrintItem> {
         match node {
             /* common */
             Node::Ident(node) => parse_identifier(node, context),
@@ -84,8 +84,11 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::CondExpr(node) => parse_conditional_expr(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             Node::FnExpr(node) => vec![node.text(context).into()], // todo
+            Node::MemberExpr(node) => parse_member_expr(node, context),
+            Node::MetaPropExpr(node) => parse_meta_prop_expr(node, context),
             Node::NewExpr(node) => parse_new_expr(node, context),
             Node::ObjectLit(node) => parse_object_lit(node, context),
+            Node::OptChainExpr(node) => parse_node(node.expr.into(), context),
             Node::ParenExpr(node) => parse_paren_expr(node, context),
             Node::SeqExpr(node) => parse_sequence_expr(node, context),
             Node::SpreadElement(node) => parse_spread_element(node, context),
@@ -971,6 +974,22 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
     items
 }
 
+fn parse_member_expr(node: MemberExpr, context: &mut Context) -> Vec<PrintItem> {
+    return parse_for_member_like_expr(MemberLikeExpr {
+        left_node: node.obj.into(),
+        right_node: node.prop.into(),
+        is_computed: node.computed,
+    }, context);
+}
+
+fn parse_meta_prop_expr(node: MetaPropExpr, context: &mut Context) -> Vec<PrintItem> {
+    return parse_for_member_like_expr(MemberLikeExpr {
+        left_node: node.meta.into(),
+        right_node: node.prop.into(),
+        is_computed: false,
+    }, context);
+}
+
 fn parse_new_expr(node: NewExpr, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("new ".into());
@@ -991,18 +1010,16 @@ fn parse_non_null_expr(node: TsNonNullExpr, context: &mut Context) -> Vec<PrintI
 }
 
 fn parse_object_lit(node: ObjectLit, context: &mut Context) -> Vec<PrintItem> {
-    let node_clone = node.clone();
     return parse_object_like_node(ParseObjectLikeNodeOptions {
-        node: node_clone.into(),
+        node_span: node.span,
         members: node.props.into_iter().map(|x| x.into()).collect(),
         trailing_commas: Some(context.config.object_expression_trailing_commas.clone()),
     }, context);
 }
 
 fn parse_object_pattern(node: ObjectPat, context: &mut Context) -> Vec<PrintItem> {
-    let node_clone = node.clone();
     let mut items = parse_object_like_node(ParseObjectLikeNodeOptions {
-        node: node_clone.into(),
+        node_span: node.span,
         members: node.props.into_iter().map(|x| x.into()).collect(),
         trailing_commas: Some(TrailingCommas::Never),
     }, context);
@@ -1281,9 +1298,8 @@ fn parse_property_signature(node: TsPropertySignature, context: &mut Context) ->
 }
 
 fn parse_type_lit(node: TsTypeLit, context: &mut Context) -> Vec<PrintItem> {
-    let node_clone = node.clone();
     return parse_object_like_node(ParseObjectLikeNodeOptions {
-        node: node_clone.into(),
+        node_span: node.span,
         members: node.members.into_iter().map(|m| m.into()).collect(),
         trailing_commas: Option::None
     }, context);
@@ -2355,7 +2371,7 @@ fn parse_extends_or_implements(text: &str, type_items: Vec<TsExprWithTypeArgs>, 
 }
 
 struct ParseObjectLikeNodeOptions {
-    node: Node,
+    node_span: Span,
     members: Vec<Node>,
     trailing_commas: Option<TrailingCommas>,
 }
@@ -2369,7 +2385,7 @@ fn parse_object_like_node(opts: ParseObjectLikeNodeOptions, context: &mut Contex
     }
 
     let multi_line = node_helpers::get_use_new_lines_for_nodes(
-        &context.get_first_open_brace_token_within(&opts.node).expect("Expected to find an open brace token."),
+        &context.get_first_open_brace_token_within(&opts.node_span).expect("Expected to find an open brace token."),
         &opts.members[0],
         context
     );
@@ -2409,6 +2425,36 @@ fn parse_object_like_node(opts: ParseObjectLikeNodeOptions, context: &mut Contex
     items.push(separator.into());
     items.push("}".into());
     items.push(end_info.clone().into());
+
+    return items;
+}
+
+struct MemberLikeExpr {
+    left_node: Node,
+    right_node: Node,
+    is_computed: bool,
+}
+
+fn parse_for_member_like_expr(node: MemberLikeExpr, context: &mut Context) -> Vec<PrintItem> {
+    let use_new_line = node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
+    let mut items = Vec::new();
+    let is_optional = context.parent().kind() == NodeKind::OptChainExpr;
+
+    items.extend(parse_node(node.left_node, context));
+    items.push(if use_new_line { PrintItem::NewLine } else { PrintItem::PossibleNewLine });
+    items.push(conditions::indent_if_start_of_line({
+        let mut items = Vec::new();
+
+        if is_optional {
+            items.push("?".into());
+            if node.is_computed { items.push(".".into()); }
+        }
+        items.push(if node.is_computed { "[" } else { "." }.into());
+        items.extend(parse_node(node.right_node, context));
+        if node.is_computed { items.push("]".into()); }
+
+        items
+    }).into());
 
     return items;
 }
