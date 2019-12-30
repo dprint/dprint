@@ -48,6 +48,9 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
     context.parent_stack.push(past_current_node);
 
     // parse item
+
+    // todo: need more robust comment scanning to ensure no comment is not handled (ex. getting comments before and after a token)
+
     let node_span = node.span();
     let node_span_data = node_span.data();
     items.extend(parse_leading_comments(&node, context));

@@ -29,9 +29,11 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
 
     let comments: Comments = Default::default();
     let (module, tokens) = {
+        let mut ts_config: swc_ecma_parser::TsConfig = Default::default();
+        ts_config.tsx = should_parse_as_jsx(file_path);
         let lexer = Lexer::new(
             session,
-            Syntax::Typescript(Default::default()),
+            Syntax::Typescript(ts_config),
             Default::default(),
             SourceFileInput::from(&source_file),
             Some(&comments)
@@ -51,11 +53,23 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         }
     }?;
 
-    Ok(ParsedSourceFile {
+    return Ok(ParsedSourceFile {
         comments,
         module,
         info: source_file,
         tokens,
         file_bytes,
-    })
+    });
+
+    fn should_parse_as_jsx(file_path: &str) -> bool {
+        if let Some(extension) = get_extension(&file_path) {
+            return extension == "tsx" || extension == "jsx" || extension == "js";
+        }
+        return true;
+
+        fn get_extension(file_path: &str) -> Option<String> {
+            let period_pos = file_path.rfind('.')?;
+            return Some(file_path[period_pos + 1..].to_lowercase());
+        }
+    }
 }
