@@ -11,10 +11,10 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
 
     return Ok(print(print_items, PrintOptions {
         // todo: more configuration
-        indent_width: 4,
+        indent_width: config.indent_width,
         max_width: config.line_width,
         is_testing: false,
-        use_tabs: false,
+        use_tabs: config.use_tabs,
         newline_kind: "\n",
     }));
 

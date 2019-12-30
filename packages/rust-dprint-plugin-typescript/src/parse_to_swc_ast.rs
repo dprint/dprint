@@ -31,6 +31,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
     let (module, tokens) = {
         let mut ts_config: swc_ecma_parser::TsConfig = Default::default();
         ts_config.tsx = should_parse_as_jsx(file_path);
+        ts_config.dynamic_import = true;
         let lexer = Lexer::new(
             session,
             Syntax::Typescript(ts_config),

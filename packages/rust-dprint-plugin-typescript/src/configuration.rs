@@ -4,6 +4,8 @@ use std::collections::HashMap;
 pub struct TypeScriptConfiguration {
     pub single_quotes: bool,
     pub line_width: u32,
+    pub use_tabs: bool,
+    pub indent_width: u8,
     /* use parentheses */
     pub arrow_function_expression_use_parentheses: UseParentheses,
     /* brace position */
@@ -145,6 +147,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
 
     let resolved_config = TypeScriptConfiguration {
         line_width: get_value(&mut config, "lineWidth", 120),
+        use_tabs: get_value(&mut config, "useTabs", false),
+        indent_width: get_value(&mut config, "indentWidth", 4),
         single_quotes: get_value(&mut config, "singleQuotes", false),
         /* use parentheses */
         arrow_function_expression_use_parentheses: get_use_parentheses(&mut config, "arrowFunctionExpression.useParentheses", &UseParentheses::Maintain),
