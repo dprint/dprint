@@ -11,6 +11,7 @@ pub struct TypeScriptConfiguration {
     /* brace position */
     pub arrow_function_expression_brace_position: BracePosition,
     pub enum_declaration_brace_position: BracePosition,
+    pub interface_declaration_brace_position: BracePosition,
     pub function_declaration_brace_position: BracePosition,
     pub function_expression_brace_position: BracePosition,
     /* force multi-line arguments */
@@ -18,8 +19,11 @@ pub struct TypeScriptConfiguration {
     pub new_expression_force_multi_line_arguments: bool,
     /* force multi-line parameters */
     pub arrow_function_expression_force_multi_line_parameters: bool,
+    pub call_signature_force_multi_line_parameters: bool,
+    pub construct_signature_force_multi_line_parameters: bool,
     pub function_declaration_force_multi_line_parameters: bool,
     pub function_expression_force_multi_line_parameters: bool,
+    pub method_signature_force_multi_line_parameters: bool,
     /* member spacing */
     pub enum_declaration_member_spacing: MemberSpacing,
     /* operator position */
@@ -27,6 +31,8 @@ pub struct TypeScriptConfiguration {
     pub conditional_expression_operator_position: OperatorPosition,
     /* semi-colon */
     pub break_statement_semi_colon: bool,
+    pub call_signature_semi_colon: bool,
+    pub construct_signature_semi_colon: bool,
     pub continue_statement_semi_colon: bool,
     pub debugger_statement_semi_colon: bool,
     pub empty_statement_semi_colon: bool,
@@ -38,7 +44,10 @@ pub struct TypeScriptConfiguration {
     pub function_declaration_semi_colon: bool,
     pub import_declaration_semi_colon: bool,
     pub import_equals_semi_colon: bool,
+    pub index_signature_semi_colon: bool,
+    pub method_signature_semi_colon: bool,
     pub namespace_export_declaration_semi_colon: bool,
+    pub property_signature_semi_colon: bool,
     pub return_statement_semi_colon: bool,
     pub throw_statement_semi_colon: bool,
     pub type_alias_semi_colon: bool,
@@ -50,6 +59,10 @@ pub struct TypeScriptConfiguration {
 
     /* use space separator */
 
+    /// Whether to add a space after the `new` keyword in a construct signature.
+    /// `true` - Ex. `new (): MyClass;`
+    /// `false` (default) - Ex. `new(): MyClass;`
+    pub construct_signature_space_after_new_keyword: bool,
     /// Whether to add spaces around named exports in an export declaration.
     /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
     /// * `false` - Ex. `export {SomeExport, OtherExport};`
@@ -156,6 +169,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         /* brace position */
         arrow_function_expression_brace_position: get_brace_position(&mut config, "arrowFunctionExpression.bracePosition", &brace_position),
         enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", &brace_position),
+        interface_declaration_brace_position: get_brace_position(&mut config, "interfaceDeclaration.bracePosition", &brace_position),
         function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", &brace_position),
         function_expression_brace_position: get_brace_position(&mut config, "functionExpression.bracePosition", &brace_position),
         /* force multi-line arguments */
@@ -163,8 +177,11 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
         /* force multi-line parameters */
         arrow_function_expression_force_multi_line_parameters: get_value(&mut config, "arrowFunctionExpression.forceMultiLineParameters", force_multi_line_parameters),
+        call_signature_force_multi_line_parameters: get_value(&mut config, "callSignature.forceMultiLineParameters", force_multi_line_parameters),
+        construct_signature_force_multi_line_parameters: get_value(&mut config, "constructSignature.forceMultiLineParameters", force_multi_line_parameters),
         function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters),
         function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters),
+        method_signature_force_multi_line_parameters: get_value(&mut config, "methodSignature.forceMultiLineParameters", force_multi_line_parameters),
         /* member spacing */
         enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
         /* operator position */
@@ -172,6 +189,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         conditional_expression_operator_position: get_operator_position(&mut config, "conditionalExpression.operatorPosition", &operator_position),
         /* semi-colon */
         break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons),
+        call_signature_semi_colon: get_value(&mut config, "callSignature.semiColon", semi_colons),
+        construct_signature_semi_colon: get_value(&mut config, "constructSignature.semiColon", semi_colons),
         continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons),
         debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons),
         empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons),
@@ -183,7 +202,10 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         function_declaration_semi_colon: get_value(&mut config, "functionDeclaration.semiColon", semi_colons),
         import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons),
         import_equals_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons),
+        index_signature_semi_colon: get_value(&mut config, "indexSignature.semiColon", semi_colons),
+        method_signature_semi_colon: get_value(&mut config, "methodSignature.semiColon", semi_colons),
         namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons),
+        property_signature_semi_colon: get_value(&mut config, "propertySignature.semiColon", semi_colons),
         return_statement_semi_colon: get_value(&mut config, "returnStatement.semiColon", semi_colons),
         throw_statement_semi_colon: get_value(&mut config, "throwStatement.semiColon", semi_colons),
         type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
@@ -193,6 +215,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         array_pattern_trialing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", &trailing_commas),
         enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", &trailing_commas),
         /* space settings */
+        construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false),
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
         function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false),
         function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false),

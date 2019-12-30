@@ -12,8 +12,9 @@ use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, 
     ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, RestPat, SeqExpr, SpreadElement, TaggedTpl,
     TsImportEqualsDecl, TsModuleRef, TsTypeAssertion, UnaryExpr, UpdateExpr, YieldExpr, ObjectPatProp, KeyValuePatProp, AssignPatProp, AssignPat, PatOrExpr,
     TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt, BlockStmtOrExpr, BinExpr, ParenExpr,
-    CondExpr};
-use swc_ecma_parser::{token::{Token, TokenAndSpan}};
+    CondExpr, TsInterfaceDecl, TsExprWithTypeArgs, TsInterfaceBody, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature,
+    TsMethodSignature, TsIndexSignature, TsTypeElement, TsFnParam, ObjectPat};
+use swc_ecma_parser::{token::{Token, TokenAndSpan, BinOpToken}};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
@@ -21,7 +22,7 @@ pub struct Context {
     tokens: Rc<Vec<TokenAndSpan>>,
     pub file_bytes: Rc<Vec<u8>>,
     pub current_node: Node,
-    pub parent_stack: Vec<Node>,
+    pub parent_stack: Vec<Node>, // todo: use stack type
     handled_comments: HashSet<BytePos>,
     pub info: Rc<SourceFile>,
     stored_infos: HashMap<BytePos, Info>,
@@ -91,7 +92,7 @@ impl Context {
     }
 
     pub fn get_first_angle_bracket_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node, Token::LBracket)
+        self.get_first_token_before(node, Token::BinOp(BinOpToken::Lt))
     }
 
     fn get_first_token_before(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
@@ -101,6 +102,7 @@ impl Context {
             if token.span.data().lo >= pos {
                 break;
             }
+
             if token.token == searching_token {
                 found_token = Some(token);
             }
@@ -261,12 +263,10 @@ generate_node! [
     TsEnumDecl,
     TsEnumMember,
     TsImportEqualsDecl,
+    TsInterfaceDecl,
     TsTypeAliasDecl,
     /* exports */
     DefaultExportSpecifier,
-    ImportDefault,
-    ImportSpecific,
-    ImportStarAs,
     NamespaceExportSpecifier,
     NamedExportSpecifier,
     /* expressions */
@@ -285,11 +285,23 @@ generate_node! [
     SpreadElement,
     TaggedTpl,
     TsAsExpr,
+    TsExprWithTypeArgs,
     TsNonNullExpr,
     TsTypeAssertion,
     UnaryExpr,
     UpdateExpr,
     YieldExpr,
+    /* imports */
+    ImportDefault,
+    ImportSpecific,
+    ImportStarAs,
+    /* interface / type element */
+    TsInterfaceBody,
+    TsCallSignatureDecl,
+    TsConstructSignatureDecl,
+    TsPropertySignature,
+    TsMethodSignature,
+    TsIndexSignature,
     /* literals */
     BigInt,
     Bool,
@@ -305,6 +317,7 @@ generate_node! [
     AssignPat,
     AssignPatProp,
     KeyValuePatProp,
+    ObjectPat,
     RestPat,
     /* statements */
     BlockStmt,
@@ -385,6 +398,8 @@ generate_traits![PatOrExpr, Pat, Expr];
 generate_traits![TsEnumMemberId, Ident, Str];
 generate_traits![TsLit, Number, Str, Bool];
 generate_traits![TypeParamNode, Instantiation, Decl];
+generate_traits![TsTypeElement, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature, TsMethodSignature, TsIndexSignature];
+generate_traits![TsFnParam, Ident, Array, Rest, Object];
 
 /* manual From implementations */
 
@@ -407,6 +422,7 @@ impl From<Decl> for Node {
         match decl {
             Decl::Fn(node) => node.into(),
             Decl::TsEnum(node) => node.into(),
+            Decl::TsInterface(node) => node.into(),
             Decl::TsTypeAlias(node) => node.into(),
             Decl::Var(node) => node.into(),
             _ => Node::Unknown(decl.span()), // todo: implement others
@@ -536,6 +552,7 @@ impl NodeKinded for Decl {
         match self {
             Decl::Fn(node) => node.kind(),
             Decl::TsEnum(node) => node.kind(),
+            Decl::TsInterface(node) => node.kind(),
             Decl::TsTypeAlias(node) => node.kind(),
             Decl::Var(node) => node.kind(),
             _ => NodeKind::Unknown,

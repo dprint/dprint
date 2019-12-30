@@ -1212,7 +1212,7 @@ function* parseParameterProperty(node: babel.TSParameterProperty, context: Conte
 /* interface / type element */
 
 function* parseCallSignatureDeclaration(node: babel.TSCallSignatureDeclaration, context: Context): PrintItemIterable {
-    const startInfo = createInfo("startConstructSignature");
+    const startInfo = createInfo("startCallSignature");
     yield startInfo;
     yield* parseNode(node.typeParameters, context);
     yield* parseParametersOrArguments({

@@ -10,7 +10,8 @@ use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Numb
     DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr, ImportDecl, ImportDefault, ImportSpecific,
     ImportStarAs, ImportSpecifier, TsImportEqualsDecl, TsTypeAssertion, UnaryExpr, UnaryOp, UpdateExpr, UpdateOp, YieldExpr,
     RestPat, SeqExpr, SpreadElement, TaggedTpl, TplElement, AssignPatProp, AssignPat, AssignExpr, TsAsExpr, AwaitExpr, TsNonNullExpr, NewExpr,
-    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt, ArrowExpr, Pat, BinExpr, BinaryOp, ParenExpr, CondExpr};
+    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt, ArrowExpr, Pat, BinExpr, BinaryOp, ParenExpr, CondExpr, TsInterfaceDecl,
+    TsExprWithTypeArgs, TsInterfaceBody, TsCallSignatureDecl, TsConstructSignatureDecl, TsIndexSignature, TsMethodSignature, TsPropertySignature};
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, SpanData};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
@@ -78,6 +79,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsEnumDecl(node) => parse_enum_decl(node, context),
             Node::TsEnumMember(node) => parse_enum_member(node, context),
             Node::TsImportEqualsDecl(node) => parse_import_equals_decl(node, context),
+            Node::TsInterfaceDecl(node) => parse_interface_decl(node, context),
             Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
             /* expressions */
             Node::ArrayLit(node) => parse_array_expr(node, context),
@@ -106,6 +108,13 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ImportSpecific(node) => parse_import_named_specifier(node, context),
             Node::ImportStarAs(node) => parse_import_namespace_specifier(node, context),
             Node::ImportDefault(node) => parse_node(node.local.into(), context),
+            /* interface / type element */
+            Node::TsCallSignatureDecl(node) => parse_call_signature_decl(node, context),
+            Node::TsConstructSignatureDecl(node) => parse_construct_signature_decl(node, context),
+            Node::TsIndexSignature(node) => parse_index_signature(node, context),
+            Node::TsInterfaceBody(node) => parse_interface_body(node, context),
+            Node::TsMethodSignature(node) => parse_method_signature(node, context),
+            Node::TsPropertySignature(node) => parse_property_signature(node, context),
             /* literals */
             Node::BigInt(node) => parse_big_int_literal(node, context),
             Node::Bool(node) => parse_bool_literal(node),
@@ -421,7 +430,7 @@ fn parse_import_decl(node: ImportDecl, context: &mut Context) -> Vec<PrintItem> 
         items.push(";".into());
     }
 
-    items
+    return items;
 }
 
 fn parse_import_equals_decl(node: TsImportEqualsDecl, context: &mut Context) -> Vec<PrintItem> {
@@ -437,7 +446,23 @@ fn parse_import_equals_decl(node: TsImportEqualsDecl, context: &mut Context) -> 
 
     if context.config.import_equals_semi_colon { items.push(";".into()); }
 
-    items
+    return items;
+}
+
+fn parse_interface_decl(node: TsInterfaceDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let start_header_info = Info::new("startHeader");
+    items.push(start_header_info.clone().into());
+    context.store_info_for_node(&node, start_header_info.clone());
+
+    if node.declare { items.push("declare ".into()); }
+    items.push("interface ".into());
+    items.extend(parse_node(node.id.into(), context));
+    if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
+    items.extend(parse_extends_or_implements("extends", node.extends, start_header_info, context));
+    items.extend(parse_node(node.body.into(), context));
+
+    return items;
 }
 
 fn parse_type_alias(node: TsTypeAliasDecl, context: &mut Context) -> Vec<PrintItem> {
@@ -453,7 +478,7 @@ fn parse_type_alias(node: TsTypeAliasDecl, context: &mut Context) -> Vec<PrintIt
 
     if context.config.type_alias_semi_colon { items.push(";".into()); }
 
-    items
+    return items;
 }
 
 /* exports */
@@ -1101,6 +1126,140 @@ fn parse_import_namespace_specifier(node: ImportStarAs, context: &mut Context) -
     items.push("* as ".into());
     items.extend(parse_node(node.local.into(), context));
     items
+}
+
+/* interface / type element */
+
+fn parse_call_signature_decl(node: TsCallSignatureDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let start_info = Info::new("startCallSignature");
+
+    items.push(start_info.clone().into());
+    if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
+    items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+        nodes: node.params.into_iter().map(|node| node.into()).collect(),
+        force_multi_line_when_multiple_lines: context.config.call_signature_force_multi_line_parameters,
+        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+            start_info,
+            type_node: node.type_ann.map(|x| x.into()),
+            type_node_separator: Option::None,
+        }, context)),
+    }, context));
+    if context.config.call_signature_semi_colon { items.push(";".into()); }
+
+    return items;
+}
+
+fn parse_construct_signature_decl(node: TsConstructSignatureDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let start_info = Info::new("startConstructSignature");
+
+    items.push(start_info.clone().into());
+    items.push("new".into());
+    if context.config.construct_signature_space_after_new_keyword { items.push(" ".into()); }
+    if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
+    items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+        nodes: node.params.into_iter().map(|node| node.into()).collect(),
+        force_multi_line_when_multiple_lines: context.config.construct_signature_force_multi_line_parameters,
+        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+            start_info,
+            type_node: node.type_ann.map(|x| x.into()),
+            type_node_separator: Option::None,
+        }, context)),
+    }, context));
+    if context.config.construct_signature_semi_colon { items.push(";".into()); }
+
+    return items;
+}
+
+fn parse_index_signature(node: TsIndexSignature, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    if node.readonly { items.push("readonly ".into()); }
+
+    // todo: this should do something similar to the other declarations here (the ones with customCloseParen)
+    items.push("[".into());
+    items.extend(parse_node(node.params.into_iter().next().expect("Expected the index signature to have one parameter.").into(), context));
+    items.push("]".into());
+    items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
+    if context.config.index_signature_semi_colon { items.push(";".into()); }
+
+    return items;
+}
+
+fn parse_interface_body(node: TsInterfaceBody, context: &mut Context) -> Vec<PrintItem> {
+    let start_header_info = get_parent_info(context);
+    let node_clone = node.clone();
+
+    return parse_membered_body(ParseMemberedBodyOptions {
+        node: node_clone.into(),
+        members: node.body.into_iter().map(|x| x.into()).collect(),
+        start_header_info: start_header_info,
+        brace_position: context.config.interface_declaration_brace_position.clone(),
+        should_use_blank_line: Box::new(move |previous, next, context| {
+            node_helpers::has_separating_blank_line(previous, next, context)
+        }),
+        trailing_commas: Option::None,
+    }, context);
+
+    fn get_parent_info(context: &mut Context) -> Option<Info> {
+        for ancestor in context.parent_stack.iter().rev() {
+            if let Node::TsInterfaceDecl(ancestor) = ancestor {
+                return context.get_info_for_node(&ancestor).map(|x| x.to_owned());
+            }
+        }
+        return Option::None;
+    }
+}
+
+fn parse_method_signature(node: TsMethodSignature, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let start_info = Info::new("startMethodSignature");
+    items.push(start_info.clone().into());
+
+    if node.computed { items.push("[".into()); }
+    items.extend(parse_node(node.key.into(), context));
+    if node.computed { items.push("]".into()); }
+    if node.optional { items.push("?".into()); }
+    if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
+
+    items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+        nodes: node.params.into_iter().map(|node| node.into()).collect(),
+        force_multi_line_when_multiple_lines: context.config.method_signature_force_multi_line_parameters,
+        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+            start_info,
+            type_node: node.type_ann.map(|x| x.into()),
+            type_node_separator: Option::None,
+        }, context)),
+    }, context));
+
+    if context.config.method_signature_semi_colon { items.push(";".into()); }
+
+    return items;
+}
+
+fn parse_property_signature(node: TsPropertySignature, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if node.readonly { items.push("readonly ".into()); }
+    if node.computed { items.push("[".into()); }
+    items.extend(parse_node(node.key.into(), context));
+    if node.computed { items.push("]".into()); }
+    if node.optional { items.push("?".into()); }
+    items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
+
+    if let Some(init) = node.init {
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push("= ".into());
+            items.extend(parse_node(init.into(), context));
+            items
+        }).into());
+    }
+
+    if context.config.property_signature_semi_colon { items.push(";".into()); }
+
+    return items;
 }
 
 /* literals */
@@ -2127,6 +2286,32 @@ fn wrap_in_parens(parsed_node: Vec<PrintItem>, use_new_lines: bool, context: &mu
         items.push(")".into());
         items
     })
+}
+
+fn parse_extends_or_implements(text: &str, type_items: Vec<TsExprWithTypeArgs>, start_header_info: Info, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    if type_items.is_empty() {
+        return items;
+    }
+
+    items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_header_info, Option::None).into());
+    // the newline group will force it to put the extends or implements on a new line
+    items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group({
+        let mut items = Vec::new();
+        items.push(format!("{} ", text).into());
+        for (i, type_item) in type_items.into_iter().enumerate() {
+            if i > 0 {
+                items.push(",".into());
+                items.push(PrintItem::SpaceOrNewLine);
+            }
+
+            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node(type_item.into(), context))).into());
+        }
+        items
+    })).into());
+
+    return items;
 }
 
 /* is functions */
