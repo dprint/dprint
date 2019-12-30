@@ -124,7 +124,7 @@ export interface TypeScriptConfiguration {
      * @value true - Ex. `1 + 2`
      * @value false - Ex. `1+2`
      */
-    "binaryExpression.spaceSurroundingOperator"?: boolean;
+    "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"?: boolean;
     /**
      * Whether to add a space before the parentheses of a constructor.
      * @default false
@@ -335,7 +335,6 @@ export interface TypeScriptConfiguration {
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
-    "logicalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "callExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
     "newExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
     "arrowFunctionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
@@ -427,7 +426,6 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
-    readonly "logicalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "callExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
     readonly "newExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
     readonly "arrowFunctionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
@@ -444,7 +442,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "setAccessor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
-    readonly "binaryExpression.spaceSurroundingOperator": boolean;
+    readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;
     readonly "constructor.spaceBeforeParentheses": boolean;
     readonly "constructorType.spaceAfterNewKeyword": boolean;
     readonly "constructSignature.spaceAfterNewKeyword": boolean;

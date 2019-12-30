@@ -20,6 +20,8 @@ pub struct TypeScriptConfiguration {
     pub function_expression_force_multi_line_parameters: bool,
     /* member spacing */
     pub enum_declaration_member_spacing: MemberSpacing,
+    /* operator position */
+    pub binary_expression_operator_position: OperatorPosition,
     /* semi-colon */
     pub break_statement_semi_colon: bool,
     pub continue_statement_semi_colon: bool,
@@ -61,6 +63,10 @@ pub struct TypeScriptConfiguration {
     /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
     /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
     pub import_declaration_space_surrounding_named_imports: bool,
+    /// Whether to surround bitwise and arithmetic operators in a binary expression with spaces.
+    /// * `true` (default) - Ex. `1 + 2`
+    /// * `false` - Ex. `1+2`
+    pub binary_expression_space_surrounding_bitwise_and_arithmetic_operator: bool,
     /// Whether to add a space before the colon of a type annotation.
     /// * `true` - Ex. `function myFunction() : string`
     /// * `false` (default) - Ex. `function myFunction(): string`
@@ -72,7 +78,7 @@ pub struct TypeScriptConfiguration {
 }
 
 /// Trailing comma possibilities.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum TrailingCommas {
     /// Trailing commas should not be used.
     Never,
@@ -83,7 +89,7 @@ pub enum TrailingCommas {
 }
 
 /// Where to place the opening brace.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum BracePosition {
     /// Maintains the brace being on the next line or the same line.
     Maintain,
@@ -96,7 +102,7 @@ pub enum BracePosition {
 }
 
 /// How to space members.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum MemberSpacing {
     /// Maintains whether a newline or blankline is used.
     Maintain,
@@ -107,7 +113,7 @@ pub enum MemberSpacing {
 }
 
 /// Whether to use parentheses around a single parameter in an arrow function.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum UseParentheses {
     /// Maintains the current state of the parentheses.
     Maintain,
@@ -117,6 +123,17 @@ pub enum UseParentheses {
     PreferNone,
 }
 
+/// Where to place the operator for expressions that span multiple lines.
+#[derive(Clone, PartialEq)]
+pub enum OperatorPosition {
+    /// Maintains the operator being on the next line or the same line.
+    Maintain,
+    /// Forces the operator to be on the same line.
+    SameLine,
+    /// Forces the operator to be on the next line.
+    NextLine,
+}
+
 pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfiguration {
     let mut config = config.clone();
     let semi_colons = get_value(&mut config, "semiColons", true);
@@ -124,6 +141,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
     let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false);
     let trailing_commas = get_trailing_commas(&mut config, "trailingCommas", &TrailingCommas::Never);
     let brace_position = get_brace_position(&mut config, "bracePosition", &BracePosition::NextLineIfHanging);
+    let operator_position = get_operator_position(&mut config, "operatorPosition", &OperatorPosition::NextLine);
 
     let resolved_config = TypeScriptConfiguration {
         line_width: get_value(&mut config, "lineWidth", 120),
@@ -144,6 +162,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters),
         /* member spacing */
         enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
+        /* operator position */
+        binary_expression_operator_position: get_operator_position(&mut config, "binaryExpression.operatorPosition", &operator_position),
         /* semi-colon */
         break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons),
         continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons),
@@ -171,6 +191,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false),
         function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false),
         import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true),
+        binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),
         type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true),
     };
@@ -245,6 +266,26 @@ fn get_member_spacing(
             "maintain" => MemberSpacing::Maintain,
             "blankline" => MemberSpacing::BlankLine,
             "newline" => MemberSpacing::NewLine,
+            "" => default_value.clone(),
+            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
+        }
+    } else {
+        default_value.clone()
+    }
+}
+
+fn get_operator_position(
+    config: &mut HashMap<String, String>,
+    prop: &str,
+    default_value: &OperatorPosition
+) -> OperatorPosition {
+    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
+    config.remove(prop);
+    if let Some(value) = value {
+        match value.as_ref() {
+            "maintain" => OperatorPosition::Maintain,
+            "sameLine" => OperatorPosition::SameLine,
+            "nextLine" => OperatorPosition::NextLine,
             "" => default_value.clone(),
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }

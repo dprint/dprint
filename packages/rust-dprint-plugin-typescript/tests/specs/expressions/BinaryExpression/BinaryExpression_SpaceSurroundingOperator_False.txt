@@ -1,4 +1,4 @@
-~~ binaryExpression.spaceSurroundingOperator: false ~~
+~~ binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator: false ~~
 == should format without spaces ==
 1234 + 12345 * 5 * 10;
 

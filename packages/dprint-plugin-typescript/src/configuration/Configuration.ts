@@ -127,7 +127,7 @@ export interface TypeScriptConfiguration {
      * @value true - Ex. `1 + 2`
      * @value false - Ex. `1+2`
      */
-    "binaryExpression.spaceSurroundingOperator"?: boolean;
+    "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"?: boolean;
     /**
      * Whether to add a space before the parentheses of a constructor.
      * @default false
@@ -345,7 +345,6 @@ export interface TypeScriptConfiguration {
 
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
-    "logicalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
 
     "callExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
     "newExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
@@ -453,7 +452,6 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     // operator position
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
-    readonly "logicalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
 
     // force multi-line arguments
     readonly "callExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
@@ -478,7 +476,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
 
     // use space separator
-    readonly "binaryExpression.spaceSurroundingOperator": boolean;
+    readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;
     readonly "constructor.spaceBeforeParentheses": boolean;
     readonly "constructorType.spaceAfterNewKeyword": boolean;
     readonly "constructSignature.spaceAfterNewKeyword": boolean;

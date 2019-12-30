@@ -17,7 +17,7 @@ const defaultValues = {
     forceMultiLineParameters: false,
     "enumDeclaration.memberSpacing": "maintain",
     "arrowFunctionExpression.useParentheses": "maintain",
-    "binaryExpression.spaceSurroundingOperator": true,
+    "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": true,
     "constructor.spaceBeforeParentheses": false,
     "constructorType.spaceAfterNewKeyword": false,
     "constructSignature.spaceAfterNewKeyword": false,
@@ -142,7 +142,6 @@ export function resolveConfiguration(
         // operator position
         "binaryExpression.operatorPosition": getValue("binaryExpression.operatorPosition", operatorPosition, ensureOperatorPosition),
         "conditionalExpression.operatorPosition": getValue("conditionalExpression.operatorPosition", operatorPosition, ensureOperatorPosition),
-        "logicalExpression.operatorPosition": getValue("logicalExpression.operatorPosition", operatorPosition, ensureOperatorPosition),
         // trailing commas
         "arrayExpression.trailingCommas": getValue("arrayExpression.trailingCommas", trailingCommas, ensureTrailingCommas),
         "arrayPattern.trailingCommas": getValue("arrayPattern.trailingCommas", trailingCommas, ensureTrailingCommas),
@@ -167,8 +166,8 @@ export function resolveConfiguration(
         "methodSignature.forceMultiLineParameters": getValue("methodSignature.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         "setAccessor.forceMultiLineParameters": getValue("setAccessor.forceMultiLineParameters", forceMultiLineParameters, ensureBoolean),
         // use spaces
-        "binaryExpression.spaceSurroundingOperator": getValue("binaryExpression.spaceSurroundingOperator",
-            defaultValues["binaryExpression.spaceSurroundingOperator"], ensureBoolean),
+        "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": getValue("binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator",
+            defaultValues["binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"], ensureBoolean),
         "constructor.spaceBeforeParentheses": getValue("constructor.spaceBeforeParentheses", defaultValues["constructor.spaceBeforeParentheses"],
             ensureBoolean),
         "constructorType.spaceAfterNewKeyword": getValue("constructorType.spaceAfterNewKeyword", defaultValues["constructorType.spaceAfterNewKeyword"],

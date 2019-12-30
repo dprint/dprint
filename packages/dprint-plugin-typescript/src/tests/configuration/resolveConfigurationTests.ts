@@ -309,8 +309,7 @@ describe(nameof(resolveConfiguration), () => {
         function getObject(value: NonNullable<TypeScriptConfiguration["operatorPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
                 "binaryExpression.operatorPosition": value,
-                "conditionalExpression.operatorPosition": value,
-                "logicalExpression.operatorPosition": value
+                "conditionalExpression.operatorPosition": value
             };
         }
     });

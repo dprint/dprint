@@ -2345,8 +2345,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
         }
 
         function getOperatorPosition() {
-            const configValue = getConfigValue();
-
+            const configValue = context.config["binaryExpression.operatorPosition"];
             switch (configValue) {
                 case "nextLine":
                 case "sameLine":
@@ -2356,17 +2355,6 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
                     return node.left.loc!.end.line === operatorToken.loc!.start.line ? "sameLine" : "nextLine";
                 default:
                     return assertNever(configValue);
-            }
-
-            function getConfigValue() {
-                switch (node.type) {
-                    case "BinaryExpression":
-                        return context.config["binaryExpression.operatorPosition"];
-                    case "LogicalExpression":
-                        return context.config["logicalExpression.operatorPosition"];
-                    default:
-                        return assertNever(node);
-                }
             }
         }
     }
@@ -2439,7 +2427,7 @@ function* parseBinaryOrLogicalExpression(node: babel.LogicalExpression | babel.B
     function getUseSpaceSurroundingOperator() {
         switch (node.type) {
             case "BinaryExpression":
-                return context.config["binaryExpression.spaceSurroundingOperator"];
+                return context.config["binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"];
             case "LogicalExpression":
                 return true;
             default:

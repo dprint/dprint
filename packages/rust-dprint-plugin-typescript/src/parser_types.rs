@@ -1,7 +1,8 @@
 use std::str;
 use std::rc::Rc;
 use super::*;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
+use dprint_core::{Info};
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
@@ -9,7 +10,7 @@ use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, 
     TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
     ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, RestPat, SeqExpr, SpreadElement, TaggedTpl,
     TsImportEqualsDecl, TsModuleRef, TsTypeAssertion, UnaryExpr, UpdateExpr, YieldExpr, ObjectPatProp, KeyValuePatProp, AssignPatProp, AssignPat, PatOrExpr,
-    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt, BlockStmtOrExpr};
+    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt, BlockStmtOrExpr, BinExpr, ParenExpr};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -21,6 +22,7 @@ pub struct Context {
     pub parent_stack: Vec<Node>,
     handled_comments: HashSet<BytePos>,
     pub info: Rc<SourceFile>,
+    stored_infos: HashMap<BytePos, Info>,
 }
 
 impl Context {
@@ -41,6 +43,7 @@ impl Context {
             parent_stack: Vec::new(),
             handled_comments: HashSet::new(),
             info: Rc::new(info),
+            stored_infos: HashMap::new(),
         }
     }
 
@@ -59,6 +62,14 @@ impl Context {
     pub fn get_text(&self, span_data: &SpanData) -> &str {
         let bytes = &self.file_bytes[(span_data.lo.0 as usize)..(span_data.hi.0 as usize)];
         str::from_utf8(&bytes).unwrap()
+    }
+
+    pub fn store_info_for_node(&mut self, node: &dyn Ranged, info: Info) {
+        self.stored_infos.insert(node.lo(), info);
+    }
+
+    pub fn get_info_for_node(&self, node: &dyn Ranged) -> Option<&Info> {
+        self.stored_infos.get(&node.lo())
     }
 
     pub fn get_token_at(&self, node: &dyn Ranged) -> TokenAndSpan {
@@ -93,12 +104,20 @@ impl Context {
         found_token.map(|x| x.to_owned())
     }
 
+    pub fn get_first_open_paren_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_within(node, Token::LParen)
+    }
+
     pub fn get_first_open_brace_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
         self.get_first_token_within(node, Token::LBrace)
     }
 
     pub fn get_first_open_bracket_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
         self.get_first_token_within(node, Token::LBracket)
+    }
+
+    pub fn get_first_comma_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_within(node, Token::Comma)
     }
 
     fn get_first_token_within(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
@@ -117,22 +136,13 @@ impl Context {
         found_token.map(|x| x.to_owned())
     }
 
-    pub fn get_first_comma_after(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_after(node, Token::Comma)
-    }
-
-    fn get_first_token_after(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
+    pub fn get_first_token_after_with_text(&self, node: &dyn Ranged, searching_token_text: &str) -> Option<TokenAndSpan> {
         let node_span_data = node.span().data();
-        let pos = node_span_data.lo;
-        let end = node_span_data.hi;
+        let pos = node_span_data.hi;
         for token in self.tokens.iter() {
             let token_pos = token.span.data().lo;
-            if token_pos >= end {
-                break;
-            } else if token_pos >= pos {
-                if token.token == searching_token {
-                    return Some(token.to_owned());
-                }
+            if token_pos >= pos && token.span.text(self) == searching_token_text {
+                return Some(token.to_owned());
             }
         }
 
@@ -183,9 +193,6 @@ impl<T> Ranged for T where T : Spanned {
     fn trailing_comments(&self, context: &Context) -> Vec<Comment> {
         context.comments.trailing_comments(self.hi()).map(|c| c.clone()).unwrap_or_default()
     }
-}
-
-pub trait NodeLike : NodeKinded + Spanned + Ranged {
 }
 
 macro_rules! generate_node {
@@ -263,10 +270,12 @@ generate_node! [
     ArrowExpr,
     AssignExpr,
     AwaitExpr,
+    BinExpr,
     CallExpr,
     ExprOrSpread,
     FnExpr,
     NewExpr,
+    ParenExpr,
     SeqExpr,
     SpreadElement,
     TaggedTpl,
@@ -415,11 +424,13 @@ impl From<Expr> for Node {
             Expr::Arrow(node) => node.into(),
             Expr::Assign(node) => node.into(),
             Expr::Await(node) => node.into(),
+            Expr::Bin(node) => node.into(),
             Expr::Call(node) => node.into(),
             Expr::Fn(node) => node.into(),
             Expr::Ident(node) => node.into(),
             Expr::Lit(node) => node.into(),
             Expr::New(node) => node.into(),
+            Expr::Paren(node) => node.into(),
             Expr::Seq(node) => node.into(),
             Expr::TaggedTpl(node) => node.into(),
             Expr::TsAs(node) => node.into(),
@@ -533,11 +544,13 @@ impl NodeKinded for Expr {
             Expr::Arrow(node) => node.kind(),
             Expr::Assign(node) => node.kind(),
             Expr::Await(node) => node.kind(),
+            Expr::Bin(node) => node.kind(),
             Expr::Call(node) => node.kind(),
             Expr::Fn(node) => node.kind(),
             Expr::Ident(node) => node.kind(),
             Expr::Lit(node) => node.kind(),
             Expr::New(node) => node.kind(),
+            Expr::Paren(node) => node.kind(),
             Expr::Seq(node) => node.kind(),
             Expr::TaggedTpl(node) => node.kind(),
             Expr::TsAs(node) => node.kind(),
