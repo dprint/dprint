@@ -5,15 +5,7 @@ use std::collections::{HashSet, HashMap};
 use dprint_core::{Info};
 use utils::{Stack};
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
-use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
-    ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
-    ArrayLit, ArrayPat, Pat, VarDecl, VarDeclarator, Decl, ExportAll, TsEnumDecl, TsEnumMember, TsEnumMemberId, TsTypeAliasDecl, TsTypeParamDecl, TsTypeParam,
-    TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
-    ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, RestPat, SeqExpr, SpreadElement, TaggedTpl,
-    TsImportEqualsDecl, TsModuleRef, TsTypeAssertion, UnaryExpr, UpdateExpr, YieldExpr, ObjectPatProp, KeyValuePatProp, AssignPatProp, AssignPat, PatOrExpr,
-    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt, BlockStmtOrExpr, BinExpr, ParenExpr,
-    CondExpr, TsInterfaceDecl, TsExprWithTypeArgs, TsInterfaceBody, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature,
-    TsMethodSignature, TsIndexSignature, TsTypeElement, TsFnParam, ObjectPat};
+use swc_ecma_ast::*;
 use swc_ecma_parser::{token::{Token, TokenAndSpan, BinOpToken}};
 
 pub struct Context {
@@ -252,6 +244,8 @@ pub type Unknown = Span;
 generate_node! [
     /* common */
     Ident,
+    PrivateName,
+    Invalid,
     /* declarations */
     ExportDecl,
     ExportDefaultDecl,
@@ -273,18 +267,37 @@ generate_node! [
     ArrayLit,
     ArrowExpr,
     AssignExpr,
+    AssignProp,
     AwaitExpr,
     BinExpr,
     CallExpr,
+    ClassExpr,
     CondExpr,
     ExprOrSpread,
     FnExpr,
+    GetterProp,
+    JSXElement,
+    JSXEmptyExpr,
+    JSXFragment,
+    JSXMemberExpr,
+    JSXNamespacedName,
+    KeyValueProp,
+    MemberExpr,
+    MetaPropExpr,
+    MethodProp,
     NewExpr,
     ParenExpr,
+    ObjectLit,
+    OptChainExpr,
     SeqExpr,
+    SetterProp,
     SpreadElement,
     TaggedTpl,
+    ThisExpr,
+    Tpl,
     TsAsExpr,
+    TsConstAssertion,
+    TsTypeCastExpr,
     TsExprWithTypeArgs,
     TsNonNullExpr,
     TsTypeAssertion,
@@ -299,9 +312,10 @@ generate_node! [
     TsInterfaceBody,
     TsCallSignatureDecl,
     TsConstructSignatureDecl,
-    TsPropertySignature,
-    TsMethodSignature,
     TsIndexSignature,
+    TsMethodSignature,
+    TsPropertySignature,
+    TsTypeLit,
     /* literals */
     BigInt,
     Bool,
@@ -334,11 +348,31 @@ generate_node! [
     VarDecl,
     VarDeclarator,
     /* types */
+    TsArrayType,
+    TsConditionalType,
+    TsConstructorType,
+    TsKeywordType,
+    TsFnType,
+    TsImportType,
+    TsIndexedAccessType,
+    TsInferType,
+    TsIntersectionType,
     TsLitType,
+    TsMappedType,
+    TsOptionalType,
+    TsParenthesizedType,
+    TsRestType,
+    TsThisType,
+    TsTupleType,
     TsTypeAnn,
+    TsTypeOperator,
     TsTypeParamInstantiation,
     TsTypeParamDecl,
     TsTypeParam,
+    TsTypePredicate,
+    TsTypeQuery,
+    TsTypeRef,
+    TsUnionType,
     /* unknown */
     TokenAndSpan,
     Comment,
@@ -400,6 +434,17 @@ generate_traits![TsLit, Number, Str, Bool];
 generate_traits![TypeParamNode, Instantiation, Decl];
 generate_traits![TsTypeElement, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature, TsMethodSignature, TsIndexSignature];
 generate_traits![TsFnParam, Ident, Array, Rest, Object];
+generate_traits![Expr, This, Array, Object, Fn, Unary, Update, Bin, Assign, Member, Cond, Call, New, Seq, Ident, Lit, Tpl, TaggedTpl, Arrow,
+    Class, Yield, MetaProp, Await, Paren, JSXMebmer, JSXNamespacedName, JSXEmpty, JSXElement, JSXFragment, TsTypeAssertion, TsConstAssertion,
+    TsNonNull, TsTypeCast, TsAs, PrivateName, OptChain, Invalid];
+generate_traits![PropOrSpread, Spread, Prop];
+generate_traits![Prop, Shorthand, KeyValue, Assign, Getter, Setter, Method];
+generate_traits![Pat, Ident, Array, Rest, Object, Assign, Invalid, Expr];
+generate_traits![TsType, TsKeywordType, TsThisType, TsFnOrConstructorType, TsTypeRef, TsTypeQuery, TsTypeLit, TsArrayType, TsTupleType,
+    TsOptionalType, TsRestType, TsUnionOrIntersectionType, TsConditionalType, TsInferType, TsParenthesizedType, TsTypeOperator, TsIndexedAccessType,
+    TsMappedType, TsLitType, TsTypePredicate, TsImportType];
+generate_traits![TsFnOrConstructorType, TsFnType, TsConstructorType];
+generate_traits![TsUnionOrIntersectionType, TsUnionType, TsIntersectionType];
 
 /* manual From implementations */
 
@@ -409,9 +454,21 @@ impl From<Box<Expr>> for Node {
     }
 }
 
+impl From<Box<JSXElement>> for Node {
+    fn from(element: Box<JSXElement>) -> Node {
+        (*element).into()
+    }
+}
+
 impl From<Box<Pat>> for Node {
     fn from(pat: Box<Pat>) -> Node {
         (*pat).into()
+    }
+}
+
+impl From<Box<Prop>> for Node {
+    fn from(prop: Box<Prop>) -> Node {
+        (*prop).into()
     }
 }
 
@@ -434,34 +491,6 @@ impl From<DefaultDecl> for Node {
     fn from(decl: DefaultDecl) -> Node {
         match decl {
             _ => Node::Unknown(decl.span()), // todo: implement others
-        }
-    }
-}
-
-impl From<Expr> for Node {
-    fn from(expr: Expr) -> Node {
-        match expr {
-            Expr::Array(node) => node.into(),
-            Expr::Arrow(node) => node.into(),
-            Expr::Assign(node) => node.into(),
-            Expr::Await(node) => node.into(),
-            Expr::Bin(node) => node.into(),
-            Expr::Call(node) => node.into(),
-            Expr::Cond(node) => node.into(),
-            Expr::Fn(node) => node.into(),
-            Expr::Ident(node) => node.into(),
-            Expr::Lit(node) => node.into(),
-            Expr::New(node) => node.into(),
-            Expr::Paren(node) => node.into(),
-            Expr::Seq(node) => node.into(),
-            Expr::TaggedTpl(node) => node.into(),
-            Expr::TsAs(node) => node.into(),
-            Expr::TsNonNull(node) => node.into(),
-            Expr::TsTypeAssertion(node) => node.into(),
-            Expr::Unary(node) => node.into(),
-            Expr::Update(node) => node.into(),
-            Expr::Yield(node) => node.into(),
-            _ => Node::Unknown(expr.span()), // todo: implement others
         }
     }
 }
@@ -492,17 +521,6 @@ impl From<ModuleDecl> for Node {
     }
 }
 
-impl From<Pat> for Node {
-    fn from(pat: Pat) -> Node {
-        match pat {
-            Pat::Array(node) => node.into(),
-            Pat::Assign(node) => node.into(),
-            Pat::Ident(node) => node.into(),
-            _ => Node::Unknown(pat.span()), // todo: implement others
-        }
-    }
-}
-
 impl From<Stmt> for Node {
     fn from(stmt: Stmt) -> Node {
         match stmt {
@@ -528,15 +546,6 @@ impl From<TsModuleRef> for Node {
     }
 }
 
-impl From<TsType> for Node {
-    fn from(ts_type: TsType) -> Node {
-        match ts_type {
-            TsType::TsLitType(node) => node.into(),
-            _ => Node::Unknown(ts_type.span()), // todo: implement others
-        }
-    }
-}
-
 /* temporary manual NodeKinded implementations */
 
 impl NodeKinded for DefaultDecl {
@@ -555,34 +564,6 @@ impl NodeKinded for Decl {
             Decl::TsInterface(node) => node.kind(),
             Decl::TsTypeAlias(node) => node.kind(),
             Decl::Var(node) => node.kind(),
-            _ => NodeKind::Unknown,
-        }
-    }
-}
-
-impl NodeKinded for Expr {
-    fn kind(&self) -> NodeKind {
-        match self {
-            Expr::Array(node) => node.kind(),
-            Expr::Arrow(node) => node.kind(),
-            Expr::Assign(node) => node.kind(),
-            Expr::Await(node) => node.kind(),
-            Expr::Bin(node) => node.kind(),
-            Expr::Call(node) => node.kind(),
-            Expr::Cond(node) => node.kind(),
-            Expr::Fn(node) => node.kind(),
-            Expr::Ident(node) => node.kind(),
-            Expr::Lit(node) => node.kind(),
-            Expr::New(node) => node.kind(),
-            Expr::Paren(node) => node.kind(),
-            Expr::Seq(node) => node.kind(),
-            Expr::TaggedTpl(node) => node.kind(),
-            Expr::TsAs(node) => node.kind(),
-            Expr::TsNonNull(node) => node.kind(),
-            Expr::TsTypeAssertion(node) => node.kind(),
-            Expr::Unary(node) => node.kind(),
-            Expr::Update(node) => node.kind(),
-            Expr::Yield(node) => node.kind(),
             _ => NodeKind::Unknown,
         }
     }
@@ -614,17 +595,6 @@ impl NodeKinded for ModuleDecl {
     }
 }
 
-impl NodeKinded for Pat {
-    fn kind(&self) -> NodeKind {
-        match self {
-            Pat::Array(node) => node.kind(),
-            Pat::Assign(node) => node.kind(),
-            Pat::Ident(node) => node.kind(),
-            _ => NodeKind::Unknown, // todo: implement others
-        }
-    }
-}
-
 impl NodeKinded for Stmt {
     fn kind(&self) -> NodeKind {
         match self {
@@ -650,11 +620,3 @@ impl NodeKinded for TsModuleRef {
     }
 }
 
-impl NodeKinded for TsType {
-    fn kind(&self) -> NodeKind {
-        match self {
-            TsType::TsLitType(node) => node.kind(),
-            _ => NodeKind::Unknown, // todo: implement others
-        }
-    }
-}

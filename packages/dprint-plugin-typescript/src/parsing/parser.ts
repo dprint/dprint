@@ -1282,7 +1282,7 @@ function parseInterfaceBody(node: babel.TSInterfaceBody, context: Context): Prin
 }
 
 function* parseMethodSignature(node: babel.TSMethodSignature, context: Context): PrintItemIterable {
-    const startInfo = createInfo("startConstructSignature");
+    const startInfo = createInfo("startMethodSignature");
     yield startInfo;
 
     if (node.computed)

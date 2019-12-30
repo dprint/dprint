@@ -53,9 +53,10 @@ pub struct TypeScriptConfiguration {
     pub type_alias_semi_colon: bool,
     pub variable_statement_semi_colon: bool,
     /* trailing commas */
-    pub array_expression_trialing_commas: TrailingCommas,
-    pub array_pattern_trialing_commas: TrailingCommas,
+    pub array_expression_trailing_commas: TrailingCommas,
+    pub array_pattern_trailing_commas: TrailingCommas,
     pub enum_declaration_trailing_commas: TrailingCommas,
+    pub object_expression_trailing_commas: TrailingCommas,
 
     /* use space separator */
 
@@ -211,9 +212,10 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
         variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
         /* trailing commas */
-        array_expression_trialing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", &trailing_commas),
-        array_pattern_trialing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", &trailing_commas),
+        array_expression_trailing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", &trailing_commas),
+        array_pattern_trailing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", &trailing_commas),
         enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", &trailing_commas),
+        object_expression_trailing_commas: get_trailing_commas(&mut config, "objectExpression.trailingCommas", &trailing_commas),
         /* space settings */
         construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false),
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),

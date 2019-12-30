@@ -4,14 +4,7 @@ use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
 use super::configuration::{BracePosition, MemberSpacing, OperatorPosition, TrailingCommas, UseParentheses};
-use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Number, Regex, Str, ExprOrSuper, Ident, ExprOrSpread, BreakStmt,
-    ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ArrayLit, ArrayPat, TsTypeAnn, VarDecl, VarDeclKind, VarDeclarator, ExportAll,
-    TsEnumDecl, TsEnumMember, TsTypeAliasDecl, TsLitType, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, ExportSpecifier,
-    DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr, ImportDecl, ImportDefault, ImportSpecific,
-    ImportStarAs, ImportSpecifier, TsImportEqualsDecl, TsTypeAssertion, UnaryExpr, UnaryOp, UpdateExpr, UpdateOp, YieldExpr,
-    RestPat, SeqExpr, SpreadElement, TaggedTpl, TplElement, AssignPatProp, AssignPat, AssignExpr, TsAsExpr, AwaitExpr, TsNonNullExpr, NewExpr,
-    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt, ArrowExpr, Pat, BinExpr, BinaryOp, ParenExpr, CondExpr, TsInterfaceDecl,
-    TsExprWithTypeArgs, TsInterfaceBody, TsCallSignatureDecl, TsConstructSignatureDecl, TsIndexSignature, TsMethodSignature, TsPropertySignature};
+use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, SpanData};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
@@ -92,6 +85,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             Node::FnExpr(node) => vec![node.text(context).into()], // todo
             Node::NewExpr(node) => parse_new_expr(node, context),
+            Node::ObjectLit(node) => parse_object_lit(node, context),
             Node::ParenExpr(node) => parse_paren_expr(node, context),
             Node::SeqExpr(node) => parse_sequence_expr(node, context),
             Node::SpreadElement(node) => parse_spread_element(node, context),
@@ -115,6 +109,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsInterfaceBody(node) => parse_interface_body(node, context),
             Node::TsMethodSignature(node) => parse_method_signature(node, context),
             Node::TsPropertySignature(node) => parse_property_signature(node, context),
+            Node::TsTypeLit(node) => parse_type_lit(node, context),
             /* literals */
             Node::BigInt(node) => parse_big_int_literal(node, context),
             Node::Bool(node) => parse_bool_literal(node),
@@ -130,6 +125,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::AssignPat(node) => parse_assign_pat(node, context),
             Node::AssignPatProp(node) => parse_assign_pat_prop(node, context),
             Node::RestPat(node) => parse_rest_pat(node, context),
+            Node::ObjectPat(node) => parse_object_pattern(node, context),
             /* statements */
             Node::BlockStmt(node) => parse_block_stmt(node, context),
             Node::BreakStmt(node) => parse_break_stmt(node, context),
@@ -543,7 +539,7 @@ fn parse_array_expr(node: ArrayLit, context: &mut Context) -> Vec<PrintItem> {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
         node: node.clone().into(),
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
-        trailing_commas: context.config.array_expression_trialing_commas.clone(),
+        trailing_commas: context.config.array_expression_trailing_commas.clone(),
     }, context)
 }
 
@@ -994,6 +990,28 @@ fn parse_non_null_expr(node: TsNonNullExpr, context: &mut Context) -> Vec<PrintI
     return items;
 }
 
+fn parse_object_lit(node: ObjectLit, context: &mut Context) -> Vec<PrintItem> {
+    let node_clone = node.clone();
+    return parse_object_like_node(ParseObjectLikeNodeOptions {
+        node: node_clone.into(),
+        members: node.props.into_iter().map(|x| x.into()).collect(),
+        trailing_commas: Some(context.config.object_expression_trailing_commas.clone()),
+    }, context);
+}
+
+fn parse_object_pattern(node: ObjectPat, context: &mut Context) -> Vec<PrintItem> {
+    let node_clone = node.clone();
+    let mut items = parse_object_like_node(ParseObjectLikeNodeOptions {
+        node: node_clone.into(),
+        members: node.props.into_iter().map(|x| x.into()).collect(),
+        trailing_commas: Some(TrailingCommas::Never),
+    }, context);
+    if let Some(type_ann) = node.type_ann {
+        items.extend(parse_node(type_ann.into(), context));
+    }
+    return items;
+}
+
 fn parse_paren_expr(node: ParenExpr, context: &mut Context) -> Vec<PrintItem> {
     let expr = *node.expr;
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&context.get_first_open_paren_token_within(&node.span), &expr, context);
@@ -1262,6 +1280,15 @@ fn parse_property_signature(node: TsPropertySignature, context: &mut Context) ->
     return items;
 }
 
+fn parse_type_lit(node: TsTypeLit, context: &mut Context) -> Vec<PrintItem> {
+    let node_clone = node.clone();
+    return parse_object_like_node(ParseObjectLikeNodeOptions {
+        node: node_clone.into(),
+        members: node.members.into_iter().map(|m| m.into()).collect(),
+        trailing_commas: Option::None
+    }, context);
+}
+
 /* literals */
 
 fn parse_big_int_literal(node: BigInt, context: &mut Context) -> Vec<PrintItem> {
@@ -1333,7 +1360,7 @@ fn parse_array_pat(node: ArrayPat, context: &mut Context) -> Vec<PrintItem> {
     let mut items = parse_array_like_nodes(ParseArrayLikeNodesOptions {
         node: node.clone().into(),
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
-        trailing_commas: context.config.array_pattern_trialing_commas.clone(),
+        trailing_commas: context.config.array_pattern_trailing_commas.clone(),
     }, context);
     items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
     items
@@ -1353,7 +1380,20 @@ fn parse_assign_pat(node: AssignPat, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_assign_pat_prop(node: AssignPatProp, context: &mut Context) -> Vec<PrintItem> {
-    vec![] // todo
+    return parser_helpers::new_line_group({
+        let mut items = Vec::new();
+        items.extend(parse_node(node.key.into(), context));
+        if let Some(box value) = node.value {
+            items.push(PrintItem::SpaceOrNewLine);
+            items.push(conditions::indent_if_start_of_line({
+                let mut items = Vec::new();
+                items.push("= ".into());
+                items.extend(parse_node(value.into(), context));
+                items
+            }).into());
+        }
+        items
+    });
 }
 
 fn parse_rest_pat(node: RestPat, context: &mut Context) -> Vec<PrintItem> {
@@ -2310,6 +2350,65 @@ fn parse_extends_or_implements(text: &str, type_items: Vec<TsExprWithTypeArgs>, 
         }
         items
     })).into());
+
+    return items;
+}
+
+struct ParseObjectLikeNodeOptions {
+    node: Node,
+    members: Vec<Node>,
+    trailing_commas: Option<TrailingCommas>,
+}
+
+fn parse_object_like_node(opts: ParseObjectLikeNodeOptions, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    if opts.members.is_empty() {
+        items.push("{}".into());
+        return items;
+    }
+
+    let multi_line = node_helpers::get_use_new_lines_for_nodes(
+        &context.get_first_open_brace_token_within(&opts.node).expect("Expected to find an open brace token."),
+        &opts.members[0],
+        context
+    );
+    let start_info = Info::new("startObject");
+    let end_info = Info::new("startObject");
+    let separator = if multi_line { PrintItem::NewLine } else { " ".into() };
+
+    items.push(start_info.clone().into());
+    items.push("{".into());
+    items.push(separator.clone().into());
+
+    if multi_line {
+        items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
+            items: opts.members.into_iter().map(|member| (member.into(), Option::None)).collect(),
+            should_use_space: Option::None,
+            should_use_new_line: Option::None,
+            should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+            trailing_commas: opts.trailing_commas,
+        }, context)));
+    } else {
+        let members_len = opts.members.len();
+        for (i, member) in opts.members.into_iter().enumerate() {
+            if i > 0 { items.push(PrintItem::SpaceOrNewLine); }
+
+            let trailing_commas = opts.trailing_commas.clone();
+            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(member, context, move |mut items| {
+                if let Some(trailing_commas) = &trailing_commas {
+                    if i < members_len - 1 || get_force_trailing_commas(trailing_commas, multi_line) {
+                        items.push(",".into());
+                    }
+                }
+                items
+            }))).into());
+        }
+    }
+
+    items.push(separator.into());
+    items.push("}".into());
+    items.push(end_info.clone().into());
 
     return items;
 }
