@@ -13,6 +13,6 @@ pub fn has_separating_blank_line(first_node: &dyn Ranged, second_node: &dyn Rang
             }
         }
 
-        second_node.end_line(context)
+        second_node.start_line(context)
     }
 }

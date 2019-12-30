@@ -2558,7 +2558,7 @@ function* parseConditionalExpression(node: babel.ConditionalExpression, context:
         || nodeHelpers.getUseNewlinesForNodes([node.consequent, node.alternate]);
     const operatorPosition = getOperatorPosition();
     const startInfo = createInfo("startConditionalExpression");
-    const beforeAlternateInfo = createInfo("afterAlternateColon");
+    const beforeAlternateInfo = createInfo("beforeAlternateColon");
     const endInfo = createInfo("endConditionalExpression");
 
     yield startInfo;

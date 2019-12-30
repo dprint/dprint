@@ -3,6 +3,7 @@ use std::rc::Rc;
 use super::*;
 use std::collections::{HashSet, HashMap};
 use dprint_core::{Info};
+use utils::{Stack};
 use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, Str, Module, ExprStmt, TsType, TsTypeAnn, TsTypeParamInstantiation,
     ModuleItem, Stmt, Expr, ExprOrSuper, Lit, ExprOrSpread, FnExpr, ArrowExpr, BreakStmt, ContinueStmt, DebuggerStmt, EmptyStmt, TsExportAssignment, ModuleDecl,
@@ -10,7 +11,8 @@ use swc_ecma_ast::{BigInt, Bool, CallExpr, Ident, JSXText, Null, Number, Regex, 
     TsLitType, TsLit, TsNamespaceExportDecl, ExportDecl, ExportDefaultDecl, NamedExport, DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier,
     ImportSpecifier, ImportSpecific, ImportDefault, ImportStarAs, ImportDecl, DefaultDecl, ExportDefaultExpr, RestPat, SeqExpr, SpreadElement, TaggedTpl,
     TsImportEqualsDecl, TsModuleRef, TsTypeAssertion, UnaryExpr, UpdateExpr, YieldExpr, ObjectPatProp, KeyValuePatProp, AssignPatProp, AssignPat, PatOrExpr,
-    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt, BlockStmtOrExpr, BinExpr, ParenExpr};
+    TsAsExpr, AwaitExpr, AssignExpr, TsNonNullExpr, NewExpr, ReturnStmt, ThrowStmt, FnDecl, Function, BlockStmt, BlockStmtOrExpr, BinExpr, ParenExpr,
+    CondExpr};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct Context {
@@ -23,6 +25,7 @@ pub struct Context {
     handled_comments: HashSet<BytePos>,
     pub info: Rc<SourceFile>,
     stored_infos: HashMap<BytePos, Info>,
+    pub end_statement_or_member_infos: Stack<Info>,
 }
 
 impl Context {
@@ -44,6 +47,7 @@ impl Context {
             handled_comments: HashSet::new(),
             info: Rc::new(info),
             stored_infos: HashMap::new(),
+            end_statement_or_member_infos: Stack::new(),
         }
     }
 
@@ -272,6 +276,7 @@ generate_node! [
     AwaitExpr,
     BinExpr,
     CallExpr,
+    CondExpr,
     ExprOrSpread,
     FnExpr,
     NewExpr,
@@ -426,6 +431,7 @@ impl From<Expr> for Node {
             Expr::Await(node) => node.into(),
             Expr::Bin(node) => node.into(),
             Expr::Call(node) => node.into(),
+            Expr::Cond(node) => node.into(),
             Expr::Fn(node) => node.into(),
             Expr::Ident(node) => node.into(),
             Expr::Lit(node) => node.into(),
@@ -546,6 +552,7 @@ impl NodeKinded for Expr {
             Expr::Await(node) => node.kind(),
             Expr::Bin(node) => node.kind(),
             Expr::Call(node) => node.kind(),
+            Expr::Cond(node) => node.kind(),
             Expr::Fn(node) => node.kind(),
             Expr::Ident(node) => node.kind(),
             Expr::Lit(node) => node.kind(),

@@ -10,7 +10,7 @@ use swc_ecma_ast::{CallExpr, Module, Expr, ExprStmt, BigInt, Bool, JSXText, Numb
     DefaultExportSpecifier, NamespaceExportSpecifier, NamedExportSpecifier, ExportDefaultExpr, ImportDecl, ImportDefault, ImportSpecific,
     ImportStarAs, ImportSpecifier, TsImportEqualsDecl, TsTypeAssertion, UnaryExpr, UnaryOp, UpdateExpr, UpdateOp, YieldExpr,
     RestPat, SeqExpr, SpreadElement, TaggedTpl, TplElement, AssignPatProp, AssignPat, AssignExpr, TsAsExpr, AwaitExpr, TsNonNullExpr, NewExpr,
-    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt, ArrowExpr, Pat, BinExpr, BinaryOp, ParenExpr};
+    ReturnStmt, ThrowStmt, FnDecl, FnExpr, Function, BlockStmt, ArrowExpr, Pat, BinExpr, BinaryOp, ParenExpr, CondExpr};
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, SpanData};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
@@ -86,6 +86,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::AwaitExpr(node) => parse_await_expr(node, context),
             Node::BinExpr(node) => parse_binary_expr(node, context),
             Node::CallExpr(node) => parse_call_expr(node, context),
+            Node::CondExpr(node) => parse_conditional_expr(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             Node::FnExpr(node) => vec![node.text(context).into()], // todo
             Node::NewExpr(node) => parse_new_expr(node, context),
@@ -749,15 +750,11 @@ fn parse_binary_expr(node: BinExpr, context: &mut Context) -> Vec<PrintItem> {
             OperatorPosition::NextLine => OperatorPosition::NextLine,
             OperatorPosition::SameLine => OperatorPosition::SameLine,
             OperatorPosition::Maintain => {
-                println!("Node text: {}", node.text(context));
-                println!("Operator: {} {}", operator_token.lo().0, operator_token.hi().0);
-                println!("Node left end line: {} ({})", node.left.end_line(context), node.left.text(context));
-                println!("Token strart line: {} ({})", operator_token.end_line(context), operator_token.text(context));
-                return if node.left.end_line(context) == operator_token.start_line(context) {
+                if node.left.end_line(context) == operator_token.start_line(context) {
                     OperatorPosition::SameLine
                 } else {
                     OperatorPosition::NextLine
-                };
+                }
             }
         }
     }
@@ -860,6 +857,87 @@ fn parse_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
                         }
                     }
                 };
+            }
+        }
+    }
+}
+
+fn parse_conditional_expr(node: CondExpr, context: &mut Context) -> Vec<PrintItem> {
+    let operator_token = context.get_first_token_after_with_text(&node.test, "?").unwrap();
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&node.test, &node.cons, context)
+        || node_helpers::get_use_new_lines_for_nodes(&node.cons, &node.alt, context);
+    let operator_position = get_operator_position(&node, &operator_token, context);
+    let start_info = Info::new("startConditionalExpression");
+    let before_alternate_info = Info::new("beforeAlternateInfo");
+    let end_info = Info::new("endConditionalExpression");
+    let mut items = Vec::new();
+
+    items.push(start_info.clone().into());
+    items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse(node.test.into(), context, {
+        let operator_position = operator_position.clone();
+        move |mut items| {
+            if operator_position == OperatorPosition::SameLine {
+                items.push(" ?".into());
+            }
+            items
+        }
+    })));
+
+    // force re-evaluation of all the conditions below once the end info has been reached
+    items.push(conditions::force_reevaluation_once_resolved(context.end_statement_or_member_infos.peek().unwrap_or(&end_info).clone()).into());
+
+    if use_new_lines {
+        items.push(PrintItem::NewLine);
+    } else {
+        items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info.clone(), Some(before_alternate_info.clone())).into());
+    }
+
+    items.push(conditions::indent_if_start_of_line({
+        let mut items = Vec::new();
+        if operator_position == OperatorPosition::NextLine {
+            items.push("? ".into());
+        }
+        items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse(node.cons.into(), context, {
+            let operator_position = operator_position.clone();
+            move |mut items| {
+                if operator_position == OperatorPosition::SameLine {
+                    items.push(" :".into());
+                }
+                items
+            }
+        })));
+        items
+    }).into());
+
+    if use_new_lines {
+        items.push(PrintItem::NewLine);
+    } else {
+        items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info.clone(), Some(before_alternate_info.clone())).into());
+    }
+
+    items.push(conditions::indent_if_start_of_line({
+        let mut items = Vec::new();
+        if operator_position == OperatorPosition::NextLine {
+            items.push(": ".into());
+        }
+        items.push(before_alternate_info.into());
+        items.extend(parser_helpers::new_line_group(parse_node(node.alt.into(), context)));
+        items.push(end_info.into());
+        items
+    }).into());
+
+    return items;
+
+    fn get_operator_position(node: &CondExpr, operator_token: &TokenAndSpan, context: &mut Context) -> OperatorPosition {
+        match context.config.conditional_expression_operator_position {
+            OperatorPosition::NextLine => OperatorPosition::NextLine,
+            OperatorPosition::SameLine => OperatorPosition::SameLine,
+            OperatorPosition::Maintain => {
+                if node.test.end_line(context) == operator_token.start_line(context) {
+                    OperatorPosition::SameLine
+                } else {
+                    OperatorPosition::NextLine
+                }
             }
         }
     }
@@ -1776,6 +1854,7 @@ fn parse_statements_or_members(opts: ParseStatementsOrMembersOptions, context: &
         }
 
         let end_info = Info::new("endStatementOrMemberInfo");
+        context.end_statement_or_member_infos.push(end_info.clone());
         items.extend(if let Some(print_items) = optional_print_items {
             print_items
         } else {
@@ -1791,6 +1870,7 @@ fn parse_statements_or_members(opts: ParseStatementsOrMembersOptions, context: &
             })
         });
         items.push(end_info.into());
+        context.end_statement_or_member_infos.pop();
 
         last_node = Some(node);
     }

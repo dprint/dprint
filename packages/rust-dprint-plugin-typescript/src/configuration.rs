@@ -24,6 +24,7 @@ pub struct TypeScriptConfiguration {
     pub enum_declaration_member_spacing: MemberSpacing,
     /* operator position */
     pub binary_expression_operator_position: OperatorPosition,
+    pub conditional_expression_operator_position: OperatorPosition,
     /* semi-colon */
     pub break_statement_semi_colon: bool,
     pub continue_statement_semi_colon: bool,
@@ -168,6 +169,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
         /* operator position */
         binary_expression_operator_position: get_operator_position(&mut config, "binaryExpression.operatorPosition", &operator_position),
+        conditional_expression_operator_position: get_operator_position(&mut config, "conditionalExpression.operatorPosition", &operator_position),
         /* semi-colon */
         break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons),
         continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons),
