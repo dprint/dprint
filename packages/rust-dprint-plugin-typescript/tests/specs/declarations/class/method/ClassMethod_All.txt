@@ -5,6 +5,7 @@ abstract class Test {
         super(5, 4);
     }
 
+    @dec
     public static async method1(): string {
         // test
     }
@@ -45,6 +46,7 @@ abstract class Test {
         super(5, 4);
     }
 
+    @dec
     public static async method1(): string {
         // test
     }

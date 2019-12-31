@@ -90,7 +90,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ClassExpr(node) => parse_class_expr(node, context),
             Node::CondExpr(node) => parse_conditional_expr(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
-            Node::FnExpr(node) => vec![node.text(context).into()], // todo
+            Node::FnExpr(node) => parse_fn_expr(node, context),
             Node::MemberExpr(node) => parse_member_expr(node, context),
             Node::MetaPropExpr(node) => parse_meta_prop_expr(node, context),
             Node::NewExpr(node) => parse_new_expr(node, context),
@@ -1153,6 +1153,15 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
     if node.spread.is_some() { items.push("...".into()); }
     items.extend(parse_node((*node.expr).into(), context));
     items
+}
+
+fn parse_fn_expr(node: FnExpr, context: &mut Context) -> Vec<PrintItem> {
+    parse_function_decl_or_expr(FunctionDeclOrExprNode {
+        is_func_decl: false,
+        ident: node.ident,
+        declare: false,
+        func: node.function,
+    }, context)
 }
 
 fn parse_member_expr(node: MemberExpr, context: &mut Context) -> Vec<PrintItem> {
