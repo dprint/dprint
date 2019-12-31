@@ -10,20 +10,30 @@ pub struct TypeScriptConfiguration {
     pub arrow_function_expression_use_parentheses: UseParentheses,
     /* brace position */
     pub arrow_function_expression_brace_position: BracePosition,
+    pub class_declaration_brace_position: BracePosition,
+    pub class_expression_brace_position: BracePosition,
+    pub constructor_brace_position: BracePosition,
     pub enum_declaration_brace_position: BracePosition,
+    pub get_accessor_brace_position: BracePosition,
     pub interface_declaration_brace_position: BracePosition,
     pub function_declaration_brace_position: BracePosition,
     pub function_expression_brace_position: BracePosition,
+    pub method_brace_position: BracePosition,
+    pub set_accessor_brace_position: BracePosition,
     /* force multi-line arguments */
     pub call_expression_force_multi_line_arguments: bool,
     pub new_expression_force_multi_line_arguments: bool,
     /* force multi-line parameters */
     pub arrow_function_expression_force_multi_line_parameters: bool,
     pub call_signature_force_multi_line_parameters: bool,
+    pub constructor_force_multi_line_parameters: bool,
     pub construct_signature_force_multi_line_parameters: bool,
     pub function_declaration_force_multi_line_parameters: bool,
     pub function_expression_force_multi_line_parameters: bool,
+    pub get_accessor_force_multi_line_parameters: bool,
+    pub method_force_multi_line_parameters: bool,
     pub method_signature_force_multi_line_parameters: bool,
+    pub set_accessor_force_multi_line_parameters: bool,
     /* member spacing */
     pub enum_declaration_member_spacing: MemberSpacing,
     /* operator position */
@@ -32,7 +42,9 @@ pub struct TypeScriptConfiguration {
     /* semi-colon */
     pub break_statement_semi_colon: bool,
     pub call_signature_semi_colon: bool,
+    pub class_property_semi_colon: bool,
     pub construct_signature_semi_colon: bool,
+    pub constructor_semi_colon: bool,
     pub continue_statement_semi_colon: bool,
     pub debugger_statement_semi_colon: bool,
     pub empty_statement_semi_colon: bool,
@@ -42,13 +54,16 @@ pub struct TypeScriptConfiguration {
     pub export_named_declaration_semi_colon: bool,
     pub expression_statement_semi_colon: bool,
     pub function_declaration_semi_colon: bool,
+    pub get_accessor_semi_colon: bool,
     pub import_declaration_semi_colon: bool,
     pub import_equals_semi_colon: bool,
     pub index_signature_semi_colon: bool,
+    pub method_semi_colon: bool,
     pub method_signature_semi_colon: bool,
     pub namespace_export_declaration_semi_colon: bool,
     pub property_signature_semi_colon: bool,
     pub return_statement_semi_colon: bool,
+    pub set_accessor_semi_colon: bool,
     pub throw_statement_semi_colon: bool,
     pub type_alias_semi_colon: bool,
     pub variable_statement_semi_colon: bool,
@@ -60,10 +75,18 @@ pub struct TypeScriptConfiguration {
 
     /* use space separator */
 
+    /// Whether to surround bitwise and arithmetic operators in a binary expression with spaces.
+    /// * `true` (default) - Ex. `1 + 2`
+    /// * `false` - Ex. `1+2`
+    pub binary_expression_space_surrounding_bitwise_and_arithmetic_operator: bool,
     /// Whether to add a space after the `new` keyword in a construct signature.
     /// `true` - Ex. `new (): MyClass;`
     /// `false` (default) - Ex. `new(): MyClass;`
     pub construct_signature_space_after_new_keyword: bool,
+    /// Whether to add a space before the parentheses of a constructor.
+    /// `true` - Ex. `constructor ()`
+    /// `false` (false) - Ex. `constructor()`
+    pub constructor_space_before_parentheses: bool,
     /// Whether to add spaces around named exports in an export declaration.
     /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
     /// * `false` - Ex. `export {SomeExport, OtherExport};`
@@ -76,14 +99,22 @@ pub struct TypeScriptConfiguration {
     /// `true` - Ex. `function ()`
     /// `false` (default) - Ex. `function()`
     pub function_expression_space_before_parentheses: bool,
+    /// Whether to add a space before the parentheses of a get accessor.
+    /// `true` - Ex. `get myProp ()`
+    /// `false` (false) - Ex. `get myProp()`
+    pub get_accessor_space_before_parentheses: bool,
     /// Whether to add spaces around named imports in an import declaration.
     /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
     /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
     pub import_declaration_space_surrounding_named_imports: bool,
-    /// Whether to surround bitwise and arithmetic operators in a binary expression with spaces.
-    /// * `true` (default) - Ex. `1 + 2`
-    /// * `false` - Ex. `1+2`
-    pub binary_expression_space_surrounding_bitwise_and_arithmetic_operator: bool,
+    /// Whether to add a space before the parentheses of a method.
+    /// `true` - Ex. `myMethod ()`
+    /// `false` - Ex. `myMethod()`
+    pub method_space_before_parentheses: bool,
+    /// Whether to add a space before the parentheses of a set accessor.
+    /// `true` - Ex. `set myProp (value: string)`
+    /// `false` (default) - Ex. `set myProp(value: string)`
+    pub set_accessor_space_before_parentheses: bool,
     /// Whether to add a space before the colon of a type annotation.
     /// * `true` - Ex. `function myFunction() : string`
     /// * `false` (default) - Ex. `function myFunction(): string`
@@ -169,20 +200,30 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         arrow_function_expression_use_parentheses: get_use_parentheses(&mut config, "arrowFunctionExpression.useParentheses", &UseParentheses::Maintain),
         /* brace position */
         arrow_function_expression_brace_position: get_brace_position(&mut config, "arrowFunctionExpression.bracePosition", &brace_position),
+        class_declaration_brace_position: get_brace_position(&mut config, "classDeclaration.bracePosition", &brace_position),
+        class_expression_brace_position: get_brace_position(&mut config, "classExpression.bracePosition", &brace_position),
+        constructor_brace_position: get_brace_position(&mut config, "constructor.bracePosition", &brace_position),
         enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", &brace_position),
+        get_accessor_brace_position: get_brace_position(&mut config, "getAccessor.bracePosition", &brace_position),
         interface_declaration_brace_position: get_brace_position(&mut config, "interfaceDeclaration.bracePosition", &brace_position),
         function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", &brace_position),
         function_expression_brace_position: get_brace_position(&mut config, "functionExpression.bracePosition", &brace_position),
+        method_brace_position: get_brace_position(&mut config, "method.bracePosition", &brace_position),
+        set_accessor_brace_position: get_brace_position(&mut config, "setAccessor.bracePosition", &brace_position),
         /* force multi-line arguments */
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
         new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
         /* force multi-line parameters */
         arrow_function_expression_force_multi_line_parameters: get_value(&mut config, "arrowFunctionExpression.forceMultiLineParameters", force_multi_line_parameters),
         call_signature_force_multi_line_parameters: get_value(&mut config, "callSignature.forceMultiLineParameters", force_multi_line_parameters),
+        constructor_force_multi_line_parameters: get_value(&mut config, "constructor.forceMultiLineParameters", force_multi_line_parameters),
         construct_signature_force_multi_line_parameters: get_value(&mut config, "constructSignature.forceMultiLineParameters", force_multi_line_parameters),
         function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters),
         function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters),
+        get_accessor_force_multi_line_parameters: get_value(&mut config, "getAccessor.forceMultiLineParameters", force_multi_line_parameters),
+        method_force_multi_line_parameters: get_value(&mut config, "method.forceMultiLineParameters", force_multi_line_parameters),
         method_signature_force_multi_line_parameters: get_value(&mut config, "methodSignature.forceMultiLineParameters", force_multi_line_parameters),
+        set_accessor_force_multi_line_parameters: get_value(&mut config, "setAccessor.forceMultiLineParameters", force_multi_line_parameters),
         /* member spacing */
         enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
         /* operator position */
@@ -191,7 +232,9 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         /* semi-colon */
         break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons),
         call_signature_semi_colon: get_value(&mut config, "callSignature.semiColon", semi_colons),
+        class_property_semi_colon: get_value(&mut config, "classProperty.semiColon", semi_colons),
         construct_signature_semi_colon: get_value(&mut config, "constructSignature.semiColon", semi_colons),
+        constructor_semi_colon: get_value(&mut config, "constructor.semiColon", semi_colons),
         continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons),
         debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons),
         empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons),
@@ -201,13 +244,16 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         export_named_declaration_semi_colon: get_value(&mut config, "exportNamedDeclaration.semiColon", semi_colons),
         expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
         function_declaration_semi_colon: get_value(&mut config, "functionDeclaration.semiColon", semi_colons),
+        get_accessor_semi_colon: get_value(&mut config, "getAccessor.semiColon", semi_colons),
         import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons),
         import_equals_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons),
         index_signature_semi_colon: get_value(&mut config, "indexSignature.semiColon", semi_colons),
         method_signature_semi_colon: get_value(&mut config, "methodSignature.semiColon", semi_colons),
+        method_semi_colon: get_value(&mut config, "method.semiColon", semi_colons),
         namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons),
         property_signature_semi_colon: get_value(&mut config, "propertySignature.semiColon", semi_colons),
         return_statement_semi_colon: get_value(&mut config, "returnStatement.semiColon", semi_colons),
+        set_accessor_semi_colon: get_value(&mut config, "setAccessor.semiColon", semi_colons),
         throw_statement_semi_colon: get_value(&mut config, "throwStatement.semiColon", semi_colons),
         type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
         variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
@@ -217,12 +263,16 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", &trailing_commas),
         object_expression_trailing_commas: get_trailing_commas(&mut config, "objectExpression.trailingCommas", &trailing_commas),
         /* space settings */
+        binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true),
         construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false),
+        constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false),
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
         function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false),
         function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false),
+        get_accessor_space_before_parentheses: get_value(&mut config, "getAccessor.spaceBeforeParentheses", false),
         import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true),
-        binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true),
+        method_space_before_parentheses: get_value(&mut config, "method.spaceBeforeParentheses", false),
+        set_accessor_space_before_parentheses: get_value(&mut config, "setAccessor.spaceBeforeParentheses", false),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),
         type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true),
     };

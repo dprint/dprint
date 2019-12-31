@@ -87,6 +87,10 @@ impl Context {
         self.get_first_token_before(node, Token::BinOp(BinOpToken::Lt))
     }
 
+    pub fn get_first_open_brace_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_before(node, Token::LBracket)
+    }
+
     fn get_first_token_before(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
         let pos = node.lo();
         let mut found_token = Option::None;
@@ -242,11 +246,19 @@ macro_rules! generate_node {
 pub type Unknown = Span;
 
 generate_node! [
+    /* class */
+    ClassMethod,
+    Constructor,
+    PrivateMethod,
+    ClassProp,
+    PrivateProp,
     /* common */
     Ident,
     PrivateName,
     Invalid,
+    ComputedPropName,
     /* declarations */
+    ClassDecl,
     ExportDecl,
     ExportDefaultDecl,
     ExportDefaultExpr,
@@ -259,6 +271,7 @@ generate_node! [
     TsImportEqualsDecl,
     TsInterfaceDecl,
     TsTypeAliasDecl,
+    TsModuleDecl,
     /* exports */
     DefaultExportSpecifier,
     NamespaceExportSpecifier,
@@ -439,12 +452,15 @@ generate_traits![Expr, This, Array, Object, Fn, Unary, Update, Bin, Assign, Memb
     TsNonNull, TsTypeCast, TsAs, PrivateName, OptChain, Invalid];
 generate_traits![PropOrSpread, Spread, Prop];
 generate_traits![Prop, Shorthand, KeyValue, Assign, Getter, Setter, Method];
+generate_traits![PropName, Ident, Str, Num, Computed];
 generate_traits![Pat, Ident, Array, Rest, Object, Assign, Invalid, Expr];
 generate_traits![TsType, TsKeywordType, TsThisType, TsFnOrConstructorType, TsTypeRef, TsTypeQuery, TsTypeLit, TsArrayType, TsTupleType,
     TsOptionalType, TsRestType, TsUnionOrIntersectionType, TsConditionalType, TsInferType, TsParenthesizedType, TsTypeOperator, TsIndexedAccessType,
     TsMappedType, TsLitType, TsTypePredicate, TsImportType];
 generate_traits![TsFnOrConstructorType, TsFnType, TsConstructorType];
 generate_traits![TsUnionOrIntersectionType, TsUnionType, TsIntersectionType];
+generate_traits![Decl, Class, Fn, Var, TsInterface, TsTypeAlias, TsEnum, TsModule];
+generate_traits![ClassMember, Constructor, Method, PrivateMethod, ClassProp, PrivateProp, TsIndexSignature];
 
 /* manual From implementations */
 
@@ -473,19 +489,6 @@ impl From<Box<Prop>> for Node {
 }
 
 /* temporary manual from implementations */
-
-impl From<Decl> for Node {
-    fn from(decl: Decl) -> Node {
-        match decl {
-            Decl::Fn(node) => node.into(),
-            Decl::TsEnum(node) => node.into(),
-            Decl::TsInterface(node) => node.into(),
-            Decl::TsTypeAlias(node) => node.into(),
-            Decl::Var(node) => node.into(),
-            _ => Node::Unknown(decl.span()), // todo: implement others
-        }
-    }
-}
 
 impl From<DefaultDecl> for Node {
     fn from(decl: DefaultDecl) -> Node {
@@ -552,19 +555,6 @@ impl NodeKinded for DefaultDecl {
     fn kind(&self) -> NodeKind {
         match self {
             _ => NodeKind::Unknown, // todo: implement others
-        }
-    }
-}
-
-impl NodeKinded for Decl {
-    fn kind(&self) -> NodeKind {
-        match self {
-            Decl::Fn(node) => node.kind(),
-            Decl::TsEnum(node) => node.kind(),
-            Decl::TsInterface(node) => node.kind(),
-            Decl::TsTypeAlias(node) => node.kind(),
-            Decl::Var(node) => node.kind(),
-            _ => NodeKind::Unknown,
         }
     }
 }

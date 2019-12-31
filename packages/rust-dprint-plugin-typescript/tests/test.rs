@@ -39,8 +39,8 @@ fn test_specs() {
 
     if !failed_tests.is_empty() {
         println!("---");
+        panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
     }
-    panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
 }
 
 fn get_specs() -> Vec<(String, Spec)> {
