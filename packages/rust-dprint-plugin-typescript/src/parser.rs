@@ -6,7 +6,7 @@ use super::*;
 use super::configuration::{BracePosition, MemberSpacing, OperatorPosition, TrailingCommas, UseParentheses};
 use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span, SpanData};
-use swc_ecma_parser::{token::{Token, TokenAndSpan}};
+use swc_ecma_parser::{token::{Token, TokenAndSpan, Word, Keyword}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let mut context = Context::new(
@@ -79,6 +79,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsEnumMember(node) => parse_enum_member(node, context),
             Node::TsImportEqualsDecl(node) => parse_import_equals_decl(node, context),
             Node::TsInterfaceDecl(node) => parse_interface_decl(node, context),
+            Node::TsModuleDecl(node) => parse_module_decl(node, context),
+            Node::TsNamespaceDecl(node) => parse_namespace_decl(node, context),
             Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
             /* expressions */
             Node::ArrayLit(node) => parse_array_expr(node, context),
@@ -626,6 +628,85 @@ fn parse_interface_decl(node: TsInterfaceDecl, context: &mut Context) -> Vec<Pri
     items.extend(parse_node(node.body.into(), context));
 
     return items;
+}
+
+fn parse_module_decl(node: TsModuleDecl, context: &mut Context) -> Vec<PrintItem> {
+    parse_module_or_namespace_decl(ModuleOrNamespaceDecl {
+        span: node.span,
+        declare: node.declare,
+        global: node.global,
+        id: node.id.into(),
+        body: node.body
+    }, context)
+}
+
+fn parse_namespace_decl(node: TsNamespaceDecl, context: &mut Context) -> Vec<PrintItem> {
+    parse_module_or_namespace_decl(ModuleOrNamespaceDecl {
+        span: node.span,
+        declare: node.declare,
+        global: node.global,
+        id: node.id.into(),
+        body: Some(*node.body)
+    }, context)
+}
+
+struct ModuleOrNamespaceDecl {
+    pub span: Span,
+    pub declare: bool,
+    pub global: bool,
+    pub id: Node,
+    pub body: Option<TsNamespaceBody>,
+}
+
+fn parse_module_or_namespace_decl(node: ModuleOrNamespaceDecl, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    let start_header_info = Info::new("startHeader");
+    items.push(start_header_info.clone().into());
+
+    if node.declare { items.push("declare ".into()); }
+    if node.global {
+        items.push("global".into());
+        // items.extend(parse_node(node.id.into(), context));
+    } else {
+        let has_namespace_keyword = context.get_token_text_at_pos(node.span.lo()) == Some("namespace");
+        items.push(if has_namespace_keyword { "namespace " } else { "module " }.into());
+    }
+
+    items.extend(parse_node(node.id.into(), context));
+    items.extend(parse_body(node.body, start_header_info, context));
+
+    return items;
+
+    fn parse_body(body: Option<TsNamespaceBody>, start_header_info: Info, context: &mut Context) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        if let Some(body) = body {
+            match body {
+                TsNamespaceBody::TsModuleBlock(block) => {
+                    items.extend(parse_membered_body(ParseMemberedBodyOptions {
+                        span: block.span,
+                        members: block.body.into_iter().map(|x| x.into()).collect(),
+                        start_header_info: Some(start_header_info),
+                        brace_position: context.config.module_declaration_brace_position.clone(),
+                        should_use_blank_line: Box::new(move |previous, next, context| {
+                            node_helpers::has_separating_blank_line(previous, next, context)
+                        }),
+                        trailing_commas: Option::None,
+                    }, context));
+                },
+                TsNamespaceBody::TsNamespaceDecl(decl) => {
+                    items.push(".".into());
+                    items.extend(parse_node(decl.id.into(), context));
+                    items.extend(parse_body(Some(*decl.body), start_header_info, context));
+                }
+            }
+        }
+        else if context.config.module_declaration_semi_colon {
+            items.push(";".into());
+        }
+
+        return items;
+    }
 }
 
 fn parse_type_alias(node: TsTypeAliasDecl, context: &mut Context) -> Vec<PrintItem> {

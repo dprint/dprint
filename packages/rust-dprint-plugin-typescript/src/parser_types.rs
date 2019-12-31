@@ -150,6 +150,17 @@ impl Context {
 
         Option::None
     }
+
+    pub fn get_token_text_at_pos(&self, pos: BytePos) -> Option<&str> {
+        for token in self.tokens.iter() {
+            let token_pos = token.span.data().lo;
+            if token_pos == pos {
+                return Some(token.span.text(self));
+            }
+        }
+
+        Option::None
+    }
 }
 
 pub trait NodeKinded {
@@ -275,6 +286,8 @@ generate_node! [
     TsInterfaceDecl,
     TsTypeAliasDecl,
     TsModuleDecl,
+    TsModuleBlock,
+    TsNamespaceDecl,
     /* exports */
     DefaultExportSpecifier,
     NamespaceExportSpecifier,
@@ -480,6 +493,8 @@ generate_traits![TsUnionOrIntersectionType, TsUnionType, TsIntersectionType];
 generate_traits![DefaultDecl, Class, Fn, TsInterfaceDecl];
 generate_traits![TsEntityName, TsQualifiedName, Ident];
 generate_traits![ExprOrSuper, Super, Expr];
+generate_traits![TsModuleName, Ident, Str];
+generate_traits![TsNamespaceBody, TsModuleBlock, TsNamespaceDecl];
 generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl, ExportDefaultExpr, ExportAll, TsImportEquals, TsExportAssignment,
     TsNamespaceExport];
 generate_traits![TsModuleRef, TsEntityName, TsExternalModuleRef];
