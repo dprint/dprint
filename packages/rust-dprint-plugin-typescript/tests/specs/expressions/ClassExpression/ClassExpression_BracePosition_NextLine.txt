@@ -1,4 +1,4 @@
-~~ classExpression.bracePosition: "nextLine", lineWidth: 50 ~~
+~~ classExpression.bracePosition: nextLine, lineWidth: 50 ~~
 == should use the next line for the brace position ==
 const t = class {
 };

@@ -88,7 +88,7 @@ impl Context {
     }
 
     pub fn get_first_open_brace_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node, Token::LBracket)
+        self.get_first_token_before(node, Token::LBrace)
     }
 
     fn get_first_token_before(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
@@ -248,10 +248,12 @@ pub type Unknown = Span;
 generate_node! [
     /* class */
     ClassMethod,
-    Constructor,
-    PrivateMethod,
     ClassProp,
+    Constructor,
+    Decorator,
+    PrivateMethod,
     PrivateProp,
+    TsParamProp,
     /* common */
     Ident,
     PrivateName,
@@ -436,6 +438,8 @@ macro_rules! generate_traits {
 }
 
 generate_traits![BlockStmtOrExpr, BlockStmt, Expr];
+generate_traits![ClassMember, Constructor, Method, PrivateMethod, ClassProp, PrivateProp, TsIndexSignature];
+generate_traits![Decl, Class, Fn, Var, TsInterface, TsTypeAlias, TsEnum, TsModule];
 generate_traits![Lit, BigInt, Bool, JSXText, Null, Num, Regex, Str];
 generate_traits![ImportSpecifier, Specific, Default, Namespace];
 generate_traits![ModuleItem, Stmt, ModuleDecl];
@@ -458,9 +462,9 @@ generate_traits![TsType, TsKeywordType, TsThisType, TsFnOrConstructorType, TsTyp
     TsOptionalType, TsRestType, TsUnionOrIntersectionType, TsConditionalType, TsInferType, TsParenthesizedType, TsTypeOperator, TsIndexedAccessType,
     TsMappedType, TsLitType, TsTypePredicate, TsImportType];
 generate_traits![TsFnOrConstructorType, TsFnType, TsConstructorType];
+generate_traits![TsParamPropParam, Ident, Assign];
 generate_traits![TsUnionOrIntersectionType, TsUnionType, TsIntersectionType];
-generate_traits![Decl, Class, Fn, Var, TsInterface, TsTypeAlias, TsEnum, TsModule];
-generate_traits![ClassMember, Constructor, Method, PrivateMethod, ClassProp, PrivateProp, TsIndexSignature];
+generate_traits![DefaultDecl, Class, Fn, TsInterfaceDecl];
 
 /* manual From implementations */
 
@@ -489,14 +493,6 @@ impl From<Box<Prop>> for Node {
 }
 
 /* temporary manual from implementations */
-
-impl From<DefaultDecl> for Node {
-    fn from(decl: DefaultDecl) -> Node {
-        match decl {
-            _ => Node::Unknown(decl.span()), // todo: implement others
-        }
-    }
-}
 
 impl From<ExprOrSuper> for Node {
     fn from(expr_or_super: ExprOrSuper) -> Node {
@@ -550,14 +546,6 @@ impl From<TsModuleRef> for Node {
 }
 
 /* temporary manual NodeKinded implementations */
-
-impl NodeKinded for DefaultDecl {
-    fn kind(&self) -> NodeKind {
-        match self {
-            _ => NodeKind::Unknown, // todo: implement others
-        }
-    }
-}
 
 impl NodeKinded for ExprOrSuper {
     fn kind(&self) -> NodeKind {

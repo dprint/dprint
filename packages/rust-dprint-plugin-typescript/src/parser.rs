@@ -62,6 +62,9 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
         match node {
             /* class */
             Node::ClassMethod(node) => parse_class_method(node, context),
+            Node::ClassProp(node) => parse_class_prop(node, context),
+            Node::Decorator(node) => parse_decorator(node, context),
+            Node::TsParamProp(node) => parse_parameter_prop(node, context),
             /* common */
             Node::Ident(node) => parse_identifier(node, context),
             /* declarations */
@@ -84,6 +87,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::AwaitExpr(node) => parse_await_expr(node, context),
             Node::BinExpr(node) => parse_binary_expr(node, context),
             Node::CallExpr(node) => parse_call_expr(node, context),
+            Node::ClassExpr(node) => parse_class_expr(node, context),
             Node::CondExpr(node) => parse_conditional_expr(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             Node::FnExpr(node) => vec![node.text(context).into()], // todo
@@ -167,6 +171,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
 
 fn parse_class_method(node: ClassMethod, context: &mut Context) -> Vec<PrintItem> {
     return parse_class_or_object_method(ClassOrObjectMethod {
+        decorators: node.function.decorators,
         accessibility: node.accessibility,
         is_static: node.is_static,
         is_async: node.function.is_async,
@@ -180,6 +185,51 @@ fn parse_class_method(node: ClassMethod, context: &mut Context) -> Vec<PrintItem
         return_type: node.function.return_type.map(|x| x.into()),
         body: node.function.body.map(|x| x.into()),
     }, context);
+}
+
+fn parse_class_prop(node: ClassProp, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_decorators(node.decorators, false, context));
+    if let Some(accessibility) = node.accessibility {
+        items.push(format!("{} ", accessibility_to_str(&accessibility)).into());
+    }
+    if node.is_static { items.push("static ".into()); }
+    if node.is_abstract { items.push("abstract ".into()); }
+    if node.readonly { items.push("readonly ".into()); }
+    if node.computed { items.push("[".into()); }
+    items.extend(parse_node(node.key.into(), context));
+    if node.computed { items.push("]".into()); }
+    if node.is_optional { items.push("?".into()); }
+    if node.definite { items.push("!".into()); }
+    items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
+
+    if let Some(box value) = node.value {
+        items.push(" = ".into());
+        items.extend(parse_node(value.into(), context));
+    }
+
+    if context.config.class_property_semi_colon {
+        items.push(";".into());
+    }
+
+    return items;
+}
+
+fn parse_decorator(node: Decorator, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("@".into());
+    items.extend(parse_node(node.expr.into(), context));
+    return items;
+}
+
+fn parse_parameter_prop(node: TsParamProp, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if let Some(accessibility) = node.accessibility {
+        items.push(format!("{} ", accessibility_to_str(&accessibility)).into());
+    }
+    if node.readonly { items.push("readonly ".into()); }
+    items.extend(parse_node(node.param.into(), context));
+    return items;
 }
 
 /* common */
@@ -207,6 +257,8 @@ fn parse_identifier(node: Ident, context: &mut Context) -> Vec<PrintItem> {
 fn parse_class_decl(node: ClassDecl, context: &mut Context) -> Vec<PrintItem> {
     return parse_class_decl_or_expr(ClassDeclOrExpr {
         span: node.class.span,
+        decorators: node.class.decorators,
+        is_class_expr: false,
         is_declare: node.declare,
         is_abstract: node.class.is_abstract,
         ident: Some(node.ident.into()),
@@ -221,6 +273,8 @@ fn parse_class_decl(node: ClassDecl, context: &mut Context) -> Vec<PrintItem> {
 
 struct ClassDeclOrExpr {
     span: Span,
+    decorators: Vec<Decorator>,
+    is_class_expr: bool,
     is_declare: bool,
     is_abstract: bool,
     ident: Option<Node>,
@@ -233,8 +287,14 @@ struct ClassDeclOrExpr {
 }
 
 fn parse_class_decl_or_expr(node: ClassDeclOrExpr, context: &mut Context) -> Vec<PrintItem> {
-    let start_header_info = Info::new("startHeader");
     let mut items = Vec::new();
+
+    let parent_kind = context.parent().kind();
+    if parent_kind != NodeKind::ExportDecl && parent_kind != NodeKind::ExportDefaultDecl {
+        items.extend(parse_decorators(node.decorators, node.is_class_expr, context));
+    }
+
+    let start_header_info = Info::new("startHeader");
     items.push(start_header_info.clone().into());
 
     if node.is_declare { items.push("declare ".into()); }
@@ -280,7 +340,9 @@ fn parse_class_decl_or_expr(node: ClassDeclOrExpr, context: &mut Context) -> Vec
 
 fn parse_export_decl(node: ExportDecl, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
-    // todo: parse decorators if class
+    if let Decl::Class(class_decl) = &node.decl {
+        items.extend(parse_decorators(class_decl.class.decorators.clone(), false, context));
+    }
     items.push("export ".into());
     items.extend(parse_node(node.decl.into(), context));
     items
@@ -288,7 +350,9 @@ fn parse_export_decl(node: ExportDecl, context: &mut Context) -> Vec<PrintItem> 
 
 fn parse_export_default_decl(node: ExportDefaultDecl, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
-    // todo: parse decorators if class
+    if let DefaultDecl::Class(class_expr) = &node.decl {
+        items.extend(parse_decorators(class_expr.class.decorators.clone(), false, context));
+    }
     items.push("export default ".into());
     items.extend(parse_node(node.decl.into(), context));
     items
@@ -986,6 +1050,23 @@ fn parse_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
     }
 }
 
+fn parse_class_expr(node: ClassExpr, context: &mut Context) -> Vec<PrintItem> {
+    return parse_class_decl_or_expr(ClassDeclOrExpr {
+        span: node.class.span,
+        decorators: node.class.decorators,
+        is_class_expr: true,
+        is_declare: false,
+        is_abstract: node.class.is_abstract,
+        ident: node.ident.map(|x| x.into()),
+        type_params: node.class.type_params.map(|x| x.into()),
+        super_class: node.class.super_class.map(|x| x.into()),
+        super_type_params: node.class.super_type_params.map(|x| x.into()),
+        implements: node.class.implements.into_iter().map(|x| x.into()).collect(),
+        members: node.class.body.into_iter().map(|x| x.into()).collect(),
+        brace_position: context.config.class_expression_brace_position.clone(),
+    }, context);
+}
+
 fn parse_conditional_expr(node: CondExpr, context: &mut Context) -> Vec<PrintItem> {
     let operator_token = context.get_first_token_after_with_text(&node.test, "?").unwrap();
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&node.test, &node.cons, context)
@@ -1413,7 +1494,7 @@ fn parse_num_literal(node: Number, context: &mut Context) -> Vec<PrintItem> {
     vec![node.text(context).into()]
 }
 
-fn parse_reg_exp_literal(node: Regex, context: &mut Context) -> Vec<PrintItem> {
+fn parse_reg_exp_literal(node: Regex, _: &mut Context) -> Vec<PrintItem> {
     // the exp and flags should not be nodes so just ignore that (swc issue #511)
     let mut items = Vec::new();
     items.push("/".into());
@@ -1523,6 +1604,7 @@ fn parse_object_pattern(node: ObjectPat, context: &mut Context) -> Vec<PrintItem
 
 fn parse_method_prop(node: MethodProp, context: &mut Context) -> Vec<PrintItem> {
     return parse_class_or_object_method(ClassOrObjectMethod {
+        decorators: Vec::new(),
         accessibility: Option::None,
         is_static: false,
         is_async: node.function.is_async,
@@ -1539,6 +1621,7 @@ fn parse_method_prop(node: MethodProp, context: &mut Context) -> Vec<PrintItem> 
 }
 
 struct ClassOrObjectMethod {
+    decorators: Vec<Decorator>,
     accessibility: Option<Accessibility>,
     is_static: bool,
     is_async: bool,
@@ -1571,17 +1654,14 @@ impl From<MethodKind> for ClassOrObjectMethodKind {
 }
 
 fn parse_class_or_object_method(node: ClassOrObjectMethod, context: &mut Context) -> Vec<PrintItem> {
-    // todo: decorators
-    let start_header_info = Info::new("methodStartHeaderInfo");
     let mut items = Vec::new();
+    items.extend(parse_decorators(node.decorators, false, context));
+
+    let start_header_info = Info::new("methodStartHeaderInfo");
     items.push(start_header_info.clone().into());
 
     if let Some(accessibility) = node.accessibility {
-        items.push(format!("{} ", match accessibility {
-            Accessibility::Private => "private",
-            Accessibility::Protected => "protected",
-            Accessibility::Public => "public",
-        }).into());
+        items.push(format!("{} ", accessibility_to_str(&accessibility)).into());
     }
     if node.is_static { items.push("static ".into()); }
     if node.is_async { items.push("async ".into()); }
@@ -1660,6 +1740,14 @@ fn parse_class_or_object_method(node: ClassOrObjectMethod, context: &mut Context
     }
 }
 
+fn accessibility_to_str(accessibility: &Accessibility) -> &str {
+    match accessibility {
+        Accessibility::Private => "private",
+        Accessibility::Protected => "protected",
+        Accessibility::Public => "public",
+    }
+}
+
 /* statements */
 
 fn parse_block_stmt(node: BlockStmt, context: &mut Context) -> Vec<PrintItem> {
@@ -1725,7 +1813,7 @@ fn parse_continue_stmt(node: ContinueStmt, context: &mut Context) -> Vec<PrintIt
     items
 }
 
-fn parse_debugger_stmt(node: DebuggerStmt, context: &mut Context) -> Vec<PrintItem> {
+fn parse_debugger_stmt(_: DebuggerStmt, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
 
     items.push("debugger".into());
@@ -1748,7 +1836,7 @@ fn parse_export_all(node: ExportAll, context: &mut Context) -> Vec<PrintItem> {
     items
 }
 
-fn parse_empty_stmt(node: EmptyStmt, context: &mut Context) -> Vec<PrintItem> {
+fn parse_empty_stmt(_: EmptyStmt, _: &mut Context) -> Vec<PrintItem> {
     // Don't have configuration for this. Perhaps a change here would be
     // to not print anything for empty statements?
     vec![";".into()]
@@ -2697,6 +2785,42 @@ fn parse_for_member_like_expr(node: MemberLikeExpr, context: &mut Context) -> Ve
 
         items
     }).into());
+
+    return items;
+}
+
+fn parse_decorators(decorators: Vec<Decorator>, is_class_expression: bool, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if decorators.is_empty() {
+        return items;
+    }
+
+    let use_new_lines = !is_class_expression
+        && decorators.len() >= 2
+        && node_helpers::get_use_new_lines_for_nodes(&decorators[0], &decorators[1], context);
+
+    for (i, decorator) in decorators.into_iter().enumerate() {
+        if i > 0 {
+            items.push(if use_new_lines {
+                PrintItem::NewLine
+            } else {
+                PrintItem::SpaceOrNewLine
+            });
+        }
+
+        let parsed_node = parse_node(decorator.into(), context);
+        if is_class_expression {
+            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parsed_node)).into());
+        } else {
+            items.extend(parser_helpers::new_line_group(parsed_node));
+        }
+    }
+
+    items.push(if is_class_expression {
+        PrintItem::SpaceOrNewLine
+    } else {
+        PrintItem::NewLine
+    });
 
     return items;
 }
