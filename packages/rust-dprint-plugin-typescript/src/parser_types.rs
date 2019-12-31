@@ -255,10 +255,11 @@ generate_node! [
     PrivateProp,
     TsParamProp,
     /* common */
-    Ident,
-    PrivateName,
-    Invalid,
     ComputedPropName,
+    Ident,
+    Invalid,
+    PrivateName,
+    TsQualifiedName,
     /* declarations */
     ClassDecl,
     ExportDecl,
@@ -465,6 +466,7 @@ generate_traits![TsFnOrConstructorType, TsFnType, TsConstructorType];
 generate_traits![TsParamPropParam, Ident, Assign];
 generate_traits![TsUnionOrIntersectionType, TsUnionType, TsIntersectionType];
 generate_traits![DefaultDecl, Class, Fn, TsInterfaceDecl];
+generate_traits![TsEntityName, TsQualifiedName, Ident];
 
 /* manual From implementations */
 
@@ -489,6 +491,12 @@ impl From<Box<Pat>> for Node {
 impl From<Box<Prop>> for Node {
     fn from(prop: Box<Prop>) -> Node {
         (*prop).into()
+    }
+}
+
+impl From<Box<TsQualifiedName>> for Node {
+    fn from(qualified_name: Box<TsQualifiedName>) -> Node {
+        (*qualified_name).into()
     }
 }
 

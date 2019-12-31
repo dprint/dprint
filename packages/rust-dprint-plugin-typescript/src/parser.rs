@@ -101,6 +101,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::SpreadElement(node) => parse_spread_element(node, context),
             Node::TaggedTpl(node) => parse_tagged_tpl(node, context),
             Node::TsAsExpr(node) => parse_as_expr(node, context),
+            Node::TsExprWithTypeArgs(node) => parse_expr_with_type_args(node, context),
             Node::TsNonNullExpr(node) => parse_non_null_expr(node, context),
             Node::TsTypeAssertion(node) => parse_type_assertion(node, context),
             Node::UnaryExpr(node) => parse_unary_expr(node, context),
@@ -961,7 +962,7 @@ fn parse_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
         items.extend(parse_node(node.callee.clone().into(), context));
 
         if let Some(type_args) = node.type_args {
-            items.extend(parse_node(Node::TsTypeParamInstantiation(type_args), context));
+            items.extend(parse_node(type_args.into(), context));
         }
 
         items.push(conditions::with_indent_if_start_of_line_indented(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
@@ -1153,6 +1154,15 @@ fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintI
     if node.spread.is_some() { items.push("...".into()); }
     items.extend(parse_node((*node.expr).into(), context));
     items
+}
+
+fn parse_expr_with_type_args(node: TsExprWithTypeArgs, context: &mut Context) -> Vec<PrintItem> {
+    let mut vec = Vec::new();
+    vec.extend(parse_node(node.expr.into(), context));
+    if let Some(type_args) = node.type_params {
+        vec.extend(parse_node(type_args.into(), context));
+    }
+    return vec;
 }
 
 fn parse_fn_expr(node: FnExpr, context: &mut Context) -> Vec<PrintItem> {
