@@ -308,6 +308,7 @@ generate_node! [
     SeqExpr,
     SetterProp,
     SpreadElement,
+    Super,
     TaggedTpl,
     ThisExpr,
     Tpl,
@@ -324,6 +325,7 @@ generate_node! [
     ImportDefault,
     ImportSpecific,
     ImportStarAs,
+    TsExternalModuleRef,
     /* interface / type element */
     TsInterfaceBody,
     TsCallSignatureDecl,
@@ -354,15 +356,25 @@ generate_node! [
     BreakStmt,
     ContinueStmt,
     DebuggerStmt,
+    DoWhileStmt,
     EmptyStmt,
     ExportAll,
     ExprStmt,
+    ForStmt,
+    ForInStmt,
+    ForOfStmt,
+    IfStmt,
+    LabeledStmt,
     ReturnStmt,
+    SwitchStmt,
     ThrowStmt,
+    TryStmt,
     TsExportAssignment,
     TsNamespaceExportDecl,
     VarDecl,
     VarDeclarator,
+    WithStmt,
+    WhileStmt,
     /* types */
     TsArrayType,
     TsConditionalType,
@@ -467,6 +479,12 @@ generate_traits![TsParamPropParam, Ident, Assign];
 generate_traits![TsUnionOrIntersectionType, TsUnionType, TsIntersectionType];
 generate_traits![DefaultDecl, Class, Fn, TsInterfaceDecl];
 generate_traits![TsEntityName, TsQualifiedName, Ident];
+generate_traits![ExprOrSuper, Super, Expr];
+generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl, ExportDefaultExpr, ExportAll, TsImportEquals, TsExportAssignment,
+    TsNamespaceExport];
+generate_traits![TsModuleRef, TsEntityName, TsExternalModuleRef];
+generate_traits![Stmt, Block, Empty, Debugger, With, Return, Labeled, Break, Continue, If, Switch, Throw, Try, While, DoWhile, For, ForIn, ForOf,
+    Decl, Expr];
 
 /* manual From implementations */
 
@@ -499,110 +517,3 @@ impl From<Box<TsQualifiedName>> for Node {
         (*qualified_name).into()
     }
 }
-
-/* temporary manual from implementations */
-
-impl From<ExprOrSuper> for Node {
-    fn from(expr_or_super: ExprOrSuper) -> Node {
-        match expr_or_super {
-            ExprOrSuper::Expr(box expr) => expr.into(),
-            _ => Node::Unknown(expr_or_super.span()), // todo: implement others
-        }
-    }
-}
-
-impl From<ModuleDecl> for Node {
-    fn from(dec: ModuleDecl) -> Node {
-        match dec {
-            ModuleDecl::ExportAll(node) => node.into(),
-            ModuleDecl::ExportDecl(node) => node.into(),
-            ModuleDecl::ExportDefaultDecl(node) => node.into(),
-            ModuleDecl::ExportDefaultExpr(node) => node.into(),
-            ModuleDecl::ExportNamed(node) => node.into(),
-            ModuleDecl::Import(node) => node.into(),
-            ModuleDecl::TsExportAssignment(node) => node.into(),
-            ModuleDecl::TsImportEquals(node) => node.into(),
-            ModuleDecl::TsNamespaceExport(node) => node.into(),
-            _ => Node::Unknown(dec.span()), // todo: implement others
-        }
-    }
-}
-
-impl From<Stmt> for Node {
-    fn from(stmt: Stmt) -> Node {
-        match stmt {
-            Stmt::Block(node) => node.into(),
-            Stmt::Break(node) => node.into(),
-            Stmt::Continue(node) => node.into(),
-            Stmt::Debugger(node) => node.into(),
-            Stmt::Decl(node) => node.into(),
-            Stmt::Empty(node) => node.into(),
-            Stmt::Expr(node) => node.into(),
-            Stmt::Return(node) => node.into(),
-            Stmt::Throw(node) => node.into(),
-            _ => Node::Unknown(stmt.span()), // todo: implement others
-        }
-    }
-}
-
-impl From<TsModuleRef> for Node {
-    fn from(module_ref: TsModuleRef) -> Node {
-        match module_ref {
-            _ => Node::Unknown(module_ref.span()), // todo: implement others
-        }
-    }
-}
-
-/* temporary manual NodeKinded implementations */
-
-impl NodeKinded for ExprOrSuper {
-    fn kind(&self) -> NodeKind {
-        match self {
-            ExprOrSuper::Expr(node) => node.kind(),
-            _ => NodeKind::Unknown,
-        }
-    }
-}
-
-impl NodeKinded for ModuleDecl {
-    fn kind(&self) -> NodeKind {
-        match self {
-            ModuleDecl::ExportAll(node) => node.kind(),
-            ModuleDecl::ExportDecl(node) => node.kind(),
-            ModuleDecl::ExportDefaultDecl(node) => node.kind(),
-            ModuleDecl::ExportDefaultExpr(node) => node.kind(),
-            ModuleDecl::ExportNamed(node) => node.kind(),
-            ModuleDecl::Import(node) => node.kind(),
-            ModuleDecl::TsExportAssignment(node) => node.kind(),
-            ModuleDecl::TsImportEquals(node) => node.kind(),
-            ModuleDecl::TsNamespaceExport(node) => node.kind(),
-            _ => NodeKind::Unknown, // todo: implement others
-        }
-    }
-}
-
-impl NodeKinded for Stmt {
-    fn kind(&self) -> NodeKind {
-        match self {
-            Stmt::Block(node) => node.kind(),
-            Stmt::Break(node) => node.kind(),
-            Stmt::Continue(node) => node.kind(),
-            Stmt::Decl(node) => node.kind(),
-            Stmt::Debugger(node) => node.kind(),
-            Stmt::Empty(node) => node.kind(),
-            Stmt::Expr(node) => node.kind(),
-            Stmt::Return(node) => node.kind(),
-            Stmt::Throw(node) => node.kind(),
-            _ => NodeKind::Unknown,
-        }
-    }
-}
-
-impl NodeKinded for TsModuleRef {
-    fn kind(&self) -> NodeKind {
-        match self {
-            _ => NodeKind::Unknown, // todo: implement others
-        }
-    }
-}
-

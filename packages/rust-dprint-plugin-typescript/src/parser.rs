@@ -99,6 +99,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ParenExpr(node) => parse_paren_expr(node, context),
             Node::SeqExpr(node) => parse_sequence_expr(node, context),
             Node::SpreadElement(node) => parse_spread_element(node, context),
+            Node::Super(_) => vec!["super".into()],
             Node::TaggedTpl(node) => parse_tagged_tpl(node, context),
             Node::TsAsExpr(node) => parse_as_expr(node, context),
             Node::TsExprWithTypeArgs(node) => parse_expr_with_type_args(node, context),
@@ -113,6 +114,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ImportSpecific(node) => parse_import_named_specifier(node, context),
             Node::ImportStarAs(node) => parse_import_namespace_specifier(node, context),
             Node::ImportDefault(node) => parse_node(node.local.into(), context),
+            Node::TsExternalModuleRef(node) => parse_external_module_ref(node, context),
             /* interface / type element */
             Node::TsCallSignatureDecl(node) => parse_call_signature_decl(node, context),
             Node::TsConstructSignatureDecl(node) => parse_construct_signature_decl(node, context),
@@ -1348,7 +1350,15 @@ fn parse_import_namespace_specifier(node: ImportStarAs, context: &mut Context) -
     let mut items = Vec::new();
     items.push("* as ".into());
     items.extend(parse_node(node.local.into(), context));
-    items
+    return items;
+}
+
+fn parse_external_module_ref(node: TsExternalModuleRef, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("require".into());
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&context.get_first_open_paren_token_within(&node.span), &node.expr, context);
+    items.extend(wrap_in_parens(parse_node(node.expr.into(), context), use_new_lines, context));
+    return items;
 }
 
 /* interface / type element */
