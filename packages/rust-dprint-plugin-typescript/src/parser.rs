@@ -154,6 +154,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExportAll(node) => parse_export_all(node, context),
             Node::ExprStmt(node) => parse_expr_stmt(node, context),
             Node::EmptyStmt(node) => parse_empty_stmt(node, context),
+            Node::LabeledStmt(node) => parse_labeled_stmt(node, context),
             Node::ReturnStmt(node) => parse_return_stmt(node, context),
             Node::ThrowStmt(node) => parse_throw_stmt(node, context),
             Node::TryStmt(node) => parse_try_stmt(node, context),
@@ -2090,6 +2091,23 @@ fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
     }
 }
 
+fn parse_labeled_stmt(node: LabeledStmt, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node(node.label.into(), context));
+    items.push(":".into());
+
+    // not bothering to make this configurable, because who uses labeled statements?
+    items.push(if node.body.kind() == NodeKind::BlockStmt {
+        " ".into()
+    } else {
+        PrintItem::NewLine
+    });
+
+    items.extend(parse_node(node.body.into(), context));
+
+    return items;
+}
+
 fn parse_return_stmt(node: ReturnStmt, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("return".into());
@@ -2098,7 +2116,7 @@ fn parse_return_stmt(node: ReturnStmt, context: &mut Context) -> Vec<PrintItem> 
         items.extend(parse_node(arg.into(), context));
     }
     if context.config.return_statement_semi_colon { items.push(";".into()); }
-    items
+    return items;
 }
 
 fn parse_throw_stmt(node: ThrowStmt, context: &mut Context) -> Vec<PrintItem> {
@@ -2106,7 +2124,7 @@ fn parse_throw_stmt(node: ThrowStmt, context: &mut Context) -> Vec<PrintItem> {
     items.push("throw ".into());
     items.extend(parse_node((*node.arg).into(), context));
     if context.config.throw_statement_semi_colon { items.push(";".into()); }
-    items
+    return items;
 }
 
 fn parse_try_stmt(node: TryStmt, context: &mut Context) -> Vec<PrintItem> {
@@ -2138,7 +2156,7 @@ fn parse_try_stmt(node: TryStmt, context: &mut Context) -> Vec<PrintItem> {
         items.extend(parse_node(finalizer.into(), context));
     }
 
-    items
+    return items;
 }
 
 fn parse_var_decl(node: VarDecl, context: &mut Context) -> Vec<PrintItem> {
