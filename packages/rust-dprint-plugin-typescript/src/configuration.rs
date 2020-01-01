@@ -13,6 +13,7 @@ pub struct TypeScriptConfiguration {
     pub class_declaration_brace_position: BracePosition,
     pub class_expression_brace_position: BracePosition,
     pub constructor_brace_position: BracePosition,
+    pub do_while_statement_brace_position: BracePosition,
     pub enum_declaration_brace_position: BracePosition,
     pub get_accessor_brace_position: BracePosition,
     pub interface_declaration_brace_position: BracePosition,
@@ -22,6 +23,7 @@ pub struct TypeScriptConfiguration {
     pub module_declaration_brace_position: BracePosition,
     pub set_accessor_brace_position: BracePosition,
     pub try_statement_brace_position: BracePosition,
+    pub while_statement_brace_position: BracePosition,
     /* force multi-line arguments */
     pub call_expression_force_multi_line_arguments: bool,
     pub new_expression_force_multi_line_arguments: bool,
@@ -51,6 +53,7 @@ pub struct TypeScriptConfiguration {
     pub constructor_semi_colon: bool,
     pub continue_statement_semi_colon: bool,
     pub debugger_statement_semi_colon: bool,
+    pub do_while_statement_semi_colon: bool,
     pub empty_statement_semi_colon: bool,
     pub export_all_declaration_semi_colon: bool,
     pub export_assignment_semi_colon: bool,
@@ -72,11 +75,15 @@ pub struct TypeScriptConfiguration {
     pub throw_statement_semi_colon: bool,
     pub type_alias_semi_colon: bool,
     pub variable_statement_semi_colon: bool,
+    /* single body position */
+    pub while_statement_single_body_position: SingleBodyPosition,
     /* trailing commas */
     pub array_expression_trailing_commas: TrailingCommas,
     pub array_pattern_trailing_commas: TrailingCommas,
     pub enum_declaration_trailing_commas: TrailingCommas,
     pub object_expression_trailing_commas: TrailingCommas,
+    /* use braces */
+    pub while_statement_use_braces: UseBraces,
 
     /* use space separator */
 
@@ -92,6 +99,10 @@ pub struct TypeScriptConfiguration {
     /// `true` - Ex. `constructor ()`
     /// `false` (false) - Ex. `constructor()`
     pub constructor_space_before_parentheses: bool,
+    /// Whether to add a space after the `while` keyword in a do while statement.
+    /// `true` (true) - Ex. `do {\n} while (condition);`
+    /// `false` - Ex. `do {\n} while(condition);`
+    pub do_while_statement_space_after_while_keyword: bool,
     /// Whether to add spaces around named exports in an export declaration.
     /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
     /// * `false` - Ex. `export {SomeExport, OtherExport};`
@@ -128,10 +139,14 @@ pub struct TypeScriptConfiguration {
     /// * `true` (default) - Ex. `<string> myValue`
     /// * `false` - Ex. `<string>myValue`
     pub type_assertion_space_before_expression: bool,
+    /// Whether to add a space after the `while` keyword in a while statement.
+    /// * `true` (default) - Ex. `while (true)`
+    /// * `false` - Ex. `while(true)`
+    pub while_statement_space_after_while_keyword: bool,
 }
 
 /// Trailing comma possibilities.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum TrailingCommas {
     /// Trailing commas should not be used.
     Never,
@@ -142,7 +157,7 @@ pub enum TrailingCommas {
 }
 
 /// Where to place the opening brace.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum BracePosition {
     /// Maintains the brace being on the next line or the same line.
     Maintain,
@@ -155,7 +170,7 @@ pub enum BracePosition {
 }
 
 /// How to space members.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum MemberSpacing {
     /// Maintains whether a newline or blankline is used.
     Maintain,
@@ -166,7 +181,7 @@ pub enum MemberSpacing {
 }
 
 /// Where to place the next control flow within a control flow statement.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum NextControlFlowPosition {
     /// Maintains the next control flow being on the next line or the same line.
     Maintain,
@@ -177,7 +192,7 @@ pub enum NextControlFlowPosition {
 }
 
 /// Where to place the operator for expressions that span multiple lines.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum OperatorPosition {
     /// Maintains the operator being on the next line or the same line.
     Maintain,
@@ -188,7 +203,7 @@ pub enum OperatorPosition {
 }
 
 /// Where to place the expression of a statement that could possibly be on one line (ex. `if (true) console.log(5);`).
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum SingleBodyPosition {
     /// Maintains the position of the expression.
     Maintain,
@@ -199,7 +214,7 @@ pub enum SingleBodyPosition {
 }
 
 /// If braces should be used or not.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum UseBraces {
     /// Uses braces when the body is on a different line.
     Maintain,
@@ -212,7 +227,7 @@ pub enum UseBraces {
 }
 
 /// Whether to use parentheses around a single parameter in an arrow function.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum UseParentheses {
     /// Maintains the current state of the parentheses.
     Maintain,
@@ -227,12 +242,12 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
     let semi_colons = get_value(&mut config, "semiColons", true);
     let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false);
     let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false);
-    let brace_position = get_brace_position(&mut config, "bracePosition", &BracePosition::NextLineIfHanging);
-    let next_control_flow_position = get_next_control_flow_position(&mut config, "nextControlFlowPosition", &NextControlFlowPosition::NextLine);
-    let operator_position = get_operator_position(&mut config, "operatorPosition", &OperatorPosition::NextLine);
-    let single_body_position = get_single_body_position(&mut config, "singleBodyPosition", &SingleBodyPosition::Maintain);
-    let trailing_commas = get_trailing_commas(&mut config, "trailingCommas", &TrailingCommas::Never);
-    let use_braces = get_use_braces(&mut config, "useBraces", &UseBraces::WhenNotSingleLine);
+    let brace_position = get_brace_position(&mut config, "bracePosition", BracePosition::NextLineIfHanging);
+    let next_control_flow_position = get_next_control_flow_position(&mut config, "nextControlFlowPosition", NextControlFlowPosition::NextLine);
+    let operator_position = get_operator_position(&mut config, "operatorPosition", OperatorPosition::NextLine);
+    let single_body_position = get_single_body_position(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain);
+    let trailing_commas = get_trailing_commas(&mut config, "trailingCommas", TrailingCommas::Never);
+    let use_braces = get_use_braces(&mut config, "useBraces", UseBraces::WhenNotSingleLine);
 
     let resolved_config = TypeScriptConfiguration {
         line_width: get_value(&mut config, "lineWidth", 120),
@@ -240,21 +255,23 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         indent_width: get_value(&mut config, "indentWidth", 4),
         single_quotes: get_value(&mut config, "singleQuotes", false),
         /* use parentheses */
-        arrow_function_expression_use_parentheses: get_use_parentheses(&mut config, "arrowFunctionExpression.useParentheses", &UseParentheses::Maintain),
+        arrow_function_expression_use_parentheses: get_use_parentheses(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain),
         /* brace position */
-        arrow_function_expression_brace_position: get_brace_position(&mut config, "arrowFunctionExpression.bracePosition", &brace_position),
-        class_declaration_brace_position: get_brace_position(&mut config, "classDeclaration.bracePosition", &brace_position),
-        class_expression_brace_position: get_brace_position(&mut config, "classExpression.bracePosition", &brace_position),
-        constructor_brace_position: get_brace_position(&mut config, "constructor.bracePosition", &brace_position),
-        enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", &brace_position),
-        get_accessor_brace_position: get_brace_position(&mut config, "getAccessor.bracePosition", &brace_position),
-        interface_declaration_brace_position: get_brace_position(&mut config, "interfaceDeclaration.bracePosition", &brace_position),
-        function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", &brace_position),
-        function_expression_brace_position: get_brace_position(&mut config, "functionExpression.bracePosition", &brace_position),
-        method_brace_position: get_brace_position(&mut config, "method.bracePosition", &brace_position),
-        module_declaration_brace_position: get_brace_position(&mut config, "moduleDeclaration.bracePosition", &brace_position),
-        set_accessor_brace_position: get_brace_position(&mut config, "setAccessor.bracePosition", &brace_position),
-        try_statement_brace_position: get_brace_position(&mut config, "tryStatement.bracePosition", &brace_position),
+        arrow_function_expression_brace_position: get_brace_position(&mut config, "arrowFunctionExpression.bracePosition", brace_position),
+        class_declaration_brace_position: get_brace_position(&mut config, "classDeclaration.bracePosition", brace_position),
+        class_expression_brace_position: get_brace_position(&mut config, "classExpression.bracePosition", brace_position),
+        constructor_brace_position: get_brace_position(&mut config, "constructor.bracePosition", brace_position),
+        do_while_statement_brace_position: get_brace_position(&mut config, "doWhileStatement.bracePosition", brace_position),
+        enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", brace_position),
+        get_accessor_brace_position: get_brace_position(&mut config, "getAccessor.bracePosition", brace_position),
+        interface_declaration_brace_position: get_brace_position(&mut config, "interfaceDeclaration.bracePosition", brace_position),
+        function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", brace_position),
+        function_expression_brace_position: get_brace_position(&mut config, "functionExpression.bracePosition", brace_position),
+        method_brace_position: get_brace_position(&mut config, "method.bracePosition", brace_position),
+        module_declaration_brace_position: get_brace_position(&mut config, "moduleDeclaration.bracePosition", brace_position),
+        set_accessor_brace_position: get_brace_position(&mut config, "setAccessor.bracePosition", brace_position),
+        try_statement_brace_position: get_brace_position(&mut config, "tryStatement.bracePosition", brace_position),
+        while_statement_brace_position: get_brace_position(&mut config, "whileStatement.bracePosition", brace_position),
         /* force multi-line arguments */
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
         new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
@@ -270,12 +287,12 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         method_signature_force_multi_line_parameters: get_value(&mut config, "methodSignature.forceMultiLineParameters", force_multi_line_parameters),
         set_accessor_force_multi_line_parameters: get_value(&mut config, "setAccessor.forceMultiLineParameters", force_multi_line_parameters),
         /* member spacing */
-        enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
+        enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", MemberSpacing::Maintain),
         /* next control flow position */
-        try_statement_next_control_flow_position: get_next_control_flow_position(&mut config, "tryStatement.nextControlFlowPosition", &next_control_flow_position),
+        try_statement_next_control_flow_position: get_next_control_flow_position(&mut config, "tryStatement.nextControlFlowPosition", next_control_flow_position),
         /* operator position */
-        binary_expression_operator_position: get_operator_position(&mut config, "binaryExpression.operatorPosition", &operator_position),
-        conditional_expression_operator_position: get_operator_position(&mut config, "conditionalExpression.operatorPosition", &operator_position),
+        binary_expression_operator_position: get_operator_position(&mut config, "binaryExpression.operatorPosition", operator_position),
+        conditional_expression_operator_position: get_operator_position(&mut config, "conditionalExpression.operatorPosition", operator_position),
         /* semi-colon */
         break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons),
         call_signature_semi_colon: get_value(&mut config, "callSignature.semiColon", semi_colons),
@@ -284,6 +301,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         constructor_semi_colon: get_value(&mut config, "constructor.semiColon", semi_colons),
         continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons),
         debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons),
+        do_while_statement_semi_colon: get_value(&mut config, "doWhileStatement.semiColon", semi_colons),
         empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons),
         export_all_declaration_semi_colon: get_value(&mut config, "exportAllDeclaration.semiColon", semi_colons),
         export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons),
@@ -305,15 +323,20 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         throw_statement_semi_colon: get_value(&mut config, "throwStatement.semiColon", semi_colons),
         type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
         variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
+        /* single body position */
+        while_statement_single_body_position: get_single_body_position(&mut config, "whileStatement.singleBodyPosition", single_body_position),
         /* trailing commas */
-        array_expression_trailing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", &trailing_commas),
-        array_pattern_trailing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", &trailing_commas),
-        enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", &trailing_commas),
-        object_expression_trailing_commas: get_trailing_commas(&mut config, "objectExpression.trailingCommas", &trailing_commas),
+        array_expression_trailing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", trailing_commas),
+        array_pattern_trailing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", trailing_commas),
+        enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", trailing_commas),
+        object_expression_trailing_commas: get_trailing_commas(&mut config, "objectExpression.trailingCommas", trailing_commas),
+        /* use braces */
+        while_statement_use_braces: get_use_braces(&mut config, "whileStatement.useBraces", use_braces),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true),
         construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false),
         constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false),
+        do_while_statement_space_after_while_keyword: get_value(&mut config, "doWhileStatement.spaceAfterWhileKeyword", true),
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
         function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false),
         function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false),
@@ -323,6 +346,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         set_accessor_space_before_parentheses: get_value(&mut config, "setAccessor.spaceBeforeParentheses", false),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),
         type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true),
+        while_statement_space_after_while_keyword: get_value(&mut config, "whileStatement.spaceAfterWhileKeyword", true),
     };
 
     if !config.is_empty() {
@@ -345,7 +369,7 @@ fn get_value<T>(
 fn get_trailing_commas(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &TrailingCommas
+    default_value: TrailingCommas
 ) -> TrailingCommas {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);
@@ -365,7 +389,7 @@ fn get_trailing_commas(
 fn get_brace_position(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &BracePosition
+    default_value: BracePosition
 ) -> BracePosition {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);
@@ -386,7 +410,7 @@ fn get_brace_position(
 fn get_member_spacing(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &MemberSpacing
+    default_value: MemberSpacing
 ) -> MemberSpacing {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);
@@ -406,7 +430,7 @@ fn get_member_spacing(
 fn get_next_control_flow_position(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &NextControlFlowPosition
+    default_value: NextControlFlowPosition
 ) -> NextControlFlowPosition {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);
@@ -426,7 +450,7 @@ fn get_next_control_flow_position(
 fn get_operator_position(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &OperatorPosition
+    default_value: OperatorPosition
 ) -> OperatorPosition {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);
@@ -446,7 +470,7 @@ fn get_operator_position(
 fn get_single_body_position(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &SingleBodyPosition
+    default_value: SingleBodyPosition
 ) -> SingleBodyPosition {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);
@@ -466,7 +490,7 @@ fn get_single_body_position(
 fn get_use_braces(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &UseBraces
+    default_value: UseBraces
 ) -> UseBraces {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);
@@ -487,7 +511,7 @@ fn get_use_braces(
 fn get_use_parentheses(
     config: &mut HashMap<String, String>,
     prop: &str,
-    default_value: &UseParentheses
+    default_value: UseParentheses
 ) -> UseParentheses {
     let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
     config.remove(prop);

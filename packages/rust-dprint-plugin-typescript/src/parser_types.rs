@@ -270,6 +270,12 @@ macro_rules! generate_node {
                 Node::$node_name(node)
             }
         }
+
+        impl From<Box<$node_name>> for Node {
+            fn from(boxed_node: Box<$node_name>) -> Node {
+                (*boxed_node).into()
+            }
+        }
         )*
 
         impl Spanned for Node {
@@ -335,11 +341,6 @@ generate_node! [
     ExprOrSpread,
     FnExpr,
     GetterProp,
-    JSXElement,
-    JSXEmptyExpr,
-    JSXFragment,
-    JSXMemberExpr,
-    JSXNamespacedName,
     KeyValueProp,
     MemberExpr,
     MetaPropExpr,
@@ -377,6 +378,12 @@ generate_node! [
     TsMethodSignature,
     TsPropertySignature,
     TsTypeLit,
+    /* jsx */
+    JSXElement,
+    JSXEmptyExpr,
+    JSXFragment,
+    JSXMemberExpr,
+    JSXNamespacedName,
     /* literals */
     BigInt,
     Bool,
@@ -483,6 +490,12 @@ macro_rules! generate_traits {
             }
         }
 
+        impl From<Box<$enum_name>> for Node {
+            fn from(boxed_node: Box<$enum_name>) -> Node {
+                (*boxed_node).into()
+            }
+        }
+
         impl NodeKinded for $enum_name {
             fn kind(&self) -> NodeKind {
                 match self {
@@ -508,7 +521,7 @@ generate_traits![TypeParamNode, Instantiation, Decl];
 generate_traits![TsTypeElement, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature, TsMethodSignature, TsIndexSignature];
 generate_traits![TsFnParam, Ident, Array, Rest, Object];
 generate_traits![Expr, This, Array, Object, Fn, Unary, Update, Bin, Assign, Member, Cond, Call, New, Seq, Ident, Lit, Tpl, TaggedTpl, Arrow,
-    Class, Yield, MetaProp, Await, Paren, JSXMebmer, JSXNamespacedName, JSXEmpty, JSXElement, JSXFragment, TsTypeAssertion, TsConstAssertion,
+    Class, Yield, MetaProp, Await, Paren, JSXMember, JSXNamespacedName, JSXEmpty, JSXElement, JSXFragment, TsTypeAssertion, TsConstAssertion,
     TsNonNull, TsTypeCast, TsAs, PrivateName, OptChain, Invalid];
 generate_traits![PropOrSpread, Spread, Prop];
 generate_traits![Prop, Shorthand, KeyValue, Assign, Getter, Setter, Method];
@@ -530,35 +543,3 @@ generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl,
 generate_traits![TsModuleRef, TsEntityName, TsExternalModuleRef];
 generate_traits![Stmt, Block, Empty, Debugger, With, Return, Labeled, Break, Continue, If, Switch, Throw, Try, While, DoWhile, For, ForIn, ForOf,
     Decl, Expr];
-
-/* manual From implementations */
-
-impl From<Box<Expr>> for Node {
-    fn from(expr: Box<Expr>) -> Node {
-        (*expr).into()
-    }
-}
-
-impl From<Box<JSXElement>> for Node {
-    fn from(element: Box<JSXElement>) -> Node {
-        (*element).into()
-    }
-}
-
-impl From<Box<Pat>> for Node {
-    fn from(pat: Box<Pat>) -> Node {
-        (*pat).into()
-    }
-}
-
-impl From<Box<Prop>> for Node {
-    fn from(prop: Box<Prop>) -> Node {
-        (*prop).into()
-    }
-}
-
-impl From<Box<TsQualifiedName>> for Node {
-    fn from(qualified_name: Box<TsQualifiedName>) -> Node {
-        (*qualified_name).into()
-    }
-}

@@ -1,4 +1,4 @@
-~~ whileStatement.singleBodyPosition: "nextLine" ~~
+~~ whileStatement.singleBodyPosition: nextLine ~~
 == should move to the next line ==
 while (true) a;
 

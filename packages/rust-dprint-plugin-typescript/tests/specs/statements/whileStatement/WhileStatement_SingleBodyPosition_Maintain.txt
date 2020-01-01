@@ -1,4 +1,4 @@
-~~ whileStatement.singleBodyPosition: "maintain" ~~
+~~ whileStatement.singleBodyPosition: maintain ~~
 == should keep on a single line ==
 while (true) a;
 
