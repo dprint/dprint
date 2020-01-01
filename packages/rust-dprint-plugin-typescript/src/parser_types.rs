@@ -80,18 +80,30 @@ impl Context {
     }
 
     pub fn get_first_open_paren_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node, Token::LParen)
+        self.get_first_token_before_equaling_token(node, Token::LParen)
     }
 
     pub fn get_first_angle_bracket_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node, Token::BinOp(BinOpToken::Lt))
+        self.get_first_token_before_equaling_token(node, Token::BinOp(BinOpToken::Lt))
     }
 
     pub fn get_first_open_brace_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node, Token::LBrace)
+        self.get_first_token_before_equaling_token(node, Token::LBrace)
     }
 
-    fn get_first_token_before(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
+    fn get_first_token_before_equaling_token(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
+        return self.get_first_token_before(node, |token| token.token == searching_token);
+    }
+
+    pub fn get_first_token_before_with_text(&self, node: &dyn Ranged, text: &str) -> Option<TokenAndSpan> {
+        return self.get_first_token_before(node, |token| token.text(self) == text);
+    }
+
+    pub fn get_first_non_comment_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        return self.get_first_token_before(node, |_| true);
+    }
+
+    fn get_first_token_before<F>(&self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
         let pos = node.lo();
         let mut found_token = Option::None;
         for token in self.tokens.iter() {
@@ -99,7 +111,7 @@ impl Context {
                 break;
             }
 
-            if token.token == searching_token {
+            if is_match(token) {
                 found_token = Some(token);
             }
         }
@@ -132,6 +144,22 @@ impl Context {
             if token_pos >= end {
                 break;
             } else if token_pos >= pos && token.token == searching_token {
+                found_token = Some(token);
+            }
+        }
+        found_token.map(|x| x.to_owned())
+    }
+
+    pub fn get_first_token_within_with_text(&self, node: &dyn Ranged, text: &str) -> Option<TokenAndSpan> {
+        let node_span_data = node.span().data();
+        let pos = node_span_data.lo;
+        let end = node_span_data.hi;
+        let mut found_token = Option::None;
+        for token in self.tokens.iter() {
+            let token_pos = token.span.data().lo;
+            if token_pos >= end {
+                break;
+            } else if token_pos >= pos && token.text(self) == text {
                 found_token = Some(token);
             }
         }
@@ -265,6 +293,8 @@ generate_node! [
     PrivateMethod,
     PrivateProp,
     TsParamProp,
+    /* clauses */
+    CatchClause,
     /* common */
     ComputedPropName,
     Ident,

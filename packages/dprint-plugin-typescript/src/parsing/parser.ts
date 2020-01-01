@@ -1871,6 +1871,7 @@ function* parseCatchClause(node: babel.CatchClause, context: Context): PrintItem
         yield* parseNode(node.param, context);
         yield ")";
     }
+    yield endHeaderInfo;
 
     // not conditional... required.
     yield* parseConditionalBraceBody({

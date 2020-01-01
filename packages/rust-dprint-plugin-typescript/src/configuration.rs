@@ -21,6 +21,7 @@ pub struct TypeScriptConfiguration {
     pub method_brace_position: BracePosition,
     pub module_declaration_brace_position: BracePosition,
     pub set_accessor_brace_position: BracePosition,
+    pub try_statement_brace_position: BracePosition,
     /* force multi-line arguments */
     pub call_expression_force_multi_line_arguments: bool,
     pub new_expression_force_multi_line_arguments: bool,
@@ -37,6 +38,8 @@ pub struct TypeScriptConfiguration {
     pub set_accessor_force_multi_line_parameters: bool,
     /* member spacing */
     pub enum_declaration_member_spacing: MemberSpacing,
+    /* next control flow position */
+    pub try_statement_next_control_flow_position: NextControlFlowPosition,
     /* operator position */
     pub binary_expression_operator_position: OperatorPosition,
     pub conditional_expression_operator_position: OperatorPosition,
@@ -162,15 +165,15 @@ pub enum MemberSpacing {
     BlankLine,
 }
 
-/// Whether to use parentheses around a single parameter in an arrow function.
+/// Where to place the next control flow within a control flow statement.
 #[derive(Clone, PartialEq)]
-pub enum UseParentheses {
-    /// Maintains the current state of the parentheses.
+pub enum NextControlFlowPosition {
+    /// Maintains the next control flow being on the next line or the same line.
     Maintain,
-    /// Forces parentheses.
-    Force,
-    /// Prefers not using parentheses when possible.
-    PreferNone,
+    /// Forces the next control flow to be on the same line.
+    SameLine,
+    /// Forces the next control flow to be on the next line.
+    NextLine,
 }
 
 /// Where to place the operator for expressions that span multiple lines.
@@ -184,14 +187,52 @@ pub enum OperatorPosition {
     NextLine,
 }
 
+/// Where to place the expression of a statement that could possibly be on one line (ex. `if (true) console.log(5);`).
+#[derive(Clone, PartialEq)]
+pub enum SingleBodyPosition {
+    /// Maintains the position of the expression.
+    Maintain,
+    /// Forces the whole statement to be on one line.
+    SameLine,
+    /// Forces the expression to be on the next line.
+    NextLine,
+}
+
+/// If braces should be used or not.
+#[derive(Clone, PartialEq)]
+pub enum UseBraces {
+    /// Uses braces when the body is on a different line.
+    Maintain,
+    /// Uses braces if they're used. Doesn't use braces if they're not used.
+    WhenNotSingleLine,
+    /// Forces the use of braces. Will add them if they aren't used.
+    Always,
+    /// Forces no braces when when the header is one line and body is one line. Otherwise forces braces.
+    PreferNone,
+}
+
+/// Whether to use parentheses around a single parameter in an arrow function.
+#[derive(Clone, PartialEq)]
+pub enum UseParentheses {
+    /// Maintains the current state of the parentheses.
+    Maintain,
+    /// Forces parentheses.
+    Force,
+    /// Prefers not using parentheses when possible.
+    PreferNone,
+}
+
 pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfiguration {
     let mut config = config.clone();
     let semi_colons = get_value(&mut config, "semiColons", true);
     let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false);
     let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false);
-    let trailing_commas = get_trailing_commas(&mut config, "trailingCommas", &TrailingCommas::Never);
     let brace_position = get_brace_position(&mut config, "bracePosition", &BracePosition::NextLineIfHanging);
+    let next_control_flow_position = get_next_control_flow_position(&mut config, "nextControlFlowPosition", &NextControlFlowPosition::NextLine);
     let operator_position = get_operator_position(&mut config, "operatorPosition", &OperatorPosition::NextLine);
+    let single_body_position = get_single_body_position(&mut config, "singleBodyPosition", &SingleBodyPosition::Maintain);
+    let trailing_commas = get_trailing_commas(&mut config, "trailingCommas", &TrailingCommas::Never);
+    let use_braces = get_use_braces(&mut config, "useBraces", &UseBraces::WhenNotSingleLine);
 
     let resolved_config = TypeScriptConfiguration {
         line_width: get_value(&mut config, "lineWidth", 120),
@@ -213,6 +254,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         method_brace_position: get_brace_position(&mut config, "method.bracePosition", &brace_position),
         module_declaration_brace_position: get_brace_position(&mut config, "moduleDeclaration.bracePosition", &brace_position),
         set_accessor_brace_position: get_brace_position(&mut config, "setAccessor.bracePosition", &brace_position),
+        try_statement_brace_position: get_brace_position(&mut config, "tryStatement.bracePosition", &brace_position),
         /* force multi-line arguments */
         call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
         new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
@@ -229,6 +271,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         set_accessor_force_multi_line_parameters: get_value(&mut config, "setAccessor.forceMultiLineParameters", force_multi_line_parameters),
         /* member spacing */
         enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", &MemberSpacing::Maintain),
+        /* next control flow position */
+        try_statement_next_control_flow_position: get_next_control_flow_position(&mut config, "tryStatement.nextControlFlowPosition", &next_control_flow_position),
         /* operator position */
         binary_expression_operator_position: get_operator_position(&mut config, "binaryExpression.operatorPosition", &operator_position),
         conditional_expression_operator_position: get_operator_position(&mut config, "conditionalExpression.operatorPosition", &operator_position),
@@ -359,6 +403,26 @@ fn get_member_spacing(
     }
 }
 
+fn get_next_control_flow_position(
+    config: &mut HashMap<String, String>,
+    prop: &str,
+    default_value: &NextControlFlowPosition
+) -> NextControlFlowPosition {
+    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
+    config.remove(prop);
+    if let Some(value) = value {
+        match value.as_ref() {
+            "maintain" => NextControlFlowPosition::Maintain,
+            "sameLine" => NextControlFlowPosition::SameLine,
+            "nextLine" => NextControlFlowPosition::NextLine,
+            "" => default_value.clone(),
+            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
+        }
+    } else {
+        default_value.clone()
+    }
+}
+
 fn get_operator_position(
     config: &mut HashMap<String, String>,
     prop: &str,
@@ -371,6 +435,47 @@ fn get_operator_position(
             "maintain" => OperatorPosition::Maintain,
             "sameLine" => OperatorPosition::SameLine,
             "nextLine" => OperatorPosition::NextLine,
+            "" => default_value.clone(),
+            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
+        }
+    } else {
+        default_value.clone()
+    }
+}
+
+fn get_single_body_position(
+    config: &mut HashMap<String, String>,
+    prop: &str,
+    default_value: &SingleBodyPosition
+) -> SingleBodyPosition {
+    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
+    config.remove(prop);
+    if let Some(value) = value {
+        match value.as_ref() {
+            "maintain" => SingleBodyPosition::Maintain,
+            "sameLine" => SingleBodyPosition::SameLine,
+            "nextLine" => SingleBodyPosition::NextLine,
+            "" => default_value.clone(),
+            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
+        }
+    } else {
+        default_value.clone()
+    }
+}
+
+fn get_use_braces(
+    config: &mut HashMap<String, String>,
+    prop: &str,
+    default_value: &UseBraces
+) -> UseBraces {
+    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
+    config.remove(prop);
+    if let Some(value) = value {
+        match value.as_ref() {
+            "maintain" => UseBraces::Maintain,
+            "whenNotSingleLine" => UseBraces::WhenNotSingleLine,
+            "always" => UseBraces::Always,
+            "preferNone" => UseBraces::PreferNone,
             "" => default_value.clone(),
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }

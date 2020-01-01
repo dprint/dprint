@@ -79,3 +79,11 @@ pub fn parse_raw_string(text: &String) -> Vec<PrintItem> {
         items
     }
 }
+
+pub fn prepend_if_has_items(items: Vec<PrintItem>, item: PrintItem) -> Vec<PrintItem> {
+    let mut items = items;
+    if !items.is_empty() {
+        items.insert(0, item);
+    }
+    items
+}
