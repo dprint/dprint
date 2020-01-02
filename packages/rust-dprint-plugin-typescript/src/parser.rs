@@ -1660,9 +1660,9 @@ fn parse_reg_exp_literal(node: Regex, _: &mut Context) -> Vec<PrintItem> {
     // the exp and flags should not be nodes so just ignore that (swc issue #511)
     let mut items = Vec::new();
     items.push("/".into());
-    items.push(String::from(&node.exp as &str).into());
+    items.push((&node.exp as &str).into());
     items.push("/".into());
-    items.push(String::from(&node.flags as &str).into());
+    items.push((&node.flags as &str).into());
     items
 }
 
@@ -1691,13 +1691,25 @@ fn parse_string_literal(node: Str, context: &mut Context) -> Vec<PrintItem> {
 /* module */
 
 fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
-    parse_statements_or_members(ParseStatementsOrMembersOptions {
+    let mut items = Vec::new();
+    if let Some(shebang) = node.shebang {
+        items.push("#!".into());
+        items.push((&shebang as &str).into());
+        items.push(PrintItem::NewLine);
+        if let Some(first_statement) = node.body.first() {
+            if node_helpers::has_separating_blank_line(&node.span.lo(), &first_statement, context) {
+                items.push(PrintItem::NewLine);
+            }
+        }
+    }
+    items.extend(parse_statements_or_members(ParseStatementsOrMembersOptions {
         items: node.body.into_iter().map(|module_item| (module_item.into(), None)).collect(),
         should_use_space: None,
         should_use_new_line: None,
         should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
         trailing_commas: None,
-    }, context)
+    }, context));
+    return items;
 }
 
 /* patterns */
