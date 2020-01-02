@@ -1,4 +1,4 @@
-~~ forOfStatement.singleBodyPosition: "sameLine" ~~
+~~ forOfStatement.singleBodyPosition: sameLine ~~
 == should keep on the same line ==
 for (const t of other) a;
 

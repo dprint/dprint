@@ -1,4 +1,4 @@
-~~ forStatement.singleBodyPosition: "sameLine" ~~
+~~ forStatement.singleBodyPosition: sameLine ~~
 == should keep on the same line ==
 for (let i = 0; i < 5; i++) a;
 

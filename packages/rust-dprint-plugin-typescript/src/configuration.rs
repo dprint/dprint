@@ -17,6 +17,9 @@ pub struct TypeScriptConfiguration {
     pub enum_declaration_brace_position: BracePosition,
     pub get_accessor_brace_position: BracePosition,
     pub interface_declaration_brace_position: BracePosition,
+    pub for_statement_brace_position: BracePosition,
+    pub for_in_statement_brace_position: BracePosition,
+    pub for_of_statement_brace_position: BracePosition,
     pub function_declaration_brace_position: BracePosition,
     pub function_expression_brace_position: BracePosition,
     pub method_brace_position: BracePosition,
@@ -76,6 +79,9 @@ pub struct TypeScriptConfiguration {
     pub type_alias_semi_colon: bool,
     pub variable_statement_semi_colon: bool,
     /* single body position */
+    pub for_statement_single_body_position: SingleBodyPosition,
+    pub for_in_statement_single_body_position: SingleBodyPosition,
+    pub for_of_statement_single_body_position: SingleBodyPosition,
     pub while_statement_single_body_position: SingleBodyPosition,
     /* trailing commas */
     pub array_expression_trailing_commas: TrailingCommas,
@@ -83,6 +89,9 @@ pub struct TypeScriptConfiguration {
     pub enum_declaration_trailing_commas: TrailingCommas,
     pub object_expression_trailing_commas: TrailingCommas,
     /* use braces */
+    pub for_statement_use_braces: UseBraces,
+    pub for_of_statement_use_braces: UseBraces,
+    pub for_in_statement_use_braces: UseBraces,
     pub while_statement_use_braces: UseBraces,
 
     /* use space separator */
@@ -107,6 +116,22 @@ pub struct TypeScriptConfiguration {
     /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
     /// * `false` - Ex. `export {SomeExport, OtherExport};`
     pub export_declaration_space_surrounding_named_exports: bool,
+    /// Whether to add a space after the `for` keyword in a "for" statement.
+    /// * `true` (default) - Ex. `for (let i = 0; i < 5; i++)`
+    /// * `false` - Ex. `for(let i = 0; i < 5; i++)`
+    pub for_statement_space_after_for_keyword: bool,
+    /// Whether to add a space after the semi-colons in a "for" statement.
+    /// * `true` (default) - Ex. `for (let i = 0; i < 5; i++)`
+    /// * `false` - Ex. `for (let i = 0;i < 5;i++)`
+    pub for_statement_space_after_semi_colons: bool,
+    /// Whether to add a space after the `for` keyword in a "for in" statement.
+    /// * `true` (default) - Ex. `for (const prop in obj)`
+    /// * `false` - Ex. `for(const prop in obj)`
+    pub for_in_statement_space_after_for_keyword: bool,
+    /// Whether to add a space after the `for` keyword in a "for of" statement.
+    /// * `true` (default) - Ex. `for (const value of myArray)`
+    /// * `false` - Ex. `for(const value of myArray)`
+    pub for_of_statement_space_after_for_keyword: bool,
     /// Whether to add a space before the parentheses of a function declaration.
     /// * `true` - Ex. `function myFunction ()`
     /// * `false` (default) - Ex. `function myFunction()`
@@ -263,6 +288,9 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         constructor_brace_position: get_brace_position(&mut config, "constructor.bracePosition", brace_position),
         do_while_statement_brace_position: get_brace_position(&mut config, "doWhileStatement.bracePosition", brace_position),
         enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", brace_position),
+        for_statement_brace_position: get_brace_position(&mut config, "forStatement.bracePosition", brace_position),
+        for_in_statement_brace_position: get_brace_position(&mut config, "forInStatement.bracePosition", brace_position),
+        for_of_statement_brace_position: get_brace_position(&mut config, "forOfStatement.bracePosition", brace_position),
         get_accessor_brace_position: get_brace_position(&mut config, "getAccessor.bracePosition", brace_position),
         interface_declaration_brace_position: get_brace_position(&mut config, "interfaceDeclaration.bracePosition", brace_position),
         function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", brace_position),
@@ -324,6 +352,9 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
         variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
         /* single body position */
+        for_statement_single_body_position: get_single_body_position(&mut config, "forStatement.singleBodyPosition", single_body_position),
+        for_in_statement_single_body_position: get_single_body_position(&mut config, "forInStatement.singleBodyPosition", single_body_position),
+        for_of_statement_single_body_position: get_single_body_position(&mut config, "forOfStatement.singleBodyPosition", single_body_position),
         while_statement_single_body_position: get_single_body_position(&mut config, "whileStatement.singleBodyPosition", single_body_position),
         /* trailing commas */
         array_expression_trailing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", trailing_commas),
@@ -331,6 +362,9 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", trailing_commas),
         object_expression_trailing_commas: get_trailing_commas(&mut config, "objectExpression.trailingCommas", trailing_commas),
         /* use braces */
+        for_statement_use_braces: get_use_braces(&mut config, "forStatement.useBraces", use_braces),
+        for_in_statement_use_braces: get_use_braces(&mut config, "forInStatement.useBraces", use_braces),
+        for_of_statement_use_braces: get_use_braces(&mut config, "forOfStatement.useBraces", use_braces),
         while_statement_use_braces: get_use_braces(&mut config, "whileStatement.useBraces", use_braces),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true),
@@ -338,6 +372,10 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false),
         do_while_statement_space_after_while_keyword: get_value(&mut config, "doWhileStatement.spaceAfterWhileKeyword", true),
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
+        for_statement_space_after_for_keyword: get_value(&mut config, "forStatement.spaceAfterForKeyword", true),
+        for_statement_space_after_semi_colons: get_value(&mut config, "forStatement.spaceAfterSemiColons", true),
+        for_in_statement_space_after_for_keyword: get_value(&mut config, "forInStatement.spaceAfterForKeyword", true),
+        for_of_statement_space_after_for_keyword: get_value(&mut config, "forOfStatement.spaceAfterForKeyword", true),
         function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false),
         function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false),
         get_accessor_space_before_parentheses: get_value(&mut config, "getAccessor.spaceBeforeParentheses", false),

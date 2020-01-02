@@ -1,4 +1,4 @@
-~~ forOfStatement.useBraces: "preferNone", lineWidth: 40 ~~
+~~ forOfStatement.useBraces: preferNone, lineWidth: 40 ~~
 == should not use braces when only one line ==
 for (const t of test) {
     a;

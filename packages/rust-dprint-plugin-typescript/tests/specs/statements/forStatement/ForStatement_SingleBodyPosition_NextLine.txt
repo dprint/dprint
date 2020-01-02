@@ -1,4 +1,4 @@
-~~ forStatement.singleBodyPosition: "nextLine" ~~
+~~ forStatement.singleBodyPosition: nextLine ~~
 == should move to the next line ==
 for (let i = 0; i < 5; i++) a;
 

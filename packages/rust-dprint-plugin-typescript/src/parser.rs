@@ -154,6 +154,9 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::ExportAll(node) => parse_export_all(node, context),
             Node::ExprStmt(node) => parse_expr_stmt(node, context),
             Node::EmptyStmt(node) => parse_empty_stmt(node, context),
+            Node::ForInStmt(node) => parse_for_in_stmt(node, context),
+            Node::ForOfStmt(node) => parse_for_of_stmt(node, context),
+            Node::ForStmt(node) => parse_for_stmt(node, context),
             Node::LabeledStmt(node) => parse_labeled_stmt(node, context),
             Node::ReturnStmt(node) => parse_return_stmt(node, context),
             Node::ThrowStmt(node) => parse_throw_stmt(node, context),
@@ -1087,6 +1090,10 @@ fn parse_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
             items.extend(parse_node(type_args.into(), context));
         }
 
+        if is_optional(context) {
+            items.push("?.".into());
+        }
+
         items.push(conditions::with_indent_if_start_of_line_indented(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
             nodes: node.args.into_iter().map(|node| node.into()).collect(),
             force_multi_line_when_multiple_lines: context.config.call_expression_force_multi_line_arguments,
@@ -1135,7 +1142,7 @@ fn parse_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
     // Tests if this is a call expression from common test libraries.
     // Be very strict here to allow the user to opt out if they'd like.
     fn is_test_library_call_expr(node: &CallExpr, context: &mut Context) -> bool {
-        if node.args.len() != 2 || node.type_args.is_some() || !is_valid_callee(&node.callee) {
+        if node.args.len() != 2 || node.type_args.is_some() || !is_valid_callee(&node.callee) || is_optional(context) {
             return false;
         }
         if (*node.args[0].expr).kind() != NodeKind::Str && !is_expr_template(&node.args[0].expr) {
@@ -1170,6 +1177,10 @@ fn parse_call_expr(node: CallExpr, context: &mut Context) -> Vec<PrintItem> {
                 };
             }
         }
+    }
+
+    fn is_optional(context: &Context) -> bool {
+        return context.parent().kind() == NodeKind::OptChainExpr;
     }
 }
 
@@ -2091,6 +2102,150 @@ fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
     }
 }
 
+fn parse_for_stmt(node: ForStmt, context: &mut Context) -> Vec<PrintItem> {
+    let start_header_info = Info::new("startHeader");
+    let end_header_info = Info::new("endHeader");
+    let mut items = Vec::new();
+    items.push(start_header_info.clone().into());
+    items.push("for".into());
+    if context.config.for_statement_space_after_for_keyword {
+        items.push(" ".into());
+    }
+    items.extend(parse_node_in_parens(&{
+        if let Some(init) = &node.init {
+            init.span()
+        } else {
+            context.get_first_semi_colon_within(&node).expect("Expected to find a semi-colon within the for stmt.").span()
+        }
+    }, {
+        let mut items = Vec::new();
+        let separator_after_semi_colons = if context.config.for_statement_space_after_semi_colons { PrintItem::SpaceOrNewLine } else { PrintItem::PossibleNewLine };
+        items.extend(parser_helpers::new_line_group({
+            let mut items = Vec::new();
+            if let Some(init) = node.init {
+                items.extend(parse_node(init.into(), context));
+            }
+            items.push(";".into());
+            items
+        }));
+        items.push(separator_after_semi_colons.clone());
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            if let Some(test) = node.test {
+                items.extend(parse_node(test.into(), context));
+            }
+            items.push(";".into());
+            items
+        }).into());
+        items.push(separator_after_semi_colons.clone());
+        items.push(conditions::indent_if_start_of_line({
+            if let Some(update) = node.update {
+                parse_node(update.into(), context)
+            } else {
+                vec![]
+            }
+        }).into());
+        items
+    }, context));
+    items.push(end_header_info.clone().into());
+
+    items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {
+        parent: &node.span,
+        body_node: node.body.into(),
+        use_braces: context.config.for_statement_use_braces,
+        brace_position: context.config.for_statement_brace_position,
+        single_body_position: Some(context.config.for_statement_single_body_position),
+        requires_braces_condition: Option::None,
+        header_start_token: Option::None,
+        start_header_info: Some(start_header_info),
+        end_header_info: Some(end_header_info),
+    }, context).parsed_node);
+
+    return items;
+}
+
+fn parse_for_in_stmt(node: ForInStmt, context: &mut Context) -> Vec<PrintItem> {
+    let start_header_info = Info::new("startHeader");
+    let end_header_info = Info::new("endHeader");
+    let mut items = Vec::new();
+    items.push(start_header_info.clone().into());
+    items.push("for".into());
+    if context.config.for_in_statement_space_after_for_keyword {
+        items.push(" ".into());
+    }
+    let left_span = node.left.span();
+    items.extend(parse_node_in_parens(&left_span, {
+        let mut items = Vec::new();
+        items.extend(parse_node(node.left.into(), context));
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push("in ".into());
+            items.extend(parse_node(node.right.into(), context));
+            items
+        }).into());
+        items
+    }, context));
+    items.push(end_header_info.clone().into());
+
+    items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {
+        parent: &node.span,
+        body_node: node.body.into(),
+        use_braces: context.config.for_in_statement_use_braces,
+        brace_position: context.config.for_in_statement_brace_position,
+        single_body_position: Some(context.config.for_in_statement_single_body_position),
+        requires_braces_condition: Option::None,
+        header_start_token: Option::None,
+        start_header_info: Some(start_header_info),
+        end_header_info: Some(end_header_info),
+    }, context).parsed_node);
+
+    return items;
+}
+
+fn parse_for_of_stmt(node: ForOfStmt, context: &mut Context) -> Vec<PrintItem> {
+    let start_header_info = Info::new("startHeader");
+    let end_header_info = Info::new("endHeader");
+    let mut items = Vec::new();
+    items.push(start_header_info.clone().into());
+    items.push("for".into());
+    if context.config.for_of_statement_space_after_for_keyword {
+        items.push(" ".into());
+    }
+    if let Some(await_token) = node.await_token {
+        items.extend(parse_node(await_token.into(), context));
+        items.push(" ".into());
+    }
+    let left_span = node.left.span();
+    items.extend(parse_node_in_parens(&left_span, {
+        let mut items = Vec::new();
+        items.extend(parse_node(node.left.into(), context));
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push("of ".into());
+            items.extend(parse_node(node.right.into(), context));
+            items
+        }).into());
+        items
+    }, context));
+    items.push(end_header_info.clone().into());
+
+    items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {
+        parent: &node.span,
+        body_node: node.body.into(),
+        use_braces: context.config.for_of_statement_use_braces,
+        brace_position: context.config.for_of_statement_brace_position,
+        single_body_position: Some(context.config.for_of_statement_single_body_position),
+        requires_braces_condition: Option::None,
+        header_start_token: Option::None,
+        start_header_info: Some(start_header_info),
+        end_header_info: Some(end_header_info),
+    }, context).parsed_node);
+
+    return items;
+}
+
 fn parse_labeled_stmt(node: LabeledStmt, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.extend(parse_node(node.label.into(), context));
@@ -2177,17 +2332,18 @@ fn parse_var_decl(node: VarDecl, context: &mut Context) -> Vec<PrintItem> {
         items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node(decl.into(), context))).into());
     }
 
-    if requires_semi_colon(context) { items.push(";".into()); }
+    if requires_semi_colon(&node.span, context) { items.push(";".into()); }
 
     return items;
 
-    fn requires_semi_colon(context: &mut Context) -> bool {
-        // let parent_kind = context.parent().kind();
-        //if (context.parent.type === "ForOfStatement" || context.parent.type === "ForInStatement")
-        //    return context.parent.left !== node;
-
-        //return context.config["variableStatement.semiColon"] || context.parent.type === "ForStatement";
-        context.config.variable_statement_semi_colon
+    fn requires_semi_colon(var_decl_span: &Span, context: &mut Context) -> bool {
+        let parent = context.parent();
+        match parent {
+            Node::ForInStmt(node) => var_decl_span.lo() >= node.body.span().lo(),
+            Node::ForOfStmt(node) => var_decl_span.lo() >= node.body.span().lo(),
+            Node::ForStmt(node) => var_decl_span.lo() >= node.body.span().lo(),
+            _ => context.config.variable_statement_semi_colon,
+        }
     }
 }
 

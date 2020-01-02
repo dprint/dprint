@@ -134,6 +134,10 @@ impl Context {
         self.get_first_token_within(node, Token::Comma)
     }
 
+    pub fn get_first_semi_colon_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_within(node, Token::Semi)
+    }
+
     fn get_first_token_within(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
         let node_span_data = node.span().data();
         let pos = node_span_data.lo;
@@ -521,7 +525,7 @@ generate_traits![TypeParamNode, Instantiation, Decl];
 generate_traits![TsTypeElement, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature, TsMethodSignature, TsIndexSignature];
 generate_traits![TsFnParam, Ident, Array, Rest, Object];
 generate_traits![Expr, This, Array, Object, Fn, Unary, Update, Bin, Assign, Member, Cond, Call, New, Seq, Ident, Lit, Tpl, TaggedTpl, Arrow,
-    Class, Yield, MetaProp, Await, Paren, JSXMember, JSXNamespacedName, JSXEmpty, JSXElement, JSXFragment, TsTypeAssertion, TsConstAssertion,
+    Class, Yield, MetaProp, Await, Paren, JSXMebmer, JSXNamespacedName, JSXEmpty, JSXElement, JSXFragment, TsTypeAssertion, TsConstAssertion,
     TsNonNull, TsTypeCast, TsAs, PrivateName, OptChain, Invalid];
 generate_traits![PropOrSpread, Spread, Prop];
 generate_traits![Prop, Shorthand, KeyValue, Assign, Getter, Setter, Method];
@@ -537,6 +541,8 @@ generate_traits![DefaultDecl, Class, Fn, TsInterfaceDecl];
 generate_traits![TsEntityName, TsQualifiedName, Ident];
 generate_traits![ExprOrSuper, Super, Expr];
 generate_traits![TsModuleName, Ident, Str];
+generate_traits![VarDeclOrPat, VarDecl, Pat];
+generate_traits![VarDeclOrExpr, VarDecl, Expr];
 generate_traits![TsNamespaceBody, TsModuleBlock, TsNamespaceDecl];
 generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl, ExportDefaultExpr, ExportAll, TsImportEquals, TsExportAssignment,
     TsNamespaceExport];

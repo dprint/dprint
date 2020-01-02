@@ -1,4 +1,4 @@
-~~ forInStatement.singleBodyPosition: "nextLine" ~~
+~~ forInStatement.singleBodyPosition: nextLine ~~
 == should move to the next line ==
 for (const t in other) a;
 
