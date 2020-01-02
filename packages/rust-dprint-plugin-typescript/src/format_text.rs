@@ -3,8 +3,8 @@ use dprint_core::*;
 use swc_common::{BytePos};
 
 pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfiguration) -> Result<String, String> {
-    let parsed_source_file = parse_to_swc_ast(&file_path, &file_text)?;
-    if !should_format_file(&parsed_source_file) {
+    let mut parsed_source_file = parse_to_swc_ast(&file_path, &file_text)?;
+    if !should_format_file(&mut parsed_source_file) {
         return Ok(file_text.into());
     }
     let print_items = parse(parsed_source_file, config.clone());
@@ -18,12 +18,10 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
         newline_kind: "\n",
     }));
 
-    fn should_format_file(file: &ParsedSourceFile) -> bool {
-        if let Some(comments) = file.comments.leading_comments(get_search_position(&file)) {
-            for comment in comments.iter() {
-                if comment.text.contains("dprint-ignore-file") {
-                    return false;
-                }
+    fn should_format_file(file: &mut ParsedSourceFile) -> bool {
+        for comment in file.comments.leading_comments(get_search_position(&file)).iter() {
+            if comment.text.contains("dprint-ignore-file") {
+                return false;
             }
         }
 

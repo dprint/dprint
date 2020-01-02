@@ -4,15 +4,15 @@ use super::*;
 use std::collections::{HashSet, HashMap};
 use dprint_core::{Info};
 use utils::{Stack};
-use swc_common::{SpanData, BytePos, comments::{Comments, Comment}, SourceFile, Spanned, Span};
+use swc_common::{SpanData, BytePos, comments::{Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::*;
 use swc_ecma_parser::{token::{Token, TokenAndSpan, BinOpToken}};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
-    pub comments: Rc<Comments>,
-    tokens: Rc<Vec<TokenAndSpan>>,
-    pub file_bytes: Rc<Vec<u8>>,
+    pub comments: CommentCollection,
+    token_finder: Rc<TokenFinder>,
+    pub file_bytes: Vec<u8>,
     pub current_node: Node,
     pub parent_stack: Vec<Node>, // todo: use stack type
     handled_comments: HashSet<BytePos>,
@@ -24,17 +24,17 @@ pub struct Context {
 impl Context {
     pub fn new(
         config: TypeScriptConfiguration,
-        comments: Comments,
-        tokens: Vec<TokenAndSpan>,
+        comments: CommentCollection,
+        token_finder: Rc<TokenFinder>,
         file_bytes: Vec<u8>,
         current_node: Node,
         info: SourceFile
     ) -> Context {
         Context {
             config,
-            comments: Rc::new(comments),
-            tokens: Rc::new(tokens),
-            file_bytes: Rc::new(file_bytes),
+            comments,
+            token_finder,
+            file_bytes: file_bytes,
             current_node,
             parent_stack: Vec::new(),
             handled_comments: HashSet::new(),
@@ -71,7 +71,7 @@ impl Context {
 
     pub fn get_token_at(&self, node: &dyn Ranged) -> TokenAndSpan {
         let pos = node.lo();
-        for token in self.tokens.iter() {
+        for token in self.token_finder.tokens.iter() {
             if token.span.data().lo == pos {
                 return token.clone();
             }
@@ -105,8 +105,8 @@ impl Context {
 
     fn get_first_token_before<F>(&self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
         let pos = node.lo();
-        let mut found_token = Option::None;
-        for token in self.tokens.iter() {
+        let mut found_token = None;
+        for token in self.token_finder.tokens.iter() {
             if token.span.data().lo >= pos {
                 break;
             }
@@ -142,8 +142,8 @@ impl Context {
         let node_span_data = node.span().data();
         let pos = node_span_data.lo;
         let end = node_span_data.hi;
-        let mut found_token = Option::None;
-        for token in self.tokens.iter() {
+        let mut found_token = None;
+        for token in self.token_finder.tokens.iter() {
             let token_pos = token.span.data().lo;
             if token_pos >= end {
                 break;
@@ -158,8 +158,8 @@ impl Context {
         let node_span_data = node.span().data();
         let pos = node_span_data.lo;
         let end = node_span_data.hi;
-        let mut found_token = Option::None;
-        for token in self.tokens.iter() {
+        let mut found_token = None;
+        for token in self.token_finder.tokens.iter() {
             let token_pos = token.span.data().lo;
             if token_pos >= end {
                 break;
@@ -173,25 +173,25 @@ impl Context {
     pub fn get_first_token_after_with_text(&self, node: &dyn Ranged, searching_token_text: &str) -> Option<TokenAndSpan> {
         let node_span_data = node.span().data();
         let pos = node_span_data.hi;
-        for token in self.tokens.iter() {
+        for token in self.token_finder.tokens.iter() {
             let token_pos = token.span.data().lo;
             if token_pos >= pos && token.span.text(self) == searching_token_text {
                 return Some(token.to_owned());
             }
         }
 
-        Option::None
+        None
     }
 
     pub fn get_token_text_at_pos(&self, pos: BytePos) -> Option<&str> {
-        for token in self.tokens.iter() {
+        for token in self.token_finder.tokens.iter() {
             let token_pos = token.span.data().lo;
             if token_pos == pos {
                 return Some(token.span.text(self));
             }
         }
 
-        Option::None
+        None
     }
 }
 
@@ -204,9 +204,10 @@ pub trait Ranged : Spanned {
     fn hi(&self) -> BytePos;
     fn start_line(&self, context: &mut Context) -> usize;
     fn end_line(&self, context: &mut Context) -> usize;
+    fn start_column(&self, context: &mut Context) -> usize;
     fn text<'a>(&self, context: &'a Context) -> &'a str;
-    fn leading_comments(&self, context: &Context) -> Vec<Comment>;
-    fn trailing_comments(&self, context: &Context) -> Vec<Comment>;
+    fn leading_comments(&self, context: &mut Context) -> Vec<Comment>;
+    fn trailing_comments(&self, context: &mut Context) -> Vec<Comment>;
 }
 
 impl<T> Ranged for T where T : Spanned {
@@ -226,17 +227,29 @@ impl<T> Ranged for T where T : Spanned {
         context.info.lookup_line(self.hi()).unwrap() + 1
     }
 
+    fn start_column(&self, context: &mut Context) -> usize {
+        // not exactly correct because this isn't char based, but this is fast
+        // and good enough for doing comparisons
+        let pos = self.lo().0 as usize;
+        for i in (0..pos).rev() {
+            if context.file_bytes[i] == '\n' as u8 {
+                return pos - i;
+            }
+        }
+        return pos;
+    }
+
     fn text<'a>(&self, context: &'a Context) -> &'a str {
         let span_data = self.span().data();
         context.get_text(&span_data)
     }
 
-    fn leading_comments(&self, context: &Context) -> Vec<Comment> {
-        context.comments.leading_comments(self.lo()).map(|c| c.clone()).unwrap_or_default()
+    fn leading_comments(&self, context: &mut Context) -> Vec<Comment> {
+        context.comments.leading_comments(self.lo())
     }
 
-    fn trailing_comments(&self, context: &Context) -> Vec<Comment> {
-        context.comments.trailing_comments(self.hi()).map(|c| c.clone()).unwrap_or_default()
+    fn trailing_comments(&self, context: &mut Context) -> Vec<Comment> {
+        context.comments.trailing_comments(self.hi())
     }
 }
 
@@ -421,6 +434,7 @@ generate_node! [
     LabeledStmt,
     ReturnStmt,
     SwitchStmt,
+    SwitchCase,
     ThrowStmt,
     TryStmt,
     TsExportAssignment,
@@ -525,7 +539,7 @@ generate_traits![TypeParamNode, Instantiation, Decl];
 generate_traits![TsTypeElement, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature, TsMethodSignature, TsIndexSignature];
 generate_traits![TsFnParam, Ident, Array, Rest, Object];
 generate_traits![Expr, This, Array, Object, Fn, Unary, Update, Bin, Assign, Member, Cond, Call, New, Seq, Ident, Lit, Tpl, TaggedTpl, Arrow,
-    Class, Yield, MetaProp, Await, Paren, JSXMebmer, JSXNamespacedName, JSXEmpty, JSXElement, JSXFragment, TsTypeAssertion, TsConstAssertion,
+    Class, Yield, MetaProp, Await, Paren, JSXMember, JSXNamespacedName, JSXEmpty, JSXElement, JSXFragment, TsTypeAssertion, TsConstAssertion,
     TsNonNull, TsTypeCast, TsAs, PrivateName, OptChain, Invalid];
 generate_traits![PropOrSpread, Spread, Prop];
 generate_traits![Prop, Shorthand, KeyValue, Assign, Getter, Setter, Method];

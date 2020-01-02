@@ -54,5 +54,5 @@ pub fn get_leading_comment_on_different_line(node: &dyn Ranged, comments_to_igno
         }
     }
 
-    return Option::None;
+    return None;
 }

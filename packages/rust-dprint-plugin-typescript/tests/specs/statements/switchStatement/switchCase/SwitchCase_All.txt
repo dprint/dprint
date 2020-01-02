@@ -27,7 +27,7 @@ switch (expr) {
         return 6;
 }
 
-== should keep the comments at the same level as the case's body if the last comment is on that level  ==
+== should keep the comments at the same level as the case's body if the last comment is on that level ==
 switch (expr) {
     case 1: {
     }

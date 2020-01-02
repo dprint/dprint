@@ -25,6 +25,8 @@ pub struct TypeScriptConfiguration {
     pub method_brace_position: BracePosition,
     pub module_declaration_brace_position: BracePosition,
     pub set_accessor_brace_position: BracePosition,
+    pub switch_case_brace_position: BracePosition,
+    pub switch_statement_brace_position: BracePosition,
     pub try_statement_brace_position: BracePosition,
     pub while_statement_brace_position: BracePosition,
     /* force multi-line arguments */
@@ -298,6 +300,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         method_brace_position: get_brace_position(&mut config, "method.bracePosition", brace_position),
         module_declaration_brace_position: get_brace_position(&mut config, "moduleDeclaration.bracePosition", brace_position),
         set_accessor_brace_position: get_brace_position(&mut config, "setAccessor.bracePosition", brace_position),
+        switch_case_brace_position: get_brace_position(&mut config, "switchCase.bracePosition", brace_position),
+        switch_statement_brace_position: get_brace_position(&mut config, "switchStatement.bracePosition", brace_position),
         try_statement_brace_position: get_brace_position(&mut config, "tryStatement.bracePosition", brace_position),
         while_statement_brace_position: get_brace_position(&mut config, "whileStatement.bracePosition", brace_position),
         /* force multi-line arguments */

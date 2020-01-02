@@ -1,5 +1,5 @@
-~~ switchCase.bracePosition: "nextLine", lineWidth: 40 ~~
-== should put the brace on the next line ==
+~~ switchCase.bracePosition: sameLine, lineWidth: 40 ~~
+== should put the brace on the same line ==
 switch (test) {
     case 5: {
         return 5;
@@ -12,12 +12,10 @@ switch (test) {
 
 [expect]
 switch (test) {
-    case 5:
-    {
+    case 5: {
         return 5;
     }
-    case 6:
-    {
+    case 6: {
         return 6;
     }
 }

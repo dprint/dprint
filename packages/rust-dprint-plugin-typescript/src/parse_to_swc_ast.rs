@@ -1,13 +1,16 @@
+use std::collections::HashMap;
+use std::rc::Rc;
+use super::*;
 use swc_common::{
     errors::{ColorConfig, Handler},
-    FileName, comments::{Comments}, SourceFile, BytePos
+    FileName, comments::{Comment, Comments}, SourceFile, BytePos
 };
 use swc_ecma_ast::{Module};
-use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, token::{Token, TokenAndSpan}};
+use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing};
 
 pub struct ParsedSourceFile {
-    pub comments: Comments,
-    pub tokens: Vec<TokenAndSpan>,
+    pub comments: CommentCollection,
+    pub token_finder: Rc<TokenFinder>,
     pub module: Module,
     pub info: SourceFile,
     pub file_bytes: Vec<u8>,
@@ -51,15 +54,16 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
                 println!("Error: {}", error.message());
                 Err(error.message())
             },
-            Ok(module) => Ok((module, tokens))
+            Ok(module) => Ok((module, Rc::new(tokens)))
         }
     }?;
 
+    let token_finder = Rc::new(TokenFinder::new(tokens.clone()));
     return Ok(ParsedSourceFile {
-        comments,
+        comments: CommentCollection::new(comments, TokenFinder::new(tokens)),
         module,
         info: source_file,
-        tokens,
+        token_finder,
         file_bytes,
     });
 
