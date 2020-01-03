@@ -6,12 +6,12 @@ use dprint_core::{Info};
 use utils::{Stack};
 use swc_common::{SpanData, BytePos, comments::{Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::*;
-use swc_ecma_parser::{token::{Token, TokenAndSpan, BinOpToken}};
+use swc_ecma_parser::{token::{Token, TokenAndSpan, BinOpToken, Word, Keyword}};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
     pub comments: CommentCollection,
-    token_finder: Rc<TokenFinder>,
+    token_finder: TokenFinder,
     pub file_bytes: Vec<u8>,
     pub current_node: Node,
     pub parent_stack: Vec<Node>, // todo: use stack type
@@ -25,7 +25,7 @@ impl Context {
     pub fn new(
         config: TypeScriptConfiguration,
         comments: CommentCollection,
-        token_finder: Rc<TokenFinder>,
+        token_finder: TokenFinder,
         file_bytes: Vec<u8>,
         current_node: Node,
         info: SourceFile
@@ -124,6 +124,18 @@ impl Context {
 
     pub fn get_first_open_brace_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
         self.get_first_token_within(node, Token::LBrace)
+    }
+
+    pub fn get_first_close_brace_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.token_finder.get_first_token_before(node.lo(), |token|token.token == Token::RBrace)
+    }
+
+    pub fn get_first_else_keyword_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.token_finder.get_first_token_before(node.lo(), |token|token.token == Token::Word(Word::Keyword(Keyword::Else)))
+    }
+
+    pub fn get_first_colon_token_after(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.token_finder.get_first_token_after(node.hi(), |token|token.token == Token::Colon)
     }
 
     pub fn get_first_open_bracket_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
@@ -563,3 +575,34 @@ generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl,
 generate_traits![TsModuleRef, TsEntityName, TsExternalModuleRef];
 generate_traits![Stmt, Block, Empty, Debugger, With, Return, Labeled, Break, Continue, If, Switch, Throw, Try, While, DoWhile, For, ForIn, ForOf,
     Decl, Expr];
+
+pub trait InnerSpanned {
+    fn get_inner_span(&self, context: &mut Context) -> Span;
+}
+
+impl InnerSpanned for BlockStmt {
+    fn get_inner_span(&self, _: &mut Context) -> Span {
+        get_inner_span_for_object_like(&self.span)
+    }
+}
+
+impl InnerSpanned for ObjectLit {
+    fn get_inner_span(&self, _: &mut Context) -> Span {
+        get_inner_span_for_object_like(&self.span)
+    }
+}
+
+impl InnerSpanned for ObjectPat {
+    fn get_inner_span(&self, _: &mut Context) -> Span {
+        get_inner_span_for_object_like(&self.span)
+    }
+}
+
+fn get_inner_span_for_object_like(span: &Span) -> Span {
+    let span_data = span.data();
+    return Span::new(
+        BytePos(span_data.lo.0 + 1),
+        BytePos(span_data.hi.0 - 1),
+        Default::default()
+    );
+}

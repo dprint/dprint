@@ -1,4 +1,4 @@
-~~ ifStatement.nextControlFlowPosition: "maintain", lineWidth: 40 ~~
+~~ ifStatement.nextControlFlowPosition: maintain, lineWidth: 40 ~~
 == should maintain the position when all on same line ==
 if (true) {
 } else if (true) {

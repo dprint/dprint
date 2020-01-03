@@ -15,6 +15,8 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
     pub writer_state: WriterState<TString>,
     pub possible_new_line_save_point: Box<Option<SavePoint<TString, TInfo, TCondition>>>,
     pub container: PrintItemContainer<TString, TInfo, TCondition>,
+    pub look_ahead_condition_save_points: HashMap<usize, SavePoint<TString, TInfo, TCondition>>,
+    pub look_ahead_info_save_points: HashMap<usize, SavePoint<TString, TInfo, TCondition>>,
     pub current_indexes: Vec<isize>,
 }
 
@@ -28,6 +30,8 @@ impl<TString, TInfo, TCondition> Clone for SavePoint<TString, TInfo, TCondition>
             possible_new_line_save_point: Box::new((*self.possible_new_line_save_point).as_ref().map(|x| x.clone())),
             container: self.container.clone(),
             current_indexes: self.current_indexes.clone(),
+            look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
+            look_ahead_info_save_points: self.look_ahead_info_save_points.clone(),
         }
     }
 }
@@ -201,6 +205,8 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             current_indexes: self.current_indexes.clone(),
             container: self.container.clone(),
             writer_state: self.writer.get_state(),
+            look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
+            look_ahead_info_save_points: self.look_ahead_info_save_points.clone(),
         }
     }
 
@@ -231,6 +237,8 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         self.container = save_point.container;
         self.current_indexes = save_point.current_indexes;
         self.new_line_group_depth = save_point.new_line_group_depth;
+        self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points;
+        self.look_ahead_info_save_points = save_point.look_ahead_info_save_points;
 
         if is_for_new_line {
             self.write_new_line();

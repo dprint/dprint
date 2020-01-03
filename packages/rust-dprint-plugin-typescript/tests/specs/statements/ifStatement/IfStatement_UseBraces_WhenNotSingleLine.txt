@@ -1,4 +1,4 @@
-~~ ifStatement.useBraces: "whenNotSingleLine" ~~
+~~ ifStatement.useBraces: whenNotSingleLine ~~
 == should when not single line ==
 if (true)
     a;

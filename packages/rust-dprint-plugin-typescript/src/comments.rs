@@ -13,6 +13,8 @@ pub struct CommentCollection {
 impl CommentCollection {
     pub fn new(comments: Comments, token_finder: TokenFinder) -> CommentCollection {
         let (leading, trailing) = comments.take_all();
+        println!("Leading: {:?}", leading);
+        println!("Trailing: {:?}", trailing);
         CommentCollection {
             leading,
             trailing,

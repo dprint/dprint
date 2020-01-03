@@ -1,4 +1,4 @@
-~~ ifStatement.useBraces: "always" ~~
+~~ ifStatement.useBraces: always ~~
 == should force the use of braces when not specified ==
 if (true)
     a;
@@ -15,11 +15,11 @@ else {
 
 == should keep the comment on the inner statement when switching from no braces to having braces ==
 if (true)
-    return ""; // test
+    console.log(5); // test
 
 [expect]
 if (true) {
-    return ""; // test
+    console.log(5); // test
 }
 
 == should ensure comments before an else if and else stay on line before ==

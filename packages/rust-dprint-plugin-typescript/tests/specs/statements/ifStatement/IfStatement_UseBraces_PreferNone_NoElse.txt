@@ -1,4 +1,4 @@
-~~ ifStatement.useBraces: "preferNone", lineWidth: 80 ~~
+~~ ifStatement.useBraces: preferNone, lineWidth: 80 ~~
 == should not use braces when only has one line ==
 if (true) {
     a;

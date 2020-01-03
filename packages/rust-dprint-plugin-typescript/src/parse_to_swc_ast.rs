@@ -10,7 +10,7 @@ use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Ca
 
 pub struct ParsedSourceFile {
     pub comments: CommentCollection,
-    pub token_finder: Rc<TokenFinder>,
+    pub token_finder: TokenFinder,
     pub module: Module,
     pub info: SourceFile,
     pub file_bytes: Vec<u8>,
@@ -58,7 +58,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         }
     }?;
 
-    let token_finder = Rc::new(TokenFinder::new(tokens.clone()));
+    let token_finder = TokenFinder::new(tokens.clone());
     return Ok(ParsedSourceFile {
         comments: CommentCollection::new(comments, TokenFinder::new(tokens)),
         module,

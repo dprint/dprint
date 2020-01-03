@@ -18,38 +18,38 @@ impl TokenFinder {
 
     pub fn get_first_token_before<F>(&mut self, pos: BytePos, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool{
         if self.tokens.is_empty() { return None; }
-
         self.move_to_node_pos(pos);
 
-        loop {
-            if !self.try_decrement_index() {
-                return None;
-            }
-
+        if self.tokens[self.token_index].lo() < pos {
             let current_token = &self.tokens[self.token_index];
             if is_match(&current_token) {
                 return Some(current_token.clone());
             }
         }
+
+        while self.try_decrement_index() {
+            let current_token = &self.tokens[self.token_index];
+            if is_match(&current_token) {
+                return Some(current_token.clone());
+            }
+        }
+
+        return None;
     }
 
     pub fn get_first_token_after<F>(&mut self, end: BytePos, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool{
         if self.tokens.is_empty() { return None; }
-
         self.move_to_node_end(end);
 
-        loop {
-            if !self.try_increment_index() {
-                return None;
-            }
-
+        while self.try_increment_index() {
             let current_token = &self.tokens[self.token_index];
             if is_match(&current_token) {
                 return Some(current_token.clone());
             }
         }
-    }
 
+        return None;
+    }
 
     fn move_to_node_pos(&mut self, pos: BytePos) {
         while self.tokens[self.token_index].lo() < pos {
