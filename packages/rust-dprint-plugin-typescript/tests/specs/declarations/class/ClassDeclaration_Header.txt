@@ -10,7 +10,8 @@ class Test {
 export default class {}
 
 [expect]
-export default class {}
+export default class {
+}
 
 == should print abstract ==
 abstract class Test {

@@ -95,6 +95,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::CondExpr(node) => parse_conditional_expr(node, context),
             Node::ExprOrSpread(node) => parse_expr_or_spread(node, context),
             Node::FnExpr(node) => parse_fn_expr(node, context),
+            Node::GetterProp(node) => parse_getter_prop(node, context),
+            Node::KeyValueProp(node) => parse_key_value_prop(node, context),
             Node::MemberExpr(node) => parse_member_expr(node, context),
             Node::MetaPropExpr(node) => parse_meta_prop_expr(node, context),
             Node::NewExpr(node) => parse_new_expr(node, context),
@@ -102,6 +104,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::OptChainExpr(node) => parse_node(node.expr.into(), context),
             Node::ParenExpr(node) => parse_paren_expr(node, context),
             Node::SeqExpr(node) => parse_sequence_expr(node, context),
+            Node::SetterProp(node) => parse_setter_prop(node, context),
             Node::SpreadElement(node) => parse_spread_element(node, context),
             Node::Super(_) => vec!["super".into()],
             Node::TaggedTpl(node) => parse_tagged_tpl(node, context),
@@ -1310,6 +1313,30 @@ fn parse_fn_expr(node: FnExpr, context: &mut Context) -> Vec<PrintItem> {
     }, context)
 }
 
+fn parse_getter_prop(node: GetterProp, context: &mut Context) -> Vec<PrintItem> {
+    return parse_class_or_object_method(ClassOrObjectMethod {
+        decorators: Vec::new(),
+        accessibility: None,
+        is_static: false,
+        is_async: false,
+        is_abstract: false,
+        kind: ClassOrObjectMethodKind::Getter,
+        is_generator: false,
+        is_optional: false,
+        key: node.key.into(),
+        type_params: None,
+        params: Vec::new(),
+        return_type: node.type_ann.map(|x| x.into()),
+        body: node.body.map(|x| x.into()),
+    }, context);
+}
+
+fn parse_key_value_prop(node: KeyValueProp, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = parse_node(node.key.into(), context);
+    items.extend(parse_node_with_preceeding_colon(Some(node.value.into()), context));
+    return items;
+}
+
 fn parse_member_expr(node: MemberExpr, context: &mut Context) -> Vec<PrintItem> {
     return parse_for_member_like_expr(MemberLikeExpr {
         left_node: node.obj.into(),
@@ -1361,6 +1388,24 @@ fn parse_paren_expr(node: ParenExpr, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_sequence_expr(node: SeqExpr, context: &mut Context) -> Vec<PrintItem> {
     parse_comma_separated_values(node.exprs.into_iter().map(|box x| x.into()).collect(), |_| { Some(false) }, context)
+}
+
+fn parse_setter_prop(node: SetterProp, context: &mut Context) -> Vec<PrintItem> {
+    return parse_class_or_object_method(ClassOrObjectMethod {
+        decorators: Vec::new(),
+        accessibility: None,
+        is_static: false,
+        is_async: false,
+        is_abstract: false,
+        kind: ClassOrObjectMethodKind::Setter,
+        is_generator: false,
+        is_optional: false,
+        key: node.key.into(),
+        type_params: None,
+        params: vec![node.param.into()],
+        return_type: None,
+        body: node.body.map(|x| x.into()),
+    }, context);
 }
 
 fn parse_spread_element(node: SpreadElement, context: &mut Context) -> Vec<PrintItem> {

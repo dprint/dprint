@@ -6,6 +6,11 @@ const obj = {
     },
     *method2(): string { // testing
         return "";
+    },
+    get   test(  )   : string   {
+        return "";
+    },
+    set test (value: string) {
     }
 };
 
@@ -16,6 +21,11 @@ const obj = {
     },
     *method2(): string { // testing
         return "";
+    },
+    get test(): string {
+        return "";
+    },
+    set test(value: string) {
     }
 };
 

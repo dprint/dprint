@@ -7,10 +7,10 @@ const obj = {
 const obj = {};
 
 == should format when a single line ==
-const obj = { prop: 5, other: 4 };
+const obj = { prop:  5, other: 4, final };
 
 [expect]
-const obj = { prop: 5, other: 4 };
+const obj = { prop: 5, other: 4, final };
 
 == should format when multi-line ==
 const obj = {
