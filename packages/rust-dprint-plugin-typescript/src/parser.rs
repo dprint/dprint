@@ -173,6 +173,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::VarDeclarator(node) => parse_var_declarator(node, context),
             Node::WhileStmt(node) => parse_while_stmt(node, context),
             /* types */
+            Node::TsArrayType(node) => parse_array_type(node, context),
+            Node::TsImportType(node) => parse_import_type(node, context),
             Node::TsLitType(node) => parse_lit_type(node, context),
             Node::TsTypeAnn(node) => parse_type_ann(node, context),
             Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(TypeParamNode::Instantiation(node), context),
@@ -2607,6 +2609,30 @@ fn parse_while_stmt(node: WhileStmt, context: &mut Context) -> Vec<PrintItem> {
 }
 
 /* types */
+
+fn parse_array_type(node: TsArrayType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node(node.elem_type.into(), context));
+    items.push("[]".into());
+    return items;
+}
+
+fn parse_import_type(node: TsImportType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("import(".into());
+    items.extend(parse_node(node.arg.into(), context));
+    items.push(")".into());
+
+    if let Some(qualifier) = node.qualifier {
+        items.push(".".into());
+        items.extend(parse_node(qualifier.into(), context));
+    }
+
+    if let Some(type_args) = node.type_args {
+        items.extend(parse_node(type_args.into(), context));
+    }
+    return items;
+}
 
 fn parse_lit_type(node: TsLitType, context: &mut Context) -> Vec<PrintItem> {
     parse_node(node.lit.into(), context)

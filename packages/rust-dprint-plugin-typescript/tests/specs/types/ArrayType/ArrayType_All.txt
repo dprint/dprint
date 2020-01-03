@@ -6,7 +6,7 @@ type T = string  [  ]  ;
 type T = string[];
 
 == should prefer to keep it together ==
-type Test = test | (string | number | other)[];
+type Test = test | (string | number | other)[ ];
 
 [expect]
 type Test = test
