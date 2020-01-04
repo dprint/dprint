@@ -36,8 +36,9 @@ pub struct TypeScriptConfiguration {
     /* force multi-line parameters */
     pub arrow_function_expression_force_multi_line_parameters: bool,
     pub call_signature_force_multi_line_parameters: bool,
-    pub constructor_force_multi_line_parameters: bool,
     pub construct_signature_force_multi_line_parameters: bool,
+    pub constructor_force_multi_line_parameters: bool,
+    pub constructor_type_force_multi_line_parameters: bool,
     pub function_declaration_force_multi_line_parameters: bool,
     pub function_expression_force_multi_line_parameters: bool,
     pub get_accessor_force_multi_line_parameters: bool,
@@ -114,6 +115,10 @@ pub struct TypeScriptConfiguration {
     /// `true` - Ex. `constructor ()`
     /// `false` (false) - Ex. `constructor()`
     pub constructor_space_before_parentheses: bool,
+    /// Whether to add a space after the `new` keyword in a constructor type.
+    /// `true` - Ex. `type MyClassCtor = new () => MyClass;`
+    /// `false` (default) - Ex. `type MyClassCtor = new() => MyClass;`
+    pub constructor_type_space_after_new_keyword: bool,
     /// Whether to add a space after the `while` keyword in a do while statement.
     /// `true` (true) - Ex. `do {\n} while (condition);`
     /// `false` - Ex. `do {\n} while(condition);`
@@ -319,8 +324,9 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         /* force multi-line parameters */
         arrow_function_expression_force_multi_line_parameters: get_value(&mut config, "arrowFunctionExpression.forceMultiLineParameters", force_multi_line_parameters),
         call_signature_force_multi_line_parameters: get_value(&mut config, "callSignature.forceMultiLineParameters", force_multi_line_parameters),
-        constructor_force_multi_line_parameters: get_value(&mut config, "constructor.forceMultiLineParameters", force_multi_line_parameters),
         construct_signature_force_multi_line_parameters: get_value(&mut config, "constructSignature.forceMultiLineParameters", force_multi_line_parameters),
+        constructor_force_multi_line_parameters: get_value(&mut config, "constructor.forceMultiLineParameters", force_multi_line_parameters),
+        constructor_type_force_multi_line_parameters: get_value(&mut config, "constructorType.forceMultiLineParameters", force_multi_line_parameters),
         function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters),
         function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters),
         get_accessor_force_multi_line_parameters: get_value(&mut config, "getAccessor.forceMultiLineParameters", force_multi_line_parameters),
@@ -386,6 +392,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true),
         construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false),
         constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false),
+        constructor_type_space_after_new_keyword: get_value(&mut config, "constructorType.spaceAfterNewKeyword", false),
         do_while_statement_space_after_while_keyword: get_value(&mut config, "doWhileStatement.spaceAfterWhileKeyword", true),
         export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
         for_statement_space_after_for_keyword: get_value(&mut config, "forStatement.spaceAfterForKeyword", true),

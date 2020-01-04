@@ -174,8 +174,13 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::WhileStmt(node) => parse_while_stmt(node, context),
             /* types */
             Node::TsArrayType(node) => parse_array_type(node, context),
+            Node::TsConstructorType(node) => parse_constructor_type(node, context),
             Node::TsImportType(node) => parse_import_type(node, context),
+            Node::TsInferType(node) => parse_infer_type(node, context),
             Node::TsLitType(node) => parse_lit_type(node, context),
+            Node::TsQualifiedName(node) => parse_qualified_name(node, context),
+            Node::TsRestType(node) => parse_rest_type(node, context),
+            Node::TsThisType(_) => vec!["this".into()],
             Node::TsTypeAnn(node) => parse_type_ann(node, context),
             Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(TypeParamNode::Instantiation(node), context),
             Node::TsTypeParamDecl(node) => parse_type_param_instantiation(TypeParamNode::Decl(node), context),
@@ -416,7 +421,7 @@ fn parse_export_default_decl(node: ExportDefaultDecl, context: &mut Context) -> 
 fn parse_export_default_expr(node: ExportDefaultExpr, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("export default ".into());
-    items.extend(parse_node((*node.expr).into(), context));
+    items.extend(parse_node(node.expr.into(), context));
     if context.config.export_default_expression_semi_colon { items.push(";".into()); }
     items
 }
@@ -768,7 +773,7 @@ fn parse_type_alias(node: TsTypeAliasDecl, context: &mut Context) -> Vec<PrintIt
         items.extend(parse_node(type_params.into(), context));
     }
     items.push(" = ".into());
-    items.extend(parse_node((*node.type_ann).into(), context));
+    items.extend(parse_node(node.type_ann.into(), context));
 
     if context.config.type_alias_semi_colon { items.push(";".into()); }
 
@@ -916,23 +921,23 @@ fn parse_arrow_func_expr(node: ArrowExpr, context: &mut Context) -> Vec<PrintIte
 }
 
 fn parse_as_expr(node: TsAsExpr, context: &mut Context) -> Vec<PrintItem> {
-    let mut items = parse_node((*node.expr).into(), context);
+    let mut items = parse_node(node.expr.into(), context);
     items.push(" as ".into());
-    items.push(conditions::with_indent_if_start_of_line_indented(parse_node((*node.type_ann).into(), context)).into());
+    items.push(conditions::with_indent_if_start_of_line_indented(parse_node(node.type_ann.into(), context)).into());
     items
 }
 
 fn parse_assignment_expr(node: AssignExpr, context: &mut Context) -> Vec<PrintItem> {
     let mut items = parse_node(node.left.into(), context);
     items.push(format!(" {} ", node.op).into());
-    items.push(conditions::with_indent_if_start_of_line_indented(parse_node((*node.right).into(), context)).into());
+    items.push(conditions::with_indent_if_start_of_line_indented(parse_node(node.right.into(), context)).into());
     items
 }
 
 fn parse_await_expr(node: AwaitExpr, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("await ".into());
-    items.extend(parse_node((*node.arg).into(), context));
+    items.extend(parse_node(node.arg.into(), context));
     items
 }
 
@@ -1297,7 +1302,7 @@ fn parse_conditional_expr(node: CondExpr, context: &mut Context) -> Vec<PrintIte
 fn parse_expr_or_spread(node: ExprOrSpread, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     if node.spread.is_some() { items.push("...".into()); }
-    items.extend(parse_node((*node.expr).into(), context));
+    items.extend(parse_node(node.expr.into(), context));
     items
 }
 
@@ -1362,7 +1367,7 @@ fn parse_meta_prop_expr(node: MetaPropExpr, context: &mut Context) -> Vec<PrintI
 fn parse_new_expr(node: NewExpr, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("new ".into());
-    items.extend(parse_node((*node.callee).into(), context));
+    items.extend(parse_node(node.callee.into(), context));
     if let Some(type_args) = node.type_args { items.extend(parse_node(type_args.into(), context)); }
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.args.unwrap_or(Vec::new()).into_iter().map(|node| node.into()).collect(),
@@ -1373,7 +1378,7 @@ fn parse_new_expr(node: NewExpr, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_non_null_expr(node: TsNonNullExpr, context: &mut Context) -> Vec<PrintItem> {
-    let mut items = parse_node((*node.expr).into(), context);
+    let mut items = parse_node(node.expr.into(), context);
     items.push("!".into());
     return items;
 }
@@ -1417,12 +1422,12 @@ fn parse_setter_prop(node: SetterProp, context: &mut Context) -> Vec<PrintItem> 
 fn parse_spread_element(node: SpreadElement, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("...".into());
-    items.extend(parse_node((*node.expr).into(), context));
+    items.extend(parse_node(node.expr.into(), context));
     return items;
 }
 
 fn parse_tagged_tpl(node: TaggedTpl, context: &mut Context) -> Vec<PrintItem> {
-    let mut items = parse_node((*node.tag).into(), context);
+    let mut items = parse_node(node.tag.into(), context);
     if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
     items.push(PrintItem::SpaceOrNewLine);
     items.push(conditions::indent_if_start_of_line(parse_template_literal(node.quasis, node.exprs.into_iter().map(|box x| x).collect())).into());
@@ -1436,17 +1441,17 @@ fn parse_tagged_tpl(node: TaggedTpl, context: &mut Context) -> Vec<PrintItem> {
 fn parse_type_assertion(node: TsTypeAssertion, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("<".into());
-    items.extend(parse_node((*node.type_ann).into(), context));
+    items.extend(parse_node(node.type_ann.into(), context));
     items.push(">".into());
     if context.config.type_assertion_space_before_expression { items.push(" ".into()); }
-    items.extend(parse_node((*node.expr).into(), context));
+    items.extend(parse_node(node.expr.into(), context));
     items
 }
 
 fn parse_unary_expr(node: UnaryExpr, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.insert(0, get_operator_text(node.op).into());
-    items.extend(parse_node((*node.arg).into(), context));
+    items.extend(parse_node(node.arg.into(), context));
     return items;
 
     fn get_operator_text<'a>(op: UnaryOp) -> &'a str {
@@ -1463,7 +1468,7 @@ fn parse_unary_expr(node: UnaryExpr, context: &mut Context) -> Vec<PrintItem> {
 }
 
 fn parse_update_expr(node: UpdateExpr, context: &mut Context) -> Vec<PrintItem> {
-    let mut items = parse_node((*node.arg).into(), context);
+    let mut items = parse_node(node.arg.into(), context);
     let operator_text = get_operator_text(node.op);
     if node.prefix {
         items.insert(0, operator_text.into());
@@ -1779,11 +1784,11 @@ fn parse_array_pat(node: ArrayPat, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_assign_pat(node: AssignPat, context: &mut Context) -> Vec<PrintItem> {
     parser_helpers::new_line_group({
-        let mut items = parse_node((*node.left).into(), context);
+        let mut items = parse_node(node.left.into(), context);
         items.push(PrintItem::SpaceOrNewLine);
         items.push(conditions::indent_if_start_of_line({
             let mut items = vec!["= ".into()];
-            items.extend(parse_node((*node.right).into(), context));
+            items.extend(parse_node(node.right.into(), context));
             items
         }).into());
         items
@@ -1810,7 +1815,7 @@ fn parse_assign_pat_prop(node: AssignPatProp, context: &mut Context) -> Vec<Prin
 fn parse_rest_pat(node: RestPat, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("...".into());
-    items.extend(parse_node((*node.arg).into(), context));
+    items.extend(parse_node(node.arg.into(), context));
     items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
     items
 }
@@ -2097,7 +2102,7 @@ fn parse_export_assignment(node: TsExportAssignment, context: &mut Context) -> V
     let mut items = Vec::new();
 
     items.push("export = ".into());
-    items.extend(parse_node((*node.expr).into(), context));
+    items.extend(parse_node(node.expr.into(), context));
     if context.config.export_assignment_semi_colon {
         items.push(";".into());
     }
@@ -2505,7 +2510,7 @@ fn parse_switch_case(node: SwitchCase, context: &mut Context) -> Vec<PrintItem> 
 fn parse_throw_stmt(node: ThrowStmt, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("throw ".into());
-    items.extend(parse_node((*node.arg).into(), context));
+    items.extend(parse_node(node.arg.into(), context));
     if context.config.throw_statement_semi_colon { items.push(";".into()); }
     return items;
 }
@@ -2621,6 +2626,32 @@ fn parse_array_type(node: TsArrayType, context: &mut Context) -> Vec<PrintItem> 
     return items;
 }
 
+fn parse_constructor_type(node: TsConstructorType, context: &mut Context) -> Vec<PrintItem> {
+    let start_info = Info::new("startConstructorType");
+    let mut items = Vec::new();
+    items.push(start_info.clone().into());
+    items.push("new".into());
+    if context.config.constructor_type_space_after_new_keyword { items.push(" ".into()); }
+    if let Some(type_params) = node.type_params {
+        items.extend(parse_node(type_params.into(), context));
+    }
+    items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+        nodes: node.params.into_iter().map(|node| node.into()).collect(),
+        force_multi_line_when_multiple_lines: context.config.constructor_type_force_multi_line_parameters,
+        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+            start_info: start_info.clone(),
+            type_node: Some(node.type_ann.into()),
+            type_node_separator: Some({
+                let mut items = Vec::new();
+                items.push(PrintItem::SpaceOrNewLine);
+                items.push("=> ".into());
+                items
+            }),
+        }, context)),
+    }, context));
+    return items;
+}
+
 fn parse_import_type(node: TsImportType, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("import(".into());
@@ -2638,12 +2669,34 @@ fn parse_import_type(node: TsImportType, context: &mut Context) -> Vec<PrintItem
     return items;
 }
 
+fn parse_infer_type(node: TsInferType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("infer ".into());
+    items.extend(parse_node(node.type_param.into(), context));
+    return items;
+}
+
 fn parse_lit_type(node: TsLitType, context: &mut Context) -> Vec<PrintItem> {
     parse_node(node.lit.into(), context)
 }
 
+fn parse_qualified_name(node: TsQualifiedName, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node(node.left.into(), context));
+    items.push(".".into());
+    items.extend(parse_node(node.right.into(), context));
+    return items;
+}
+
+fn parse_rest_type(node: TsRestType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("...".into());
+    items.extend(parse_node(node.type_ann.into(), context));
+    return items;
+}
+
 fn parse_type_ann(node: TsTypeAnn, context: &mut Context) -> Vec<PrintItem> {
-    parse_node((*node.type_ann).into(), context)
+    parse_node(node.type_ann.into(), context)
 }
 
 fn parse_type_param_instantiation(node: TypeParamNode, context: &mut Context) -> Vec<PrintItem> {
