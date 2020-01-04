@@ -175,15 +175,22 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             /* types */
             Node::TsArrayType(node) => parse_array_type(node, context),
             Node::TsConstructorType(node) => parse_constructor_type(node, context),
+            Node::TsFnType(node) => parse_function_type(node, context),
             Node::TsImportType(node) => parse_import_type(node, context),
+            Node::TsIndexedAccessType(node) => parse_indexed_access_type(node, context),
             Node::TsInferType(node) => parse_infer_type(node, context),
             Node::TsLitType(node) => parse_lit_type(node, context),
+            Node::TsOptionalType(node) => parse_optional_type(node, context),
             Node::TsQualifiedName(node) => parse_qualified_name(node, context),
+            Node::TsParenthesizedType(node) => parse_parenthesized_type(node, context),
             Node::TsRestType(node) => parse_rest_type(node, context),
             Node::TsThisType(_) => vec!["this".into()],
             Node::TsTypeAnn(node) => parse_type_ann(node, context),
             Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(TypeParamNode::Instantiation(node), context),
             Node::TsTypeParamDecl(node) => parse_type_param_instantiation(TypeParamNode::Decl(node), context),
+            Node::TsTypePredicate(node) => parse_type_predicate(node, context),
+            Node::TsTypeQuery(node) => parse_type_query(node, context),
+            Node::TsTypeRef(node) => parse_type_reference(node, context),
             /* unknown */
             Node::TokenAndSpan(span) => vec![context.get_text(&span.span.data()).into()],
             Node::Comment(comment) => vec![context.get_text(&comment.span.data()).into()],
@@ -2652,6 +2659,30 @@ fn parse_constructor_type(node: TsConstructorType, context: &mut Context) -> Vec
     return items;
 }
 
+fn parse_function_type(node: TsFnType, context: &mut Context) -> Vec<PrintItem> {
+    let start_info = Info::new("startFunctionType");
+    let mut items = Vec::new();
+    items.push(start_info.clone().into());
+    if let Some(type_params) = node.type_params {
+        items.extend(parse_node(type_params.into(), context));
+    }
+    items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
+        nodes: node.params.into_iter().map(|node| node.into()).collect(),
+        force_multi_line_when_multiple_lines: context.config.function_type_force_multi_line_parameters,
+        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+            start_info: start_info.clone(),
+            type_node: Some(node.type_ann.into()),
+            type_node_separator: {
+                let mut items = Vec::new();
+                items.push(PrintItem::SpaceOrNewLine);
+                items.push("=> ".into());
+                Some(items)
+            },
+        }, context)),
+    }, context));
+    return items;
+}
+
 fn parse_import_type(node: TsImportType, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("import(".into());
@@ -2669,6 +2700,15 @@ fn parse_import_type(node: TsImportType, context: &mut Context) -> Vec<PrintItem
     return items;
 }
 
+fn parse_indexed_access_type(node: TsIndexedAccessType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node(node.obj_type.into(), context));
+    items.push("[".into());
+    items.extend(parse_node(node.index_type.into(), context));
+    items.push("]".into());
+    return items;
+}
+
 fn parse_infer_type(node: TsInferType, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("infer ".into());
@@ -2680,12 +2720,28 @@ fn parse_lit_type(node: TsLitType, context: &mut Context) -> Vec<PrintItem> {
     parse_node(node.lit.into(), context)
 }
 
+fn parse_optional_type(node: TsOptionalType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node(node.type_ann.into(), context));
+    items.push("?".into());
+    return items;
+}
+
 fn parse_qualified_name(node: TsQualifiedName, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.extend(parse_node(node.left.into(), context));
     items.push(".".into());
     items.extend(parse_node(node.right.into(), context));
     return items;
+}
+
+fn parse_parenthesized_type(node: TsParenthesizedType, context: &mut Context) -> Vec<PrintItem> {
+    let type_ann_span = &(*node.type_ann).span();
+    vec![conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
+        type_ann_span,
+        parse_node(node.type_ann.into(), context),
+        context
+    )).into()]
 }
 
 fn parse_rest_type(node: TsRestType, context: &mut Context) -> Vec<PrintItem> {
@@ -2749,6 +2805,30 @@ fn parse_type_param_instantiation(node: TypeParamNode, context: &mut Context) ->
             }
         }
     }
+}
+
+fn parse_type_predicate(node: TsTypePredicate, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node(node.param_name.into(), context));
+    items.push(" is ".into());
+    items.extend(parse_node(node.type_ann.into(), context));
+    return items;
+}
+
+fn parse_type_query(node: TsTypeQuery, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("typeof ".into());
+    items.extend(parse_node(node.expr_name.into(), context));
+    return items;
+}
+
+fn parse_type_reference(node: TsTypeRef, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node(node.type_name.into(), context));
+    if let Some(type_params) = node.type_params {
+        items.extend(parse_node(type_params.into(), context));
+    }
+    return items;
 }
 
 /* comments */

@@ -425,6 +425,8 @@ generate_traits![TsType, TsKeywordType, TsThisType, TsFnOrConstructorType, TsTyp
     TsMappedType, TsLitType, TsTypePredicate, TsImportType];
 generate_traits![TsFnOrConstructorType, TsFnType, TsConstructorType];
 generate_traits![TsParamPropParam, Ident, Assign];
+generate_traits![TsThisTypeOrIdent, TsThisType, Ident];
+generate_traits![TsTypeQueryExpr, TsEntityName, Import];
 generate_traits![TsUnionOrIntersectionType, TsUnionType, TsIntersectionType];
 generate_traits![DefaultDecl, Class, Fn, TsInterfaceDecl];
 generate_traits![TsEntityName, TsQualifiedName, Ident];
