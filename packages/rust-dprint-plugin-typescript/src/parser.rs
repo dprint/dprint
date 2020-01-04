@@ -174,20 +174,24 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::WhileStmt(node) => parse_while_stmt(node, context),
             /* types */
             Node::TsArrayType(node) => parse_array_type(node, context),
+            Node::TsConditionalType(node) => parse_conditional_type(node, context),
             Node::TsConstructorType(node) => parse_constructor_type(node, context),
             Node::TsFnType(node) => parse_function_type(node, context),
             Node::TsImportType(node) => parse_import_type(node, context),
             Node::TsIndexedAccessType(node) => parse_indexed_access_type(node, context),
             Node::TsInferType(node) => parse_infer_type(node, context),
             Node::TsLitType(node) => parse_lit_type(node, context),
+            Node::TsMappedType(node) => parse_mapped_type(node, context),
             Node::TsOptionalType(node) => parse_optional_type(node, context),
             Node::TsQualifiedName(node) => parse_qualified_name(node, context),
             Node::TsParenthesizedType(node) => parse_parenthesized_type(node, context),
             Node::TsRestType(node) => parse_rest_type(node, context),
             Node::TsThisType(_) => vec!["this".into()],
             Node::TsTypeAnn(node) => parse_type_ann(node, context),
-            Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(TypeParamNode::Instantiation(node), context),
+            Node::TsTypeParam(node) => parse_type_param(node, context),
             Node::TsTypeParamDecl(node) => parse_type_param_instantiation(TypeParamNode::Decl(node), context),
+            Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(TypeParamNode::Instantiation(node), context),
+            Node::TsTypeOperator(node) => parse_type_operator(node, context),
             Node::TsTypePredicate(node) => parse_type_predicate(node, context),
             Node::TsTypeQuery(node) => parse_type_query(node, context),
             Node::TsTypeRef(node) => parse_type_reference(node, context),
@@ -2633,6 +2637,47 @@ fn parse_array_type(node: TsArrayType, context: &mut Context) -> Vec<PrintItem> 
     return items;
 }
 
+fn parse_conditional_type(node: TsConditionalType, context: &mut Context) -> Vec<PrintItem> {
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&node.check_type, &node.false_type, context);
+    let is_parent_conditional_type = context.parent().kind() == NodeKind::TsConditionalType;
+    let mut items = Vec::new();
+
+    // main area
+    items.extend(parser_helpers::new_line_group(parse_node(node.check_type.into(), context)));
+    items.push(PrintItem::SpaceOrNewLine);
+    items.push(conditions::indent_if_start_of_line({
+        let mut items = Vec::new();
+        items.push("extends ".into());
+        items.extend(parser_helpers::new_line_group(parse_node(node.extends_type.into(), context)));
+        items
+    }).into());
+    items.push(PrintItem::SpaceOrNewLine);
+    items.push(conditions::indent_if_start_of_line({
+        let mut items = Vec::new();
+        items.push("? ".into());
+        items.extend(parser_helpers::new_line_group(parse_node(node.true_type.into(), context)));
+        items
+    }).into());
+
+    // false type
+    items.push(if use_new_lines { PrintItem::NewLine } else { PrintItem::SpaceOrNewLine });
+
+    let false_type_parsed = {
+        let mut items = Vec::new();
+        items.push(": ".into());
+        items.extend(parser_helpers::new_line_group(parse_node(node.false_type.into(), context)));
+        items
+    };
+
+    if is_parent_conditional_type {
+        items.extend(false_type_parsed);
+    } else {
+        items.push(conditions::indent_if_start_of_line(false_type_parsed).into());
+    }
+
+    return items;
+}
+
 fn parse_constructor_type(node: TsConstructorType, context: &mut Context) -> Vec<PrintItem> {
     let start_info = Info::new("startConstructorType");
     let mut items = Vec::new();
@@ -2720,6 +2765,50 @@ fn parse_lit_type(node: TsLitType, context: &mut Context) -> Vec<PrintItem> {
     parse_node(node.lit.into(), context)
 }
 
+fn parse_mapped_type(node: TsMappedType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let start_info = Info::new("startMappedType");
+    let end_info = Info::new("endMappedType");
+    let open_brace_token = context.token_finder.get_first_open_brace_token_within(&node).expect("Expected to find an open brace token in the mapped type.");
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&open_brace_token, &node.type_param, context);
+    items.push(start_info.clone().into());
+    items.push("{".into());
+    items.push(if use_new_lines {
+        PrintItem::NewLine
+    } else {
+        conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info.clone(), Some(end_info.clone())).into()
+    });
+    items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group({
+        let mut items = Vec::new();
+        if let Some(readonly) = node.readonly {
+            items.push(match readonly {
+                TruePlusMinus::True => "readonly ",
+                TruePlusMinus::Plus => "+readonly ",
+                TruePlusMinus::Minus => "-readonly ",
+            }.into());
+        }
+        items.push("[".into());
+        items.extend(parse_node(node.type_param.into(), context));
+        items.push("]".into());
+        if let Some(optional) = node.optional {
+            items.push(match optional {
+                TruePlusMinus::True => "?",
+                TruePlusMinus::Plus => "+?",
+                TruePlusMinus::Minus => "-?",
+            }.into());
+        }
+        items.extend(parse_type_annotation_with_colon_if_exists_for_type(node.type_ann, context));
+        if context.config.mapped_type_semi_colon {
+            items.push(";".into());
+        }
+        items
+    })).into());
+    items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info, Some(end_info.clone())).into());
+    items.push("}".into());
+    items.push(end_info.clone().into());
+    return items;
+}
+
 fn parse_optional_type(node: TsOptionalType, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.extend(parse_node(node.type_ann.into(), context));
@@ -2753,6 +2842,38 @@ fn parse_rest_type(node: TsRestType, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_type_ann(node: TsTypeAnn, context: &mut Context) -> Vec<PrintItem> {
     parse_node(node.type_ann.into(), context)
+}
+
+fn parse_type_param(node: TsTypeParam, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+
+    items.extend(parse_node(node.name.into(), context));
+
+    if let Some(constraint) = node.constraint {
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push(if context.parent().kind() == NodeKind::TsMappedType {
+                "in "
+            } else {
+                "extends "
+            }.into());
+            items.extend(parse_node(constraint.into(), context));
+            items
+        }).into());
+    }
+
+    if let Some(default) = node.default {
+        items.push(PrintItem::SpaceOrNewLine);
+        items.push(conditions::indent_if_start_of_line({
+            let mut items = Vec::new();
+            items.push("= ".into());
+            items.extend(parse_node(default.into(), context));
+            items
+        }).into());
+    }
+
+    return items;
 }
 
 fn parse_type_param_instantiation(node: TypeParamNode, context: &mut Context) -> Vec<PrintItem> {
@@ -2805,6 +2926,17 @@ fn parse_type_param_instantiation(node: TypeParamNode, context: &mut Context) ->
             }
         }
     }
+}
+
+fn parse_type_operator(node: TsTypeOperator, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push(match node.op {
+        TsTypeOperatorOp::KeyOf => "keyof ",
+        TsTypeOperatorOp::Unique => "unique ",
+        TsTypeOperatorOp::ReadOnly => "readonly ",
+    }.into());
+    items.extend(parse_node(node.type_ann.into(), context));
+    return items;
 }
 
 fn parse_type_predicate(node: TsTypePredicate, context: &mut Context) -> Vec<PrintItem> {
@@ -3387,6 +3519,18 @@ fn parse_comma_separated_values(
             items
         }))
     }
+}
+
+/// For some reason, some nodes don't have a TsTypeAnn, but instead of a Box<TsType>
+fn parse_type_annotation_with_colon_if_exists_for_type(type_ann: Option<Box<TsType>>, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    if let Some(type_ann) = type_ann {
+        if context.config.type_annotation_space_before_colon {
+            items.push(" ".into());
+        }
+        items.extend(parse_node_with_preceeding_colon(Some(type_ann.into()), context));
+    }
+    items
 }
 
 fn parse_type_annotation_with_colon_if_exists(type_ann: Option<TsTypeAnn>, context: &mut Context) -> Vec<PrintItem> {

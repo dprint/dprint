@@ -151,13 +151,17 @@ impl TokenFinder {
         if self.tokens.is_empty() { return None; }
         self.move_to_node_pos(pos);
 
-        while self.try_increment_index() {
+        loop {
             let current_token = &self.tokens[self.token_index];
             let token_pos = current_token.span.data().lo;
             if token_pos >= end {
                 break;
             } else if is_match(&current_token) {
                 return Some(current_token.clone());
+            }
+
+            if !self.try_increment_index() {
+                break;
             }
         }
 

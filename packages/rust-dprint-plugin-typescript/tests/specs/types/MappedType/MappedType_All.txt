@@ -1,14 +1,30 @@
 ~~ lineWidth: 50 ~~
 == should format ==
 type Partial<T> = { [P   in  keyof   T]  ? :   T[P];    };
+type OptionalPlus<T> = { [P in keyof T]+?: T[P]; };
+type OptionalMinus<T> = { [P in keyof T]-?: T[P]; };
 type Flags<T> = { [P in keyof T]: boolean; };
 type ReadOnly<T> = { readonly [P in keyof T]: T[P]; };
+type ReadOnlyPlus<T> = { +readonly [P in keyof T]: T[P]; };
+type ReadOnlyMinus<T> = { -readonly [P in keyof T]: T[P]; };
 
 [expect]
 type Partial<T> = { [P in keyof T]?: T[P]; };
+type OptionalPlus<T> = {
+    [P in keyof T]+?: T[P];
+};
+type OptionalMinus<T> = {
+    [P in keyof T]-?: T[P];
+};
 type Flags<T> = { [P in keyof T]: boolean; };
 type ReadOnly<T> = {
     readonly [P in keyof T]: T[P];
+};
+type ReadOnlyPlus<T> = {
+    +readonly [P in keyof T]: T[P];
+};
+type ReadOnlyMinus<T> = {
+    -readonly [P in keyof T]: T[P];
 };
 
 == should format with newlines when the brace is on a different line ==
