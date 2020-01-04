@@ -32,3 +32,14 @@ pub fn are_infos_equal(condition_context: &mut ConditionResolverContext, start_i
     return Some(start_info.line_number == end_info.line_number
         && start_info.column_number == end_info.column_number);
 }
+
+pub fn is_at_same_position(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
+    let start_info = condition_context.get_resolved_info(start_info)?;
+    return Some(start_info.line_number == condition_context.writer_info.line_number
+        && start_info.column_number == condition_context.writer_info.column_number);
+}
+
+pub fn is_on_same_line(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
+    let start_info = condition_context.get_resolved_info(start_info)?;
+    return Some(start_info.line_number == condition_context.writer_info.line_number);
+}

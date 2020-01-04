@@ -6,7 +6,9 @@ use super::*;
 use super::configuration::{BracePosition, MemberSpacing, NextControlFlowPosition, OperatorPosition, SingleBodyPosition, TrailingCommas, UseBraces, UseParentheses};
 use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span, SpanData};
-use swc_ecma_parser::{token::{Token, TokenAndSpan, Word, Keyword}};
+use swc_ecma_parser::{token::{Token, TokenAndSpan}};
+
+// todo: re-evaluate node_with_inner_parse (was useful for babel, but maybe not for swc)
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let mut context = Context::new(
@@ -180,6 +182,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsImportType(node) => parse_import_type(node, context),
             Node::TsIndexedAccessType(node) => parse_indexed_access_type(node, context),
             Node::TsInferType(node) => parse_infer_type(node, context),
+            Node::TsIntersectionType(node) => parse_intersection_type(node, context),
             Node::TsLitType(node) => parse_lit_type(node, context),
             Node::TsMappedType(node) => parse_mapped_type(node, context),
             Node::TsOptionalType(node) => parse_optional_type(node, context),
@@ -196,6 +199,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsTypePredicate(node) => parse_type_predicate(node, context),
             Node::TsTypeQuery(node) => parse_type_query(node, context),
             Node::TsTypeRef(node) => parse_type_reference(node, context),
+            Node::TsUnionType(node) => parse_union_type(node, context),
             /* unknown */
             Node::TokenAndSpan(span) => vec![context.get_text(&span.span.data()).into()],
             Node::Comment(comment) => vec![context.get_text(&comment.span.data()).into()],
@@ -2762,6 +2766,14 @@ fn parse_infer_type(node: TsInferType, context: &mut Context) -> Vec<PrintItem> 
     return items;
 }
 
+fn parse_intersection_type(node: TsIntersectionType, context: &mut Context) -> Vec<PrintItem> {
+    parse_union_or_intersection_type(UnionOrIntersectionType {
+        span: node.span,
+        types: node.types,
+        is_union: false,
+    }, context)
+}
+
 fn parse_lit_type(node: TsLitType, context: &mut Context) -> Vec<PrintItem> {
     parse_node(node.lit.into(), context)
 }
@@ -2970,6 +2982,85 @@ fn parse_type_reference(node: TsTypeRef, context: &mut Context) -> Vec<PrintItem
         items.extend(parse_node(type_params.into(), context));
     }
     return items;
+}
+
+fn parse_union_type(node: TsUnionType, context: &mut Context) -> Vec<PrintItem> {
+    parse_union_or_intersection_type(UnionOrIntersectionType {
+        span: node.span,
+        types: node.types,
+        is_union: true,
+    }, context)
+}
+
+struct UnionOrIntersectionType {
+    pub span: Span,
+    pub types: Vec<Box<TsType>>,
+    pub is_union: bool,
+}
+
+fn parse_union_or_intersection_type(node: UnionOrIntersectionType, context: &mut Context) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&node.types[0], &node.types[1], context);
+    let separator = if node.is_union { "|" } else { "&" };
+    let is_ancestor_parenthesized_type = get_is_ancestor_parenthesized_type(context);
+    let is_parent_union_or_intersection_type = match context.parent().kind() { NodeKind::TsUnionType | NodeKind::TsIntersectionType => true, _ => false };
+
+    for (i, type_node) in node.types.into_iter().enumerate() {
+        if i > 0 {
+            items.push(if use_new_lines { PrintItem::NewLine } else { PrintItem::SpaceOrNewLine });
+        }
+
+        let separator_token = get_separator_token(&separator, &type_node, &node.span, context);
+        let parsed_node = {
+            let mut items = Vec::new();
+            let after_separator_info = Info::new("afterSeparatorInfo");
+            if i > 0 {
+                items.push(separator.into());
+                items.push(after_separator_info.clone().into());
+            }
+            if let Some(separator_token) = separator_token {
+                items.extend(parse_trailing_comments(&separator_token, context));
+            }
+            if i > 0 {
+                items.push(Condition::new("afterSeparatorSpace", ConditionProperties {
+                    condition: Box::new(move |condition_context| condition_resolvers::is_on_same_line(condition_context, &after_separator_info)),
+                    true_path: Some(vec![" ".into()]),
+                    false_path: None
+                }).into());
+            }
+            items.extend(parse_node(type_node.into(), context));
+            items
+        };
+        // probably something better needs to be done here, but htis is good enough for now
+        if is_ancestor_parenthesized_type || i == 0 && !is_parent_union_or_intersection_type {
+            items.extend(parsed_node);
+        } else {
+            items.push(conditions::indent_if_start_of_line(parsed_node).into());
+        }
+    }
+
+    return items;
+
+    fn get_separator_token(separator: &str, type_node: &dyn Ranged, parent: &dyn Ranged, context: &mut Context) -> Option<TokenAndSpan> {
+        let token = context.token_finder.get_first_token_before_with_text(type_node, separator);
+        if let Some(token) = &token {
+            if token.lo() > parent.hi() {
+                return None;
+            }
+        }
+        return token;
+    }
+
+    fn get_is_ancestor_parenthesized_type(context: &mut Context) -> bool {
+        for ancestor in context.parent_stack.iter().rev() {
+            match ancestor {
+                Node::TsUnionType(_) | Node::TsIntersectionType(_) => continue,
+                Node::TsParenthesizedType(_) => return true,
+                _ => return false,
+            }
+        }
+        return false;
+    }
 }
 
 /* comments */
@@ -3212,14 +3303,9 @@ fn parse_array_like_nodes(opts: ParseArrayLikeNodesOptions, context: &mut Contex
         let comma_token = get_comma_token(parent_span, &element, context);
 
         if let Some(element) = element {
-            items.extend(parse_node_with_inner_parse(element, context, move |mut items| {
-                if has_comma { items.push(",".into()); }
-
-                items
-            }));
-        } else {
-            if has_comma { items.push(",".into()); }
+            items.extend(parse_node(element, context));
         }
+        if has_comma { items.push(",".into()); }
 
         // get the trailing comments after the comma token
         if let Some(comma_token) = &comma_token {

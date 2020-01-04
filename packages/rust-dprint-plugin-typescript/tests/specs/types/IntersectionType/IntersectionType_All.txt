@@ -28,3 +28,11 @@ export type T = string
     & number
     & other
     & string;
+
+== should format with comments after the separator ==
+export type T = string
+    & /* 2 */ number;
+
+[expect]
+export type T = string
+    & /* 2 */ number;
