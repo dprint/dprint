@@ -29,7 +29,7 @@ declare enum Test {
     member2
 }
 
-== should format with only comments -- apprently babel doesn't store these comments (skip) ==
+== should format with only comments ==
 enum Test {
     // testing
     /* test */

@@ -248,6 +248,7 @@ generate_node! [
     TaggedTpl,
     ThisExpr,
     Tpl,
+    TplElement,
     TsAsExpr,
     TsConstAssertion,
     TsTypeCastExpr,

@@ -68,3 +68,11 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, 
         false_path: Some(vec![PrintItem::SpaceOrNewLine]),
     })
 }
+
+pub fn single_indent_if_start_of_line() -> Condition {
+    Condition::new("singleIndentIfStartOfLine", ConditionProperties {
+        condition: Box::new(|context| Some(condition_resolvers::is_start_of_new_line(context))),
+        true_path: Some(vec![PrintItem::SingleIndent]),
+        false_path: None
+    })
+}

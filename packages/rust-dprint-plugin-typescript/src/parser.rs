@@ -110,6 +110,8 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::SpreadElement(node) => parse_spread_element(node, context),
             Node::Super(_) => vec!["super".into()],
             Node::TaggedTpl(node) => parse_tagged_tpl(node, context),
+            Node::Tpl(node) => parse_tpl(node, context),
+            Node::TplElement(node) => parse_tpl_element(node, context),
             Node::TsAsExpr(node) => parse_as_expr(node, context),
             Node::TsExprWithTypeArgs(node) => parse_expr_with_type_args(node, context),
             Node::TsNonNullExpr(node) => parse_non_null_expr(node, context),
@@ -1446,11 +1448,68 @@ fn parse_tagged_tpl(node: TaggedTpl, context: &mut Context) -> Vec<PrintItem> {
     let mut items = parse_node(node.tag.into(), context);
     if let Some(type_params) = node.type_params { items.extend(parse_node(type_params.into(), context)); }
     items.push(PrintItem::SpaceOrNewLine);
-    items.push(conditions::indent_if_start_of_line(parse_template_literal(node.quasis, node.exprs.into_iter().map(|box x| x).collect())).into());
+    items.push(conditions::indent_if_start_of_line(parse_template_literal(node.quasis, node.exprs.into_iter().map(|box x| x).collect(), context)).into());
     return items;
+}
 
-    fn parse_template_literal(quasis: Vec<TplElement>, exprs: Vec<Expr>) -> Vec<PrintItem> {
-        vec![] // todo
+fn parse_tpl(node: Tpl, context: &mut Context) -> Vec<PrintItem> {
+    parse_template_literal(node.quasis, node.exprs.into_iter().map(|box x| x).collect(), context)
+}
+
+fn parse_tpl_element(node: TplElement, context: &mut Context) -> Vec<PrintItem> {
+    vec![node.text(context).into()]
+}
+
+fn parse_template_literal(quasis: Vec<TplElement>, exprs: Vec<Expr>, context: &mut Context) -> Vec<PrintItem> {
+    return parser_helpers::new_line_group({
+        let mut items = Vec::new();
+        items.push("`".into());
+        items.push(PrintItem::StartIgnoringIndent);
+        for node in get_nodes(quasis, exprs) {
+            if node.kind() == NodeKind::TplElement {
+                items.extend(parse_node(node, context));
+            } else {
+                items.push("${".into());
+                items.push(PrintItem::FinishIgnoringIndent);
+                items.push(PrintItem::PossibleNewLine);
+                items.push(conditions::single_indent_if_start_of_line().into());
+                items.extend(parse_node(node, context));
+                items.push(PrintItem::PossibleNewLine);
+                items.push(conditions::single_indent_if_start_of_line().into());
+                items.push("}".into());
+                items.push(PrintItem::StartIgnoringIndent);
+            }
+        }
+        items.push("`".into());
+        items.push(PrintItem::FinishIgnoringIndent);
+        items
+    });
+
+    fn get_nodes(quasis: Vec<TplElement>, exprs: Vec<Expr>) -> Vec<Node> {
+        let mut quasis = quasis;
+        let mut exprs = exprs;
+        let mut nodes = Vec::new();
+
+        while !quasis.is_empty() || !exprs.is_empty() {
+            let current_quasis = quasis.get(0);
+            let current_expr = exprs.get(0);
+
+            if let Some(current_quasis) = current_quasis {
+                if let Some(current_expr) = current_expr {
+                    if current_quasis.lo() < current_expr.lo() {
+                        nodes.push(quasis.remove(0).into());
+                    } else {
+                        nodes.push(exprs.remove(0).into());
+                    }
+                } else {
+                    nodes.push(quasis.remove(0).into());
+                }
+            } else if current_expr.is_some() {
+                nodes.push(exprs.remove(0).into());
+            }
+        }
+
+        return nodes;
     }
 }
 
@@ -1722,7 +1781,7 @@ fn parse_bool_literal(node: Bool) -> Vec<PrintItem> {
 }
 
 fn parse_jsx_text(node: JSXText, context: &mut Context) -> Vec<PrintItem> {
-    vec![]
+    vec![node.text(context).into()]
 }
 
 fn parse_num_literal(node: Number, context: &mut Context) -> Vec<PrintItem> {

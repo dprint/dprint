@@ -43,3 +43,16 @@ function test() {
         ? thisIsATest
         : testing}`);
 }
+
+== should do a tagged template literal ==
+log(myTag `some text`);
+
+[expect]
+log(myTag `some text`);
+
+== should do a tagged template literal that goes over line width ==
+myCustomTag `testing this out with an str`;
+
+[expect]
+myCustomTag
+    `testing this out with an str`;
