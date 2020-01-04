@@ -13,7 +13,7 @@ pub struct ParsedSourceFile {
     pub token_finder: TokenFinder,
     pub module: Module,
     pub info: SourceFile,
-    pub file_bytes: Vec<u8>,
+    pub file_bytes: Rc<Vec<u8>>,
 }
 
 pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
@@ -21,7 +21,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, None);
     let session = Session { handler: &handler };
 
-    let file_bytes = file_text.as_bytes().to_vec();
+    let file_bytes = Rc::new(file_text.as_bytes().to_vec());
     let source_file = SourceFile::new(
         FileName::Custom(file_path.into()),
         false,
@@ -58,9 +58,9 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         }
     }?;
 
-    let token_finder = TokenFinder::new(tokens.clone());
+    let token_finder = TokenFinder::new(tokens.clone(), file_bytes.clone());
     return Ok(ParsedSourceFile {
-        comments: CommentCollection::new(comments, TokenFinder::new(tokens)),
+        comments: CommentCollection::new(comments, TokenFinder::new(tokens, file_bytes.clone())),
         module,
         info: source_file,
         token_finder,

@@ -6,13 +6,13 @@ use dprint_core::{Info};
 use utils::{Stack};
 use swc_common::{SpanData, BytePos, comments::{Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::*;
-use swc_ecma_parser::{token::{Token, TokenAndSpan, BinOpToken, Word, Keyword}};
+use swc_ecma_parser::{token::{TokenAndSpan}};
 
 pub struct Context {
     pub config: TypeScriptConfiguration,
     pub comments: CommentCollection,
-    token_finder: TokenFinder,
-    pub file_bytes: Vec<u8>,
+    pub token_finder: TokenFinder,
+    pub file_bytes: Rc<Vec<u8>>,
     pub current_node: Node,
     pub parent_stack: Vec<Node>, // todo: use stack type
     handled_comments: HashSet<BytePos>,
@@ -26,7 +26,7 @@ impl Context {
         config: TypeScriptConfiguration,
         comments: CommentCollection,
         token_finder: TokenFinder,
-        file_bytes: Vec<u8>,
+        file_bytes: Rc<Vec<u8>>,
         current_node: Node,
         info: SourceFile
     ) -> Context {
@@ -67,143 +67,6 @@ impl Context {
 
     pub fn get_info_for_node(&self, node: &dyn Ranged) -> Option<&Info> {
         self.stored_infos.get(&node.lo())
-    }
-
-    pub fn get_token_at(&self, node: &dyn Ranged) -> TokenAndSpan {
-        let pos = node.lo();
-        for token in self.token_finder.tokens.iter() {
-            if token.span.data().lo == pos {
-                return token.clone();
-            }
-        }
-        panic!("Could not find expected token.");
-    }
-
-    pub fn get_first_open_paren_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before_equaling_token(node, Token::LParen)
-    }
-
-    pub fn get_first_angle_bracket_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before_equaling_token(node, Token::BinOp(BinOpToken::Lt))
-    }
-
-    pub fn get_first_open_brace_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before_equaling_token(node, Token::LBrace)
-    }
-
-    fn get_first_token_before_equaling_token(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
-        return self.get_first_token_before(node, |token| token.token == searching_token);
-    }
-
-    pub fn get_first_token_before_with_text(&self, node: &dyn Ranged, text: &str) -> Option<TokenAndSpan> {
-        return self.get_first_token_before(node, |token| token.text(self) == text);
-    }
-
-    pub fn get_first_non_comment_token_before(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        return self.get_first_token_before(node, |_| true);
-    }
-
-    fn get_first_token_before<F>(&self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
-        let pos = node.lo();
-        let mut found_token = None;
-        for token in self.token_finder.tokens.iter() {
-            if token.span.data().lo >= pos {
-                break;
-            }
-
-            if is_match(token) {
-                found_token = Some(token);
-            }
-        }
-        found_token.map(|x| x.to_owned())
-    }
-
-    pub fn get_first_open_paren_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, Token::LParen)
-    }
-
-    pub fn get_first_open_brace_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, Token::LBrace)
-    }
-
-    pub fn get_first_close_brace_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.token_finder.get_first_token_before(node.lo(), |token|token.token == Token::RBrace)
-    }
-
-    pub fn get_first_else_keyword_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.token_finder.get_first_token_before(node.lo(), |token|token.token == Token::Word(Word::Keyword(Keyword::Else)))
-    }
-
-    pub fn get_first_colon_token_after(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.token_finder.get_first_token_after(node.hi(), |token|token.token == Token::Colon)
-    }
-
-    pub fn get_first_open_bracket_token_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, Token::LBracket)
-    }
-
-    pub fn get_first_comma_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, Token::Comma)
-    }
-
-    pub fn get_first_semi_colon_within(&self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, Token::Semi)
-    }
-
-    fn get_first_token_within(&self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
-        let node_span_data = node.span().data();
-        let pos = node_span_data.lo;
-        let end = node_span_data.hi;
-        let mut found_token = None;
-        for token in self.token_finder.tokens.iter() {
-            let token_pos = token.span.data().lo;
-            if token_pos >= end {
-                break;
-            } else if token_pos >= pos && token.token == searching_token {
-                found_token = Some(token);
-            }
-        }
-        found_token.map(|x| x.to_owned())
-    }
-
-    pub fn get_first_token_within_with_text(&self, node: &dyn Ranged, text: &str) -> Option<TokenAndSpan> {
-        let node_span_data = node.span().data();
-        let pos = node_span_data.lo;
-        let end = node_span_data.hi;
-        let mut found_token = None;
-        for token in self.token_finder.tokens.iter() {
-            let token_pos = token.span.data().lo;
-            if token_pos >= end {
-                break;
-            } else if token_pos >= pos && token.text(self) == text {
-                found_token = Some(token);
-            }
-        }
-        found_token.map(|x| x.to_owned())
-    }
-
-    pub fn get_first_token_after_with_text(&self, node: &dyn Ranged, searching_token_text: &str) -> Option<TokenAndSpan> {
-        let node_span_data = node.span().data();
-        let pos = node_span_data.hi;
-        for token in self.token_finder.tokens.iter() {
-            let token_pos = token.span.data().lo;
-            if token_pos >= pos && token.span.text(self) == searching_token_text {
-                return Some(token.to_owned());
-            }
-        }
-
-        None
-    }
-
-    pub fn get_token_text_at_pos(&self, pos: BytePos) -> Option<&str> {
-        for token in self.token_finder.tokens.iter() {
-            let token_pos = token.span.data().lo;
-            if token_pos == pos {
-                return Some(token.span.text(self));
-            }
-        }
-
-        None
     }
 }
 
