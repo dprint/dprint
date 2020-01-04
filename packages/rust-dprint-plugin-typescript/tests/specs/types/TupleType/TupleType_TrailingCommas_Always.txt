@@ -1,4 +1,4 @@
-~~ tupleType.trailingCommas: "always" ~~
+~~ tupleType.trailingCommas: always ~~
 == should format with trailing commas when multiline ==
 type Test = [
     string    ,

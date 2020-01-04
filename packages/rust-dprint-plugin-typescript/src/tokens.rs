@@ -79,6 +79,10 @@ impl TokenFinder {
         self.get_first_token_within(node, |token| token.token == Token::Comma)
     }
 
+    pub fn get_first_comma_after(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_after(node.hi(), |token| token.token == Token::Comma)
+    }
+
     pub fn get_first_semi_colon_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::Semi)
     }

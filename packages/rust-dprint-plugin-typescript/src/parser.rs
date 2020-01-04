@@ -187,6 +187,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             Node::TsParenthesizedType(node) => parse_parenthesized_type(node, context),
             Node::TsRestType(node) => parse_rest_type(node, context),
             Node::TsThisType(_) => vec!["this".into()],
+            Node::TsTupleType(node) => parse_tuple_type(node, context),
             Node::TsTypeAnn(node) => parse_type_ann(node, context),
             Node::TsTypeParam(node) => parse_type_param(node, context),
             Node::TsTypeParamDecl(node) => parse_type_param_instantiation(TypeParamNode::Decl(node), context),
@@ -851,7 +852,7 @@ fn parse_named_import_or_export_specifiers(parent_decl: NamedImportOrExportDecla
 
 fn parse_array_expr(node: ArrayLit, context: &mut Context) -> Vec<PrintItem> {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
-        node: node.clone().into(),
+        parent_span: node.span,
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
         trailing_commas: context.config.array_expression_trailing_commas,
     }, context)
@@ -1785,7 +1786,7 @@ fn parse_module(node: Module, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_array_pat(node: ArrayPat, context: &mut Context) -> Vec<PrintItem> {
     let mut items = parse_array_like_nodes(ParseArrayLikeNodesOptions {
-        node: node.clone().into(),
+        parent_span: node.span,
         elements: node.elems.into_iter().map(|x| x.map(|elem| elem.into())).collect(),
         trailing_commas: context.config.array_pattern_trailing_commas,
     }, context);
@@ -2840,6 +2841,14 @@ fn parse_rest_type(node: TsRestType, context: &mut Context) -> Vec<PrintItem> {
     return items;
 }
 
+fn parse_tuple_type(node: TsTupleType, context: &mut Context) -> Vec<PrintItem> {
+    parse_array_like_nodes(ParseArrayLikeNodesOptions {
+        parent_span: node.span,
+        elements: node.elem_types.into_iter().map(|x| Some(x.into())).collect(),
+        trailing_commas: context.config.tuple_type_trailing_commas,
+    }, context)
+}
+
 fn parse_type_ann(node: TsTypeAnn, context: &mut Context) -> Vec<PrintItem> {
     parse_node(node.type_ann.into(), context)
 }
@@ -3158,27 +3167,27 @@ fn parse_comments_as_trailing(node: &dyn Spanned, trailing_comments: Vec<Comment
 /* helpers */
 
 struct ParseArrayLikeNodesOptions {
-    node: Node,
+    parent_span: Span,
     elements: Vec<Option<Node>>,
     trailing_commas: TrailingCommas,
 }
 
 fn parse_array_like_nodes(opts: ParseArrayLikeNodesOptions, context: &mut Context) -> Vec<PrintItem> {
-    let node = opts.node;
+    let parent_span = opts.parent_span;
     let elements = opts.elements;
-    let use_new_lines = get_use_new_lines(&node, &elements, context);
-    let force_trailing_commas = get_force_trailing_commas(&opts.trailing_commas, use_new_lines);
+    let use_new_lines = get_use_new_lines(&parent_span, &elements, context);
+    let force_trailing_commas = get_force_trailing_commas(opts.trailing_commas, use_new_lines);
     let mut items = Vec::new();
 
     items.push("[".into());
     if !elements.is_empty() {
-        items.extend(parse_elements(elements, use_new_lines, force_trailing_commas, context));
+        items.extend(parse_elements(&parent_span, elements, use_new_lines, force_trailing_commas, context));
     }
     items.push("]".into());
 
     return items;
 
-    fn parse_elements(elements: Vec<Option<Node>>, use_new_lines: bool, force_trailing_commas: bool, context: &mut Context) -> Vec<PrintItem> {
+    fn parse_elements(parent_span: &Span, elements: Vec<Option<Node>>, use_new_lines: bool, force_trailing_commas: bool, context: &mut Context) -> Vec<PrintItem> {
         let mut items = Vec::new();
         let elements_len = elements.len();
 
@@ -3190,27 +3199,51 @@ fn parse_array_like_nodes(opts: ParseArrayLikeNodesOptions, context: &mut Contex
             }
 
             let has_comma = force_trailing_commas || i < elements_len - 1;
-            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_element(element, has_comma, context))).into());
+            items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_element(&parent_span, element, has_comma, context))).into());
 
             if use_new_lines { items.push(PrintItem::NewLine); }
         }
 
         return items;
+    }
 
-        fn parse_element(element: Option<Node>, has_comma: bool, context: &mut Context) -> Vec<PrintItem> {
-            if let Some(element) = element {
-                parse_node_with_inner_parse(element, context, move |mut items| {
-                    if has_comma { items.push(",".into()); }
+    fn parse_element(parent_span: &Span, element: Option<Node>, has_comma: bool, context: &mut Context) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        let comma_token = get_comma_token(parent_span, &element, context);
 
-                    items
-                })
+        if let Some(element) = element {
+            items.extend(parse_node_with_inner_parse(element, context, move |mut items| {
+                if has_comma { items.push(",".into()); }
+
+                items
+            }));
+        } else {
+            if has_comma { items.push(",".into()); }
+        }
+
+        // get the trailing comments after the comma token
+        if let Some(comma_token) = &comma_token {
+            items.extend(parse_trailing_comments(comma_token, context));
+        }
+        return items;
+
+        fn get_comma_token(parent_span: &Span, element: &Option<Node>, context: &mut Context) -> Option<TokenAndSpan> {
+            if let Some(element) = &element {
+                let comma_token = context.token_finder.get_first_comma_after(&element);
+                if let Some(comma_token) = &comma_token {
+                    if comma_token.lo() > parent_span.hi() {
+                        return None;
+                    }
+                }
+                return comma_token;
             } else {
-                if has_comma { vec![",".into()] } else { vec![] }
+                // Not worth handling this scenario at the moment.
+                return None;
             }
         }
     }
 
-    fn get_use_new_lines(node: &Node, elements: &Vec<Option<Node>>, context: &mut Context) -> bool {
+    fn get_use_new_lines(node: &dyn Ranged, elements: &Vec<Option<Node>>, context: &mut Context) -> bool {
         if elements.is_empty() {
             false
         } else {
@@ -3323,7 +3356,7 @@ fn parse_statements_or_members(opts: ParseStatementsOrMembersOptions, context: &
         } else {
             let trailing_commas = opts.trailing_commas.clone();
             parse_node_with_inner_parse(node.clone(), context, move |mut items| {
-                if let Some(trailing_commas) = &trailing_commas {
+                if let Some(trailing_commas) = trailing_commas {
                     let force_trailing_commas = get_force_trailing_commas(trailing_commas, true);
                     if force_trailing_commas || i < children_len - 1 {
                         items.push(",".into())
@@ -3695,7 +3728,7 @@ fn parse_object_like_node(opts: ParseObjectLikeNodeOptions, context: &mut Contex
 
             let trailing_commas = opts.trailing_commas.clone();
             items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(member, context, move |mut items| {
-                if let Some(trailing_commas) = &trailing_commas {
+                if let Some(trailing_commas) = trailing_commas {
                     if i < members_len - 1 || get_force_trailing_commas(trailing_commas, multi_line) {
                         items.push(",".into());
                     }
@@ -4130,7 +4163,7 @@ fn is_expr_template(node: &Expr) -> bool { // todo: remove
 
 /* config helpers */
 
-fn get_force_trailing_commas(option: &TrailingCommas, use_new_lines: bool) -> bool {
+fn get_force_trailing_commas(option: TrailingCommas, use_new_lines: bool) -> bool {
     match option {
         TrailingCommas::Always => true,
         TrailingCommas::OnlyMultiLine => use_new_lines,

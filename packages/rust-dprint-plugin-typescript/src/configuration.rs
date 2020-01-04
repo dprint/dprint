@@ -96,6 +96,7 @@ pub struct TypeScriptConfiguration {
     pub array_pattern_trailing_commas: TrailingCommas,
     pub enum_declaration_trailing_commas: TrailingCommas,
     pub object_expression_trailing_commas: TrailingCommas,
+    pub tuple_type_trailing_commas: TrailingCommas,
     /* use braces */
     pub if_statement_use_braces: UseBraces,
     pub for_statement_use_braces: UseBraces,
@@ -386,6 +387,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         array_pattern_trailing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", trailing_commas),
         enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", trailing_commas),
         object_expression_trailing_commas: get_trailing_commas(&mut config, "objectExpression.trailingCommas", trailing_commas),
+        tuple_type_trailing_commas: get_trailing_commas(&mut config, "tupleType.trailingCommas", trailing_commas),
         /* use braces */
         if_statement_use_braces: get_use_braces(&mut config, "ifStatement.useBraces", use_braces),
         for_statement_use_braces: get_use_braces(&mut config, "forStatement.useBraces", use_braces),
