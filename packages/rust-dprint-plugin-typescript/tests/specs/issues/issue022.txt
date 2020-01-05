@@ -1,4 +1,4 @@
-~~ bracePosition: "maintain", useBraces: "always" ~~
+~~ bracePosition: maintain, useBraces: always ~~
 == should place brace on same line when not existing ==
 if (true)
     statement;

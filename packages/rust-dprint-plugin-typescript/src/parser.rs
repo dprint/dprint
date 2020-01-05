@@ -65,6 +65,7 @@ fn parse_node_with_inner_parse(node: Node, context: &mut Context, inner_parse: i
             /* class */
             Node::ClassMethod(node) => parse_class_method(node, context),
             Node::ClassProp(node) => parse_class_prop(node, context),
+            Node::Constructor(node) => parse_constructor(node, context),
             Node::Decorator(node) => parse_decorator(node, context),
             Node::TsParamProp(node) => parse_parameter_prop(node, context),
             /* clauses */
@@ -259,6 +260,24 @@ fn parse_class_prop(node: ClassProp, context: &mut Context) -> Vec<PrintItem> {
     return items;
 }
 
+fn parse_constructor(node: Constructor, context: &mut Context) -> Vec<PrintItem> {
+    return parse_class_or_object_method(ClassOrObjectMethod {
+        decorators: vec![],
+        accessibility: node.accessibility,
+        is_static: false,
+        is_async: false,
+        is_abstract: false,
+        kind: ClassOrObjectMethodKind::Constructor,
+        is_generator: false,
+        is_optional: node.is_optional,
+        key: node.key.into(),
+        type_params: None,
+        params: node.params.into_iter().map(|x| x.into()).collect(),
+        return_type: None,
+        body: node.body.map(|x| x.into()),
+    }, context);
+}
+
 fn parse_decorator(node: Decorator, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("@".into());
@@ -268,6 +287,7 @@ fn parse_decorator(node: Decorator, context: &mut Context) -> Vec<PrintItem> {
 
 fn parse_parameter_prop(node: TsParamProp, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
+    items.extend(parse_decorators(node.decorators, true, context));
     if let Some(accessibility) = node.accessibility {
         items.push(format!("{} ", accessibility_to_str(&accessibility)).into());
     }
@@ -371,35 +391,44 @@ fn parse_class_decl_or_expr(node: ClassDeclOrExpr, context: &mut Context) -> Vec
     if parent_kind != NodeKind::ExportDecl && parent_kind != NodeKind::ExportDefaultDecl {
         items.extend(parse_decorators(node.decorators, node.is_class_expr, context));
     }
-
     let start_header_info = Info::new("startHeader");
-    items.push(start_header_info.clone().into());
+    let parsed_header = {
+        let mut items = Vec::new();
+        items.push(start_header_info.clone().into());
 
-    if node.is_declare { items.push("declare ".into()); }
-    if node.is_abstract { items.push("abstract ".into()); }
+        if node.is_declare { items.push("declare ".into()); }
+        if node.is_abstract { items.push("abstract ".into()); }
 
-    items.push("class".into());
+        items.push("class".into());
 
-    if let Some(ident) = node.ident {
-        items.push(" ".into());
-        items.extend(parse_node(ident, context));
+        if let Some(ident) = node.ident {
+            items.push(" ".into());
+            items.extend(parse_node(ident, context));
+        }
+        if let Some(type_params) = node.type_params {
+            items.extend(parse_node(type_params, context));
+        }
+        if let Some(super_class) = node.super_class {
+            items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_header_info.clone(), None).into());
+            items.push(conditions::indent_if_start_of_line({
+                let mut items = Vec::new();
+                items.push("extends ".into());
+                items.extend(parse_node(super_class, context));
+                if let Some(super_type_params) = node.super_type_params {
+                    items.extend(parse_node(super_type_params, context));
+                }
+                items
+            }).into());
+        }
+        items.extend(parse_extends_or_implements("implements", node.implements, start_header_info.clone(), context));
+        items
+    };
+
+    if node.is_class_expr {
+        items.push(conditions::indent_if_start_of_line(parsed_header).into());
+    } else {
+        items.extend(parsed_header);
     }
-    if let Some(type_params) = node.type_params {
-        items.extend(parse_node(type_params, context));
-    }
-    if let Some(super_class) = node.super_class {
-        items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_header_info.clone(), None).into());
-        items.push(conditions::indent_if_start_of_line({
-            let mut items = Vec::new();
-            items.push("extends ".into());
-            items.extend(parse_node(super_class, context));
-            if let Some(super_type_params) = node.super_type_params {
-                items.extend(parse_node(super_type_params, context));
-            }
-            items
-        }).into());
-    }
-    items.extend(parse_extends_or_implements("implements", node.implements, start_header_info.clone(), context));
 
     // parse body
     items.extend(parse_membered_body(ParseMemberedBodyOptions {
@@ -688,6 +717,7 @@ fn parse_import_equals_decl(node: TsImportEqualsDecl, context: &mut Context) -> 
 }
 
 fn parse_interface_decl(node: TsInterfaceDecl, context: &mut Context) -> Vec<PrintItem> {
+    println!("HERE: {:?}", node.span.lo());
     let mut items = Vec::new();
     let start_header_info = Info::new("startHeader");
     items.push(start_header_info.clone().into());
@@ -2061,13 +2091,14 @@ fn parse_block_stmt(node: BlockStmt, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     let start_statements_info = Info::new("startStatementsInfo");
     let end_statements_info = Info::new("endStatementsInfo");
+    let open_brace_token = context.token_finder.get_first_open_brace_token_within(&node);
 
     items.push("{".into());
 
-    // todo: inner comments
+    items.extend(parse_trailing_comments(&open_brace_token, context));
 
+    // Allow: const t = () => {}; and const t = function() {};
     let is_arrow_or_fn_expr = match context.parent().kind() { NodeKind::ArrowExpr | NodeKind::FnExpr => true, _ => false };
-    // todo: inner comments on this condition
     if is_arrow_or_fn_expr && node.start_line(context) == node.end_line(context) && node.stmts.is_empty() && node.leading_comments(context).is_empty() {
         items.push("}".into());
         return items;
@@ -2803,7 +2834,7 @@ fn parse_import_type(node: TsImportType, context: &mut Context) -> Vec<PrintItem
         items.extend(parse_node(qualifier.into(), context));
     }
 
-    if let Some(type_args) = node.type_args {
+    if let Some(type_args) = node.type_params {
         items.extend(parse_node(type_args.into(), context));
     }
     return items;
@@ -3420,7 +3451,7 @@ struct ParseMemberedBodyOptions {
 fn parse_membered_body(opts: ParseMemberedBodyOptions, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     let open_brace_token = context.token_finder.get_first_open_brace_token_before(&if opts.members.is_empty() { opts.span.hi() } else { opts.members[0].lo() });
-    let close_brace_token = context.token_finder.get_first_open_brace_token_before(&opts.span.hi());
+    let close_brace_token = context.token_finder.get_first_close_brace_token_before(&opts.span.hi());
 
     items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
         brace_position: opts.brace_position,
@@ -3429,10 +3460,10 @@ fn parse_membered_body(opts: ParseMemberedBodyOptions, context: &mut Context) ->
     }, context));
 
     items.push("{".into());
-    // items.extend(parse_first_line_trailing_comments()); // todo
+    items.extend(parse_trailing_comments(&open_brace_token, context));
     items.extend(parser_helpers::with_indent({
         let mut items = Vec::new();
-        if !opts.members.is_empty() {
+        if !opts.members.is_empty() || close_brace_token.leading_comments(context).iter().any(|c| !context.has_handled_comment(&c)) {
             items.push(PrintItem::NewLine);
         }
 
@@ -3521,7 +3552,7 @@ fn parse_statements_or_members(opts: ParseStatementsOrMembersOptions, context: &
     }
 
     if children_len == 0 {
-        items.extend(parse_comment_collection(opts.inner_span.lo().trailing_comments(context), None, context));
+        items.extend(parse_comment_collection(opts.inner_span.hi().leading_comments(context), None, context));
     }
 
     return items;
@@ -3551,7 +3582,7 @@ fn parse_parameters_or_arguments(opts: ParseParametersOrArgumentsOptions, contex
     let end_info = Info::new("endParamsOrArgs");
     let use_new_lines = get_use_new_lines(&nodes, context);
     let force_multi_lines_when_multiple_lines = opts.force_multi_line_when_multiple_lines;
-    let is_single_function = nodes.len() == 1 && (match nodes[0].kind() { NodeKind::FnExpr | NodeKind::ArrowExpr => true, _ => false });
+    let is_single_function = nodes.len() == 1 && is_function_or_arrow_expr(&nodes[0]);
     let is_multi_line_or_hanging = {
         let start_info = start_info.clone(); // create copies
         let end_info = end_info.clone();
@@ -3920,13 +3951,13 @@ fn parse_for_member_like_expr(node: MemberLikeExpr, context: &mut Context) -> Ve
     return items;
 }
 
-fn parse_decorators(decorators: Vec<Decorator>, is_class_expression: bool, context: &mut Context) -> Vec<PrintItem> {
+fn parse_decorators(decorators: Vec<Decorator>, is_inline: bool, context: &mut Context) -> Vec<PrintItem> {
     let mut items = Vec::new();
     if decorators.is_empty() {
         return items;
     }
 
-    let use_new_lines = !is_class_expression
+    let use_new_lines = !is_inline
         && decorators.len() >= 2
         && node_helpers::get_use_new_lines_for_nodes(&decorators[0], &decorators[1], context);
 
@@ -3940,14 +3971,14 @@ fn parse_decorators(decorators: Vec<Decorator>, is_class_expression: bool, conte
         }
 
         let parsed_node = parse_node(decorator.into(), context);
-        if is_class_expression {
+        if is_inline {
             items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parsed_node)).into());
         } else {
             items.extend(parser_helpers::new_line_group(parsed_node));
         }
     }
 
-    items.push(if is_class_expression {
+    items.push(if is_inline {
         PrintItem::SpaceOrNewLine
     } else {
         PrintItem::NewLine
@@ -4302,6 +4333,19 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
 fn is_expr_template(node: &Expr) -> bool { // todo: remove
     match node {
         Expr::Tpl(_) => true,
+        _ => false
+    }
+}
+
+fn is_function_or_arrow_expr(node: &Node) -> bool {
+    match node {
+        Node::FnExpr(_) | Node::ArrowExpr(_) => true,
+        Node::ExprOrSpread(ref expr) => {
+            match *expr.expr {
+                Expr::Fn(_) | Expr::Arrow(_) => true,
+                _ => false,
+            }
+        },
         _ => false
     }
 }

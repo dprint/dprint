@@ -436,6 +436,7 @@ generate_traits![TsModuleName, Ident, Str];
 generate_traits![VarDeclOrPat, VarDecl, Pat];
 generate_traits![VarDeclOrExpr, VarDecl, Expr];
 generate_traits![TsNamespaceBody, TsModuleBlock, TsNamespaceDecl];
+generate_traits![PatOrTsParamProp, Pat, TsParamProp];
 generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl, ExportDefaultExpr, ExportAll, TsImportEquals, TsExportAssignment,
     TsNamespaceExport];
 generate_traits![TsModuleRef, TsEntityName, TsExternalModuleRef];

@@ -1,4 +1,4 @@
-~~ ifStatement.useBraces: "always", singleBodyPosition: "sameLine" ~~
+~~ ifStatement.useBraces: always, singleBodyPosition: sameLine ~~
 == should format ==
 if (true) { console.log(5); }
 if (true) { console.log(5);

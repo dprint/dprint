@@ -34,11 +34,15 @@ enum Test {
     // testing
     /* test */
 }
+enum Test2 {//comment
+}
 
 [expect]
 enum Test {
     // testing
     /* test */
+}
+enum Test2 { // comment
 }
 
 == should format when has comments ==

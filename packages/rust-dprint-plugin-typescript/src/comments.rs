@@ -1,8 +1,5 @@
-use std::rc::Rc;
 use super::*;
-use std::collections::{HashMap};
-use swc_common::{SpanData, BytePos, comments::{Comments, Comment, CommentMap}, Span};
-use swc_ecma_parser::{token::{Token, TokenAndSpan}};
+use swc_common::{BytePos, comments::{Comments, Comment, CommentMap}};
 
 pub struct CommentCollection {
     leading: CommentMap,
@@ -13,6 +10,8 @@ pub struct CommentCollection {
 impl CommentCollection {
     pub fn new(comments: Comments, token_finder: TokenFinder) -> CommentCollection {
         let (leading, trailing) = comments.take_all();
+        println!("Leading: {:?}", leading);
+        println!("Trailing: {:?}", trailing);
         CommentCollection {
             leading,
             trailing,
@@ -35,10 +34,11 @@ impl CommentCollection {
 
     pub fn leading_comments(&mut self, pos: BytePos) -> Vec<Comment> {
         let mut result: Vec<Comment> = Vec::new();
-        if let Some(token_before) = self.token_finder.get_first_token_before(pos, |_| true) {
-            if let Some(comments) = self.trailing.get(&token_before.hi()) {
-                result.extend(comments.iter().map(|c| c.clone()));
-            }
+        let token_pos = self.token_finder.get_first_token_before(pos, |_| true)
+            .map(|t| t.hi())
+            .unwrap_or(BytePos(0)); // start of file
+        if let Some(comments) = self.trailing.get(&token_pos) {
+            result.extend(comments.iter().map(|c| c.clone()));
         }
         if let Some(comments) = self.leading.get(&pos) {
             result.extend(comments.iter().map(|c| c.clone()));
