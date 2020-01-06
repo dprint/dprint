@@ -23,7 +23,8 @@ fn test_performance() {
     let result = format_text("V:\\checker.ts", &file_text, &config).expect("Could not parse...");
 
     let elapsed = start.elapsed();
-    println!("Finished in {}s", elapsed.as_millis() / 1000);
+    println!("Finished in {}ms", elapsed.as_millis());
+    println!("Length: {}", result.len());
 }
 
 #[test]

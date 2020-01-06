@@ -55,10 +55,11 @@ impl<T> Writer<T> where T : StringRef {
     }
 
     pub fn get_state(&mut self) -> WriterState<T> {
-        if !self.state.items.is_empty() {
+        if self.state.items.len() > 500 { // todo: investigate this, but this seems to be key to drastic performance improvements
             let items = std::mem::replace(&mut self.state.items, Vec::new());
             self.state.saved_items.push(Rc::new(items));
         }
+        //println!("Saved items count: {}", self.state.saved_items.len());
         self.state.clone()
     }
 
