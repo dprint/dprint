@@ -126,7 +126,7 @@ impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &String w
 
 /// Can be used to get information at a certain location being printed. These
 /// can be resolved by providing the info object to a condition context's
-/// getResolvedInfo method.
+/// get_resolved_info(&info) method.
 #[derive(Clone)]
 pub struct Info {
     /// Unique identifier.
@@ -186,8 +186,8 @@ impl<TString, TInfo> Clone for Condition<TString, TInfo> where TString : StringR
             id: self.id,
             name: self.name,
             condition: self.condition.clone(),
-            true_path: self.true_path.as_ref().map(|x| x.clone()),
-            false_path: self.false_path.as_ref().map(|x| x.clone()),
+            true_path: self.true_path.clone(),
+            false_path: self.false_path.clone(),
         }
     }
 }

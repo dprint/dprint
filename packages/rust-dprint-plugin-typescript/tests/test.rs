@@ -19,7 +19,7 @@ fn test_performance() {
     let start = Instant::now();
     let config = resolve_config(&HashMap::new());
 
-    let file_text = fs::read_to_string("V:\\delete-me\\checker.ts").expect("Expected to read.");
+    let file_text = fs::read_to_string("V:\\performance-test\\files\\checker.ts").expect("Expected to read.");
     let result = format_text("V:\\checker.ts", &file_text, &config).expect("Could not parse...");
 
     let elapsed = start.elapsed();

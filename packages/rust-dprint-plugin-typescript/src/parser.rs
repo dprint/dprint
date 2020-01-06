@@ -7,6 +7,7 @@ use super::configuration::{BracePosition, MemberSpacing, NextControlFlowPosition
 use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span, SpanData};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
+use std::time::Instant;
 
 // todo: re-evaluate node_with_inner_parse (was useful for babel, but maybe not for swc)
 
@@ -19,12 +20,14 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
         Node::Module(source_file.module.clone()),
         source_file.info
     );
+    let start = Instant::now();
     let mut items = parse_node(Node::Module(source_file.module), &mut context);
     items.push(if_true(
         "endOfFileNewLine",
         |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
         PrintItem::NewLine
     ));
+    println!("Parsed: {}", start.elapsed().as_millis());
     items
 }
 
@@ -2259,12 +2262,12 @@ fn parse_expr_stmt(stmt: ExprStmt, context: &mut Context) -> Vec<PrintItem> {
                         // It's an assumption here that th etrue and false paths of the
                         // condition will both contain the same text to look for.
                         if let Some(true_path) = &condition.true_path {
-                            if let Some(result) = should_add_semi_colon(&true_path) {
+                            if let Some(result) = should_add_semi_colon(true_path) {
                                 return result.into();
                             }
                         }
                         if let Some(false_path) = &condition.false_path {
-                            if let Some(result) = should_add_semi_colon(&false_path) {
+                            if let Some(result) = should_add_semi_colon(false_path) {
                                 return result.into();
                             }
                         }

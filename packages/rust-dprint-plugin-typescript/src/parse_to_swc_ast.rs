@@ -17,6 +17,7 @@ pub struct ParsedSourceFile {
 }
 
 pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
+    println!("Parsing....");
     // todo: investigate if there's more of a lightweight way to do this or if this doesn't matter
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, None);
     let session = Session { handler: &handler };

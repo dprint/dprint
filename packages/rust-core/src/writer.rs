@@ -8,11 +8,11 @@ pub struct WriterState<TString> where TString : StringRef {
     pub last_line_indent_level: u16,
     pub indent_level: u16,
     pub expect_newline_next: bool,
+    pub saved_items: Vec<Rc<Vec<WriteItem<TString>>>>,
     pub items: Vec<WriteItem<TString>>,
     pub ignore_indent_count: u8,
 }
 
-// need to manually implement this for some reason instead of using #[derive(Clone)]
 impl<TString> Clone for WriterState<TString> where TString : StringRef {
     fn clone(&self) -> WriterState<TString> {
         WriterState {
@@ -21,7 +21,8 @@ impl<TString> Clone for WriterState<TString> where TString : StringRef {
             last_line_indent_level: self.last_line_indent_level,
             indent_level: self.indent_level,
             expect_newline_next: self.expect_newline_next,
-            items: self.items.iter().map(|i| i.clone()).collect(),
+            saved_items: self.saved_items.clone(),
+            items: self.items.clone(),
             ignore_indent_count: self.ignore_indent_count,
         }
     }
@@ -46,13 +47,18 @@ impl<T> Writer<T> where T : StringRef {
                 last_line_indent_level: 0,
                 indent_level: 0,
                 expect_newline_next: false,
+                saved_items: Vec::new(),
                 items: Vec::new(),
                 ignore_indent_count: 0,
             },
         }
     }
 
-    pub fn get_state(&self) -> WriterState<T> {
+    pub fn get_state(&mut self) -> WriterState<T> {
+        if !self.state.items.is_empty() {
+            let items = std::mem::replace(&mut self.state.items, Vec::new());
+            self.state.saved_items.push(Rc::new(items));
+        }
         self.state.clone()
     }
 
@@ -168,8 +174,12 @@ impl<T> Writer<T> where T : StringRef {
         }
     }
 
-    pub fn get_items(self) -> Vec<WriteItem<T>> {
-        self.state.items
+    pub fn get_items(self) -> impl Iterator<Item = WriteItem<T>> {
+        self.state.saved_items
+            .into_iter()
+            .map(|x| Rc::try_unwrap(x).ok().expect("Ensure all save state items are dropped from memory before getting the writer items."))
+            .flatten()
+            .chain(self.state.items)
     }
 
     #[allow(dead_code)]
