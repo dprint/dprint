@@ -365,6 +365,13 @@ impl TypeParamNode {
             TypeParamNode::Decl(node) => node.params.into_iter().map(|p| p.into()).collect(),
         }
     }
+
+    pub fn span(&self) -> Span {
+        match self {
+            TypeParamNode::Instantiation(node) => node.span,
+            TypeParamNode::Decl(node) => node.span,
+        }
+    }
 }
 
 pub enum NamedImportOrExportDeclaration {

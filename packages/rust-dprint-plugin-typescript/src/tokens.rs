@@ -1,229 +1,362 @@
 use std::str;
 use std::rc::Rc;
 use super::*;
-use swc_common::{BytePos, SpanData};
-use swc_ecma_parser::{token::{Token, TokenAndSpan, Word, Keyword, BinOpToken}};
+use swc_common::{BytePos, Span};
 
 pub struct TokenFinder {
-    tokens: Rc<Vec<TokenAndSpan>>,
+    token_parser: TokenParser,
     file_bytes: Rc<Vec<u8>>,
-    token_index: usize,
 }
 
 impl TokenFinder {
-    pub fn new(tokens: Rc<Vec<TokenAndSpan>>, file_bytes: Rc<Vec<u8>>) -> TokenFinder {
+    pub fn new(file_bytes: Rc<Vec<u8>>) -> TokenFinder {
+        let token_parser = TokenParser::new(file_bytes.clone());
         TokenFinder {
-            tokens,
+            token_parser,
             file_bytes,
-            token_index: 0,
         }
     }
 
-    pub fn get_token_at(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        let pos = node.lo();
-        if self.tokens.is_empty() { return None; }
-        self.move_to_node_pos(pos);
-        let current_token = &self.tokens[self.token_index];
-        if current_token.lo() == pos {
-            return Some(current_token.clone())
-        }
+    // done
 
-        None
+    pub fn get_char_at(&self, pos: &BytePos) -> char {
+        self.file_bytes[pos.0 as usize] as char
     }
 
-    pub fn get_first_open_paren_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before_equaling_token(node, Token::LParen)
+    pub fn get_first_open_paren_token_within(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_within_from_parser(node, "(")
     }
 
-    pub fn get_first_angle_bracket_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before_equaling_token(node, Token::BinOp(BinOpToken::Lt))
+    pub fn get_first_open_brace_token_within(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_within_from_parser(node, "{")
     }
 
-    pub fn get_first_open_brace_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before_equaling_token(node, Token::LBrace)
+    pub fn get_first_open_bracket_token_within(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_within_from_parser(node, "[")
     }
 
-    fn get_first_token_before_equaling_token(&mut self, node: &dyn Ranged, searching_token: Token) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node.lo(), |token| token.token == searching_token)
+    pub fn get_first_comma_within(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_within_from_parser(node, ",")
     }
 
-    pub fn get_first_non_comment_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node.lo(), |_| true)
+    pub fn get_first_semi_colon_within(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_within_from_parser(node, ";")
     }
 
-    pub fn get_first_open_paren_token_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, |token| token.token == Token::LParen)
+    fn get_token_within_from_parser(&self, node: &dyn Ranged, text: &str) -> Option<Span> {
+        let span_data = node.span().data();
+        self.token_parser.get_next_token_with_text(span_data.lo, Some(span_data.hi), false, text)
     }
 
-    pub fn get_first_open_brace_token_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, |token| token.token == Token::LBrace)
+    pub fn get_first_colon_token_after(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_after_from_parser(node, ":")
     }
 
-    pub fn get_first_close_brace_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node.lo(), |token|token.token == Token::RBrace)
+    pub fn get_first_comma_after(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_after_from_parser(node, ",")
     }
 
-    pub fn get_first_else_keyword_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node.lo(), |token|token.token == Token::Word(Word::Keyword(Keyword::Else)))
+    pub fn get_first_operator_after_with_text(&self, node: &dyn Ranged, operator_text: &str) -> Option<Span> {
+        self.get_token_after_from_parser(node, operator_text)
     }
 
-    pub fn get_first_colon_token_after(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_after(node.hi(), |token|token.token == Token::Colon)
+    fn get_token_after_from_parser(&self, node: &dyn Ranged, text: &str) -> Option<Span> {
+        self.token_parser.get_next_token_with_text(node.hi(), None, false, text)
     }
 
-    pub fn get_first_open_bracket_token_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, |token| token.token == Token::LBracket)
+    pub fn get_first_keyword_after(&self, node: &dyn Ranged, keyword_text: &str) -> Option<Span> {
+        self.token_parser.get_next_token_with_text(node.hi(), None, true, keyword_text)
     }
 
-    pub fn get_first_comma_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, |token| token.token == Token::Comma)
+    pub fn get_first_else_keyword_within(&self, node: &dyn Ranged) -> Option<Span> {
+        let span_data = node.span().data();
+        self.token_parser.get_next_token_with_text(span_data.lo, Some(span_data.hi), true, "else")
     }
 
-    pub fn get_first_comma_after(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_after(node.hi(), |token| token.token == Token::Comma)
+    pub fn get_first_open_paren_token_before(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_before_from_parser(node, "(")
     }
 
-    pub fn get_first_semi_colon_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_within(node, |token| token.token == Token::Semi)
+    pub fn get_first_open_brace_token_before(&self, node: &dyn Ranged) -> Option<Span> {
+        self.get_token_before_from_parser(node, "{")
     }
 
-    pub fn get_first_token_before_with_text(&mut self, node: &dyn Ranged, text: &str) -> Option<TokenAndSpan> {
-        let file_bytes = self.file_bytes.clone();
-        self.get_first_token_before(node.lo(), |token| get_text(&file_bytes, &token.span.data()) == text)
+    fn get_token_before_from_parser(&self, node: &dyn Ranged, text: &str) -> Option<Span> {
+        self.token_parser.get_previous_token_with_text(None, node.lo(), false, text)
     }
 
-    pub fn get_first_token_within_with_text(&mut self, node: &dyn Ranged, text: &str) -> Option<TokenAndSpan> {
-        let file_bytes = self.file_bytes.clone();
-        self.get_first_token_within(node, |token| get_text(&file_bytes, &token.span.data()) == text)
+    pub fn get_previous_token_pos_before(&self, node: &dyn Ranged) -> BytePos {
+        self.token_parser.get_previous_token_pos(node.lo())
     }
 
-    pub fn get_first_token_after_with_text(&mut self, node: &dyn Ranged, searching_token_text: &str) -> Option<TokenAndSpan> {
-        let file_bytes = self.file_bytes.clone();
-        self.get_first_token_after(node.hi(), |token| get_text(&file_bytes, &token.span.data()) == searching_token_text)
-    }
-
-    pub fn get_token_text_at_pos(&mut self, pos: BytePos) -> Option<&str> {
-        if self.tokens.is_empty() { return None; }
-        self.move_to_node_pos(pos);
-        let span_data = self.tokens[self.token_index].span.data();
-        if span_data.lo == pos {
-            return Some(self.get_text(&span_data));
-        }
-
-        None
-    }
-
-    pub fn get_first_token_before<F>(&mut self, pos: BytePos, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool{
-        if self.tokens.is_empty() { return None; }
-        self.move_to_node_pos(pos);
-
-        if self.tokens[self.token_index].lo() < pos {
-            let current_token = &self.tokens[self.token_index];
-            if is_match(&current_token) {
-                return Some(current_token.clone());
-            }
-        }
-
-        while self.try_decrement_index() {
-            let current_token = &self.tokens[self.token_index];
-            if is_match(&current_token) {
-                return Some(current_token.clone());
-            }
-        }
-
-        return None;
-    }
-
-    pub fn get_first_token_after<F>(&mut self, end: BytePos, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
-        if self.tokens.is_empty() { return None; }
-        self.move_to_node_end(end);
-
-        while self.try_increment_index() {
-            let current_token = &self.tokens[self.token_index];
-            if is_match(&current_token) {
-                return Some(current_token.clone());
-            }
-        }
-
-        return None;
-    }
-
-    pub fn get_first_token_within<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
-        let node_span_data = node.span().data();
-        let pos = node_span_data.lo;
-        let end = node_span_data.hi;
-        if self.tokens.is_empty() { return None; }
-        self.move_to_node_pos(pos);
-
-        loop {
-            let current_token = &self.tokens[self.token_index];
-            let token_pos = current_token.span.data().lo;
-            if token_pos >= end {
-                break;
-            } else if is_match(&current_token) {
-                return Some(current_token.clone());
-            }
-
-            if !self.try_increment_index() {
-                break;
-            }
-        }
-
-        None
-    }
-
-    fn move_to_node_pos(&mut self, pos: BytePos) {
-        while self.tokens[self.token_index].lo() < pos {
-            if !self.try_increment_index() {
-                break;
-            }
-        }
-
-        while self.tokens[self.token_index].lo() > pos {
-            if !self.try_decrement_index() {
-                break;
-            }
-        }
-    }
-
-    fn move_to_node_end(&mut self, end: BytePos) {
-        while self.tokens[self.token_index].hi() < end {
-            if !self.try_increment_index() {
-                break;
-            }
-        }
-
-        while self.tokens[self.token_index].hi() > end {
-            if !self.try_decrement_index() {
-                break;
-            }
-        }
-    }
-
-    fn try_increment_index(&mut self) -> bool {
-        if self.token_index == self.tokens.len() - 1 {
-            false
-        } else {
-            self.token_index += 1;
-            true
-        }
-    }
-
-    fn try_decrement_index(&mut self) -> bool {
-        if self.token_index == 0 {
-            false
-        } else {
-            self.token_index -= 1;
-            true
-        }
-    }
-
-    fn get_text(&self, span_data: &SpanData) -> &str {
-        get_text(&self.file_bytes, span_data)
+    pub fn get_next_token_pos_after(&self, node: &dyn Ranged) -> BytePos {
+        self.token_parser.get_next_token_pos(node.hi())
     }
 }
 
-fn get_text<'a>(file_bytes: &'a Rc<Vec<u8>>, span_data: &SpanData) -> &'a str {
-    let bytes = &file_bytes[(span_data.lo.0 as usize)..(span_data.hi.0 as usize)];
-    str::from_utf8(&bytes).unwrap()
+pub struct TokenParser {
+    file_bytes: Rc<Vec<u8>>,
+}
+
+// This token parser makes a lot of assumptions
+// todo: Maybe instead of handling strings the search ranges could be limited?
+
+impl TokenParser {
+    fn new(file_bytes: Rc<Vec<u8>>) -> TokenParser {
+        TokenParser {
+            file_bytes,
+        }
+    }
+
+    pub fn get_previous_token_pos(&self, end: BytePos) -> BytePos {
+        let mut pos = end.0 as usize;
+        let FORWARD_SLASH = '/' as u8;
+        let STAR = '*' as u8;
+        let NEW_LINE = '\n' as u8;
+        let mut is_in_block_comment = false;
+
+        if pos == 0 {
+            return BytePos(0);
+        } else {
+            pos -= 1;
+        }
+
+        loop {
+            let next_char = if pos == 0 { None } else { Some(&self.file_bytes[pos - 1]) };
+            let current_char = &self.file_bytes[pos];
+
+            if is_in_block_comment {
+                if next_char == Some(&FORWARD_SLASH) && current_char == &STAR {
+                    is_in_block_comment = false;
+                    if pos <= 1 { break; }
+                    pos -= 2;
+                } else {
+                    if pos == 0 { break; }
+                    pos -= 1;
+                }
+                continue;
+            } else if next_char == Some(&STAR) && current_char == &FORWARD_SLASH {
+                is_in_block_comment = true;
+                if pos <= 1 { break; }
+                pos -= 2;
+                continue;
+            }
+
+            if !(current_char.to_owned() as char).is_whitespace() {
+                if let Some(comment_start) = self.get_previous_line_comment_start_on_line(pos) {
+                    pos = comment_start;
+                } else {
+                    return BytePos((pos as u32) + 1);
+                }
+            }
+
+            if pos == 0 {
+                break;
+            } else {
+                pos -= 1;
+            }
+        }
+
+        BytePos(0)
+    }
+
+    pub fn get_previous_token_with_text(&self, start: Option<BytePos>, end: BytePos, non_alpha_numeric_surrounding: bool, text: &str) -> Option<Span> {
+        // todo: should handle strings
+        let start = start.map(|x| x.0 as usize).unwrap_or(0);
+        let mut pos = end.0 as usize;
+        let FORWARD_SLASH = '/' as u8;
+        let STAR = '*' as u8;
+        let mut is_in_block_comment = false;
+        let text_bytes = text.as_bytes();
+
+        if pos == 0 {
+            return None;
+        } else {
+            pos -= 1;
+        }
+
+        while pos >= start {
+            let next_char = if pos == 0 { None } else { Some(&self.file_bytes[pos - 1]) };
+            let current_char = &self.file_bytes[pos];
+
+            if is_in_block_comment {
+                if next_char == Some(&FORWARD_SLASH) && current_char == &STAR {
+                    is_in_block_comment = false;
+                    if pos <= 1 { break; }
+                    pos -= 2;
+                } else {
+                    if pos == 0 { break; }
+                    pos -= 1;
+                }
+                continue;
+            } else if next_char == Some(&STAR) && current_char == &FORWARD_SLASH {
+                is_in_block_comment = true;
+                if pos <= 1 { break; }
+                pos -= 2;
+                continue;
+            }
+
+            let end_pos = pos + text_bytes.len();
+            if text_bytes == &self.file_bytes[pos..end_pos] {
+                if !non_alpha_numeric_surrounding || !is_alpha_numeric(self.file_bytes.get(pos - 1)) && !is_alpha_numeric(self.file_bytes.get(end_pos)) {
+                    if let Some(comment_start) = self.get_previous_line_comment_start_on_line(pos) {
+                        pos = comment_start;
+                    } else {
+                        return Some(Span::new(BytePos(pos as u32), BytePos((pos + text.len()) as u32), Default::default()));
+                    }
+                }
+            }
+
+            if pos == 0 {
+                break;
+            } else {
+                pos -= 1;
+            }
+        }
+
+        None
+    }
+
+    fn get_previous_line_comment_start_on_line(&self, pos: usize) -> Option<usize> {
+        // todo: should handle strings
+        let FORWARD_SLASH = '/' as u8;
+        let NEW_LINE = '\n' as u8;
+        let mut pos = pos;
+        while pos >= 1 {
+            let next_char = &self.file_bytes[pos - 1];
+            let current_char = &self.file_bytes[pos];
+
+            if next_char == &FORWARD_SLASH && current_char == &FORWARD_SLASH {
+                return Some(pos - 1);
+            }
+            if current_char == &NEW_LINE {
+                return None;
+            }
+
+            pos -= 1;
+        }
+        return None;
+    }
+
+    pub fn get_next_token_with_text(&self, pos: BytePos, end: Option<BytePos>, non_alpha_numeric_surrounding: bool, text: &str) -> Option<Span> {
+        // todo: should handle strings
+        let mut pos = pos.0 as usize;
+        let end = end.map(|x| x.0 as usize).unwrap_or(self.file_bytes.len());
+        let FORWARD_SLASH = '/' as u8;
+        let STAR = '*' as u8;
+        let NEW_LINE = '\n' as u8;
+        let mut is_in_line_comment = false;
+        let mut is_in_block_comment = false;
+        let text_bytes = text.as_bytes();
+
+        while pos < end {
+            let current_char = &self.file_bytes[pos];
+            let next_char = self.file_bytes.get(pos + 1);
+
+            if is_in_line_comment {
+                if current_char == &NEW_LINE {
+                    is_in_line_comment = false;
+                }
+                pos += 1;
+                continue;
+            } else if is_in_block_comment {
+                if current_char == &STAR && next_char == Some(&FORWARD_SLASH) {
+                    is_in_block_comment = false;
+                    pos += 2;
+                } else {
+                    pos += 1;
+                }
+                continue;
+            }
+
+            if current_char == &FORWARD_SLASH && next_char == Some(&FORWARD_SLASH) {
+                is_in_line_comment = true;
+                pos += 1;
+                continue;
+            }
+
+            if current_char == &FORWARD_SLASH && next_char == Some(&STAR) {
+                is_in_block_comment = true;
+                pos += 2;
+                continue;
+            }
+
+
+            let end_pos = pos + text_bytes.len();
+            if end_pos > self.file_bytes.len() {
+                return None;
+            }
+
+            if text_bytes == &self.file_bytes[pos..end_pos] {
+                if !non_alpha_numeric_surrounding || !is_alpha_numeric(self.file_bytes.get(pos - 1)) && !is_alpha_numeric(self.file_bytes.get(end_pos)) {
+                    return Some(Span::new(BytePos(pos as u32), BytePos((pos + text.len()) as u32), Default::default()));
+                }
+            }
+
+            pos += 1;
+        }
+
+        return None;
+    }
+
+    pub fn get_next_token_pos(&self, pos: BytePos) -> BytePos {
+        let mut pos = pos.0 as usize;
+        let end = self.file_bytes.len();
+        let FORWARD_SLASH = '/' as u8;
+        let STAR = '*' as u8;
+        let NEW_LINE = '\n' as u8;
+        let mut is_in_line_comment = false;
+        let mut is_in_block_comment = false;
+
+        while pos < end {
+            let current_char = &self.file_bytes[pos];
+            let next_char = self.file_bytes.get(pos + 1);
+
+            if is_in_line_comment {
+                if current_char == &NEW_LINE {
+                    is_in_line_comment = false;
+                }
+                pos += 1;
+                continue;
+            } else if is_in_block_comment {
+                if current_char == &STAR && next_char == Some(&FORWARD_SLASH) {
+                    is_in_block_comment = false;
+                    pos += 2;
+                } else {
+                    pos += 1;
+                }
+                continue;
+            }
+
+            if current_char == &FORWARD_SLASH && next_char == Some(&FORWARD_SLASH) {
+                is_in_line_comment = true;
+                pos += 1;
+                continue;
+            }
+
+            if current_char == &FORWARD_SLASH && next_char == Some(&STAR) {
+                is_in_block_comment = true;
+                pos += 2;
+                continue;
+            }
+
+            if !(current_char.to_owned() as char).is_whitespace() {
+                return BytePos(pos as u32);
+            }
+
+            pos += 1;
+        }
+
+        return BytePos(end as u32);
+    }
+}
+
+
+fn is_alpha_numeric(value: Option<&u8>) -> bool {
+    if let Some(value) = value {
+        let c = value.to_owned() as char;
+        return c.is_alphanumeric();
+    } else {
+        return false;
+    }
 }

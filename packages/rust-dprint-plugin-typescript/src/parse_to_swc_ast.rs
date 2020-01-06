@@ -6,7 +6,7 @@ use swc_common::{
     FileName, comments::{Comment, Comments}, SourceFile, BytePos
 };
 use swc_ecma_ast::{Module};
-use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing};
+use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget};
 
 pub struct ParsedSourceFile {
     pub comments: CommentCollection,
@@ -31,7 +31,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
     );
 
     let comments: Comments = Default::default();
-    let (module, tokens) = {
+    let module = {
         let mut ts_config: swc_ecma_parser::TsConfig = Default::default();
         ts_config.tsx = should_parse_as_jsx(file_path);
         ts_config.dynamic_import = true;
@@ -39,28 +39,25 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         let lexer = Lexer::new(
             session,
             Syntax::Typescript(ts_config),
-            Default::default(),
+            JscTarget::Es2019,
             SourceFileInput::from(&source_file),
             Some(&comments)
         );
-        let capturing = Capturing::new(lexer);
-        let mut parser = Parser::new_from(session, capturing);
+        let mut parser = Parser::new_from(session, lexer);
         let parse_module_result = parser.parse_module();
-
-        let tokens = parser.input().take();
 
         match parse_module_result {
             Err(error) => {
                 println!("Error: {}", error.message());
                 Err(error.message())
             },
-            Ok(module) => Ok((module, Rc::new(tokens)))
+            Ok(module) => Ok(module)
         }
     }?;
 
-    let token_finder = TokenFinder::new(tokens.clone(), file_bytes.clone());
+    let token_finder = TokenFinder::new(file_bytes.clone());
     return Ok(ParsedSourceFile {
-        comments: CommentCollection::new(comments, TokenFinder::new(tokens, file_bytes.clone())),
+        comments: CommentCollection::new(comments, TokenFinder::new(file_bytes.clone())),
         module,
         info: source_file,
         token_finder,

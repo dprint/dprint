@@ -5,12 +5,25 @@ use dprint_plugin_typescript::*;
 use dprint_development::*;
 use std::fs::{self};
 use std::path::Path;
+use std::time::Instant;
+use std::collections::HashMap;
 
 struct FailedTestResult {
     file_path: String,
     expected: String,
     actual: String,
     message: String,
+}
+
+fn test_performance() {
+    let start = Instant::now();
+    let config = resolve_config(&HashMap::new());
+
+    let file_text = fs::read_to_string("V:\\delete-me\\checker.ts").expect("Expected to read.");
+    let result = format_text("V:\\checker.ts", &file_text, &config).expect("Could not parse...");
+
+    let elapsed = start.elapsed();
+    println!("Finished in {}s", elapsed.as_millis() / 1000);
 }
 
 #[test]

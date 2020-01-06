@@ -10,8 +10,8 @@ pub struct CommentCollection {
 impl CommentCollection {
     pub fn new(comments: Comments, token_finder: TokenFinder) -> CommentCollection {
         let (leading, trailing) = comments.take_all();
-        println!("Leading: {:?}", leading);
-        println!("Trailing: {:?}", trailing);
+        //println!("Leading: {:?}", leading);
+        //println!("Trailing: {:?}", trailing);
         CommentCollection {
             leading,
             trailing,
@@ -24,19 +24,16 @@ impl CommentCollection {
         if let Some(comments) = self.trailing.get(&end) {
             result.extend(comments.iter().map(|c| c.clone()));
         }
-        if let Some(token_after) = self.token_finder.get_first_token_after(end, |_| true) {
-            if let Some(comments) = self.leading.get(&token_after.lo()) {
-                result.extend(comments.iter().map(|c| c.clone()));
-            }
+        let end_pos = self.token_finder.get_next_token_pos_after(&end);
+        if let Some(comments) = self.leading.get(&end_pos.lo()) {
+            result.extend(comments.iter().map(|c| c.clone()));
         }
         return result;
     }
 
     pub fn leading_comments(&mut self, pos: BytePos) -> Vec<Comment> {
         let mut result: Vec<Comment> = Vec::new();
-        let token_pos = self.token_finder.get_first_token_before(pos, |_| true)
-            .map(|t| t.hi())
-            .unwrap_or(BytePos(0)); // start of file
+        let token_pos = self.token_finder.get_previous_token_pos_before(&pos);
         if let Some(comments) = self.trailing.get(&token_pos) {
             result.extend(comments.iter().map(|c| c.clone()));
         }
