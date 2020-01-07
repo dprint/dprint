@@ -3,7 +3,7 @@ use super::print_items::*;
 use super::writer::*;
 use super::get_write_items::{GetWriteItemsOptions};
 use std::collections::HashMap;
-use std::mem;
+use std::mem::{self, MaybeUninit};
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -89,11 +89,9 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             }
         }
 
-        self.look_ahead_condition_save_points.clear();
-        self.look_ahead_info_save_points.clear();
-        self.possible_new_line_save_point.take();
-
-        self.writer.get_items()
+        let writer = mem::replace(&mut self.writer, unsafe { MaybeUninit::zeroed().assume_init() });
+        mem::drop(self);
+        writer.get_items()
     }
 
     pub fn get_writer_info(&self) -> WriterInfo {

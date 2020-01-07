@@ -15,6 +15,7 @@ struct FailedTestResult {
     message: String,
 }
 
+#[test]
 fn test_performance() {
     let start = Instant::now();
     let config = resolve_config(&HashMap::new());
@@ -27,7 +28,6 @@ fn test_performance() {
     println!("Length: {}", result.len());
 }
 
-#[test]
 fn test_specs() {
     let specs = get_specs();
     let test_count = specs.len();
