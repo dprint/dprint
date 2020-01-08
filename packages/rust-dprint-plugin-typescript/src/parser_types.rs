@@ -8,28 +8,28 @@ use swc_common::{SpanData, BytePos, comments::{Comment}, SourceFile, Spanned, Sp
 use swc_ecma_ast::*;
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
-pub struct Context {
+pub struct Context<'a> {
     pub config: TypeScriptConfiguration,
     pub comments: CommentCollection,
     pub token_finder: TokenFinder,
     pub file_bytes: Rc<Vec<u8>>,
-    pub current_node: Node,
-    pub parent_stack: Vec<Node>, // todo: use stack type
+    pub current_node: Node<'a>,
+    pub parent_stack: Vec<Node<'a>>, // todo: use stack type
     handled_comments: HashSet<BytePos>,
     pub info: Rc<SourceFile>,
     stored_infos: HashMap<BytePos, Info>,
     pub end_statement_or_member_infos: Stack<Info>,
 }
 
-impl Context {
+impl<'a> Context<'a> {
     pub fn new(
         config: TypeScriptConfiguration,
         comments: CommentCollection,
         token_finder: TokenFinder,
         file_bytes: Rc<Vec<u8>>,
-        current_node: Node,
+        current_node: Node<'a>,
         info: SourceFile
-    ) -> Context {
+    ) -> Context<'a> {
         Context {
             config,
             comments,
@@ -136,11 +136,11 @@ macro_rules! generate_node {
         }
 
         #[derive(Clone)]
-        pub enum Node {
-            $($node_name($node_name)),*
+        pub enum Node<'a> {
+            $($node_name(&'a $node_name)),*
         }
 
-        impl NodeKinded for Node {
+        impl<'a> NodeKinded for Node<'a> {
             fn kind(&self) -> NodeKind {
                 match self {
                     $(Node::$node_name(_) => NodeKind::$node_name),*
@@ -157,20 +157,20 @@ macro_rules! generate_node {
         )*
 
         $(
-        impl From<$node_name> for Node {
-            fn from(node: $node_name) -> Node {
+        impl<'a> From<&'a $node_name> for Node<'a> {
+            fn from(node: &'a $node_name) -> Node<'a> {
                 Node::$node_name(node)
             }
         }
 
-        impl From<Box<$node_name>> for Node {
-            fn from(boxed_node: Box<$node_name>) -> Node {
-                (*boxed_node).into()
+        impl<'a> From<&'a Box<$node_name>> for Node<'a> {
+            fn from(boxed_node: &'a Box<$node_name>) -> Node<'a> {
+                (&**boxed_node).into()
             }
         }
         )*
 
-        impl Spanned for Node {
+        impl<'a> Spanned for Node<'a> {
             fn span(&self) -> Span {
                 match self {
                     $(Node::$node_name(node) => node.span()),*
@@ -353,16 +353,16 @@ generate_node! [
 
 /* custom enums */
 
-pub enum TypeParamNode {
-    Instantiation(TsTypeParamInstantiation),
-    Decl(TsTypeParamDecl)
+pub enum TypeParamNode<'a> {
+    Instantiation(&'a TsTypeParamInstantiation),
+    Decl(&'a TsTypeParamDecl)
 }
 
-impl TypeParamNode {
-    pub fn params(self) -> Vec<Node> {
+impl<'a> TypeParamNode<'a> {
+    pub fn params(&self) -> Vec<Node<'a>> {
         match self {
-            TypeParamNode::Instantiation(node) => node.params.into_iter().map(|box p| p.into()).collect(),
-            TypeParamNode::Decl(node) => node.params.into_iter().map(|p| p.into()).collect(),
+            TypeParamNode::Instantiation(node) => node.params.iter().map(|box p| p.into()).collect(),
+            TypeParamNode::Decl(node) => node.params.iter().map(|p| p.into()).collect(),
         }
     }
 
@@ -374,26 +374,35 @@ impl TypeParamNode {
     }
 }
 
-pub enum NamedImportOrExportDeclaration {
-    Import(ImportDecl),
-    Export(NamedExport),
+pub enum NamedImportOrExportDeclaration<'a> {
+    Import(&'a ImportDecl),
+    Export(&'a NamedExport),
+}
+
+impl<'a> From<NamedImportOrExportDeclaration<'a>> for Node<'a> {
+    fn from(node: NamedImportOrExportDeclaration<'a>) -> Node<'a> {
+        match node {
+            NamedImportOrExportDeclaration::Import(node) => node.into(),
+            NamedImportOrExportDeclaration::Export(node) => node.into(),
+        }
+    }
 }
 
 /* fully implemented From and NodeKinded implementations */
 
 macro_rules! generate_traits {
     ($enum_name:ident, $($member_name:ident),*) => {
-        impl From<$enum_name> for Node {
-            fn from(id: $enum_name) -> Node {
+        impl<'a> From<&'a $enum_name> for Node<'a> {
+            fn from(id: &'a $enum_name) -> Node<'a> {
                 match id {
                     $($enum_name::$member_name(node) => node.into()),*
                 }
             }
         }
 
-        impl From<Box<$enum_name>> for Node {
-            fn from(boxed_node: Box<$enum_name>) -> Node {
-                (*boxed_node).into()
+        impl<'a> From<&'a Box<$enum_name>> for Node<'a> {
+            fn from(boxed_node: &'a Box<$enum_name>) -> Node<'a> {
+                (&**boxed_node).into()
             }
         }
 
@@ -413,12 +422,10 @@ generate_traits![Decl, Class, Fn, Var, TsInterface, TsTypeAlias, TsEnum, TsModul
 generate_traits![Lit, BigInt, Bool, JSXText, Null, Num, Regex, Str];
 generate_traits![ImportSpecifier, Specific, Default, Namespace];
 generate_traits![ModuleItem, Stmt, ModuleDecl];
-generate_traits![NamedImportOrExportDeclaration, Import, Export];
 generate_traits![ObjectPatProp, KeyValue, Assign, Rest];
 generate_traits![PatOrExpr, Pat, Expr];
 generate_traits![TsEnumMemberId, Ident, Str];
 generate_traits![TsLit, Number, Str, Bool];
-generate_traits![TypeParamNode, Instantiation, Decl];
 generate_traits![TsTypeElement, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature, TsMethodSignature, TsIndexSignature];
 generate_traits![TsFnParam, Ident, Array, Rest, Object];
 generate_traits![Expr, This, Array, Object, Fn, Unary, Update, Bin, Assign, Member, Cond, Call, New, Seq, Ident, Lit, Tpl, TaggedTpl, Arrow,

@@ -446,11 +446,11 @@ fn get_trailing_commas(
             "always" => TrailingCommas::Always,
             "never" => TrailingCommas::Never,
             "onlyMultiLine" => TrailingCommas::OnlyMultiLine,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
 
@@ -467,11 +467,11 @@ fn get_brace_position(
             "sameLine" => BracePosition::SameLine,
             "nextLine" => BracePosition::NextLine,
             "nextLineIfHanging" => BracePosition::NextLineIfHanging,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
 
@@ -487,11 +487,11 @@ fn get_member_spacing(
             "maintain" => MemberSpacing::Maintain,
             "blankline" => MemberSpacing::BlankLine,
             "newline" => MemberSpacing::NewLine,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
 
@@ -507,11 +507,11 @@ fn get_next_control_flow_position(
             "maintain" => NextControlFlowPosition::Maintain,
             "sameLine" => NextControlFlowPosition::SameLine,
             "nextLine" => NextControlFlowPosition::NextLine,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
 
@@ -527,11 +527,11 @@ fn get_operator_position(
             "maintain" => OperatorPosition::Maintain,
             "sameLine" => OperatorPosition::SameLine,
             "nextLine" => OperatorPosition::NextLine,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
 
@@ -547,11 +547,11 @@ fn get_single_body_position(
             "maintain" => SingleBodyPosition::Maintain,
             "sameLine" => SingleBodyPosition::SameLine,
             "nextLine" => SingleBodyPosition::NextLine,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
 
@@ -568,11 +568,11 @@ fn get_use_braces(
             "whenNotSingleLine" => UseBraces::WhenNotSingleLine,
             "always" => UseBraces::Always,
             "preferNone" => UseBraces::PreferNone,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
 
@@ -588,10 +588,10 @@ fn get_use_parentheses(
             "maintain" => UseParentheses::Maintain,
             "force" => UseParentheses::Force,
             "preferNone" => UseParentheses::PreferNone,
-            "" => default_value.clone(),
+            "" => default_value,
             _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
         }
     } else {
-        default_value.clone()
+        default_value
     }
 }
