@@ -1,6 +1,6 @@
 use super::StringRef;
 use super::WriteItem;
-use super::collections::{Node, NodeIterator};
+use super::collections::{GraphNode, GraphNodeIterator};
 use std::rc::Rc;
 
 pub struct WriterState<T> where T : StringRef {
@@ -10,7 +10,7 @@ pub struct WriterState<T> where T : StringRef {
     indent_level: u16,
     expect_newline_next: bool,
     ignore_indent_count: u8,
-    items: Option<Rc<Node<WriteItem<T>>>>,
+    items: Option<Rc<GraphNode<WriteItem<T>>>>,
 }
 
 impl<T> Clone for WriterState<T> where T : StringRef {
@@ -170,13 +170,13 @@ impl<T> Writer<T> where T : StringRef {
 
     fn push_item(&mut self, item: WriteItem<T>) {
         let previous = std::mem::replace(&mut self.state.items, None);
-        self.state.items = Some(Rc::new(Node::new(item, previous)));
+        self.state.items = Some(Rc::new(GraphNode::new(item, previous)));
     }
 
     pub fn get_items(self) -> impl Iterator<Item = WriteItem<T>> {
         match self.state.items {
             Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter(),
-            None => NodeIterator::empty(),
+            None => GraphNodeIterator::empty(),
         }
     }
 }

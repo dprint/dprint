@@ -1,3 +1,3 @@
-mod linked_list;
+mod graph_node;
 
-pub use linked_list::*;
+pub use graph_node::*;

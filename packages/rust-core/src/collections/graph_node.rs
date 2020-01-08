@@ -1,14 +1,14 @@
 use std::rc::Rc;
 use std::mem::{self, MaybeUninit};
 
-pub struct Node<T> {
-    previous: Option<Rc<Node<T>>>,
+pub struct GraphNode<T> {
+    previous: Option<Rc<GraphNode<T>>>,
     item: T,
 }
 
-impl<T> Node<T> {
-    pub fn new(item: T, previous: Option<Rc<Node<T>>>) -> Node<T> {
-        Node {
+impl<T> GraphNode<T> {
+    pub fn new(item: T, previous: Option<Rc<GraphNode<T>>>) -> GraphNode<T> {
+        GraphNode {
             item,
             previous,
         }
@@ -17,7 +17,7 @@ impl<T> Node<T> {
     /// Takes the item and previous item out of the node by bypassing
     /// the `Drop` implementation since properties cannot be moved out
     /// of objects that implement `Drop`.
-    fn take(mut self) -> (T, Option<Rc<Node<T>>>) {
+    fn take(mut self) -> (T, Option<Rc<GraphNode<T>>>) {
         // See here: https://phaazon.net/blog/rust-no-drop
         let item = mem::replace(&mut self.item, unsafe { MaybeUninit::zeroed().assume_init() });
         let previous = mem::replace(&mut self.previous, None);
@@ -31,7 +31,7 @@ impl<T> Node<T> {
 // Drop needs to be manually implemented because otherwise it
 // will overflow the stack when dropping the item.
 // Read more: https://stackoverflow.com/questions/28660362/thread-main-has-overflowed-its-stack-when-constructing-a-large-tree
-impl<T> Drop for Node<T> {
+impl<T> Drop for GraphNode<T> {
     fn drop(&mut self) {
         let mut previous = mem::replace(&mut self.previous, None);
 
@@ -49,30 +49,30 @@ impl<T> Drop for Node<T> {
     }
 }
 
-impl<T> IntoIterator for Node<T> {
+impl<T> IntoIterator for GraphNode<T> {
     type Item = T;
-    type IntoIter = NodeIterator<T>;
+    type IntoIter = GraphNodeIterator<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        NodeIterator {
+        GraphNodeIterator {
             node: Some(self),
         }
     }
 }
 
-pub struct NodeIterator<T> {
-    node: Option<Node<T>>,
+pub struct GraphNodeIterator<T> {
+    node: Option<GraphNode<T>>,
 }
 
-impl<T> NodeIterator<T> {
-    pub fn empty() -> NodeIterator<T> {
-        NodeIterator {
+impl<T> GraphNodeIterator<T> {
+    pub fn empty() -> GraphNodeIterator<T> {
+        GraphNodeIterator {
             node: None,
         }
     }
 }
 
-impl<T> Iterator for NodeIterator<T> {
+impl<T> Iterator for GraphNodeIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
