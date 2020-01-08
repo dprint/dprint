@@ -168,7 +168,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
 }
 
 fn parse_array_element(element: &ArrayElement) -> Vec<PrintItem> {
-    vec![(&element.text).into()]
+    vec![element.text.clone().into()]
 }
 
 // helper functions

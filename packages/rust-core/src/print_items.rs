@@ -118,12 +118,6 @@ impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for String wh
     }
 }
 
-impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
-    fn into(self) -> PrintItem<String, TInfo, TCondition> {
-        PrintItem::String(Rc::new(self.clone()))
-    }
-}
-
 /// Can be used to get information at a certain location being printed. These
 /// can be resolved by providing the info object to a condition context's
 /// get_resolved_info(&info) method.
