@@ -19,4 +19,8 @@ impl<T> Stack<T> {
     pub fn peek(&self) -> Option<&T> {
         self.items.last()
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.items.iter().rev()
+    }
 }

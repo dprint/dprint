@@ -6,13 +6,10 @@ use super::*;
 use super::configuration::{BracePosition, MemberSpacing, NextControlFlowPosition, OperatorPosition, SingleBodyPosition, TrailingCommas, UseBraces, UseParentheses};
 use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span, SpanData};
-use swc_ecma_parser::{token::{Token, TokenAndSpan}};
-use std::time::Instant;
 
 // todo: re-evaluate node_with_inner_parse (was useful for babel, but maybe not for swc)
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
-    println!("Parsing...");
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
         config,
@@ -22,14 +19,12 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
         module,
         source_file.info
     );
-    let start = Instant::now();
     let mut items = parse_node(Node::Module(&source_file.module), &mut context);
     items.push(if_true(
         "endOfFileNewLine",
         |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
         PrintItem::NewLine
     ));
-    println!("Parsed: {}", start.elapsed().as_millis());
     items
 }
 
@@ -61,7 +56,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     }
 
     // pop info
-    context.current_node = context.parent_stack.pop().unwrap();
+    context.current_node = context.parent_stack.pop();
 
     return items;
 
@@ -1068,11 +1063,9 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
                 if top_most_expr_start == current_node_start {
                     return Some(false);
                 }
-                if let Some(top_most_info) = condition_context.get_resolved_info(&top_most_info) {
-                    let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
-                    return Some(is_same_indent && condition_resolvers::is_start_of_new_line(condition_context));
-                }
-                return None;
+                let top_most_info = condition_context.get_resolved_info(&top_most_info)?;
+                let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
+                return Some(is_same_indent && condition_resolvers::is_start_of_new_line(condition_context));
             }),
             true_path: Some(parser_helpers::with_indent(items.clone())),
             false_path: Some(items)
@@ -1103,7 +1096,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
 
     fn get_top_most_binary_expr_pos(node: &BinExpr, context: &mut Context) -> BytePos {
         let mut top_most: Option<&BinExpr> = None;
-        for ancestor in context.parent_stack.iter().rev() {
+        for ancestor in context.parent_stack.iter() {
             if let Node::BinExpr(ancestor) = ancestor {
                 top_most = Some(ancestor);
             } else {
@@ -1453,10 +1446,12 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Vec<P
 }
 
 fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
-    let expr = &*node.expr;
-    let open_paren_pos = node.span.lo();
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&open_paren_pos, &expr, context);
-    return wrap_in_parens(parse_node(expr.into(), context), use_new_lines, context);
+    let expr_span = &(*node.expr).span();
+    return vec![conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
+        expr_span,
+        parse_node((&node.expr).into(), context),
+        context
+    )).into()];
 }
 
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -1754,7 +1749,7 @@ fn parse_interface_body<'a>(node: &'a TsInterfaceBody, context: &mut Context<'a>
     }, context);
 
     fn get_parent_info(context: &mut Context) -> Option<Info> {
-        for ancestor in context.parent_stack.iter().rev() {
+        for ancestor in context.parent_stack.iter() {
             if let Node::TsInterfaceDecl(ancestor) = ancestor {
                 return context.get_info_for_node(&ancestor).map(|x| x.to_owned());
             }
@@ -3173,7 +3168,7 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
     }
 
     fn get_is_ancestor_parenthesized_type(context: &mut Context) -> bool {
-        for ancestor in context.parent_stack.iter().rev() {
+        for ancestor in context.parent_stack.iter() {
             match ancestor {
                 Node::TsUnionType(_) | Node::TsIntersectionType(_) => continue,
                 Node::TsParenthesizedType(_) => return true,

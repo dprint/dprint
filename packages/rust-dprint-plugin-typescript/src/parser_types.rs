@@ -14,7 +14,7 @@ pub struct Context<'a> {
     pub token_finder: TokenFinder,
     pub file_bytes: Rc<Vec<u8>>,
     pub current_node: Node<'a>,
-    pub parent_stack: Vec<Node<'a>>, // todo: use stack type
+    pub parent_stack: Stack<Node<'a>>,
     handled_comments: HashSet<BytePos>,
     pub info: Rc<SourceFile>,
     stored_infos: HashMap<BytePos, Info>,
@@ -36,7 +36,7 @@ impl<'a> Context<'a> {
             token_finder,
             file_bytes: file_bytes,
             current_node,
-            parent_stack: Vec::new(),
+            parent_stack: Stack::new(),
             handled_comments: HashSet::new(),
             info: Rc::new(info),
             stored_infos: HashMap::new(),
@@ -45,7 +45,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn parent(&self) -> &Node {
-        self.parent_stack.last().unwrap()
+        self.parent_stack.peek().unwrap()
     }
 
     pub fn has_handled_comment(&self, comment: &Comment) -> bool {
