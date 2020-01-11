@@ -89,6 +89,8 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             }
         }
 
+        if self.is_testing { self.verify_no_look_ahead_save_points(); }
+
         let writer = mem::replace(&mut self.writer, unsafe { MaybeUninit::zeroed().assume_init() });
         mem::drop(self);
         writer.get_items()
@@ -306,6 +308,30 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         if text_as_string.contains("\n") {
             panic!("Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}", text_as_string);
         }
+    }
+
+    fn verify_no_look_ahead_save_points(&self) {
+        // The look ahead save points should be empty when printing is finished. If it's not
+        // then that indicates that the parser tried to resolve a condition or info that was
+        // never added to the print items. In this scenario, the look ahead hash maps will
+        // be cloned when creating a save point and contain items that don't need to exist
+        // in them thus having an unnecessary performance impact.
+        if let Some((_, save_point)) = self.look_ahead_condition_save_points.iter().next() {
+            self.panic_for_save_point_existing(save_point)
+        }
+        if let Some((_, save_point)) = self.look_ahead_info_save_points.iter().next() {
+            self.panic_for_save_point_existing(save_point)
+        }
+    }
+
+    fn panic_for_save_point_existing(&self, save_point: &SavePoint<TString, TInfo, TCondition>) {
+        panic!(
+            concat!(
+                "'{}' was never added to the print items in this scenario. This can ",
+                "have slight performance implications in large files."
+            ),
+            save_point.name
+        );
     }
 
 /*

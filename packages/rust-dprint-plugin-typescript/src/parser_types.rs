@@ -87,11 +87,11 @@ pub trait Ranged : Spanned {
 
 impl<T> Ranged for T where T : Spanned {
     fn lo(&self) -> BytePos {
-        self.span().data().lo
+        self.span().lo()
     }
 
     fn hi(&self) -> BytePos {
-        self.span().data().hi
+        self.span().hi()
     }
 
     fn start_line(&self, context: &mut Context) -> usize {

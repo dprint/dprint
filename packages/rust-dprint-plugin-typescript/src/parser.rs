@@ -45,7 +45,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
 
     // store info
     let past_current_node = std::mem::replace(&mut context.current_node, node.clone());
-    let parent_span_data = past_current_node.span().data();
+    let parent_hi = past_current_node.span().hi();
     context.parent_stack.push(past_current_node);
 
     // parse item
@@ -53,10 +53,10 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     // todo: need more robust comment scanning to ensure no comment is not handled (ex. getting comments before and after a token)
 
     let node_span = node.span();
-    let node_span_data = node_span.data();
+    let node_hi = node_span.hi();
     items.extend(parse_leading_comments(&node, context));
     items.extend(inner_parse(parse_node_inner(node, context)));
-    if context.parent().kind() == NodeKind::Module || node_span_data.hi != parent_span_data.hi {
+    if context.parent().kind() == NodeKind::Module || node_hi != parent_hi {
         items.extend(parse_trailing_comments(&node_span, context));
     }
 
@@ -3671,7 +3671,9 @@ struct ParseCloseParenWithTypeOptions<'a> {
 }
 
 fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, context: &mut Context<'a>) -> Vec<PrintItem> {
+    // todo: clean this up a bit
     let type_node_start_info = Info::new("typeNodeStart");
+    let has_type_node = opts.type_node.is_some();
     let type_node_end_info = Info::new("typeNodeEnd");
     let start_info = opts.start_info;
     let parsed_type_node = parse_type_node(opts.type_node, opts.type_node_separator, type_node_start_info.clone(), type_node_end_info.clone(), context);
@@ -3679,6 +3681,8 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
 
     items.push(Condition::new("newLineIfHeaderHangingAndTypeNodeMultipleLines", ConditionProperties {
         condition: Box::new(move |context| {
+            if !has_type_node { return Some(false); }
+
             if let Some(is_hanging) = condition_resolvers::is_hanging(context, &start_info, &None) {
                 if let Some(is_multiple_lines) = condition_resolvers::is_multiple_lines(context, &type_node_start_info, &type_node_end_info) {
                     return Some(is_hanging && is_multiple_lines);
