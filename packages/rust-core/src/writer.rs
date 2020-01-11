@@ -175,8 +175,8 @@ impl<T> Writer<T> where T : StringRef {
 
     pub fn get_items(self) -> impl Iterator<Item = WriteItem<T>> {
         match self.state.items {
-            Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter(),
-            None => GraphNodeIterator::empty(),
+            Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
+            None => GraphNodeIterator::empty().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
         }
     }
 }
