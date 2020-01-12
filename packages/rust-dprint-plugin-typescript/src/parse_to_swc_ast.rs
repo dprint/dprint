@@ -1,25 +1,26 @@
-use std::rc::Rc;
 use super::*;
+use std::collections::{HashMap};
 use swc_common::{
     errors::{ColorConfig, Handler},
-    FileName, comments::{Comments}, SourceFile, BytePos
+    FileName, comments::{Comment, Comments}, SourceFile, BytePos
 };
 use swc_ecma_ast::{Module};
-use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget};
+use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget, token::{TokenAndSpan}};
 
 pub struct ParsedSourceFile {
-    pub comments: CommentCollection,
-    pub token_finder: TokenFinder,
     pub module: Module,
     pub info: SourceFile,
-    pub file_bytes: Rc<Vec<u8>>,
+    pub file_bytes: Vec<u8>,
+    pub tokens: Vec<TokenAndSpan>,
+    pub leading_comments: HashMap<BytePos, Vec<Comment>>,
+    pub trailing_comments: HashMap<BytePos, Vec<Comment>>,
 }
 
 pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, None);
     let session = Session { handler: &handler };
 
-    let file_bytes = Rc::new(file_text.as_bytes().to_vec());
+    let file_bytes = file_text.as_bytes().to_vec();
     let source_file = SourceFile::new(
         FileName::Custom(file_path.into()),
         false,
@@ -44,7 +45,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         let lexer = Capturing::new(lexer);
         let mut parser = Parser::new_from(session, lexer);
         let parse_module_result = parser.parse_module();
-        let tokens = Rc::new(parser.input().take());
+        let tokens = parser.input().take();
 
         match parse_module_result {
             Err(error) => {
@@ -55,12 +56,17 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         }
     }?;
 
-    let token_finder = TokenFinder::new(tokens.clone(), file_bytes.clone());
+    let (leading_comments, trailing_comments) = comments.take_all();
+
     return Ok(ParsedSourceFile {
-        comments: CommentCollection::new(comments, tokens, file_bytes.clone()),
+        // It is much more performant to look into HashMaps instead of CHashMaps
+        // because then locking on each comment lookup is not necessary. We don't
+        // need to support multi-threading so convert to HashMap.
+        leading_comments: leading_comments.into_iter().collect(),
+        trailing_comments: trailing_comments.into_iter().collect(),
         module,
         info: source_file,
-        token_finder,
+        tokens,
         file_bytes,
     });
 

@@ -10,9 +10,9 @@ use swc_ecma_parser::{token::{TokenAndSpan}};
 
 pub struct Context<'a> {
     pub config: TypeScriptConfiguration,
-    pub comments: CommentCollection,
-    pub token_finder: TokenFinder,
-    pub file_bytes: Rc<Vec<u8>>,
+    pub comments: CommentCollection<'a>,
+    pub token_finder: TokenFinder<'a>,
+    pub file_bytes: &'a Vec<u8>,
     pub current_node: Node<'a>,
     pub parent_stack: Stack<Node<'a>>,
     handled_comments: HashSet<BytePos>,
@@ -24,17 +24,18 @@ pub struct Context<'a> {
 impl<'a> Context<'a> {
     pub fn new(
         config: TypeScriptConfiguration,
-        comments: CommentCollection,
-        token_finder: TokenFinder,
-        file_bytes: Rc<Vec<u8>>,
+        leading_comments: &'a HashMap<BytePos, Vec<Comment>>,
+        trailing_comments: &'a HashMap<BytePos, Vec<Comment>>,
+        tokens: &'a Vec<TokenAndSpan>,
+        file_bytes: &'a Vec<u8>,
         current_node: Node<'a>,
         info: SourceFile
     ) -> Context<'a> {
         Context {
             config,
-            comments,
-            token_finder,
-            file_bytes: file_bytes,
+            comments: CommentCollection::new(leading_comments, trailing_comments, tokens, file_bytes),
+            token_finder: TokenFinder::new(tokens, file_bytes),
+            file_bytes,
             current_node,
             parent_stack: Stack::new(),
             handled_comments: HashSet::new(),
@@ -81,8 +82,8 @@ pub trait Ranged : Spanned {
     fn end_line(&self, context: &mut Context) -> usize;
     fn start_column(&self, context: &mut Context) -> usize;
     fn text<'a>(&self, context: &'a Context) -> &'a str;
-    fn leading_comments(&self, context: &mut Context) -> Vec<Comment>;
-    fn trailing_comments(&self, context: &mut Context) -> Vec<Comment>;
+    fn leading_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment>;
+    fn trailing_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment>;
 }
 
 impl<T> Ranged for T where T : Spanned {
@@ -119,11 +120,11 @@ impl<T> Ranged for T where T : Spanned {
         context.get_text(&span_data)
     }
 
-    fn leading_comments(&self, context: &mut Context) -> Vec<Comment> {
+    fn leading_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment> {
         context.comments.leading_comments(self.lo())
     }
 
-    fn trailing_comments(&self, context: &mut Context) -> Vec<Comment> {
+    fn trailing_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment> {
         context.comments.trailing_comments(self.hi())
     }
 }
@@ -132,7 +133,7 @@ macro_rules! generate_node {
     ($($node_name:ident),*) => {
         #[derive(Clone, PartialEq, Debug)]
         pub enum NodeKind {
-            $($node_name),*
+            $($node_name),*,
         }
 
         #[derive(Clone)]
@@ -179,8 +180,6 @@ macro_rules! generate_node {
         }
     };
 }
-
-pub type Unknown = Span;
 
 generate_node! [
     /* class */
@@ -346,9 +345,8 @@ generate_node! [
     TsTypeRef,
     TsUnionType,
     /* unknown */
-    TokenAndSpan,
-    Comment,
-    Unknown
+    Span,
+    TokenAndSpan
 ];
 
 /* custom enums */

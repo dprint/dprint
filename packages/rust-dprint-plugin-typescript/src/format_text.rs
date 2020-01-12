@@ -30,9 +30,11 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
     });
 
     fn should_format_file(file: &mut ParsedSourceFile) -> bool {
-        for comment in file.comments.leading_comments(get_search_position(&file)).iter() {
-            if comment.text.contains("dprint-ignore-file") {
-                return false;
+        if let Some(leading_comments) = file.leading_comments.get(&get_search_position(&file)) {
+            for comment in leading_comments.iter() {
+                if comment.text.contains("dprint-ignore-file") {
+                    return false;
+                }
             }
         }
 

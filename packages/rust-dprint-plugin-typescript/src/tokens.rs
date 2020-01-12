@@ -1,17 +1,16 @@
 use std::str;
-use std::rc::Rc;
 use super::*;
 use swc_common::{BytePos, Span, SpanData};
 use swc_ecma_parser::{token::{Token, TokenAndSpan, Word, Keyword, BinOpToken}};
 
-pub struct TokenFinder {
-    tokens: Rc<Vec<TokenAndSpan>>,
-    file_bytes: Rc<Vec<u8>>,
+pub struct TokenFinder<'a> {
+    tokens: &'a Vec<TokenAndSpan>,
+    file_bytes: &'a Vec<u8>,
     token_index: usize,
 }
 
-impl TokenFinder {
-    pub fn new(tokens: Rc<Vec<TokenAndSpan>>, file_bytes: Rc<Vec<u8>>) -> TokenFinder {
+impl<'a> TokenFinder<'a> {
+    pub fn new(tokens: &'a Vec<TokenAndSpan>, file_bytes: &'a Vec<u8>) -> TokenFinder<'a> {
         TokenFinder {
             tokens,
             file_bytes,
@@ -23,75 +22,75 @@ impl TokenFinder {
         self.file_bytes[pos.0 as usize] as char
     }
 
-    pub fn get_previous_token_if_open_paren(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_previous_token_if_open_paren(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_previous_token_if(node, |token| token.token == Token::LParen)
     }
 
-    fn get_previous_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+    fn get_previous_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
         let previous_token = self.get_previous_token(node)?;
         return if is_match(&previous_token) { Some(previous_token) } else { None };
     }
 
-    fn get_previous_token(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    fn get_previous_token(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_before(node, |_| true)
     }
 
-    pub fn get_next_token_if_comma(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_next_token_if_comma(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_next_token_if(node, |token| token.token == Token::Comma)
     }
 
-    fn get_next_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+    fn get_next_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
         let next_token = self.get_next_token(node)?;
         return if is_match(&next_token) { Some(next_token) } else { None };
     }
 
-    fn get_next_token(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    fn get_next_token(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_after(node, |_| true)
     }
 
-    pub fn get_first_open_paren_token_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_first_open_paren_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::LParen)
     }
 
-    pub fn get_first_open_brace_token_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_first_open_brace_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::LBrace)
     }
 
-    pub fn get_first_open_bracket_token_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_first_open_bracket_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::LBracket)
     }
 
-    pub fn get_first_comma_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_first_comma_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::Comma)
     }
 
-    pub fn get_first_semi_colon_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_first_semi_colon_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::Semi)
     }
 
-    pub fn get_first_colon_token_after(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_first_colon_token_after(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_after(node, |token| token.token == Token::Colon)
     }
 
-    pub fn get_first_operator_after(&mut self, node: &dyn Ranged, operator_text: &str) -> Option<TokenAndSpan> {
+    pub fn get_first_operator_after(&mut self, node: &dyn Ranged, operator_text: &str) -> Option<&'a TokenAndSpan> {
         self.get_first_token_after_with_text(node, operator_text)
     }
 
-    pub fn get_first_keyword_after(&mut self, node: &dyn Ranged, keyword_text: &str) -> Option<TokenAndSpan> {
+    pub fn get_first_keyword_after(&mut self, node: &dyn Ranged, keyword_text: &str) -> Option<&'a TokenAndSpan> {
         self.get_first_token_after_with_text(node, keyword_text)
     }
 
-    fn get_first_token_after_with_text(&mut self, node: &dyn Ranged, text: &str) -> Option<TokenAndSpan> {
-        let file_bytes = self.file_bytes.clone();
-        self.get_first_token_after(node, |token| get_text(&file_bytes, &token.span.data()) == text)
+    fn get_first_token_after_with_text(&mut self, node: &dyn Ranged, text: &str) -> Option<&'a TokenAndSpan> {
+        let file_bytes = self.file_bytes;
+        self.get_first_token_after(node, |token| get_text(file_bytes, &token.span.data()) == text)
     }
 
-    pub fn get_first_else_keyword_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        let file_bytes = self.file_bytes.clone();
-        self.get_first_token_within(node, |token| get_text(&file_bytes, &token.span.data()) == "else")
+    pub fn get_first_else_keyword_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        let file_bytes = self.file_bytes;
+        self.get_first_token_within(node, |token| get_text(file_bytes, &token.span.data()) == "else")
     }
 
-    pub fn get_first_open_brace_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+    pub fn get_first_open_brace_token_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_before(node, |token| token.token == Token::LBrace)
     }
 
@@ -113,44 +112,44 @@ impl TokenFinder {
         }
     }
 
-    fn get_first_token_before<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool{
+    fn get_first_token_before<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool{
         let pos = node.lo();
         if self.tokens.is_empty() { return None; }
         self.move_to_node_pos(pos);
 
         if self.tokens[self.token_index].lo() < pos {
             let current_token = &self.tokens[self.token_index];
-            if is_match(&current_token) {
-                return Some(current_token.clone());
+            if is_match(current_token) {
+                return Some(current_token);
             }
         }
 
         while self.try_decrement_index() {
             let current_token = &self.tokens[self.token_index];
-            if is_match(&current_token) {
-                return Some(current_token.clone());
+            if is_match(current_token) {
+                return Some(current_token);
             }
         }
 
         return None;
     }
 
-    fn get_first_token_after<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+    fn get_first_token_after<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&'a TokenAndSpan) -> bool {
         let end = node.hi();
         if self.tokens.is_empty() { return None; }
         self.move_to_node_end(end);
 
         while self.try_increment_index() {
             let current_token = &self.tokens[self.token_index];
-            if is_match(&current_token) {
-                return Some(current_token.clone());
+            if is_match(current_token) {
+                return Some(current_token);
             }
         }
 
         return None;
     }
 
-    fn get_first_token_within<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+    fn get_first_token_within<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&'a TokenAndSpan) -> bool {
         let node_span_data = node.span().data();
         let pos = node_span_data.lo;
         let end = node_span_data.hi;
@@ -162,8 +161,8 @@ impl TokenFinder {
             let token_pos = current_token.span.data().lo;
             if token_pos >= end {
                 break;
-            } else if is_match(&current_token) {
-                return Some(current_token.clone());
+            } else if is_match(current_token) {
+                return Some(current_token);
             }
 
             if !self.try_increment_index() {
@@ -225,7 +224,7 @@ impl TokenFinder {
     }
 }
 
-fn get_text<'a>(file_bytes: &'a Rc<Vec<u8>>, span_data: &SpanData) -> &'a str {
+fn get_text<'a>(file_bytes: &'a Vec<u8>, span_data: &SpanData) -> &'a str {
     let bytes = &file_bytes[(span_data.lo.0 as usize)..(span_data.hi.0 as usize)];
     str::from_utf8(&bytes).unwrap()
 }

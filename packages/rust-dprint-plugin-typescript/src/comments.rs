@@ -4,26 +4,28 @@ use super::*;
 use swc_common::{BytePos, comments::{Comments, Comment, CommentMap}};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
-pub struct CommentCollection {
-    leading: HashMap<BytePos, Vec<Comment>>,
-    trailing: HashMap<BytePos, Vec<Comment>>,
-    token_finder: TokenFinder,
-    file_bytes: Rc<Vec<u8>>,
-    tokens: Rc<Vec<TokenAndSpan>>,
+pub struct CommentCollection<'a> {
+    leading: &'a HashMap<BytePos, Vec<Comment>>,
+    trailing: &'a HashMap<BytePos, Vec<Comment>>,
+    token_finder: TokenFinder<'a>,
+    file_bytes: &'a Vec<u8>,
+    tokens: &'a Vec<TokenAndSpan>,
     token_index: usize,
 }
 
-impl CommentCollection {
-    pub fn new(comments: Comments, tokens: Rc<Vec<TokenAndSpan>>, file_bytes: Rc<Vec<u8>>) -> CommentCollection {
-        let (leading, trailing) = comments.take_all();
+impl<'a> CommentCollection<'a> {
+    pub fn new(
+        leading: &'a HashMap<BytePos, Vec<Comment>>,
+        trailing: &'a HashMap<BytePos, Vec<Comment>>,
+        tokens: &'a Vec<TokenAndSpan>,
+        file_bytes: &'a Vec<u8>
+    ) -> CommentCollection<'a> {
         // println!("Leading: {:?}", leading);
         // println!("Trailing: {:?}", trailing);
         CommentCollection {
-            // It is much more performant to use HashMaps here instead of CHashMaps
-            // because then locking on each comment lookup is not necessary.
-            leading: leading.into_iter().collect(),
-            trailing: trailing.into_iter().collect(),
-            token_finder: TokenFinder::new(tokens.clone(), file_bytes.clone()),
+            leading: leading,
+            trailing: trailing,
+            token_finder: TokenFinder::new(tokens, file_bytes),
             file_bytes,
             tokens,
             token_index: 0,
@@ -31,7 +33,7 @@ impl CommentCollection {
     }
 
     /// Gets the leading comments and all previously unhandled comments.
-    pub fn leading_comments_with_previous(&mut self, pos: BytePos) -> Vec<Comment> {
+    pub fn leading_comments_with_previous(&mut self, pos: BytePos) -> Vec<&'a Comment> {
         let mut result = Vec::new();
 
         if self.token_index == 0 {
@@ -63,7 +65,7 @@ impl CommentCollection {
     }
 
     /// Gets the trailing comments and all previously unhandled comments
-    pub fn trailing_comments_with_previous(&mut self, end: BytePos) -> Vec<Comment> {
+    pub fn trailing_comments_with_previous(&mut self, end: BytePos) -> Vec<&'a Comment> {
         let mut result = Vec::new();
 
         loop {
@@ -96,15 +98,15 @@ impl CommentCollection {
         return result;
     }
 
-    pub fn leading_comments(&mut self, pos: BytePos) -> Vec<Comment> {
-        let mut result: Vec<Comment> = Vec::new();
+    pub fn leading_comments(&mut self, pos: BytePos) -> Vec<&'a Comment> {
+        let mut result = Vec::new();
         let previous_token_end = self.token_finder.get_previous_token_end_before(&pos);
         self.append_trailing(&mut result, &previous_token_end);
         self.append_leading(&mut result, &pos);
         return result;
     }
 
-    pub fn trailing_comments(&mut self, end: BytePos) -> Vec<Comment> {
+    pub fn trailing_comments(&mut self, end: BytePos) -> Vec<&'a Comment> {
         let mut result = Vec::new();
         self.append_trailing(&mut result, &end);
         let end_pos = self.token_finder.get_next_token_pos_after(&end);
@@ -112,15 +114,15 @@ impl CommentCollection {
         return result;
     }
 
-    fn append_trailing(&self, result: &mut Vec<Comment>, pos: &BytePos) {
+    fn append_trailing(&self, result: &mut Vec<&'a Comment>, pos: &BytePos) {
         if let Some(comments) = self.trailing.get(&pos) {
-            result.extend(comments.iter().map(|c| c.clone()));
+            result.extend(comments.iter());
         }
     }
 
-    fn append_leading(&self, result: &mut Vec<Comment>, pos: &BytePos) {
+    fn append_leading(&self, result: &mut Vec<&'a Comment>, pos: &BytePos) {
         if let Some(comments) = self.leading.get(&pos) {
-            result.extend(comments.iter().map(|c| c.clone()));
+            result.extend(comments.iter());
         }
     }
 }

@@ -35,11 +35,11 @@ pub fn get_use_new_lines_for_nodes(first_node: &dyn Ranged, second_node: &dyn Ra
     return first_node.end_line(context) != second_node.start_line(context);
 }
 
-pub fn has_leading_comment_on_different_line(node: &dyn Ranged, comments_to_ignore: Option<&Vec<Comment>>, context: &mut Context) -> bool {
+pub fn has_leading_comment_on_different_line<'a>(node: &dyn Ranged, comments_to_ignore: Option<&Vec<&'a Comment>>, context: &mut Context<'a>) -> bool {
     get_leading_comment_on_different_line(node, comments_to_ignore, context).is_some()
 }
 
-pub fn get_leading_comment_on_different_line(node: &dyn Ranged, comments_to_ignore: Option<&Vec<Comment>>, context: &mut Context) -> Option<Comment> {
+pub fn get_leading_comment_on_different_line<'a>(node: &dyn Ranged, comments_to_ignore: Option<&Vec<&'a Comment>>, context: &mut Context<'a>) -> Option<&'a Comment> {
     let comments_to_ignore: Option<Vec<BytePos>> = comments_to_ignore.map(|x| x.iter().map(|c| c.lo()).collect());
     let node_start_line = node.start_line(context);
     for comment in node.leading_comments(context) {

@@ -12,9 +12,10 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
         config,
-        source_file.comments,
-        source_file.token_finder,
-        source_file.file_bytes,
+        &source_file.leading_comments,
+        &source_file.trailing_comments,
+        &source_file.tokens,
+        &source_file.file_bytes,
         module,
         source_file.info
     );
@@ -214,14 +215,11 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::TsTypeRef(node) => parse_type_reference(node, context),
             Node::TsUnionType(node) => parse_union_type(node, context),
             /* unknown */
-            Node::TokenAndSpan(span) => vec![context.get_text(&span.span.data()).into()],
-            Node::Comment(comment) => vec![context.get_text(&comment.span.data()).into()],
-            Node::Unknown(span) => vec![context.get_text(&span.data()).into()],
             _ => vec![node.text(context).into()]
         }
     }
 
-    fn get_has_ignore_comment(leading_comments: &Vec<Comment>) -> bool {
+    fn get_has_ignore_comment<'a>(leading_comments: &Vec<&'a Comment>) -> bool {
         if let Some(last_comment) = leading_comments.last() {
             let searching_text = "dprint-ignore";
             let pos = last_comment.text.find(searching_text);
@@ -675,7 +673,7 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
 
         items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
             brace_position: brace_position,
-            open_brace_token: &open_brace_token,
+            open_brace_token: open_brace_token,
             start_header_info: Some(start_header_info),
         }, context));
 
@@ -967,7 +965,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
     };
     items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
         brace_position: context.config.arrow_function_expression_brace_position,
-        open_brace_token: &open_brace_token,
+        open_brace_token: open_brace_token,
         start_header_info: Some(header_start_info),
     }, context));
 
@@ -1494,7 +1492,7 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Vec<P
 fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
     let expr_span = &(*node.expr).span();
     return vec![conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
-        expr_span,
+        (&node.expr).into(),
         parse_node((&node.expr).into(), context),
         context
     )).into()];
@@ -2097,7 +2095,7 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
         let brace_position = get_brace_position(&node.kind, context);
         items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
             brace_position: brace_position,
-            open_brace_token: &context.token_finder.get_first_open_brace_token_within(&body),
+            open_brace_token: context.token_finder.get_first_open_brace_token_within(&body),
             start_header_info: Some(start_header_info),
         }, context));
         items.extend(parse_node(body, context));
@@ -2237,7 +2235,7 @@ fn parse_do_while_stmt<'a>(node: &'a DoWhileStmt, context: &mut Context<'a>) -> 
     items.push("do".into());
     items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
         brace_position: context.config.do_while_statement_brace_position,
-        open_brace_token: &if let Stmt::Block(_) = &*node.body { context.token_finder.get_first_open_brace_token_within(&node) } else { None },
+        open_brace_token: if let Stmt::Block(_) = &*node.body { context.token_finder.get_first_open_brace_token_within(&node) } else { None },
         start_header_info: None,
     }, context));
     items.extend(parse_node((&node.body).into(), context));
@@ -2245,8 +2243,7 @@ fn parse_do_while_stmt<'a>(node: &'a DoWhileStmt, context: &mut Context<'a>) -> 
     if context.config.do_while_statement_space_after_while_keyword {
         items.push(" ".into());
     }
-    let test_span = &(*node.test).span();
-    items.extend(parse_node_in_parens(test_span, parse_node((&node.test).into(), context), context));
+    items.extend(parse_node_in_parens((&node.test).into(), parse_node((&node.test).into(), context), context));
     if context.config.do_while_statement_semi_colon {
         items.push(";".into());
     }
@@ -2358,11 +2355,11 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> Vec<Print
     if context.config.for_statement_space_after_for_keyword {
         items.push(" ".into());
     }
-    items.extend(parse_node_in_parens(&{
+    items.extend(parse_node_in_parens({
         if let Some(init) = &node.init {
-            init.span()
+            init.into()
         } else {
-            context.token_finder.get_first_semi_colon_within(&node).expect("Expected to find a semi-colon within the for stmt.").span()
+            context.token_finder.get_first_semi_colon_within(&node).expect("Expected to find a semi-colon within the for stmt.").into()
         }
     }, {
         let mut items = Vec::new();
@@ -2420,8 +2417,7 @@ fn parse_for_in_stmt<'a>(node: &'a ForInStmt, context: &mut Context<'a>) -> Vec<
     if context.config.for_in_statement_space_after_for_keyword {
         items.push(" ".into());
     }
-    let left_span = node.left.span();
-    items.extend(parse_node_in_parens(&left_span, {
+    items.extend(parse_node_in_parens((&node.left).into(), {
         let mut items = Vec::new();
         items.extend(parse_node((&node.left).into(), context));
         items.push(PrintItem::SpaceOrNewLine);
@@ -2463,8 +2459,7 @@ fn parse_for_of_stmt<'a>(node: &'a ForOfStmt, context: &mut Context<'a>) -> Vec<
         items.extend(parse_node(await_token.into(), context));
         items.push(" ".into());
     }
-    let left_span = node.left.span();
-    items.extend(parse_node_in_parens(&left_span, {
+    items.extend(parse_node_in_parens((&node.left).into(), {
         let mut items = Vec::new();
         items.extend(parse_node((&node.left).into(), context));
         items.push(PrintItem::SpaceOrNewLine);
@@ -2505,8 +2500,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> Vec<PrintIt
             items.push("if".into());
             if context.config.if_statement_space_after_if_keyword { items.push(" ".into()); }
             let test = &*node.test;
-            let test_span = test.span();
-            items.extend(parse_node_in_parens(&test_span, parse_node(test.into(), context), context));
+            items.extend(parse_node_in_parens(test.into(), parse_node(test.into(), context), context));
             items
         },
         use_braces: context.config.if_statement_use_braces,
@@ -2522,7 +2516,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> Vec<PrintIt
 
         // parse the leading comments before the else keyword
         let else_keyword = context.token_finder.get_first_else_keyword_within(&Span::new(cons_span.hi(), alt.lo(), Default::default())).expect("Expected to find an else keyword.");
-        items.extend(parse_leading_comments(&else_keyword, context));
+        items.extend(parse_leading_comments(else_keyword, context));
         items.extend(parse_leading_comments(&alt, context));
 
         let start_else_header_info = Info::new("startElseHeader");
@@ -2583,8 +2577,7 @@ fn parse_switch_stmt<'a>(node: &'a SwitchStmt, context: &mut Context<'a>) -> Vec
     let mut items = Vec::new();
     items.push(start_header_info.clone().into());
     items.push("switch ".into());
-    let discriminate_span = node.discriminant.span();
-    items.extend(parse_node_in_parens(&discriminate_span, parse_node((&node.discriminant).into(), context), context));
+    items.extend(parse_node_in_parens((&node.discriminant).into(), parse_node((&node.discriminant).into(), context), context));
     items.extend(parse_membered_body(ParseMemberedBodyOptions {
         span: node.span,
         members: node.cases.iter().map(|x| x.into()).collect(),
@@ -2622,7 +2615,7 @@ fn parse_switch_case<'a>(node: &'a SwitchCase, context: &mut Context<'a>) -> Vec
         if let Some(block_stmt_body) = block_stmt_body {
             items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
                 brace_position: context.config.switch_case_brace_position,
-                open_brace_token: &context.token_finder.get_first_open_brace_token_within(&block_stmt_body),
+                open_brace_token: context.token_finder.get_first_open_brace_token_within(&block_stmt_body),
                 start_header_info: None,
             }, context));
             items.extend(parse_node(node.cons.iter().next().unwrap().into(), context));
@@ -2698,7 +2691,7 @@ fn parse_try_stmt<'a>(node: &'a TryStmt, context: &mut Context<'a>) -> Vec<Print
     items.push("try".into());
     items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
         brace_position: brace_position,
-        open_brace_token: &context.token_finder.get_first_open_brace_token_within(&node.block),
+        open_brace_token: context.token_finder.get_first_open_brace_token_within(&node.block),
         start_header_info: None,
     }, context));
     items.extend(parse_node((&node.block).into(), context));
@@ -2714,7 +2707,7 @@ fn parse_try_stmt<'a>(node: &'a TryStmt, context: &mut Context<'a>) -> Vec<Print
         items.push("finally".into());
         items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
             brace_position: brace_position,
-            open_brace_token: &context.token_finder.get_first_open_brace_token_within(&finalizer),
+            open_brace_token: context.token_finder.get_first_open_brace_token_within(&finalizer),
             start_header_info: None,
         }, context));
         items.extend(parse_node(finalizer.into(), context));
@@ -2776,8 +2769,7 @@ fn parse_while_stmt<'a>(node: &'a WhileStmt, context: &mut Context<'a>) -> Vec<P
     if context.config.while_statement_space_after_while_keyword {
         items.push(" ".into());
     }
-    let test_span = &node.test.span();
-    items.extend(parse_node_in_parens(test_span, parse_node((&node.test).into(), context), context));
+    items.extend(parse_node_in_parens((&node.test).into(), parse_node((&node.test).into(), context), context));
     items.push(end_header_info.clone().into());
     items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {
         parent: &node.span,
@@ -2998,9 +2990,8 @@ fn parse_qualified_name<'a>(node: &'a TsQualifiedName, context: &mut Context<'a>
 }
 
 fn parse_parenthesized_type<'a>(node: &'a TsParenthesizedType, context: &mut Context<'a>) -> Vec<PrintItem> {
-    let type_ann_span = &(*node.type_ann).span();
     vec![conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
-        type_ann_span,
+        (&node.type_ann).into(),
         parse_node((&node.type_ann).into(), context),
         context
     )).into()]
@@ -3203,7 +3194,7 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
 
     return items;
 
-    fn get_separator_token(separator: &str, last_type_node: &dyn Ranged, parent: &dyn Ranged, context: &mut Context) -> Option<TokenAndSpan> {
+    fn get_separator_token<'a>(separator: &str, last_type_node: &dyn Ranged, parent: &dyn Ranged, context: &mut Context<'a>) -> Option<&'a TokenAndSpan> {
         let token = context.token_finder.get_first_operator_after(last_type_node, separator);
         if let Some(token) = &token {
             if token.lo() > parent.hi() {
@@ -3232,7 +3223,7 @@ fn parse_leading_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> 
     parse_comments_as_leading(node, leading_comments, context)
 }
 
-fn parse_comments_as_leading<'a>(node: &dyn Spanned, comments: Vec<Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_comments_as_leading<'a>(node: &dyn Spanned, comments: Vec<&'a Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
     if comments.is_empty() {
         return vec![];
     }
@@ -3266,7 +3257,7 @@ fn parse_trailing_comments_as_statements<'a>(node: &dyn Spanned, context: &mut C
     parse_comment_collection(unhandled_comments, Some(node), context)
 }
 
-fn get_trailing_comments_as_statements(node: &dyn Spanned, context: &mut Context) -> Vec<Comment> {
+fn get_trailing_comments_as_statements<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> Vec<&'a Comment> {
     let mut items = Vec::new();
     let node_end_line = node.end_line(context);
     for comment in node.trailing_comments(context) {
@@ -3277,7 +3268,7 @@ fn get_trailing_comments_as_statements(node: &dyn Spanned, context: &mut Context
     items
 }
 
-fn parse_comment_collection(comments: Vec<Comment>, last_node: Option<&dyn Spanned>, context: &mut Context) -> Vec<PrintItem> {
+fn parse_comment_collection<'a>(comments: Vec<&'a Comment>, last_node: Option<&dyn Spanned>, context: &mut Context<'a>) -> Vec<PrintItem> {
     let mut last_node = last_node;
     let mut items = Vec::new();
     for comment in comments.iter() {
@@ -3382,7 +3373,7 @@ fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Opti
 
     return items;
 
-    fn get_comments(node: &dyn Spanned, first_member: &Option<&dyn Spanned>, context: &mut Context) -> Vec<Comment> {
+    fn get_comments<'a>(node: &dyn Spanned, first_member: &Option<&dyn Spanned>, context: &mut Context<'a>) -> Vec<&'a Comment> {
         let mut comments = Vec::new();
         // todo: inner comments?
         if let Some(first_member) = first_member {
@@ -3399,10 +3390,10 @@ fn parse_trailing_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) ->
     parse_comments_as_trailing(node, trailing_comments, context)
 }
 
-fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Vec<Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Vec<&'a Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
     // use the roslyn definition of trailing comments
     let node_end_line = node.end_line(context);
-    let trailing_comments_on_same_line = trailing_comments.into_iter().filter(|c| c.start_line(context) == node_end_line).collect::<Vec<Comment>>();
+    let trailing_comments_on_same_line = trailing_comments.into_iter().filter(|c| c.start_line(context) == node_end_line).collect::<Vec<&'a Comment>>();
     let first_unhandled_comment = trailing_comments_on_same_line.iter().filter(|c| !context.has_handled_comment(&c)).next();
     let mut items = Vec::new();
 
@@ -3479,10 +3470,10 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
         }
         return items;
 
-        fn get_comma_token(parent_span: &Span, element: &Option<Node>, context: &mut Context) -> Option<TokenAndSpan> {
+        fn get_comma_token<'a>(parent_span: &Span, element: &Option<Node<'a>>, context: &mut Context<'a>) -> Option<&'a TokenAndSpan> {
             if let Some(element) = &element {
                 let comma_token = context.token_finder.get_next_token_if_comma(&element);
-                if let Some(comma_token) = &comma_token {
+                if let Some(comma_token) = comma_token {
                     if comma_token.lo() > parent_span.hi() {
                         return None;
                     }
@@ -3531,7 +3522,7 @@ fn parse_membered_body<'a>(opts: ParseMemberedBodyOptions<'a>, context: &mut Con
 
     items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
         brace_position: opts.brace_position,
-        open_brace_token: &open_brace_token,
+        open_brace_token: open_brace_token,
         start_header_info: opts.start_header_info,
     }, context));
 
@@ -3846,7 +3837,7 @@ fn parse_node_with_preceeding_colon<'a>(node: Option<Node<'a>>, context: &mut Co
 
 struct ParseBraceSeparatorOptions<'a> {
     brace_position: BracePosition,
-    open_brace_token: &'a Option<TokenAndSpan>,
+    open_brace_token: Option<&'a TokenAndSpan>,
     start_header_info: Option<Info>,
 }
 
@@ -3883,7 +3874,7 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
     }
 }
 
-fn parse_node_in_parens<'a>(first_inner_node: &dyn Ranged, inner_parsed_node: Vec<PrintItem>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_node_in_parens<'a>(first_inner_node: Node<'a>, inner_parsed_node: Vec<PrintItem>, context: &mut Context<'a>) -> Vec<PrintItem> {
     let open_paren_token = context.token_finder.get_previous_token_if_open_paren(&first_inner_node);
     let use_new_lines = {
         if let Some(open_paren_token) = &open_paren_token {
@@ -3892,8 +3883,6 @@ fn parse_node_in_parens<'a>(first_inner_node: &dyn Ranged, inner_parsed_node: Ve
             false
         }
     };
-
-    // todo: disable indent?
 
     return wrap_in_parens(inner_parsed_node, use_new_lines, context);
 }
@@ -4140,7 +4129,7 @@ struct ParseConditionalBraceBodyOptions<'a> {
     brace_position: BracePosition,
     single_body_position: Option<SingleBodyPosition>,
     requires_braces_condition: Option<Condition>,
-    header_start_token: Option<TokenAndSpan>,
+    header_start_token: Option<&'a TokenAndSpan>,
     start_header_info: Option<Info>,
     end_header_info: Option<Info>,
 }
@@ -4194,12 +4183,12 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
             let end_header_info = end_header_info.clone();
             let start_statements_info = start_statements_info.clone();
             let end_statements_info = end_statements_info.clone();
-            let open_brace_token = open_brace_token.clone();
+            let has_open_brace_token = open_brace_token.is_some();
             let newline_or_space_condition = newline_or_space_condition.clone();
             Box::new(move |condition_context| {
                 match use_braces {
                     UseBraces::WhenNotSingleLine => condition_context.get_resolved_condition(&newline_or_space_condition),
-                    UseBraces::Maintain => Some(open_brace_token.is_some()),
+                    UseBraces::Maintain => Some(has_open_brace_token),
                     UseBraces::Always => Some(true),
                     UseBraces::PreferNone => {
                         // writing an open brace might make the header hang, so assume it should
@@ -4235,7 +4224,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
             let mut items = Vec::new();
             items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
                 brace_position: opts.brace_position,
-                open_brace_token: &open_brace_token,
+                open_brace_token: open_brace_token,
                 start_header_info: start_header_info.clone(),
             }, context));
             items.push("{".into());
@@ -4308,13 +4297,13 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         open_brace_condition,
     };
 
-    fn get_should_use_new_line(
+    fn get_should_use_new_line<'a>(
         body_node: &Node,
         body_should_be_multi_line: bool,
         single_body_position: &Option<SingleBodyPosition>,
-        header_start_token: &Option<TokenAndSpan>,
+        header_start_token: &Option<&'a TokenAndSpan>,
         parent: &Span,
-        context: &mut Context
+        context: &mut Context<'a>
     ) -> bool {
         if body_should_be_multi_line {
             return true;
@@ -4346,7 +4335,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
             return body_node.start_line(context);
         }
 
-        fn get_header_start_line(header_start_token: &Option<TokenAndSpan>, parent: &Span, context: &mut Context) -> usize {
+        fn get_header_start_line<'a>(header_start_token: &Option<&'a TokenAndSpan>, parent: &Span, context: &mut Context<'a>) -> usize {
             if let Some(header_start_token) = header_start_token {
                 return header_start_token.start_line(context);
             }
@@ -4354,7 +4343,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         }
     }
 
-    fn get_body_should_be_multi_line(body_node: &Node, header_trailing_comments: &Vec<Comment>, context: &mut Context) -> bool {
+    fn get_body_should_be_multi_line<'a>(body_node: &Node<'a>, header_trailing_comments: &Vec<&'a Comment>, context: &mut Context<'a>) -> bool {
         let mut has_leading_comment_on_different_line = |node: &dyn Ranged| {
             node_helpers::has_leading_comment_on_different_line(
                 node,
@@ -4372,7 +4361,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         }
     }
 
-    fn get_header_trailing_comments(body_node: &Node, context: &mut Context) -> Vec<Comment> {
+    fn get_header_trailing_comments<'a>(body_node: &Node<'a>, context: &mut Context<'a>) -> Vec<&'a Comment> {
         let mut comments = Vec::new();
         if let Node::BlockStmt(block_stmt) = body_node {
             let open_brace_token = context.token_finder.get_first_open_brace_token_within(&block_stmt);
@@ -4394,7 +4383,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         return comments;
     }
 
-    fn get_open_brace_token(body_node: &Node, context: &mut Context) -> Option<TokenAndSpan> {
+    fn get_open_brace_token<'a>(body_node: &Node<'a>, context: &mut Context<'a>) -> Option<&'a TokenAndSpan> {
         if let Node::BlockStmt(block_stmt) = body_node {
             context.token_finder.get_first_open_brace_token_within(&block_stmt)
         } else {
