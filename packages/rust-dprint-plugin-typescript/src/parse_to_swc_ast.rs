@@ -57,7 +57,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
 
     let token_finder = TokenFinder::new(tokens.clone(), file_bytes.clone());
     return Ok(ParsedSourceFile {
-        comments: CommentCollection::new(comments, TokenFinder::new(tokens, file_bytes.clone())),
+        comments: CommentCollection::new(comments, tokens, file_bytes.clone()),
         module,
         info: source_file,
         token_finder,

@@ -8,8 +8,6 @@ use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span, SpanData};
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
-// todo: re-evaluate node_with_inner_parse (was useful for babel, but maybe not for swc)
-
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
@@ -50,10 +48,12 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
 
     let node_span = node.span();
     let node_hi = node_span.hi();
-    items.extend(parse_leading_comments(&node, context));
+    let leading_comments = context.comments.leading_comments_with_previous(node_span.lo());
+    items.extend(parse_comments_as_leading(&node_span, leading_comments, context));
     items.extend(inner_parse(parse_node_inner(node, context)));
     if context.parent().kind() == NodeKind::Module || node_hi != parent_hi {
-        items.extend(parse_trailing_comments(&node_span, context));
+        let trailing_comments = context.comments.trailing_comments_with_previous(node_hi);
+        items.extend(parse_comments_as_trailing(&node_span, trailing_comments, context));
     }
 
     // pop info
@@ -3429,9 +3429,13 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
         let comma_token = get_comma_token(parent_span, &element, context);
 
         if let Some(element) = element {
-            items.extend(parse_node(element, context));
+            items.extend(parse_node_with_inner_parse(element, context, move |mut items| {
+                if has_comma { items.push(",".into()); }
+                items
+            }));
+        } else if has_comma {
+            items.push(",".into());
         }
-        if has_comma { items.push(",".into()); }
 
         // get the trailing comments after the comma token
         if let Some(comma_token) = &comma_token {
