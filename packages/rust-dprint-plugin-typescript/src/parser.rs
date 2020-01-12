@@ -49,8 +49,16 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     let node_span = node.span();
     let node_hi = node_span.hi();
     let leading_comments = context.comments.leading_comments_with_previous(node_span.lo());
+    let has_ignore_comment = get_has_ignore_comment(&leading_comments);
+
     items.extend(parse_comments_as_leading(&node_span, leading_comments, context));
-    items.extend(inner_parse(parse_node_inner(node, context)));
+
+    items.extend(if has_ignore_comment {
+        parser_helpers::parse_raw_string(&node.text(context))
+    } else {
+        inner_parse(parse_node_inner(node, context))
+    });
+
     if context.parent().kind() == NodeKind::Module || node_hi != parent_hi {
         let trailing_comments = context.comments.trailing_comments_with_previous(node_hi);
         items.extend(parse_comments_as_trailing(&node_span, trailing_comments, context));
@@ -210,6 +218,34 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::Comment(comment) => vec![context.get_text(&comment.span.data()).into()],
             Node::Unknown(span) => vec![context.get_text(&span.data()).into()],
             _ => vec![node.text(context).into()]
+        }
+    }
+
+    fn get_has_ignore_comment(leading_comments: &Vec<Comment>) -> bool {
+        if let Some(last_comment) = leading_comments.last() {
+            let searching_text = "dprint-ignore";
+            let pos = last_comment.text.find(searching_text);
+            if let Some(pos) = pos {
+                let end = pos + searching_text.len();
+                if pos > 0 && is_alpha_numeric_at_pos(&last_comment.text, pos - 1) {
+                    return false;
+                }
+                if is_alpha_numeric_at_pos(&last_comment.text, end) {
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        return false;
+
+        fn is_alpha_numeric_at_pos(text: &String, pos: usize) -> bool {
+            if let Some(chars_after) = text.get(pos..) {
+                if let Some(char_after) = chars_after.chars().next() {
+                    return char_after.is_alphanumeric();
+                }
+            }
+            return false;
         }
     }
 }

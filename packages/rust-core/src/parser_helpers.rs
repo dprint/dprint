@@ -43,7 +43,7 @@ pub fn if_true_or(
     }).into()
 }
 
-pub fn parse_raw_string(text: &String) -> Vec<PrintItem> {
+pub fn parse_raw_string(text: &str) -> Vec<PrintItem> {
     let mut items: Vec<PrintItem> = Vec::new();
     let mut has_ignored_indent = false;
     let lines = text.lines().collect::<Vec<&str>>();
