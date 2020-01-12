@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::rc::Rc;
 use super::*;
 use swc_common::{
     errors::{ColorConfig, Handler},
-    FileName, comments::{Comment, Comments}, SourceFile, BytePos
+    FileName, comments::{Comments}, SourceFile, BytePos
 };
 use swc_ecma_ast::{Module};
 use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget};
@@ -17,8 +16,6 @@ pub struct ParsedSourceFile {
 }
 
 pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
-    println!("Parsing AST....");
-    // todo: investigate if there's more of a lightweight way to do this or if this doesn't matter
     let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, None);
     let session = Session { handler: &handler };
 
@@ -32,7 +29,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
     );
 
     let comments: Comments = Default::default();
-    let module = {
+    let (module, tokens) = {
         let mut ts_config: swc_ecma_parser::TsConfig = Default::default();
         ts_config.tsx = should_parse_as_jsx(file_path);
         ts_config.dynamic_import = true;
@@ -44,21 +41,23 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
             SourceFileInput::from(&source_file),
             Some(&comments)
         );
+        let lexer = Capturing::new(lexer);
         let mut parser = Parser::new_from(session, lexer);
         let parse_module_result = parser.parse_module();
+        let tokens = Rc::new(parser.input().take());
 
         match parse_module_result {
             Err(error) => {
                 println!("Error: {}", error.message());
                 Err(error.message())
             },
-            Ok(module) => Ok(module)
+            Ok(module) => Ok((module, tokens))
         }
     }?;
 
-    let token_finder = TokenFinder::new(file_bytes.clone());
+    let token_finder = TokenFinder::new(tokens.clone(), file_bytes.clone());
     return Ok(ParsedSourceFile {
-        comments: CommentCollection::new(comments, TokenFinder::new(file_bytes.clone())),
+        comments: CommentCollection::new(comments, TokenFinder::new(tokens, file_bytes.clone())),
         module,
         info: source_file,
         token_finder,

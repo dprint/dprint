@@ -36,8 +36,8 @@ impl CommentCollection {
 
     pub fn leading_comments(&mut self, pos: BytePos) -> Vec<Comment> {
         let mut result: Vec<Comment> = Vec::new();
-        let token_pos = self.token_finder.get_previous_token_pos_before(&pos);
-        if let Some(comments) = self.trailing.get(&token_pos) {
+        let previous_token_end = self.token_finder.get_previous_token_end_before(&pos);
+        if let Some(comments) = self.trailing.get(&previous_token_end) {
             result.extend(comments.iter().map(|c| c.clone()));
         }
         if let Some(comments) = self.leading.get(&pos) {
