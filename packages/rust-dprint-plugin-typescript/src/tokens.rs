@@ -23,6 +23,32 @@ impl TokenFinder {
         self.file_bytes[pos.0 as usize] as char
     }
 
+    pub fn get_previous_token_if_open_paren(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_previous_token_if(node, |token| token.token == Token::LParen)
+    }
+
+    fn get_previous_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+        let previous_token = self.get_previous_token(node)?;
+        return if is_match(&previous_token) { Some(previous_token) } else { None };
+    }
+
+    fn get_previous_token(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_before(node, |_| true)
+    }
+
+    pub fn get_next_token_if_comma(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_next_token_if(node, |token| token.token == Token::Comma)
+    }
+
+    fn get_next_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+        let next_token = self.get_next_token(node)?;
+        return if is_match(&next_token) { Some(next_token) } else { None };
+    }
+
+    fn get_next_token(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
+        self.get_first_token_after(node, |_| true)
+    }
+
     pub fn get_first_open_paren_token_within(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::LParen)
     }
@@ -47,10 +73,6 @@ impl TokenFinder {
         self.get_first_token_after(node, |token| token.token == Token::Colon)
     }
 
-    pub fn get_first_comma_after(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_after(node, |token| token.token == Token::Comma)
-    }
-
     pub fn get_first_operator_after(&mut self, node: &dyn Ranged, operator_text: &str) -> Option<TokenAndSpan> {
         self.get_first_token_after_with_text(node, operator_text)
     }
@@ -69,16 +91,12 @@ impl TokenFinder {
         self.get_first_token_within(node, |token| get_text(&file_bytes, &token.span.data()) == "else")
     }
 
-    pub fn get_first_open_paren_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
-        self.get_first_token_before(node, |token| token.token == Token::LParen)
-    }
-
     pub fn get_first_open_brace_token_before(&mut self, node: &dyn Ranged) -> Option<TokenAndSpan> {
         self.get_first_token_before(node, |token| token.token == Token::LBrace)
     }
 
     pub fn get_previous_token_end_before(&mut self, node: &dyn Ranged) -> BytePos {
-        let previous_token = self.get_first_token_before(node, |item| true);
+        let previous_token = self.get_previous_token(node);
         if let Some(token) = previous_token {
             token.span.hi()
         } else {
@@ -87,7 +105,7 @@ impl TokenFinder {
     }
 
     pub fn get_next_token_pos_after(&mut self, node: &dyn Ranged) -> BytePos {
-        let next_token = self.get_first_token_after(node, |item| true);
+        let next_token = self.get_next_token(node);
         if let Some(token) = next_token {
             token.span.lo()
         } else {

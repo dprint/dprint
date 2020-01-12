@@ -3481,7 +3481,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
 
         fn get_comma_token(parent_span: &Span, element: &Option<Node>, context: &mut Context) -> Option<TokenAndSpan> {
             if let Some(element) = &element {
-                let comma_token = context.token_finder.get_first_comma_after(&element);
+                let comma_token = context.token_finder.get_next_token_if_comma(&element);
                 if let Some(comma_token) = &comma_token {
                     if comma_token.lo() > parent_span.hi() {
                         return None;
@@ -3699,7 +3699,8 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
         }
 
         let first_node = &nodes[0];
-        let open_paren_token = context.token_finder.get_first_open_paren_token_before(first_node);
+        // arrow function expressions might not have an open paren (ex. `a => a + 5`)
+        let open_paren_token = context.token_finder.get_previous_token_if_open_paren(first_node);
 
         if let Some(open_paren_token) = open_paren_token {
             node_helpers::get_use_new_lines_for_nodes(&open_paren_token, first_node, context)
@@ -3883,7 +3884,7 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
 }
 
 fn parse_node_in_parens<'a>(first_inner_node: &dyn Ranged, inner_parsed_node: Vec<PrintItem>, context: &mut Context<'a>) -> Vec<PrintItem> {
-    let open_paren_token = context.token_finder.get_first_open_paren_token_before(&first_inner_node);
+    let open_paren_token = context.token_finder.get_previous_token_if_open_paren(&first_inner_node);
     let use_new_lines = {
         if let Some(open_paren_token) = &open_paren_token {
             node_helpers::get_use_new_lines_for_nodes(open_paren_token, &first_inner_node, context)
