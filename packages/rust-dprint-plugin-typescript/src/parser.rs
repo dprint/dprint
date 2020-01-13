@@ -5,7 +5,7 @@ use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
 use super::configuration::{BracePosition, MemberSpacing, NextControlFlowPosition, OperatorPosition, SingleBodyPosition, TrailingCommas, UseBraces, UseParentheses};
 use swc_ecma_ast::*;
-use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span, SpanData};
+use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span};
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
@@ -1033,27 +1033,32 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
     };
 
     fn inner_parse<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
+        // todo: clean this up
         let operator_token = context.token_finder.get_first_operator_after(&node.left, node.op.as_str()).unwrap();
         let operator_position = get_operator_position(&node, &operator_token, context);
         let top_most_expr_start = get_top_most_binary_expr_pos(&node, context);
-        let node_start = node.lo();
         let node_left = &*node.left;
         let node_right = &*node.right;
         let node_op = node.op;
         let use_space_surrounding_operator = get_use_space_surrounding_operator(&node_op, context);
-        let is_top_most = top_most_expr_start == node_start;
+        let is_top_most = top_most_expr_start == node.lo();
         let use_new_lines = node_helpers::get_use_new_lines_for_nodes(node_left, node_right, context);
         let top_most_info = get_or_set_top_most_info(top_most_expr_start, is_top_most, context);
+        let indent_disabled = context.get_disable_indent_for_next_bin_expr();
         let mut items = Vec::new();
 
         if is_top_most {
             items.push(top_most_info.clone().into());
         }
 
-        items.push(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info.clone(), {
+        let node_left_node = Node::from(node_left);
+        if indent_disabled && node_left_node.kind() == NodeKind::BinExpr {
+            context.mark_disable_indent_for_next_bin_expr();
+        }
+
+        items.push(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info.clone(), indent_disabled, {
             let operator_position = operator_position.clone();
             let node_op = node_op.clone();
-            let node_left_node = Node::from(node_left);
             new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items| {
                 if operator_position == OperatorPosition::SameLine {
                     if use_space_surrounding_operator {
@@ -1075,7 +1080,12 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
             PrintItem::PossibleNewLine
         });
 
-        items.push(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, {
+        let node_right_node = Node::from(node_right);
+        if indent_disabled && node_right_node.kind() == NodeKind::BinExpr {
+            context.mark_disable_indent_for_next_bin_expr();
+        }
+
+        items.push(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, indent_disabled, {
             let mut items = Vec::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
             items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context), context));
@@ -1100,13 +1110,17 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
         return items;
     }
 
-    fn indent_if_necessary(current_node_start: BytePos, top_most_expr_start: BytePos, top_most_info: Info, items: Vec<PrintItem>) -> PrintItem {
+    fn indent_if_necessary(
+        current_node_start: BytePos,
+        top_most_expr_start: BytePos,
+        top_most_info: Info,
+        indent_disabled: bool,
+        items: Vec<PrintItem>
+    ) -> PrintItem {
+        let is_left_most_node = top_most_expr_start == current_node_start;
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
-                // do not indent if this is the left-most node
-                if top_most_expr_start == current_node_start {
-                    return Some(false);
-                }
+                if indent_disabled || is_left_most_node { return Some(false); }
                 let top_most_info = condition_context.get_resolved_info(&top_most_info)?;
                 let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
                 return Some(is_same_indent && condition_resolvers::is_start_of_new_line(condition_context));
@@ -1490,10 +1504,9 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Vec<P
 }
 
 fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
-    let expr_span = &(*node.expr).span();
     return vec![conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
         (&node.expr).into(),
-        parse_node((&node.expr).into(), context),
+        |context| parse_node((&node.expr).into(), context),
         context
     )).into()];
 }
@@ -1569,8 +1582,8 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
     });
 
     fn get_nodes<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>) -> Vec<Node<'a>> {
-        let mut quasis = quasis;
-        let mut exprs = exprs;
+        let quasis = quasis;
+        let exprs = exprs;
         let mut nodes = Vec::new();
         let mut quasis_index = 0;
         let mut exprs_index = 0;
@@ -1715,7 +1728,7 @@ fn parse_external_module_ref<'a>(node: &'a TsExternalModuleRef, context: &mut Co
     let mut items = Vec::new();
     items.push("require".into());
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&context.token_finder.get_first_open_paren_token_within(&node.span), &node.expr, context);
-    items.extend(wrap_in_parens(parse_node((&node.expr).into(), context), use_new_lines, context));
+    items.extend(wrap_in_parens(parse_node((&node.expr).into(), context), use_new_lines));
     return items;
 }
 
@@ -2243,7 +2256,7 @@ fn parse_do_while_stmt<'a>(node: &'a DoWhileStmt, context: &mut Context<'a>) -> 
     if context.config.do_while_statement_space_after_while_keyword {
         items.push(" ".into());
     }
-    items.extend(parse_node_in_parens((&node.test).into(), parse_node((&node.test).into(), context), context));
+    items.extend(parse_node_in_parens((&node.test).into(), |context| parse_node((&node.test).into(), context), context));
     if context.config.do_while_statement_semi_colon {
         items.push(";".into());
     }
@@ -2361,7 +2374,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> Vec<Print
         } else {
             context.token_finder.get_first_semi_colon_within(&node).expect("Expected to find a semi-colon within the for stmt.").into()
         }
-    }, {
+    }, |context| {
         let mut items = Vec::new();
         let separator_after_semi_colons = if context.config.for_statement_space_after_semi_colons { PrintItem::SpaceOrNewLine } else { PrintItem::PossibleNewLine };
         items.extend(parser_helpers::new_line_group({
@@ -2417,7 +2430,7 @@ fn parse_for_in_stmt<'a>(node: &'a ForInStmt, context: &mut Context<'a>) -> Vec<
     if context.config.for_in_statement_space_after_for_keyword {
         items.push(" ".into());
     }
-    items.extend(parse_node_in_parens((&node.left).into(), {
+    items.extend(parse_node_in_parens((&node.left).into(), |context| {
         let mut items = Vec::new();
         items.extend(parse_node((&node.left).into(), context));
         items.push(PrintItem::SpaceOrNewLine);
@@ -2459,7 +2472,7 @@ fn parse_for_of_stmt<'a>(node: &'a ForOfStmt, context: &mut Context<'a>) -> Vec<
         items.extend(parse_node(await_token.into(), context));
         items.push(" ".into());
     }
-    items.extend(parse_node_in_parens((&node.left).into(), {
+    items.extend(parse_node_in_parens((&node.left).into(), |context| {
         let mut items = Vec::new();
         items.extend(parse_node((&node.left).into(), context));
         items.push(PrintItem::SpaceOrNewLine);
@@ -2500,7 +2513,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> Vec<PrintIt
             items.push("if".into());
             if context.config.if_statement_space_after_if_keyword { items.push(" ".into()); }
             let test = &*node.test;
-            items.extend(parse_node_in_parens(test.into(), parse_node(test.into(), context), context));
+            items.extend(parse_node_in_parens(test.into(), |context| parse_node(test.into(), context), context));
             items
         },
         use_braces: context.config.if_statement_use_braces,
@@ -2577,7 +2590,7 @@ fn parse_switch_stmt<'a>(node: &'a SwitchStmt, context: &mut Context<'a>) -> Vec
     let mut items = Vec::new();
     items.push(start_header_info.clone().into());
     items.push("switch ".into());
-    items.extend(parse_node_in_parens((&node.discriminant).into(), parse_node((&node.discriminant).into(), context), context));
+    items.extend(parse_node_in_parens((&node.discriminant).into(), |context| parse_node((&node.discriminant).into(), context), context));
     items.extend(parse_membered_body(ParseMemberedBodyOptions {
         span: node.span,
         members: node.cases.iter().map(|x| x.into()).collect(),
@@ -2769,7 +2782,7 @@ fn parse_while_stmt<'a>(node: &'a WhileStmt, context: &mut Context<'a>) -> Vec<P
     if context.config.while_statement_space_after_while_keyword {
         items.push(" ".into());
     }
-    items.extend(parse_node_in_parens((&node.test).into(), parse_node((&node.test).into(), context), context));
+    items.extend(parse_node_in_parens((&node.test).into(), |context| parse_node((&node.test).into(), context), context));
     items.push(end_header_info.clone().into());
     items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {
         parent: &node.span,
@@ -2992,7 +3005,7 @@ fn parse_qualified_name<'a>(node: &'a TsQualifiedName, context: &mut Context<'a>
 fn parse_parenthesized_type<'a>(node: &'a TsParenthesizedType, context: &mut Context<'a>) -> Vec<PrintItem> {
     vec![conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
         (&node.type_ann).into(),
-        parse_node((&node.type_ann).into(), context),
+        |context| parse_node((&node.type_ann).into(), context),
         context
     )).into()]
 }
@@ -3874,7 +3887,7 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
     }
 }
 
-fn parse_node_in_parens<'a>(first_inner_node: Node<'a>, inner_parsed_node: Vec<PrintItem>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_node_in_parens<'a, F>(first_inner_node: Node<'a>, inner_parse_node: F, context: &mut Context<'a>) -> Vec<PrintItem> where F : Fn(&mut Context<'a>) -> Vec<PrintItem> {
     let open_paren_token = context.token_finder.get_previous_token_if_open_paren(&first_inner_node);
     let use_new_lines = {
         if let Some(open_paren_token) = &open_paren_token {
@@ -3884,10 +3897,16 @@ fn parse_node_in_parens<'a>(first_inner_node: Node<'a>, inner_parsed_node: Vec<P
         }
     };
 
-    return wrap_in_parens(inner_parsed_node, use_new_lines, context);
+    // disable hanging indent on the next binary expression if necessary
+    if use_new_lines && first_inner_node.kind() == NodeKind::BinExpr {
+        context.mark_disable_indent_for_next_bin_expr();
+    }
+
+    // the inner parse needs to be done after potentially disabling hanging indent
+    return wrap_in_parens(inner_parse_node(context), use_new_lines);
 }
 
-fn wrap_in_parens(parsed_node: Vec<PrintItem>, use_new_lines: bool, context: &mut Context) -> Vec<PrintItem> {
+fn wrap_in_parens(parsed_node: Vec<PrintItem>, use_new_lines: bool) -> Vec<PrintItem> {
     parser_helpers::new_line_group({
         let mut items = Vec::new();
         items.push("(".into());

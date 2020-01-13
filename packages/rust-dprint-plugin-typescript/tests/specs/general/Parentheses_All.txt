@@ -13,7 +13,7 @@
     1 + 2
 );
 
-== should format logical expressions without hanging indentation ==
+== should format logical expressions in parens without hanging indentation ==
 (
     test
     && test

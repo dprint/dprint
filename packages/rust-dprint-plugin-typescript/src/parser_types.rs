@@ -19,6 +19,7 @@ pub struct Context<'a> {
     pub info: Rc<SourceFile>,
     stored_infos: HashMap<BytePos, Info>,
     pub end_statement_or_member_infos: Stack<Info>,
+    disable_indent_for_next_bin_expr: bool,
 }
 
 impl<'a> Context<'a> {
@@ -42,6 +43,7 @@ impl<'a> Context<'a> {
             info: Rc::new(info),
             stored_infos: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),
+            disable_indent_for_next_bin_expr: false,
         }
     }
 
@@ -68,6 +70,16 @@ impl<'a> Context<'a> {
 
     pub fn get_info_for_node(&self, node: &dyn Ranged) -> Option<&Info> {
         self.stored_infos.get(&node.lo())
+    }
+
+    pub fn mark_disable_indent_for_next_bin_expr(&mut self) {
+        self.disable_indent_for_next_bin_expr = true;
+    }
+
+    pub fn get_disable_indent_for_next_bin_expr(&mut self) -> bool {
+        let value = self.disable_indent_for_next_bin_expr;
+        self.disable_indent_for_next_bin_expr = false;
+        return value;
     }
 }
 

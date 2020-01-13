@@ -1,7 +1,6 @@
-use std::rc::Rc;
 use std::collections::HashMap;
 use super::*;
-use swc_common::{BytePos, comments::{Comments, Comment, CommentMap}};
+use swc_common::{BytePos, comments::{Comment}};
 use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct CommentCollection<'a> {

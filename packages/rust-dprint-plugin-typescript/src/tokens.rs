@@ -1,7 +1,7 @@
 use std::str;
 use super::*;
-use swc_common::{BytePos, Span, SpanData};
-use swc_ecma_parser::{token::{Token, TokenAndSpan, Word, Keyword, BinOpToken}};
+use swc_common::{BytePos, SpanData};
+use swc_ecma_parser::{token::{Token, TokenAndSpan}};
 
 pub struct TokenFinder<'a> {
     tokens: &'a Vec<TokenAndSpan>,
@@ -217,10 +217,6 @@ impl<'a> TokenFinder<'a> {
             self.token_index -= 1;
             true
         }
-    }
-
-    fn get_text(&self, span_data: &SpanData) -> &str {
-        get_text(&self.file_bytes, span_data)
     }
 }
 

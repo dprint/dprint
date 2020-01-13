@@ -1,6 +1,6 @@
 use super::*;
 use dprint_core::*;
-use swc_common::{BytePos};
+use swc_common::{BytePos, comments::{Comment}};
 use std::time::Instant;
 
 pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfiguration) -> Result<String, String> {
@@ -30,15 +30,24 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
     });
 
     fn should_format_file(file: &mut ParsedSourceFile) -> bool {
-        if let Some(leading_comments) = file.leading_comments.get(&get_search_position(&file)) {
-            for comment in leading_comments.iter() {
-                if comment.text.contains("dprint-ignore-file") {
-                    return false;
+        // just the way it is in swc
+        return if file.module.body.is_empty() {
+            should_format_based_on_comments(file.trailing_comments.get(&BytePos(0)))
+        } else {
+            should_format_based_on_comments(file.leading_comments.get(&get_search_position(&file)))
+        };
+
+        fn should_format_based_on_comments(comments: Option<&Vec<Comment>>) -> bool {
+            if let Some(comments) = comments {
+                for comment in comments.iter() {
+                    if comment.text.contains("dprint-ignore-file") {
+                        return false;
+                    }
                 }
             }
-        }
 
-        return true;
+            return true;
+        }
 
         fn get_search_position(file: &ParsedSourceFile) -> BytePos {
             if let Some(first_statement) = file.module.body.get(0) {
