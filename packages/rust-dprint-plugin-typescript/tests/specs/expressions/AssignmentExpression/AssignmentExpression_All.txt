@@ -6,10 +6,10 @@ test=5;
 test = 5;
 
 == should indent the right side when the left side is hanging and the right is hanging ==
-return testing()
+testingtesting()
     .this = 523452346236 + 234345234652465246;
 
 [expect]
-return testing()
+testingtesting()
     .this = 523452346236
         + 234345234652465246;

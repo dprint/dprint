@@ -22,22 +22,22 @@ test && other || asdf && test || asdf
     && asdf;
 
 == should handle comments on a different line in-between ==
-return test
+testingtest
     // some comment
     && container.pos !== container.end;
 
 [expect]
-return test
+testingtest
     // some comment
     && container.pos !== container.end;
 
 == should handle comments on a different line in-between when the operator is on the preceeding line ==
-return test &&
+testingtest &&
     // some comment
     container.pos !== container.end;
 
 [expect]
-return test
+testingtest
     // some comment
     && container.pos !== container.end;
 
@@ -75,25 +75,25 @@ test = test ?? 5;
 test = test ?? 5;
 
 == should get comments that are trailing of the left expression ==
-return test(test)
+testingtest(test)
     // test
     // asdf
     && asdf;
 
 [expect]
-return test(test)
+testingtest(test)
     // test
     // asdf
     && asdf;
 
 == should handle when the comments are after the operator ==
-return test(test) &&
+testingtest(test) &&
     // test
     // asdf
     asdf;
 
 [expect]
-return test(test)
+testingtest(test)
     // test
     // asdf
     && asdf;

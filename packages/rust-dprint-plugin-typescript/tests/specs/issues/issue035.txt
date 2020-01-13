@@ -3,6 +3,7 @@
 t(u, tbdstdddddbbSftt ? dddddmdd : tesf);
 
 [expect]
-t(u, tbdstdddddbbSftt
-    ? dddddmdd
-    : tesf);
+t(u,
+    tbdstdddddbbSftt
+        ? dddddmdd
+        : tesf);

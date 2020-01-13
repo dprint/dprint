@@ -6,12 +6,12 @@ switch (expr) {
     case 6: // other
     // testing
     case 7: // test
-        return 6;
+        6;
 
     default:
         console.log(5);
 
-        return 6;
+        6;
 }
 
 [expect]
@@ -20,11 +20,11 @@ switch (expr) {
     case 6: // other
     // testing
     case 7: // test
-        return 6;
+        6;
     default:
         console.log(5);
 
-        return 6;
+        6;
 }
 
 == should keep the comments at the same level as the case's body if the last comment is on that level ==
@@ -42,7 +42,7 @@ switch (expr) {
         // testing
     // other
     case 7:
-        return 5;
+        5;
     // testing
     case 8:
         // testing
@@ -72,7 +72,7 @@ switch (expr) {
         // testing
     // other
     case 7:
-        return 5;
+        5;
     // testing
     case 8:
         // testing

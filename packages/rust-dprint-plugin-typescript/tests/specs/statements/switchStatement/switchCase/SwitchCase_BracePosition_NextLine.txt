@@ -2,11 +2,11 @@
 == should put the brace on the next line ==
 switch (test) {
     case 5: {
-        return 5;
+        5;
     }
     case 6:
     {
-        return 6;
+        6;
     }
 }
 
@@ -14,10 +14,10 @@ switch (test) {
 switch (test) {
     case 5:
     {
-        return 5;
+        5;
     }
     case 6:
     {
-        return 6;
+        6;
     }
 }

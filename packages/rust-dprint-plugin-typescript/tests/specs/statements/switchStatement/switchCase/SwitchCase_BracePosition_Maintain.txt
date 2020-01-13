@@ -2,21 +2,21 @@
 == should maintain the brace position ==
 switch (test) {
     case 5: {
-        return 5;
+        5;
     }
     case 6:
     {
-        return 6;
+        6;
     }
 }
 
 [expect]
 switch (test) {
     case 5: {
-        return 5;
+        5;
     }
     case 6:
     {
-        return 6;
+        6;
     }
 }
