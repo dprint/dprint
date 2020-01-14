@@ -166,6 +166,10 @@ pub struct TypeScriptConfiguration {
     /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
     /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
     pub import_declaration_space_surrounding_named_imports: bool,
+    /// Whether to add a space surrounding the expression of a JSX container.
+    /// * `true` - Ex. `{ myValue }`
+    /// * `false` (default) - Ex. `{myValue}`
+    pub jsx_expression_container_space_surrounding_expression: bool,
     /// Whether to add a space before the parentheses of a method.
     /// `true` - Ex. `myMethod ()`
     /// `false` - Ex. `myMethod()`
@@ -410,6 +414,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
         get_accessor_space_before_parentheses: get_value(&mut config, "getAccessor.spaceBeforeParentheses", false),
         if_statement_space_after_if_keyword: get_value(&mut config, "ifStatement.spaceAfterIfKeyword", true),
         import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true),
+        jsx_expression_container_space_surrounding_expression: get_value(&mut config, "jsxExpressionContainer.spaceSurroundingExpression", false),
         method_space_before_parentheses: get_value(&mut config, "method.spaceBeforeParentheses", false),
         set_accessor_space_before_parentheses: get_value(&mut config, "setAccessor.spaceBeforeParentheses", false),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),

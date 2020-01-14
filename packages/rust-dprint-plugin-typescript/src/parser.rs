@@ -8,6 +8,8 @@ use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span};
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
+// todo: Remove putting functions on heap by using type parameters?
+
 pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> Vec<PrintItem> {
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
@@ -146,10 +148,23 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::TsMethodSignature(node) => parse_method_signature(node, context),
             Node::TsPropertySignature(node) => parse_property_signature(node, context),
             Node::TsTypeLit(node) => parse_type_lit(node, context),
+            /* jsx */
+            Node::JSXAttr(node) => parse_jsx_attribute(node, context),
+            Node::JSXClosingElement(node) => parse_jsx_closing_element(node, context),
+            Node::JSXClosingFragment(node) => parse_jsx_closing_fragment(node, context),
+            Node::JSXElement(node) => parse_jsx_element(node, context),
+            Node::JSXEmptyExpr(node) => parse_jsx_empty_expr(node, context),
+            Node::JSXExprContainer(node) => parse_jsx_expr_container(node, context),
+            Node::JSXFragment(node) => parse_jsx_fragment(node, context),
+            Node::JSXMemberExpr(node) => parse_jsx_member_expr(node, context),
+            Node::JSXNamespacedName(node) => parse_jsx_namespaced_name(node, context),
+            Node::JSXOpeningElement(node) => parse_jsx_opening_element(node, context),
+            Node::JSXOpeningFragment(node) => parse_jsx_opening_fragment(node, context),
+            Node::JSXSpreadChild(node) => parse_jsx_spread_child(node, context),
+            Node::JSXText(node) => parse_jsx_text(node, context),
             /* literals */
             Node::BigInt(node) => parse_big_int_literal(node, context),
             Node::Bool(node) => parse_bool_literal(node),
-            Node::JSXText(node) => parse_jsx_text(node, context),
             Node::Null(_) => vec!["null".into()],
             Node::Number(node) => parse_num_literal(node, context),
             Node::Regex(node) => parse_reg_exp_literal(node, context),
@@ -1873,6 +1888,204 @@ fn parse_type_lit<'a>(node: &'a TsTypeLit, context: &mut Context<'a>) -> Vec<Pri
     }, context);
 }
 
+/* jsx */
+
+fn parse_jsx_attribute<'a>(node: &'a JSXAttr, context: &mut Context<'a>) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node((&node.name).into(), context));
+    if let Some(value) = &node.value {
+        items.push("=".into());
+        let surround_with_braces = context.token_finder.get_previous_token_if_open_brace(value).is_some();
+        let parsed_value = parse_node(value.into(), context);
+        items.extend(if surround_with_braces {
+            parse_as_jsx_expr_container(parsed_value, context)
+        } else {
+            parsed_value
+        });
+    }
+    return items;
+}
+
+fn parse_jsx_closing_element<'a>(node: &'a JSXClosingElement, context: &mut Context<'a>) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.push("</".into());
+    items.extend(parse_node((&node.name).into(), context));
+    items.push(">".into());
+    return items;
+}
+
+fn parse_jsx_closing_fragment<'a>(node: &'a JSXClosingFragment, context: &mut Context<'a>) -> Vec<PrintItem> {
+    vec!["</>".into()]
+}
+
+fn parse_jsx_element<'a>(node: &'a JSXElement, context: &mut Context<'a>) -> Vec<PrintItem> {
+    if let Some(closing) = &node.closing {
+        parse_jsx_with_opening_and_closing(ParseJsxWithOpeningAndClosingOptions {
+            node: node.into(),
+            opening_element: (&node.opening).into(),
+            closing_element: closing.into(),
+            children: node.children.iter().map(|x| x.into()).collect(),
+        }, context)
+    } else {
+        parse_node((&node.opening).into(), context)
+    }
+}
+
+fn parse_jsx_empty_expr<'a>(node: &'a JSXEmptyExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
+    parse_comment_collection(node.span.hi().leading_comments(context), None, context)
+}
+
+fn parse_jsx_expr_container<'a>(node: &'a JSXExprContainer, context: &mut Context<'a>) -> Vec<PrintItem> {
+    parse_as_jsx_expr_container(parse_node((&node.expr).into(), context), context)
+}
+
+fn parse_as_jsx_expr_container(parsed_node: Vec<PrintItem>, context: &mut Context) -> Vec<PrintItem> {
+    let surround_with_space = context.config.jsx_expression_container_space_surrounding_expression;
+    let mut items = Vec::new();
+
+    items.push("{".into());
+    if surround_with_space { items.push(" ".into()); }
+    items.extend(parsed_node);
+    if surround_with_space { items.push(" ".into()); }
+    items.push("}".into());
+
+    return items;
+}
+
+fn parse_jsx_fragment<'a>(node: &'a JSXFragment, context: &mut Context<'a>) -> Vec<PrintItem> {
+    parse_jsx_with_opening_and_closing(ParseJsxWithOpeningAndClosingOptions {
+        node: node.into(),
+        opening_element: (&node.opening).into(),
+        closing_element: (&node.closing).into(),
+        children: node.children.iter().map(|x| x.into()).collect(),
+    }, context)
+}
+
+fn parse_jsx_member_expr<'a>(node: &'a JSXMemberExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node((&node.obj).into(), context));
+    items.push(".".into());
+    items.extend(parse_node((&node.prop).into(), context));
+    return items;
+}
+
+fn parse_jsx_namespaced_name<'a>(node: &'a JSXNamespacedName, context: &mut Context<'a>) -> Vec<PrintItem> {
+    let mut items = Vec::new();
+    items.extend(parse_node((&node.ns).into(), context));
+    items.push(":".into());
+    items.extend(parse_node((&node.name).into(), context));
+    return items;
+}
+
+fn parse_jsx_opening_element<'a>(node: &'a JSXOpeningElement, context: &mut Context<'a>) -> Vec<PrintItem> {
+    let is_multi_line = get_is_multi_line(node, context);
+    let start_info = Info::new("openingElementStartInfo");
+    let mut items = Vec::new();
+
+    items.push(start_info.clone().into());
+    items.push("<".into());
+    items.extend(parse_node((&node.name).into(), context));
+    if let Some(type_args) = &node.type_args {
+        items.extend(parse_node(type_args.into(), context));
+    }
+    items.extend(parse_attribs(&node.attrs, is_multi_line, context));
+    if node.self_closing {
+        if !is_multi_line {
+            items.push(" ".into());
+        }
+        items.push("/".into());
+    } else {
+        // todo: move condition to core library
+        items.push(Condition::new("newlineIfHanging", ConditionProperties {
+            condition: Box::new(move |condition_context| condition_resolvers::is_hanging(condition_context, &start_info, &None)),
+            true_path: Some(vec![PrintItem::NewLine]),
+            false_path: None,
+        }).into());
+    }
+    items.push(">".into());
+
+    return items;
+
+    fn parse_attribs<'a>(attribs: &'a Vec<JSXAttrOrSpread>, is_multi_line: bool, context: &mut Context<'a>) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        if attribs.is_empty() {
+            return items;
+        }
+
+        for attrib in attribs {
+            items.push(if is_multi_line {
+                PrintItem::NewLine
+            } else {
+                PrintItem::SpaceOrNewLine
+            });
+
+            items.push(conditions::indent_if_start_of_line({
+                match attrib {
+                    JSXAttrOrSpread::JSXAttr(attr) => parse_node(attr.into(), context),
+                    JSXAttrOrSpread::SpreadElement(element) => {
+                        parse_as_jsx_expr_container(parse_node(element.into(), context), context)
+                    }
+                }
+            }).into());
+        }
+
+        if is_multi_line {
+            items.push(PrintItem::NewLine);
+        }
+
+        return items;
+    }
+
+    fn get_is_multi_line(node: &JSXOpeningElement, context: &mut Context) -> bool {
+        if let Some(first_attrib) = node.attrs.first() {
+            node_helpers::get_use_new_lines_for_nodes(&node.name, first_attrib, context)
+        } else {
+            false
+        }
+    }
+}
+
+fn parse_jsx_opening_fragment<'a>(node: &'a JSXOpeningFragment, context: &mut Context<'a>) -> Vec<PrintItem> {
+    vec!["<>".into()]
+}
+
+fn parse_jsx_spread_child<'a>(node: &'a JSXSpreadChild, context: &mut Context<'a>) -> Vec<PrintItem> {
+    parse_as_jsx_expr_container({
+        let mut items = Vec::new();
+        items.push("...".into());
+        items.extend(parse_node((&node.expr).into(), context));
+        items
+    }, context)
+}
+
+fn parse_jsx_text<'a>(node: &'a JSXText, context: &mut Context<'a>) -> Vec<PrintItem> {
+    // todo: cache this regex somewhere?
+    let lines = node.text(context).trim().lines().map(|line| line.trim_end());
+    let mut past_line: Option<&str> = None;
+    let mut past_past_line: Option<&str> = None;
+    let mut items = Vec::new();
+
+    for line in lines {
+        if let Some(past_line) = past_line {
+            if !line.is_empty() || past_past_line.is_none() {
+                items.push(PrintItem::NewLine);
+            } else if let Some(past_past_line) = past_past_line {
+                if past_line.is_empty() && !past_past_line.is_empty() {
+                    items.push(PrintItem::NewLine);
+                }
+            }
+        }
+
+        if !line.is_empty() {
+            items.push(line.into());
+        }
+
+        past_past_line = std::mem::replace(&mut past_line, Some(line));
+    }
+
+    return items;
+}
+
 /* literals */
 
 fn parse_big_int_literal<'a>(node: &'a BigInt, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -1884,10 +2097,6 @@ fn parse_bool_literal(node: &Bool) -> Vec<PrintItem> {
         true => "true",
         false => "false",
     }.into()]
-}
-
-fn parse_jsx_text<'a>(node: &'a JSXText, context: &mut Context<'a>) -> Vec<PrintItem> {
-    vec![node.text(context).into()]
 }
 
 fn parse_num_literal<'a>(node: &'a Number, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -4408,6 +4617,160 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         } else {
             None
         }
+    }
+}
+
+struct ParseJsxWithOpeningAndClosingOptions<'a> {
+    node: Node<'a>,
+    opening_element: Node<'a>,
+    closing_element: Node<'a>,
+    children: Vec<Node<'a>>,
+}
+
+fn parse_jsx_with_opening_and_closing<'a>(opts: ParseJsxWithOpeningAndClosingOptions<'a>, context: &mut Context<'a>) -> Vec<PrintItem> {
+    let use_multi_lines = get_use_multi_lines(&opts.opening_element, &opts.children, context);
+    let children = opts.children.into_iter().filter(|c| match c {
+        Node::JSXText(c) => !c.text(context).trim().is_empty(),
+        _=> true,
+    }).collect();
+    let start_info = Info::new("startInfo");
+    let end_info = Info::new("endInfo");
+    let mut items = Vec::new();
+    let inner_span = Span::new(opts.opening_element.span().hi(), opts.closing_element.span().lo(), Default::default());
+
+    items.push(start_info.clone().into());
+    items.extend(parse_node(opts.opening_element, context));
+    items.extend(parse_jsx_children(ParseJsxChildrenOptions {
+        node: opts.node,
+        inner_span,
+        children,
+        parent_start_info: start_info,
+        parent_end_info: end_info.clone(),
+        use_multi_lines,
+    }, context));
+    items.extend(parse_node(opts.closing_element, context));
+    items.push(end_info.into());
+
+    return items;
+
+    fn get_use_multi_lines(opening_element: &Node, children: &Vec<Node>, context: &mut Context) -> bool {
+        if let Some(first_child) = children.get(0) {
+            if let Node::JSXText(first_child) = first_child {
+                if first_child.text(context).find("\n").is_some() {
+                    return true;
+                }
+            }
+
+            node_helpers::get_use_new_lines_for_nodes(opening_element, first_child, context)
+        } else {
+            false
+        }
+    }
+}
+
+struct ParseJsxChildrenOptions<'a> {
+    node: Node<'a>,
+    inner_span: Span,
+    children: Vec<Node<'a>>,
+    parent_start_info: Info,
+    parent_end_info: Info,
+    use_multi_lines: bool,
+}
+
+fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Context<'a>) -> Vec<PrintItem> {
+    // Need to parse the children here so they only get parsed once.
+    // Nodes need to be only parsed once so that their comments don't end up in
+    // the handled comments collection and the second time they won't be parsed out.
+    let children = opts.children.into_iter().map(|c| (c.clone(), parse_node(c, context))).collect();
+    let parent_start_info = opts.parent_start_info;
+    let parent_end_info = opts.parent_end_info;
+
+    if opts.use_multi_lines {
+        return parse_for_new_lines(children, opts.inner_span, context);
+    }
+    else {
+        // decide whether newlines should be used or not
+        return vec![Condition::new("jsxChildrenNewLinesOrNot", ConditionProperties {
+            condition: Box::new(move |condition_context| {
+                // use newlines if the header is multiple lines
+                let resolved_parent_start_info = condition_context.get_resolved_info(&parent_start_info)?;
+                if resolved_parent_start_info.line_number < condition_context.writer_info.line_number {
+                    return Some(true);
+                }
+
+                // use newlines if the entire jsx element is on multiple lines
+                return condition_resolvers::is_multiple_lines(condition_context, &parent_start_info, &parent_end_info);
+            }),
+            true_path: Some(parse_for_new_lines(children.clone(), opts.inner_span, context)),
+            false_path: Some(parse_for_single_line(children, context)),
+        }).into()];
+    }
+
+    fn parse_for_new_lines<'a>(children: Vec<(Node<'a>, Vec<PrintItem>)>, inner_span: Span, context: &mut Context<'a>) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        let has_children = !children.is_empty();
+        items.push(PrintItem::NewLine);
+        items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
+            inner_span,
+            items: children.into_iter().map(|(a, b)| (a, Some(b))).collect(),
+            should_use_space: Some(Box::new(|previous, next, context| should_use_space(previous, next, context))),
+            should_use_new_line: Some(Box::new(|previous, next, context| {
+                if let Node::JSXText(next) = next {
+                    return !utils::has_no_new_lines_in_trailing_whitespace(next.text(context));
+                }
+                if let Node::JSXText(previous) = previous {
+                    return !utils::has_no_new_lines_in_leading_whitespace(previous.text(context));
+                }
+                return true;
+            })),
+            should_use_blank_line: Box::new(|previous, next, context| {
+                if let Node::JSXText(previous) = previous {
+                    return utils::has_new_line_occurrences_in_trailing_whitespace(previous.text(context), 2);
+                }
+                if let Node::JSXText(next) = next {
+                    return utils::has_new_line_occurrences_in_leading_whitespace(next.text(context), 2);
+                }
+                return node_helpers::has_separating_blank_line(previous, next, context);
+            }),
+            trailing_commas: None,
+        }, context)));
+
+        if has_children {
+            items.push(PrintItem::NewLine);
+        }
+
+        return items;
+    }
+
+    fn parse_for_single_line<'a>(children: Vec<(Node<'a>, Vec<PrintItem>)>, context: &mut Context<'a>) -> Vec<PrintItem> {
+        let mut items = Vec::new();
+        if children.is_empty() {
+            items.push(PrintItem::PossibleNewLine);
+        } else {
+            let mut previous_child: Option<Node<'a>> = None;
+            for (child, parsed_child) in children.into_iter() {
+                if let Some(previous_child) = previous_child {
+                    if should_use_space(&previous_child, &child, context) {
+                        items.push(PrintItem::SpaceOrNewLine);
+                    }
+                }
+
+                items.extend(parsed_child);
+                items.push(PrintItem::PossibleNewLine);
+                previous_child = Some(child);
+            }
+        }
+        return items;
+    }
+
+    fn should_use_space(previous_element: &Node, next_element: &Node, context: &mut Context) -> bool {
+        if let Node::JSXText(element) = previous_element {
+            return element.text(context).ends_with(" ");
+        }
+        if let Node::JSXText(element) = next_element {
+            return element.text(context).starts_with(" ");
+        }
+        return false;
     }
 }
 

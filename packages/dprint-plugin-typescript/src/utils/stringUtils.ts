@@ -5,7 +5,7 @@ export function isStringEmptyOrWhiteSpace(text: string) {
 
 export function hasNewlineOccurrencesInLeadingWhitespace(text: string, occurrences: number) {
     if (occurrences === 0)
-        hasNoNewlinesInLeadingWhitespace(text);
+        return hasNoNewlinesInLeadingWhitespace(text);
 
     for (let i = 0; i < text.length; i++) {
         if (!isStringEmptyOrWhiteSpace(text[i]))

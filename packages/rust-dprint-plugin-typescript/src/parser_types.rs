@@ -283,15 +283,22 @@ generate_node! [
     TsPropertySignature,
     TsTypeLit,
     /* jsx */
+    JSXAttr,
+    JSXClosingElement,
+    JSXClosingFragment,
     JSXElement,
     JSXEmptyExpr,
+    JSXExprContainer,
     JSXFragment,
     JSXMemberExpr,
     JSXNamespacedName,
+    JSXOpeningElement,
+    JSXOpeningFragment,
+    JSXSpreadChild,
+    JSXText,
     /* literals */
     BigInt,
     Bool,
-    JSXText,
     Null,
     Number,
     Regex,
@@ -466,6 +473,12 @@ generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl,
 generate_traits![TsModuleRef, TsEntityName, TsExternalModuleRef];
 generate_traits![Stmt, Block, Empty, Debugger, With, Return, Labeled, Break, Continue, If, Switch, Throw, Try, While, DoWhile, For, ForIn, ForOf,
     Decl, Expr];
+generate_traits![JSXElementChild, JSXText, JSXExprContainer, JSXSpreadChild, JSXElement, JSXFragment];
+generate_traits![JSXAttrName, Ident, JSXNamespacedName];
+generate_traits![JSXAttrOrSpread, JSXAttr, SpreadElement];
+generate_traits![JSXElementName, Ident, JSXMemberExpr, JSXNamespacedName];
+generate_traits![JSXExpr, JSXEmptyExpr, Expr];
+generate_traits![JSXObject, JSXMemberExpr, Ident];
 
 pub trait InnerSpanned {
     fn get_inner_span(&self, context: &mut Context) -> Span;

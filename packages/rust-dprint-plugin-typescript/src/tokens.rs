@@ -26,6 +26,10 @@ impl<'a> TokenFinder<'a> {
         self.get_previous_token_if(node, |token| token.token == Token::LParen)
     }
 
+    pub fn get_previous_token_if_open_brace(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_previous_token_if(node, |token| token.token == Token::LBrace)
+    }
+
     fn get_previous_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
         let previous_token = self.get_previous_token(node)?;
         return if is_match(&previous_token) { Some(previous_token) } else { None };
