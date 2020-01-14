@@ -107,7 +107,7 @@ Defaults to `120`.
 
 ### `indentWidth`
 
-The number of spaces for an indent. This option is ignored when using tabs.
+The number of spaces for an indent when using spaces or the number of characters to treat an indent as when using tabs.
 
 Defaults to `4`.
 
