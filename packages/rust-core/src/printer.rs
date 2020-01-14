@@ -74,8 +74,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
                 self.handle_print_item(print_item);
                 let last_index = self.current_indexes.len() - 1;
                 self.current_indexes[last_index] += 1;
-
-                // self.log_writer_for_debugging();
             }
 
             if let Some(parent_container) = self.container.parent.clone() {
@@ -131,9 +129,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
     }
 
     fn handle_print_item(&mut self, print_item: &PrintItem<TString, TInfo, TCondition>) {
-        //println!("Handling print item: {},{}", self.writer.get_line_number(), self.writer.get_line_column());
-        //println!("Resolved conditions/infos: {},{}", self.resolved_conditions.len(), self.resolved_infos.len());
-        //println!("Save point conditions/infos: {},{}", self.look_ahead_condition_save_points.len(), self.look_ahead_info_save_points.len());
         match print_item {
             PrintItem::String(text) => self.handle_string(text),
             PrintItem::Condition(condition) => self.handle_condition(condition),
@@ -239,7 +234,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         if is_for_new_line {
             self.write_new_line();
         }
-        //println!("Updated to save point: {},{}", self.writer.get_line_number(), self.writer.get_line_column());
     }
 
     fn handle_info(&mut self, info: &TInfo) {
@@ -333,27 +327,4 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             save_point.name
         );
     }
-
-/*
-    fn log_writer_for_debugging(&self) {
-        let write_items = self.writer.get_items_clone();
-
-        console_log!("----");
-        let mut final_string = String::new();
-
-        for item in write_items.into_iter() {
-            match item {
-                WriteItem::Indent => final_string.push_str(&"  "),
-                WriteItem::NewLine => final_string.push_str(&"\n"),
-                WriteItem::Tab => final_string.push_str("\t"),
-                WriteItem::Space => final_string.push_str(" "),
-                WriteItem::String(text) => {
-                    final_string += &text.get_text_clone();
-                },
-            }
-        }
-
-        console_log!("{}", final_string);
-    }
-*/
 }
