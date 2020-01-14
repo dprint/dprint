@@ -49,7 +49,7 @@ module.exports.config = {
 
 Add a format script to your *package.json*'s "scripts" section (see `npx dprint --help` for usage):
 
-```ts
+```json
 {
   "name": "your-package-name",
   "scripts": {
@@ -72,7 +72,7 @@ There are certain non-language specific configuration that can be specified. The
 
 For example:
 
-```ts
+```js
 module.exports.config = {
     projectType: "openSource",
     lineWidth: 160,
