@@ -1914,14 +1914,13 @@ fn parse_jsx_closing_element<'a>(node: &'a JSXClosingElement, context: &mut Cont
     return items;
 }
 
-fn parse_jsx_closing_fragment<'a>(node: &'a JSXClosingFragment, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_jsx_closing_fragment<'a>(_: &'a JSXClosingFragment, _: &mut Context<'a>) -> Vec<PrintItem> {
     vec!["</>".into()]
 }
 
 fn parse_jsx_element<'a>(node: &'a JSXElement, context: &mut Context<'a>) -> Vec<PrintItem> {
     if let Some(closing) = &node.closing {
         parse_jsx_with_opening_and_closing(ParseJsxWithOpeningAndClosingOptions {
-            node: node.into(),
             opening_element: (&node.opening).into(),
             closing_element: closing.into(),
             children: node.children.iter().map(|x| x.into()).collect(),
@@ -1954,7 +1953,6 @@ fn parse_as_jsx_expr_container(parsed_node: Vec<PrintItem>, context: &mut Contex
 
 fn parse_jsx_fragment<'a>(node: &'a JSXFragment, context: &mut Context<'a>) -> Vec<PrintItem> {
     parse_jsx_with_opening_and_closing(ParseJsxWithOpeningAndClosingOptions {
-        node: node.into(),
         opening_element: (&node.opening).into(),
         closing_element: (&node.closing).into(),
         children: node.children.iter().map(|x| x.into()).collect(),
@@ -2045,7 +2043,7 @@ fn parse_jsx_opening_element<'a>(node: &'a JSXOpeningElement, context: &mut Cont
     }
 }
 
-fn parse_jsx_opening_fragment<'a>(node: &'a JSXOpeningFragment, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_jsx_opening_fragment<'a>(_: &'a JSXOpeningFragment, _: &mut Context<'a>) -> Vec<PrintItem> {
     vec!["<>".into()]
 }
 
@@ -4621,7 +4619,6 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
 }
 
 struct ParseJsxWithOpeningAndClosingOptions<'a> {
-    node: Node<'a>,
     opening_element: Node<'a>,
     closing_element: Node<'a>,
     children: Vec<Node<'a>>,
@@ -4641,7 +4638,6 @@ fn parse_jsx_with_opening_and_closing<'a>(opts: ParseJsxWithOpeningAndClosingOpt
     items.push(start_info.clone().into());
     items.extend(parse_node(opts.opening_element, context));
     items.extend(parse_jsx_children(ParseJsxChildrenOptions {
-        node: opts.node,
         inner_span,
         children,
         parent_start_info: start_info,
@@ -4669,7 +4665,6 @@ fn parse_jsx_with_opening_and_closing<'a>(opts: ParseJsxWithOpeningAndClosingOpt
 }
 
 struct ParseJsxChildrenOptions<'a> {
-    node: Node<'a>,
     inner_span: Span,
     children: Vec<Node<'a>>,
     parent_start_info: Info,

@@ -1,6 +1,8 @@
 extern crate dprint_plugin_typescript;
 extern crate dprint_development;
 
+#[macro_use] extern crate debug_here;
+
 use dprint_plugin_typescript::*;
 use dprint_development::*;
 use std::fs::{self};
@@ -15,19 +17,25 @@ struct FailedTestResult {
     message: String,
 }
 
-#[test]
 fn test_performance() {
-    let start = Instant::now();
-    let config = resolve_config(&HashMap::new());
+    // run this with `cargo test --release -- --nocapture`
 
-    let file_text = fs::read_to_string("V:\\performance-test\\files\\checker.ts").expect("Expected to read.");
-    let result = format_text("V:\\checker.ts", &file_text, &config).expect("Could not parse...");
+    let config = resolve_config(&HashMap::new()); // todo: fix up this javascript era code
+    let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 
-    let elapsed = start.elapsed();
-    println!("Finished in {}ms", elapsed.as_millis());
-    println!("Length: {}", result.len());
+    for _ in 0..10 {
+        let start = Instant::now();
+        //debug_here!();
+        let result = format_text("checker.ts", &file_text, &config).expect("Could not parse...");
+
+        let elapsed = start.elapsed();
+        println!("{}ms", elapsed.as_millis());
+        println!("{}", result.len());
+        println!("---")
+    }
 }
 
+#[test]
 fn test_specs() {
     let specs = get_specs();
     let test_count = specs.len();
