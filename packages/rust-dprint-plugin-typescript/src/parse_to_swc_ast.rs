@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::{HashMap};
 use swc_common::{
-    errors::{ColorConfig, Handler},
+    errors::{Handler, Emitter, DiagnosticBuilder},
     FileName, comments::{Comment, Comments}, SourceFile, BytePos
 };
 use swc_ecma_ast::{Module};
@@ -17,7 +17,7 @@ pub struct ParsedSourceFile {
 }
 
 pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
-    let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, None);
+    let handler = Handler::with_emitter(false, false, Box::new(EmptyEmitter {}));
     let session = Session { handler: &handler };
 
     let file_bytes = file_text.as_bytes().to_vec();
@@ -48,10 +48,7 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         let tokens = parser.input().take();
 
         match parse_module_result {
-            Err(error) => {
-                println!("Error: {}", error.message());
-                Err(error.message())
-            },
+            Err(error) => Err(error.message()),
             Ok(module) => Ok((module, tokens))
         }
     }?;
@@ -80,5 +77,18 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
             let period_pos = file_path.rfind('.')?;
             return Some(file_path[period_pos + 1..].to_lowercase());
         }
+    }
+}
+
+pub struct EmptyEmitter {
+}
+
+impl Emitter for EmptyEmitter {
+    fn emit(&mut self, _: &DiagnosticBuilder<'_>) {
+        // for now, we don't care about diagnostics so do nothing
+    }
+
+    fn should_show_explain(&self) -> bool {
+        false
     }
 }
