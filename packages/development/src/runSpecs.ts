@@ -4,7 +4,6 @@ import * as path from "path";
 import globby from "globby";
 import { resolveConfiguration, formatFileText, CliLoggingEnvironment } from "@dprint/core";
 import { Plugin, ConfigurationDiagnostic, isJsPlugin } from "@dprint/types";
-import { print as rustPrinter } from "@dprint/rust-printer";
 import { getPrintIterableAsFormattedText } from "./getPrintIterableAsFormattedText";
 import { parseSpecs, Spec } from "./specParser";
 
@@ -71,13 +70,6 @@ export function runSpecs(options: RunSpecsOptions) {
 
             // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
             expect(actualText).to.equal(spec.expectedText, spec.message);
-
-            expect(formatFileText({
-                filePath: spec.filePath,
-                fileText: spec.fileText,
-                plugins: [plugin],
-                customPrinter: rustPrinter
-            })).to.equal(spec.expectedText, `RUST PRINTER: ${spec.message}`);
 
             function getGlobalConfiguration() {
                 const result = resolveConfiguration({});

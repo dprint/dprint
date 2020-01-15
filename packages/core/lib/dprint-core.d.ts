@@ -14,7 +14,7 @@ export declare function getFileExtension(filePath: string): string;
  */
 export declare function resolveNewLineKindFromText(text: string): "\r\n" | "\n";
 
-/** Options for printing a print item iterable. */
+/** Options for printing. */
 export interface PrintOptions {
     /** The width the printer will attempt to keep the line under. */
     maxWidth: number;

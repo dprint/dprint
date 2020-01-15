@@ -1,5 +1,5 @@
 import { Plugin, PrintItemIterable, JsPlugin, WebAssemblyPlugin, isJsPlugin } from "@dprint/types";
-import { print, PrintOptions } from "./printing";
+import { print, PrintOptions } from "@dprint/rust-printer";
 import { resolveNewLineKindFromText, throwError } from "./utils";
 
 /** Options for formatting. */
