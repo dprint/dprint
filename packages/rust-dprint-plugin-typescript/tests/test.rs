@@ -20,18 +20,31 @@ struct FailedTestResult {
 fn test_performance() {
     // run this with `cargo test --release -- --nocapture`
 
-    let config = resolve_config(&HashMap::new()); // todo: fix up this javascript era code
+    // todo: fix up this javascript era code
+    let mut unresolved_config = HashMap::new();
+    // This file was not written with an 80 line width in mind so overall
+    // it's not too bad, but there are a few small issues to fix here and there.
+    unresolved_config.insert(String::from("lineWidth"), String::from("80"));
+    unresolved_config.insert(String::from("forceMultiLineArguments"), String::from("true"));
+    unresolved_config.insert(String::from("forceMultiLineParameters"), String::from("true"));
+    unresolved_config.insert(String::from("singleQuotes"), String::from("true"));
+    unresolved_config.insert(String::from("nextControlFlowPosition"), String::from("sameLine"));
+
+    let config = resolve_config(&unresolved_config);
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 
-    for _ in 0..10 {
+    for i in 0..10 {
         let start = Instant::now();
         //debug_here!();
         let result = format_text("checker.ts", &file_text, &config).expect("Could not parse...");
 
         let elapsed = start.elapsed();
         println!("{}ms", elapsed.as_millis());
-        println!("{}", result.len());
-        println!("---")
+        println!("---");
+
+        if i == 0 {
+            fs::write("tests/performance/checker_output.txt", result).expect("Expected to write to the file.");
+        }
     }
 }
 
