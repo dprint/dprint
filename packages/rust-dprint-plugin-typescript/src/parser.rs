@@ -46,9 +46,6 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     context.parent_stack.push(past_current_node);
 
     // parse item
-
-    // todo: need more robust comment scanning to ensure no comment is not handled (ex. getting comments before and after a token)
-
     let node_span = node.span();
     let node_hi = node_span.hi();
     let leading_comments = context.comments.leading_comments_with_previous(node_span.lo());
@@ -585,8 +582,6 @@ fn parse_enum_member<'a>(node: &'a TsEnumMember, context: &mut Context<'a>) -> V
 }
 
 fn parse_export_named_decl<'a>(node: &'a NamedExport, context: &mut Context<'a>) -> Vec<PrintItem> {
-    // todo: rewrite this so that it doesn't need to clone the current node
-
     // fill specifiers
     let mut default_export: Option<&DefaultExportSpecifier> = None;
     let mut namespace_export: Option<&NamespaceExportSpecifier> = None;
@@ -711,8 +706,6 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
 }
 
 fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> Vec<PrintItem> {
-    // todo: rewrite this so that it doesn't need to clone the current node
-
     // fill specifiers
     let mut default_import: Option<&ImportDefault> = None;
     let mut namespace_import: Option<&ImportStarAs> = None;
