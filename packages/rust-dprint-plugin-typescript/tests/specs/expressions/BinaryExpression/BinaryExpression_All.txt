@@ -101,3 +101,13 @@ const t = 4545 & 53453443;
 [expect]
 const t = 4545
     & 53453443;
+
+== should not place triple equals at same indentation as OR ===
+testing(testing)
+    || testing
+    === test;
+
+[expect]
+testing(testing)
+    || testing
+        === test;
