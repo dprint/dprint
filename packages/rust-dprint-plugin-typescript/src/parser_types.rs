@@ -378,7 +378,7 @@ pub enum TypeParamNode<'a> {
 impl<'a> TypeParamNode<'a> {
     pub fn params(&self) -> Vec<Node<'a>> {
         match self {
-            TypeParamNode::Instantiation(node) => node.params.iter().map(|box p| p.into()).collect(),
+            TypeParamNode::Instantiation(node) => node.params.iter().map(|p| p.into()).collect(),
             TypeParamNode::Decl(node) => node.params.iter().map(|p| p.into()).collect(),
         }
     }

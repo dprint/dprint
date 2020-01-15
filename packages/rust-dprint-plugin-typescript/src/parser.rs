@@ -296,7 +296,7 @@ fn parse_class_prop<'a>(node: &'a ClassProp, context: &mut Context<'a>) -> Vec<P
     if node.definite { items.push("!".into()); }
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
 
-    if let Some(box value) = &node.value {
+    if let Some(value) = &node.value {
         items.push(" = ".into());
         items.extend(parse_node(value.into(), context));
     }
@@ -564,7 +564,7 @@ fn parse_enum_decl<'a>(node: &'a TsEnumDecl, context: &mut Context<'a>) -> Vec<P
 fn parse_enum_member<'a>(node: &'a TsEnumMember, context: &mut Context<'a>) -> Vec<PrintItem> {
     let mut items = parse_node((&node.id).into(), context);
 
-    if let Some(box init) = &node.init {
+    if let Some(init) = &node.init {
         items.push(match init.kind() {
             NodeKind::Number | NodeKind::Str => PrintItem::SpaceOrNewLine,
             _ => " ".into(),
@@ -1244,12 +1244,19 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> Vec<Pri
 
         fn parse_test_library_callee<'a>(callee: &'a ExprOrSuper, context: &mut Context<'a>) -> Vec<PrintItem> {
             match callee {
-                ExprOrSuper::Expr(box Expr::Member(member_expr)) => {
-                    let mut items = Vec::new();
-                    items.extend(parse_node((&member_expr.obj).into(), context));
-                    items.push(".".into());
-                    items.extend(parse_node((&member_expr.prop).into(), context));
-                    items
+                // todo: use box pattern matching once supported in rust stable
+                ExprOrSuper::Expr(expr) => {
+                    let expr = &**expr;
+                    match expr {
+                        Expr::Member(member_expr) => {
+                            let mut items = Vec::new();
+                            items.extend(parse_node((&member_expr.obj).into(), context));
+                            items.push(".".into());
+                            items.extend(parse_node((&member_expr.prop).into(), context));
+                            items
+                        },
+                        _=> parse_node(expr.into(), context),
+                    }
                 },
                 _ => parse_node(callee.into(), context),
             }
@@ -1300,8 +1307,8 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> Vec<Pri
             fn get_identifier_text(callee: &ExprOrSuper) -> Option<&str> {
                 return match callee {
                     ExprOrSuper::Super(_) => None,
-                    ExprOrSuper::Expr(box expr) => {
-                        match expr {
+                    ExprOrSuper::Expr(expr) => {
+                        match &**expr {
                             Expr::Ident(ident) => Some(&ident.sym),
                             Expr::Member(member) if (*member.prop).kind() == NodeKind::Ident => get_identifier_text(&member.obj),
                             _ => None,
@@ -1520,7 +1527,7 @@ fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Vec<P
 }
 
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
-    parse_comma_separated_values(node.exprs.iter().map(|box x| x.into()).collect(), |_| { Some(false) }, context)
+    parse_comma_separated_values(node.exprs.iter().map(|x| x.into()).collect(), |_| { Some(false) }, context)
 }
 
 fn parse_setter_prop<'a>(node: &'a SetterProp, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -1552,12 +1559,12 @@ fn parse_tagged_tpl<'a>(node: &'a TaggedTpl, context: &mut Context<'a>) -> Vec<P
     let mut items = parse_node((&node.tag).into(), context);
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
     items.push(PrintItem::SpaceOrNewLine);
-    items.push(conditions::indent_if_start_of_line(parse_template_literal(&node.quasis, &node.exprs.iter().map(|box x| x).collect(), context)).into());
+    items.push(conditions::indent_if_start_of_line(parse_template_literal(&node.quasis, &node.exprs.iter().map(|x| &**x).collect(), context)).into());
     return items;
 }
 
 fn parse_tpl<'a>(node: &'a Tpl, context: &mut Context<'a>) -> Vec<PrintItem> {
-    parse_template_literal(&node.quasis, &node.exprs.iter().map(|box x| x).collect(), context)
+    parse_template_literal(&node.quasis, &node.exprs.iter().map(|x| &**x).collect(), context)
 }
 
 fn parse_tpl_element<'a>(node: &'a TplElement, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -1678,7 +1685,7 @@ fn parse_yield_expr<'a>(node: &'a YieldExpr, context: &mut Context<'a>) -> Vec<P
     let mut items = Vec::new();
     items.push("yield".into());
     if node.delegate { items.push("*".into()); }
-    if let Some(box arg) = &node.arg {
+    if let Some(arg) = &node.arg {
         items.push(" ".into());
         items.extend(parse_node(arg.into(), context));
     }
@@ -2182,7 +2189,7 @@ fn parse_assign_pat_prop<'a>(node: &'a AssignPatProp, context: &mut Context<'a>)
     return parser_helpers::new_line_group({
         let mut items = Vec::new();
         items.extend(parse_node((&node.key).into(), context));
-        if let Some(box value) = &node.value {
+        if let Some(value) = &node.value {
             items.push(PrintItem::SpaceOrNewLine);
             items.push(conditions::indent_if_start_of_line({
                 let mut items = Vec::new();
@@ -2726,7 +2733,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> Vec<PrintIt
 
     items.extend(result.parsed_node);
 
-    if let Some(box alt) = &node.alt {
+    if let Some(alt) = &node.alt {
         items.extend(parse_control_flow_separator(context.config.if_statement_next_control_flow_position, &cons_span, "else", context));
 
         // parse the leading comments before the else keyword
@@ -2738,7 +2745,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> Vec<PrintIt
         items.push(start_else_header_info.clone().into());
         items.push("else".into());
 
-        if let Stmt::If(alt) = alt {
+        if let Stmt::If(alt) = &**alt {
             items.push(" ".into());
             items.extend(parse_node(alt.into(), context));
         } else {
@@ -2779,7 +2786,7 @@ fn parse_labeled_stmt<'a>(node: &'a LabeledStmt, context: &mut Context<'a>) -> V
 fn parse_return_stmt<'a>(node: &'a ReturnStmt, context: &mut Context<'a>) -> Vec<PrintItem> {
     let mut items = Vec::new();
     items.push("return".into());
-    if let Some(box arg) = &node.arg {
+    if let Some(arg) = &node.arg {
         items.push(" ".into());
         items.extend(parse_node(arg.into(), context));
     }
@@ -2816,7 +2823,7 @@ fn parse_switch_case<'a>(node: &'a SwitchCase, context: &mut Context<'a>) -> Vec
 
     items.push(start_header_info.clone().into());
 
-    if let Some(box test) = &node.test {
+    if let Some(test) = &node.test {
         items.push("case ".into());
         items.extend(parse_node(test.into(), context));
         items.push(":".into());
@@ -2967,7 +2974,7 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> Vec<Print
 fn parse_var_declarator<'a>(node: &'a VarDeclarator, context: &mut Context<'a>) -> Vec<PrintItem> {
     let mut items = parse_node((&node.name).into(), context);
 
-    if let Some(box init) = &node.init {
+    if let Some(init) = &node.init {
         items.push(" = ".into());
         items.extend(parse_node(init.into(), context));
     }
