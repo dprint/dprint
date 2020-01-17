@@ -1,4 +1,4 @@
-import { PrintItemIterable, JsPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { PrintItemIterable, WebAssemblyPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 /**
  * User specified configuration for formatting TypeScript code.
@@ -466,9 +466,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
 }
 
 /**
- * Plugin for formatting TypeScript code (.ts/.tsx/.js files).
+ * Plugin for formatting TypeScript code (.ts/.tsx/.js/.jsx files).
  */
-export declare class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConfiguration> {
+export declare class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptConfiguration> {
     /**
      * Constructor.
      * @param config - The configuration to use.
@@ -479,6 +479,8 @@ export declare class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConf
     /** @inheritdoc */
     name: string;
     /** @inheritdoc */
+    dispose(): void;
+    /** @inheritdoc */
     initialize(options: PluginInitializeOptions): void;
     /** @inheritdoc */
     shouldFormatFile(filePath: string): boolean;
@@ -487,5 +489,6 @@ export declare class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConf
     /** @inheritdoc */
     getConfigurationDiagnostics(): ConfigurationDiagnostic[];
     /** @inheritdoc */
-    parseFile(filePath: string, fileText: string): PrintItemIterable | false;
+    formatText(filePath: string, fileText: string): string | false;
+    private _getFormatContext;
 }

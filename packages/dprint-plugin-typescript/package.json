@@ -6,13 +6,13 @@
   "types": "lib/dprint-plugin-typescript.d.ts",
   "scripts": {
     "build": "rimraf dist && yarn build:rust && yarn rollup && yarn build:declarations",
-    "build:rust": "wasm-pack build --release --target nodejs --out-dir src-ts/pkg",
-    "build:rust-debug": "wasm-pack build --dev --target nodejs --out-dir src-ts/pkg",
+    "build:rust": "rimraf src-ts/pkg && wasm-pack build --release --target nodejs --out-dir src-ts/pkg",
+    "build:rust-debug": "rimraf src-ts/pkg && wasm-pack build --dev --target nodejs --out-dir src-ts/pkg",
     "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "yarn test --inspect-brk",
     "test:watch": "yarn test --watch-extensions ts --watch",
-    "rollup": "rollup --config",
+    "rollup": "copyfiles -u 1 src-ts/pkg/**/* dist && rollup --config",
     "output-implemented-nodes": "ts-node scripts/outputImplementedNodes.ts"
   },
   "repository": {
@@ -53,6 +53,7 @@
     "@types/mocha": "^5.2.7",
     "@types/ts-nameof": "^3.2.0",
     "chai": "^4.2.0",
+    "copyfiles": "^2.1.1",
     "cross-env": "^5.2.1",
     "mocha": "^6.2.0",
     "rimraf": "^3.0.0",
