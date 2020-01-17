@@ -59,6 +59,10 @@ export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResol
      * @returns The formatted text or false if the file said to skip parsing (ex. it had an ignore comment).
      */
     formatText(filePath: string, fileText: string): string | false;
+    /**
+     * Disposes any unmanaged resources held by the plugin.
+     */
+    dispose(): void;
 }
 
 export type Plugin = WebAssemblyPlugin | JsPlugin;

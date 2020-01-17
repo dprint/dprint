@@ -18,5 +18,5 @@ use parser::*;
 use parse_to_swc_ast::*;
 use tokens::*;
 
-pub use configuration::{TypeScriptConfiguration, resolve_config};
+pub use configuration::*;
 pub use format_text::{format_text};

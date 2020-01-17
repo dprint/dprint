@@ -1,4 +1,4 @@
-import { Configuration as CoreConfiguration } from "@dprint/types";
+import { Configuration as CoreConfiguration, WebAssemblyPlugin } from "@dprint/types";
 import { Environment } from "../environment";
 import { throwError } from "../utils";
 
@@ -28,26 +28,35 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
     async function getConfig() {
         let config: any;
         try {
-            config = await environment.require(resolvedFilePath);
-        } catch (err) {
-            if (await environment.exists(resolvedFilePath))
-                return throwError(`Error loading configuration file '${resolvedFilePath}'.\n\n${err}`);
-            else if (filePath == null) {
-                return throwError(
-                    `Could not find configuration file at '${resolvedFilePath}'. `
-                        + `Did you mean to create one (dprint --init) or specify a --config option?\n\n`
-                        + err
-                );
+            try {
+                config = await environment.require(resolvedFilePath);
+            } catch (err) {
+                if (await environment.exists(resolvedFilePath))
+                    return throwError(`Error loading configuration file '${resolvedFilePath}'.\n\n${err}`);
+                else if (filePath == null) {
+                    return throwError(
+                        `Could not find configuration file at '${resolvedFilePath}'. `
+                            + `Did you mean to create one (dprint --init) or specify a --config option?\n\n`
+                            + err
+                    );
+                }
+                else {
+                    return throwError(`Could not find specified configuration file at '${resolvedFilePath}'. Did you mean to create it?\n\n` + err);
+                }
             }
-            else {
-                return throwError(`Could not find specified configuration file at '${resolvedFilePath}'. Did you mean to create it?\n\n` + err);
-            }
-        }
 
-        if (typeof config !== "object" || typeof config.config !== "object")
-            return throwError(`Expected an object to be exported on the 'config' named export of the configuration at '${resolvedFilePath}'.`);
-        else
-            return config.config;
+            if (typeof config !== "object" || typeof config.config !== "object")
+                return throwError(`Expected an object to be exported on the 'config' named export of the configuration at '${resolvedFilePath}'.`);
+            else
+                return config.config;
+        } catch (err) {
+            // dispose the plugins on error if they were created
+            const plugins = (config as ResolveConfigFileResult)?.config?.plugins;
+            if (plugins instanceof Array)
+                plugins.forEach(p => (p as WebAssemblyPlugin)?.dispose?.());
+
+            throw err;
+        }
     }
 }
 

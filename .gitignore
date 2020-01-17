@@ -12,3 +12,4 @@ package-lock.json
 /packages/rust-printer/target
 /packages/benchmarks
 /packages/rust-development/target
+/packages/dprint-plugin-typescript/target

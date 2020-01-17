@@ -5,7 +5,9 @@
   "main": "dist/dprint-plugin-typescript.js",
   "types": "lib/dprint-plugin-typescript.d.ts",
   "scripts": {
-    "build": "rimraf dist && yarn rollup && yarn build:declarations",
+    "build": "rimraf dist && yarn build:rust && yarn rollup && yarn build:declarations",
+    "build:rust": "wasm-pack build --release --target nodejs --out-dir src-ts/pkg",
+    "build:rust-debug": "wasm-pack build --dev --target nodejs --out-dir src-ts/pkg",
     "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha --opts mocha.opts",
     "test:debug": "yarn test --inspect-brk",
@@ -61,6 +63,6 @@
     "ts-nameof": "^3.2.0",
     "ts-node": "^8.3.0",
     "ttypescript": "^1.5.7",
-    "typescript": "^3.6.3"
+    "typescript": "^3.7.5"
   }
 }

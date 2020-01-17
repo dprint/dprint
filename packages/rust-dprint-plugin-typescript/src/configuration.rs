@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct TypeScriptConfiguration {
+    pub new_line_kind: NewLineKind,
     pub single_quotes: bool,
     pub line_width: u32,
     pub use_tabs: bool,
@@ -192,6 +193,18 @@ pub struct TypeScriptConfiguration {
     pub while_statement_space_after_while_keyword: bool,
 }
 
+// todo: maybe move NewLineKind to core? and then maybe re-export it here?
+#[derive(Clone, PartialEq, Copy)]
+pub enum NewLineKind {
+    /// Decide which newline kind to use based on the last newline in the file.
+    Auto,
+    /// Use slash n new lines.
+    Unix,
+    /// Use slash r slash n new lines.
+    Windows,
+}
+
+
 /// Trailing comma possibilities.
 #[derive(Clone, PartialEq, Copy)]
 pub enum TrailingCommas {
@@ -297,6 +310,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
     let use_braces = get_use_braces(&mut config, "useBraces", UseBraces::WhenNotSingleLine);
 
     let resolved_config = TypeScriptConfiguration {
+        new_line_kind: get_new_line_kind(&mut config, "newLineKind", NewLineKind::Auto),
         line_width: get_value(&mut config, "lineWidth", 120),
         use_tabs: get_value(&mut config, "useTabs", false),
         indent_width: get_value(&mut config, "indentWidth", 4),
@@ -437,6 +451,28 @@ fn get_value<T>(
     let value = config.get(prop).map(|x| x.parse::<T>().unwrap()).unwrap_or(default_value);
     config.remove(prop);
     return value;
+}
+
+// todo: make the functions below more generic (implement FromStr?)
+
+fn get_new_line_kind(
+    config: &mut HashMap<String, String>,
+    prop: &str,
+    default_value: NewLineKind
+) -> NewLineKind {
+    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
+    config.remove(prop);
+    if let Some(value) = value {
+        match value.as_ref() {
+            "auto" => NewLineKind::Auto,
+            "\n" => NewLineKind::Unix,
+            "\r\n" => NewLineKind::Windows,
+            "" => default_value,
+            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
+        }
+    } else {
+        default_value
+    }
 }
 
 fn get_trailing_commas(

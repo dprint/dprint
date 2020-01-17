@@ -1,5 +1,5 @@
 import { Environment } from "../environment";
-import { ConfigurationDiagnostic } from "@dprint/types";
+import { ConfigurationDiagnostic, WebAssemblyPlugin } from "@dprint/types";
 import { formatFileText, resolveConfiguration } from "@dprint/core";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
@@ -35,44 +35,80 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     }
 
     const { unresolvedConfiguration, configFilePath, plugins } = await getUnresolvedConfigAndPlugins();
-    const globalConfig = resolveGlobalConfigurationInternal();
-    updatePluginsWithConfiguration();
-    const filePaths = await getFilePaths();
-
-    if (options.outputFilePaths) {
-        for (const filePath of filePaths)
-            environment.log(filePath);
-        return;
-    }
-    else if (options.outputResolvedConfig) {
-        outputResolvedConfiguration();
-        return;
+    try {
+        await runCliWithPlugins();
+    } finally {
+        plugins.forEach(p => (p as WebAssemblyPlugin).dispose?.());
     }
 
-    const promises: Promise<void>[] = [];
-
-    for (const filePath of filePaths) {
-        const promise = environment.readFile(filePath).then(fileText => {
-            const result = formatFileText({
-                filePath,
-                fileText,
-                plugins
-            });
-            // skip writing the file if it hasn't changed
-            return result === fileText ? Promise.resolve() : environment.writeFile(filePath, result);
-        }).catch(err => {
-            const errorText = err.toString().replace("[dprint]: ", "");
-            environment.error(`Error formatting file: ${filePath}\n\n${errorText}`);
-        });
-        promises.push(promise);
+    if (options.duration) {
+        const durationInSeconds = ((new Date()).getTime() - startDate.getTime()) / 1000;
+        environment.log(`Duration: ${durationInSeconds.toFixed(2)}s`);
     }
 
-    return Promise.all(promises).then(() => {
-        if (options.duration) {
-            const durationInSeconds = ((new Date()).getTime() - startDate.getTime()) / 1000;
-            environment.log(`Duration: ${durationInSeconds.toFixed(2)}s`);
+    async function runCliWithPlugins() {
+        const globalConfig = resolveGlobalConfigurationInternal();
+        updatePluginsWithConfiguration();
+        const filePaths = await getFilePaths();
+
+        if (options.outputResolvedConfig) {
+            outputResolvedConfiguration();
+            return;
         }
-    });
+        else if (options.outputFilePaths) {
+            for (const filePath of filePaths)
+                environment.log(filePath);
+            return;
+        }
+
+        const promises: Promise<void>[] = [];
+
+        for (const filePath of filePaths) {
+            const promise = environment.readFile(filePath).then(fileText => {
+                const result = formatFileText({
+                    filePath,
+                    fileText,
+                    plugins
+                });
+                // skip writing the file if it hasn't changed
+                return result === fileText ? Promise.resolve() : environment.writeFile(filePath, result);
+            }).catch(err => {
+                const errorText = err.toString().replace("[dprint]: ", "");
+                environment.error(`Error formatting file: ${filePath}\n\n${errorText}`);
+            });
+            promises.push(promise);
+        }
+
+        await Promise.all(promises);
+
+        function updatePluginsWithConfiguration() {
+            for (const plugin of plugins) {
+                plugin.initialize({
+                    environment,
+                    globalConfig
+                });
+
+                for (const diagnostic of plugin.getConfigurationDiagnostics())
+                    warnForConfigurationDiagnostic(diagnostic);
+            }
+        }
+
+        function outputResolvedConfiguration() {
+            environment.log(getText());
+
+            function getText() {
+                let text = `Global configuration: ${prettyPrintAsJson(globalConfig)}`;
+                for (const plugin of plugins)
+                    text += `\n${plugin.name}: ${prettyPrintAsJson(plugin.getConfiguration())}`;
+                return text;
+            }
+
+            function prettyPrintAsJson(obj: any) {
+                const numSpaces = 2;
+                return JSON.stringify(obj, null, numSpaces);
+            }
+        }
+    }
 
     function resolveGlobalConfigurationInternal() {
         const missingProjectTypeDiagnostic = getMissingProjectTypeDiagnostic(unresolvedConfiguration);
@@ -91,18 +127,6 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
             delete obj.excludes;
             delete obj.includes;
             return obj;
-        }
-    }
-
-    function updatePluginsWithConfiguration() {
-        for (const plugin of plugins) {
-            plugin.initialize({
-                environment,
-                globalConfig
-            });
-
-            for (const diagnostic of plugin.getConfigurationDiagnostics())
-                warnForConfigurationDiagnostic(diagnostic);
         }
     }
 
@@ -144,22 +168,6 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
 
     function warnForConfigurationDiagnostic(diagnostic: ConfigurationDiagnostic) {
         environment.warn(`[${environment.basename(configFilePath)}]: ${diagnostic.message}`);
-    }
-
-    function outputResolvedConfiguration() {
-        environment.log(getText());
-
-        function getText() {
-            let text = `Global configuration: ${prettyPrintAsJson(globalConfig)}`;
-            for (const plugin of plugins)
-                text += `\n${plugin.name}: ${prettyPrintAsJson(plugin.getConfiguration())}`;
-            return text;
-        }
-
-        function prettyPrintAsJson(obj: any) {
-            const numSpaces = 2;
-            return JSON.stringify(obj, null, numSpaces);
-        }
     }
 
     async function safeGetPlugins() {

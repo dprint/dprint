@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import globby from "globby";
 import { resolveConfiguration, formatFileText, CliLoggingEnvironment } from "@dprint/core";
-import { Plugin, ConfigurationDiagnostic, isJsPlugin } from "@dprint/types";
+import { Plugin, ConfigurationDiagnostic, isJsPlugin, WebAssemblyPlugin } from "@dprint/types";
 import { getPrintIterableAsFormattedText } from "./getPrintIterableAsFormattedText";
 import { parseSpecs, Spec } from "./specParser";
 
@@ -48,28 +48,32 @@ export function runSpecs(options: RunSpecsOptions) {
             const globalConfig = getGlobalConfiguration();
             const plugin = getPlugin();
 
-            if (!spec.expectedText.endsWith("\n"))
-                throw new Error(`${spec.message}: The expected text did not end with a newline.`);
-            if (spec.expectedText.endsWith("\n\n"))
-                throw new Error(`${spec.message}: The expected text ended with multiple newlines: ${JSON.stringify(spec.expectedText)}`);
+            try {
+                if (!spec.expectedText.endsWith("\n"))
+                    throw new Error(`${spec.message}: The expected text did not end with a newline.`);
+                if (spec.expectedText.endsWith("\n\n"))
+                    throw new Error(`${spec.message}: The expected text ended with multiple newlines: ${JSON.stringify(spec.expectedText)}`);
 
-            if (spec.showTree) {
-                if (!isJsPlugin(plugin))
-                    throw new Error("Can't print the tree because the plugin is not a js plugin.");
-                const printIterable = plugin.parseFile(spec.filePath, spec.fileText);
-                if (printIterable === false)
-                    throw new Error("Can't print the tree because this file says it shouldn't be parsed.");
-                console.log(getPrintIterableAsFormattedText(printIterable));
+                if (spec.showTree) {
+                    if (!isJsPlugin(plugin))
+                        throw new Error("Can't print the tree because the plugin is not a js plugin.");
+                    const printIterable = plugin.parseFile(spec.filePath, spec.fileText);
+                    if (printIterable === false)
+                        throw new Error("Can't print the tree because this file says it shouldn't be parsed.");
+                    console.log(getPrintIterableAsFormattedText(printIterable));
+                }
+
+                const actualText = formatFileText({
+                    filePath: spec.filePath,
+                    fileText: spec.fileText,
+                    plugins: [plugin]
+                });
+
+                // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
+                expect(actualText).to.equal(spec.expectedText, spec.message);
+            } finally {
+                (plugin as WebAssemblyPlugin)?.dispose();
             }
-
-            const actualText = formatFileText({
-                filePath: spec.filePath,
-                fileText: spec.fileText,
-                plugins: [plugin]
-            });
-
-            // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
-            expect(actualText).to.equal(spec.expectedText, spec.message);
 
             function getGlobalConfiguration() {
                 const result = resolveConfiguration({});
