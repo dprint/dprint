@@ -2,7 +2,7 @@ use std::str;
 use std::rc::Rc;
 use super::*;
 use std::collections::{HashSet, HashMap};
-use dprint_core::{Info};
+use dprint_core::{Info, Condition};
 use utils::{Stack};
 use swc_common::{SpanData, BytePos, comments::{Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::*;
@@ -20,6 +20,7 @@ pub struct Context<'a> {
     stored_infos: HashMap<BytePos, Info>,
     pub end_statement_or_member_infos: Stack<Info>,
     disable_indent_for_next_bin_expr: bool,
+    if_stmt_last_brace_condition: Option<Condition>,
 }
 
 impl<'a> Context<'a> {
@@ -44,6 +45,7 @@ impl<'a> Context<'a> {
             stored_infos: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),
             disable_indent_for_next_bin_expr: false,
+            if_stmt_last_brace_condition: None,
         }
     }
 
@@ -80,6 +82,14 @@ impl<'a> Context<'a> {
         let value = self.disable_indent_for_next_bin_expr;
         self.disable_indent_for_next_bin_expr = false;
         return value;
+    }
+
+    pub fn store_if_stmt_last_brace_condition(&mut self, condition: Condition) {
+        self.if_stmt_last_brace_condition = Some(condition);
+    }
+
+    pub fn take_if_stmt_last_brace_condition(&mut self) -> Option<Condition> {
+        self.if_stmt_last_brace_condition.take()
     }
 }
 

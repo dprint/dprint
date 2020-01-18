@@ -84,3 +84,29 @@ if (true)
     call1(); // a
 else
     call2(); // b
+
+== should use braces for last "else if" when previous is multiple lines ==
+if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+}
+
+[expect]
+if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+}

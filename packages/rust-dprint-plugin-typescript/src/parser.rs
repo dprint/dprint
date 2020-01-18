@@ -2774,12 +2774,18 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> Vec<PrintIt
         use_braces: context.config.if_statement_use_braces,
         brace_position: context.config.if_statement_brace_position,
         single_body_position: Some(context.config.if_statement_single_body_position),
-        requires_braces_condition: None,
+        requires_braces_condition: context.take_if_stmt_last_brace_condition(),
     }, context);
 
     items.extend(result.parsed_node);
 
     if let Some(alt) = &node.alt {
+        if let Stmt::If(alt_alt) = &**alt {
+            if alt_alt.alt.is_none() {
+                context.store_if_stmt_last_brace_condition(result.open_brace_condition.clone());
+            }
+        }
+
         items.extend(parse_control_flow_separator(context.config.if_statement_next_control_flow_position, &cons_span, "else", context));
 
         // parse the leading comments before the else keyword
