@@ -48,8 +48,9 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     // parse item
     let node_span = node.span();
     let node_hi = node_span.hi();
-    let leading_comments = context.comments.leading_comments_with_previous(node_span.lo());
-    let has_ignore_comment = get_has_ignore_comment(&leading_comments);
+    let node_lo = node_span.lo();
+    let leading_comments = context.comments.leading_comments_with_previous(node_lo);
+    let has_ignore_comment = get_has_ignore_comment(&leading_comments, &node_lo, context);
 
     items.extend(parse_comments_as_leading(&node_span, leading_comments, context));
 
@@ -232,8 +233,8 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
         }
     }
 
-    fn get_has_ignore_comment<'a>(leading_comments: &Vec<&'a Comment>) -> bool {
-        if let Some(last_comment) = leading_comments.last() {
+    fn get_has_ignore_comment<'a>(leading_comments: &Vec<&'a Comment>, node_lo: &BytePos, context: &mut Context<'a>) -> bool {
+        if let Some(last_comment) = get_last_comment(leading_comments, node_lo, context) {
             let searching_text = "dprint-ignore";
             let pos = last_comment.text.find(searching_text);
             if let Some(pos) = pos {
@@ -249,6 +250,39 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
         }
 
         return false;
+
+        fn get_last_comment<'a>(leading_comments: &Vec<&'a Comment>, node_lo: &BytePos, context: &mut Context<'a>) -> Option<&'a Comment> {
+            return match context.parent() {
+                Node::JSXElement(jsx_element) => get_last_comment_for_jsx_children(&jsx_element.children, node_lo, context),
+                Node::JSXFragment(jsx_fragment) => get_last_comment_for_jsx_children(&jsx_fragment.children, node_lo, context),
+                _ => leading_comments.last().map(|x| x.to_owned()), // todo: does this clone? What's the right way to do this?
+            };
+
+            fn get_last_comment_for_jsx_children<'a>(children: &Vec<JSXElementChild>, node_lo: &BytePos, context: &mut Context<'a>) -> Option<&'a Comment> {
+                let index = children.binary_search_by_key(node_lo, |child| child.lo()).ok()?;
+                if index == 0 { return None; }
+                for i in (0..index).rev() {
+                    match children.get(i)? {
+                        JSXElementChild::JSXExprContainer(expr_container) => {
+                            return match expr_container.expr {
+                                JSXExpr::JSXEmptyExpr(empty_expr) => {
+                                    get_jsx_empty_expr_comments(&empty_expr, context).into_iter().last()
+                                },
+                                _ => None,
+                            };
+                        },
+                        JSXElementChild::JSXText(jsx_text) => {
+                            if jsx_text.text(context).trim().len() != 0 {
+                                return None;
+                            }
+                        }
+                        _=> return None,
+                    }
+                }
+
+                None
+            }
+        }
 
         fn is_alpha_numeric_at_pos(text: &String, pos: usize) -> bool {
             if let Some(chars_after) = text.get(pos..) {
@@ -1938,11 +1972,18 @@ fn parse_jsx_element<'a>(node: &'a JSXElement, context: &mut Context<'a>) -> Vec
 }
 
 fn parse_jsx_empty_expr<'a>(node: &'a JSXEmptyExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
-    parse_comment_collection(node.span.hi().leading_comments(context), None, context)
+    parse_comment_collection(get_jsx_empty_expr_comments(node, context), None, context)
 }
 
 fn parse_jsx_expr_container<'a>(node: &'a JSXExprContainer, context: &mut Context<'a>) -> Vec<PrintItem> {
-    parse_as_jsx_expr_container(parse_node((&node.expr).into(), context), context)
+    // Don't send JSX empty expressions to parse_node because it will not handle comments
+    // the way they should be specifically handled for empty expressions.
+    let expr_items = match &node.expr {
+        JSXExpr::JSXEmptyExpr(expr) => parse_jsx_empty_expr(expr, context),
+        JSXExpr::Expr(expr) => parse_node(expr.into(), context),
+    };
+
+    parse_as_jsx_expr_container(expr_items, context)
 }
 
 fn parse_as_jsx_expr_container(parsed_node: Vec<PrintItem>, context: &mut Context) -> Vec<PrintItem> {
@@ -3630,6 +3671,10 @@ fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Vec<&'a
     items.extend(parse_comment_collection(trailing_comments_on_same_line, Some(node), context));
 
     return items;
+}
+
+fn get_jsx_empty_expr_comments<'a>(node: &JSXEmptyExpr, context: &mut Context<'a>) -> Vec<&'a Comment> {
+    node.span.hi().leading_comments(context)
 }
 
 /* helpers */

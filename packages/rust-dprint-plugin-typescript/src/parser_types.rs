@@ -47,7 +47,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    pub fn parent(&self) -> &Node {
+    pub fn parent(&self) -> &Node<'a> {
         self.parent_stack.peek().unwrap()
     }
 
