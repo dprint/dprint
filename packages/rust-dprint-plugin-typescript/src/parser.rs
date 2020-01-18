@@ -1199,16 +1199,22 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
     }
 
     fn get_top_most_binary_expr_pos(node: &BinExpr, context: &mut Context) -> BytePos {
-        let mut top_most: Option<&BinExpr> = None;
-        for ancestor in context.parent_stack.iter() {
-            if let Node::BinExpr(ancestor) = ancestor {
-                top_most = Some(ancestor);
-            } else {
-                break;
+        let mut top_most: &BinExpr = node;
+        if is_expression_breakable(&node.op) {
+            for ancestor in context.parent_stack.iter() {
+                if let Node::BinExpr(ancestor) = ancestor {
+                    if is_expression_breakable(&ancestor.op) {
+                        top_most = ancestor;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             }
         }
 
-        top_most.unwrap_or(node).lo()
+        return top_most.lo();
     }
 
     fn is_expression_breakable(op: &BinaryOp) -> bool {
@@ -3372,6 +3378,7 @@ fn parse_type_operator<'a>(node: &'a TsTypeOperator, context: &mut Context<'a>) 
 
 fn parse_type_predicate<'a>(node: &'a TsTypePredicate, context: &mut Context<'a>) -> Vec<PrintItem> {
     let mut items = Vec::new();
+    if node.asserts { items.push("asserts ".into()); }
     items.extend(parse_node((&node.param_name).into(), context));
     items.push(" is ".into());
     items.extend(parse_node((&node.type_ann).into(), context));
