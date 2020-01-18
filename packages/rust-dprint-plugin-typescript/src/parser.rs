@@ -124,6 +124,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::Tpl(node) => parse_tpl(node, context),
             Node::TplElement(node) => parse_tpl_element(node, context),
             Node::TsAsExpr(node) => parse_as_expr(node, context),
+            Node::TsConstAssertion(node) => parse_const_assertion(node, context),
             Node::TsExprWithTypeArgs(node) => parse_expr_with_type_args(node, context),
             Node::TsNonNullExpr(node) => parse_non_null_expr(node, context),
             Node::TsTypeAssertion(node) => parse_type_assertion(node, context),
@@ -1016,6 +1017,12 @@ fn parse_as_expr<'a>(node: &'a TsAsExpr, context: &mut Context<'a>) -> Vec<Print
     let mut items = parse_node((&node.expr).into(), context);
     items.push(" as ".into());
     items.push(conditions::with_indent_if_start_of_line_indented(parse_node((&node.type_ann).into(), context)).into());
+    items
+}
+
+fn parse_const_assertion<'a>(node: &'a TsConstAssertion, context: &mut Context<'a>) -> Vec<PrintItem> {
+    let mut items = parse_node((&node.expr).into(), context);
+    items.push(" as const".into());
     items
 }
 

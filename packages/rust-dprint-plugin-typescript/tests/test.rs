@@ -37,6 +37,7 @@ fn test_performance() {
         let start = Instant::now();
         //debug_here!();
         let result = format_text("checker.ts", &file_text, &config).expect("Could not parse...");
+        let result = if let Some(result) = result { result } else { file_text.clone() };
 
         let elapsed = start.elapsed();
         println!("{}ms", elapsed.as_millis());
@@ -56,7 +57,9 @@ fn test_specs() {
 
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
         let config = resolve_config(&spec.config);
-        let result = format_text(&spec.file_name, &spec.file_text, &config).expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
+        let result = format_text(&spec.file_name, &spec.file_text, &config)
+            .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
+        let result = if let Some(result) = result { result } else { spec.file_text.clone() };
         if result != spec.expected_text {
             failed_tests.push(FailedTestResult {
                 file_path: file_path.clone(),
