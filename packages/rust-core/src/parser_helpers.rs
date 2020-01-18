@@ -46,7 +46,13 @@ pub fn if_true_or(
 pub fn parse_raw_string(text: &str) -> Vec<PrintItem> {
     let mut items: Vec<PrintItem> = Vec::new();
     let mut has_ignored_indent = false;
-    let lines = text.lines().collect::<Vec<&str>>();
+    let mut lines = text.lines().collect::<Vec<&str>>();
+
+    // todo: this is kind of hacky...
+    // using .lines() will remove the last line, so add it back if it exists
+    if text.ends_with("\n") {
+        lines.push("");
+    }
 
     for i in 0..lines.len() {
         if i > 0 {

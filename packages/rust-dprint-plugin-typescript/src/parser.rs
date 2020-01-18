@@ -228,7 +228,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::TsTypeRef(node) => parse_type_reference(node, context),
             Node::TsUnionType(node) => parse_union_type(node, context),
             /* unknown */
-            _ => vec![node.text(context).into()]
+            _ => parse_raw_string(node.text(context).into()),
         }
     }
 
@@ -1575,7 +1575,7 @@ fn parse_tpl<'a>(node: &'a Tpl, context: &mut Context<'a>) -> Vec<PrintItem> {
 }
 
 fn parse_tpl_element<'a>(node: &'a TplElement, context: &mut Context<'a>) -> Vec<PrintItem> {
-    vec![node.text(context).into()]
+    parse_raw_string(node.text(context).into())
 }
 
 fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -2064,7 +2064,6 @@ fn parse_jsx_spread_child<'a>(node: &'a JSXSpreadChild, context: &mut Context<'a
 }
 
 fn parse_jsx_text<'a>(node: &'a JSXText, context: &mut Context<'a>) -> Vec<PrintItem> {
-    // todo: cache this regex somewhere?
     let lines = node.text(context).trim().lines().map(|line| line.trim_end());
     let mut past_line: Option<&str> = None;
     let mut past_past_line: Option<&str> = None;
