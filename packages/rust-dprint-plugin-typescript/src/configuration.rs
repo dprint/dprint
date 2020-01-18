@@ -1,6 +1,17 @@
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseConfigurationError(String);
+
+impl std::fmt::Display for ParseConfigurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        format!("Found invalid value '{}'.", self.0).fmt(f)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TypeScriptConfiguration {
     pub new_line_kind: NewLineKind,
     pub single_quotes: bool,
@@ -8,101 +19,186 @@ pub struct TypeScriptConfiguration {
     pub use_tabs: bool,
     pub indent_width: u8,
     /* use parentheses */
+    #[serde(rename = "arrowFunction.expressionUseParentheses")]
     pub arrow_function_expression_use_parentheses: UseParentheses,
     /* brace position */
+    #[serde(rename = "arrowFunction.expressionBracePosition")]
     pub arrow_function_expression_brace_position: BracePosition,
+    #[serde(rename = "classDeclaration.bracePosition")]
     pub class_declaration_brace_position: BracePosition,
+    #[serde(rename = "classExpression.bracePosition")]
     pub class_expression_brace_position: BracePosition,
+    #[serde(rename = "constructorBrace.position")]
     pub constructor_brace_position: BracePosition,
+    #[serde(rename = "doWhileStatement.bracePosition")]
     pub do_while_statement_brace_position: BracePosition,
+    #[serde(rename = "enumDeclaration.bracePosition")]
     pub enum_declaration_brace_position: BracePosition,
+    #[serde(rename = "getAccessor.bracePosition")]
     pub get_accessor_brace_position: BracePosition,
+    #[serde(rename = "ifStatement.bracePosition")]
     pub if_statement_brace_position: BracePosition,
+    #[serde(rename = "interfaceDeclaration.bracePosition")]
     pub interface_declaration_brace_position: BracePosition,
+    #[serde(rename = "forStatement.bracePosition")]
     pub for_statement_brace_position: BracePosition,
+    #[serde(rename = "forInStatement.bracePosition")]
     pub for_in_statement_brace_position: BracePosition,
+    #[serde(rename = "forOfStatement.bracePosition")]
     pub for_of_statement_brace_position: BracePosition,
+    #[serde(rename = "functionDeclaration.bracePosition")]
     pub function_declaration_brace_position: BracePosition,
+    #[serde(rename = "functionExpression.bracePosition")]
     pub function_expression_brace_position: BracePosition,
     pub method_brace_position: BracePosition,
+    #[serde(rename = "moduleDeclaration.bracePosition")]
     pub module_declaration_brace_position: BracePosition,
+    #[serde(rename = "setAccessor.bracePosition")]
     pub set_accessor_brace_position: BracePosition,
+    #[serde(rename = "switchCase.bracePosition")]
     pub switch_case_brace_position: BracePosition,
+    #[serde(rename = "switchStatement.bracePosition")]
     pub switch_statement_brace_position: BracePosition,
+    #[serde(rename = "tryStatement.bracePosition")]
     pub try_statement_brace_position: BracePosition,
+    #[serde(rename = "whileStatement.bracePosition")]
     pub while_statement_brace_position: BracePosition,
     /* force multi-line arguments */
+    #[serde(rename = "callExpression.forceMultiLineArguments")]
     pub call_expression_force_multi_line_arguments: bool,
+    #[serde(rename = "newExpression.forceMultiLineArguments")]
     pub new_expression_force_multi_line_arguments: bool,
     /* force multi-line parameters */
+    #[serde(rename = "arrowFunction.forceMultiLineParameters")]
     pub arrow_function_expression_force_multi_line_parameters: bool,
+    #[serde(rename = "callSignature.forceMultiLineParameters")]
     pub call_signature_force_multi_line_parameters: bool,
+    #[serde(rename = "constructSignature.forceMultiLineParameters")]
     pub construct_signature_force_multi_line_parameters: bool,
+    #[serde(rename = "constructor.forceMultiLineParameters")]
     pub constructor_force_multi_line_parameters: bool,
+    #[serde(rename = "constructorType.forceMultiLineParameters")]
     pub constructor_type_force_multi_line_parameters: bool,
+    #[serde(rename = "functionDeclaration.forceMultiLineParameters")]
     pub function_declaration_force_multi_line_parameters: bool,
+    #[serde(rename = "functionExpression.forceMultiLineParameters")]
     pub function_expression_force_multi_line_parameters: bool,
+    #[serde(rename = "functionType.forceMultiLineParameters")]
     pub function_type_force_multi_line_parameters: bool,
+    #[serde(rename = "getAccessor.forceMultiLineParameters")]
     pub get_accessor_force_multi_line_parameters: bool,
+    #[serde(rename = "method.forceMultiLineParameters")]
     pub method_force_multi_line_parameters: bool,
+    #[serde(rename = "methodSignature.forceMultiLineParameters")]
     pub method_signature_force_multi_line_parameters: bool,
+    #[serde(rename = "setAccessor.forceMultiLineParameters")]
     pub set_accessor_force_multi_line_parameters: bool,
     /* member spacing */
+    #[serde(rename = "enumDeclaration.memberSpacing")]
     pub enum_declaration_member_spacing: MemberSpacing,
     /* next control flow position */
+    #[serde(rename = "ifStatement.nextControlFlowPosition")]
     pub if_statement_next_control_flow_position: NextControlFlowPosition,
+    #[serde(rename = "tryStatement.nextControlFlowPosition")]
     pub try_statement_next_control_flow_position: NextControlFlowPosition,
     /* operator position */
+    #[serde(rename = "binaryExpression.operatorPosition")]
     pub binary_expression_operator_position: OperatorPosition,
+    #[serde(rename = "conditionalExpression.operatorPosition")]
     pub conditional_expression_operator_position: OperatorPosition,
     /* semi-colon */
+    #[serde(rename = "breakStatement.semiColon")]
     pub break_statement_semi_colon: bool,
+    #[serde(rename = "callSignature.semiColon")]
     pub call_signature_semi_colon: bool,
+    #[serde(rename = "classProperty.semiColon")]
     pub class_property_semi_colon: bool,
+    #[serde(rename = "constructSignature.semiColon")]
     pub construct_signature_semi_colon: bool,
+    #[serde(rename = "constructor.semiColon")]
     pub constructor_semi_colon: bool,
+    #[serde(rename = "continueStatement.semiColon")]
     pub continue_statement_semi_colon: bool,
+    #[serde(rename = "debuggerStatement.semiColon")]
     pub debugger_statement_semi_colon: bool,
+    #[serde(rename = "doWhile.semiColon")]
     pub do_while_statement_semi_colon: bool,
+    #[serde(rename = "emptyStatement.semiColon")]
     pub empty_statement_semi_colon: bool,
+    #[serde(rename = "exportAllDeclaration.semiColon")]
     pub export_all_declaration_semi_colon: bool,
+    #[serde(rename = "exportAssignment.semiColon")]
     pub export_assignment_semi_colon: bool,
+    #[serde(rename = "exportDefaultExpression.semiColon")]
     pub export_default_expression_semi_colon: bool,
+    #[serde(rename = "exportNamedDeclaration.semiColon")]
     pub export_named_declaration_semi_colon: bool,
+    #[serde(rename = "expressionStatement.semiColon")]
     pub expression_statement_semi_colon: bool,
+    #[serde(rename = "functionDeclaration.semiColon")]
     pub function_declaration_semi_colon: bool,
+    #[serde(rename = "getAccessor.semiColon")]
     pub get_accessor_semi_colon: bool,
+    #[serde(rename = "importDeclaration.semiColon")]
     pub import_declaration_semi_colon: bool,
+    #[serde(rename = "importEquals.semiColon")]
     pub import_equals_semi_colon: bool,
+    #[serde(rename = "indexSignature.semiColon")]
     pub index_signature_semi_colon: bool,
+    #[serde(rename = "mappedType.semiColon")]
     pub mapped_type_semi_colon: bool,
+    #[serde(rename = "method.semiColon")]
     pub method_semi_colon: bool,
+    #[serde(rename = "methodSignature.semiColon")]
     pub method_signature_semi_colon: bool,
+    #[serde(rename = "moduleDeclaration.semiColon")]
     pub module_declaration_semi_colon: bool,
+    #[serde(rename = "namespaceExportDeclaration.semiColon")]
     pub namespace_export_declaration_semi_colon: bool,
+    #[serde(rename = "propertySignature.semiColon")]
     pub property_signature_semi_colon: bool,
+    #[serde(rename = "returnStatement.semiColon")]
     pub return_statement_semi_colon: bool,
+    #[serde(rename = "setAccessor.semiColon")]
     pub set_accessor_semi_colon: bool,
+    #[serde(rename = "throwStatement.semiColon")]
     pub throw_statement_semi_colon: bool,
+    #[serde(rename = "typeAlias.semiColon")]
     pub type_alias_semi_colon: bool,
+    #[serde(rename = "variableStatement.semiColon")]
     pub variable_statement_semi_colon: bool,
     /* single body position */
+    #[serde(rename = "ifStatement.singleBodyPosition")]
     pub if_statement_single_body_position: SingleBodyPosition,
+    #[serde(rename = "forStatement.singleBodyPosition")]
     pub for_statement_single_body_position: SingleBodyPosition,
+    #[serde(rename = "forInStatement.singleBodyPosition")]
     pub for_in_statement_single_body_position: SingleBodyPosition,
+    #[serde(rename = "forOfStatement.singleBodyPosition")]
     pub for_of_statement_single_body_position: SingleBodyPosition,
+    #[serde(rename = "whileStatement.singleBodyPosition")]
     pub while_statement_single_body_position: SingleBodyPosition,
     /* trailing commas */
+    #[serde(rename = "arrayExpression.singleBodyPosition")]
     pub array_expression_trailing_commas: TrailingCommas,
+    #[serde(rename = "arrayPattern.singleBodyPosition")]
     pub array_pattern_trailing_commas: TrailingCommas,
+    #[serde(rename = "enumDeclaration.singleBodyPosition")]
     pub enum_declaration_trailing_commas: TrailingCommas,
+    #[serde(rename = "objectExpression.singleBodyPosition")]
     pub object_expression_trailing_commas: TrailingCommas,
+    #[serde(rename = "tupleType.singleBodyPosition")]
     pub tuple_type_trailing_commas: TrailingCommas,
     /* use braces */
+    #[serde(rename = "ifStatement.useBraces")]
     pub if_statement_use_braces: UseBraces,
+    #[serde(rename = "forStatement.useBraces")]
     pub for_statement_use_braces: UseBraces,
+    #[serde(rename = "forOfStatement.useBraces")]
     pub for_of_statement_use_braces: UseBraces,
+    #[serde(rename = "forInStatement.useBraces")]
     pub for_in_statement_use_braces: UseBraces,
+    #[serde(rename = "whileStatement.useBraces")]
     pub while_statement_use_braces: UseBraces,
 
     /* use space separator */
@@ -110,103 +206,139 @@ pub struct TypeScriptConfiguration {
     /// Whether to surround bitwise and arithmetic operators in a binary expression with spaces.
     /// * `true` (default) - Ex. `1 + 2`
     /// * `false` - Ex. `1+2`
+    #[serde(rename = "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator")]
     pub binary_expression_space_surrounding_bitwise_and_arithmetic_operator: bool,
     /// Whether to add a space after the `new` keyword in a construct signature.
     /// `true` - Ex. `new (): MyClass;`
     /// `false` (default) - Ex. `new(): MyClass;`
+    #[serde(rename = "constructSignature.spaceAfterNewKeyword")]
     pub construct_signature_space_after_new_keyword: bool,
     /// Whether to add a space before the parentheses of a constructor.
     /// `true` - Ex. `constructor ()`
     /// `false` (false) - Ex. `constructor()`
+    #[serde(rename = "constructor.spaceBeforeParentheses")]
     pub constructor_space_before_parentheses: bool,
     /// Whether to add a space after the `new` keyword in a constructor type.
     /// `true` - Ex. `type MyClassCtor = new () => MyClass;`
     /// `false` (default) - Ex. `type MyClassCtor = new() => MyClass;`
+    #[serde(rename = "constructorType.spaceAfterNewKeyword")]
     pub constructor_type_space_after_new_keyword: bool,
     /// Whether to add a space after the `while` keyword in a do while statement.
     /// `true` (true) - Ex. `do {\n} while (condition);`
     /// `false` - Ex. `do {\n} while(condition);`
+    #[serde(rename = "doWhileStatement.spaceAfterWhileKeyword")]
     pub do_while_statement_space_after_while_keyword: bool,
     /// Whether to add spaces around named exports in an export declaration.
     /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
     /// * `false` - Ex. `export {SomeExport, OtherExport};`
+    #[serde(rename = "exportDeclarationSpace.surroundingNamedExports")]
     pub export_declaration_space_surrounding_named_exports: bool,
     /// Whether to add a space after the `for` keyword in a "for" statement.
     /// * `true` (default) - Ex. `for (let i = 0; i < 5; i++)`
     /// * `false` - Ex. `for(let i = 0; i < 5; i++)`
+    #[serde(rename = "forStatement.spaceAfterForKeyword")]
     pub for_statement_space_after_for_keyword: bool,
     /// Whether to add a space after the semi-colons in a "for" statement.
     /// * `true` (default) - Ex. `for (let i = 0; i < 5; i++)`
     /// * `false` - Ex. `for (let i = 0;i < 5;i++)`
+    #[serde(rename = "forStatement.spaceAfterSemiColons")]
     pub for_statement_space_after_semi_colons: bool,
     /// Whether to add a space after the `for` keyword in a "for in" statement.
     /// * `true` (default) - Ex. `for (const prop in obj)`
     /// * `false` - Ex. `for(const prop in obj)`
+    #[serde(rename = "forInStatement.spaceAfterForKeyword")]
     pub for_in_statement_space_after_for_keyword: bool,
     /// Whether to add a space after the `for` keyword in a "for of" statement.
     /// * `true` (default) - Ex. `for (const value of myArray)`
     /// * `false` - Ex. `for(const value of myArray)`
+    #[serde(rename = "forOfStatement.spaceAfterForKeyword")]
     pub for_of_statement_space_after_for_keyword: bool,
     /// Whether to add a space before the parentheses of a function declaration.
     /// * `true` - Ex. `function myFunction ()`
     /// * `false` (default) - Ex. `function myFunction()`
+    #[serde(rename = "functionDeclaration.spaceBeforeParentheses")]
     pub function_declaration_space_before_parentheses: bool,
     /// Whether to add a space before the parentheses of a function expression.
     /// `true` - Ex. `function ()`
     /// `false` (default) - Ex. `function()`
+    #[serde(rename = "functionExpression.spaceBeforeParentheses")]
     pub function_expression_space_before_parentheses: bool,
     /// Whether to add a space before the parentheses of a get accessor.
     /// `true` - Ex. `get myProp ()`
     /// `false` (false) - Ex. `get myProp()`
+    #[serde(rename = "getAccessor.spaceBeforeParentheses")]
     pub get_accessor_space_before_parentheses: bool,
     /// Whether to add a space after the `if` keyword in an "if" statement.
     /// `true` (default) - Ex. `if (true)`
     /// `false` - Ex. `if(true)`
+    #[serde(rename = "ifStatement.spaceAfterIfKeyword")]
     pub if_statement_space_after_if_keyword: bool,
     /// Whether to add spaces around named imports in an import declaration.
     /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
     /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
+    #[serde(rename = "importDeclaration.spaceSurroundingNamedImports")]
     pub import_declaration_space_surrounding_named_imports: bool,
     /// Whether to add a space surrounding the expression of a JSX container.
     /// * `true` - Ex. `{ myValue }`
     /// * `false` (default) - Ex. `{myValue}`
+    #[serde(rename = "jsxExpressionContainer.spaceSurroundingExpression")]
     pub jsx_expression_container_space_surrounding_expression: bool,
     /// Whether to add a space before the parentheses of a method.
     /// `true` - Ex. `myMethod ()`
     /// `false` - Ex. `myMethod()`
+    #[serde(rename = "method.spaceBeforeParentheses")]
     pub method_space_before_parentheses: bool,
     /// Whether to add a space before the parentheses of a set accessor.
     /// `true` - Ex. `set myProp (value: string)`
     /// `false` (default) - Ex. `set myProp(value: string)`
+    #[serde(rename = "setAccessor.spaceBeforeParentheses")]
     pub set_accessor_space_before_parentheses: bool,
     /// Whether to add a space before the colon of a type annotation.
     /// * `true` - Ex. `function myFunction() : string`
     /// * `false` (default) - Ex. `function myFunction(): string`
+    #[serde(rename = "typeAnnotation.spaceBeforeColon")]
     pub type_annotation_space_before_colon: bool,
     /// Whether to add a space before the expression in a type assertion.
     /// * `true` (default) - Ex. `<string> myValue`
     /// * `false` - Ex. `<string>myValue`
+    #[serde(rename = "typeAssertion.spaceBeforeExpression")]
     pub type_assertion_space_before_expression: bool,
     /// Whether to add a space after the `while` keyword in a while statement.
     /// * `true` (default) - Ex. `while (true)`
     /// * `false` - Ex. `while(true)`
+    #[serde(rename = "whileStatement.spaceAfterWhileKeyword")]
     pub while_statement_space_after_while_keyword: bool,
 }
 
 // todo: maybe move NewLineKind to core? and then maybe re-export it here?
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum NewLineKind {
     /// Decide which newline kind to use based on the last newline in the file.
+    #[serde(rename = "auto")]
     Auto,
     /// Use slash n new lines.
+    #[serde(rename = "\n")]
     Unix,
     /// Use slash r slash n new lines.
+    #[serde(rename = "\r\n")]
     Windows,
 }
 
+impl std::str::FromStr for NewLineKind {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "auto" => Ok(NewLineKind::Auto),
+            "\n" => Ok(NewLineKind::Unix),
+            "\r\n" => Ok(NewLineKind::Windows),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
 
 /// Trailing comma possibilities.
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum TrailingCommas {
     /// Trailing commas should not be used.
     Never,
@@ -216,8 +348,22 @@ pub enum TrailingCommas {
     OnlyMultiLine,
 }
 
+impl std::str::FromStr for TrailingCommas {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "always" => Ok(TrailingCommas::Always),
+            "never" => Ok(TrailingCommas::Never),
+            "onlyMultiLine" => Ok(TrailingCommas::OnlyMultiLine),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
 /// Where to place the opening brace.
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum BracePosition {
     /// Maintains the brace being on the next line or the same line.
     Maintain,
@@ -229,8 +375,23 @@ pub enum BracePosition {
     NextLineIfHanging,
 }
 
+impl std::str::FromStr for BracePosition {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "maintain" => Ok(BracePosition::Maintain),
+            "sameLine" => Ok(BracePosition::SameLine),
+            "nextLine" => Ok(BracePosition::NextLine),
+            "nextLineIfHanging" => Ok(BracePosition::NextLineIfHanging),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
 /// How to space members.
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum MemberSpacing {
     /// Maintains whether a newline or blankline is used.
     Maintain,
@@ -240,8 +401,22 @@ pub enum MemberSpacing {
     BlankLine,
 }
 
+impl std::str::FromStr for MemberSpacing {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "maintain" => Ok(MemberSpacing::Maintain),
+            "blankline" => Ok(MemberSpacing::BlankLine),
+            "newline" => Ok(MemberSpacing::NewLine),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
 /// Where to place the next control flow within a control flow statement.
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum NextControlFlowPosition {
     /// Maintains the next control flow being on the next line or the same line.
     Maintain,
@@ -251,8 +426,22 @@ pub enum NextControlFlowPosition {
     NextLine,
 }
 
+impl std::str::FromStr for NextControlFlowPosition {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "maintain" => Ok(NextControlFlowPosition::Maintain),
+            "sameLine" => Ok(NextControlFlowPosition::SameLine),
+            "nextLine" => Ok(NextControlFlowPosition::NextLine),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
 /// Where to place the operator for expressions that span multiple lines.
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum OperatorPosition {
     /// Maintains the operator being on the next line or the same line.
     Maintain,
@@ -262,8 +451,22 @@ pub enum OperatorPosition {
     NextLine,
 }
 
+impl std::str::FromStr for OperatorPosition {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "maintain" => Ok(OperatorPosition::Maintain),
+            "sameLine" => Ok(OperatorPosition::SameLine),
+            "nextLine" => Ok(OperatorPosition::NextLine),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
 /// Where to place the expression of a statement that could possibly be on one line (ex. `if (true) console.log(5);`).
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SingleBodyPosition {
     /// Maintains the position of the expression.
     Maintain,
@@ -273,8 +476,22 @@ pub enum SingleBodyPosition {
     NextLine,
 }
 
+impl std::str::FromStr for SingleBodyPosition {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "maintain" => Ok(SingleBodyPosition::Maintain),
+            "sameLine" => Ok(SingleBodyPosition::SameLine),
+            "nextLine" => Ok(SingleBodyPosition::NextLine),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
 /// If braces should be used or not.
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum UseBraces {
     /// Uses braces when the body is on a different line.
     Maintain,
@@ -286,8 +503,23 @@ pub enum UseBraces {
     PreferNone,
 }
 
+impl std::str::FromStr for UseBraces {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "maintain" => Ok(UseBraces::Maintain),
+            "whenNotSingleLine" => Ok(UseBraces::WhenNotSingleLine),
+            "always" => Ok(UseBraces::Always),
+            "preferNone" => Ok(UseBraces::PreferNone),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
 /// Whether to use parentheses around a single parameter in an arrow function.
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum UseParentheses {
     /// Maintains the current state of the parentheses.
     Maintain,
@@ -297,147 +529,173 @@ pub enum UseParentheses {
     PreferNone,
 }
 
-pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfiguration {
+impl std::str::FromStr for UseParentheses {
+    type Err = ParseConfigurationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "maintain" => Ok(UseParentheses::Maintain),
+            "force" => Ok(UseParentheses::Force),
+            "preferNone" => Ok(UseParentheses::PreferNone),
+            _ => Err(ParseConfigurationError(String::from(s))),
+        }
+    }
+}
+
+/// Represents a problem within the configuration.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationDiagnostic {
+    /// The property name the problem occurred on.
+    pub property_name: String,
+    /// The diagnostic message that should be displayed to the user
+    pub message: String,
+}
+
+pub fn resolve_config(config: &HashMap<String, String>, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> TypeScriptConfiguration {
     let mut config = config.clone();
-    let semi_colons = get_value(&mut config, "semiColons", true);
-    let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false);
-    let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false);
-    let brace_position = get_brace_position(&mut config, "bracePosition", BracePosition::NextLineIfHanging);
-    let next_control_flow_position = get_next_control_flow_position(&mut config, "nextControlFlowPosition", NextControlFlowPosition::NextLine);
-    let operator_position = get_operator_position(&mut config, "operatorPosition", OperatorPosition::NextLine);
-    let single_body_position = get_single_body_position(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain);
-    let trailing_commas = get_trailing_commas(&mut config, "trailingCommas", TrailingCommas::Never);
-    let use_braces = get_use_braces(&mut config, "useBraces", UseBraces::WhenNotSingleLine);
+    let semi_colons = get_value(&mut config, "semiColons", true, diagnostics);
+    let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false, diagnostics);
+    let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false, diagnostics);
+    let brace_position = get_value(&mut config, "bracePosition", BracePosition::NextLineIfHanging, diagnostics);
+    let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::NextLine, diagnostics);
+    let operator_position = get_value(&mut config, "operatorPosition", OperatorPosition::NextLine, diagnostics);
+    let single_body_position = get_value(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain, diagnostics);
+    let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::Never, diagnostics);
+    let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, diagnostics);
 
     let resolved_config = TypeScriptConfiguration {
-        new_line_kind: get_new_line_kind(&mut config, "newLineKind", NewLineKind::Auto),
-        line_width: get_value(&mut config, "lineWidth", 120),
-        use_tabs: get_value(&mut config, "useTabs", false),
-        indent_width: get_value(&mut config, "indentWidth", 4),
-        single_quotes: get_value(&mut config, "singleQuotes", false),
+        new_line_kind: get_value(&mut config, "newLineKind", NewLineKind::Auto, diagnostics),
+        line_width: get_value(&mut config, "lineWidth", 120, diagnostics),
+        use_tabs: get_value(&mut config, "useTabs", false, diagnostics),
+        indent_width: get_value(&mut config, "indentWidth", 4, diagnostics),
+        single_quotes: get_value(&mut config, "singleQuotes", false, diagnostics),
         /* use parentheses */
-        arrow_function_expression_use_parentheses: get_use_parentheses(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain),
+        arrow_function_expression_use_parentheses: get_value(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain, diagnostics),
         /* brace position */
-        arrow_function_expression_brace_position: get_brace_position(&mut config, "arrowFunctionExpression.bracePosition", brace_position),
-        class_declaration_brace_position: get_brace_position(&mut config, "classDeclaration.bracePosition", brace_position),
-        class_expression_brace_position: get_brace_position(&mut config, "classExpression.bracePosition", brace_position),
-        constructor_brace_position: get_brace_position(&mut config, "constructor.bracePosition", brace_position),
-        do_while_statement_brace_position: get_brace_position(&mut config, "doWhileStatement.bracePosition", brace_position),
-        enum_declaration_brace_position: get_brace_position(&mut config, "enumDeclaration.bracePosition", brace_position),
-        for_statement_brace_position: get_brace_position(&mut config, "forStatement.bracePosition", brace_position),
-        for_in_statement_brace_position: get_brace_position(&mut config, "forInStatement.bracePosition", brace_position),
-        for_of_statement_brace_position: get_brace_position(&mut config, "forOfStatement.bracePosition", brace_position),
-        get_accessor_brace_position: get_brace_position(&mut config, "getAccessor.bracePosition", brace_position),
-        if_statement_brace_position: get_brace_position(&mut config, "ifStatement.bracePosition", brace_position),
-        interface_declaration_brace_position: get_brace_position(&mut config, "interfaceDeclaration.bracePosition", brace_position),
-        function_declaration_brace_position: get_brace_position(&mut config, "functionDeclaration.bracePosition", brace_position),
-        function_expression_brace_position: get_brace_position(&mut config, "functionExpression.bracePosition", brace_position),
-        method_brace_position: get_brace_position(&mut config, "method.bracePosition", brace_position),
-        module_declaration_brace_position: get_brace_position(&mut config, "moduleDeclaration.bracePosition", brace_position),
-        set_accessor_brace_position: get_brace_position(&mut config, "setAccessor.bracePosition", brace_position),
-        switch_case_brace_position: get_brace_position(&mut config, "switchCase.bracePosition", brace_position),
-        switch_statement_brace_position: get_brace_position(&mut config, "switchStatement.bracePosition", brace_position),
-        try_statement_brace_position: get_brace_position(&mut config, "tryStatement.bracePosition", brace_position),
-        while_statement_brace_position: get_brace_position(&mut config, "whileStatement.bracePosition", brace_position),
+        arrow_function_expression_brace_position: get_value(&mut config, "arrowFunctionExpression.bracePosition", brace_position, diagnostics),
+        class_declaration_brace_position: get_value(&mut config, "classDeclaration.bracePosition", brace_position, diagnostics),
+        class_expression_brace_position: get_value(&mut config, "classExpression.bracePosition", brace_position, diagnostics),
+        constructor_brace_position: get_value(&mut config, "constructor.bracePosition", brace_position, diagnostics),
+        do_while_statement_brace_position: get_value(&mut config, "doWhileStatement.bracePosition", brace_position, diagnostics),
+        enum_declaration_brace_position: get_value(&mut config, "enumDeclaration.bracePosition", brace_position, diagnostics),
+        for_statement_brace_position: get_value(&mut config, "forStatement.bracePosition", brace_position, diagnostics),
+        for_in_statement_brace_position: get_value(&mut config, "forInStatement.bracePosition", brace_position, diagnostics),
+        for_of_statement_brace_position: get_value(&mut config, "forOfStatement.bracePosition", brace_position, diagnostics),
+        get_accessor_brace_position: get_value(&mut config, "getAccessor.bracePosition", brace_position, diagnostics),
+        if_statement_brace_position: get_value(&mut config, "ifStatement.bracePosition", brace_position, diagnostics),
+        interface_declaration_brace_position: get_value(&mut config, "interfaceDeclaration.bracePosition", brace_position, diagnostics),
+        function_declaration_brace_position: get_value(&mut config, "functionDeclaration.bracePosition", brace_position, diagnostics),
+        function_expression_brace_position: get_value(&mut config, "functionExpression.bracePosition", brace_position, diagnostics),
+        method_brace_position: get_value(&mut config, "method.bracePosition", brace_position, diagnostics),
+        module_declaration_brace_position: get_value(&mut config, "moduleDeclaration.bracePosition", brace_position, diagnostics),
+        set_accessor_brace_position: get_value(&mut config, "setAccessor.bracePosition", brace_position, diagnostics),
+        switch_case_brace_position: get_value(&mut config, "switchCase.bracePosition", brace_position, diagnostics),
+        switch_statement_brace_position: get_value(&mut config, "switchStatement.bracePosition", brace_position, diagnostics),
+        try_statement_brace_position: get_value(&mut config, "tryStatement.bracePosition", brace_position, diagnostics),
+        while_statement_brace_position: get_value(&mut config, "whileStatement.bracePosition", brace_position, diagnostics),
         /* force multi-line arguments */
-        call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments),
-        new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments),
+        call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments, diagnostics),
+        new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments, diagnostics),
         /* force multi-line parameters */
-        arrow_function_expression_force_multi_line_parameters: get_value(&mut config, "arrowFunctionExpression.forceMultiLineParameters", force_multi_line_parameters),
-        call_signature_force_multi_line_parameters: get_value(&mut config, "callSignature.forceMultiLineParameters", force_multi_line_parameters),
-        construct_signature_force_multi_line_parameters: get_value(&mut config, "constructSignature.forceMultiLineParameters", force_multi_line_parameters),
-        constructor_force_multi_line_parameters: get_value(&mut config, "constructor.forceMultiLineParameters", force_multi_line_parameters),
-        constructor_type_force_multi_line_parameters: get_value(&mut config, "constructorType.forceMultiLineParameters", force_multi_line_parameters),
-        function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters),
-        function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters),
-        function_type_force_multi_line_parameters: get_value(&mut config, "functionType.forceMultiLineParameters", force_multi_line_parameters),
-        get_accessor_force_multi_line_parameters: get_value(&mut config, "getAccessor.forceMultiLineParameters", force_multi_line_parameters),
-        method_force_multi_line_parameters: get_value(&mut config, "method.forceMultiLineParameters", force_multi_line_parameters),
-        method_signature_force_multi_line_parameters: get_value(&mut config, "methodSignature.forceMultiLineParameters", force_multi_line_parameters),
-        set_accessor_force_multi_line_parameters: get_value(&mut config, "setAccessor.forceMultiLineParameters", force_multi_line_parameters),
+        arrow_function_expression_force_multi_line_parameters: get_value(&mut config, "arrowFunctionExpression.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        call_signature_force_multi_line_parameters: get_value(&mut config, "callSignature.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        construct_signature_force_multi_line_parameters: get_value(&mut config, "constructSignature.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        constructor_force_multi_line_parameters: get_value(&mut config, "constructor.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        constructor_type_force_multi_line_parameters: get_value(&mut config, "constructorType.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        function_type_force_multi_line_parameters: get_value(&mut config, "functionType.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        get_accessor_force_multi_line_parameters: get_value(&mut config, "getAccessor.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        method_force_multi_line_parameters: get_value(&mut config, "method.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        method_signature_force_multi_line_parameters: get_value(&mut config, "methodSignature.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
+        set_accessor_force_multi_line_parameters: get_value(&mut config, "setAccessor.forceMultiLineParameters", force_multi_line_parameters, diagnostics),
         /* member spacing */
-        enum_declaration_member_spacing: get_member_spacing(&mut config, "enumDeclaration.memberSpacing", MemberSpacing::Maintain),
+        enum_declaration_member_spacing: get_value(&mut config, "enumDeclaration.memberSpacing", MemberSpacing::Maintain, diagnostics),
         /* next control flow position */
-        if_statement_next_control_flow_position: get_next_control_flow_position(&mut config, "ifStatement.nextControlFlowPosition", next_control_flow_position),
-        try_statement_next_control_flow_position: get_next_control_flow_position(&mut config, "tryStatement.nextControlFlowPosition", next_control_flow_position),
+        if_statement_next_control_flow_position: get_value(&mut config, "ifStatement.nextControlFlowPosition", next_control_flow_position, diagnostics),
+        try_statement_next_control_flow_position: get_value(&mut config, "tryStatement.nextControlFlowPosition", next_control_flow_position, diagnostics),
         /* operator position */
-        binary_expression_operator_position: get_operator_position(&mut config, "binaryExpression.operatorPosition", operator_position),
-        conditional_expression_operator_position: get_operator_position(&mut config, "conditionalExpression.operatorPosition", operator_position),
+        binary_expression_operator_position: get_value(&mut config, "binaryExpression.operatorPosition", operator_position, diagnostics),
+        conditional_expression_operator_position: get_value(&mut config, "conditionalExpression.operatorPosition", operator_position, diagnostics),
         /* semi-colon */
-        break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons),
-        call_signature_semi_colon: get_value(&mut config, "callSignature.semiColon", semi_colons),
-        class_property_semi_colon: get_value(&mut config, "classProperty.semiColon", semi_colons),
-        construct_signature_semi_colon: get_value(&mut config, "constructSignature.semiColon", semi_colons),
-        constructor_semi_colon: get_value(&mut config, "constructor.semiColon", semi_colons),
-        continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons),
-        debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons),
-        do_while_statement_semi_colon: get_value(&mut config, "doWhileStatement.semiColon", semi_colons),
-        empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons),
-        export_all_declaration_semi_colon: get_value(&mut config, "exportAllDeclaration.semiColon", semi_colons),
-        export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons),
-        export_default_expression_semi_colon: get_value(&mut config, "exportDefaultExpression.semiColon", semi_colons),
-        export_named_declaration_semi_colon: get_value(&mut config, "exportNamedDeclaration.semiColon", semi_colons),
-        expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons),
-        function_declaration_semi_colon: get_value(&mut config, "functionDeclaration.semiColon", semi_colons),
-        get_accessor_semi_colon: get_value(&mut config, "getAccessor.semiColon", semi_colons),
-        import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons),
-        import_equals_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons),
-        index_signature_semi_colon: get_value(&mut config, "indexSignature.semiColon", semi_colons),
-        mapped_type_semi_colon: get_value(&mut config, "mappedType.semiColon", semi_colons),
-        method_semi_colon: get_value(&mut config, "method.semiColon", semi_colons),
-        method_signature_semi_colon: get_value(&mut config, "methodSignature.semiColon", semi_colons),
-        module_declaration_semi_colon: get_value(&mut config, "moduleDeclaration.semiColon", semi_colons),
-        namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons),
-        property_signature_semi_colon: get_value(&mut config, "propertySignature.semiColon", semi_colons),
-        return_statement_semi_colon: get_value(&mut config, "returnStatement.semiColon", semi_colons),
-        set_accessor_semi_colon: get_value(&mut config, "setAccessor.semiColon", semi_colons),
-        throw_statement_semi_colon: get_value(&mut config, "throwStatement.semiColon", semi_colons),
-        type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons),
-        variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons),
+        break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons, diagnostics),
+        call_signature_semi_colon: get_value(&mut config, "callSignature.semiColon", semi_colons, diagnostics),
+        class_property_semi_colon: get_value(&mut config, "classProperty.semiColon", semi_colons, diagnostics),
+        construct_signature_semi_colon: get_value(&mut config, "constructSignature.semiColon", semi_colons, diagnostics),
+        constructor_semi_colon: get_value(&mut config, "constructor.semiColon", semi_colons, diagnostics),
+        continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons, diagnostics),
+        debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons, diagnostics),
+        do_while_statement_semi_colon: get_value(&mut config, "doWhileStatement.semiColon", semi_colons, diagnostics),
+        empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons, diagnostics),
+        export_all_declaration_semi_colon: get_value(&mut config, "exportAllDeclaration.semiColon", semi_colons, diagnostics),
+        export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons, diagnostics),
+        export_default_expression_semi_colon: get_value(&mut config, "exportDefaultExpression.semiColon", semi_colons, diagnostics),
+        export_named_declaration_semi_colon: get_value(&mut config, "exportNamedDeclaration.semiColon", semi_colons, diagnostics),
+        expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons, diagnostics),
+        function_declaration_semi_colon: get_value(&mut config, "functionDeclaration.semiColon", semi_colons, diagnostics),
+        get_accessor_semi_colon: get_value(&mut config, "getAccessor.semiColon", semi_colons, diagnostics),
+        import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons, diagnostics),
+        import_equals_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons, diagnostics),
+        index_signature_semi_colon: get_value(&mut config, "indexSignature.semiColon", semi_colons, diagnostics),
+        mapped_type_semi_colon: get_value(&mut config, "mappedType.semiColon", semi_colons, diagnostics),
+        method_semi_colon: get_value(&mut config, "method.semiColon", semi_colons, diagnostics),
+        method_signature_semi_colon: get_value(&mut config, "methodSignature.semiColon", semi_colons, diagnostics),
+        module_declaration_semi_colon: get_value(&mut config, "moduleDeclaration.semiColon", semi_colons, diagnostics),
+        namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons, diagnostics),
+        property_signature_semi_colon: get_value(&mut config, "propertySignature.semiColon", semi_colons, diagnostics),
+        return_statement_semi_colon: get_value(&mut config, "returnStatement.semiColon", semi_colons, diagnostics),
+        set_accessor_semi_colon: get_value(&mut config, "setAccessor.semiColon", semi_colons, diagnostics),
+        throw_statement_semi_colon: get_value(&mut config, "throwStatement.semiColon", semi_colons, diagnostics),
+        type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons, diagnostics),
+        variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons, diagnostics),
         /* single body position */
-        if_statement_single_body_position: get_single_body_position(&mut config, "ifStatement.singleBodyPosition", single_body_position),
-        for_statement_single_body_position: get_single_body_position(&mut config, "forStatement.singleBodyPosition", single_body_position),
-        for_in_statement_single_body_position: get_single_body_position(&mut config, "forInStatement.singleBodyPosition", single_body_position),
-        for_of_statement_single_body_position: get_single_body_position(&mut config, "forOfStatement.singleBodyPosition", single_body_position),
-        while_statement_single_body_position: get_single_body_position(&mut config, "whileStatement.singleBodyPosition", single_body_position),
+        if_statement_single_body_position: get_value(&mut config, "ifStatement.singleBodyPosition", single_body_position, diagnostics),
+        for_statement_single_body_position: get_value(&mut config, "forStatement.singleBodyPosition", single_body_position, diagnostics),
+        for_in_statement_single_body_position: get_value(&mut config, "forInStatement.singleBodyPosition", single_body_position, diagnostics),
+        for_of_statement_single_body_position: get_value(&mut config, "forOfStatement.singleBodyPosition", single_body_position, diagnostics),
+        while_statement_single_body_position: get_value(&mut config, "whileStatement.singleBodyPosition", single_body_position, diagnostics),
         /* trailing commas */
-        array_expression_trailing_commas: get_trailing_commas(&mut config, "arrayExpression.trailingCommas", trailing_commas),
-        array_pattern_trailing_commas: get_trailing_commas(&mut config, "arrayPattern.trailingCommas", trailing_commas),
-        enum_declaration_trailing_commas: get_trailing_commas(&mut config, "enumDeclaration.trailingCommas", trailing_commas),
-        object_expression_trailing_commas: get_trailing_commas(&mut config, "objectExpression.trailingCommas", trailing_commas),
-        tuple_type_trailing_commas: get_trailing_commas(&mut config, "tupleType.trailingCommas", trailing_commas),
+        array_expression_trailing_commas: get_value(&mut config, "arrayExpression.trailingCommas", trailing_commas, diagnostics),
+        array_pattern_trailing_commas: get_value(&mut config, "arrayPattern.trailingCommas", trailing_commas, diagnostics),
+        enum_declaration_trailing_commas: get_value(&mut config, "enumDeclaration.trailingCommas", trailing_commas, diagnostics),
+        object_expression_trailing_commas: get_value(&mut config, "objectExpression.trailingCommas", trailing_commas, diagnostics),
+        tuple_type_trailing_commas: get_value(&mut config, "tupleType.trailingCommas", trailing_commas, diagnostics),
         /* use braces */
-        if_statement_use_braces: get_use_braces(&mut config, "ifStatement.useBraces", use_braces),
-        for_statement_use_braces: get_use_braces(&mut config, "forStatement.useBraces", use_braces),
-        for_in_statement_use_braces: get_use_braces(&mut config, "forInStatement.useBraces", use_braces),
-        for_of_statement_use_braces: get_use_braces(&mut config, "forOfStatement.useBraces", use_braces),
-        while_statement_use_braces: get_use_braces(&mut config, "whileStatement.useBraces", use_braces),
+        if_statement_use_braces: get_value(&mut config, "ifStatement.useBraces", use_braces, diagnostics),
+        for_statement_use_braces: get_value(&mut config, "forStatement.useBraces", use_braces, diagnostics),
+        for_in_statement_use_braces: get_value(&mut config, "forInStatement.useBraces", use_braces, diagnostics),
+        for_of_statement_use_braces: get_value(&mut config, "forOfStatement.useBraces", use_braces, diagnostics),
+        while_statement_use_braces: get_value(&mut config, "whileStatement.useBraces", use_braces, diagnostics),
         /* space settings */
-        binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true),
-        construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false),
-        constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false),
-        constructor_type_space_after_new_keyword: get_value(&mut config, "constructorType.spaceAfterNewKeyword", false),
-        do_while_statement_space_after_while_keyword: get_value(&mut config, "doWhileStatement.spaceAfterWhileKeyword", true),
-        export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true),
-        for_statement_space_after_for_keyword: get_value(&mut config, "forStatement.spaceAfterForKeyword", true),
-        for_statement_space_after_semi_colons: get_value(&mut config, "forStatement.spaceAfterSemiColons", true),
-        for_in_statement_space_after_for_keyword: get_value(&mut config, "forInStatement.spaceAfterForKeyword", true),
-        for_of_statement_space_after_for_keyword: get_value(&mut config, "forOfStatement.spaceAfterForKeyword", true),
-        function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false),
-        function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false),
-        get_accessor_space_before_parentheses: get_value(&mut config, "getAccessor.spaceBeforeParentheses", false),
-        if_statement_space_after_if_keyword: get_value(&mut config, "ifStatement.spaceAfterIfKeyword", true),
-        import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true),
-        jsx_expression_container_space_surrounding_expression: get_value(&mut config, "jsxExpressionContainer.spaceSurroundingExpression", false),
-        method_space_before_parentheses: get_value(&mut config, "method.spaceBeforeParentheses", false),
-        set_accessor_space_before_parentheses: get_value(&mut config, "setAccessor.spaceBeforeParentheses", false),
-        type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false),
-        type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true),
-        while_statement_space_after_while_keyword: get_value(&mut config, "whileStatement.spaceAfterWhileKeyword", true),
+        binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true, diagnostics),
+        construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false, diagnostics),
+        constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false, diagnostics),
+        constructor_type_space_after_new_keyword: get_value(&mut config, "constructorType.spaceAfterNewKeyword", false, diagnostics),
+        do_while_statement_space_after_while_keyword: get_value(&mut config, "doWhileStatement.spaceAfterWhileKeyword", true, diagnostics),
+        export_declaration_space_surrounding_named_exports: get_value(&mut config, "exportDeclaration.spaceSurroundingNamedExports", true, diagnostics),
+        for_statement_space_after_for_keyword: get_value(&mut config, "forStatement.spaceAfterForKeyword", true, diagnostics),
+        for_statement_space_after_semi_colons: get_value(&mut config, "forStatement.spaceAfterSemiColons", true, diagnostics),
+        for_in_statement_space_after_for_keyword: get_value(&mut config, "forInStatement.spaceAfterForKeyword", true, diagnostics),
+        for_of_statement_space_after_for_keyword: get_value(&mut config, "forOfStatement.spaceAfterForKeyword", true, diagnostics),
+        function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false, diagnostics),
+        function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false, diagnostics),
+        get_accessor_space_before_parentheses: get_value(&mut config, "getAccessor.spaceBeforeParentheses", false, diagnostics),
+        if_statement_space_after_if_keyword: get_value(&mut config, "ifStatement.spaceAfterIfKeyword", true, diagnostics),
+        import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true, diagnostics),
+        jsx_expression_container_space_surrounding_expression: get_value(&mut config, "jsxExpressionContainer.spaceSurroundingExpression", false, diagnostics),
+        method_space_before_parentheses: get_value(&mut config, "method.spaceBeforeParentheses", false, diagnostics),
+        set_accessor_space_before_parentheses: get_value(&mut config, "setAccessor.spaceBeforeParentheses", false, diagnostics),
+        type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false, diagnostics),
+        type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true, diagnostics),
+        while_statement_space_after_while_keyword: get_value(&mut config, "whileStatement.spaceAfterWhileKeyword", true, diagnostics),
     };
 
-    if !config.is_empty() {
-        panic!("Unhandled configuration value(s): {}", config.keys().map(|x| x.to_owned()).collect::<Vec<String>>().join(", "));
+    for (key, _) in config.iter() {
+        diagnostics.push(ConfigurationDiagnostic {
+            property_name: String::from(key),
+            message: format!("Unhandled configuration value: {}", key),
+        });
     }
 
     return resolved_config;
@@ -445,194 +703,31 @@ pub fn resolve_config(config: &HashMap<String, String>) -> TypeScriptConfigurati
 
 fn get_value<T>(
     config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: T
-) -> T where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Debug {
-    let value = config.get(prop).map(|x| x.parse::<T>().unwrap()).unwrap_or(default_value);
+    prop: &'static str,
+    default_value: T,
+    diagnostics: &mut Vec<ConfigurationDiagnostic>
+) -> T where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Display {
+    let value = if let Some(raw_value) = config.get(prop) {
+        if raw_value.trim() == "" {
+            default_value
+        } else {
+            let parsed_value = raw_value.parse::<T>();
+            match parsed_value {
+                Ok(parsed_value) => parsed_value,
+                Err(message) => {
+                    diagnostics.push(ConfigurationDiagnostic {
+                        property_name: String::from(prop),
+                        message: format!("Error parsing configuration value for '{}'. Message: {}", prop, message)
+                    });
+                    default_value
+                }
+            }
+        }
+    } else {
+        default_value
+    };
     config.remove(prop);
     return value;
 }
 
-// todo: make the functions below more generic (implement FromStr?)
-
-fn get_new_line_kind(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: NewLineKind
-) -> NewLineKind {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "auto" => NewLineKind::Auto,
-            "\n" => NewLineKind::Unix,
-            "\r\n" => NewLineKind::Windows,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_trailing_commas(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: TrailingCommas
-) -> TrailingCommas {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "always" => TrailingCommas::Always,
-            "never" => TrailingCommas::Never,
-            "onlyMultiLine" => TrailingCommas::OnlyMultiLine,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_brace_position(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: BracePosition
-) -> BracePosition {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "maintain" => BracePosition::Maintain,
-            "sameLine" => BracePosition::SameLine,
-            "nextLine" => BracePosition::NextLine,
-            "nextLineIfHanging" => BracePosition::NextLineIfHanging,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_member_spacing(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: MemberSpacing
-) -> MemberSpacing {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "maintain" => MemberSpacing::Maintain,
-            "blankline" => MemberSpacing::BlankLine,
-            "newline" => MemberSpacing::NewLine,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_next_control_flow_position(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: NextControlFlowPosition
-) -> NextControlFlowPosition {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "maintain" => NextControlFlowPosition::Maintain,
-            "sameLine" => NextControlFlowPosition::SameLine,
-            "nextLine" => NextControlFlowPosition::NextLine,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_operator_position(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: OperatorPosition
-) -> OperatorPosition {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "maintain" => OperatorPosition::Maintain,
-            "sameLine" => OperatorPosition::SameLine,
-            "nextLine" => OperatorPosition::NextLine,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_single_body_position(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: SingleBodyPosition
-) -> SingleBodyPosition {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "maintain" => SingleBodyPosition::Maintain,
-            "sameLine" => SingleBodyPosition::SameLine,
-            "nextLine" => SingleBodyPosition::NextLine,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_use_braces(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: UseBraces
-) -> UseBraces {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "maintain" => UseBraces::Maintain,
-            "whenNotSingleLine" => UseBraces::WhenNotSingleLine,
-            "always" => UseBraces::Always,
-            "preferNone" => UseBraces::PreferNone,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
-
-fn get_use_parentheses(
-    config: &mut HashMap<String, String>,
-    prop: &str,
-    default_value: UseParentheses
-) -> UseParentheses {
-    let value = config.get(prop).map(|x| x.parse::<String>().unwrap());
-    config.remove(prop);
-    if let Some(value) = value {
-        match value.as_ref() {
-            "maintain" => UseParentheses::Maintain,
-            "force" => UseParentheses::Force,
-            "preferNone" => UseParentheses::PreferNone,
-            "" => default_value,
-            _ => panic!("Invalid configuration option {}.", value) // todo: diagnostics instead
-        }
-    } else {
-        default_value
-    }
-}
+// todo: tests

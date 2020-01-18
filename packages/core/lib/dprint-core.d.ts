@@ -118,8 +118,10 @@ export interface FormatFileTextOptions {
     filePath: string;
     /** File text of the file to format. */
     fileText: string;
-    /** Plugins to use. */
+    /**
+     * Plugins to use.
+     * @remarks This function does not assume ownership of the plugins and so if there are
+     * any web assembly plugins you should dispose of them after you no longer need them.
+     */
     plugins: Plugin[];
-    /** Custom printer to print out the print items (ex. use the printer from @dprint/rust-printer) */
-    customPrinter?: (iterable: PrintItemIterable, options: PrintOptions) => string;
 }

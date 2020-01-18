@@ -58,13 +58,13 @@ export class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptCon
     }
 
     /** @inheritdoc */
-    getConfiguration(): ResolvedTypeScriptConfiguration {
-        throw new Error("Not implemented."); // todo
+    getConfiguration() {
+        return JSON.parse(this._getFormatContext().get_configuration()) as ResolvedTypeScriptConfiguration;
     }
 
     /** @inheritdoc */
-    getConfigurationDiagnostics(): ConfigurationDiagnostic[] {
-        return []; // todo
+    getConfigurationDiagnostics() {
+        return JSON.parse(this._getFormatContext().get_configuration_diagnostics()) as ConfigurationDiagnostic[];
     }
 
     /** @inheritdoc */

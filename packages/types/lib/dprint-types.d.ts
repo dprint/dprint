@@ -87,7 +87,7 @@ export interface PluginInitializeOptions {
 }
 
 /** Base interface a plugin must implement. */
-export interface BasePlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
+export interface BasePlugin<ResolvedPluginConfiguration = BaseResolvedConfiguration> {
     /**
      * The package version of the plugin.
      */

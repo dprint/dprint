@@ -8,7 +8,7 @@
             "name": "Debug Tests",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/test-e09b74ab79a7de62.exe",
+            "program": "${workspaceFolder}/target/debug/test-f8914282c3a53115.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

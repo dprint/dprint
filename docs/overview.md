@@ -68,9 +68,6 @@ The printer takes the IR and outputs the final code. Its main responsibilities a
 2. Printing out the text with the correct indentation and newline kind.
 3. Seeing where lines exceed the maximum line width and breaking up the line as specified in the IR.
 
-* [Printer code](../packages/core/src/printing/printer.ts)
-* [Writer code](../packages/core/src/printing/Writer.ts) - Code writer used by the printer.
-
 #### Rules
 
 The printer never checks the contents of the provided strings—it only looks at the length of the strings. For that reason there are certain rules:

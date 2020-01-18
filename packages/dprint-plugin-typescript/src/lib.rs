@@ -10,6 +10,7 @@ use std::collections::HashMap;
 #[wasm_bindgen]
 pub struct FormatContext {
     configuration: TypeScriptConfiguration,
+    diagnostics: Vec<ConfigurationDiagnostic>,
 }
 
 #[wasm_bindgen]
@@ -27,11 +28,22 @@ impl FormatContext {
             }
         }
 
-        // todo: store configuration diagnostics
-        let configuration = resolve_config(&hash_map);
+        let mut diagnostics = Vec::new();
+        let configuration = resolve_config(&hash_map, &mut diagnostics);
         FormatContext {
             configuration,
+            diagnostics,
         }
+    }
+
+    /// Gets the JSON serialized configuration.
+    pub fn get_configuration(&self) -> String {
+        serde_json::to_string(&self.configuration).unwrap()
+    }
+
+    /// Gets the JSON serialized configuration diagnostics.
+    pub fn get_configuration_diagnostics(&self) -> String {
+        serde_json::to_string(&self.diagnostics).unwrap()
     }
 
     pub fn format(&self, file_path: &str, file_text: &str) -> Result<Option<String>, JsValue> {

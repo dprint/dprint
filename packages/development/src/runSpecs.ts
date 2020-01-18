@@ -72,7 +72,7 @@ export function runSpecs(options: RunSpecsOptions) {
                 // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
                 expect(actualText).to.equal(spec.expectedText, spec.message);
             } finally {
-                (plugin as WebAssemblyPlugin)?.dispose();
+                (plugin as WebAssemblyPlugin)?.dispose?.();
             }
 
             function getGlobalConfiguration() {

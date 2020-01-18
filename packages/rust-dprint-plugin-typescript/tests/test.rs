@@ -29,8 +29,9 @@ fn test_performance() {
     unresolved_config.insert(String::from("forceMultiLineParameters"), String::from("true"));
     unresolved_config.insert(String::from("singleQuotes"), String::from("true"));
     unresolved_config.insert(String::from("nextControlFlowPosition"), String::from("sameLine"));
+    let mut diagnostics = Vec::new();
 
-    let config = resolve_config(&unresolved_config);
+    let config = resolve_config(&unresolved_config, &mut diagnostics);
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 
     for i in 0..10 {
@@ -56,7 +57,10 @@ fn test_specs() {
     let mut failed_tests = Vec::new();
 
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
-        let config = resolve_config(&spec.config);
+        let mut diagnostics = Vec::new();
+        let config = resolve_config(&spec.config, &mut diagnostics);
+        ensure_no_diagnostics(&diagnostics);
+
         let result = format_text(&spec.file_name, &spec.file_text, &config)
             .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
         let result = if let Some(result) = result { result } else { spec.file_text.clone() };
@@ -78,6 +82,12 @@ fn test_specs() {
     if !failed_tests.is_empty() {
         println!("---");
         panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
+    }
+
+    fn ensure_no_diagnostics(diagnostics: &Vec<ConfigurationDiagnostic>) {
+        for diagnostic in diagnostics {
+            panic!("Diagnostic error for '{}': {}", diagnostic.property_name, diagnostic.message);
+        }
     }
 }
 
