@@ -74,3 +74,11 @@ function test() {}
 [expect]
 function test() {
 }
+
+== should support object destructuring in parameter with type ==
+function t({ a, b }: { a: string; b: number; }) {
+}
+
+[expect]
+function t({ a, b }: { a: string; b: number; }) {
+}

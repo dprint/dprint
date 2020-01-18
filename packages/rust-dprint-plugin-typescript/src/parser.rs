@@ -174,7 +174,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::AssignPat(node) => parse_assign_pat(node, context),
             Node::AssignPatProp(node) => parse_assign_pat_prop(node, context),
             Node::RestPat(node) => parse_rest_pat(node, context),
-            Node::ObjectPat(node) => parse_object_pattern(node, context),
+            Node::ObjectPat(node) => parse_object_pat(node, context),
             /* properties */
             Node::MethodProp(node) => parse_method_prop(node, context),
             /* statements */
@@ -2215,15 +2215,13 @@ fn parse_rest_pat<'a>(node: &'a RestPat, context: &mut Context<'a>) -> Vec<Print
     items
 }
 
-fn parse_object_pattern<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Vec<PrintItem> {
     let mut items = parse_object_like_node(ParseObjectLikeNodeOptions {
         node_span: node.span,
         members: node.props.iter().map(|x| x.into()).collect(),
         trailing_commas: Some(TrailingCommas::Never),
     }, context);
-    if let Some(type_ann) = &node.type_ann {
-        items.extend(parse_node(type_ann.into(), context));
-    }
+    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
     return items;
 }
 
