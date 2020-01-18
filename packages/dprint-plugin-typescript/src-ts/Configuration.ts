@@ -276,7 +276,6 @@ export interface TypeScriptConfiguration {
     "constructSignature.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
-    "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "exportAllDeclaration.semiColon"?: boolean;
     "exportAssignment.semiColon"?: boolean;
@@ -377,7 +376,6 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "constructSignature.semiColon": boolean;
     readonly "continueStatement.semiColon": boolean;
     readonly "debuggerStatement.semiColon": boolean;
-    readonly "directive.semiColon": boolean;
     readonly "doWhileStatement.semiColon": boolean;
     readonly "exportAllDeclaration.semiColon": boolean;
     readonly "exportAssignment.semiColon": boolean;

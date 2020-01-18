@@ -14,6 +14,13 @@ export declare function getFileExtension(filePath: string): string;
  */
 export declare function resolveNewLineKindFromText(text: string): "\r\n" | "\n";
 
+/**
+ * Print out the provided print items using the rust printer.
+ * @param items - Items to print.
+ * @param options - Options for printing.
+ */
+export declare function print(items: PrintItemIterable, options: PrintOptions): string;
+
 /** Options for printing. */
 export interface PrintOptions {
     /** The width the printer will attempt to keep the line under. */

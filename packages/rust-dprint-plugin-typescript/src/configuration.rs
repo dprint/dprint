@@ -19,16 +19,16 @@ pub struct TypeScriptConfiguration {
     pub use_tabs: bool,
     pub indent_width: u8,
     /* use parentheses */
-    #[serde(rename = "arrowFunction.expressionUseParentheses")]
+    #[serde(rename = "arrowFunctionExpression.useParentheses")]
     pub arrow_function_expression_use_parentheses: UseParentheses,
     /* brace position */
-    #[serde(rename = "arrowFunction.expressionBracePosition")]
+    #[serde(rename = "arrowFunctionExpression.bracePosition")]
     pub arrow_function_expression_brace_position: BracePosition,
     #[serde(rename = "classDeclaration.bracePosition")]
     pub class_declaration_brace_position: BracePosition,
     #[serde(rename = "classExpression.bracePosition")]
     pub class_expression_brace_position: BracePosition,
-    #[serde(rename = "constructorBrace.position")]
+    #[serde(rename = "constructor.bracePosition")]
     pub constructor_brace_position: BracePosition,
     #[serde(rename = "doWhileStatement.bracePosition")]
     pub do_while_statement_brace_position: BracePosition,
@@ -50,6 +50,7 @@ pub struct TypeScriptConfiguration {
     pub function_declaration_brace_position: BracePosition,
     #[serde(rename = "functionExpression.bracePosition")]
     pub function_expression_brace_position: BracePosition,
+    #[serde(rename = "method.bracePosition")]
     pub method_brace_position: BracePosition,
     #[serde(rename = "moduleDeclaration.bracePosition")]
     pub module_declaration_brace_position: BracePosition,
@@ -69,7 +70,7 @@ pub struct TypeScriptConfiguration {
     #[serde(rename = "newExpression.forceMultiLineArguments")]
     pub new_expression_force_multi_line_arguments: bool,
     /* force multi-line parameters */
-    #[serde(rename = "arrowFunction.forceMultiLineParameters")]
+    #[serde(rename = "arrowFunctionExpression.forceMultiLineParameters")]
     pub arrow_function_expression_force_multi_line_parameters: bool,
     #[serde(rename = "callSignature.forceMultiLineParameters")]
     pub call_signature_force_multi_line_parameters: bool,
@@ -121,10 +122,8 @@ pub struct TypeScriptConfiguration {
     pub continue_statement_semi_colon: bool,
     #[serde(rename = "debuggerStatement.semiColon")]
     pub debugger_statement_semi_colon: bool,
-    #[serde(rename = "doWhile.semiColon")]
+    #[serde(rename = "doWhileStatement.semiColon")]
     pub do_while_statement_semi_colon: bool,
-    #[serde(rename = "emptyStatement.semiColon")]
-    pub empty_statement_semi_colon: bool,
     #[serde(rename = "exportAllDeclaration.semiColon")]
     pub export_all_declaration_semi_colon: bool,
     #[serde(rename = "exportAssignment.semiColon")]
@@ -141,8 +140,8 @@ pub struct TypeScriptConfiguration {
     pub get_accessor_semi_colon: bool,
     #[serde(rename = "importDeclaration.semiColon")]
     pub import_declaration_semi_colon: bool,
-    #[serde(rename = "importEquals.semiColon")]
-    pub import_equals_semi_colon: bool,
+    #[serde(rename = "importEqualsDeclaration.semiColon")]
+    pub import_equals_declaration_semi_colon: bool,
     #[serde(rename = "indexSignature.semiColon")]
     pub index_signature_semi_colon: bool,
     #[serde(rename = "mappedType.semiColon")]
@@ -179,15 +178,15 @@ pub struct TypeScriptConfiguration {
     #[serde(rename = "whileStatement.singleBodyPosition")]
     pub while_statement_single_body_position: SingleBodyPosition,
     /* trailing commas */
-    #[serde(rename = "arrayExpression.singleBodyPosition")]
+    #[serde(rename = "arrayExpression.trailingCommas")]
     pub array_expression_trailing_commas: TrailingCommas,
-    #[serde(rename = "arrayPattern.singleBodyPosition")]
+    #[serde(rename = "arrayPattern.trailingCommas")]
     pub array_pattern_trailing_commas: TrailingCommas,
-    #[serde(rename = "enumDeclaration.singleBodyPosition")]
+    #[serde(rename = "enumDeclaration.trailingCommas")]
     pub enum_declaration_trailing_commas: TrailingCommas,
-    #[serde(rename = "objectExpression.singleBodyPosition")]
+    #[serde(rename = "objectExpression.trailingCommas")]
     pub object_expression_trailing_commas: TrailingCommas,
-    #[serde(rename = "tupleType.singleBodyPosition")]
+    #[serde(rename = "tupleType.trailingCommas")]
     pub tuple_type_trailing_commas: TrailingCommas,
     /* use braces */
     #[serde(rename = "ifStatement.useBraces")]
@@ -339,6 +338,7 @@ impl std::str::FromStr for NewLineKind {
 
 /// Trailing comma possibilities.
 #[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TrailingCommas {
     /// Trailing commas should not be used.
     Never,
@@ -396,8 +396,10 @@ pub enum MemberSpacing {
     /// Maintains whether a newline or blankline is used.
     Maintain,
     /// Forces a new line between members.
+    #[serde(rename = "newline")]
     NewLine,
     /// Forces a blank line between members.
+    #[serde(rename = "blankline")]
     BlankLine,
 }
 
@@ -627,7 +629,6 @@ pub fn resolve_config(config: &HashMap<String, String>, diagnostics: &mut Vec<Co
         continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons, diagnostics),
         debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons, diagnostics),
         do_while_statement_semi_colon: get_value(&mut config, "doWhileStatement.semiColon", semi_colons, diagnostics),
-        empty_statement_semi_colon: get_value(&mut config, "emptyStatement.semiColon", semi_colons, diagnostics),
         export_all_declaration_semi_colon: get_value(&mut config, "exportAllDeclaration.semiColon", semi_colons, diagnostics),
         export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons, diagnostics),
         export_default_expression_semi_colon: get_value(&mut config, "exportDefaultExpression.semiColon", semi_colons, diagnostics),
@@ -636,7 +637,7 @@ pub fn resolve_config(config: &HashMap<String, String>, diagnostics: &mut Vec<Co
         function_declaration_semi_colon: get_value(&mut config, "functionDeclaration.semiColon", semi_colons, diagnostics),
         get_accessor_semi_colon: get_value(&mut config, "getAccessor.semiColon", semi_colons, diagnostics),
         import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons, diagnostics),
-        import_equals_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons, diagnostics),
+        import_equals_declaration_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons, diagnostics),
         index_signature_semi_colon: get_value(&mut config, "indexSignature.semiColon", semi_colons, diagnostics),
         mapped_type_semi_colon: get_value(&mut config, "mappedType.semiColon", semi_colons, diagnostics),
         method_semi_colon: get_value(&mut config, "method.semiColon", semi_colons, diagnostics),
@@ -694,7 +695,7 @@ pub fn resolve_config(config: &HashMap<String, String>, diagnostics: &mut Vec<Co
     for (key, _) in config.iter() {
         diagnostics.push(ConfigurationDiagnostic {
             property_name: String::from(key),
-            message: format!("Unhandled configuration value: {}", key),
+            message: format!("Unexpected property in configuration: {}", key),
         });
     }
 
@@ -730,4 +731,4 @@ fn get_value<T>(
     return value;
 }
 
-// todo: tests
+// todo: tests, but this is currently tested by the javascript code in dprint-plugin-typescript

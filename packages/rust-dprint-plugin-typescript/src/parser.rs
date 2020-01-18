@@ -792,7 +792,7 @@ fn parse_import_equals_decl<'a>(node: &'a TsImportEqualsDecl, context: &mut Cont
     items.push(" = ".into());
     items.extend(parse_node((&node.module_ref).into(), context));
 
-    if context.config.import_equals_semi_colon { items.push(";".into()); }
+    if context.config.import_equals_declaration_semi_colon { items.push(";".into()); }
 
     return items;
 }
@@ -2531,8 +2531,6 @@ fn parse_export_all<'a>(node: &'a ExportAll, context: &mut Context<'a>) -> Vec<P
 }
 
 fn parse_empty_stmt(_: &EmptyStmt, _: &mut Context) -> Vec<PrintItem> {
-    // Don't have configuration for this. Perhaps a change here would be
-    // to not print anything for empty statements?
     vec![";".into()]
 }
 
