@@ -260,7 +260,6 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
 
             fn get_last_comment_for_jsx_children<'a>(children: &Vec<JSXElementChild>, node_lo: &BytePos, context: &mut Context<'a>) -> Option<&'a Comment> {
                 let index = children.binary_search_by_key(node_lo, |child| child.lo()).ok()?;
-                if index == 0 { return None; }
                 for i in (0..index).rev() {
                     match children.get(i)? {
                         JSXElementChild::JSXExprContainer(expr_container) => {
@@ -272,9 +271,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
                             };
                         },
                         JSXElementChild::JSXText(jsx_text) => {
-                            if jsx_text.text(context).trim().len() != 0 {
-                                return None;
-                            }
+                            if !jsx_text.text(context).trim().is_empty() { return None; }
                         }
                         _=> return None,
                     }
@@ -4760,10 +4757,10 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
             should_use_space: Some(Box::new(|previous, next, context| should_use_space(previous, next, context))),
             should_use_new_line: Some(Box::new(|previous, next, context| {
                 if let Node::JSXText(next) = next {
-                    return !utils::has_no_new_lines_in_trailing_whitespace(next.text(context));
+                    return !utils::has_no_new_lines_in_leading_whitespace(next.text(context));
                 }
                 if let Node::JSXText(previous) = previous {
-                    return !utils::has_no_new_lines_in_leading_whitespace(previous.text(context));
+                    return !utils::has_no_new_lines_in_trailing_whitespace(previous.text(context));
                 }
                 return true;
             })),
