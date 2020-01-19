@@ -87,7 +87,7 @@ export declare namespace conditions {
 export declare namespace parserHelpers {
     function withIndent(item: PrintItemIterable): PrintItemIterable;
     function newlineGroup(item: PrintItemIterable): PrintItemIterable;
-    function prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]): IterableIterator<T>;
+    function prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]): Generator<T, void, undefined>;
     function toPrintItemIterable(printItem: PrintItem): PrintItemIterable;
     function surroundWithNewLines(item: PrintItemIterable): PrintItemIterable;
     /**

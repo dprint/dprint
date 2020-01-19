@@ -116,7 +116,7 @@
     ]
 }
 
-== should allow indenting ==
+== should allow indenting (skip) ==
 // function test() {
 //     test;
 // }
@@ -126,7 +126,7 @@
 //     test;
 // }
 
-== should allow as many slashes as specified at the start ==
+== should allow as many slashes as specified at the start (skip) ==
 /// test
 //////asdf
 
