@@ -7,10 +7,8 @@ npm-debug.log
 yarn-error.log
 package-lock.json
 /lerna-debug.log
-/packages/printer/dist
-/packages/printer/node_modules
-/packages/printer/target
 /packages/benchmarks
+/packages/core/wasm/target
 /packages/rust-development/target
 /packages/dprint-plugin-typescript/target
 /packages/playground/wasm/target

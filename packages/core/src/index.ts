@@ -5,4 +5,4 @@ export * from "./parsing";
 export * from "./environment";
 export { makeIterableRepeatable, getFileExtension, resolveNewLineKindFromText } from "./utils";
 export * from "./formatFileText";
-export { print, PrintOptions } from "@dprint/rust-printer";
+export { print, PrintOptions } from "./printer";
