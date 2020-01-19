@@ -6,9 +6,7 @@
   "types": "lib/dprint-plugin-typescript.d.ts",
   "scripts": {
     "build": "rimraf dist && yarn build:rust && yarn rollup && yarn build:declarations",
-    "build:web": "rimraf dist && yarn build:rust-web && yarn rollup && yarn build:declarations",
     "build:rust": "rimraf src-ts/pkg && wasm-pack build --release --target nodejs --out-dir src-ts/pkg",
-    "build:rust-web": "rimraf src-ts/pkg && wasm-pack build --release --target web --out-dir src-ts/pkg",
     "build:rust-debug": "rimraf src-ts/pkg && wasm-pack build --dev --target nodejs --out-dir src-ts/pkg",
     "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha",

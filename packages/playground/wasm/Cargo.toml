@@ -1,9 +1,8 @@
 [package]
-name = "dprint-rust-printer"
+name = "dprint-playground-wasm"
 version = "0.1.0"
-authors = ["David Sherret <dsherret@gmail.com>"]
+authors = ["David Sherret"]
 edition = "2018"
-publish = false
 
 [lib]
 crate-type = ["cdylib"]
@@ -12,4 +11,5 @@ crate-type = ["cdylib"]
 console_error_panic_hook = "0.1.6"
 wasm-bindgen = "0.2.58"
 js-sys = "0.3.29"
-dprint-core = { path = "../rust-core", version = "0.5.0" }
+dprint-plugin-typescript = { path = "../../rust-dprint-plugin-typescript" }
+serde_json = "1.0"

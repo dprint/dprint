@@ -118,11 +118,11 @@ impl<T> Ranged for T where T : Spanned {
     }
 
     fn start_line(&self, context: &mut Context) -> usize {
-        context.info.lookup_line(self.lo()).unwrap() + 1
+        context.info.lookup_line(self.lo()).unwrap_or(0) + 1
     }
 
     fn end_line(&self, context: &mut Context) -> usize {
-        context.info.lookup_line(self.hi()).unwrap() + 1
+        context.info.lookup_line(self.hi()).unwrap_or(0) + 1
     }
 
     fn start_column(&self, context: &mut Context) -> usize {

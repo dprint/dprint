@@ -17,9 +17,9 @@
     "react-split-pane": "^0.1.89"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test-future": "react-scripts test",
+    "start": "react-app-rewired start",
+    "build": "react-app-rewired build",
+    "test-future": "react-app-rewired test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -43,7 +43,9 @@
     "@types/node": "^13.1.8",
     "@types/react": "^16.9.17",
     "@types/react-dom": "^16.9.4",
+    "@wasm-tool/wasm-pack-plugin": "^1.1.0",
     "conditional-type-checks": "^1.0.5",
+    "react-app-rewired": "^2.1.5",
     "typescript": "^3.7.5"
   }
 }
