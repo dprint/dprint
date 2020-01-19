@@ -81,7 +81,14 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
                             config={this.state.config}
                             onUpdateConfig={this.onConfigUpdate}
                         />
-                        <SplitPane split="vertical" minSize={50} defaultSize="50%" allowResize={false}>
+                        <SplitPane
+                            split="vertical"
+                            minSize={50}
+                            defaultSize="50%"
+                            allowResize={false}
+                            pane1Style={{ overflowY: "hidden" }}
+                            pane2Style={{ overflowY: "hidden" }}
+                        >
                             <CodeEditor
                                 onChange={this.onTextChange}
                                 text={this.state.text}

@@ -5,13 +5,13 @@
 
 Mono-repo for dprint—a configurable and plugable code formatter.
 
-* [dprint](packages/dprint) - CLI tool
-* [@dprint/core](packages/core) - Core functionality
-* [dprint-plugin-typescript](packages/dprint-plugin-typescript) - Plugin for TypeScript formatting
-* [dprint-plugin-jsonc](packages/dprint-plugin-jsonc) - Plugin for JSONC formatting
+* [dprint](packages/dprint) - CLI tool.
+* [dprint-plugin-typescript](packages/rust-dprint-plugin-typescript) (Rust) - Plugin for TypeScript formatting.
+* [dprint-plugin-jsonc](packages/dprint-plugin-jsonc) - Plugin for JSONC formatting.
+* [@dprint/core](packages/core) - Core functionality and library for creating formatters in TypeScript.
 * [dprint-core](packages/rust-core) (Rust) - Library for creating formatters in Rust.
 
-Note: This library is under active early development. I highly recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
+**NOTICE:** This library is under active early development. I highly recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
 
 ## Goals
 
@@ -84,3 +84,4 @@ npm run format
 ## Links
 
 * [Playground](https://dprint.dev/playground)
+* [Algorithm overview](docs/overview.md)
