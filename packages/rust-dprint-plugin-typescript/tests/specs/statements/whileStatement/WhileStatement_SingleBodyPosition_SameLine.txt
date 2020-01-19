@@ -1,0 +1,23 @@
+~~ whileStatement.singleBodyPosition: sameLine ~~
+== should keep on a single line ==
+while (true) a;
+
+[expect]
+while (true) a;
+
+== should move to the same line ==
+while (true)
+    a;
+
+[expect]
+while (true) a;
+
+== should keep on the next line when has braces ==
+while (true) {
+    a;
+}
+
+[expect]
+while (true) {
+    a;
+}

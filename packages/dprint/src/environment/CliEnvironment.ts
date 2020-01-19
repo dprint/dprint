@@ -1,5 +1,4 @@
 import * as path from "path";
-import globby from "globby";
 import { CliLoggingEnvironment } from "@dprint/core";
 import { Environment } from "./Environment";
 import { readFile, writeFile, exists } from "../utils";
@@ -8,6 +7,10 @@ import { readFile, writeFile, exists } from "../utils";
  * An implementation of an environment that interacts with the user's file system and outputs to the console.
  */
 export class CliEnvironment extends CliLoggingEnvironment implements Environment {
+    // prevents loading this in environments that don't support it
+    /** @internal */
+    private fastGlob: typeof import("fast-glob") = require("fast-glob");
+
     basename(fileOrDirPath: string) {
         return path.basename(fileOrDirPath);
     }
@@ -29,7 +32,10 @@ export class CliEnvironment extends CliLoggingEnvironment implements Environment
     }
 
     glob(patterns: string[]) {
-        return globby(patterns, { absolute: true });
+        return this.fastGlob(backSlashesToForward(patterns), {
+            absolute: true,
+            cwd: path.resolve(".")
+        });
     }
 
     require(filePath: string) {
@@ -42,4 +48,8 @@ export class CliEnvironment extends CliLoggingEnvironment implements Environment
             }
         });
     }
+}
+
+function backSlashesToForward(patterns: ReadonlyArray<string>) {
+    return patterns.map(p => p.replace(/\\/g, "/")); // maybe this isn't full-proof?
 }

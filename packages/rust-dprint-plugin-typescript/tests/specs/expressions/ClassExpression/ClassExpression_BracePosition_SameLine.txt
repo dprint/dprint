@@ -1,0 +1,18 @@
+~~ classExpression.bracePosition: sameLine, lineWidth: 50 ~~
+== should use the same line for the brace position ==
+const t = class
+{
+}
+
+[expect]
+const t = class {
+};
+
+== should use the same line for the brace position when hanging ==
+const t = class Test extends SomethingReallyReallyReallyLong {
+};
+
+[expect]
+const t = class Test
+    extends SomethingReallyReallyReallyLong {
+};

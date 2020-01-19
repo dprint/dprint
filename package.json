@@ -34,12 +34,12 @@
     "@types/html-minifier": "^3.5.3",
     "@types/showdown": "^1.9.3",
     "clean-css": "^4.2.1",
-    "copyfiles": "^2.1.1",
-    "highlight.js": "^9.15.10",
+    "copyfiles": "^2.2.0",
+    "highlight.js": "^9.17.1",
     "html-minifier": "^4.0.0",
-    "lerna": "^3.16.4",
+    "lerna": "^3.20.2",
     "rimraf": "^3.0.0",
-    "showdown": "^1.9.0",
-    "ts-morph": "^4.0.1"
+    "showdown": "^1.9.1",
+    "ts-morph": "^6.0.2"
   }
 }

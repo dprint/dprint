@@ -1,0 +1,14 @@
+== should format ==
+import t = require(   "test"   );
+
+[expect]
+import t = require("test");
+
+== should use new lines if first param is on different line ==
+import t = require(
+    "test");
+
+[expect]
+import t = require(
+    "test"
+);

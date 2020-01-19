@@ -1,0 +1,22 @@
+~~ enumDeclaration.memberSpacing: maintain ~~
+== should format keeping the spacing ==
+declare enum Test {
+    member1,
+
+    member2,
+    member3,
+
+    /** test */
+    member4
+}
+
+[expect]
+declare enum Test {
+    member1,
+
+    member2,
+    member3,
+
+    /** test */
+    member4
+}

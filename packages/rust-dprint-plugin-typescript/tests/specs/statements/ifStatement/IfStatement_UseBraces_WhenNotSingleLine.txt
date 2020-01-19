@@ -1,0 +1,27 @@
+~~ ifStatement.useBraces: whenNotSingleLine ~~
+== should when not single line ==
+if (true)
+    a;
+else if (true) {
+    b;
+}
+else c;
+
+[expect]
+if (true) {
+    a;
+}
+else if (true) {
+    b;
+}
+else c;
+
+== should not when single line ==
+if (true) test;
+else if (false) other;
+else asdf;
+
+[expect]
+if (true) test;
+else if (false) other;
+else asdf;

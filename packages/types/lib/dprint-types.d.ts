@@ -87,7 +87,7 @@ export interface PluginInitializeOptions {
 }
 
 /** Base interface a plugin must implement. */
-export interface BasePlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
+export interface BasePlugin<ResolvedPluginConfiguration = BaseResolvedConfiguration> {
     /**
      * The package version of the plugin.
      */
@@ -135,6 +135,10 @@ export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResol
      * @returns The formatted text or false if the file said to skip parsing (ex. it had an ignore comment).
      */
     formatText(filePath: string, fileText: string): string | false;
+    /**
+     * Disposes any unmanaged resources held by the plugin.
+     */
+    dispose(): void;
 }
 
 export declare type Plugin = WebAssemblyPlugin | JsPlugin;

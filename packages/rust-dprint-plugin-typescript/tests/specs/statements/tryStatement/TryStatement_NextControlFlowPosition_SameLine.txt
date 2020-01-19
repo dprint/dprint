@@ -1,0 +1,17 @@
+~~ tryStatement.nextControlFlowPosition: sameLine, lineWidth: 40 ~~
+== should use the same line for the new control flow position ==
+try
+{
+}
+catch
+{
+}
+finally
+{
+}
+
+[expect]
+try {
+} catch {
+} finally {
+}

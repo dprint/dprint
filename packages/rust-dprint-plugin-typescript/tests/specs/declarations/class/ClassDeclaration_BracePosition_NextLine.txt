@@ -1,0 +1,34 @@
+~~ classDeclaration.bracePosition: nextLine, lineWidth: 40 ~~
+== should use the next line for the brace position ==
+class Test {
+}
+
+[expect]
+class Test
+{
+}
+
+== should use the next line for type parameters on multiple lines ==
+class Test<
+T, U, V> {
+}
+
+[expect]
+class Test<
+    T,
+    U,
+    V
+>
+{
+}
+
+== should use the next line for the brace position when hanging ==
+class Test extends SomethingReallyReallyReallyLong
+{
+}
+
+[expect]
+class Test
+    extends SomethingReallyReallyReallyLong
+{
+}

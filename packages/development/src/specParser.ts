@@ -1,5 +1,5 @@
 export interface UnknownConfiguration {
-    [configPropertyName: string]: string | number;
+    [configPropertyName: string]: string | number | boolean;
 }
 
 /** A parsed spec. */
@@ -69,7 +69,7 @@ export function parseSpecs(fileText: string, options: ParseSpecsOptions) {
             return options.defaultFileName;
         const lastIndex = fileText.indexOf("--\n", 2);
         if (lastIndex === -1)
-            throw new Error("Canot find last --\\n.");
+            throw new Error("Could not find last --\\n.");
 
         const result = fileText.substring(2, lastIndex).trim();
 
@@ -92,7 +92,7 @@ export function parseSpecs(fileText: string, options: ParseSpecsOptions) {
         for (const item of configText.split(",")) {
             const firstColon = item.indexOf(":");
             const key = item.substring(0, firstColon).trim();
-            const value = JSON.parse(item.substring(firstColon + 1).trim());
+            const value = parseValue(item.substring(firstColon + 1).trim());
 
             config[key] = value;
         }
@@ -101,6 +101,19 @@ export function parseSpecs(fileText: string, options: ParseSpecsOptions) {
             fileText: fileText.substring(lastIndex + 3),
             config
         };
+
+        function parseValue(value: string) {
+            const parsedInt = parseInt(value, 10);
+            if (!isNaN(parsedInt))
+                return parsedInt;
+            else if (value.startsWith(`"`))
+                return value.slice(1, -1); // strip quotes
+            else if (value === "true")
+                return true;
+            else if (value === "false")
+                return false;
+            return value;
+        }
     }
 }
 

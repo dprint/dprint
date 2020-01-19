@@ -1,10 +1,10 @@
 import { Project, TypeGuards, NewLineKind } from "ts-morph";
 
-const readProject = new Project({ tsConfigFilePath: "tsconfig.json" });
+const readProject = new Project({ tsConfigFilePath: "tsconfig.json", compilerOptions: { declaration: true } });
 const emitResult = readProject.emitToMemory({ emitOnlyDtsFiles: true });
 
 for (const file of emitResult.getFiles())
-    readProject.createSourceFile(file.filePath, file.text);
+    readProject.createSourceFile(file.filePath, file.text, { overwrite: true });
 
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project({
@@ -12,7 +12,7 @@ const writeProject = new Project({
         newLineKind: NewLineKind.CarriageReturnLineFeed
     }
 });
-const declarationFile = writeProject.addExistingSourceFile("lib/dprint-plugin-typescript.d.ts");
+const declarationFile = writeProject.addSourceFileAtPath("lib/dprint-plugin-typescript.d.ts");
 
 let text = "";
 
@@ -33,7 +33,7 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 // todo: format using dprint
 declarationFile.replaceWithText(text);
 declarationFile.insertImportDeclaration(0, {
-    namedImports: ["PrintItemIterable", "JsPlugin", "PluginInitializeOptions", "BaseResolvedConfiguration", "ConfigurationDiagnostic"],
+    namedImports: ["PrintItemIterable", "WebAssemblyPlugin", "PluginInitializeOptions", "BaseResolvedConfiguration", "ConfigurationDiagnostic"],
     moduleSpecifier: "@dprint/types"
 });
 declarationFile.saveSync();

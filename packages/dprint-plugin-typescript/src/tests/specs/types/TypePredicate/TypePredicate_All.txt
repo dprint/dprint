@@ -1,7 +1,0 @@
-== should format ==
-function test(c: any): c    is   string   {
-}
-
-[expect]
-function test(c: any): c is string {
-}

@@ -1,7 +1,7 @@
 import { Project } from "ts-morph";
 
 const project = new Project();
-const sourceFile = project.addExistingSourceFile("src/cli-bin.ts");
+const sourceFile = project.addSourceFileAtPath("src/cli-bin.ts");
 const importDec = sourceFile.getImportDeclarationOrThrow("./index");
 
 importDec.setModuleSpecifier("./dprint");

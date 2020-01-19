@@ -1,0 +1,84 @@
+~~ lineWidth: 80 ~~
+== should format everything in a function declaration ==
+export async function
+test<T, U>
+(p, u): string
+{
+}
+
+[expect]
+export async function test<T, U>(p, u): string {
+}
+
+== should format a generator ==
+export function* test (  )  :   string
+{
+}
+
+[expect]
+export function* test(): string {
+}
+
+== should format a declare function with an export keyword ==
+export declare function
+test<T, U>
+(p, u): string;
+
+[expect]
+export declare function test<T, U>(p, u): string;
+
+== should format a declare function without an export keyword ==
+declare function
+test<T, U>
+(p, u): string;
+
+[expect]
+declare function test<T, U>(p, u): string;
+
+== should format the return type as hanging when it's hanging ==
+function testing(param: string, other: number, finalParameter: string): testing | this {
+
+}
+
+[expect]
+function testing(param: string, other: number, finalParameter: string): testing
+    | this
+{
+}
+
+== should format the return type on the same line when the rest of the header is hanging ==
+function testing(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | this {
+}
+
+[expect]
+function testing(param: string, other: number,
+    finalParameterThatIsReallyReallyLong: string): testing | this
+{
+}
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+function testing(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut {
+}
+
+[expect]
+function testing(param: string, other: number,
+    finalParameterThatIsReallyReallyLong: string
+): testing | other | other | test | test | asdf | testingThisOut
+    | testingThisOut
+{
+}
+
+== should move the close brace to the next line when empty and on the same line ==
+function test() {}
+
+[expect]
+function test() {
+}
+
+== should support object destructuring in parameter with type ==
+function t({ a, b }: { a: string; b: number; }) {
+}
+
+[expect]
+function t({ a, b }: { a: string; b: number; }) {
+}

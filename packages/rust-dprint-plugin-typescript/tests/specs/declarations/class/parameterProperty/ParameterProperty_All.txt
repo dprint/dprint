@@ -1,0 +1,23 @@
+== should format ==
+class Test {
+    constructor(private   p1, readonly   p2, public   readonly   p3) {
+    }
+}
+
+[expect]
+class Test {
+    constructor(private p1, readonly p2, public readonly p3) {
+    }
+}
+
+== should format with decorators ==
+class Test {
+    constructor(@dec    @dec2  private   p1) {
+    }
+}
+
+[expect]
+class Test {
+    constructor(@dec @dec2 private p1) {
+    }
+}

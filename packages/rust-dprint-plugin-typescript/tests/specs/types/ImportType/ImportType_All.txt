@@ -1,0 +1,11 @@
+== should format ==
+type T = import(  "test"  );
+type U = import("test"  ).Other;
+type V = import("test").Other<  string  >;
+type X = import("test")<number >;
+
+[expect]
+type T = import("test");
+type U = import("test").Other;
+type V = import("test").Other<string>;
+type X = import("test")<number>;

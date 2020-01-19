@@ -1,0 +1,20 @@
+~~ lineWidth: 40 ~~
+== should format when using a default export ==
+const test = 5;
+export    default   test;
+
+[expect]
+const test = 5;
+export default test;
+
+== should have semi-colon for object literal ==
+export default {} // test
+
+[expect]
+export default {}; // test
+
+== should have semi-colon when exporting function call ==
+export default connect()
+
+[expect]
+export default connect();

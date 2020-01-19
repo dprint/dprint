@@ -8,6 +8,9 @@ export default {
         file: "./dist/dprint-core.js",
         format: "cjs"
     },
+    external: [
+        "../wasm/dprint_rust_printer"
+    ],
     plugins: [
         typescript({
             typescript: require("ttypescript"),

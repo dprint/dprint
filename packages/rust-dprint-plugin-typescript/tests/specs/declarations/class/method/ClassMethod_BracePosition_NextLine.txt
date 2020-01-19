@@ -1,0 +1,47 @@
+~~ method.bracePosition: nextLine, lineWidth: 40 ~~
+== should use the next line for the brace position ==
+class Test {
+    method() {
+    }
+}
+
+[expect]
+class Test {
+    method()
+    {
+    }
+}
+
+== should use the next line for type parameters on multiple lines ==
+class Test {
+    method<
+    T, U,
+V>() {
+}
+}
+
+[expect]
+class Test {
+    method<
+        T,
+        U,
+        V
+    >()
+    {
+    }
+}
+
+== should use the next line for the brace position when hanging ==
+class Test {
+    method(): string | number | someOtherText
+    {
+    }
+}
+
+[expect]
+class Test {
+    method(): string | number
+        | someOtherText
+    {
+    }
+}

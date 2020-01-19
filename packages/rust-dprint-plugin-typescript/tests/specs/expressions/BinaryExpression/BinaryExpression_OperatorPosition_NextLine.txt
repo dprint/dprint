@@ -1,0 +1,24 @@
+~~ binaryExpression.operatorPosition: nextLine ~~
+== should move the operator to the next line ==
+1 + 2 * 6 // test
+    + 4 + // asdf
+    7 * 6 + 4
+    + 5;
+
+[expect]
+1 + 2 * 6 // test
+    + 4 // asdf
+    + 7 * 6 + 4
+    + 5;
+
+== should move the operator to the next line ==
+1 && 2 || 6 // test
+    && 4 || // asdf
+    7 && 6 || 4
+    && 5;
+
+[expect]
+1 && 2 || 6 // test
+    && 4 // asdf
+    || 7 && 6 || 4
+    && 5;

@@ -1,10 +1,10 @@
 import { Project, TypeGuards, NewLineKind } from "ts-morph";
 
-const readProject = new Project({ tsConfigFilePath: "tsconfig.json" });
+const readProject = new Project({ tsConfigFilePath: "tsconfig.json", compilerOptions: { declaration: true } });
 const emitResult = readProject.emitToMemory({ emitOnlyDtsFiles: true });
 
 for (const file of emitResult.getFiles())
-    readProject.createSourceFile(file.filePath, file.text);
+    readProject.createSourceFile(file.filePath, file.text, { overwrite: true });
 
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project({
@@ -12,7 +12,7 @@ const writeProject = new Project({
         newLineKind: NewLineKind.CarriageReturnLineFeed
     }
 });
-const declarationFile = writeProject.addExistingSourceFile("lib/dprint-core.d.ts");
+const declarationFile = writeProject.addSourceFileAtPath("lib/dprint-core.d.ts");
 const packageVersion = require("../package.json").version;
 
 const writer = readProject.createWriter();

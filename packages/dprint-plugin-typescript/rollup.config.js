@@ -4,6 +4,9 @@ import * as fs from "fs";
 
 export default {
     input: "./src/index.ts",
+    external: [
+        "./wasm/ts_dprint_plugin_typescript"
+    ],
     output: {
         file: "./dist/dprint-plugin-typescript.js",
         format: "cjs"

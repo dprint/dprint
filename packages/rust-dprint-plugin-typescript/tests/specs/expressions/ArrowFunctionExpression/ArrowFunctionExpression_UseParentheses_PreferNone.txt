@@ -1,0 +1,36 @@
+~~ arrowFunctionExpression.useParentheses: preferNone ~~
+== should not use parens when there is only an identifier and a single param ==
+const t = a => 5;
+
+[expect]
+const t = a => 5;
+
+== should not use parens when there is only an identifier and a single param and it currently has parens ==
+const t = a => 5;
+
+[expect]
+const t = a => 5;
+
+== should use parens when it has a type ==
+const t = (a: string) => 5;
+
+[expect]
+const t = (a: string) => 5;
+
+== should use parens when there is no params ==
+const t = () => 5;
+
+[expect]
+const t = () => 5;
+
+== should use parens when there is multiple params ==
+const t = (a, b) => 5;
+
+[expect]
+const t = (a, b) => 5;
+
+== should use parens when it is a rest parameter ==
+const t = (...a) => 5;
+
+[expect]
+const t = (...a) => 5;

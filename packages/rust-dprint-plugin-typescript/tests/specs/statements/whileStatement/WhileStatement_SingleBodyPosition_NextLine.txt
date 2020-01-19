@@ -1,0 +1,17 @@
+~~ whileStatement.singleBodyPosition: nextLine ~~
+== should move to the next line ==
+while (true) a;
+
+[expect]
+while (true) {
+    a;
+}
+
+== should keep on the next line ==
+while (true)
+    a;
+
+[expect]
+while (true) {
+    a;
+}

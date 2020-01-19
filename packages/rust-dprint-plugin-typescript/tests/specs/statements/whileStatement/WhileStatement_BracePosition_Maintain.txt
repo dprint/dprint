@@ -1,0 +1,38 @@
+~~ whileStatement.bracePosition: maintain, lineWidth: 40 ~~
+== should maintain the position for the brace position when on same line ==
+while (true) {
+}
+
+[expect]
+while (true) {
+}
+
+== should maintain the position for the brace position when on a new line ==
+while (true)
+{
+}
+
+[expect]
+while (true)
+{
+}
+
+== should maintain the position for the brace position when hanging and on the same line ==
+while (someCondition && otherLongLongLong) {
+}
+
+[expect]
+while (someCondition
+    && otherLongLongLong) {
+}
+
+== should maintain the position for the brace position when hanging and on the next line ==
+while (someCondition && otherLongLongLong)
+{
+}
+
+[expect]
+while (someCondition
+    && otherLongLongLong)
+{
+}

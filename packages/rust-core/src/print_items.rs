@@ -71,8 +71,20 @@ pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TStrin
     FinishIgnoringIndent,
 }
 
+impl PrintItem {
+    // Gets if the print item is an item that signals information to the printer—not a string, condition, or info.
+    pub fn is_signal(&self) -> bool {
+        match self {
+            PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) => false,
+            PrintItem::NewLine | PrintItem::Tab | PrintItem::PossibleNewLine | PrintItem::SpaceOrNewLine | PrintItem::ExpectNewLine | PrintItem::StartIndent
+            | PrintItem::FinishIndent | PrintItem::StartNewLineGroup | PrintItem::FinishNewLineGroup | PrintItem::SingleIndent | PrintItem::StartIgnoringIndent
+            | PrintItem::FinishIgnoringIndent => true
+        }
+    }
+}
+
 // need to manually implement this for some reason instead of using #[derive(Clone)]
-impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition>  where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
         match self {
             PrintItem::String(text) => PrintItem::String(text.clone()),
@@ -106,15 +118,9 @@ impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for String wh
     }
 }
 
-impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
-    fn into(self) -> PrintItem<String, TInfo, TCondition> {
-        PrintItem::String(Rc::new(self.clone()))
-    }
-}
-
 /// Can be used to get information at a certain location being printed. These
 /// can be resolved by providing the info object to a condition context's
-/// getResolvedInfo method.
+/// get_resolved_info(&info) method.
 #[derive(Clone)]
 pub struct Info {
     /// Unique identifier.
@@ -148,10 +154,6 @@ impl Info {
             name
         }
     }
-
-    pub fn into_clone<TString, TCondition>(&self) -> PrintItem<TString, Info, TCondition> where TString : StringRef, TCondition : ConditionRef<TString, Info, TCondition> {
-        PrintItem::Info(Rc::new(self.clone()))
-    }
 }
 
 /// Conditionally print items based on a condition.
@@ -178,8 +180,8 @@ impl<TString, TInfo> Clone for Condition<TString, TInfo> where TString : StringR
             id: self.id,
             name: self.name,
             condition: self.condition.clone(),
-            true_path: self.true_path.as_ref().map(|x| x.clone()),
-            false_path: self.false_path.as_ref().map(|x| x.clone()),
+            true_path: self.true_path.clone(),
+            false_path: self.false_path.clone(),
         }
     }
 }
@@ -195,10 +197,6 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo 
             true_path: properties.true_path.map(|x| Rc::new(x)),
             false_path: properties.false_path.map(|x| Rc::new(x)),
         }
-    }
-
-    pub fn into_clone(&self) -> PrintItem<TString, TInfo, Condition<TString, TInfo>> {
-        PrintItem::Condition(Rc::new(self.clone()))
     }
 }
 
@@ -241,7 +239,7 @@ pub struct ConditionProperties<TString = String, TInfo = Info> where TString : S
 }
 
 /// Function used to resolve a condition.
-pub type ConditionResolver<TString, TInfo, TCondition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
+pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
 
 /// Context used when resolving a condition.
 pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {

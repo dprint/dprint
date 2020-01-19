@@ -11,7 +11,7 @@ export interface PluginInitializeOptions {
 }
 
 /** Base interface a plugin must implement. */
-export interface BasePlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
+export interface BasePlugin<ResolvedPluginConfiguration = BaseResolvedConfiguration> {
     /**
      * The package version of the plugin.
      */
@@ -42,7 +42,9 @@ export interface BasePlugin<ResolvedPluginConfiguration extends BaseResolvedConf
 /**
  * A plugin that only lives in JavaScript land.
  */
-export interface JsPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> extends BasePlugin<ResolvedPluginConfiguration> {
+export interface JsPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration>
+    extends BasePlugin<ResolvedPluginConfiguration>
+{
     /**
      * Parses the file to an iterable of print items.
      * @returns An iterable of print items or false if the file said to skip parsing (ex. it had an ignore comment).
@@ -53,12 +55,18 @@ export interface JsPlugin<ResolvedPluginConfiguration extends BaseResolvedConfig
 /**
  * A plugin that may send the string to WebAssembly, in which it will print out the print items.
  */
-export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> extends BasePlugin<ResolvedPluginConfiguration> {
+export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration>
+    extends BasePlugin<ResolvedPluginConfiguration>
+{
     /**
      * Formats the provided file text.
      * @returns The formatted text or false if the file said to skip parsing (ex. it had an ignore comment).
      */
     formatText(filePath: string, fileText: string): string | false;
+    /**
+     * Disposes any unmanaged resources held by the plugin.
+     */
+    dispose(): void;
 }
 
 export type Plugin = WebAssemblyPlugin | JsPlugin;

@@ -1,0 +1,22 @@
+~~ ifStatement.singleBodyPosition: maintain, ifStatement.useBraces: maintain, lineWidth: 40 ~~
+== should keep on a single line ==
+if (true) console.log(5);
+
+[expect]
+if (true) console.log(5);
+
+== should keep on the next line ==
+if (true)
+    console.log(5);
+
+[expect]
+if (true)
+    console.log(5);
+
+== should go to the next line when exceeding the line width ==
+if (true) testing.this.out.with.a.very.long.expression();
+
+[expect]
+if (true)
+    testing.this.out.with.a.very.long
+        .expression();

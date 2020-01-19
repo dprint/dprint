@@ -1,6 +1,6 @@
 import { Project, TypeGuards, StructureKind, NewLineKind } from "ts-morph";
 
-const readProject = new Project({ tsConfigFilePath: "tsconfig.json" });
+const readProject = new Project({ tsConfigFilePath: "tsconfig.json", compilerOptions: { declaration: true } });
 const emitResult = readProject.emitToMemory({ emitOnlyDtsFiles: true });
 
 for (const file of emitResult.getFiles())
@@ -12,7 +12,7 @@ const writeProject = new Project({
         newLineKind: NewLineKind.CarriageReturnLineFeed
     }
 });
-const declarationFile = writeProject.addExistingSourceFile("lib/dprint.d.ts");
+const declarationFile = writeProject.addSourceFileAtPath("lib/dprint.d.ts");
 
 let text = "";
 

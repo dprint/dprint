@@ -1,12 +1,15 @@
 import React from "react";
 import SplitPane from "react-split-pane";
-import { LoggingEnvironment } from "@dprint/types";
-import { formatFileText, resolveConfiguration } from "@dprint/core";
-import { TypeScriptPlugin, TypeScriptConfiguration } from "dprint-plugin-typescript";
+import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "dprint-plugin-typescript";
 import { CodeEditor, ConfigurationSelection, ExternalLink } from "./components";
 import { UrlSaver } from "./utils";
 import "./Playground.css";
 import "./external/react-splitpane.css";
+
+export interface PlaygroundProps {
+    formatText: (text: string, config: TypeScriptConfiguration) => string;
+    resolveConfig: (config: TypeScriptConfiguration) => ResolvedTypeScriptConfiguration;
+}
 
 export interface PlaygroundState {
     text: string;
@@ -14,20 +17,21 @@ export interface PlaygroundState {
     scrollTop: number;
     config: TypeScriptConfiguration;
 }
+
 const initialLineWidth = 80;
 const urlSaver = new UrlSaver();
-const environment: LoggingEnvironment = {
-    error: () => {},
-    log: () => {},
-    warn: () => {}
-};
 
-export class Playground extends React.Component<{}, PlaygroundState> {
-    constructor(props: {}) {
+export class Playground extends React.Component<PlaygroundProps, PlaygroundState> {
+    private readonly formatText: PlaygroundProps["formatText"];
+    private readonly resolveConfig: PlaygroundProps["resolveConfig"];
+
+    constructor(props: PlaygroundProps) {
         super(props);
+        this.formatText = props.formatText;
+        this.resolveConfig = props.resolveConfig;
 
         const { text: initialText, config: initialUnresolvedConfig } = urlSaver.getUrlInfo();
-        const initialConfig = this.getResolvedConfiguration(initialUnresolvedConfig);
+        const initialConfig = this.resolveConfig(initialUnresolvedConfig);
         const config: TypeScriptConfiguration = {
             lineWidth: initialConfig.lineWidth,
             indentWidth: initialConfig.indentWidth,
@@ -77,7 +81,14 @@ export class Playground extends React.Component<{}, PlaygroundState> {
                             config={this.state.config}
                             onUpdateConfig={this.onConfigUpdate}
                         />
-                        <SplitPane split="vertical" minSize={50} defaultSize="50%" allowResize={false}>
+                        <SplitPane
+                            split="vertical"
+                            minSize={50}
+                            defaultSize="50%"
+                            allowResize={false}
+                            pane1Style={{ overflowY: "hidden" }}
+                            pane2Style={{ overflowY: "hidden" }}
+                        >
                             <CodeEditor
                                 onChange={this.onTextChange}
                                 text={this.state.text}
@@ -127,33 +138,5 @@ export class Playground extends React.Component<{}, PlaygroundState> {
 
     private onScrollTopChange(scrollTop: number) {
         this.setState({ scrollTop });
-    }
-
-    private formatText(text: string, typeScriptConfig: TypeScriptConfiguration) {
-        try {
-            const typeScriptPlugin = new TypeScriptPlugin(typeScriptConfig);
-            const config = resolveConfiguration({}).config;
-            typeScriptPlugin.initialize({
-                environment,
-                globalConfig: config
-            });
-
-            return formatFileText({
-                filePath: "/file.ts",
-                fileText: text,
-                plugins: [typeScriptPlugin]
-            });
-        } catch (err) {
-            return err.toString();
-        }
-    }
-
-    private getResolvedConfiguration(config: TypeScriptConfiguration) {
-        try {
-            return new TypeScriptPlugin(config).getConfiguration();
-        } catch (err) {
-            console.error(err);
-            return new TypeScriptPlugin({ lineWidth: 80 }).getConfiguration();
-        }
     }
 }

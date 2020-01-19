@@ -1,0 +1,18 @@
+~~ moduleDeclaration.bracePosition: maintain, lineWidth: 40 ~~
+== should maintain the position for the brace position when on same line ==
+module Test {
+}
+
+[expect]
+module Test {
+}
+
+== should maintain the position for the brace position when on a new line ==
+module Test
+{
+}
+
+[expect]
+module Test
+{
+}

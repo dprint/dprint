@@ -1,0 +1,38 @@
+~~ classDeclaration.bracePosition: maintain, lineWidth: 40 ~~
+== should maintain the position for the brace position when on same line ==
+class Test {
+}
+
+[expect]
+class Test {
+}
+
+== should maintain the position for the brace position when on a new line ==
+class Test
+{
+}
+
+[expect]
+class Test
+{
+}
+
+== should maintain the position for the brace position when hanging and on the same line ==
+class Test extends SomethingReallyReallyLong {
+}
+
+[expect]
+class Test
+    extends SomethingReallyReallyLong {
+}
+
+== should maintain the position for the brace position when hanging and on the next line ==
+class Test extends SomethingReallyReallyLong
+{
+}
+
+[expect]
+class Test
+    extends SomethingReallyReallyLong
+{
+}

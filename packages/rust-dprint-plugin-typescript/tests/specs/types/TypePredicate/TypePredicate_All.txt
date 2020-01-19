@@ -1,0 +1,15 @@
+== should format ==
+function test(c: any): c    is   string   {
+}
+
+[expect]
+function test(c: any): c is string {
+}
+
+== should format with asserts modifier ==
+function test(c: any): asserts   c    is   string   {
+}
+
+[expect]
+function test(c: any): asserts c is string {
+}

@@ -1,0 +1,6 @@
+~~ importDeclaration.spaceSurroundingNamedImports: false ~~
+== should format when using named imports ==
+import {n1,n2,n3} from    "test"  ;
+
+[expect]
+import {n1, n2, n3} from "test";

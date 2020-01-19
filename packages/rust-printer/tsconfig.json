@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.common.json",
-  "compilerOptions": {
-    "rootDir": "./src-ts",
-    "outDir": "./dist",
-    "plugins": [{ "transform": "ts-nameof", "type": "raw" }]
-  },
-  "exclude": ["./scripts", "./dist", "./rollup.config.js", "./lib", "./playground", "./src"]
-}

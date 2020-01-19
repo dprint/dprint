@@ -1,4 +1,4 @@
-import { PrintItemIterable, JsPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { PrintItemIterable, WebAssemblyPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 /**
  * User specified configuration for formatting TypeScript code.
@@ -124,7 +124,7 @@ export interface TypeScriptConfiguration {
      * @value true - Ex. `1 + 2`
      * @value false - Ex. `1+2`
      */
-    "binaryExpression.spaceSurroundingOperator"?: boolean;
+    "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"?: boolean;
     /**
      * Whether to add a space before the parentheses of a constructor.
      * @default false
@@ -217,12 +217,12 @@ export interface TypeScriptConfiguration {
      */
     "ifStatement.spaceAfterIfKeyword"?: boolean;
     /**
-     * Whether to add spaces around named exports in an import declaration.
+     * Whether to add spaces around named imports in an import declaration.
      * @default true
      * @value true - Ex. `import { SomeExport, OtherExport } from "my-module";`
      * @value false - Ex. `import {SomeExport, OtherExport} from "my-module";`
      */
-    "importDeclaration.spaceSurroundingNamedExports"?: boolean;
+    "importDeclaration.spaceSurroundingNamedImports"?: boolean;
     /**
      * Whether to add a space surrounding the expression of a JSX container.
      * @default false
@@ -272,11 +272,10 @@ export interface TypeScriptConfiguration {
     "constructSignature.semiColon"?: boolean;
     "continueStatement.semiColon"?: boolean;
     "debuggerStatement.semiColon"?: boolean;
-    "directive.semiColon"?: boolean;
     "doWhileStatement.semiColon"?: boolean;
     "exportAllDeclaration.semiColon"?: boolean;
     "exportAssignment.semiColon"?: boolean;
-    "exportDefaultDeclaration.semiColon"?: boolean;
+    "exportDefaultExpression.semiColon"?: boolean;
     "exportNamedDeclaration.semiColon"?: boolean;
     "expressionStatement.semiColon"?: boolean;
     "functionDeclaration.semiColon"?: boolean;
@@ -335,7 +334,6 @@ export interface TypeScriptConfiguration {
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
-    "logicalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "callExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
     "newExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
     "arrowFunctionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
@@ -364,11 +362,10 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "constructSignature.semiColon": boolean;
     readonly "continueStatement.semiColon": boolean;
     readonly "debuggerStatement.semiColon": boolean;
-    readonly "directive.semiColon": boolean;
     readonly "doWhileStatement.semiColon": boolean;
     readonly "exportAllDeclaration.semiColon": boolean;
     readonly "exportAssignment.semiColon": boolean;
-    readonly "exportDefaultDeclaration.semiColon": boolean;
+    readonly "exportDefaultExpression.semiColon": boolean;
     readonly "exportNamedDeclaration.semiColon": boolean;
     readonly "expressionStatement.semiColon": boolean;
     readonly "functionDeclaration.semiColon": boolean;
@@ -427,7 +424,6 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
-    readonly "logicalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "callExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
     readonly "newExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
     readonly "arrowFunctionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
@@ -444,7 +440,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "setAccessor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
-    readonly "binaryExpression.spaceSurroundingOperator": boolean;
+    readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;
     readonly "constructor.spaceBeforeParentheses": boolean;
     readonly "constructorType.spaceAfterNewKeyword": boolean;
     readonly "constructSignature.spaceAfterNewKeyword": boolean;
@@ -458,7 +454,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "functionExpression.spaceBeforeParentheses": boolean;
     readonly "getAccessor.spaceBeforeParentheses": boolean;
     readonly "ifStatement.spaceAfterIfKeyword": boolean;
-    readonly "importDeclaration.spaceSurroundingNamedExports": boolean;
+    readonly "importDeclaration.spaceSurroundingNamedImports": boolean;
     readonly "jsxExpressionContainer.spaceSurroundingExpression": boolean;
     readonly "method.spaceBeforeParentheses": boolean;
     readonly "setAccessor.spaceBeforeParentheses": boolean;
@@ -468,9 +464,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
 }
 
 /**
- * Plugin for formatting TypeScript code (.ts/.tsx/.js files).
+ * Plugin for formatting TypeScript code (.ts/.tsx/.js/.jsx files).
  */
-export declare class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConfiguration> {
+export declare class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptConfiguration> {
     /**
      * Constructor.
      * @param config - The configuration to use.
@@ -481,6 +477,8 @@ export declare class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConf
     /** @inheritdoc */
     name: string;
     /** @inheritdoc */
+    dispose(): void;
+    /** @inheritdoc */
     initialize(options: PluginInitializeOptions): void;
     /** @inheritdoc */
     shouldFormatFile(filePath: string): boolean;
@@ -489,5 +487,6 @@ export declare class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConf
     /** @inheritdoc */
     getConfigurationDiagnostics(): ConfigurationDiagnostic[];
     /** @inheritdoc */
-    parseFile(filePath: string, fileText: string): PrintItemIterable | false;
+    formatText(filePath: string, fileText: string): string | false;
+    private _getFormatContext;
 }

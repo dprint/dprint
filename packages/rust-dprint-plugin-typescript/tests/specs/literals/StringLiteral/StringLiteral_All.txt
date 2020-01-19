@@ -1,0 +1,11 @@
+== should not replace escaped character with actual character ==
+const t = "\t"  ;
+
+[expect]
+const t = "\t";
+
+== should not replace actual character with escaped character ==
+const t = "	";
+
+[expect]
+const t = "	";

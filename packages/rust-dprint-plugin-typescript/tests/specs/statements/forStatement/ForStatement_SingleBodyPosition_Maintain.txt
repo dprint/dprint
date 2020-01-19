@@ -1,0 +1,15 @@
+~~ forStatement.singleBodyPosition: maintain ~~
+== should keep on a single line ==
+for (let i = 0; i < 5; i++) a;
+
+[expect]
+for (let i = 0; i < 5; i++) a;
+
+== should keep on the next line ==
+for (let i = 0; i < 5; i++)
+    a;
+
+[expect]
+for (let i = 0; i < 5; i++) {
+    a;
+}

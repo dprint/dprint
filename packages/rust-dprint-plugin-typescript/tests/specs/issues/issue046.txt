@@ -1,0 +1,20 @@
+~~ ifStatement.useBraces: always, singleBodyPosition: sameLine ~~
+== should format ==
+if (true) { console.log(5); }
+if (true) { console.log(5);
+}
+// since there are braces, it should not revert to a single line
+if (true) {
+    console.log(5);
+}
+if (true)
+    console.log(5);
+
+[expect]
+if (true) { console.log(5); }
+if (true) { console.log(5); }
+// since there are braces, it should not revert to a single line
+if (true) {
+    console.log(5);
+}
+if (true) { console.log(5); }

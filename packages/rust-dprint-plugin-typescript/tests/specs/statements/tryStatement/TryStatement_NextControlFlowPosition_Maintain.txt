@@ -1,0 +1,56 @@
+~~ tryStatement.nextControlFlowPosition: maintain, lineWidth: 40 ~~
+== should maintain the position when all on same line ==
+try {
+} catch {
+} finally {
+}
+
+[expect]
+try {
+} catch {
+} finally {
+}
+
+== should maintain the position when catch on next line ==
+try {
+}
+catch {
+} finally {
+}
+
+[expect]
+try {
+}
+catch {
+} finally {
+}
+
+== should maintain the position when finally on next line ==
+try {
+} catch {
+}
+finally {
+}
+
+[expect]
+try {
+} catch {
+}
+finally {
+}
+
+== should maintain the position when both on separate line ==
+try {
+}
+catch {
+}
+finally {
+}
+
+[expect]
+try {
+}
+catch {
+}
+finally {
+}

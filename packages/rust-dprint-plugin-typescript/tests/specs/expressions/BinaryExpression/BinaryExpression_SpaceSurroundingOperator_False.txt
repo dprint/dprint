@@ -1,0 +1,6 @@
+~~ binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator: false ~~
+== should format without spaces ==
+1234 + 12345 * 5 * 10;
+
+[expect]
+1234+12345*5*10;

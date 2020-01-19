@@ -1,28 +1,28 @@
 use super::StringRef;
 use super::WriteItem;
+use super::collections::{GraphNode, GraphNodeIterator};
 use std::rc::Rc;
 
-pub struct WriterState<TString> where TString : StringRef {
-    pub current_line_column: u32,
-    pub current_line_number: u32,
-    pub last_line_indent_level: u16,
-    pub indent_level: u16,
-    pub expect_newline_next: bool,
-    pub items: Vec<WriteItem<TString>>,
-    pub ignore_indent_count: u8,
+pub struct WriterState<T> where T : StringRef {
+    current_line_column: u32,
+    current_line_number: u32,
+    last_line_indent_level: u16,
+    indent_level: u16,
+    expect_newline_next: bool,
+    ignore_indent_count: u8,
+    items: Option<Rc<GraphNode<WriteItem<T>>>>,
 }
 
-// need to manually implement this for some reason instead of using #[derive(Clone)]
-impl<TString> Clone for WriterState<TString> where TString : StringRef {
-    fn clone(&self) -> WriterState<TString> {
+impl<T> Clone for WriterState<T> where T : StringRef {
+    fn clone(&self) -> WriterState<T> {
         WriterState {
             current_line_column: self.current_line_column,
             current_line_number: self.current_line_number,
             last_line_indent_level: self.last_line_indent_level,
             indent_level: self.indent_level,
             expect_newline_next: self.expect_newline_next,
-            items: self.items.iter().map(|i| i.clone()).collect(),
             ignore_indent_count: self.ignore_indent_count,
+            items: self.items.clone(),
         }
     }
 }
@@ -46,13 +46,13 @@ impl<T> Writer<T> where T : StringRef {
                 last_line_indent_level: 0,
                 indent_level: 0,
                 expect_newline_next: false,
-                items: Vec::new(),
                 ignore_indent_count: 0,
+                items: Option::None,
             },
         }
     }
 
-    pub fn get_state(&self) -> WriterState<T> {
+    pub fn get_state(&mut self) -> WriterState<T> {
         self.state.clone()
     }
 
@@ -123,31 +123,31 @@ impl<T> Writer<T> where T : StringRef {
         self.state.current_line_number += 1;
         self.state.last_line_indent_level = self.state.indent_level;
         self.state.expect_newline_next = false;
-        self.state.items.push(WriteItem::NewLine);
+        self.push_item(WriteItem::NewLine);
     }
 
     pub fn single_indent(&mut self) {
         self.handle_first_column();
         self.state.current_line_column += self.indent_width as u32;
-        self.state.items.push(WriteItem::Indent);
+        self.push_item(WriteItem::Indent);
     }
 
     pub fn tab(&mut self) {
         self.handle_first_column();
         self.state.current_line_column += self.indent_width as u32;
-        self.state.items.push(WriteItem::Tab);
+        self.push_item(WriteItem::Tab);
     }
 
     pub fn space(&mut self) {
         self.handle_first_column();
         self.state.current_line_column += 1;
-        self.state.items.push(WriteItem::Space);
+        self.push_item(WriteItem::Space);
     }
 
     pub fn write(&mut self, text: &Rc<T>) {
         self.handle_first_column();
         self.state.current_line_column += text.get_length() as u32;
-        self.state.items.push(WriteItem::String(text.clone()));
+        self.push_item(WriteItem::String(text.clone()));
     }
 
     fn handle_first_column(&mut self) {
@@ -161,19 +161,22 @@ impl<T> Writer<T> where T : StringRef {
             self.state.last_line_indent_level = self.state.indent_level;
 
             for _ in 0..self.state.indent_level {
-                self.state.items.push(WriteItem::Indent);
+                self.push_item(WriteItem::Indent);
             }
 
             self.state.current_line_column += self.state.indent_level as u32 * self.indent_width as u32;
         }
     }
 
-    pub fn get_items(self) -> Vec<WriteItem<T>> {
-        self.state.items
+    fn push_item(&mut self, item: WriteItem<T>) {
+        let previous = std::mem::replace(&mut self.state.items, None);
+        self.state.items = Some(Rc::new(GraphNode::new(item, previous)));
     }
 
-    #[allow(dead_code)]
-    pub fn get_items_clone(&self) -> Vec<WriteItem<T>> {
-        self.state.items.clone()
+    pub fn get_items(self) -> impl Iterator<Item = WriteItem<T>> {
+        match self.state.items {
+            Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
+            None => GraphNodeIterator::empty().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
+        }
     }
 }

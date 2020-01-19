@@ -1,0 +1,19 @@
+~~ arrowFunctionExpression.bracePosition: nextLine, lineWidth: 30 ~~
+== should use the next line for the brace position ==
+const t = () => {
+};
+
+[expect]
+const t = () =>
+{
+};
+
+== should use the next line for the brace position when hanging ==
+const t = (someParams, goingToNewLine) => {
+};
+
+[expect]
+const t = (someParams,
+    goingToNewLine) =>
+{
+};

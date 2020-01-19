@@ -1,9 +1,10 @@
+.mocharc.yml
 .rpt2_cache
 .vscode
 src
 scripts
 .gitignore
-mocha.opts
 rollup.config.js
 tsconfig.*
 yarn-error.log
+wasm

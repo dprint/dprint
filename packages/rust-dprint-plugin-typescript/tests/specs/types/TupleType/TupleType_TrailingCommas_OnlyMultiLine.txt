@@ -1,0 +1,18 @@
+~~ tupleType.trailingCommas: onlyMultiLine ~~
+== should format with trailing commas when multiline ==
+type Test = [
+    string    ,
+    number
+];
+
+[expect]
+type Test = [
+    string,
+    number,
+];
+
+== should not format with trailing commas when single line ==
+type Test = [string    , number,];
+
+[expect]
+type Test = [string, number];

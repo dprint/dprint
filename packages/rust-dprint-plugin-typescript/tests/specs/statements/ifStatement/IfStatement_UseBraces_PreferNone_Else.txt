@@ -1,0 +1,112 @@
+~~ ifStatement.useBraces: preferNone ~~
+== should not use braces when only one line and the previous was one line ==
+if (true) {
+    a;
+}
+else {
+    b;
+}
+
+[expect]
+if (true)
+    a;
+else
+    b;
+
+== should use braces when the previous had braces ==
+if (true) {
+    // 1
+    a;
+}
+else {
+    b;
+}
+
+[expect]
+if (true) {
+    // 1
+    a;
+}
+else {
+    b;
+}
+
+== should only use braces for the else if the else clause needs braces ==
+if (true) {
+    a;
+}
+else {
+    b;
+    c;
+}
+
+[expect]
+if (true)
+    a;
+else {
+    b;
+    c;
+}
+
+== should not use braces for a middle clause if it doesn't need any ==
+if (true) {
+    a;
+    a;
+}
+else if (true) {
+    b;
+}
+else {
+    c;
+    d;
+}
+
+[expect]
+if (true) {
+    a;
+    a;
+}
+else if (true)
+    b;
+else {
+    c;
+    d;
+}
+
+== should ensure the comments stay on the appropriate inner statement ==
+if (true)
+    call1(); // a
+else
+    call2(); // b
+
+[expect]
+if (true)
+    call1(); // a
+else
+    call2(); // b
+
+== should use braces for last "else if" when previous is multiple lines ==
+if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+}
+
+[expect]
+if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+    call2();
+}
+else if (true) {
+    call1();
+}

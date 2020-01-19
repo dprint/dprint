@@ -1,0 +1,21 @@
+~~ switchCase.bracePosition: sameLine, lineWidth: 40 ~~
+== should put the brace on the same line ==
+switch (test) {
+    case 5: {
+        5;
+    }
+    case 6:
+    {
+        6;
+    }
+}
+
+[expect]
+switch (test) {
+    case 5: {
+        5;
+    }
+    case 6: {
+        6;
+    }
+}

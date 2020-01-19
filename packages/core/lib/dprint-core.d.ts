@@ -14,7 +14,14 @@ export declare function getFileExtension(filePath: string): string;
  */
 export declare function resolveNewLineKindFromText(text: string): "\r\n" | "\n";
 
-/** Options for printing a print item iterable. */
+/**
+ * Print out the provided print items using the rust printer.
+ * @param items - Items to print.
+ * @param options - Options for printing.
+ */
+export declare function print(items: PrintItemIterable, options: PrintOptions): string;
+
+/** Options for printing. */
 export interface PrintOptions {
     /** The width the printer will attempt to keep the line under. */
     maxWidth: number;
@@ -80,7 +87,7 @@ export declare namespace conditions {
 export declare namespace parserHelpers {
     function withIndent(item: PrintItemIterable): PrintItemIterable;
     function newlineGroup(item: PrintItemIterable): PrintItemIterable;
-    function prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]): IterableIterator<T>;
+    function prependToIterableIfHasItems<T>(iterable: Iterable<T>, ...items: T[]): Generator<T, void, undefined>;
     function toPrintItemIterable(printItem: PrintItem): PrintItemIterable;
     function surroundWithNewLines(item: PrintItemIterable): PrintItemIterable;
     /**
@@ -118,8 +125,10 @@ export interface FormatFileTextOptions {
     filePath: string;
     /** File text of the file to format. */
     fileText: string;
-    /** Plugins to use. */
+    /**
+     * Plugins to use.
+     * @remarks This function does not assume ownership of the plugins and so if there are
+     * any web assembly plugins you should dispose of them after you no longer need them.
+     */
     plugins: Plugin[];
-    /** Custom printer to print out the print items (ex. use the printer from @dprint/rust-printer) */
-    customPrinter?: (iterable: PrintItemIterable, options: PrintOptions) => string;
 }

@@ -1,0 +1,18 @@
+~~ arrayExpression.trailingCommas: always ~~
+== should format with trailing commas when multiline ==
+const t = [
+    5    ,
+    6
+];
+
+[expect]
+const t = [
+    5,
+    6,
+];
+
+== should format with trailing commas when single line ==
+const t = [5    , 6,];
+
+[expect]
+const t = [5, 6,];

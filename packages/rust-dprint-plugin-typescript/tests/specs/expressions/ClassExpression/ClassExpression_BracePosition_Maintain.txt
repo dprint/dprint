@@ -1,0 +1,38 @@
+~~ classExpression.bracePosition: maintain, lineWidth: 50 ~~
+== should maintain the position for the brace position when on same line ==
+const t = class {
+};
+
+[expect]
+const t = class {
+};
+
+== should maintain the position for the brace position when on a new line ==
+const t = class
+{
+};
+
+[expect]
+const t = class
+{
+};
+
+== should maintain the position for the brace position when hanging and on the same line ==
+const t = class extends SomethingReallyReallyReallyLong {
+};
+
+[expect]
+const t = class
+    extends SomethingReallyReallyReallyLong {
+};
+
+== should maintain the position for the brace position when hanging and on the next line ==
+const t = class extends SomethingReallyReallyReallyLong
+{
+};
+
+[expect]
+const t = class
+    extends SomethingReallyReallyReallyLong
+{
+};

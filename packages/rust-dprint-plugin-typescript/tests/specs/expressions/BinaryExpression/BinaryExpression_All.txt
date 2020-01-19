@@ -1,0 +1,113 @@
+~~ lineWidth: 20 ~~
+== should print ==
+1234+12345   * 5;
+
+[expect]
+1234 + 12345 * 5;
+
+== should print hanging when exceeding line width ==
+1234 + 12345 * 5 * 10;
+
+[expect]
+1234 + 12345 * 5
+    * 10;
+
+== should print hanging when exceeding line width multiple times ==
+1234 + 12345 * 5 * 10 * 20 + 509;
+
+[expect]
+1234 + 12345 * 5
+    * 10 * 20
+    + 509;
+
+== should maintain newlines ==
+12347879 + 20
+    + 567 + 214
+    + 32;
+
+[expect]
+12347879 + 20
+    + 567 + 214
+    + 32;
+
+== should maintain parentheses ==
+(1 + 43) + 5 * (20 + 23);
+
+[expect]
+(1 + 43) + 5
+    * (20 + 23);
+
+== should handle comments on a different line in-between ==
+asdfasdfasdf
+    // some comment
+    + container;
+
+[expect]
+asdfasdfasdf
+    // some comment
+    + container;
+
+== should handle comments on a different line in-between when the operator is on the preceeding line ==
+asdfasdfasdf +
+    // some comment
+    container;
+
+[expect]
+asdfasdfasdf
+    // some comment
+    + container;
+
+== should decide based on the left side's open paren token if it should be on a newline ==
+(1 + 2) + (
+    5 + 7
+);
+
+(1 + 2) +
+(
+    5 + 7
+);
+
+[expect]
+(1 + 2) + (
+    5 + 7
+);
+
+(1 + 2)
+    + (
+        5 + 7
+    );
+
+== should not cut off an inner expression midway ==
+testing + this.test;
+otherTest + other.test + 34 + 2;
+
+[expect]
+testing
+    + this.test;
+otherTest
+    + other.test
+    + 34 + 2;
+
+== should not put triple equals on new line ==
+testing && t === uv;
+
+[expect]
+testing
+    && t === uv;
+
+== should indent when a non-breaking expression happens to be on a new line ==
+const t = 4545 & 53453443;
+
+[expect]
+const t = 4545
+    & 53453443;
+
+== should not place triple equals at same indentation as OR ===
+testing(testing)
+    || testing
+    === test;
+
+[expect]
+testing(testing)
+    || testing
+        === test;

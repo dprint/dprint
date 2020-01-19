@@ -1,0 +1,23 @@
+~~ forStatement.singleBodyPosition: sameLine ~~
+== should keep on the same line ==
+for (let i = 0; i < 5; i++) a;
+
+[expect]
+for (let i = 0; i < 5; i++) a;
+
+== should move to the same line ==
+for (let i = 0; i < 5; i++)
+    a;
+
+[expect]
+for (let i = 0; i < 5; i++) a;
+
+== should keep on the next line when using braces ==
+for (let i = 0; i < 5; i++) {
+    a;
+}
+
+[expect]
+for (let i = 0; i < 5; i++) {
+    a;
+}

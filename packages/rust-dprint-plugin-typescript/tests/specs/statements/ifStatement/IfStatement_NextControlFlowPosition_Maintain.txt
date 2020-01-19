@@ -1,0 +1,56 @@
+~~ ifStatement.nextControlFlowPosition: maintain, lineWidth: 40 ~~
+== should maintain the position when all on same line ==
+if (true) {
+} else if (true) {
+} else {
+}
+
+[expect]
+if (true) {
+} else if (true) {
+} else {
+}
+
+== should maintain the position when else if on next line ==
+if (true) {
+}
+else if (true) {
+} else {
+}
+
+[expect]
+if (true) {
+}
+else if (true) {
+} else {
+}
+
+== should maintain the position when else on next line ==
+if (true) {
+} else if (true) {
+}
+else {
+}
+
+[expect]
+if (true) {
+} else if (true) {
+}
+else {
+}
+
+== should maintain the position when both on separate line ==
+if (true) {
+}
+else if (true) {
+}
+else {
+}
+
+[expect]
+if (true) {
+}
+else if (true) {
+}
+else {
+}

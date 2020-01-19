@@ -1,0 +1,58 @@
+~~ lineWidth: 80 ~~
+== should format ==
+const t = async function
+test<T, U>
+(p, u): string
+{
+};
+
+[expect]
+const t = async function test<T, U>(p, u): string {
+};
+
+== should format generator ==
+const t = function* test(p, u): string {
+};
+
+[expect]
+const t = function* test(p, u): string {
+};
+
+== should format the return type as hanging when it's hanging ==
+const t = function(param: string, other: number, finalParam: string): testing | this {
+
+}
+
+[expect]
+const t = function(param: string, other: number, finalParam: string): testing
+    | this
+{
+};
+
+== should format the return type on the same line when the rest of the header is hanging ==
+const testing = function(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | this {
+}
+
+[expect]
+const testing = function(param: string, other: number,
+    finalParameterThatIsReallyReallyLong: string): testing | this
+{
+};
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+const testing = function(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut {
+}
+
+[expect]
+const testing = function(param: string, other: number,
+    finalParameterThatIsReallyReallyLong: string
+): testing | other | other | test | test | asdf | testingThisOut
+    | testingThisOut
+{
+};
+
+== should allow keeping the close brace on the same line when empty and placing the close brace on the same line ==
+const t = function(testing, this) {};
+
+[expect]
+const t = function(testing, this) {};

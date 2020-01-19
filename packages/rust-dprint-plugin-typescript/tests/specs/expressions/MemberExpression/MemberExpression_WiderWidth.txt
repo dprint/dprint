@@ -1,0 +1,15 @@
+== property access expression with string literal -- this was failing ==
+function test() {
+    expect(fileText).to.equal(`// @ts-check
+testing this out testing this out testing this out testing this out
+testing
+  `);
+}
+
+[expect]
+function test() {
+    expect(fileText).to.equal(`// @ts-check
+testing this out testing this out testing this out testing this out
+testing
+  `);
+}

@@ -1,0 +1,13 @@
+~~ lineWidth: 32 ~~
+== should parse the type assertion ==
+<string>5;
+
+[expect]
+<string> 5;
+
+== should parse when multiple lines ==
+<string | number | other | other>5;
+
+[expect]
+<string | number | other
+    | other> 5;

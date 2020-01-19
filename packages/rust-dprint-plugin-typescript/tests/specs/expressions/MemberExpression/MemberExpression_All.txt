@@ -1,0 +1,49 @@
+~~ lineWidth: 40 ~~
+== should format ==
+obj.prop.otherProp;
+obj.prop[ "computed"   ];
+testing
+    .this
+    .out
+    .a.lot
+    .more;
+testing.this.out.for.when.it.passes.thelineWidth;
+
+[expect]
+obj.prop.otherProp;
+obj.prop["computed"];
+testing
+    .this
+    .out
+    .a.lot
+    .more;
+testing.this.out.for.when.it.passes
+    .thelineWidth;
+
+== should not indent for other nodes ==
+call({
+    prop: 5,
+    prop: 7
+}).member;
+
+[expect]
+call({
+    prop: 5,
+    prop: 7
+}).member;
+
+== should support optional chaining ==
+obj?.test.test;
+obj.other
+    ?.test;
+obj?.["test"];
+obj.other
+        ?.["test"];
+
+[expect]
+obj?.test.test;
+obj.other
+    ?.test;
+obj?.["test"];
+obj.other
+    ?.["test"];

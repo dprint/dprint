@@ -1,0 +1,17 @@
+~~ forInStatement.singleBodyPosition: nextLine ~~
+== should move to the next line ==
+for (const t in other) a;
+
+[expect]
+for (const t in other) {
+    a;
+}
+
+== should keep on the next line ==
+for (const t in other)
+    a;
+
+[expect]
+for (const t in other) {
+    a;
+}

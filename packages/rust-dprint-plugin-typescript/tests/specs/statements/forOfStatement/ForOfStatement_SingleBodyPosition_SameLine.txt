@@ -1,0 +1,23 @@
+~~ forOfStatement.singleBodyPosition: sameLine ~~
+== should keep on the same line ==
+for (const t of other) a;
+
+[expect]
+for (const t of other) a;
+
+== should move to the same line ==
+for (const t of other)
+    a;
+
+[expect]
+for (const t of other) a;
+
+== should keep on the next line when using braces ==
+for (const t of other) {
+    a;
+}
+
+[expect]
+for (const t of other) {
+    a;
+}

@@ -1,0 +1,83 @@
+~~ ifStatement.useBraces: preferNone ~~
+== handle a comment after the header when there exists braces and keeping braces ==
+if (true) { // 1
+    true;
+    true;
+}
+
+[expect]
+if (true) { // 1
+    true;
+    true;
+}
+
+== handle a comment after the header when there exists braces and going to no braces ==
+if (true) { // 1
+    true;
+}
+
+[expect]
+if (true) // 1
+    true;
+
+== handle a comment after the header when the brace is on the next line and going to no braces ==
+if (true) // 1
+{
+    true;
+}
+
+[expect]
+if (true) // 1
+    true;
+
+== handle a comment after the header when the brace is on the next line and keeping braces ==
+if (true) // 1
+{
+    true;
+    false;
+}
+
+[expect]
+if (true) { // 1
+    true;
+    false;
+}
+
+== move comments on new line to inside block when all are before brace ==
+if (true) // 1
+// 2
+{
+    true;
+    false;
+}
+
+[expect]
+if (true) { // 1
+    // 2
+    true;
+    false;
+}
+
+== handle a comment block after the header ==
+if (true) { /* 1 */
+    true;
+    true;
+}
+
+[expect]
+if (true) { /* 1 */
+    true;
+    true;
+}
+
+== handle a comment block and line after the header ==
+if (true) { /* 1 */ // 2
+    true;
+    true;
+}
+
+[expect]
+if (true) { /* 1 */ // 2
+    true;
+    true;
+}

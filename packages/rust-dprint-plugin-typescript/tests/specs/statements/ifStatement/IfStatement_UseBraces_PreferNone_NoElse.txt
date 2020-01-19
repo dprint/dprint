@@ -1,0 +1,86 @@
+~~ ifStatement.useBraces: preferNone, lineWidth: 80 ~~
+== should not use braces when only has one line ==
+if (true) {
+    a;
+}
+
+[expect]
+if (true)
+    a;
+
+== should not use braces when single line and using them would push the if statement over the width limit ==
+if (thisIsAVery && longerConditionThatWill && goOverTheLimitOf80CharAtTheSpace) {
+    a;
+}
+
+[expect]
+if (thisIsAVery && longerConditionThatWill && goOverTheLimitOf80CharAtTheSpace)
+    a;
+
+== should use braces when the single statement is hanging ==
+if(true)call(theseAreSome,argumentsThatWill,take,this, over,the, limit,of80, columns);
+
+[expect]
+if (true) {
+    call(theseAreSome, argumentsThatWill, take, this, over, the, limit, of80,
+        columns);
+}
+
+== should use braces when there is a comment and statement and separate lines ==
+if(true){
+    // 1
+    a;
+}
+
+[expect]
+if (true) {
+    // 1
+    a;
+}
+
+== should use braces when empty ==
+if(true){
+}
+
+[expect]
+if (true) {
+}
+
+== should use braces when there's only a comment ==
+if(true){
+    // 1
+}
+
+[expect]
+if (true) {
+    // 1
+}
+
+== should handle trailing comments ==
+if(true){
+} // 1
+// 2
+
+[expect]
+if (true) {
+} // 1
+// 2
+
+== should keep the comment on the inner statement when switching from no braces to having braces ==
+if (true)
+    // other
+    ""; // test
+
+[expect]
+if (true) {
+    // other
+    ""; // test
+}
+
+== should not switch to using braces when there are trailing header comments ==
+if (lastDotIndex <= 0) // for files like .gitignore, need to include 0
+    ""; // same behaviour as node
+
+[expect]
+if (lastDotIndex <= 0) // for files like .gitignore, need to include 0
+    ""; // same behaviour as node

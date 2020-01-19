@@ -1,0 +1,9 @@
+~~ moduleDeclaration.bracePosition: sameLine, lineWidth: 40 ~~
+== should use the same line for the brace position ==
+module Test
+{
+}
+
+[expect]
+module Test {
+}

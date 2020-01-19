@@ -1,0 +1,22 @@
+~~ lineWidth: 40 ~~
+== should format ==
+56458555   as    string;
+
+[expect]
+56458555 as string;
+
+== should format when multiple lines ==
+564585555 as string | number | other | other;
+
+[expect]
+564585555 as string | number | other
+    | other;
+
+== should indent the as expression when initial expression is hanging and the as expression is hanging ==
+testingtesting()
+    .find(p => p.testing) as string | undefined;
+
+[expect]
+testingtesting()
+    .find(p => p.testing) as string
+        | undefined;

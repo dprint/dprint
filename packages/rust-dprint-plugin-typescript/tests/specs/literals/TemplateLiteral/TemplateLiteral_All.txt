@@ -1,0 +1,58 @@
+~~ lineWidth: 40 ~~
+== should format ==
+log(`testing`);
+
+[expect]
+log(`testing`);
+
+== should format multiple lines without indentation ==
+function test() {
+    log(`
+const t = 5;
+`);
+}
+
+[expect]
+function test() {
+    log(`
+const t = 5;
+`);
+}
+
+== should do string iterpolation ==
+log(`testing ${  3 } this ${  6  } out`);
+
+[expect]
+log(`testing ${3} this ${6} out`);
+
+== should indent within the expression when it goes over the line width ==
+log(`testing this out a little bit ${4} testing`);
+
+[expect]
+log(`testing this out a little bit ${4
+    } testing`);
+
+== should indent properly within the expressions ==
+function test() {
+    log(`const t = 5; ${testing ? thisIsATest : testing}`);
+}
+
+[expect]
+function test() {
+    log(`const t = 5; ${testing
+        ? thisIsATest
+        : testing}`);
+}
+
+== should do a tagged template literal ==
+log(myTag `some text`);
+
+[expect]
+log(myTag `some text`);
+
+== should do a tagged template literal that goes over line width ==
+myCustomTag `testing this out with an str`;
+
+[expect]
+myCustomTag
+    `testing this out with an str`;

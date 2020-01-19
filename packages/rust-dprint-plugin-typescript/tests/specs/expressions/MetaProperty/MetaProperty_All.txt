@@ -1,0 +1,17 @@
+== should format ==
+const t = import.meta  .test;
+
+[expect]
+const t = import.meta.test;
+
+== should format on multiple lines ==
+const t = import
+.meta
+.test
+.other;
+
+[expect]
+const t = import
+    .meta
+    .test
+    .other;

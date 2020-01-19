@@ -1,0 +1,15 @@
+~~ whileStatement.singleBodyPosition: maintain ~~
+== should keep on a single line ==
+while (true) a;
+
+[expect]
+while (true) a;
+
+== should keep on the next line ==
+while (true)
+    a;
+
+[expect]
+while (true) {
+    a;
+}

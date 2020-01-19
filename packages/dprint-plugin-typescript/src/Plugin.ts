@@ -1,25 +1,27 @@
-import { getFileExtension, ResolveConfigurationResult, resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment } from "@dprint/core";
-import { JsPlugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
-import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration, resolveConfiguration } from "./configuration";
-import { parseToBabelAst, parseTypeScriptFile } from "./parsing";
+import { getFileExtension, CliLoggingEnvironment } from "@dprint/core";
+import { WebAssemblyPlugin, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment, ResolvedConfiguration as GlobalConfig } from "@dprint/types";
+import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "./Configuration";
+import { FormatContext } from "./wasm/ts_dprint_plugin_typescript";
 
 /**
- * Plugin for formatting TypeScript code (.ts/.tsx/.js files).
+ * Plugin for formatting TypeScript code (.ts/.tsx/.js/.jsx files).
  */
-export class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConfiguration> {
+export class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptConfiguration> {
     /** @internal */
-    private readonly _unresolvedConfig: TypeScriptConfiguration;
+    private readonly _typeScriptConfig: TypeScriptConfiguration;
     /** @internal */
-    private _resolveConfigurationResult?: ResolveConfigurationResult<ResolvedTypeScriptConfiguration>;
+    private _globalConfig: GlobalConfig | undefined;
     /** @internal */
     private _environment?: LoggingEnvironment;
+    /** @internal */
+    private _formatContext: FormatContext | undefined;
 
     /**
      * Constructor.
      * @param config - The configuration to use.
      */
     constructor(config: TypeScriptConfiguration = {}) {
-        this._unresolvedConfig = config;
+        this._typeScriptConfig = config;
     }
 
     /** @inheritdoc */
@@ -29,8 +31,16 @@ export class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConfiguratio
     name = "dprint-plugin-typescript";
 
     /** @inheritdoc */
+    dispose() {
+        this._formatContext?.free();
+    }
+
+    /** @inheritdoc */
     initialize(options: PluginInitializeOptions) {
-        this._resolveConfigurationResult = resolveConfiguration(options.globalConfig, this._unresolvedConfig);
+        this._formatContext?.free();
+        this._formatContext = undefined;
+
+        this._globalConfig = options.globalConfig;
         this._environment = options.environment;
     }
 
@@ -48,34 +58,46 @@ export class TypeScriptPlugin implements JsPlugin<ResolvedTypeScriptConfiguratio
     }
 
     /** @inheritdoc */
-    getConfiguration(): ResolvedTypeScriptConfiguration {
-        return this._getResolveConfigurationResult().config;
+    getConfiguration() {
+        return JSON.parse(this._getFormatContext().get_configuration()) as ResolvedTypeScriptConfiguration;
     }
 
     /** @inheritdoc */
-    getConfigurationDiagnostics(): ConfigurationDiagnostic[] {
-        return this._getResolveConfigurationResult().diagnostics;
+    getConfigurationDiagnostics() {
+        return JSON.parse(this._getFormatContext().get_configuration_diagnostics()) as ConfigurationDiagnostic[];
     }
 
     /** @inheritdoc */
-    parseFile(filePath: string, fileText: string): PrintItemIterable | false {
-        const babelAst = parseToBabelAst(filePath, fileText);
-        return parseTypeScriptFile({
-            file: babelAst,
-            filePath,
-            fileText,
-            config: this.getConfiguration(),
-            environment: this._getEnvironment()
-        });
+    formatText(filePath: string, fileText: string): string | false {
+        const result = this._getFormatContext().format(filePath, fileText);
+        if (result == null)
+            return false;
+        return result;
+    }
+
+    private _getFormatContext() {
+        return this._formatContext ?? (this._formatContext = FormatContext.new(this._getConfigMap()));
     }
 
     /** @internal */
-    private _getResolveConfigurationResult() {
-        if (this._resolveConfigurationResult == null) {
-            const globalConfig = resolveGlobalConfiguration({}).config;
-            this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
+    private _getConfigMap() {
+        const map = new Map();
+        if (this._globalConfig)
+            addConfigToMap(this._globalConfig);
+        addConfigToMap(this._typeScriptConfig);
+        return map;
+
+        function addConfigToMap(config: any) {
+            for (let key of Object.keys(config)) {
+                const value = config[key] as unknown;
+                if (value == null)
+                    continue;
+                else if (typeof value === "string" || typeof value === "boolean" || typeof value === "number")
+                    map.set(key, value.toString());
+                else
+                    throw new Error(`Not supported value type '${typeof value}' for key '${key}'.`);
+            }
         }
-        return this._resolveConfigurationResult;
     }
 
     /** @internal */

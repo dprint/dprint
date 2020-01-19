@@ -1,0 +1,18 @@
+~~ classDeclaration.bracePosition: sameLine, lineWidth: 40 ~~
+== should use the same line for the brace position ==
+class Test
+{
+}
+
+[expect]
+class Test {
+}
+
+== should use the same line for the brace position when hanging ==
+class Test extends SomethingReallyReallyReallyLong {
+}
+
+[expect]
+class Test
+    extends SomethingReallyReallyReallyLong {
+}

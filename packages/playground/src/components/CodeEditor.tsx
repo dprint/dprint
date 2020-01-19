@@ -30,7 +30,8 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
         import("monaco-editor").then(monacoEditor => {
             monacoEditor.languages.typescript.typescriptDefaults.setCompilerOptions({
                 noLib: true,
-                target: monacoEditor.languages.typescript.ScriptTarget.ESNext
+                target: monacoEditor.languages.typescript.ScriptTarget.ESNext,
+                allowNonTsExtensions: true
             });
             monacoEditor.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
                 noSyntaxValidation: true,
@@ -88,7 +89,6 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                     readOnly: this.props.readonly || false,
                     minimap: { enabled: false },
                     quickSuggestions: false,
-                    wordBasedSuggestions: false,
                     rulers: [this.props.lineWidth - 1]
                 }}
             />

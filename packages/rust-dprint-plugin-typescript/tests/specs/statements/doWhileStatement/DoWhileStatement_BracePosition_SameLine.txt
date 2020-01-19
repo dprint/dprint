@@ -1,0 +1,9 @@
+~~ doWhileStatement.bracePosition: sameLine, lineWidth: 40 ~~
+== should use the same line for the brace position ==
+do
+{
+} while (true);
+
+[expect]
+do {
+} while (true);
