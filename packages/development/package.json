@@ -27,11 +27,12 @@
   },
   "dependencies": {
     "@dprint/core": "~0.4.4",
-    "@dprint/types": "~0.1.0"
+    "@dprint/types": "~0.1.0",
+    "globby": "^11.0.0"
   },
   "peerDependencies": {
-    "mocha": "^7.0.0",
-    "chai": "^4.2.0"
+    "chai": "^4.2.0",
+    "mocha": "^7.0.0"
   },
   "devDependencies": {
     "@dprint/core": "~0.4.4",

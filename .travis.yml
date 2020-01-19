@@ -2,6 +2,7 @@ language: rust
 node_js:
   - 10
 before_install:
+  - node -v
   - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- -f
 install:
   - yarn install
