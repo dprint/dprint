@@ -20,13 +20,13 @@ class Loader extends React.Component<{}, LoaderState> {
             resolveConfig: undefined
         };
 
-        import("./pkg").then(pkg => {
+        import("./wasm").then(wasmPkg => {
             this.setState({
                 formatText: (text, config) => {
-                    return pkg.format_text(text, getConfigAsMap(config));
+                    return wasmPkg.format_text(text, getConfigAsMap(config));
                 },
                 resolveConfig: config => {
-                    return JSON.parse(pkg.resolve_config(getConfigAsMap(config))) as ResolvedTypeScriptConfiguration;
+                    return JSON.parse(wasmPkg.resolve_config(getConfigAsMap(config))) as ResolvedTypeScriptConfiguration;
                 }
             });
         }).catch(console.error);
