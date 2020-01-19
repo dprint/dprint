@@ -8,7 +8,7 @@
     "clean": "lerna clean",
     "test": "lerna run test",
     "format": "node packages/dprint/dist/cli-bin.js",
-    "build-website": "rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\" && node scripts/build-homepage.js",
+    "build-website": "lerna run build:web && rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 1 \"website/**/*.*\" \"build-website\" && node scripts/build-homepage.js",
     "to-local-source": "node scripts/to-local-source.js"
   },
   "repository": {
