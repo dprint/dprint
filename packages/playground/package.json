@@ -8,18 +8,18 @@
     "@dprint/types": "*",
     "dprint-plugin-typescript": "*",
     "lz-string": "^1.4.4",
-    "monaco-editor": "^0.17.1",
-    "react": "^16.9.0",
-    "react-dom": "^16.9.0",
-    "react-monaco-editor": "^0.30.1",
-    "react-scripts": "3.1.1",
-    "react-spinners": "^0.6.1",
-    "react-split-pane": "^0.1.87"
+    "monaco-editor": "^0.19.3",
+    "react": "^16.12.0",
+    "react-dom": "^16.12.0",
+    "react-monaco-editor": "^0.33.0",
+    "react-scripts": "3.3.0",
+    "react-spinners": "^0.8.0",
+    "react-split-pane": "^0.1.89"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test-future": "react-scripts test",
+    "start": "react-app-rewired start",
+    "build": "react-app-rewired build",
+    "test-future": "react-app-rewired test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -38,12 +38,14 @@
     ]
   },
   "devDependencies": {
-    "@types/jest": "^24.0.18",
+    "@types/jest": "^24.9.0",
     "@types/lz-string": "^1.3.33",
-    "@types/node": "^12.7.3",
-    "@types/react": "^16.9.2",
-    "@types/react-dom": "^16.9.0",
-    "conditional-type-checks": "^1.0.1",
-    "typescript": "^3.5.3"
+    "@types/node": "^13.1.8",
+    "@types/react": "^16.9.17",
+    "@types/react-dom": "^16.9.4",
+    "@wasm-tool/wasm-pack-plugin": "^1.1.0",
+    "conditional-type-checks": "^1.0.5",
+    "react-app-rewired": "^2.1.5",
+    "typescript": "^3.7.5"
   }
 }

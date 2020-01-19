@@ -1,8 +1,8 @@
 # Overview
 
 1. Source code is parsed to an AST (recommended, but not required).
-2. AST is traversed and an IR is generated.
-3. IR is printed by a printer.
+2. AST is traversed and IR is generated.
+3. IR is printed by printer.
 
 ## IR Generation
 
@@ -60,6 +60,8 @@ This is an enum that signals information to the printer.
 * `StartIgnoringIndent` - Signal to the printer that it should stop using indentation.
 * `FinishIgnoringIndent` - Signal to the printer that it should start using indentation again.
 
+In the Rust implementation these exist directly on the `PrintItem` enum.
+
 ## Printer
 
 The printer takes the IR and outputs the final code. Its main responsibilities are:
@@ -67,9 +69,6 @@ The printer takes the IR and outputs the final code. Its main responsibilities a
 1. Resolving infos and conditions in the IR.
 2. Printing out the text with the correct indentation and newline kind.
 3. Seeing where lines exceed the maximum line width and breaking up the line as specified in the IR.
-
-* [Printer code](../packages/core/src/printing/printer.ts)
-* [Writer code](../packages/core/src/printing/Writer.ts) - Code writer used by the printer.
 
 #### Rules
 
@@ -141,7 +140,7 @@ four]
 ]
 ```
 
-Here's some example IR generation:
+Here's some example TypeScript IR generation:
 
 ```ts
 import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem,
@@ -247,3 +246,7 @@ function makeRepeatable(items: PrintItemIterable) {
     return Array.from(items);
 }
 ```
+
+### Rust IR Generation Example
+
+See the example in the [dprint-core](../packages/rust-core) Rust crate.
