@@ -2,4 +2,4 @@ require: 'ts-node/register'
 recursive: true
 reporter: progress
 timeout: 10000
-spec: src-ts/tests/**/*.ts
+spec: src/tests/**/*.ts

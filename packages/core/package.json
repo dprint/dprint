@@ -6,8 +6,8 @@
   "types": "lib/dprint-core.d.ts",
   "scripts": {
     "build": "rimraf dist && yarn build:rust && yarn rollup && yarn build:declarations",
-    "build:rust": "wasm-pack build wasm --release --target nodejs --out-dir ../src/wasm",
-    "build:rust-debug": "wasm-pack build wasm --dev --target nodejs --out-dir ../src/wasm",
+    "build:rust": "rimraf src/wasm && wasm-pack build wasm --release --target nodejs --out-dir ../src/wasm",
+    "build:rust-debug": "rimraf src/wasm && wasm-pack build wasm --dev --target nodejs --out-dir ../src/wasm",
     "build:declarations": "ts-node --compiler ttypescript --project scripts/tsconfig.json --transpile-only scripts/buildDeclarations.ts",
     "test": "cross-env TS_NODE_COMPILER=\"ttypescript\" TS_NODE_TRANSPILE_ONLY=\"true\" mocha",
     "test:debug": "yarn test --inspect-brk",

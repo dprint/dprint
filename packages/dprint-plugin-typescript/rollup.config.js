@@ -3,9 +3,9 @@ import replace from "rollup-plugin-replace";
 import * as fs from "fs";
 
 export default {
-    input: "./src-ts/index.ts",
+    input: "./src/index.ts",
     external: [
-        "./pkg/ts_dprint_plugin_typescript"
+        "./wasm/ts_dprint_plugin_typescript"
     ],
     output: {
         file: "./dist/dprint-plugin-typescript.js",

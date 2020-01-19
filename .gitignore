@@ -10,5 +10,5 @@ package-lock.json
 /packages/benchmarks
 /packages/core/wasm/target
 /packages/rust-development/target
-/packages/dprint-plugin-typescript/target
+/packages/dprint-plugin-typescript/wasm/target
 /packages/playground/wasm/target

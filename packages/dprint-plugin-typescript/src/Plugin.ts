@@ -1,7 +1,7 @@
 import { getFileExtension, CliLoggingEnvironment } from "@dprint/core";
 import { WebAssemblyPlugin, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment, ResolvedConfiguration as GlobalConfig } from "@dprint/types";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "./Configuration";
-import { FormatContext } from "./pkg/ts_dprint_plugin_typescript";
+import { FormatContext } from "./wasm/ts_dprint_plugin_typescript";
 
 /**
  * Plugin for formatting TypeScript code (.ts/.tsx/.js/.jsx files).
