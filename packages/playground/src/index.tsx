@@ -33,11 +33,10 @@ class Loader extends React.Component<{}, LoaderState> {
     }
 
     render() {
-        if (this.state.formatText == null || this.state.resolveConfig == null) {
+        if (this.state.formatText == null || this.state.resolveConfig == null)
             return <Spinner />;
-        } else {
+        else
             return <Playground formatText={this.state.formatText} resolveConfig={this.state.resolveConfig} />;
-        }
     }
 }
 

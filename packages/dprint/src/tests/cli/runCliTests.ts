@@ -107,7 +107,7 @@ module.exports.config = {
         })
     ],
     includes: [
-        "**/*{.ts,.tsx,.json,.js}"
+        "**/*.{ts,tsx,json,js,jsx}"
     ]
 };
 `);
@@ -126,6 +126,11 @@ module.exports.config = {
     it("should output the file paths when specifying to", async () => {
         const logs = await getLogs({ outputFilePaths: true, filePatterns: ["**/*.ts"] });
         expect(logs).to.deep.equal(["/file1.ts", "/file2.ts"]);
+    });
+
+    it("should output the file path count when there are none and outputting the file paths is specified", async () => {
+        const logs = await getLogs({ outputFilePaths: true, filePatterns: ["asdfasf"] });
+        expect(logs).to.deep.equal(["Found 0 files."]);
     });
 
     it("should not output the file paths when not specifying to", async () => {

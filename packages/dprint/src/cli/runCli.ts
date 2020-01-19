@@ -56,8 +56,12 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
             return;
         }
         else if (options.outputFilePaths) {
-            for (const filePath of filePaths)
-                environment.log(filePath);
+            if (filePaths.length > 0) {
+                for (const filePath of filePaths)
+                    environment.log(filePath);
+            } else {
+                environment.log("Found 0 files.");
+            }
             return;
         }
 
@@ -214,7 +218,7 @@ module.exports.config = {
         })
     ],
     includes: [
-        "**/*{.ts,.tsx,.json,.js}"
+        "**/*.{ts,tsx,json,js,jsx}"
     ]
 };
 `;

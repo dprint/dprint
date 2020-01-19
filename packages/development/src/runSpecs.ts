@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import * as fs from "fs";
 import * as path from "path";
-import globby from "globby";
+import fastGlob from "fast-glob";
 import { resolveConfiguration, formatFileText, CliLoggingEnvironment } from "@dprint/core";
 import { Plugin, ConfigurationDiagnostic, isJsPlugin, WebAssemblyPlugin } from "@dprint/types";
 import { getPrintIterableAsFormattedText } from "./getPrintIterableAsFormattedText";
@@ -20,7 +20,7 @@ export function runSpecs(options: RunSpecsOptions) {
 
     describe("specs", () => {
         // blocking here for mocha. todo: figure out how to load test cases asynchronously
-        const filePaths = globby.sync(`${specsDir}/**/*.txt`);
+        const filePaths = fastGlob.sync(`${specsDir}/**/*.txt`);
         const onlyFilePaths = filePaths.filter(filePath => filePath.toLowerCase().endsWith("_only.txt"));
 
         if (onlyFilePaths.length > 0) {

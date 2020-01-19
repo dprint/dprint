@@ -18,12 +18,14 @@ module.exports.config = {
         })
     ],
     includes: [
-        "**/*{.ts|.tsx|.json|.js}"
+        "**/*.{ts,tsx,json,js,jsx}"
     ],
     excludes: [
         "packages/playground/public/vs/**/*.*",
         "packages/playground/build/**/*.*",
         "build-website/**/*.*",
-        "**/dist/**/*.*"
+        "**/dist/**/*.*",
+        "**/target/**/*.*",
+        "**/wasm/**/*.*"
     ]
 };

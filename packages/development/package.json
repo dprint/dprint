@@ -28,7 +28,7 @@
   "dependencies": {
     "@dprint/core": "~0.4.4",
     "@dprint/types": "~0.1.0",
-    "globby": "^11.0.0"
+    "fast-glob": "^3.1.1"
   },
   "peerDependencies": {
     "chai": "^4.2.0",
