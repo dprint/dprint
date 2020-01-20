@@ -100,8 +100,8 @@ impl<'a> CommentCollection<'a> {
     pub fn leading_comments(&mut self, pos: BytePos) -> CommentsIterator<'a> {
         let previous_token_end = self.token_finder.get_previous_token_end_before(&pos);
         return CommentsIterator::new(
-            self.leading.get(&previous_token_end),
-            self.trailing.get(&pos)
+            self.trailing.get(&previous_token_end),
+            self.leading.get(&pos)
         );
     }
 

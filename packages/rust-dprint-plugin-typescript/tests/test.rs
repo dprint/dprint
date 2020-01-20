@@ -34,9 +34,10 @@ fn test_performance() {
     let config = resolve_config(&unresolved_config, &mut diagnostics);
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 
+    //debug_here!();
+
     for i in 0..10 {
         let start = Instant::now();
-        //debug_here!();
         let result = format_text("checker.ts", &file_text, &config).expect("Could not parse...");
         let result = if let Some(result) = result { result } else { file_text.clone() };
 
