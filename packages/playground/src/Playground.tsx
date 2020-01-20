@@ -86,8 +86,8 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
                             minSize={50}
                             defaultSize="50%"
                             allowResize={false}
-                            pane1Style={{ overflowY: "hidden" }}
-                            pane2Style={{ overflowY: "hidden" }}
+                            pane1Style={{ overflowX: "hidden", overflowY: "hidden" }}
+                            pane2Style={{ overflowX: "hidden", overflowY: "hidden" }}
                         >
                             <CodeEditor
                                 onChange={this.onTextChange}
