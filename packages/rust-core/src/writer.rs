@@ -47,7 +47,7 @@ impl<T> Writer<T> where T : StringRef {
                 indent_level: 0,
                 expect_newline_next: false,
                 ignore_indent_count: 0,
-                items: Option::None,
+                items: None,
             },
         }
     }

@@ -60,7 +60,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
         inner_parse(parse_node_inner(node, context))
     });
 
-    if context.parent().kind() == NodeKind::Module || node_hi != parent_hi {
+    if node_hi != parent_hi || context.parent().kind() == NodeKind::Module {
         let trailing_comments = context.comments.trailing_comments_with_previous(node_hi);
         items.extend(parse_comments_as_trailing(&node_span, trailing_comments, context));
     }
@@ -524,9 +524,9 @@ fn parse_class_decl_or_expr<'a>(node: ClassDeclOrExpr<'a>, context: &mut Context
         members: node.members,
         start_header_info: Some(start_header_info),
         brace_position: node.brace_position,
-        should_use_blank_line: Box::new(move |previous, next, context| {
+        should_use_blank_line: move |previous, next, context| {
             node_helpers::has_separating_blank_line(previous, next, context)
-        }),
+        },
         trailing_commas: None,
     }, context));
 
@@ -580,13 +580,13 @@ fn parse_enum_decl<'a>(node: &'a TsEnumDecl, context: &mut Context<'a>) -> Vec<P
         members: node.members.iter().map(|x| x.into()).collect(),
         start_header_info: Some(start_header_info),
         brace_position: context.config.enum_declaration_brace_position,
-        should_use_blank_line: Box::new(move |previous, next, context| {
+        should_use_blank_line: move |previous, next, context| {
             match member_spacing {
                 MemberSpacing::BlankLine => true,
                 MemberSpacing::NewLine => false,
                 MemberSpacing::Maintain => node_helpers::has_separating_blank_line(previous, next, context),
             }
-        }),
+        },
         trailing_commas: Some(context.config.enum_declaration_trailing_commas),
     }, context));
 
@@ -871,9 +871,9 @@ fn parse_module_or_namespace_decl<'a>(node: ModuleOrNamespaceDecl<'a>, context: 
                         members: block.body.iter().map(|x| x.into()).collect(),
                         start_header_info: Some(start_header_info),
                         brace_position: context.config.module_declaration_brace_position,
-                        should_use_blank_line: Box::new(move |previous, next, context| {
+                        should_use_blank_line: move |previous, next, context| {
                             node_helpers::has_separating_blank_line(previous, next, context)
-                        }),
+                        },
                         trailing_commas: None,
                     }, context));
                 },
@@ -1858,9 +1858,9 @@ fn parse_interface_body<'a>(node: &'a TsInterfaceBody, context: &mut Context<'a>
         members: node.body.iter().map(|x| x.into()).collect(),
         start_header_info: start_header_info,
         brace_position: context.config.interface_declaration_brace_position,
-        should_use_blank_line: Box::new(move |previous, next, context| {
+        should_use_blank_line: move |previous, next, context| {
             node_helpers::has_separating_blank_line(previous, next, context)
-        }),
+        },
         trailing_commas: None,
     }, context);
 
@@ -2202,7 +2202,7 @@ fn parse_module<'a>(node: &'a Module, context: &mut Context<'a>) -> Vec<PrintIte
         items: node.body.iter().map(|module_item| (module_item.into(), None)).collect(),
         should_use_space: None,
         should_use_new_line: None,
-        should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+        should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
         trailing_commas: None,
     }, context));
     return items;
@@ -2855,7 +2855,7 @@ fn parse_switch_stmt<'a>(node: &'a SwitchStmt, context: &mut Context<'a>) -> Vec
         members: node.cases.iter().map(|x| x.into()).collect(),
         start_header_info: Some(start_header_info),
         brace_position: context.config.switch_statement_brace_position,
-        should_use_blank_line: Box::new(|_, _, _| false),
+        should_use_blank_line: |_, _, _| false,
         trailing_commas: None,
     }, context));
     return items;
@@ -2898,7 +2898,7 @@ fn parse_switch_case<'a>(node: &'a SwitchCase, context: &mut Context<'a>) -> Vec
                 items: node.cons.iter().map(|node| (node.into(), None)).collect(),
                 should_use_space: None,
                 should_use_new_line: None,
-                should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+                should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
                 trailing_commas: None,
             }, context)));
         }
@@ -3783,16 +3783,21 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
     }
 }
 
-struct ParseMemberedBodyOptions<'a> {
+struct ParseMemberedBodyOptions<'a, FShouldUseBlankLine> where FShouldUseBlankLine : Fn(&Node, &Node, &mut Context) -> bool {
     span: Span,
     members: Vec<Node<'a>>,
     start_header_info: Option<Info>,
     brace_position: BracePosition,
-    should_use_blank_line: Box<dyn Fn(&Node, &Node, &mut Context) -> bool>,
+    should_use_blank_line: FShouldUseBlankLine,
     trailing_commas: Option<TrailingCommas>
 }
 
-fn parse_membered_body<'a>(opts: ParseMemberedBodyOptions<'a>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_membered_body<'a, FShouldUseBlankLine>(
+    opts: ParseMemberedBodyOptions<'a, FShouldUseBlankLine>,
+    context: &mut Context<'a>
+) -> Vec<PrintItem>
+    where FShouldUseBlankLine : Fn(&Node, &Node, &mut Context) -> bool
+{
     let mut items = Vec::new();
     let open_brace_token = context.token_finder.get_first_open_brace_token_before(&if opts.members.is_empty() { opts.span.hi() } else { opts.members[0].lo() });
     let close_brace_token_pos = BytePos(opts.span.hi().0 - 1);
@@ -3834,21 +3839,25 @@ fn parse_statements<'a>(inner_span: Span, stmts: Vec<Node<'a>>, context: &mut Co
         items: stmts.into_iter().map(|stmt| (stmt, None)).collect(),
         should_use_space: None,
         should_use_new_line: None,
-        should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+        should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
         trailing_commas: None,
     }, context)
 }
 
-struct ParseStatementsOrMembersOptions<'a> {
+struct ParseStatementsOrMembersOptions<'a, FShouldUseBlankLine> where FShouldUseBlankLine : Fn(&Node, &Node, &mut Context) -> bool {
     inner_span: Span,
     items: Vec<(Node<'a>, Option<Vec<PrintItem>>)>,
     should_use_space: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
     should_use_new_line: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
-    should_use_blank_line: Box<dyn Fn(&Node, &Node, &mut Context) -> bool>,
+    should_use_blank_line: FShouldUseBlankLine,
     trailing_commas: Option<TrailingCommas>,
 }
 
-fn parse_statements_or_members<'a>(opts: ParseStatementsOrMembersOptions<'a>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_statements_or_members<'a, FShouldUseBlankLine>(
+    opts: ParseStatementsOrMembersOptions<'a, FShouldUseBlankLine>,
+    context: &mut Context<'a>
+) -> Vec<PrintItem> where FShouldUseBlankLine : Fn(&Node, &Node, &mut Context) -> bool
+{
     let mut last_node: Option<Node> = None;
     let mut items = Vec::new();
     let children_len = opts.items.len();
@@ -4247,7 +4256,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
             items: opts.members.into_iter().map(|member| (member.into(), None)).collect(),
             should_use_space: None,
             should_use_new_line: None,
-            should_use_blank_line: Box::new(|previous, next, context| node_helpers::has_separating_blank_line(previous, next, context)),
+            should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
             trailing_commas: opts.trailing_commas,
         }, context)));
     } else {
@@ -4775,7 +4784,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
                 }
                 return true;
             })),
-            should_use_blank_line: Box::new(|previous, next, context| {
+            should_use_blank_line: |previous, next, context| {
                 if let Node::JSXText(previous) = previous {
                     return utils::has_new_line_occurrences_in_trailing_whitespace(previous.text(context), 2);
                 }
@@ -4783,7 +4792,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
                     return utils::has_new_line_occurrences_in_leading_whitespace(next.text(context), 2);
                 }
                 return node_helpers::has_separating_blank_line(previous, next, context);
-            }),
+            },
             trailing_commas: None,
         }, context)));
 

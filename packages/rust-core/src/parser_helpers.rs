@@ -25,7 +25,7 @@ pub fn if_true(
 ) -> PrintItem {
     Condition::new(name, ConditionProperties {
         true_path: Some(vec![true_item]),
-        false_path: Option::None,
+        false_path: None,
         condition: Box::new(resolver.clone()),
     }).into()
 }
