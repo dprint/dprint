@@ -43,10 +43,10 @@ pub fn force_reevaluation_once_resolved(info: Info) -> Condition {
     Condition::new("forceReevaluationOnceInfoResolved", ConditionProperties {
         condition: Box::new(move |context| {
             let resolved_info = context.get_resolved_info(&info);
-            if resolved_info.is_some() { Some(false) } else { Option::None }
+            if resolved_info.is_some() { Some(false) } else { None }
         }),
-        true_path: Option::None,
-        false_path: Option::None,
+        true_path: None,
+        false_path: None,
     })
 }
 

@@ -11,7 +11,7 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
     // Unique id
     pub id: u32,
     /// Name for debugging purposes.
-    pub name: String,
+    pub name: &'static str,
     pub new_line_group_depth: u16,
     pub writer_state: WriterState<TString>,
     pub possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
@@ -45,10 +45,10 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
 impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     pub fn new(items: Vec<PrintItem<TString, TInfo, TCondition>>, options: GetWriteItemsOptions) -> Printer<TString, TInfo, TCondition> {
         Printer {
-            possible_new_line_save_point: Option::None,
+            possible_new_line_save_point: None,
             new_line_group_depth: 0,
             container: Rc::new(PrintItemContainer {
-                parent: Option::None,
+                parent: None,
                 items: Rc::new(items),
             }),
             current_indexes: vec![0 as isize],
@@ -138,12 +138,12 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             PrintItem::Tab => self.writer.tab(),
             PrintItem::ExpectNewLine => {
                 self.writer.mark_expect_new_line();
-                self.possible_new_line_save_point = Option::None;
+                self.possible_new_line_save_point = None;
             }
             PrintItem::PossibleNewLine => self.mark_possible_new_line_if_able(),
             PrintItem::SpaceOrNewLine => {
                 if self.is_above_max_width(1) {
-                    let optional_save_state = mem::replace(&mut self.possible_new_line_save_point, Option::None);
+                    let optional_save_state = mem::replace(&mut self.possible_new_line_save_point, None);
                     if optional_save_state.is_none() {
                         self.write_new_line();
                     } else if let Some(save_state) = optional_save_state {
@@ -170,14 +170,14 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
 
     fn write_new_line(&mut self) {
         self.writer.new_line();
-        self.possible_new_line_save_point = Option::None;
+        self.possible_new_line_save_point = None;
     }
 
-    fn create_save_point(&mut self, name: &str) -> SavePoint<TString, TInfo, TCondition> {
+    fn create_save_point(&mut self, name: &'static str) -> SavePoint<TString, TInfo, TCondition> {
         self.save_point_increment += 1;
         SavePoint {
             id: self.save_point_increment,
-            name: String::from(name),
+            name,
             possible_new_line_save_point: self.possible_new_line_save_point.clone(),
             new_line_group_depth: self.new_line_group_depth,
             current_indexes: self.current_indexes.clone(),
@@ -188,7 +188,7 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         }
     }
 
-    fn create_save_point_for_restoring_condition(&mut self, name: &str) -> Rc<SavePoint<TString, TInfo, TCondition>> {
+    fn create_save_point_for_restoring_condition(&mut self, name: &'static str) -> Rc<SavePoint<TString, TInfo, TCondition>> {
         let mut save_point = self.create_save_point(name);
         let last_index = save_point.current_indexes.len() - 1;
         save_point.current_indexes[last_index] -= 1;
@@ -213,7 +213,7 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         match Rc::try_unwrap(save_point) {
             Ok(save_point) => {
                 self.writer.set_state(save_point.writer_state);
-                self.possible_new_line_save_point = if is_for_new_line { Option::None } else { save_point.possible_new_line_save_point };
+                self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point };
                 self.container = save_point.container;
                 self.current_indexes = save_point.current_indexes;
                 self.new_line_group_depth = save_point.new_line_group_depth;
@@ -222,7 +222,7 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             },
             Err(save_point) => {
                 self.writer.set_state(save_point.writer_state.clone());
-                self.possible_new_line_save_point = if is_for_new_line { Option::None } else { save_point.possible_new_line_save_point.clone() };
+                self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point.clone() };
                 self.container = save_point.container.clone();
                 self.current_indexes = save_point.current_indexes.clone();
                 self.new_line_group_depth = save_point.new_line_group_depth;
@@ -257,23 +257,23 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
 
         if condition_value.is_some() && condition_value.unwrap() {
             if let Some(true_path) = &condition.get_true_path() {
-                let new_parent = mem::replace(&mut self.container, Rc::new(PrintItemContainer { parent: Option::None, items: Rc::new(Vec::new()) }));
-                self.container = Rc::new(PrintItemContainer {
-                    items: true_path.clone(),
-                    parent: Some(new_parent),
-                });
-                self.current_indexes.push(-1);
+                self.add_container_child(true_path.clone());
             }
         } else {
             if let Some(false_path) = &condition.get_false_path() {
-                let new_parent = mem::replace(&mut self.container, Rc::new(PrintItemContainer { parent: Option::None, items: Rc::new(Vec::new()) }));
-                self.container = Rc::new(PrintItemContainer {
-                    items: false_path.clone(),
-                    parent: Some(new_parent),
-                });
-                self.current_indexes.push(-1);
+                self.add_container_child(false_path.clone());
             }
         }
+    }
+
+    fn add_container_child(&mut self, items: Rc<Vec<PrintItem<TString, TInfo, TCondition>>>) {
+        let new_parent = mem::replace(&mut self.container, unsafe { MaybeUninit::zeroed().assume_init() });
+        let uninitialized = mem::replace(&mut self.container, Rc::new(PrintItemContainer {
+            items: items,
+            parent: Some(new_parent),
+        }));
+        mem::forget(uninitialized);
+        self.current_indexes.push(-1);
     }
 
     fn handle_string(&mut self, text: &Rc<TString>) {
