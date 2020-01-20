@@ -97,20 +97,20 @@ impl<'a> CommentCollection<'a> {
         return result;
     }
 
-    pub fn leading_comments(&mut self, pos: BytePos) -> Vec<&'a Comment> {
-        let mut result = Vec::new();
+    pub fn leading_comments(&mut self, pos: BytePos) -> CommentsIterator<'a> {
         let previous_token_end = self.token_finder.get_previous_token_end_before(&pos);
-        self.append_trailing(&mut result, &previous_token_end);
-        self.append_leading(&mut result, &pos);
-        return result;
+        return CommentsIterator::new(
+            self.leading.get(&previous_token_end),
+            self.trailing.get(&pos)
+        );
     }
 
-    pub fn trailing_comments(&mut self, end: BytePos) -> Vec<&'a Comment> {
-        let mut result = Vec::new();
-        self.append_trailing(&mut result, &end);
+    pub fn trailing_comments(&mut self, end: BytePos) -> CommentsIterator<'a> {
         let end_pos = self.token_finder.get_next_token_pos_after(&end);
-        self.append_leading(&mut result, &end_pos);
-        return result;
+        return CommentsIterator::new(
+            self.trailing.get(&end),
+            self.leading.get(&end_pos)
+        );
     }
 
     fn append_trailing(&self, result: &mut Vec<&'a Comment>, pos: &BytePos) {
@@ -125,3 +125,43 @@ impl<'a> CommentCollection<'a> {
         }
     }
 }
+
+pub struct CommentsIterator<'a> {
+    first: Option<&'a Vec<Comment>>,
+    second: Option<&'a Vec<Comment>>,
+    first_index: usize,
+    second_index: usize,
+}
+
+impl<'a> CommentsIterator<'a> {
+    pub fn new(first: Option<&'a Vec<Comment>>, second: Option<&'a Vec<Comment>>) -> CommentsIterator<'a> {
+        CommentsIterator {
+            first,
+            second,
+            first_index: 0,
+            second_index: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for CommentsIterator<'a> {
+    type Item = &'a Comment;
+
+    fn next(&mut self) -> Option<&'a Comment> {
+        if let Some(first) = self.first {
+            if let Some(first_comment) = first.get(self.first_index) {
+                self.first_index += 1;
+                return Some(first_comment);
+            }
+        }
+        if let Some(second) = self.second {
+            if let Some(second_comment) = second.get(self.second_index) {
+                self.second_index += 1;
+                return Some(second_comment);
+            }
+        }
+
+        return None;
+    }
+}
+

@@ -104,8 +104,8 @@ pub trait Ranged : Spanned {
     fn end_line(&self, context: &mut Context) -> usize;
     fn start_column(&self, context: &mut Context) -> usize;
     fn text<'a>(&self, context: &'a Context) -> &'a str;
-    fn leading_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment>;
-    fn trailing_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment>;
+    fn leading_comments<'a>(&self, context: &mut Context<'a>) -> CommentsIterator<'a>;
+    fn trailing_comments<'a>(&self, context: &mut Context<'a>) -> CommentsIterator<'a>;
 }
 
 impl<T> Ranged for T where T : Spanned {
@@ -142,11 +142,11 @@ impl<T> Ranged for T where T : Spanned {
         context.get_text(&span_data)
     }
 
-    fn leading_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment> {
+    fn leading_comments<'a>(&self, context: &mut Context<'a>) -> CommentsIterator<'a> {
         context.comments.leading_comments(self.lo())
     }
 
-    fn trailing_comments<'a>(&self, context: &mut Context<'a>) -> Vec<&'a Comment> {
+    fn trailing_comments<'a>(&self, context: &mut Context<'a>) -> CommentsIterator<'a> {
         context.comments.trailing_comments(self.hi())
     }
 }

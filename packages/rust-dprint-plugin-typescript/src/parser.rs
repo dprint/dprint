@@ -265,7 +265,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
                         JSXElementChild::JSXExprContainer(expr_container) => {
                             return match expr_container.expr {
                                 JSXExpr::JSXEmptyExpr(empty_expr) => {
-                                    get_jsx_empty_expr_comments(&empty_expr, context).into_iter().last()
+                                    get_jsx_empty_expr_comments(&empty_expr, context).last()
                                 },
                                 _ => None,
                             };
@@ -1116,7 +1116,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
             }))
         }));
 
-        items.extend(parse_comments_as_trailing(&operator_token, operator_token.trailing_comments(context), context));
+        items.extend(parse_comments_as_trailing(&operator_token, operator_token.trailing_comments(context).collect(), context));
 
         items.push(if use_new_lines {
             PrintItem::NewLine
@@ -1134,7 +1134,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
         items.push(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, indent_disabled, {
             let mut items = Vec::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
-            items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context), context));
+            items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context).collect(), context));
             items.extend(parse_node_with_inner_parse(node_right.into(), context, move |items| {
                 let mut new_items = Vec::new();
                 if operator_position == OperatorPosition::NextLine {
@@ -1975,7 +1975,7 @@ fn parse_jsx_element<'a>(node: &'a JSXElement, context: &mut Context<'a>) -> Vec
 }
 
 fn parse_jsx_empty_expr<'a>(node: &'a JSXEmptyExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
-    parse_comment_collection(get_jsx_empty_expr_comments(node, context), None, context)
+    parse_comment_collection(get_jsx_empty_expr_comments(node, context).collect(), None, context)
 }
 
 fn parse_jsx_expr_container<'a>(node: &'a JSXExprContainer, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -2432,7 +2432,7 @@ fn parse_block_stmt<'a>(node: &'a BlockStmt, context: &mut Context<'a>) -> Vec<P
 
     // Allow: const t = () => {}; and const t = function() {};
     let is_arrow_or_fn_expr = match context.parent().kind() { NodeKind::ArrowExpr | NodeKind::FnExpr => true, _ => false };
-    if is_arrow_or_fn_expr && node.start_line(context) == node.end_line(context) && node.stmts.is_empty() && node.leading_comments(context).is_empty() {
+    if is_arrow_or_fn_expr && node.start_line(context) == node.end_line(context) && node.stmts.is_empty() && !node.leading_comments(context).peekable().peek().is_some() {
         items.push("}".into());
         return items;
     }
@@ -3493,7 +3493,7 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
 
 fn parse_leading_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> Vec<PrintItem> {
     let leading_comments = node.leading_comments(context);
-    parse_comments_as_leading(node, leading_comments, context)
+    parse_comments_as_leading(node, leading_comments.collect(), context)
 }
 
 fn parse_comments_as_leading<'a>(node: &dyn Spanned, comments: Vec<&'a Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -3660,7 +3660,7 @@ fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Opti
 fn parse_trailing_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> Vec<PrintItem> {
     // todo: handle comments for object expr, arrayexpr, and tstupletype?
     let trailing_comments = node.trailing_comments(context);
-    parse_comments_as_trailing(node, trailing_comments, context)
+    parse_comments_as_trailing(node, trailing_comments.collect(), context)
 }
 
 fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Vec<&'a Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -3681,7 +3681,7 @@ fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Vec<&'a
     return items;
 }
 
-fn get_jsx_empty_expr_comments<'a>(node: &JSXEmptyExpr, context: &mut Context<'a>) -> Vec<&'a Comment> {
+fn get_jsx_empty_expr_comments<'a>(node: &JSXEmptyExpr, context: &mut Context<'a>) -> CommentsIterator<'a> {
     node.span.hi().leading_comments(context)
 }
 
@@ -3812,7 +3812,7 @@ fn parse_membered_body<'a, FShouldUseBlankLine>(
     items.extend(parse_trailing_comments(&open_brace_token, context));
     items.extend(parser_helpers::with_indent({
         let mut items = Vec::new();
-        if !opts.members.is_empty() || close_brace_token_pos.leading_comments(context).iter().any(|c| !context.has_handled_comment(&c)) {
+        if !opts.members.is_empty() || close_brace_token_pos.leading_comments(context).any(|c| !context.has_handled_comment(&c)) {
             items.push(PrintItem::NewLine);
         }
 
@@ -3905,7 +3905,7 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
     }
 
     if children_len == 0 {
-        items.extend(parse_comment_collection(opts.inner_span.hi().leading_comments(context), None, context));
+        items.extend(parse_comment_collection(opts.inner_span.hi().leading_comments(context).collect(), None, context));
     }
 
     return items;
@@ -4657,19 +4657,19 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         let mut comments = Vec::new();
         if let Node::BlockStmt(block_stmt) = body_node {
             let open_brace_token = context.token_finder.get_first_open_brace_token_within(&block_stmt);
-            let comment_line = body_node.leading_comments(context).into_iter().filter(|c| c.kind == CommentKind::Line).next();
+            let comment_line = body_node.leading_comments(context).filter(|c| c.kind == CommentKind::Line).next();
             if let Some(comment) = comment_line {
                 comments.push(comment);
                 return comments;
             }
 
             let body_node_start_line = body_node.start_line(context);
-            comments.extend(open_brace_token.trailing_comments(context).into_iter().filter(|c| c.start_line(context) == body_node_start_line));
+            comments.extend(open_brace_token.trailing_comments(context).filter(|c| c.start_line(context) == body_node_start_line));
         } else {
             let leading_comments = body_node.leading_comments(context);
             let last_header_token_end = context.token_finder.get_previous_token_end_before(body_node);
             let last_header_token_end_line = last_header_token_end.end_line(context);
-            comments.extend(leading_comments.into_iter().filter(|c| c.start_line(context) <= last_header_token_end_line));
+            comments.extend(leading_comments.filter(|c| c.start_line(context) <= last_header_token_end_line));
         }
 
         return comments;
