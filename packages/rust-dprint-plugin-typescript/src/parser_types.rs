@@ -131,7 +131,7 @@ impl<T> Ranged for T where T : Spanned {
         let pos = self.lo().0 as usize;
         for i in (0..pos).rev() {
             if context.file_bytes[i] == '\n' as u8 {
-                return pos - i;
+                return pos - i + 1;
             }
         }
         return pos;

@@ -32,25 +32,25 @@ impl<'a> CommentCollection<'a> {
     }
 
     /// Gets the leading comments and all previously unhandled comments.
-    pub fn leading_comments_with_previous(&mut self, pos: BytePos) -> Vec<&'a Comment> {
-        let mut result = Vec::new();
+    pub fn leading_comments_with_previous(&mut self, pos: BytePos) -> CommentsIterator<'a> {
+        let mut comment_vecs = Vec::new();
 
         if self.token_index == 0 {
             // get any comments stored at the beginning of the file
             // todo: investigate what's required here
-            self.append_leading(&mut result, &BytePos(0));
-            self.append_trailing(&mut result, &BytePos(0));
+            self.append_leading(&mut comment_vecs, &BytePos(0));
+            self.append_trailing(&mut comment_vecs, &BytePos(0));
         } else if let Some(previous_token) = self.tokens.get(self.token_index - 1) {
-            self.append_trailing(&mut result, &previous_token.hi());
+            self.append_trailing(&mut comment_vecs, &previous_token.hi());
         }
 
         loop {
             if let Some(token) = self.tokens.get(self.token_index) {
-                self.append_leading(&mut result, &token.lo());
+                self.append_leading(&mut comment_vecs, &token.lo());
 
                 let token_hi = token.hi();
                 if token_hi < pos {
-                    self.append_trailing(&mut result, &token_hi);
+                    self.append_trailing(&mut comment_vecs, &token_hi);
                     self.token_index += 1;
                 } else {
                     break;
@@ -60,16 +60,16 @@ impl<'a> CommentCollection<'a> {
             }
         }
 
-        return result;
+        return CommentsIterator::new(comment_vecs);
     }
 
     /// Gets the trailing comments and all previously unhandled comments
-    pub fn trailing_comments_with_previous(&mut self, end: BytePos) -> Vec<&'a Comment> {
-        let mut result = Vec::new();
+    pub fn trailing_comments_with_previous(&mut self, end: BytePos) -> CommentsIterator<'a> {
+        let mut comment_vecs = Vec::new();
 
         loop {
             if let Some(token) = self.tokens.get(self.token_index) {
-                self.append_leading(&mut result, &token.lo());
+                self.append_leading(&mut comment_vecs, &token.lo());
 
                 let is_comma = token.token == Token::Comma;
                 if !is_comma && token.lo() >= end {
@@ -78,7 +78,7 @@ impl<'a> CommentCollection<'a> {
 
                 let token_hi = token.hi();
                 if is_comma || token_hi <= end {
-                    self.append_trailing(&mut result, &token_hi);
+                    self.append_trailing(&mut comment_vecs, &token_hi);
                     self.token_index += 1;
                 } else {
                     break;
@@ -91,55 +91,61 @@ impl<'a> CommentCollection<'a> {
         // get any comments stored at the end of the file
         if self.token_index >= self.tokens.len() {
             let file_length = self.file_bytes.len() as u32;
-            self.append_leading(&mut result, &BytePos(file_length));
+            self.append_leading(&mut comment_vecs, &BytePos(file_length));
         }
 
-        return result;
+        return CommentsIterator::new(comment_vecs);
     }
 
     pub fn leading_comments(&mut self, pos: BytePos) -> CommentsIterator<'a> {
         let previous_token_end = self.token_finder.get_previous_token_end_before(&pos);
-        return CommentsIterator::new(
-            self.trailing.get(&previous_token_end),
-            self.leading.get(&pos)
-        );
+        let mut comment_vecs = Vec::new();
+        self.append_trailing(&mut comment_vecs, &previous_token_end);
+        self.append_leading(&mut comment_vecs, &pos);
+        return CommentsIterator::new(comment_vecs);
     }
 
     pub fn trailing_comments(&mut self, end: BytePos) -> CommentsIterator<'a> {
         let end_pos = self.token_finder.get_next_token_pos_after(&end);
-        return CommentsIterator::new(
-            self.trailing.get(&end),
-            self.leading.get(&end_pos)
-        );
+        let mut comment_vecs = Vec::new();
+        self.append_trailing(&mut comment_vecs, &end);
+        self.append_leading(&mut comment_vecs, &end_pos);
+        return CommentsIterator::new(comment_vecs);
     }
 
-    fn append_trailing(&self, result: &mut Vec<&'a Comment>, pos: &BytePos) {
+    fn append_trailing(&self, comment_vecs: &mut Vec<&'a Vec<Comment>>, pos: &BytePos) {
         if let Some(comments) = self.trailing.get(&pos) {
-            result.extend(comments.iter());
+            comment_vecs.push(comments);
         }
     }
 
-    fn append_leading(&self, result: &mut Vec<&'a Comment>, pos: &BytePos) {
+    fn append_leading(&self, comment_vecs: &mut Vec<&'a Vec<Comment>>, pos: &BytePos) {
         if let Some(comments) = self.leading.get(&pos) {
-            result.extend(comments.iter());
+            comment_vecs.push(comments);
         }
     }
 }
 
 pub struct CommentsIterator<'a> {
-    first: Option<&'a Vec<Comment>>,
-    second: Option<&'a Vec<Comment>>,
-    first_index: usize,
-    second_index: usize,
+    comment_vecs: Vec<&'a Vec<Comment>>,
+    outer_index: usize,
+    inner_index: usize,
 }
 
 impl<'a> CommentsIterator<'a> {
-    pub fn new(first: Option<&'a Vec<Comment>>, second: Option<&'a Vec<Comment>>) -> CommentsIterator<'a> {
+    pub fn new(comment_vecs: Vec<&'a Vec<Comment>>) -> CommentsIterator<'a> {
         CommentsIterator {
-            first,
-            second,
-            first_index: 0,
-            second_index: 0,
+            comment_vecs,
+            outer_index: 0,
+            inner_index: 0,
+        }
+    }
+
+    pub fn get_last_comment(&self) -> Option<&'a Comment> {
+        if let Some(comments) = self.comment_vecs.last() {
+            comments.last()
+        } else {
+            None
         }
     }
 }
@@ -148,20 +154,19 @@ impl<'a> Iterator for CommentsIterator<'a> {
     type Item = &'a Comment;
 
     fn next(&mut self) -> Option<&'a Comment> {
-        if let Some(first) = self.first {
-            if let Some(first_comment) = first.get(self.first_index) {
-                self.first_index += 1;
-                return Some(first_comment);
+        loop {
+            if let Some(comments) = self.comment_vecs.get(self.outer_index) {
+                if let Some(comment) = comments.get(self.inner_index) {
+                    self.inner_index += 1;
+                    return Some(comment);
+                } else {
+                    self.inner_index = 0;
+                    self.outer_index += 1;
+                }
+            } else {
+                return None;
             }
         }
-        if let Some(second) = self.second {
-            if let Some(second_comment) = second.get(self.second_index) {
-                self.second_index += 1;
-                return Some(second_comment);
-            }
-        }
-
-        return None;
     }
 }
 

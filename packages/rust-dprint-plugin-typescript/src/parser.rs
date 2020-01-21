@@ -233,7 +233,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
         }
     }
 
-    fn get_has_ignore_comment<'a>(leading_comments: &Vec<&'a Comment>, node_lo: &BytePos, context: &mut Context<'a>) -> bool {
+    fn get_has_ignore_comment<'a>(leading_comments: &CommentsIterator<'a>, node_lo: &BytePos, context: &mut Context<'a>) -> bool {
         if let Some(last_comment) = get_last_comment(leading_comments, node_lo, context) {
             let searching_text = "dprint-ignore";
             let pos = last_comment.text.find(searching_text);
@@ -251,11 +251,11 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
 
         return false;
 
-        fn get_last_comment<'a>(leading_comments: &Vec<&'a Comment>, node_lo: &BytePos, context: &mut Context<'a>) -> Option<&'a Comment> {
+        fn get_last_comment<'a>(leading_comments: &CommentsIterator<'a>, node_lo: &BytePos, context: &mut Context<'a>) -> Option<&'a Comment> {
             return match context.parent() {
                 Node::JSXElement(jsx_element) => get_last_comment_for_jsx_children(&jsx_element.children, node_lo, context),
                 Node::JSXFragment(jsx_fragment) => get_last_comment_for_jsx_children(&jsx_fragment.children, node_lo, context),
-                _ => leading_comments.last().map(|x| x.to_owned()), // todo: does this clone? What's the right way to do this?
+                _ => leading_comments.get_last_comment(),
             };
 
             fn get_last_comment_for_jsx_children<'a>(children: &Vec<JSXElementChild>, node_lo: &BytePos, context: &mut Context<'a>) -> Option<&'a Comment> {
@@ -1103,8 +1103,6 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
         }
 
         items.push(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info.clone(), indent_disabled, {
-            let operator_position = operator_position.clone();
-            let node_op = node_op.clone();
             new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items| {
                 if operator_position == OperatorPosition::SameLine {
                     if use_space_surrounding_operator {
@@ -1116,7 +1114,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
             }))
         }));
 
-        items.extend(parse_comments_as_trailing(&operator_token, operator_token.trailing_comments(context).collect(), context));
+        items.extend(parse_comments_as_trailing(&operator_token, operator_token.trailing_comments(context), context));
 
         items.push(if use_new_lines {
             PrintItem::NewLine
@@ -1134,7 +1132,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
         items.push(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, indent_disabled, {
             let mut items = Vec::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
-            items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context).collect(), context));
+            items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context), context));
             items.extend(parse_node_with_inner_parse(node_right.into(), context, move |items| {
                 let mut new_items = Vec::new();
                 if operator_position == OperatorPosition::NextLine {
@@ -1193,7 +1191,8 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> Vec<Pr
     fn get_or_set_top_most_info(top_most_expr_start: BytePos, is_top_most: bool, context: &mut Context) -> Info {
         if is_top_most {
             let info = Info::new("topBinaryOrLogicalExpressionStart");
-            context.store_info_for_node(&top_most_expr_start, info);
+            context.store_info_for_node(&top_most_expr_start, info.clone());
+            return info;
         }
         return context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored").clone();
     }
@@ -1397,7 +1396,6 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
 
     items.push(start_info.clone().into());
     items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.test).into(), context, {
-        let operator_position = operator_position.clone();
         move |mut items| {
             if operator_position == OperatorPosition::SameLine {
                 items.push(" ?".into());
@@ -1421,7 +1419,6 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
             items.push("? ".into());
         }
         items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.cons).into(), context, {
-            let operator_position = operator_position.clone();
             move |mut items| {
                 if operator_position == OperatorPosition::SameLine {
                     items.push(" :".into());
@@ -1435,7 +1432,7 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
     if use_new_lines {
         items.push(PrintItem::NewLine);
     } else {
-        items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info.clone(), Some(before_alternate_info.clone())).into());
+        items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info, Some(before_alternate_info.clone())).into());
     }
 
     items.push(conditions::indent_if_start_of_line({
@@ -1975,7 +1972,7 @@ fn parse_jsx_element<'a>(node: &'a JSXElement, context: &mut Context<'a>) -> Vec
 }
 
 fn parse_jsx_empty_expr<'a>(node: &'a JSXEmptyExpr, context: &mut Context<'a>) -> Vec<PrintItem> {
-    parse_comment_collection(get_jsx_empty_expr_comments(node, context).collect(), None, context)
+    parse_comment_collection(get_jsx_empty_expr_comments(node, context), None, context)
 }
 
 fn parse_jsx_expr_container<'a>(node: &'a JSXExprContainer, context: &mut Context<'a>) -> Vec<PrintItem> {
@@ -2647,7 +2644,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> Vec<Print
             items.push(";".into());
             items
         }).into());
-        items.push(separator_after_semi_colons.clone());
+        items.push(separator_after_semi_colons);
         items.push(conditions::indent_if_start_of_line({
             if let Some(update) = &node.update {
                 parse_node(update.into(), context)
@@ -3120,7 +3117,7 @@ fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context
         nodes: node.params.iter().map(|node| node.into()).collect(),
         force_multi_line_when_multiple_lines: context.config.constructor_type_force_multi_line_parameters,
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
-            start_info: start_info.clone(),
+            start_info,
             type_node: Some((&node.type_ann).into()),
             type_node_separator: Some({
                 let mut items = Vec::new();
@@ -3144,7 +3141,7 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Vec
         nodes: node.params.iter().map(|node| node.into()).collect(),
         force_multi_line_when_multiple_lines: context.config.function_type_force_multi_line_parameters,
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
-            start_info: start_info.clone(),
+            start_info,
             type_node: Some((&node.type_ann).into()),
             type_node_separator: {
                 let mut items = Vec::new();
@@ -3242,7 +3239,7 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> V
     })).into());
     items.push(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info, Some(end_info.clone())).into());
     items.push("}".into());
-    items.push(end_info.clone().into());
+    items.push(end_info.into());
     return items;
 }
 
@@ -3493,32 +3490,30 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
 
 fn parse_leading_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> Vec<PrintItem> {
     let leading_comments = node.leading_comments(context);
-    parse_comments_as_leading(node, leading_comments.collect(), context)
+    parse_comments_as_leading(node, leading_comments, context)
 }
 
-fn parse_comments_as_leading<'a>(node: &dyn Spanned, comments: Vec<&'a Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
-    if comments.is_empty() {
-        return vec![];
-    }
-
-    let last_comment = comments.last().unwrap().clone();
-    let last_comment_previously_handled = context.has_handled_comment(&last_comment);
+fn parse_comments_as_leading<'a>(node: &dyn Spanned, comments: CommentsIterator<'a>, context: &mut Context<'a>) -> Vec<PrintItem> {
     let mut items = Vec::new();
+    if let Some(last_comment) = comments.get_last_comment() {
+        let last_comment_previously_handled = context.has_handled_comment(&last_comment);
 
-    items.extend(parse_comment_collection(comments, None, context));
+        items.extend(parse_comment_collection(comments, None, context));
 
-    if !last_comment_previously_handled {
-        let node_start_line = node.start_line(context);
-        let last_comment_end_line = last_comment.end_line(context);
-        if node_start_line > last_comment_end_line {
-            items.push(PrintItem::NewLine);
-
-            if node_start_line - 1 > last_comment_end_line {
+        // todo: this doesn't seem exactly right...
+        if !last_comment_previously_handled {
+            let node_start_line = node.start_line(context);
+            let last_comment_end_line = last_comment.end_line(context);
+            if node_start_line > last_comment_end_line {
                 items.push(PrintItem::NewLine);
+
+                if node_start_line - 1 > last_comment_end_line {
+                    items.push(PrintItem::NewLine);
+                }
             }
-        }
-        else if last_comment.kind == CommentKind::Block && node_start_line == last_comment_end_line {
-            items.push(" ".into());
+            else if last_comment.kind == CommentKind::Block && node_start_line == last_comment_end_line {
+                items.push(" ".into());
+            }
         }
     }
 
@@ -3527,7 +3522,7 @@ fn parse_comments_as_leading<'a>(node: &dyn Spanned, comments: Vec<&'a Comment>,
 
 fn parse_trailing_comments_as_statements<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> Vec<PrintItem> {
     let unhandled_comments = get_trailing_comments_as_statements(node, context);
-    parse_comment_collection(unhandled_comments, Some(node), context)
+    parse_comment_collection(unhandled_comments.into_iter(), Some(node), context)
 }
 
 fn get_trailing_comments_as_statements<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> Vec<&'a Comment> {
@@ -3541,10 +3536,10 @@ fn get_trailing_comments_as_statements<'a>(node: &dyn Spanned, context: &mut Con
     items
 }
 
-fn parse_comment_collection<'a>(comments: Vec<&'a Comment>, last_node: Option<&dyn Spanned>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_comment_collection<'a, CIter>(comments: CIter, last_node: Option<&dyn Spanned>, context: &mut Context<'a>) -> Vec<PrintItem> where CIter : Iterator<Item=&'a Comment> {
     let mut last_node = last_node;
     let mut items = Vec::new();
-    for comment in comments.iter() {
+    for comment in comments {
         if !context.has_handled_comment(comment) {
             items.extend(parse_comment_based_on_last_node(comment, &last_node, context));
             last_node = Some(comment);
@@ -3660,10 +3655,10 @@ fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Opti
 fn parse_trailing_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> Vec<PrintItem> {
     // todo: handle comments for object expr, arrayexpr, and tstupletype?
     let trailing_comments = node.trailing_comments(context);
-    parse_comments_as_trailing(node, trailing_comments.collect(), context)
+    parse_comments_as_trailing(node, trailing_comments, context)
 }
 
-fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Vec<&'a Comment>, context: &mut Context<'a>) -> Vec<PrintItem> {
+fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: CommentsIterator<'a>, context: &mut Context<'a>) -> Vec<PrintItem> {
     // use the roslyn definition of trailing comments
     let node_end_line = node.end_line(context);
     let trailing_comments_on_same_line = trailing_comments.into_iter().filter(|c| c.start_line(context) == node_end_line).collect::<Vec<&'a Comment>>();
@@ -3676,7 +3671,7 @@ fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Vec<&'a
         }
     }
 
-    items.extend(parse_comment_collection(trailing_comments_on_same_line, Some(node), context));
+    items.extend(parse_comment_collection(trailing_comments_on_same_line.into_iter(), Some(node), context));
 
     return items;
 }
@@ -3883,7 +3878,7 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
         items.extend(if let Some(print_items) = optional_print_items {
             print_items
         } else {
-            let trailing_commas = opts.trailing_commas.clone();
+            let trailing_commas = opts.trailing_commas;
             parse_node_with_inner_parse(node.clone(), context, move |mut items| {
                 if let Some(trailing_commas) = trailing_commas {
                     let force_trailing_commas = get_force_trailing_commas(trailing_commas, true);
@@ -3905,7 +3900,7 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
     }
 
     if children_len == 0 {
-        items.extend(parse_comment_collection(opts.inner_span.hi().leading_comments(context).collect(), None, context));
+        items.extend(parse_comment_collection(opts.inner_span.hi().leading_comments(context), None, context));
     }
 
     return items;
@@ -4242,13 +4237,10 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         &opts.members[0],
         context
     );
-    let start_info = Info::new("startObject");
-    let end_info = Info::new("startObject");
     let separator = if multi_line { PrintItem::NewLine } else { " ".into() };
 
-    items.push(start_info.clone().into());
     items.push("{".into());
-    items.push(separator.clone().into());
+    items.push(separator.clone());
 
     if multi_line {
         items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
@@ -4264,7 +4256,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         for (i, member) in opts.members.into_iter().enumerate() {
             if i > 0 { items.push(PrintItem::SpaceOrNewLine); }
 
-            let trailing_commas = opts.trailing_commas.clone();
+            let trailing_commas = opts.trailing_commas;
             items.push(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(member, context, move |mut items| {
                 if let Some(trailing_commas) = trailing_commas {
                     if i < members_len - 1 || get_force_trailing_commas(trailing_commas, multi_line) {
@@ -4276,9 +4268,8 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         }
     }
 
-    items.push(separator.into());
+    items.push(separator);
     items.push("}".into());
-    items.push(end_info.clone().into());
 
     return items;
 }
@@ -4528,7 +4519,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
     // parse body
     let mut items = Vec::new();
     items.push(open_brace_condition.clone().into());
-    items.extend(parser_helpers::prepend_if_has_items(parse_comment_collection(header_trailing_comments, None, context), " ".into()));
+    items.extend(parser_helpers::prepend_if_has_items(parse_comment_collection(header_trailing_comments.into_iter(), None, context), " ".into()));
     items.push(newline_or_space_condition.clone().into());
     items.push(start_statements_info.clone().into());
 
@@ -4656,13 +4647,13 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
     fn get_header_trailing_comments<'a>(body_node: &Node<'a>, context: &mut Context<'a>) -> Vec<&'a Comment> {
         let mut comments = Vec::new();
         if let Node::BlockStmt(block_stmt) = body_node {
-            let open_brace_token = context.token_finder.get_first_open_brace_token_within(&block_stmt);
             let comment_line = body_node.leading_comments(context).filter(|c| c.kind == CommentKind::Line).next();
             if let Some(comment) = comment_line {
                 comments.push(comment);
                 return comments;
             }
 
+            let open_brace_token = context.token_finder.get_first_open_brace_token_within(&block_stmt);
             let body_node_start_line = body_node.start_line(context);
             comments.extend(open_brace_token.trailing_comments(context).filter(|c| c.start_line(context) == body_node_start_line));
         } else {
