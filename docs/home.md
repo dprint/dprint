@@ -348,7 +348,7 @@ const identity = /* dprint-ignore */ [
 
 ### Multi-line arguments and parameters
 
-When the first parameter or argument is placed on a different line than the open parenthesis, the entire argument or parameter list will be come multi-line.
+When the first parameter or argument is placed on a different line than the open parenthesis, the entire argument or parameter list will become multi-line.
 
 For example:
 
