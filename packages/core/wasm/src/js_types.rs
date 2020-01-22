@@ -139,11 +139,11 @@ impl ConditionRef<JsString, JsInfo, JsCondition> for JsCondition {
         }
     }
 
-    fn get_true_path(&self) -> Option<Rc<Vec<PrintItem<JsString, JsInfo, JsCondition>>>> {
-        self.true_path().map(|items| Rc::new(get_rust_print_items(items)))
+    fn get_true_path(&self) -> &Option<PrintItem<JsString, JsInfo, JsCondition>> {
+        &self.true_path().map(|items| PrintItem::Items(Rc::new(get_rust_print_items(items))))
     }
 
-    fn get_false_path(&self) -> Option<Rc<Vec<PrintItem<JsString, JsInfo, JsCondition>>>> {
-        self.false_path().map(|items| Rc::new(get_rust_print_items(items)))
+    fn get_false_path(&self) -> &Option<PrintItem<JsString, JsInfo, JsCondition>> {
+        &self.false_path().map(|items| PrintItem::Items(Rc::new(get_rust_print_items(items))))
     }
 }

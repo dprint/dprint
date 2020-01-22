@@ -1,21 +1,27 @@
 use super::print_items::*;
 
-pub fn surround_with_new_lines(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
-    elements.insert(0, PrintItem::NewLine);
-    elements.push(PrintItem::NewLine);
-    elements
+pub fn surround_with_new_lines(item: PrintItem) -> PrintItem {
+    let mut items = Vec::new();
+    items.push(PrintItem::NewLine);
+    items.push(item);
+    items.push(PrintItem::NewLine);
+    items.into()
 }
 
-pub fn with_indent(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
-    elements.insert(0, PrintItem::StartIndent);
-    elements.push(PrintItem::FinishIndent);
-    elements
+pub fn with_indent(item: PrintItem) -> PrintItem {
+    let mut items = Vec::new();
+    items.push(PrintItem::StartIndent);
+    items.push(item);
+    items.push(PrintItem::FinishIndent);
+    items.into()
 }
 
-pub fn new_line_group(mut elements: Vec<PrintItem>) -> Vec<PrintItem> {
-    elements.insert(0, PrintItem::StartNewLineGroup);
-    elements.push(PrintItem::FinishNewLineGroup);
-    elements
+pub fn new_line_group(item: PrintItem) -> PrintItem {
+    let mut items = Vec::new();
+    items.push(PrintItem::StartNewLineGroup);
+    items.push(item);
+    items.push(PrintItem::FinishNewLineGroup);
+    items.into()
 }
 
 pub fn if_true(
@@ -24,7 +30,7 @@ pub fn if_true(
     true_item: PrintItem
 ) -> PrintItem {
     Condition::new(name, ConditionProperties {
-        true_path: Some(vec![true_item]),
+        true_path: Some(true_item),
         false_path: None,
         condition: Box::new(resolver.clone()),
     }).into()
@@ -37,13 +43,13 @@ pub fn if_true_or(
     false_item: PrintItem
 ) -> PrintItem {
     Condition::new(name, ConditionProperties {
-        true_path: Some(vec![true_item]),
-        false_path: Some(vec![false_item]),
+        true_path: Some(true_item),
+        false_path: Some(false_item),
         condition: Box::new(resolver.clone())
     }).into()
 }
 
-pub fn parse_raw_string(text: &str) -> Vec<PrintItem> {
+pub fn parse_raw_string(text: &str) -> PrintItem {
     let mut items: Vec<PrintItem> = Vec::new();
     let mut has_ignored_indent = false;
     let mut lines = text.lines().collect::<Vec<&str>>();
@@ -64,16 +70,16 @@ pub fn parse_raw_string(text: &str) -> Vec<PrintItem> {
             items.push(PrintItem::NewLine);
         }
 
-        items.extend(parse_line(&lines[i]));
+        items.push(parse_line(&lines[i]));
     }
 
     if has_ignored_indent {
         items.push(PrintItem::FinishIgnoringIndent);
     }
 
-    return items;
+    return items.into();
 
-    fn parse_line(line: &str) -> Vec<PrintItem> {
+    fn parse_line(line: &str) -> PrintItem {
         let mut items: Vec<PrintItem> = Vec::new();
         let parts = line.split("\t").collect::<Vec<&str>>();
         for i in 0..parts.len() {
@@ -82,14 +88,6 @@ pub fn parse_raw_string(text: &str) -> Vec<PrintItem> {
             }
             items.push(parts[i].into());
         }
-        items
+        items.into()
     }
-}
-
-pub fn prepend_if_has_items(items: Vec<PrintItem>, item: PrintItem) -> Vec<PrintItem> {
-    let mut items = items;
-    if !items.is_empty() {
-        items.insert(0, item);
-    }
-    items
 }

@@ -17,6 +17,7 @@ struct FailedTestResult {
     message: String,
 }
 
+#[test]
 fn test_performance() {
     // run this with `cargo test --release -- --nocapture`
 
@@ -41,8 +42,7 @@ fn test_performance() {
         let result = format_text("checker.ts", &file_text, &config).expect("Could not parse...");
         let result = if let Some(result) = result { result } else { file_text.clone() };
 
-        let elapsed = start.elapsed();
-        println!("{}ms", elapsed.as_millis());
+        println!("{}ms", start.elapsed().as_millis());
         println!("---");
 
         if i == 0 {
@@ -51,7 +51,6 @@ fn test_performance() {
     }
 }
 
-#[test]
 fn test_specs() {
     let specs = get_specs();
     let test_count = specs.len();

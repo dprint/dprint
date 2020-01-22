@@ -90,7 +90,7 @@ fn it_formats_as_multi_line_when_items_exceed_print_width() {
 
 fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
     let print_items = parse_node(Node::ArrayLiteralExpression(expr));
-    let write_items = dprint_core::get_write_items(print_items, GetWriteItemsOptions {
+    let write_items = dprint_core::get_write_items(vec![print_items], GetWriteItemsOptions {
         indent_width: 2,
         max_width: 40,
         is_testing: true,
@@ -105,7 +105,7 @@ fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
 
 // node parsing functions
 
-fn parse_node(node: Node) -> Vec<PrintItem> {
+fn parse_node(node: Node) -> PrintItem {
     // in a real implementation this function would deal with surrounding comments
 
     match node {
@@ -114,7 +114,7 @@ fn parse_node(node: Node) -> Vec<PrintItem> {
     }
 }
 
-fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintItem> {
+fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItem {
     let mut items: Vec<PrintItem> = Vec::new();
     let start_info = Info::new("start");
     let end_info = Info::new("end");
@@ -150,17 +150,17 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
 
     items.push(end_info.into());
 
-    return items;
+    return items.into();
 
     fn parse_elements(
         elements: &Vec<ArrayElement>,
         is_multiple_lines: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static)
-    ) -> Vec<PrintItem> {
+    ) -> PrintItem {
         let mut items = Vec::new();
         let elements_len = elements.len();
 
         for (i, elem) in elements.iter().enumerate() {
-            items.extend(parse_node(Node::ArrayElement(elem)));
+            items.push(parse_node(Node::ArrayElement(elem)));
 
             if i < elements_len - 1 {
                 items.push(",".into());
@@ -173,12 +173,12 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> Vec<PrintIte
             }
         }
 
-        items
+        items.into()
     }
 }
 
-fn parse_array_element(element: &ArrayElement) -> Vec<PrintItem> {
-    vec![element.text.clone().into()]
+fn parse_array_element(element: &ArrayElement) -> PrintItem {
+    element.text.clone().into()
 }
 
 // helper functions
@@ -189,6 +189,8 @@ fn create_is_multiple_lines_resolver(
     start_info: Info,
     end_info: Info
 ) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
+    // todo: this could be more efficient only only use references and avoid the clones
+    // I'm too lazy to update this sample, but it should help you get the idea.
     return move |condition_context: &mut ConditionResolverContext| {
         // no items, so format on the same line
         if child_positions.len() == 0 {

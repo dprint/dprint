@@ -1,4 +1,5 @@
 use super::WriteItem;
+use super::collections::*;
 use super::print_items::*;
 use super::writer::*;
 use super::get_write_items::{GetWriteItemsOptions};
@@ -15,23 +16,29 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
     pub new_line_group_depth: u16,
     pub writer_state: WriterState<TString>,
     pub possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
-    pub container: Rc<PrintItemContainer<TString, TInfo, TCondition>>,
+    pub container: GraphNode<PrintItemContainer<TString, TInfo, TCondition>>,
     pub look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
     pub look_ahead_info_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
-    pub current_indexes: Vec<isize>,
 }
 
-#[derive(Clone)]
 struct PrintItemContainer<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    parent: Option<Rc<PrintItemContainer<TString, TInfo, TCondition>>>,
     items: Rc<Vec<PrintItem<TString, TInfo, TCondition>>>,
+    index: i32,
+}
+
+impl<TString, TInfo, TCondition> Clone for PrintItemContainer<TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+    fn clone(&self) -> PrintItemContainer<TString, TInfo, TCondition> {
+        PrintItemContainer {
+            items: self.items.clone(),
+            index: self.index,
+        }
+    }
 }
 
 pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
     new_line_group_depth: u16,
-    container: Rc<PrintItemContainer<TString, TInfo, TCondition>>,
-    current_indexes: Vec<isize>, // todo: usize?
+    container: GraphNode<PrintItemContainer<TString, TInfo, TCondition>>,
     save_point_increment: u32,
     writer: Writer<TString>,
     resolved_conditions: HashMap<usize, Option<bool>>,
@@ -47,11 +54,10 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         Printer {
             possible_new_line_save_point: None,
             new_line_group_depth: 0,
-            container: Rc::new(PrintItemContainer {
-                parent: None,
+            container: GraphNode::new(PrintItemContainer {
                 items: Rc::new(items),
-            }),
-            current_indexes: vec![0 as isize],
+                index: 0,
+            }, None),
             save_point_increment: 0,
             writer: Writer::new(WriterOptions {
                 indent_width: options.indent_width,
@@ -68,19 +74,18 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
     /// Turns the print items into a collection of writer items according to the options.
     pub fn print(mut self) -> impl Iterator<Item = WriteItem<TString>> {
         loop {
-            while self.current_indexes[self.current_indexes.len() - 1] < self.container.items.len() as isize {
-                let index = self.current_indexes[self.current_indexes.len() - 1];
-                let print_item = &self.container.clone().items[index as usize];
+            while self.container.item.index < self.container.item.items.len() as i32 {
+                let index = self.container.item.index;
+                let print_item = &self.container.item.items[index as usize].clone();
                 self.handle_print_item(print_item);
-                let last_index = self.current_indexes.len() - 1;
-                self.current_indexes[last_index] += 1;
+                self.container.item.index += 1;
             }
 
-            if let Some(parent_container) = self.container.parent.clone() {
-                self.container = parent_container;
-                self.current_indexes.pop();
-                let last_index = self.current_indexes.len() - 1;
-                self.current_indexes[last_index] += 1;
+            if let Some(parent) = self.container.parent.as_ref() {
+                self.container = GraphNode::new(PrintItemContainer {
+                    items: parent.item.items.clone(),
+                    index: parent.item.index + 1,
+                }, parent.parent.clone());
             } else {
                 // no parent, we're done
                 break;
@@ -130,6 +135,7 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
 
     fn handle_print_item(&mut self, print_item: &PrintItem<TString, TInfo, TCondition>) {
         match print_item {
+            PrintItem::Items(text) => self.handle_items(text),
             PrintItem::String(text) => self.handle_string(text),
             PrintItem::Condition(condition) => self.handle_condition(condition),
             PrintItem::Info(info) => self.handle_info(info),
@@ -180,7 +186,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
             name,
             possible_new_line_save_point: self.possible_new_line_save_point.clone(),
             new_line_group_depth: self.new_line_group_depth,
-            current_indexes: self.current_indexes.clone(),
             container: self.container.clone(),
             writer_state: self.writer.get_state(),
             look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
@@ -190,8 +195,7 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
 
     fn create_save_point_for_restoring_condition(&mut self, name: &'static str) -> Rc<SavePoint<TString, TInfo, TCondition>> {
         let mut save_point = self.create_save_point(name);
-        let last_index = save_point.current_indexes.len() - 1;
-        save_point.current_indexes[last_index] -= 1;
+        save_point.container.item.index -= 1;
         Rc::new(save_point)
     }
 
@@ -215,7 +219,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
                 self.writer.set_state(save_point.writer_state);
                 self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point };
                 self.container = save_point.container;
-                self.current_indexes = save_point.current_indexes;
                 self.new_line_group_depth = save_point.new_line_group_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points;
                 self.look_ahead_info_save_points = save_point.look_ahead_info_save_points;
@@ -224,7 +227,6 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
                 self.writer.set_state(save_point.writer_state.clone());
                 self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point.clone() };
                 self.container = save_point.container.clone();
-                self.current_indexes = save_point.current_indexes.clone();
                 self.new_line_group_depth = save_point.new_line_group_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
                 self.look_ahead_info_save_points = save_point.look_ahead_info_save_points.clone();
@@ -234,6 +236,19 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         if is_for_new_line {
             self.write_new_line();
         }
+    }
+
+    fn handle_items(&mut self, items: &Rc<Vec<PrintItem<TString, TInfo, TCondition>>>) {
+        self.add_container_child(items.clone());
+    }
+
+    fn add_container_child(&mut self, items: Rc<Vec<PrintItem<TString, TInfo, TCondition>>>) {
+        let new_parent = mem::replace(&mut self.container, unsafe { MaybeUninit::zeroed().assume_init() });
+        let uninitialized = mem::replace(&mut self.container, GraphNode::new(PrintItemContainer {
+            items,
+            index: -1,
+        }, Some(Rc::new(new_parent))));
+        mem::forget(uninitialized);
     }
 
     fn handle_info(&mut self, info: &TInfo) {
@@ -256,24 +271,14 @@ impl<TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TStri
         }
 
         if condition_value.is_some() && condition_value.unwrap() {
-            if let Some(true_path) = &condition.get_true_path() {
-                self.add_container_child(true_path.clone());
+            if let Some(true_path) = condition.get_true_path() {
+                self.handle_print_item(true_path);
             }
         } else {
-            if let Some(false_path) = &condition.get_false_path() {
-                self.add_container_child(false_path.clone());
+            if let Some(false_path) = condition.get_false_path() {
+                self.handle_print_item(false_path);
             }
         }
-    }
-
-    fn add_container_child(&mut self, items: Rc<Vec<PrintItem<TString, TInfo, TCondition>>>) {
-        let new_parent = mem::replace(&mut self.container, unsafe { MaybeUninit::zeroed().assume_init() });
-        let uninitialized = mem::replace(&mut self.container, Rc::new(PrintItemContainer {
-            items: items,
-            parent: Some(new_parent),
-        }));
-        mem::forget(uninitialized);
-        self.current_indexes.push(-1);
     }
 
     fn handle_string(&mut self, text: &Rc<TString>) {
