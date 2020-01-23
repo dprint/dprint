@@ -89,8 +89,8 @@ fn it_formats_as_multi_line_when_items_exceed_print_width() {
 }
 
 fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
-    let print_items = parse_node(Node::ArrayLiteralExpression(expr));
-    let write_items = dprint_core::get_write_items(vec![print_items], GetWriteItemsOptions {
+    let print_items = vec![parse_node(Node::ArrayLiteralExpression(expr))];
+    let write_items = dprint_core::get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: 2,
         max_width: 40,
         is_testing: true,
@@ -134,11 +134,11 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItem {
         PrintItem::NewLine
     ));
 
-    let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines);
+    let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines).into_rc();
     items.push(Condition::new("indentIfMultipleLines", ConditionProperties {
         condition: Box::new(is_multiple_lines.clone()),
-        true_path: Some(parser_helpers::with_indent(parsed_elements.clone())),
-        false_path: Some(parsed_elements),
+        true_path: Some(parser_helpers::with_indent(parsed_elements.clone().into())),
+        false_path: Some(parsed_elements.into()),
     }).into());
 
     items.push(parser_helpers::if_true(

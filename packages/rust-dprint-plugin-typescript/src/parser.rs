@@ -1,5 +1,6 @@
 extern crate dprint_core;
 
+use std::rc::Rc;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
@@ -928,10 +929,10 @@ fn parse_named_import_or_export_specifiers<'a>(parent_decl: NamedImportOrExportD
         &specifiers[0],
         context
     );
-    let brace_separator = if use_new_lines { PrintItem::NewLine } else { if use_space { " ".into() } else { "".into() } };
+    let brace_separator = if use_new_lines { PrintItem::NewLine } else { if use_space { " ".into() } else { "".into() } }.into_rc();
 
     items.push("{".into());
-    items.push(brace_separator.clone());
+    items.push(brace_separator.clone().into());
 
     let specifiers = {
         let mut items = Vec::new();
@@ -953,7 +954,7 @@ fn parse_named_import_or_export_specifiers<'a>(parent_decl: NamedImportOrExportD
 
     items.push(if use_new_lines { parser_helpers::with_indent(specifiers) } else { specifiers });
 
-    items.push(brace_separator);
+    items.push(brace_separator.into());
     items.push("}".into());
 
     return items.into();
@@ -1169,6 +1170,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         indent_disabled: bool,
         items: PrintItem
     ) -> PrintItem {
+        let items = items.into_rc();
         let is_left_most_node = top_most_expr_start == current_node_start;
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
@@ -1177,8 +1179,8 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
                 let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
                 return Some(is_same_indent && condition_resolvers::is_start_of_new_line(condition_context));
             }),
-            true_path: Some(parser_helpers::with_indent(items.clone())),
-            false_path: Some(items)
+            true_path: Some(parser_helpers::with_indent(items.clone().into())),
+            false_path: Some(items.into())
         }).into()
     }
 
@@ -1335,8 +1337,6 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
             fn handle_item(item: PrintItem, items: &mut Vec<PrintItem>) {
                 match item {
                     PrintItem::Items(print_item_items) => {
-                        let print_item_items = std::rc::Rc::try_unwrap(print_item_items).ok()
-                            .expect("Cannot filter signals in this scenario because items have already been cloned.");
                         for item in print_item_items.into_iter() {
                             handle_item(item, items);
                         }
@@ -1423,7 +1423,7 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
 
     items.push(start_info.clone().into());
     items.push(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.test).into(), context, {
-        move |mut item| {
+        move |item| {
             if operator_position == OperatorPosition::SameLine {
                 vec![item, " ?".into()].into()
             } else {
@@ -2672,7 +2672,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
         }
     }, |context| {
         let mut items = Vec::new();
-        let separator_after_semi_colons = if context.config.for_statement_space_after_semi_colons { PrintItem::SpaceOrNewLine } else { PrintItem::PossibleNewLine };
+        let separator_after_semi_colons = if context.config.for_statement_space_after_semi_colons { PrintItem::SpaceOrNewLine } else { PrintItem::PossibleNewLine }.into_rc();
         items.push(parser_helpers::new_line_group({
             let mut items = Vec::new();
             if let Some(init) = &node.init {
@@ -2681,7 +2681,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
             items.push(";".into());
             items.into()
         }));
-        items.push(separator_after_semi_colons.clone());
+        items.push(separator_after_semi_colons.clone().into());
         items.push(conditions::indent_if_start_of_line({
             let mut items = Vec::new();
             if let Some(test) = &node.test {
@@ -2690,7 +2690,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
             items.push(";".into());
             items.into()
         }).into());
-        items.push(separator_after_semi_colons);
+        items.push(separator_after_semi_colons.into());
         if let Some(update) = &node.update {
             items.push(conditions::indent_if_start_of_line(parse_node(update.into(), context)).into());
         }
@@ -4014,11 +4014,11 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     items.push(start_info.into());
     items.push("(".into());
 
-    let param_list = parse_comma_separated_values(nodes, is_multi_line_or_hanging.clone(), context);
+    let param_list = parse_comma_separated_values(nodes, is_multi_line_or_hanging.clone(), context).into_rc();
     items.push(Condition::new("multiLineOrHanging", ConditionProperties {
         condition: Box::new(is_multi_line_or_hanging),
-        true_path: surround_with_new_lines(with_indent(param_list.clone())).into(),
-        false_path: param_list.into(),
+        true_path: Some(surround_with_new_lines(with_indent(param_list.clone().into()))),
+        false_path: Some(param_list.into()),
     }).into());
 
     if let Some(custom_close_paren) = opts.custom_close_paren {
@@ -4120,18 +4120,19 @@ fn parse_comma_separated_values<'a>(
         if i == 0 {
             items.push(parsed_value);
         } else {
+            let parsed_value = parsed_value.into_rc();
             items.push(Condition::new("multiLineOrHangingCondition", ConditionProperties {
                 condition: Box::new(multi_line_or_hanging_condition_resolver.clone()),
                 true_path: {
                     let mut items = Vec::new();
                     items.push(PrintItem::NewLine);
-                    items.push(parsed_value.clone());
+                    items.push(parsed_value.clone().into());
                     Some(items.into())
                 },
                 false_path: {
                     let mut items = Vec::new();
                     items.push(PrintItem::SpaceOrNewLine);
-                    items.push(conditions::indent_if_start_of_line(parsed_value).into());
+                    items.push(conditions::indent_if_start_of_line(parsed_value.into()).into());
                     Some(items.into())
                 },
             }).into());
@@ -4305,10 +4306,10 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         &opts.members[0],
         context
     );
-    let separator = if multi_line { PrintItem::NewLine } else { " ".into() };
+    let separator = if multi_line { PrintItem::NewLine } else { " ".into() }.into_rc();
 
     items.push("{".into());
-    items.push(separator.clone());
+    items.push(separator.clone().into());
 
     if multi_line {
         items.push(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
@@ -4339,7 +4340,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         }
     }
 
-    items.push(separator);
+    items.push(separator.into());
     items.push("}".into());
 
     return items.into();
@@ -4811,7 +4812,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
     // Need to parse the children here so they only get parsed once.
     // Nodes need to be only parsed once so that their comments don't end up in
     // the handled comments collection and the second time they won't be parsed out.
-    let children = opts.children.into_iter().map(|c| (c.clone(), parse_node(c, context))).collect();
+    let children = opts.children.into_iter().map(|c| (c.clone(), parse_node(c, context).into_rc())).collect();
     let parent_start_info = opts.parent_start_info;
     let parent_end_info = opts.parent_end_info;
 
@@ -4836,13 +4837,13 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
         }).into();
     }
 
-    fn parse_for_new_lines<'a>(children: Vec<(Node<'a>, PrintItem)>, inner_span: Span, context: &mut Context<'a>) -> PrintItem {
+    fn parse_for_new_lines<'a>(children: Vec<(Node<'a>, Rc<PrintItem>)>, inner_span: Span, context: &mut Context<'a>) -> PrintItem {
         let mut items = Vec::new();
         let has_children = !children.is_empty();
         items.push(PrintItem::NewLine);
         items.push(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
             inner_span,
-            items: children.into_iter().map(|(a, b)| (a, Some(b))).collect(),
+            items: children.into_iter().map(|(a, b)| (a, Some(b.into()))).collect(),
             should_use_space: Some(Box::new(|previous, next, context| should_use_space(previous, next, context))),
             should_use_new_line: Some(Box::new(|previous, next, context| {
                 if let Node::JSXText(next) = next {
@@ -4872,7 +4873,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
         return items.into();
     }
 
-    fn parse_for_single_line<'a>(children: Vec<(Node<'a>, PrintItem)>, context: &mut Context<'a>) -> PrintItem {
+    fn parse_for_single_line<'a>(children: Vec<(Node<'a>, Rc<PrintItem>)>, context: &mut Context<'a>) -> PrintItem {
         let mut items = Vec::new();
         if children.is_empty() {
             items.push(PrintItem::PossibleNewLine);
@@ -4885,7 +4886,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
                     }
                 }
 
-                items.push(parsed_child);
+                items.push(parsed_child.into());
                 items.push(PrintItem::PossibleNewLine);
                 previous_child = Some(child);
             }

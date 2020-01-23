@@ -1,6 +1,5 @@
 use super::StringRef;
 use super::WriteItem;
-use std::rc::Rc;
 
 pub struct PrintWriteItemsOptions {
     /// The number of spaces to use when indenting when use_tabs is false,
@@ -13,7 +12,7 @@ pub struct PrintWriteItemsOptions {
 }
 
 /// Prints string based writer items.
-pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, options: PrintWriteItemsOptions) -> String where T : StringRef {
+pub fn print_write_items<'a, T>(write_items: impl Iterator<Item = WriteItem<'a, T>>, options: PrintWriteItemsOptions) -> String where T : StringRef + 'a {
     // todo: faster string manipulation?
     let mut final_string = String::new();
     let indent_string = if options.use_tabs { String::from("\t") } else { " ".repeat(options.indent_width as usize) };
@@ -25,12 +24,7 @@ pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, opt
             WriteItem::Tab => final_string.push_str("\t"),
             WriteItem::Space => final_string.push_str(" "),
             WriteItem::String(text) => {
-                // todo: how to move it into final_string? (performance?)
-                final_string.push_str(&match Rc::try_unwrap(text) {
-                    Result::Ok(moved_text) => moved_text.get_text(),
-                    // this means the string is being referenced in multiple places, which is expected so make a clone
-                    Result::Err(text) => text.get_text_clone(),
-                });
+                final_string.push_str(&text.get_text_clone());
             },
         }
     }

@@ -21,7 +21,8 @@ pub fn print<TString, TInfo, TCondition>(
     print_items: Vec<PrintItem<TString, TInfo, TCondition>>,
     options: PrintOptions
 ) -> String where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    let write_items = get_write_items(print_items, GetWriteItemsOptions {
+    let print_items = print_items.into_iter().map(|item| item.flatten()).collect();
+    let write_items = get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: options.indent_width,
         max_width: options.max_width,
         is_testing: options.is_testing,

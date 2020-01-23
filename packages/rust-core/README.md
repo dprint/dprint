@@ -154,11 +154,11 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItem {
         PrintItem::NewLine
     ));
 
-    let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines);
+    let parsed_elements = Rc::new(parse_elements(&expr.elements, &is_multiple_lines));
     items.push(Condition::new("indentIfMultipleLines", ConditionProperties {
         condition: Box::new(is_multiple_lines.clone()),
-        true_path: Some(parser_helpers::with_indent(parsed_elements.clone())),
-        false_path: Some(parsed_elements),
+        true_path: Some(parser_helpers::with_indent(parsed_elements.clone().into())),
+        false_path: Some(parsed_elements.into()),
     }).into());
 
     items.push(parser_helpers::if_true(

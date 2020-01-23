@@ -18,10 +18,10 @@ pub struct GetWriteItemsOptions {
 }
 
 /// Gets write items from the print items.
-pub fn get_write_items<TString, TInfo, TCondition>(
-    print_items: Vec<PrintItem<TString, TInfo, TCondition>>,
+pub fn get_write_items<'a, TString, TInfo, TCondition>(
+    print_items: &'a Vec<PrintItem<TString, TInfo, TCondition>>,
     options: GetWriteItemsOptions
-) -> impl Iterator<Item = WriteItem<TString>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+) -> impl Iterator<Item = WriteItem<'a, TString>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     let printer = Printer::new(print_items, options);
     printer.print()
 }
