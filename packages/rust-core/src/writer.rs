@@ -3,18 +3,18 @@ use super::WriteItem;
 use super::collections::{GraphNode, GraphNodeIterator};
 use std::rc::Rc;
 
-pub struct WriterState<'a, T> where T : StringRef {
+pub struct WriterState<T> where T : StringRef {
     current_line_column: u32,
     current_line_number: u32,
     last_line_indent_level: u16,
     indent_level: u16,
     expect_newline_next: bool,
     ignore_indent_count: u8,
-    items: Option<Rc<GraphNode<WriteItem<'a, T>>>>,
+    items: Option<Rc<GraphNode<WriteItem<T>>>>,
 }
 
-impl<'a, T> Clone for WriterState<'a, T> where T : StringRef {
-    fn clone(&self) -> WriterState<'a, T> {
+impl<T> Clone for WriterState<T> where T : StringRef {
+    fn clone(&self) -> WriterState<T> {
         WriterState {
             current_line_column: self.current_line_column,
             current_line_number: self.current_line_number,
@@ -31,13 +31,13 @@ pub struct WriterOptions {
     pub indent_width: u8,
 }
 
-pub struct Writer<'a, T> where T : StringRef {
-    state: WriterState<'a, T>,
+pub struct Writer<T> where T : StringRef {
+    state: WriterState<T>,
     indent_width: u8,
 }
 
-impl<'a, T> Writer<'a, T> where T : StringRef {
-    pub fn new(options: WriterOptions) -> Writer<'a, T> {
+impl<T> Writer<T> where T : StringRef {
+    pub fn new(options: WriterOptions) -> Writer<T> {
         Writer {
             indent_width: options.indent_width,
             state: WriterState {
@@ -52,11 +52,11 @@ impl<'a, T> Writer<'a, T> where T : StringRef {
         }
     }
 
-    pub fn get_state(&mut self) -> WriterState<'a, T> {
+    pub fn get_state(&mut self) -> WriterState<T> {
         self.state.clone()
     }
 
-    pub fn set_state(&mut self, state: WriterState<'a, T>) {
+    pub fn set_state(&mut self, state: WriterState<T>) {
         self.state = state;
     }
 
@@ -144,7 +144,7 @@ impl<'a, T> Writer<'a, T> where T : StringRef {
         self.push_item(WriteItem::Space);
     }
 
-    pub fn write(&mut self, text: &'a T) {
+    pub fn write(&mut self, text: Rc<T>) {
         self.handle_first_column();
         self.state.current_line_column += text.get_length() as u32;
         self.push_item(WriteItem::String(text));
@@ -168,15 +168,15 @@ impl<'a, T> Writer<'a, T> where T : StringRef {
         }
     }
 
-    fn push_item(&mut self, item: WriteItem<'a, T>) {
+    fn push_item(&mut self, item: WriteItem<T>) {
         let previous = std::mem::replace(&mut self.state.items, None);
         self.state.items = Some(Rc::new(GraphNode::new(item, previous)));
     }
 
-    pub fn get_items(self) -> impl Iterator<Item = WriteItem<'a, T>> {
+    pub fn get_items(self) -> impl Iterator<Item = WriteItem<T>> {
         match self.state.items {
             Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
-            None => GraphNodeIterator::empty().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
+            None => GraphNodeIterator::empty().collect::<Vec<WriteItem<T>>>().into_iter().rev(), // todo: look to see if there's a way to make this faster
         }
     }
 }

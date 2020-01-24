@@ -89,7 +89,7 @@ fn it_formats_as_multi_line_when_items_exceed_print_width() {
 }
 
 fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
-    let print_items = vec![parse_node(Node::ArrayLiteralExpression(expr))];
+    let print_items = parse_node(Node::ArrayLiteralExpression(expr));
     let write_items = dprint_core::get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: 2,
         max_width: 40,
@@ -105,7 +105,7 @@ fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
 
 // node parsing functions
 
-fn parse_node(node: Node) -> PrintItem {
+fn parse_node(node: Node) -> PrintItems {
     // in a real implementation this function would deal with surrounding comments
 
     match node {
@@ -114,8 +114,8 @@ fn parse_node(node: Node) -> PrintItem {
     }
 }
 
-fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItem {
-    let mut items: Vec<PrintItem> = Vec::new();
+fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
+    let mut items = PrintItems::new();
     let start_info = Info::new("start");
     let end_info = Info::new("end");
     let is_multiple_lines = create_is_multiple_lines_resolver(
@@ -125,59 +125,59 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItem {
         end_info.clone()
     );
 
-    items.push(start_info.into());
+    items.push_info(start_info);
 
-    items.push("[".into());
-    items.push(parser_helpers::if_true(
+    items.push_str("[");
+    items.extend(parser_helpers::if_true(
         "arrayStartNewLine",
         is_multiple_lines.clone(),
-        PrintItem::NewLine
+        Signal::NewLine.into()
     ));
 
-    let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines).into_rc();
-    items.push(Condition::new("indentIfMultipleLines", ConditionProperties {
+    let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines);
+    items.push_condition(Condition::new("indentIfMultipleLines", ConditionProperties {
         condition: Box::new(is_multiple_lines.clone()),
-        true_path: Some(parser_helpers::with_indent(parsed_elements.clone().into())),
-        false_path: Some(parsed_elements.into()),
+        true_path: Some(parser_helpers::with_indent(parsed_elements.clone())),
+        false_path: Some(parsed_elements),
     }).into());
 
-    items.push(parser_helpers::if_true(
+    items.extend(parser_helpers::if_true(
         "arrayEndNewLine",
         is_multiple_lines,
-        PrintItem::NewLine
+        Signal::NewLine.into()
     ));
-    items.push("]".into());
+    items.push_str("]");
 
-    items.push(end_info.into());
+    items.push_info(end_info);
 
-    return items.into();
+    return items;
 
     fn parse_elements(
         elements: &Vec<ArrayElement>,
         is_multiple_lines: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static)
-    ) -> PrintItem {
-        let mut items = Vec::new();
+    ) -> PrintItems {
+        let mut items = PrintItems::new();
         let elements_len = elements.len();
 
         for (i, elem) in elements.iter().enumerate() {
-            items.push(parse_node(Node::ArrayElement(elem)));
+            items.extend(parse_node(Node::ArrayElement(elem)));
 
             if i < elements_len - 1 {
-                items.push(",".into());
-                items.push(parser_helpers::if_true_or(
+                items.push_str(",");
+                items.extend(parser_helpers::if_true_or(
                     "afterCommaSeparator",
                     is_multiple_lines.clone(),
-                    PrintItem::NewLine,
-                    PrintItem::SpaceOrNewLine
+                    Signal::NewLine.into(),
+                    Signal::SpaceOrNewLine.into()
                 ));
             }
         }
 
-        items.into()
+        items
     }
 }
 
-fn parse_array_element(element: &ArrayElement) -> PrintItem {
+fn parse_array_element(element: &ArrayElement) -> PrintItems {
     element.text.clone().into()
 }
 

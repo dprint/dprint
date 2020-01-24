@@ -1,9 +1,7 @@
-use std::rc::Rc;
 use super::print_items::*;
 use super::*;
 
-pub fn indent_if_start_of_line(item: PrintItem) -> Condition {
-    let item = Rc::new(item);
+pub fn indent_if_start_of_line(item: PrintItems) -> Condition {
     Condition::new("indentIfStartOfLine", ConditionProperties {
         condition: Box::new(|context| Some(condition_resolvers::is_start_of_new_line(&context))),
         true_path: Some(parser_helpers::with_indent(item.clone().into())),
@@ -11,8 +9,7 @@ pub fn indent_if_start_of_line(item: PrintItem) -> Condition {
     })
 }
 
-pub fn with_indent_if_start_of_line_indented(item: PrintItem) -> Condition {
-    let item = Rc::new(item);
+pub fn with_indent_if_start_of_line_indented(item: PrintItems) -> Condition {
     Condition::new("withIndentIfStartOfLineIndented", ConditionProperties {
         condition: Box::new(|context| Some(context.writer_info.line_start_indent_level > context.writer_info.indent_level)),
         true_path: Some(parser_helpers::with_indent(item.clone().into())),
@@ -23,7 +20,7 @@ pub fn with_indent_if_start_of_line_indented(item: PrintItem) -> Condition {
 pub struct NewLineIfHangingSpaceOtherwiseOptions {
     pub start_info: Info,
     pub end_info: Option<Info>,
-    pub space_char: Option<PrintItem>,
+    pub space_char: Option<PrintItems>,
 }
 
 pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseOptions) -> Condition {
@@ -35,7 +32,7 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
         condition: Box::new(move |context| {
             return condition_resolvers::is_hanging(context, &start_info, &end_info);
         }),
-        true_path: Some(PrintItem::NewLine),
+        true_path: Some(Signal::NewLine.into()),
         false_path: Some(space_char),
     })
 }
@@ -67,15 +64,15 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, 
 
             return Some(end_info.line_number > start_info.line_number);
         }),
-        true_path: Some(PrintItem::NewLine),
-        false_path: Some(PrintItem::SpaceOrNewLine),
+        true_path: Some(Signal::NewLine.into()),
+        false_path: Some(Signal::SpaceOrNewLine.into()),
     })
 }
 
 pub fn single_indent_if_start_of_line() -> Condition {
     Condition::new("singleIndentIfStartOfLine", ConditionProperties {
         condition: Box::new(|context| Some(condition_resolvers::is_start_of_new_line(context))),
-        true_path: Some(PrintItem::SingleIndent),
+        true_path: Some(Signal::SingleIndent.into()),
         false_path: None
     })
 }

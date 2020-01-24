@@ -12,8 +12,8 @@ pub struct PrintWriteItemsOptions {
 }
 
 /// Prints string based writer items.
-pub fn print_write_items<'a, T>(write_items: impl Iterator<Item = WriteItem<'a, T>>, options: PrintWriteItemsOptions) -> String where T : StringRef + 'a {
-    // todo: faster string manipulation?
+pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, options: PrintWriteItemsOptions) -> String where T : StringRef {
+    // todo: faster string manipulation? or is this as good as it gets?
     let mut final_string = String::new();
     let indent_string = if options.use_tabs { String::from("\t") } else { " ".repeat(options.indent_width as usize) };
 
