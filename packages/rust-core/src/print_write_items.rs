@@ -19,7 +19,7 @@ pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, opt
 
     for item in write_items.into_iter() {
         match item {
-            WriteItem::Indent => final_string.push_str(&indent_string),
+            WriteItem::Indent(times) => final_string.push_str(&indent_string.repeat(times as usize)),
             WriteItem::NewLine => final_string.push_str(&options.newline_kind),
             WriteItem::Tab => final_string.push_str("\t"),
             WriteItem::Space => final_string.push_str(" "),

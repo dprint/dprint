@@ -528,7 +528,7 @@ impl<TString> StringContainer<TString> where TString : StringRef {
 pub struct WriterInfo {
     pub line_number: u32,
     pub column_number: u32,
-    pub indent_level: u16,
-    pub line_start_indent_level: u16,
+    pub indent_level: u8,
+    pub line_start_indent_level: u8,
     pub line_start_column_number: u32,
 }

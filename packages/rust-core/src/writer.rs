@@ -9,8 +9,8 @@ use std::rc::Rc;
 pub struct WriterState<T> where T : StringRef {
     current_line_column: u32,
     current_line_number: u32,
-    last_line_indent_level: u16,
-    indent_level: u16,
+    last_line_indent_level: u8,
+    indent_level: u8,
     expect_newline_next: bool,
     ignore_indent_count: u8,
     items: Option<Rc<GraphNode<WriteItem<T>>>>,
@@ -75,7 +75,7 @@ impl<T> Writer<T> where T : StringRef {
         self.set_indent_level(self.state.indent_level - 1);
     }
 
-    fn set_indent_level(&mut self, new_level: u16) {
+    fn set_indent_level(&mut self, new_level: u8) {
         self.state.indent_level = new_level;
 
         // If it's on the first column, update the indent level
@@ -97,11 +97,11 @@ impl<T> Writer<T> where T : StringRef {
         self.state.expect_newline_next = true;
     }
 
-    pub fn get_line_start_indent_level(&self) -> u16 {
+    pub fn get_line_start_indent_level(&self) -> u8 {
         self.state.last_line_indent_level
     }
 
-    pub fn get_indentation_level(&self) -> u16 {
+    pub fn get_indentation_level(&self) -> u8 {
         self.state.indent_level
     }
 
@@ -132,7 +132,7 @@ impl<T> Writer<T> where T : StringRef {
     pub fn single_indent(&mut self) {
         self.handle_first_column();
         self.state.current_line_column += self.indent_width as u32;
-        self.push_item(WriteItem::Indent);
+        self.push_item(WriteItem::Indent(1));
     }
 
     pub fn tab(&mut self) {
@@ -163,8 +163,8 @@ impl<T> Writer<T> where T : StringRef {
             // update the indent level again since on the first column
             self.state.last_line_indent_level = self.state.indent_level;
 
-            for _ in 0..self.state.indent_level {
-                self.push_item(WriteItem::Indent);
+            if self.state.indent_level > 0 {
+                self.push_item(WriteItem::Indent(self.state.indent_level));
             }
 
             self.state.current_line_column += self.state.indent_level as u32 * self.indent_width as u32;

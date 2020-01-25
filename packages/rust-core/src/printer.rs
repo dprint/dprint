@@ -75,8 +75,9 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
     /// Turns the print items into a collection of writer items according to the options.
     pub fn print(mut self) -> impl Iterator<Item = WriteItem<TString>> {
-        while let Some(current_node) = self.current_node.clone() {
-            self.handle_print_node(unsafe { &*current_node.get() });
+        while let Some(current_node) = &self.current_node {
+            let current_node = unsafe { &*current_node.get() };
+            self.handle_print_node(current_node);
 
             if self.skip_moving_next {
                 self.skip_moving_next = false;
@@ -133,6 +134,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[inline]
     fn handle_print_node(&mut self, print_node: &'a PrintNode<TString, TInfo, TCondition>) {
         match &print_node.item {
             PrintItem::String(text) => self.handle_string(text),
@@ -211,6 +213,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         self.skip_moving_next = true;
     }
 
+    #[inline]
     fn handle_signal(&mut self, signal: &Signal) {
         match signal {
             Signal::NewLine => self.write_new_line(),
@@ -248,6 +251,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[inline]
     fn handle_info(&mut self, info: &TInfo) {
         self.resolved_infos.insert(info.get_unique_id(), self.get_writer_info());
         let option_save_point = self.look_ahead_info_save_points.remove(&info.get_unique_id());
@@ -257,6 +261,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[inline]
     fn handle_condition(&mut self, condition: &'a TCondition, next_node: &Option<PrintItemPath<TString, TInfo, TCondition>>) {
         let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
         self.resolved_conditions.insert(condition.get_unique_id(), condition_value);
@@ -283,12 +288,14 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[inline]
     fn handle_rc_path(&mut self, print_item_path: &PrintItemPath<TString, TInfo, TCondition>, next_node: &Option<PrintItemPath<TString, TInfo, TCondition>>) {
         self.next_node_stack.push(next_node.clone());
         self.current_node = Some(print_item_path.clone());
         self.skip_moving_next = true;
     }
 
+    #[inline]
     fn handle_string(&mut self, text: &Rc<StringContainer<TString>>) {
         if self.is_testing {
             self.validate_string(&text.text);
