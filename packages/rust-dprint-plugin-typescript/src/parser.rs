@@ -2608,7 +2608,7 @@ fn parse_expr_stmt<'a>(stmt: &'a ExprStmt, context: &mut Context<'a>) -> PrintIt
                 for item in PrintItemsIterator::new(path.clone()) {
                     match item {
                         PrintItem::String(value) => {
-                            if let Some(c) = value.chars().next() {
+                            if let Some(c) = value.text.chars().next() {
                                 return utils::is_prefix_semi_colon_insertion_char(c).into();
                             }
                         },

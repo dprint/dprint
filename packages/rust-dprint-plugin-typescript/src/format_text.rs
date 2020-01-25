@@ -13,14 +13,18 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
         let start = Instant::now();
         let print_items = parse(parsed_source_file, config.clone());
         println!("{}ms", start.elapsed().as_millis());
+        let start = Instant::now();
 
-        Ok(Some(print(print_items, PrintOptions {
+        let result = Some(print(print_items, PrintOptions {
             indent_width: config.indent_width,
             max_width: config.line_width,
             is_testing: false, // todo: this should be true when testing
             use_tabs: config.use_tabs,
             newline_kind: get_new_line_kind(file_text, config),
-        })))
+        }));
+        println!("{}ms", start.elapsed().as_millis());
+
+        Ok(result)
     });
 
     fn get_new_line_kind(file_text: &str, config: &TypeScriptConfiguration) -> &'static str {

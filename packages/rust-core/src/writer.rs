@@ -1,3 +1,4 @@
+use super::StringContainer;
 use super::StringRef;
 use super::WriteItem;
 use super::collections::{GraphNode, GraphNodeIterator};
@@ -146,9 +147,9 @@ impl<T> Writer<T> where T : StringRef {
         self.push_item(WriteItem::Space);
     }
 
-    pub fn write(&mut self, text: Rc<T>) {
+    pub fn write(&mut self, text: Rc<StringContainer<T>>) {
         self.handle_first_column();
-        self.state.current_line_column += text.get_length() as u32;
+        self.state.current_line_column += text.char_count;
         self.push_item(WriteItem::String(text));
     }
 

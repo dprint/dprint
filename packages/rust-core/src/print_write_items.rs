@@ -24,7 +24,7 @@ pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, opt
             WriteItem::Tab => final_string.push_str("\t"),
             WriteItem::Space => final_string.push_str(" "),
             WriteItem::String(text) => {
-                final_string.push_str(&text.get_text_clone());
+                final_string.push_str(text.text.get_text());
             },
         }
     }

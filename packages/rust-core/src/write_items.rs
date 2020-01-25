@@ -1,8 +1,9 @@
 use std::rc::Rc;
+use super::StringContainer;
 use super::StringRef;
 
 pub enum WriteItem<T = String> where T : StringRef {
-    String(Rc<T>),
+    String(Rc<StringContainer<T>>),
     Indent,
     NewLine,
     Tab,

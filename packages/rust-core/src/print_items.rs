@@ -1,6 +1,6 @@
 use super::printer::Printer;
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem;
 
@@ -60,7 +60,7 @@ impl<TString, TInfo, TCondition> PrintItems<TString, TInfo, TCondition> where TS
 impl PrintItems {
     pub fn extend(&mut self, items: PrintItems) {
         if let Some(first_node) = &self.first_node {
-            self.last_node.as_ref().unwrap_or(first_node).borrow_mut().set_next(items.first_node.clone());
+            self.last_node.as_ref().unwrap_or(first_node).set_next(items.first_node.clone());
             self.last_node = items.last_node.or(items.first_node.or(self.last_node.clone())); // todo: fix this
         } else {
             self.first_node = items.first_node;
@@ -69,7 +69,7 @@ impl PrintItems {
     }
 
     pub fn push_str(&mut self, item: &str) {
-        self.push(PrintItem::String(Rc::from(String::from(item))));
+        self.push(PrintItem::String(Rc::from(StringContainer::new(String::from(item)))));
     }
 
     pub fn push_condition(&mut self, condition: Condition) {
@@ -90,13 +90,13 @@ impl PrintItems {
 
     #[inline]
     pub fn push(&mut self, item: PrintItem) {
-        let node = Rc::new(RefCell::new(PrintNode::new(item)));
+        let node = Rc::new(UnsafeCell::new(PrintNode::new(item)));
         if let Some(first_node) = &self.first_node {
             let new_last_node = node.get_last_next_or_self();
-            self.last_node.as_ref().unwrap_or(first_node).borrow_mut().set_next(Some(node));
+            self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
             self.last_node = Some(new_last_node);
         } else {
-            if node.borrow().next.is_some() {
+            if node.has_next() {
                 self.last_node = Some(node.get_last_next_or_self());
             }
             self.first_node = Some(node);
@@ -132,7 +132,7 @@ impl PrintItems {
                             text.push_str(&get_items_as_text(false_path.clone(), format!("{}    ", &indent_text)));
                         }
                     },
-                    PrintItem::String(str_text) => text.push_str(&get_line(str_text.to_string(), &indent_text)),
+                    PrintItem::String(str_text) => text.push_str(&get_line(str_text.text.to_string(), &indent_text)),
                     PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path.clone(), indent_text.clone())),
                 }
             }
@@ -172,8 +172,8 @@ impl Iterator for PrintItemsIterator {
 
         match node {
             Some(node) => {
-                self.node = node.borrow().next.clone();
-                Some(node.borrow().item.clone())
+                self.node = node.get_next();
+                Some(node.get_item())
             },
             None => None
         }
@@ -258,36 +258,80 @@ impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TSt
 
         if let Some(past_next) = past_next {
             if let Some(new_next) = new_next {
-                new_next.get_last_next_or_self().borrow_mut().set_next(Some(past_next));
+                new_next.get_last_next_or_self().set_next(Some(past_next));
             }
         }
     }
 }
 
-trait RcPrintNodeGetLast<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    fn get_last_next_or_self(&self) -> Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>;
+pub trait PrintItemPathExtensions<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+    fn get_item(&self) -> PrintItem<TString, TInfo, TCondition>;
+    fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
+    fn has_next(&self) -> bool;
+    fn set_next(&self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>);
+    fn get_last_next_or_self(&self) -> PrintItemPath<TString, TInfo, TCondition>;
 }
 
-impl<TString, TInfo, TCondition> RcPrintNodeGetLast<TString, TInfo, TCondition> for Rc<RefCell<PrintNode<TString, TInfo, TCondition>>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    fn get_last_next_or_self(&self) -> Rc<RefCell<PrintNode<TString, TInfo, TCondition>>> {
+impl<TString, TInfo, TCondition> PrintItemPathExtensions<TString, TInfo, TCondition> for PrintItemPath<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+    #[inline]
+    fn get_item(&self) -> PrintItem<TString, TInfo, TCondition> {
+        unsafe {
+            (*self.get()).item.clone()
+        }
+    }
+
+    #[inline]
+    fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+        unsafe {
+            (*self.get()).next.clone()
+        }
+    }
+
+    #[inline]
+    fn has_next(&self) -> bool {
+        unsafe {
+            (*self.get()).next.is_some()
+        }
+    }
+
+    #[inline]
+    fn set_next(&self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>) {
+        unsafe {
+            (*self.get()).set_next(new_next);
+        }
+    }
+
+    #[inline]
+    fn get_last_next_or_self(&self) -> PrintItemPath<TString, TInfo, TCondition> {
         let mut last = self.clone();
-        while let Some(next) = last.clone().borrow().next.clone() {
+        while let Some(next) = unsafe { (*last.get()).next.clone() } {
             last = next;
         }
         return last;
     }
 }
 
-pub type PrintItemPath<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> = Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>;
+pub type PrintItemPath<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> = Rc<UnsafeCell<PrintNode<TString, TInfo, TCondition>>>;
 
 /// The different items the printer could encounter.
-#[derive(Clone)]
 pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    String(Rc<TString>),
+    String(Rc<StringContainer<TString>>),
     Condition(Rc<TCondition>),
     Info(Rc<TInfo>),
     Signal(Signal),
     RcPath(PrintItemPath<TString, TInfo, TCondition>),
+}
+
+impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+    fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
+        match self {
+            PrintItem::String(text) => PrintItem::String(text.clone()),
+            PrintItem::Condition(condition) => PrintItem::Condition(condition.clone()),
+            PrintItem::Info(info) => PrintItem::Info(info.clone()),
+            PrintItem::Signal(signal) => PrintItem::Signal(*signal),
+            PrintItem::RcPath(path) => PrintItem::RcPath(path.clone()),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
@@ -455,6 +499,27 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
     /// Gets the writer info at a specified info or returns undefined when not yet resolved.
     pub fn get_resolved_info(&mut self, info: &TInfo) -> Option<WriterInfo> {
         self.printer.get_resolved_info(info)
+    }
+}
+
+/// A container that holds the string's value and character count.
+#[derive(Clone)]
+pub struct StringContainer<TString> where TString : StringRef {
+    /// The string value.
+    pub text: TString,
+    /// The cached character count.
+    /// It is much faster to cache this than to recompute it all the time.
+    pub(super) char_count: u32,
+}
+
+impl<TString> StringContainer<TString> where TString : StringRef {
+    /// Creates a new string container.
+    pub(super) fn new(text: TString) -> StringContainer<TString> {
+        let char_count = text.get_length() as u32;
+        StringContainer {
+            text,
+            char_count
+        }
     }
 }
 

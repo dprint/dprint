@@ -6,7 +6,6 @@ use super::get_write_items::{GetWriteItemsOptions};
 use std::collections::HashMap;
 use std::mem::{self, MaybeUninit};
 use std::rc::Rc;
-use std::cell::RefCell;
 
 #[derive(Clone)]
 struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
@@ -17,7 +16,7 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
     pub new_line_group_depth: u16,
     pub writer_state: WriterState<TString>,
     pub possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
-    pub node: Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>,
+    pub node: Option<PrintItemPath<TString, TInfo, TCondition>>,
     pub look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
     pub look_ahead_info_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
     pub next_node_stack: Vec<Option<PrintItemPath<TString, TInfo, TCondition>>>,
@@ -54,7 +53,7 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
 }
 
 impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    pub fn new(start_node: Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>, options: GetWriteItemsOptions) -> Printer<TString, TInfo, TCondition> {
+    pub fn new(start_node: Option<PrintItemPath<TString, TInfo, TCondition>>, options: GetWriteItemsOptions) -> Printer<TString, TInfo, TCondition> {
         Printer {
             possible_new_line_save_point: None,
             new_line_group_depth: 0,
@@ -77,14 +76,14 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     /// Turns the print items into a collection of writer items according to the options.
     pub fn print(mut self) -> impl Iterator<Item = WriteItem<TString>> {
         while let Some(current_node) = self.current_node.clone() {
-            self.handle_print_node(&current_node.borrow());
+            self.handle_print_node(unsafe { &*current_node.get() });
 
             if self.skip_moving_next {
                 self.skip_moving_next = false;
             } else {
                 // move next
                 if let Some(current_node) = self.current_node {
-                    self.current_node = current_node.borrow().next.clone();
+                    self.current_node = current_node.get_next();
                 }
             }
 
@@ -149,7 +148,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         self.possible_new_line_save_point = None;
     }
 
-    fn create_save_point(&mut self, name: &'static str, next_node: Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>) -> Rc<SavePoint<TString, TInfo, TCondition>> {
+    fn create_save_point(&mut self, name: &'static str, next_node: Option<PrintItemPath<TString, TInfo, TCondition>>) -> Rc<SavePoint<TString, TInfo, TCondition>> {
         self.save_point_increment += 1;
         Rc::new(SavePoint {
             id: self.save_point_increment,
@@ -175,7 +174,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             }
         }
 
-        let next_node = self.current_node.as_ref().unwrap().borrow().next.clone();
+        let next_node = self.current_node.as_ref().unwrap().get_next();
         self.possible_new_line_save_point = Some(self.create_save_point("newline", next_node));
     }
 
@@ -258,7 +257,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
-    fn handle_condition(&mut self, condition: &'a TCondition, next_node: &Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>) {
+    fn handle_condition(&mut self, condition: &'a TCondition, next_node: &Option<PrintItemPath<TString, TInfo, TCondition>>) {
         let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
         self.resolved_conditions.insert(condition.get_unique_id(), condition_value);
 
@@ -284,18 +283,18 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
-    fn handle_rc_path(&mut self, print_item_path: &PrintItemPath<TString, TInfo, TCondition>, next_node: &Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>) {
+    fn handle_rc_path(&mut self, print_item_path: &PrintItemPath<TString, TInfo, TCondition>, next_node: &Option<PrintItemPath<TString, TInfo, TCondition>>) {
         self.next_node_stack.push(next_node.clone());
         self.current_node = Some(print_item_path.clone());
         self.skip_moving_next = true;
     }
 
-    fn handle_string(&mut self, text: &Rc<TString>) {
+    fn handle_string(&mut self, text: &Rc<StringContainer<TString>>) {
         if self.is_testing {
-            self.validate_string(text);
+            self.validate_string(&text.text);
         }
 
-        if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.get_length() as u32) {
+        if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) {
             let save_point = mem::replace(&mut self.possible_new_line_save_point, Option::None);
             self.update_state_to_save_point(save_point.unwrap(), true);
         } else {
