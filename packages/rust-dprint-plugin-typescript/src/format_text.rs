@@ -12,9 +12,10 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
 
         let start = Instant::now();
         let print_items = parse(parsed_source_file, config.clone());
-        println!("{}ms", start.elapsed().as_millis());
+        //println!("{}ms", start.elapsed().as_millis());
+        //println!("Text: {}", print_items.clone().get_as_text());
 
-        Ok(Some(print(vec![print_items], PrintOptions { // todo: remove that vec!...
+        Ok(Some(print(print_items, PrintOptions {
             indent_width: config.indent_width,
             max_width: config.line_width,
             is_testing: false, // todo: this should be true when testing

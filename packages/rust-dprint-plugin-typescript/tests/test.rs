@@ -17,7 +17,6 @@ struct FailedTestResult {
     message: String,
 }
 
-#[test]
 fn test_performance() {
     // run this with `cargo test --release -- --nocapture`
 
@@ -51,6 +50,7 @@ fn test_performance() {
     }
 }
 
+#[test]
 fn test_specs() {
     let specs = get_specs();
     let test_count = specs.len();
@@ -60,6 +60,8 @@ fn test_specs() {
         let mut diagnostics = Vec::new();
         let config = resolve_config(&spec.config, &mut diagnostics);
         ensure_no_diagnostics(&diagnostics);
+
+        println!("FILE PATH: {}", file_path);
 
         let result = format_text(&spec.file_name, &spec.file_text, &config)
             .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());

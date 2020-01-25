@@ -3,15 +3,15 @@ use std::mem::{self, MaybeUninit};
 
 #[derive(Clone)]
 pub struct GraphNode<T> {
-    pub item: T,
-    pub parent: Option<Rc<GraphNode<T>>>,
+    item: T,
+    previous: Option<Rc<GraphNode<T>>>,
 }
 
 impl<T> GraphNode<T> {
-    pub fn new(item: T, parent: Option<Rc<GraphNode<T>>>) -> GraphNode<T> {
+    pub fn new(item: T, previous: Option<Rc<GraphNode<T>>>) -> GraphNode<T> {
         GraphNode {
             item,
-            parent,
+            previous,
         }
     }
 
@@ -21,11 +21,11 @@ impl<T> GraphNode<T> {
     fn take(mut self) -> (T, Option<Rc<GraphNode<T>>>) {
         // See here: https://phaazon.net/blog/rust-no-drop
         let item = mem::replace(&mut self.item, unsafe { MaybeUninit::zeroed().assume_init() });
-        let parent = mem::replace(&mut self.parent, None);
+        let previous = mem::replace(&mut self.previous, None);
 
         mem::forget(self);
 
-        (item, parent)
+        (item, previous)
     }
 }
 
@@ -34,13 +34,13 @@ impl<T> GraphNode<T> {
 // Read more: https://stackoverflow.com/questions/28660362/thread-main-has-overflowed-its-stack-when-constructing-a-large-tree
 impl<T> Drop for GraphNode<T> {
     fn drop(&mut self) {
-        let mut previous = mem::replace(&mut self.parent, None);
+        let mut previous = mem::replace(&mut self.previous, None);
 
         loop {
             previous = match previous {
                 Some(l) => {
                     match Rc::try_unwrap(l) {
-                        Ok(mut l) => mem::replace(&mut l.parent, None),
+                        Ok(mut l) => mem::replace(&mut l.previous, None),
                         Err(_) => break,
                     }
                 },

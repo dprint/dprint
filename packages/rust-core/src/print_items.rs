@@ -73,15 +73,8 @@ impl<TString, TInfo, TCondition> PrintItems<TString, TInfo, TCondition> where TS
 }
 
 impl PrintItems {
-    pub fn push(&mut self, node: PrintNode) {
-        let node = Rc::new(RefCell::new(node));
-        if let Some(first_node) = &self.first_node {
-            let new_last_node = node.get_last_next_or_self();
-            self.last_node.as_ref().unwrap_or(first_node).borrow_mut().set_next(Some(node));
-            self.last_node = Some(new_last_node);
-        } else {
-            self.first_node = Some(node);
-        }
+    pub fn push(&mut self, item: PrintItem) {
+        self.push_node(PrintNode::new(item));
     }
 
     pub fn extend(&mut self, items: PrintItems) {
@@ -95,28 +88,80 @@ impl PrintItems {
     }
 
     pub fn push_str(&mut self, item: &str) {
-        self.push(PrintNode::new(PrintItem::String(Rc::from(String::from(item)))));
+        self.push_node(PrintNode::new(PrintItem::String(Rc::from(String::from(item)))));
     }
 
     pub fn push_condition(&mut self, condition: Condition) {
-        self.push(PrintNode::new(PrintItem::Condition(condition)));
+        self.push_node(PrintNode::new(PrintItem::Condition(condition)));
     }
 
     pub fn push_info(&mut self, info: Info) {
-        self.push(PrintNode::new(PrintItem::Info(Rc::from(info))));
+        self.push_node(PrintNode::new(PrintItem::Info(Rc::from(info))));
     }
 
     pub fn push_signal(&mut self, signal: Signal) {
-        self.push(PrintNode::new(PrintItem::Signal(Rc::new(signal))));
+        self.push_node(PrintNode::new(PrintItem::Signal(signal)));
+    }
+
+    pub(super) fn push_node(&mut self, node: PrintNode) {
+        self.push_rc_node(Rc::new(RefCell::new(node)));
+    }
+
+    pub(super) fn push_rc_node(&mut self, node: Rc<RefCell<PrintNode>>) {
+        if let Some(first_node) = &self.first_node {
+            let new_last_node = node.get_last_next_or_self();
+            self.last_node.as_ref().unwrap_or(first_node).borrow_mut().set_next(Some(node));
+            self.last_node = Some(new_last_node);
+        } else {
+            if node.borrow().next.is_some() {
+                self.last_node = Some(node.get_last_next_or_self());
+            }
+            self.first_node = Some(node);
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.first_node.is_none()
+    }
+
+    // todo: only compile when debugging
+    pub fn get_as_text(self) -> String {
+        return get_items_as_text(self, String::from(""));
+
+        fn get_items_as_text(items: PrintItems, indent_text: String) -> String {
+            let mut text = String::new();
+            for item in items.into_iter() {
+                match item {
+                    PrintItem::Signal(signal) => text.push_str(&get_line(format!("Signal::{:?}", signal), &indent_text)),
+                    PrintItem::Info(info) => text.push_str(&get_line(format!("Info: {}", info.name), &indent_text)),
+                    PrintItem::Condition(condition) => {
+                        text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
+                        let true_items = condition.get_true_items();
+                        if !true_items.is_empty() {
+                            text.push_str(&get_line(String::from("  true:"), &indent_text));
+                            text.push_str(&get_items_as_text(true_items, format!("{}    ", &indent_text)));
+                        }
+                    },
+                    PrintItem::String(str_text) => text.push_str(&get_line(str_text.to_string(), &indent_text)),
+                }
+            }
+
+            return text;
+
+            fn get_line(text: String, indent_text: &String) -> String {
+                format!("{}{}\n", indent_text, text)
+            }
+        }
     }
 }
 
 impl Clone for PrintItems {
     fn clone(&self) -> PrintItems {
+        // todo: need to improve this to clone properly...
         let mut items = PrintItems::new();
         let mut next = self.first_node.clone();
         while let Some(current) = next {
-            items.push(PrintNode {
+            items.push_node(PrintNode {
                 item: current.borrow().item.clone(),
                 next: None,
             });
@@ -124,6 +169,38 @@ impl Clone for PrintItems {
         }
 
         items
+    }
+}
+
+impl IntoIterator for PrintItems {
+    type Item = PrintItem;
+    type IntoIter = PrintItemsIntoIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        PrintItemsIntoIterator {
+            node: self.first_node,
+        }
+    }
+}
+
+pub struct PrintItemsIntoIterator {
+    node: Option<Rc<RefCell<PrintNode>>>,
+}
+
+impl Iterator for PrintItemsIntoIterator {
+    type Item = PrintItem;
+
+    fn next(&mut self) -> Option<PrintItem> {
+        let node = mem::replace(&mut self.node, None);
+        match node {
+            Some(node) => {
+                // replace with a dummy value (todo: something better?)
+                let node = node.replace(PrintNode::new(PrintItem::Signal(Signal::NewLine)));
+                self.node = node.next;
+                Some(node.item)
+            },
+            None => None
+        }
     }
 }
 
@@ -203,9 +280,10 @@ pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TStrin
     String(Rc<TString>),
     Condition(TCondition), // no Rc because conditions shouldn't be shared since paths must be unique
     Info(Rc<TInfo>),
-    Signal(Rc<Signal>),
+    Signal(Signal),
 }
 
+#[derive(Clone, PartialEq, Copy, Debug)]
 pub enum Signal {
     /// Signal that a new line should occur based on the printer settings.
     NewLine,
@@ -289,6 +367,30 @@ pub struct Condition<TString = String, TInfo = Info> where TString : StringRef, 
     pub true_path: Option<Rc<RefCell<ConditionPath<TString, TInfo, Condition<TString, TInfo>>>>>,
     /// The items to print when the condition is false or undefined (not yet resolved).
     pub false_path: Option<Rc<RefCell<ConditionPath<TString, TInfo, Condition<TString, TInfo>>>>>,
+}
+
+impl Condition {
+    /// Gets the true path as a collection of PrintItems.
+    pub fn get_true_items(&self) -> PrintItems {
+        get_items_from_condition_path(&self.true_path)
+    }
+
+    /// Gets the false path as a collection of PrintItems.
+    pub fn get_false_items(&self) -> PrintItems {
+        get_items_from_condition_path(&self.false_path)
+    }
+}
+
+fn get_items_from_condition_path(condition_path: &Option<Rc<RefCell<ConditionPath<String, Info, Condition>>>>) -> PrintItems {
+    let mut items = PrintItems::new();
+
+    if let Some(condition_path) = condition_path {
+        if let Some(first_node) = &condition_path.borrow().first_node {
+            items.push_rc_node(first_node.clone());
+        }
+    }
+
+    items
 }
 
 // need to manually implement this for some reason instead of using #[derive(Clone)]
