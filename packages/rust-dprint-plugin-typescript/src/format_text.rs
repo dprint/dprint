@@ -12,8 +12,7 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
 
         let start = Instant::now();
         let print_items = parse(parsed_source_file, config.clone());
-        //println!("{}ms", start.elapsed().as_millis());
-        //println!("Text: {}", print_items.clone().get_as_text());
+        println!("{}ms", start.elapsed().as_millis());
 
         Ok(Some(print(print_items, PrintOptions {
             indent_width: config.indent_width,

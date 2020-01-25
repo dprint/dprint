@@ -926,9 +926,10 @@ fn parse_named_import_or_export_specifiers<'a>(parent_decl: NamedImportOrExportD
         context
     );
     let brace_separator: PrintItems = if use_new_lines { Signal::NewLine.into() } else if use_space { " ".into() } else { "".into() };
+    let brace_separator = brace_separator.into_rc_path();
 
     items.push_str("{");
-    items.extend(brace_separator.clone());
+    items.extend(brace_separator.clone().into());
 
     let specifiers = {
         let mut items = PrintItems::new();
@@ -950,7 +951,7 @@ fn parse_named_import_or_export_specifiers<'a>(parent_decl: NamedImportOrExportD
 
     items.extend(if use_new_lines { parser_helpers::with_indent(specifiers) } else { specifiers });
 
-    items.extend(brace_separator);
+    items.extend(brace_separator.into());
     items.push_str("}");
 
     return items;
@@ -1160,6 +1161,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         items: PrintItems
     ) -> PrintItems {
         let is_left_most_node = top_most_expr_start == current_node_start;
+        let items = items.into_rc_path();
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
                 if indent_disabled || is_left_most_node { return Some(false); }
@@ -1319,10 +1321,11 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
         }
 
         pub fn filter_signals(old_items: PrintItems) -> PrintItems {
+            // todo: add a Signal::StartIgnoringSignals and Signal::FinishIgnoringSignals
             let mut items = PrintItems::new();
-            for item in old_items.into_iter() {
+            for item in old_items.iter() {
                 match item {
-                    PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) => items.push(item),
+                    PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) | PrintItem::RcPath(_) => items.push(item),
                     PrintItem::Signal(_) => {},
                 }
             }
@@ -2589,38 +2592,45 @@ fn parse_expr_stmt<'a>(stmt: &'a ExprStmt, context: &mut Context<'a>) -> PrintIt
 
     fn parse_for_prefix_semi_colon_insertion<'a>(stmt: &'a ExprStmt, context: &mut Context<'a>) -> PrintItems {
         let parsed_node = parse_inner(&stmt, context);
-        // todo: investigate removing this clone
-        return if should_add_semi_colon(parsed_node.clone()).unwrap_or(false) {
+        let parsed_node = parsed_node.into_rc_path();
+        return if should_add_semi_colon(&parsed_node).unwrap_or(false) {
             let mut items = PrintItems::new();
             items.push_str(";");
-            items.extend(parsed_node);
+            items.extend(parsed_node.into());
             items
         } else {
-            parsed_node
+            parsed_node.into()
         };
 
-        fn should_add_semi_colon(items: PrintItems) -> Option<bool> {
-            // todo: items.iter()?
-            for item in items.into_iter() {
-                match item {
-                    PrintItem::String(value) => {
-                        if let Some(c) = value.chars().next() {
-                            return utils::is_prefix_semi_colon_insertion_char(c).into();
-                        }
-                    },
-                    PrintItem::Condition(condition) => {
-                        // It's an assumption here that the true and false paths of the
-                        // condition will both contain the same text to look for. This is probably not robust
-                        // and perhaps instead there should be a way to do something like "get the next character" in
-                        // the printer.
-                        if let Some(result) = should_add_semi_colon(condition.get_true_items()) {
-                            return Some(result);
-                        }
-                        if let Some(result) = should_add_semi_colon(condition.get_false_items()) {
-                            return Some(result);
-                        }
-                    },
-                    _ => { /* do nothing */ },
+        fn should_add_semi_colon(path: &Option<PrintItemPath>) -> Option<bool> {
+            // todo: this needs to be improved
+            if let Some(path) = path {
+                for item in PrintItemsIterator::new(path.clone()) {
+                    match item {
+                        PrintItem::String(value) => {
+                            if let Some(c) = value.chars().next() {
+                                return utils::is_prefix_semi_colon_insertion_char(c).into();
+                            }
+                        },
+                        PrintItem::Condition(condition) => {
+                            // It's an assumption here that the true and false paths of the
+                            // condition will both contain the same text to look for. This is probably not robust
+                            // and perhaps instead there should be a way to do something like "get the next character" in
+                            // the printer.
+                            if let Some(result) = should_add_semi_colon(&condition.get_true_path()) {
+                                return Some(result);
+                            }
+                            if let Some(result) = should_add_semi_colon(&condition.get_false_path()) {
+                                return Some(result);
+                            }
+                        },
+                        PrintItem::RcPath(items) => {
+                            if let Some(result) = should_add_semi_colon(&Some(items)) {
+                                return Some(result);
+                            }
+                        },
+                        _ => { /* do nothing */ },
+                    }
                 }
             }
 
@@ -3965,11 +3975,11 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     items.push_info(start_info);
     items.push_str("(");
 
-    let param_list = parse_comma_separated_values(nodes, is_multi_line_or_hanging.clone(), context);
+    let param_list = parse_comma_separated_values(nodes, is_multi_line_or_hanging.clone(), context).into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
         condition: Box::new(is_multi_line_or_hanging),
-        true_path: Some(surround_with_new_lines(with_indent(param_list.clone()))),
-        false_path: Some(param_list),
+        true_path: Some(surround_with_new_lines(with_indent(param_list.clone().into()))),
+        false_path: Some(param_list.into()),
     }));
 
     if let Some(custom_close_paren) = opts.custom_close_paren {
@@ -4071,12 +4081,13 @@ fn parse_comma_separated_values<'a>(
         if i == 0 {
             items.extend(parsed_value);
         } else {
+            let parsed_value = parsed_value.into_rc_path();
             items.push_condition(Condition::new("multiLineOrHangingCondition", ConditionProperties {
                 condition: Box::new(multi_line_or_hanging_condition_resolver.clone()),
                 true_path: {
                     let mut items = PrintItems::new();
                     items.push_signal(Signal::NewLine);
-                    items.extend(parsed_value.clone());
+                    items.extend(parsed_value.clone().into());
                     Some(items.into())
                 },
                 false_path: {
@@ -4254,9 +4265,10 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         context
     );
     let separator: PrintItems = if multi_line { Signal::NewLine.into() } else { " ".into() };
+    let separator = separator.into_rc_path();
 
     items.push_str("{");
-    items.extend(separator.clone());
+    items.extend(separator.clone().into());
 
     if multi_line {
         items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
@@ -4284,7 +4296,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         }
     }
 
-    items.extend(separator);
+    items.extend(separator.into());
     items.push_str("}");
 
     return items;
@@ -4755,7 +4767,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
     // Need to parse the children here so they only get parsed once.
     // Nodes need to be only parsed once so that their comments don't end up in
     // the handled comments collection and the second time they won't be parsed out.
-    let children = opts.children.into_iter().map(|c| (c.clone(), parse_node(c, context))).collect();
+    let children = opts.children.into_iter().map(|c| (c.clone(), parse_node(c, context).into_rc_path())).collect();
     let parent_start_info = opts.parent_start_info;
     let parent_end_info = opts.parent_end_info;
 
@@ -4780,7 +4792,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
         }).into();
     }
 
-    fn parse_for_new_lines<'a>(children: Vec<(Node<'a>, PrintItems)>, inner_span: Span, context: &mut Context<'a>) -> PrintItems {
+    fn parse_for_new_lines<'a>(children: Vec<(Node<'a>, Option<PrintItemPath>)>, inner_span: Span, context: &mut Context<'a>) -> PrintItems {
         let mut items = PrintItems::new();
         let has_children = !children.is_empty();
         items.push_signal(Signal::NewLine);
@@ -4816,7 +4828,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
         return items;
     }
 
-    fn parse_for_single_line<'a>(children: Vec<(Node<'a>, PrintItems)>, context: &mut Context<'a>) -> PrintItems {
+    fn parse_for_single_line<'a>(children: Vec<(Node<'a>, Option<PrintItemPath>)>, context: &mut Context<'a>) -> PrintItems {
         let mut items = PrintItems::new();
         if children.is_empty() {
             items.push_signal(Signal::PossibleNewLine);
@@ -4829,7 +4841,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
                     }
                 }
 
-                items.extend(parsed_child);
+                items.extend(parsed_child.into());
                 items.push_signal(Signal::PossibleNewLine);
                 previous_child = Some(child);
             }

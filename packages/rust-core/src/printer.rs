@@ -20,6 +20,7 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
     pub node: Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>,
     pub look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
     pub look_ahead_info_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
+    pub next_node_stack: Vec<Option<PrintItemPath<TString, TInfo, TCondition>>>,
 }
 
 struct PrintItemContainer<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
@@ -39,13 +40,14 @@ impl<'a, TString, TInfo, TCondition> Clone for PrintItemContainer<'a, TString, T
 pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
     new_line_group_depth: u16,
-    current_node: Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>,
+    current_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
     save_point_increment: u32, // todo: remove
     writer: Writer<TString>,
     resolved_conditions: HashMap<usize, Option<bool>>,
     resolved_infos: HashMap<usize, WriterInfo>,
     look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
     look_ahead_info_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
+    next_node_stack: Vec<Option<PrintItemPath<TString, TInfo, TCondition>>>,
     max_width: u32,
     skip_moving_next: bool,
     is_testing: bool, // todo: compiler directives
@@ -65,6 +67,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             resolved_infos: HashMap::new(),
             look_ahead_condition_save_points: HashMap::new(),
             look_ahead_info_save_points: HashMap::new(),
+            next_node_stack: Vec::new(),
             max_width: options.max_width,
             skip_moving_next: false,
             is_testing: options.is_testing,
@@ -74,7 +77,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     /// Turns the print items into a collection of writer items according to the options.
     pub fn print(mut self) -> impl Iterator<Item = WriteItem<TString>> {
         while let Some(current_node) = self.current_node.clone() {
-            self.handle_print_item(&current_node.borrow().item);
+            self.handle_print_node(&current_node.borrow());
 
             if self.skip_moving_next {
                 self.skip_moving_next = false;
@@ -83,6 +86,10 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
                 if let Some(current_node) = self.current_node {
                     self.current_node = current_node.borrow().next.clone();
                 }
+            }
+
+            while self.current_node.is_none() && !self.next_node_stack.is_empty() {
+                self.current_node = self.next_node_stack.pop().flatten();
             }
         }
 
@@ -127,12 +134,13 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
-    fn handle_print_item(&mut self, print_item: &'a PrintItem<TString, TInfo, TCondition>) {
-        match print_item {
+    fn handle_print_node(&mut self, print_node: &'a PrintNode<TString, TInfo, TCondition>) {
+        match &print_node.item {
             PrintItem::String(text) => self.handle_string(text),
-            PrintItem::Condition(condition) => self.handle_condition(condition),
+            PrintItem::Condition(condition) => self.handle_condition(condition, &print_node.next),
             PrintItem::Info(info) => self.handle_info(info),
-            PrintItem::Signal(signal) => self.handle_signal(&signal),
+            PrintItem::Signal(signal) => self.handle_signal(signal),
+            PrintItem::RcPath(rc_path) => self.handle_rc_path(rc_path, &print_node.next),
         }
     }
 
@@ -152,6 +160,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             writer_state: self.writer.get_state(),
             look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
             look_ahead_info_save_points: self.look_ahead_info_save_points.clone(),
+            next_node_stack: self.next_node_stack.clone(),
         })
     }
 
@@ -183,6 +192,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
                 self.new_line_group_depth = save_point.new_line_group_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points;
                 self.look_ahead_info_save_points = save_point.look_ahead_info_save_points;
+                self.next_node_stack = save_point.next_node_stack;
             },
             Err(save_point) => {
                 self.writer.set_state(save_point.writer_state.clone());
@@ -191,6 +201,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
                 self.new_line_group_depth = save_point.new_line_group_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
                 self.look_ahead_info_save_points = save_point.look_ahead_info_save_points.clone();
+                self.next_node_stack = save_point.next_node_stack.clone();
             }
         }
 
@@ -247,7 +258,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
-    fn handle_condition(&mut self, condition: &'a TCondition) {
+    fn handle_condition(&mut self, condition: &'a TCondition, next_node: &Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>) {
         let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
         self.resolved_conditions.insert(condition.get_unique_id(), condition_value);
 
@@ -260,21 +271,23 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
         if condition_value.is_some() && condition_value.unwrap() {
             if let Some(true_path) = condition.get_true_path() {
-                true_path.borrow_mut().set_next_node_if_not_set(self.current_node.as_ref().map(|x| x.borrow().next.clone()).flatten());
-                if let Some(first_node) = true_path.borrow().first_node.clone() {
-                    self.current_node = Some(first_node);
-                    self.skip_moving_next = true;
-                }
+                self.current_node = Some(true_path.clone());
+                self.next_node_stack.push(next_node.clone());
+                self.skip_moving_next = true;
             }
         } else {
             if let Some(false_path) = condition.get_false_path() {
-                false_path.borrow_mut().set_next_node_if_not_set(self.current_node.as_ref().map(|x| x.borrow().next.clone()).flatten());
-                if let Some(first_node) = false_path.borrow().first_node.clone() {
-                    self.current_node = Some(first_node);
-                    self.skip_moving_next = true;
-                }
+                self.current_node = Some(false_path.clone());
+                self.next_node_stack.push(next_node.clone());
+                self.skip_moving_next = true;
             }
         }
+    }
+
+    fn handle_rc_path(&mut self, print_item_path: &PrintItemPath<TString, TInfo, TCondition>, next_node: &Option<Rc<RefCell<PrintNode<TString, TInfo, TCondition>>>>) {
+        self.next_node_stack.push(next_node.clone());
+        self.current_node = Some(print_item_path.clone());
+        self.skip_moving_next = true;
     }
 
     fn handle_string(&mut self, text: &Rc<TString>) {
