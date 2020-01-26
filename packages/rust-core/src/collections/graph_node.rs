@@ -1,9 +1,10 @@
 use std::rc::Rc;
 use std::mem::{self, MaybeUninit};
 
+#[derive(Clone)]
 pub struct GraphNode<T> {
-    previous: Option<Rc<GraphNode<T>>>,
     item: T,
+    previous: Option<Rc<GraphNode<T>>>,
 }
 
 impl<T> GraphNode<T> {

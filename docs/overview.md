@@ -60,8 +60,6 @@ This is an enum that signals information to the printer.
 * `StartIgnoringIndent` - Signal to the printer that it should stop using indentation.
 * `FinishIgnoringIndent` - Signal to the printer that it should start using indentation again.
 
-In the Rust implementation these exist directly on the `PrintItem` enum.
-
 ## Printer
 
 The printer takes the IR and outputs the final code. Its main responsibilities are:

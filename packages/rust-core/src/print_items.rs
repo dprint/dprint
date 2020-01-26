@@ -1,47 +1,368 @@
 use super::printer::Printer;
 use std::rc::Rc;
+use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::mem;
 
-// Traits. This allows implementing these for Wasm objects.
+/* Traits -- This allows implementing these for Wasm objects. */
 
-pub trait StringRef {
+pub trait StringTrait {
     fn get_length(&self) -> usize;
-    fn get_text(self) -> String;
-    fn get_text_clone(&self) -> String;
+    fn get_text<'a>(&'a self) -> &'a str;
 }
 
-impl StringRef for String {
+impl StringTrait for String {
     fn get_length(&self) -> usize {
         self.chars().count()
     }
 
-    fn get_text(self) -> String {
+    fn get_text<'a>(&'a self) -> &'a str {
         self
     }
+}
 
-    fn get_text_clone(&self) -> String {
-        self.clone()
+pub trait InfoTrait {
+    fn get_unique_id(&self) -> usize;
+    fn get_name(&self) -> &'static str;
+}
+
+pub trait ConditionTrait<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    fn get_unique_id(&self) -> usize;
+    fn get_is_stored(&self) -> bool;
+    fn get_name(&self) -> &'static str;
+    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>;
+    fn get_true_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
+    fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
+}
+
+/** Print Items */
+
+pub struct PrintItems<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    pub(super) first_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
+    last_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
+}
+
+impl<TString, TInfo, TCondition> PrintItems<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    pub fn new() -> PrintItems<TString, TInfo, TCondition> {
+        PrintItems {
+            first_node: None,
+            last_node: None,
+        }
+    }
+
+    pub fn into_rc_path(self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+        self.first_node
+    }
+
+    pub fn push_item(&mut self, item: PrintItem<TString, TInfo, TCondition>) {
+        self.push_item_internal(item);
+    }
+
+    // seems marginally faster to inline this? probably not worth it
+    #[inline]
+    fn push_item_internal(&mut self, item: PrintItem<TString, TInfo, TCondition>) {
+        let node = Rc::new(PrintNodeCell::new(item));
+        if let Some(first_node) = &self.first_node {
+            let new_last_node = node.get_last_next().unwrap_or(node.clone());
+            self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
+            self.last_node = Some(new_last_node);
+        } else {
+            self.last_node = node.get_last_next();
+            self.first_node = Some(node);
+        }
     }
 }
 
-pub trait InfoRef {
-    fn get_unique_id(&self) -> usize;
-    fn get_name(&self) -> &'static str;
+impl PrintItems {
+    pub fn extend(&mut self, items: PrintItems) {
+        if let Some(first_node) = &self.first_node {
+            self.last_node.as_ref().unwrap_or(first_node).set_next(items.first_node.clone());
+            self.last_node = items.last_node.or(items.first_node.or(self.last_node.clone())); // todo: fix this
+        } else {
+            self.first_node = items.first_node;
+            self.last_node = items.last_node;
+        }
+    }
+
+    pub fn push_str(&mut self, item: &str) {
+        self.push_item_internal(PrintItem::String(Rc::from(StringContainer::new(String::from(item)))));
+    }
+
+    pub fn push_condition(&mut self, condition: Condition) {
+        self.push_item_internal(PrintItem::Condition(Rc::from(condition)));
+    }
+
+    pub fn push_info(&mut self, info: Info) {
+        self.push_item_internal(PrintItem::Info(Rc::from(info)));
+    }
+
+    pub fn push_signal(&mut self, signal: Signal) {
+        self.push_item_internal(PrintItem::Signal(signal));
+    }
+
+    pub fn push_path(&mut self, path: PrintItemPath) {
+        self.push_item_internal(PrintItem::RcPath(path))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.first_node.is_none()
+    }
+
+    // todo: only compile when debugging and clean this up
+    pub fn get_as_text(&self) -> String {
+        return if let Some(first_node) = &self.first_node {
+            get_items_as_text(first_node.clone(), String::from(""))
+        } else {
+            String::new()
+        };
+
+        fn get_items_as_text(items: PrintItemPath, indent_text: String) -> String {
+            let mut text = String::new();
+            for item in PrintItemsIterator::new(items) {
+                match item {
+                    PrintItem::Signal(signal) => text.push_str(&get_line(format!("Signal::{:?}", signal), &indent_text)),
+                    PrintItem::Info(info) => text.push_str(&get_line(format!("Info: {}", info.name), &indent_text)),
+                    PrintItem::Condition(condition) => {
+                        text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
+                        if let Some(true_path) = condition.get_true_path() {
+                            text.push_str(&get_line(String::from("  true:"), &indent_text));
+                            text.push_str(&get_items_as_text(true_path.clone(), format!("{}    ", &indent_text)));
+                        }
+                        if let Some(false_path) = condition.get_false_path() {
+                            text.push_str(&get_line(String::from("  false:"), &indent_text));
+                            text.push_str(&get_items_as_text(false_path.clone(), format!("{}    ", &indent_text)));
+                        }
+                    },
+                    PrintItem::String(str_text) => text.push_str(&get_line(str_text.text.to_string(), &indent_text)),
+                    PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path.clone(), indent_text.clone())),
+                }
+            }
+
+            return text;
+
+            fn get_line(text: String, indent_text: &String) -> String {
+                format!("{}{}\n", indent_text, text)
+            }
+        }
+    }
+
+    pub fn iter(&self) -> PrintItemsIterator {
+        PrintItemsIterator {
+            node: self.first_node.clone(),
+        }
+    }
 }
 
-pub trait ConditionRef<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    fn get_unique_id(&self) -> usize;
-    fn get_name(&self) -> &'static str;
-    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>;
-    fn get_true_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, TCondition>>>>;
-    fn get_false_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, TCondition>>>>;
+pub struct PrintItemsIterator {
+    node: Option<PrintItemPath>,
 }
+
+impl PrintItemsIterator {
+    pub fn new(path: PrintItemPath) -> PrintItemsIterator {
+        PrintItemsIterator {
+            node: Some(path),
+        }
+    }
+}
+
+impl Iterator for PrintItemsIterator {
+    type Item = PrintItem;
+
+    fn next(&mut self) -> Option<PrintItem> {
+        let node = self.node.take();
+
+        match node {
+            Some(node) => {
+                self.node = node.get_next();
+                Some(node.get_item())
+            },
+            None => None
+        }
+    }
+}
+
+impl Into<PrintItems> for &str {
+    fn into(self) -> PrintItems {
+        let mut items = PrintItems::new();
+        items.push_str(self);
+        items
+    }
+}
+
+impl Into<PrintItems> for String {
+    fn into(self) -> PrintItems {
+        let mut items = PrintItems::new();
+        items.push_str(&self);
+        items
+    }
+}
+
+impl Into<PrintItems> for &String {
+    fn into(self) -> PrintItems {
+        let mut items = PrintItems::new();
+        items.push_str(self);
+        items
+    }
+}
+
+impl Into<PrintItems> for Condition {
+    fn into(self) -> PrintItems {
+        let mut items = PrintItems::new();
+        items.push_condition(self);
+        items
+    }
+}
+
+impl Into<PrintItems> for Signal {
+    fn into(self) -> PrintItems {
+        let mut items = PrintItems::new();
+        items.push_signal(self);
+        items
+    }
+}
+
+impl Into<PrintItems> for Option<PrintItemPath> {
+    fn into(self) -> PrintItems {
+        let mut items = PrintItems::new();
+        if let Some(path) = self {
+            items.push_path(path);
+        }
+        items
+    }
+}
+
+/** Print Node */
+
+pub struct PrintNode<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    pub(super) next: Option<PrintItemPath<TString, TInfo, TCondition>>,
+    pub(super) item: PrintItem<TString, TInfo, TCondition>,
+}
+
+impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    // Implement a custom drop in order to prevent a stack overflow error when dropping objects of this type
+    fn drop(&mut self) {
+        let mut next = mem::replace(&mut self.next, None);
+
+        loop {
+            next = match next {
+                Some(node) => match Rc::try_unwrap(node) {
+                    Ok(node) => node.take_next(),
+                    Err(_) => break,
+                },
+                None => break
+            }
+        }
+    }
+}
+
+impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    fn new(item: PrintItem<TString, TInfo, TCondition>) -> PrintNode<TString, TInfo, TCondition> {
+        PrintNode {
+            item,
+            next: None,
+        }
+    }
+
+    fn set_next(&mut self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>) {
+        let past_next = mem::replace(&mut self.next, new_next.clone());
+
+        if let Some(past_next) = past_next {
+            if let Some(new_next) = new_next {
+                new_next.get_last_next().unwrap_or(new_next).set_next(Some(past_next));
+            }
+        }
+    }
+}
+
+/// A fast implementation of RefCell<PrintNode> that avoids runtime checks on borrows.
+pub struct PrintNodeCell<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    value: UnsafeCell<PrintNode<TString, TInfo, TCondition>>,
+}
+
+impl<TString, TInfo, TCondition> PrintNodeCell<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    pub(super) fn new(item: PrintItem<TString, TInfo, TCondition>) -> PrintNodeCell<TString, TInfo, TCondition> {
+        PrintNodeCell {
+            value: UnsafeCell::new(PrintNode::new(item))
+        }
+    }
+
+    #[inline]
+    pub(super) fn get_item(&self) -> PrintItem<TString, TInfo, TCondition> {
+        unsafe {
+            (*self.value.get()).item.clone()
+        }
+    }
+
+    #[inline]
+    pub(super) fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+        unsafe {
+            (*self.value.get()).next.clone()
+        }
+    }
+
+    #[inline]
+    pub(super) fn set_next(&self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>) {
+        unsafe {
+            (*self.value.get()).set_next(new_next);
+        }
+    }
+
+    #[inline]
+    pub(super) fn get_last_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+        let mut current = self.get_next();
+        loop {
+            if let Some(last) = &current {
+                if let Some(next) = last.get_next() {
+                    current.replace(next);
+                    continue;
+                }
+            }
+            break;
+        }
+
+        return current;
+    }
+
+    /// Gets the node unsafely. Be careful when using this and ensure no mutation is
+    /// happening during the borrow.
+    #[inline]
+    pub(super) unsafe fn get_node(&self) -> *mut PrintNode<TString, TInfo, TCondition> {
+        self.value.get()
+    }
+
+    #[inline]
+    pub fn take_next(self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+        self.value.into_inner().next.take()
+    }
+}
+
+pub type PrintItemPath<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> = Rc<PrintNodeCell<TString, TInfo, TCondition>>;
+
+/* Print item and kinds */
 
 /// The different items the printer could encounter.
-pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    String(Rc<TString>),
+pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    String(Rc<StringContainer<TString>>),
     Condition(Rc<TCondition>),
     Info(Rc<TInfo>),
+    Signal(Signal),
+    RcPath(PrintItemPath<TString, TInfo, TCondition>),
+}
+
+impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
+        match self {
+            PrintItem::String(text) => PrintItem::String(text.clone()),
+            PrintItem::Condition(condition) => PrintItem::Condition(condition.clone()),
+            PrintItem::Info(info) => PrintItem::Info(info.clone()),
+            PrintItem::Signal(signal) => PrintItem::Signal(*signal),
+            PrintItem::RcPath(path) => PrintItem::RcPath(path.clone()),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub enum Signal {
     /// Signal that a new line should occur based on the printer settings.
     NewLine,
     /// Signal that a tab should occur based on the printer settings.
@@ -71,77 +392,24 @@ pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TStrin
     FinishIgnoringIndent,
 }
 
-impl PrintItem {
-    // Gets if the print item is an item that signals information to the printer—not a string, condition, or info.
-    pub fn is_signal(&self) -> bool {
-        match self {
-            PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) => false,
-            PrintItem::NewLine | PrintItem::Tab | PrintItem::PossibleNewLine | PrintItem::SpaceOrNewLine | PrintItem::ExpectNewLine | PrintItem::StartIndent
-            | PrintItem::FinishIndent | PrintItem::StartNewLineGroup | PrintItem::FinishNewLineGroup | PrintItem::SingleIndent | PrintItem::StartIgnoringIndent
-            | PrintItem::FinishIgnoringIndent => true
-        }
-    }
-}
-
-// need to manually implement this for some reason instead of using #[derive(Clone)]
-impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
-        match self {
-            PrintItem::String(text) => PrintItem::String(text.clone()),
-            PrintItem::Condition(condition) => PrintItem::Condition(condition.clone()),
-            PrintItem::Info(info) => PrintItem::Info(info.clone()),
-            PrintItem::NewLine => PrintItem::NewLine,
-            PrintItem::Tab => PrintItem::Tab,
-            PrintItem::PossibleNewLine => PrintItem::PossibleNewLine,
-            PrintItem::SpaceOrNewLine => PrintItem::SpaceOrNewLine,
-            PrintItem::ExpectNewLine => PrintItem::ExpectNewLine,
-            PrintItem::StartIndent => PrintItem:: StartIndent,
-            PrintItem::FinishIndent => PrintItem::FinishIndent,
-            PrintItem::StartNewLineGroup => PrintItem::StartNewLineGroup,
-            PrintItem::FinishNewLineGroup => PrintItem::FinishNewLineGroup,
-            PrintItem::SingleIndent => PrintItem::SingleIndent,
-            PrintItem::StartIgnoringIndent => PrintItem::StartIgnoringIndent,
-            PrintItem::FinishIgnoringIndent => PrintItem::FinishIgnoringIndent,
-        }
-    }
-}
-
-impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for &str where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
-    fn into(self) -> PrintItem<String, TInfo, TCondition> {
-        PrintItem::String(Rc::new(String::from(self)))
-    }
-}
-
-impl<TInfo, TCondition> Into<PrintItem<String, TInfo, TCondition>> for String where TInfo : InfoRef, TCondition : ConditionRef<String, TInfo, TCondition> {
-    fn into(self) -> PrintItem<String, TInfo, TCondition> {
-        PrintItem::String(Rc::new(self))
-    }
-}
-
 /// Can be used to get information at a certain location being printed. These
 /// can be resolved by providing the info object to a condition context's
 /// get_resolved_info(&info) method.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Copy, Debug)]
 pub struct Info {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
-    pub name: &'static str,
+    name: &'static str,
 }
 
-impl InfoRef for Info {
+impl InfoTrait for Info {
     fn get_unique_id(&self) -> usize {
         self.id
     }
 
     fn get_name(&self) -> &'static str {
         self.name
-    }
-}
-
-impl<TString, TCondition> Into<PrintItem<TString, Info, TCondition>> for Info where TString : StringRef, TCondition : ConditionRef<TString, Info, TCondition> {
-    fn into(self) -> PrintItem<TString, Info, TCondition> {
-        PrintItem::Info(Rc::new(self))
     }
 }
 
@@ -160,95 +428,120 @@ impl Info {
 ///
 /// These conditions are extremely flexible and can even be resolved based on
 /// information found later on in the file.
-pub struct Condition<TString = String, TInfo = Info> where TString : StringRef, TInfo : InfoRef {
+pub struct Condition<TString = String, TInfo = Info> where TString : StringTrait, TInfo : InfoTrait {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
     name: &'static str,
+    /// If a reference has been created for the condition via `get_reference()`. If so, the printer
+    /// will store the condition and it will be retrievable via a condition resolver.
+    is_stored: bool,
     /// The condition to resolve.
     pub condition: Rc<Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>>,
     /// The items to print when the condition is true.
-    pub true_path: Option<Rc<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>>,
+    pub true_path: Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>>,
     /// The items to print when the condition is false or undefined (not yet resolved).
-    pub false_path: Option<Rc<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>>,
+    pub false_path: Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>>,
 }
 
-// need to manually implement this for some reason instead of using #[derive(Clone)]
-impl<TString, TInfo> Clone for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
-    fn clone(&self) -> Condition<TString, TInfo> {
-        Condition {
+impl Clone for Condition {
+    fn clone(&self) -> Condition {
+        return Condition {
             id: self.id,
+            is_stored: self.is_stored,
             name: self.name,
             condition: self.condition.clone(),
             true_path: self.true_path.clone(),
             false_path: self.false_path.clone(),
-        }
+        };
     }
 }
 
 static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+impl<TString, TInfo> Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
     pub fn new(name: &'static str, properties: ConditionProperties<TString, TInfo>) -> Condition<TString, TInfo> {
         Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
+            is_stored: false,
             name,
             condition: Rc::new(properties.condition),
-            true_path: properties.true_path.map(|x| Rc::new(x)),
-            false_path: properties.false_path.map(|x| Rc::new(x)),
+            true_path: properties.true_path.map(|x| x.first_node).flatten(),
+            false_path: properties.false_path.map(|x| x.first_node).flatten(),
         }
+    }
+
+    pub fn get_reference(&mut self) -> ConditionReference {
+        self.is_stored = true;
+        ConditionReference::new(self.name, self.id)
     }
 }
 
-impl<TString, TInfo> ConditionRef<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct ConditionReference {
+    pub(super) name: &'static str,
+    pub(super) id: usize,
+}
+
+impl ConditionReference {
+    pub fn new(name: &'static str, id: usize) -> ConditionReference {
+        ConditionReference { name, id }
+    }
+}
+
+impl<TString, TInfo> ConditionTrait<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
+    #[inline]
     fn get_unique_id(&self) -> usize {
         self.id
     }
 
+    #[inline]
     fn get_name(&self) -> &'static str {
         self.name
     }
 
+    #[inline]
+    fn get_is_stored(&self) -> bool {
+        self.is_stored
+    }
+
+    #[inline]
     fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, Self>) -> Option<bool> {
         (self.condition)(context)
     }
 
-    fn get_true_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>> {
+    #[inline]
+    fn get_true_path(&self) -> Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>> {
         self.true_path.clone()
     }
 
-    fn get_false_path(&self) -> Option<Rc<Vec<PrintItem<TString, TInfo, Self>>>> {
+    #[inline]
+    fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>> {
         self.false_path.clone()
     }
 }
 
-impl<TString, TInfo> Into<PrintItem<TString, TInfo, Condition<TString, TInfo>>> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
-    fn into(self) -> PrintItem<TString, TInfo, Condition<TString, TInfo>> {
-        PrintItem::Condition(Rc::new(self))
-    }
-}
-
 /// Properties for the condition.
-pub struct ConditionProperties<TString = String, TInfo = Info> where TString : StringRef, TInfo : InfoRef {
+pub struct ConditionProperties<TString = String, TInfo = Info> where TString : StringTrait, TInfo : InfoTrait {
     /// The condition to resolve.
     pub condition: Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>,
     /// The items to print when the condition is true.
-    pub true_path: Option<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>,
+    pub true_path: Option<PrintItems<TString, TInfo, Condition<TString, TInfo>>>,
     /// The items to print when the condition is false or undefined (not yet resolved).
-    pub false_path: Option<Vec<PrintItem<TString, TInfo, Condition<TString, TInfo>>>>,
+    pub false_path: Option<PrintItems<TString, TInfo, Condition<TString, TInfo>>>,
 }
 
 /// Function used to resolve a condition.
 pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
 
 /// Context used when resolving a condition.
-pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     printer: &'a mut Printer<TString, TInfo, TCondition>,
     /// Gets the writer info at the condition's location.
     pub writer_info: WriterInfo,
 }
 
-impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     pub fn new(printer: &'a mut Printer<TString, TInfo, TCondition>) -> Self {
         let writer_info = printer.get_writer_info();
         ConditionResolverContext {
@@ -258,13 +551,35 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
     }
 
     /// Gets if a condition was true, false, or returns undefined when not yet resolved.
-    pub fn get_resolved_condition(&mut self, condition: &TCondition) -> Option<bool> {
-        self.printer.get_resolved_condition(condition)
+    /// A condition reference can be retrieved by calling the `get_reference()` on a condition.
+    pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
+        self.printer.get_resolved_condition(condition_reference)
     }
 
     /// Gets the writer info at a specified info or returns undefined when not yet resolved.
-    pub fn get_resolved_info(&mut self, info: &TInfo) -> Option<WriterInfo> {
+    pub fn get_resolved_info(&self, info: &TInfo) -> Option<&WriterInfo> {
         self.printer.get_resolved_info(info)
+    }
+}
+
+/// A container that holds the string's value and character count.
+#[derive(Clone)]
+pub struct StringContainer<TString> where TString : StringTrait {
+    /// The string value.
+    pub text: TString,
+    /// The cached character count.
+    /// It is much faster to cache this than to recompute it all the time.
+    pub(super) char_count: u32,
+}
+
+impl<TString> StringContainer<TString> where TString : StringTrait {
+    /// Creates a new string container.
+    pub fn new(text: TString) -> StringContainer<TString> {
+        let char_count = text.get_length() as u32;
+        StringContainer {
+            text,
+            char_count
+        }
     }
 }
 
@@ -273,7 +588,7 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
 pub struct WriterInfo {
     pub line_number: u32,
     pub column_number: u32,
-    pub indent_level: u16,
-    pub line_start_indent_level: u16,
+    pub indent_level: u8,
+    pub line_start_indent_level: u8,
     pub line_start_column_number: u32,
 }

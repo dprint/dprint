@@ -1,8 +1,8 @@
-use super::StringRef;
-use super::InfoRef;
-use super::ConditionRef;
+use super::StringTrait;
+use super::InfoTrait;
+use super::ConditionTrait;
 use super::printer::*;
-use super::PrintItem;
+use super::PrintItems;
 use super::WriteItem;
 
 /// Options for getting the write items.
@@ -19,9 +19,9 @@ pub struct GetWriteItemsOptions {
 
 /// Gets write items from the print items.
 pub fn get_write_items<TString, TInfo, TCondition>(
-    print_items: Vec<PrintItem<TString, TInfo, TCondition>>,
+    print_items: &PrintItems<TString, TInfo, TCondition>,
     options: GetWriteItemsOptions
-) -> impl Iterator<Item = WriteItem<TString>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    let printer = Printer::new(print_items, options);
+) -> impl Iterator<Item = WriteItem<TString>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    let printer = Printer::new(print_items.first_node.clone(), options);
     printer.print()
 }
