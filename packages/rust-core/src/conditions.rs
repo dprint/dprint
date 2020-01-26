@@ -39,6 +39,16 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
     })
 }
 
+pub fn new_line_if_hanging(start_info: Info, end_info: Option<Info>) -> Condition {
+    Condition::new("newlineIfHanging", ConditionProperties {
+        condition: Box::new(move |context| {
+            return condition_resolvers::is_hanging(context, &start_info, &end_info);
+        }),
+        true_path: Some(Signal::NewLine.into()),
+        false_path: None,
+    })
+}
+
 /// This condition can be used to force the printer to jump back to the point
 /// this condition exists at once the provided info is resolved.
 pub fn force_reevaluation_once_resolved(info: Info) -> Condition {

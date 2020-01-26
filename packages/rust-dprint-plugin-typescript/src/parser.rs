@@ -1283,7 +1283,6 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
 
         fn parse_test_library_callee<'a>(callee: &'a ExprOrSuper, context: &mut Context<'a>) -> PrintItems {
             match callee {
-                // todo: use box pattern matching once supported in rust stable
                 ExprOrSuper::Expr(expr) => {
                     let expr = &**expr;
                     match expr {
@@ -1317,7 +1316,6 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
         }
 
         pub fn filter_signals(old_items: PrintItems) -> PrintItems {
-            // todo: add a Signal::StartIgnoringSignals and Signal::FinishIgnoringSignals
             let mut items = PrintItems::new();
             for item in old_items.iter() {
                 match item {
@@ -2053,12 +2051,7 @@ fn parse_jsx_opening_element<'a>(node: &'a JSXOpeningElement, context: &mut Cont
         }
         items.push_str("/");
     } else {
-        // todo: move condition to core library
-        items.push_condition(Condition::new("newlineIfHanging", ConditionProperties {
-            condition: Box::new(move |condition_context| condition_resolvers::is_hanging(condition_context, &start_info, &None)),
-            true_path: Some(Signal::NewLine.into()),
-            false_path: None,
-        }));
+        items.push_condition(conditions::new_line_if_hanging(start_info, None));
     }
     items.push_str(">");
 

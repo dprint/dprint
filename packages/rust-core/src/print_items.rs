@@ -241,6 +241,7 @@ pub struct PrintNode<TString = String, TInfo = Info, TCondition = Condition<TStr
 }
 
 impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    // Implement a custom drop in order to prevent a stack overflow error when dropping objects of this type
     fn drop(&mut self) {
         let mut next = mem::replace(&mut self.next, None);
 
@@ -248,7 +249,7 @@ impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> 
             next = match next {
                 Some(l) => {
                     match Rc::try_unwrap(l) {
-                        Ok(mut l) => mem::replace(&mut l.into_inner().next, None),
+                        Ok(l) => l.into_inner().next.take(),
                         Err(_) => break,
                     }
                 },
@@ -421,7 +422,8 @@ pub struct Condition<TString = String, TInfo = Info> where TString : StringTrait
     id: usize,
     /// Name for debugging purposes.
     name: &'static str,
-    /// If the condition is stored and can be retrieved via a condition resolver.
+    /// If a reference has been created for the condition via `get_reference()`. If so, the printer
+    /// will store the condition and it will be retrievable via a condition resolver.
     is_stored: bool,
     /// The condition to resolve.
     pub condition: Rc<Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>>,
