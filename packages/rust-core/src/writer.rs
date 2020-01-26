@@ -4,8 +4,6 @@ use super::WriteItem;
 use super::collections::{GraphNode, GraphNodeIterator};
 use std::rc::Rc;
 
-// TOOODOOO: Could the next node be saved instead of the previous?? Would avoid the reverse at the end.
-
 pub struct WriterState<T> where T : StringTrait {
     current_line_column: u32,
     current_line_number: u32,
