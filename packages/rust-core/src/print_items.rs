@@ -93,15 +93,13 @@ impl PrintItems {
 
     #[inline]
     pub fn push(&mut self, item: PrintItem) {
-        let node = Rc::new(UnsafeCell::new(PrintNode::new(item)));
+        let node = Rc::new(PrintNodeCell::new(item));
         if let Some(first_node) = &self.first_node {
-            let new_last_node = node.get_last_next_or_self();
+            let new_last_node = node.get_last_next().unwrap_or(node.clone());
             self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
             self.last_node = Some(new_last_node);
         } else {
-            if node.has_next() {
-                self.last_node = Some(node.get_last_next_or_self());
-            }
+            self.last_node = node.get_last_next();
             self.first_node = Some(node);
         }
     }
@@ -247,11 +245,9 @@ impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> 
 
         loop {
             next = match next {
-                Some(l) => {
-                    match Rc::try_unwrap(l) {
-                        Ok(l) => l.into_inner().next.take(),
-                        Err(_) => break,
-                    }
+                Some(node) => match Rc::try_unwrap(node) {
+                    Ok(node) => node.take_next(),
+                    Err(_) => break,
                 },
                 None => break
             }
@@ -272,60 +268,75 @@ impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TSt
 
         if let Some(past_next) = past_next {
             if let Some(new_next) = new_next {
-                new_next.get_last_next_or_self().set_next(Some(past_next));
+                new_next.get_last_next().unwrap_or(new_next).set_next(Some(past_next));
             }
         }
     }
 }
 
-pub trait PrintItemPathExtensions<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    fn get_item(&self) -> PrintItem<TString, TInfo, TCondition>;
-    fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
-    fn has_next(&self) -> bool;
-    fn set_next(&self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>);
-    fn get_last_next_or_self(&self) -> PrintItemPath<TString, TInfo, TCondition>;
+/// A fast implementation of RefCell<PrintNode> that avoids runtime checks on borrows.
+pub struct PrintNodeCell<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    value: UnsafeCell<PrintNode<TString, TInfo, TCondition>>,
 }
 
-impl<TString, TInfo, TCondition> PrintItemPathExtensions<TString, TInfo, TCondition> for PrintItemPath<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    #[inline]
-    fn get_item(&self) -> PrintItem<TString, TInfo, TCondition> {
-        unsafe {
-            (*self.get()).item.clone()
+impl<TString, TInfo, TCondition> PrintNodeCell<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    pub(super) fn new(item: PrintItem<TString, TInfo, TCondition>) -> PrintNodeCell<TString, TInfo, TCondition> {
+        PrintNodeCell {
+            value: UnsafeCell::new(PrintNode::new(item))
         }
     }
 
     #[inline]
-    fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+    pub(super) fn get_item(&self) -> PrintItem<TString, TInfo, TCondition> {
         unsafe {
-            (*self.get()).next.clone()
+            (*self.value.get()).item.clone()
         }
     }
 
     #[inline]
-    fn has_next(&self) -> bool {
+    pub(super) fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
         unsafe {
-            (*self.get()).next.is_some()
+            (*self.value.get()).next.clone()
         }
     }
 
     #[inline]
-    fn set_next(&self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>) {
+    pub(super) fn set_next(&self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>) {
         unsafe {
-            (*self.get()).set_next(new_next);
+            (*self.value.get()).set_next(new_next);
         }
     }
 
     #[inline]
-    fn get_last_next_or_self(&self) -> PrintItemPath<TString, TInfo, TCondition> {
-        let mut last = self.clone();
-        while let Some(next) = unsafe { (*last.get()).next.clone() } {
-            last = next;
+    pub(super) fn get_last_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+        let mut current = self.get_next();
+        loop {
+            if let Some(last) = &current {
+                if let Some(next) = last.get_next() {
+                    current.replace(next);
+                    continue;
+                }
+            }
+            break;
         }
-        return last;
+
+        return current;
+    }
+
+    /// Gets the node unsafely. Be careful when using this and ensure no mutation is
+    /// happening during the borrow.
+    #[inline]
+    pub(super) unsafe fn get_node(&self) -> *mut PrintNode<TString, TInfo, TCondition> {
+        self.value.get()
+    }
+
+    #[inline]
+    pub fn take_next(self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+        self.value.into_inner().next.take()
     }
 }
 
-pub type PrintItemPath<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> = Rc<UnsafeCell<PrintNode<TString, TInfo, TCondition>>>;
+pub type PrintItemPath<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> = Rc<PrintNodeCell<TString, TInfo, TCondition>>;
 
 /* Print item and kinds */
 

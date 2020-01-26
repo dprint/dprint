@@ -72,7 +72,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     /// Turns the print items into a collection of writer items according to the options.
     pub fn print(mut self) -> impl Iterator<Item = WriteItem<TString>> {
         while let Some(current_node) = &self.current_node {
-            let current_node = unsafe { &*current_node.get() }; // ok because values won't be mutated while printing
+            let current_node = unsafe { &*current_node.get_node() }; // ok because values won't be mutated while printing
             self.handle_print_node(current_node);
 
             if self.skip_moving_next {
