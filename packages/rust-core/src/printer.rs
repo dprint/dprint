@@ -7,7 +7,7 @@ use std::mem::{self, MaybeUninit};
 use std::rc::Rc;
 use std::cell::UnsafeCell;
 
-struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+struct SavePoint<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     /// Name for debugging purposes.
     pub name: &'static str,
     pub new_line_group_depth: u16,
@@ -19,12 +19,12 @@ struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : 
     pub next_node_stack: Vec<Option<PrintItemPath<TString, TInfo, TCondition>>>,
 }
 
-struct PrintItemContainer<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+struct PrintItemContainer<'a, TString, TInfo, TCondition> where TString : StringTrait, TInfo: InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     items: &'a Vec<PrintItem<TString, TInfo, TCondition>>,
     index: i32,
 }
 
-impl<'a, TString, TInfo, TCondition> Clone for PrintItemContainer<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo: InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<'a, TString, TInfo, TCondition> Clone for PrintItemContainer<'a, TString, TInfo, TCondition> where TString : StringTrait, TInfo: InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     fn clone(&self) -> PrintItemContainer<'a, TString, TInfo, TCondition> {
         PrintItemContainer {
             items: self.items,
@@ -33,7 +33,7 @@ impl<'a, TString, TInfo, TCondition> Clone for PrintItemContainer<'a, TString, T
     }
 }
 
-pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+pub struct Printer<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
     new_line_group_depth: u16,
     current_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
@@ -48,7 +48,7 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
     is_testing: bool, // todo: compiler directives
 }
 
-impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     pub fn new(start_node: Option<PrintItemPath<TString, TInfo, TCondition>>, options: GetWriteItemsOptions) -> Printer<TString, TInfo, TCondition> {
         Printer {
             possible_new_line_save_point: None,

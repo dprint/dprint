@@ -121,8 +121,8 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
     let is_multiple_lines = create_is_multiple_lines_resolver(
         expr.position.clone(),
         expr.elements.iter().map(|e| e.position.clone()).collect(),
-        start_info.clone(),
-        end_info.clone()
+        start_info,
+        end_info
     );
 
     items.push_info(start_info);
@@ -178,7 +178,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 }
 
 fn parse_array_element(element: &ArrayElement) -> PrintItems {
-    element.text.clone().into()
+    (&element.text).into()
 }
 
 // helper functions

@@ -70,8 +70,8 @@ impl<'a> Context<'a> {
         self.stored_infos.insert(node.lo(), info);
     }
 
-    pub fn get_info_for_node(&self, node: &dyn Ranged) -> Option<&Info> {
-        self.stored_infos.get(&node.lo())
+    pub fn get_info_for_node(&self, node: &dyn Ranged) -> Option<Info> {
+        self.stored_infos.get(&node.lo()).map(|x| x.to_owned())
     }
 
     pub fn mark_disable_indent_for_next_bin_expr(&mut self) {

@@ -84,7 +84,7 @@ impl JsConditionResolverContext {
     }
 }
 
-impl InfoRef for JsInfo {
+impl InfoTrait for JsInfo {
     fn get_unique_id(&self) -> usize {
         self.id()
     }
@@ -108,7 +108,7 @@ impl StringRef for JsString {
     }
 }
 
-impl ConditionRef<JsString, JsInfo, JsCondition> for JsCondition {
+impl ConditionTrait<JsString, JsInfo, JsCondition> for JsCondition {
     fn get_unique_id(&self) -> usize {
         self.id()
     }

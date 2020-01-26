@@ -1,6 +1,6 @@
-use super::StringRef;
-use super::InfoRef;
-use super::ConditionRef;
+use super::StringTrait;
+use super::InfoTrait;
+use super::ConditionTrait;
 use super::printer::*;
 use super::PrintItems;
 use super::WriteItem;
@@ -21,7 +21,7 @@ pub struct GetWriteItemsOptions {
 pub fn get_write_items<TString, TInfo, TCondition>(
     print_items: &PrintItems<TString, TInfo, TCondition>,
     options: GetWriteItemsOptions
-) -> impl Iterator<Item = WriteItem<TString>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+) -> impl Iterator<Item = WriteItem<TString>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     let printer = Printer::new(print_items.first_node.clone(), options);
     printer.print()
 }

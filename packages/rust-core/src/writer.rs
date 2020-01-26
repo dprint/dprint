@@ -1,12 +1,12 @@
 use super::StringContainer;
-use super::StringRef;
+use super::StringTrait;
 use super::WriteItem;
 use super::collections::{GraphNode, GraphNodeIterator};
 use std::rc::Rc;
 
 // TOOODOOO: Could the next node be saved instead of the previous?? Would avoid the reverse at the end.
 
-pub struct WriterState<T> where T : StringRef {
+pub struct WriterState<T> where T : StringTrait {
     current_line_column: u32,
     current_line_number: u32,
     last_line_indent_level: u8,
@@ -16,7 +16,7 @@ pub struct WriterState<T> where T : StringRef {
     items: Option<Rc<GraphNode<WriteItem<T>>>>,
 }
 
-impl<T> Clone for WriterState<T> where T : StringRef {
+impl<T> Clone for WriterState<T> where T : StringTrait {
     fn clone(&self) -> WriterState<T> {
         WriterState {
             current_line_column: self.current_line_column,
@@ -34,12 +34,12 @@ pub struct WriterOptions {
     pub indent_width: u8,
 }
 
-pub struct Writer<T> where T : StringRef {
+pub struct Writer<T> where T : StringTrait {
     state: WriterState<T>,
     indent_width: u8,
 }
 
-impl<T> Writer<T> where T : StringRef {
+impl<T> Writer<T> where T : StringTrait {
     pub fn new(options: WriterOptions) -> Writer<T> {
         Writer {
             indent_width: options.indent_width,

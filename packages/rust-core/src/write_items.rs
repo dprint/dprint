@@ -1,8 +1,8 @@
 use std::rc::Rc;
 use super::StringContainer;
-use super::StringRef;
+use super::StringTrait;
 
-pub enum WriteItem<T = String> where T : StringRef {
+pub enum WriteItem<T = String> where T : StringTrait {
     String(Rc<StringContainer<T>>),
     Indent(u8),
     NewLine,
@@ -11,7 +11,7 @@ pub enum WriteItem<T = String> where T : StringRef {
 }
 
 // for some reason #[derive(Clone)] was not working, so manually implement this...
-impl<TString> Clone for WriteItem<TString> where TString : StringRef {
+impl<TString> Clone for WriteItem<TString> where TString : StringTrait {
     fn clone(&self) -> WriteItem<TString> {
         match self {
             WriteItem::Indent(times) => WriteItem::Indent(*times),

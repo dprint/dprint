@@ -4,15 +4,15 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem;
 
-// Traits. This allows implementing these for Wasm objects.
+/* Traits -- This allows implementing these for Wasm objects. */
 
-pub trait StringRef {
+pub trait StringTrait {
     fn get_length(&self) -> usize;
     fn get_text<'a>(&'a self) -> &'a str;
     fn get_text_clone(&self) -> String;
 }
 
-impl StringRef for String {
+impl StringTrait for String {
     fn get_length(&self) -> usize {
         self.chars().count()
     }
@@ -26,12 +26,12 @@ impl StringRef for String {
     }
 }
 
-pub trait InfoRef {
+pub trait InfoTrait {
     fn get_unique_id(&self) -> usize;
     fn get_name(&self) -> &'static str;
 }
 
-pub trait ConditionRef<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+pub trait ConditionTrait<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     fn get_unique_id(&self) -> usize;
     fn get_is_stored(&self) -> bool;
     fn get_name(&self) -> &'static str;
@@ -40,12 +40,14 @@ pub trait ConditionRef<TString, TInfo, TCondition> where TString : StringRef, TI
     fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
 }
 
-pub struct PrintItems<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+/** Print Items */
+
+pub struct PrintItems<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     pub(super) first_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
     last_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
 }
 
-impl<TString, TInfo, TCondition> PrintItems<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<TString, TInfo, TCondition> PrintItems<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     pub fn new() -> PrintItems<TString, TInfo, TCondition> {
         PrintItems {
             first_node: None,
@@ -197,6 +199,14 @@ impl Into<PrintItems> for String {
     }
 }
 
+impl Into<PrintItems> for &String {
+    fn into(self) -> PrintItems {
+        let mut items = PrintItems::new();
+        items.push_str(self);
+        items
+    }
+}
+
 impl Into<PrintItems> for Condition {
     fn into(self) -> PrintItems {
         let mut items = PrintItems::new();
@@ -223,12 +233,14 @@ impl Into<PrintItems> for Option<PrintItemPath> {
     }
 }
 
-pub struct PrintNode<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+/** Print Node */
+
+pub struct PrintNode<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     pub(super) next: Option<PrintItemPath<TString, TInfo, TCondition>>,
     pub(super) item: PrintItem<TString, TInfo, TCondition>,
 }
 
-impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     fn drop(&mut self) {
         let mut next = mem::replace(&mut self.next, None);
 
@@ -246,7 +258,7 @@ impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> 
     }
 }
 
-impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     fn new(item: PrintItem<TString, TInfo, TCondition>) -> PrintNode<TString, TInfo, TCondition> {
         PrintNode {
             item,
@@ -265,7 +277,7 @@ impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TSt
     }
 }
 
-pub trait PrintItemPathExtensions<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+pub trait PrintItemPathExtensions<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     fn get_item(&self) -> PrintItem<TString, TInfo, TCondition>;
     fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
     fn has_next(&self) -> bool;
@@ -273,7 +285,7 @@ pub trait PrintItemPathExtensions<TString, TInfo, TCondition> where TString : St
     fn get_last_next_or_self(&self) -> PrintItemPath<TString, TInfo, TCondition>;
 }
 
-impl<TString, TInfo, TCondition> PrintItemPathExtensions<TString, TInfo, TCondition> for PrintItemPath<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<TString, TInfo, TCondition> PrintItemPathExtensions<TString, TInfo, TCondition> for PrintItemPath<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     #[inline]
     fn get_item(&self) -> PrintItem<TString, TInfo, TCondition> {
         unsafe {
@@ -314,8 +326,10 @@ impl<TString, TInfo, TCondition> PrintItemPathExtensions<TString, TInfo, TCondit
 
 pub type PrintItemPath<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> = Rc<UnsafeCell<PrintNode<TString, TInfo, TCondition>>>;
 
+/* Print item and kinds */
+
 /// The different items the printer could encounter.
-pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     String(Rc<StringContainer<TString>>),
     Condition(Rc<TCondition>),
     Info(Rc<TInfo>),
@@ -323,7 +337,7 @@ pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TStrin
     RcPath(PrintItemPath<TString, TInfo, TCondition>),
 }
 
-impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
         match self {
             PrintItem::String(text) => PrintItem::String(text.clone()),
@@ -369,7 +383,7 @@ pub enum Signal {
 /// Can be used to get information at a certain location being printed. These
 /// can be resolved by providing the info object to a condition context's
 /// get_resolved_info(&info) method.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Copy, Debug)]
 pub struct Info {
     /// Unique identifier.
     id: usize,
@@ -377,7 +391,7 @@ pub struct Info {
     name: &'static str,
 }
 
-impl InfoRef for Info {
+impl InfoTrait for Info {
     fn get_unique_id(&self) -> usize {
         self.id
     }
@@ -402,7 +416,7 @@ impl Info {
 ///
 /// These conditions are extremely flexible and can even be resolved based on
 /// information found later on in the file.
-pub struct Condition<TString = String, TInfo = Info> where TString : StringRef, TInfo : InfoRef {
+pub struct Condition<TString = String, TInfo = Info> where TString : StringTrait, TInfo : InfoTrait {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
@@ -432,7 +446,7 @@ impl Clone for Condition {
 
 static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+impl<TString, TInfo> Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
     pub fn new(name: &'static str, properties: ConditionProperties<TString, TInfo>) -> Condition<TString, TInfo> {
         Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
@@ -459,7 +473,7 @@ pub struct ConditionReference {
     pub(super) id: usize,
 }
 
-impl<TString, TInfo> ConditionRef<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+impl<TString, TInfo> ConditionTrait<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
     #[inline]
     fn get_unique_id(&self) -> usize {
         self.id
@@ -492,7 +506,7 @@ impl<TString, TInfo> ConditionRef<TString, TInfo, Condition<TString, TInfo>> for
 }
 
 /// Properties for the condition.
-pub struct ConditionProperties<TString = String, TInfo = Info> where TString : StringRef, TInfo : InfoRef {
+pub struct ConditionProperties<TString = String, TInfo = Info> where TString : StringTrait, TInfo : InfoTrait {
     /// The condition to resolve.
     pub condition: Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>,
     /// The items to print when the condition is true.
@@ -505,13 +519,13 @@ pub struct ConditionProperties<TString = String, TInfo = Info> where TString : S
 pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
 
 /// Context used when resolving a condition.
-pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     printer: &'a mut Printer<TString, TInfo, TCondition>,
     /// Gets the writer info at the condition's location.
     pub writer_info: WriterInfo,
 }
 
-impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
+impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     pub fn new(printer: &'a mut Printer<TString, TInfo, TCondition>) -> Self {
         let writer_info = printer.get_writer_info();
         ConditionResolverContext {
@@ -534,7 +548,7 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
 
 /// A container that holds the string's value and character count.
 #[derive(Clone)]
-pub struct StringContainer<TString> where TString : StringRef {
+pub struct StringContainer<TString> where TString : StringTrait {
     /// The string value.
     pub text: TString,
     /// The cached character count.
@@ -542,7 +556,7 @@ pub struct StringContainer<TString> where TString : StringRef {
     pub(super) char_count: u32,
 }
 
-impl<TString> StringContainer<TString> where TString : StringRef {
+impl<TString> StringContainer<TString> where TString : StringTrait {
     /// Creates a new string container.
     pub(super) fn new(text: TString) -> StringContainer<TString> {
         let char_count = text.get_length() as u32;
