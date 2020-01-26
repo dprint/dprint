@@ -9,7 +9,6 @@ use std::mem;
 pub trait StringTrait {
     fn get_length(&self) -> usize;
     fn get_text<'a>(&'a self) -> &'a str;
-    fn get_text_clone(&self) -> String;
 }
 
 impl StringTrait for String {
@@ -19,10 +18,6 @@ impl StringTrait for String {
 
     fn get_text<'a>(&'a self) -> &'a str {
         self
-    }
-
-    fn get_text_clone(&self) -> String {
-        self.clone()
     }
 }
 
@@ -58,6 +53,24 @@ impl<TString, TInfo, TCondition> PrintItems<TString, TInfo, TCondition> where TS
     pub fn into_rc_path(self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
         self.first_node
     }
+
+    pub fn push_item(&mut self, item: PrintItem<TString, TInfo, TCondition>) {
+        self.push_item_internal(item);
+    }
+
+    // seems marginally faster to inline this? probably not worth it
+    #[inline]
+    fn push_item_internal(&mut self, item: PrintItem<TString, TInfo, TCondition>) {
+        let node = Rc::new(PrintNodeCell::new(item));
+        if let Some(first_node) = &self.first_node {
+            let new_last_node = node.get_last_next().unwrap_or(node.clone());
+            self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
+            self.last_node = Some(new_last_node);
+        } else {
+            self.last_node = node.get_last_next();
+            self.first_node = Some(node);
+        }
+    }
 }
 
 impl PrintItems {
@@ -72,36 +85,23 @@ impl PrintItems {
     }
 
     pub fn push_str(&mut self, item: &str) {
-        self.push(PrintItem::String(Rc::from(StringContainer::new(String::from(item)))));
+        self.push_item_internal(PrintItem::String(Rc::from(StringContainer::new(String::from(item)))));
     }
 
     pub fn push_condition(&mut self, condition: Condition) {
-        self.push(PrintItem::Condition(Rc::from(condition)));
+        self.push_item_internal(PrintItem::Condition(Rc::from(condition)));
     }
 
     pub fn push_info(&mut self, info: Info) {
-        self.push(PrintItem::Info(Rc::from(info)));
+        self.push_item_internal(PrintItem::Info(Rc::from(info)));
     }
 
     pub fn push_signal(&mut self, signal: Signal) {
-        self.push(PrintItem::Signal(signal));
+        self.push_item_internal(PrintItem::Signal(signal));
     }
 
     pub fn push_path(&mut self, path: PrintItemPath) {
-        self.push(PrintItem::RcPath(path))
-    }
-
-    #[inline]
-    pub fn push(&mut self, item: PrintItem) {
-        let node = Rc::new(PrintNodeCell::new(item));
-        if let Some(first_node) = &self.first_node {
-            let new_last_node = node.get_last_next().unwrap_or(node.clone());
-            self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
-            self.last_node = Some(new_last_node);
-        } else {
-            self.last_node = node.get_last_next();
-            self.first_node = Some(node);
-        }
+        self.push_item_internal(PrintItem::RcPath(path))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -473,10 +473,7 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringTrait, TInf
 
     pub fn get_reference(&mut self) -> ConditionReference {
         self.is_stored = true;
-        ConditionReference {
-            name: self.name,
-            id: self.id,
-        }
+        ConditionReference::new(self.name, self.id)
     }
 }
 
@@ -484,6 +481,12 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringTrait, TInf
 pub struct ConditionReference {
     pub(super) name: &'static str,
     pub(super) id: usize,
+}
+
+impl ConditionReference {
+    pub fn new(name: &'static str, id: usize) -> ConditionReference {
+        ConditionReference { name, id }
+    }
 }
 
 impl<TString, TInfo> ConditionTrait<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
@@ -571,7 +574,7 @@ pub struct StringContainer<TString> where TString : StringTrait {
 
 impl<TString> StringContainer<TString> where TString : StringTrait {
     /// Creates a new string container.
-    pub(super) fn new(text: TString) -> StringContainer<TString> {
+    pub fn new(text: TString) -> StringContainer<TString> {
         let char_count = text.get_length() as u32;
         StringContainer {
             text,

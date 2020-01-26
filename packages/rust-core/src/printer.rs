@@ -6,7 +6,6 @@ use super::get_write_items::{GetWriteItemsOptions};
 use std::collections::HashMap;
 use std::mem::{self, MaybeUninit};
 use std::rc::Rc;
-use std::cell::UnsafeCell;
 
 struct SavePoint<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     /// Name for debugging purposes.
@@ -304,8 +303,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             panic!("Don't call this method unless self.is_testing is true.");
         }
 
-        // This is possibly very slow (ex. could be a JS utf16 string that gets encoded to a rust utf8 string)
-        let text_as_string = text.get_text_clone();
+        let text_as_string = text.get_text();
         if text_as_string.contains("\t") {
             panic!("Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}", text_as_string);
         }

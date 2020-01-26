@@ -61,7 +61,7 @@ fn test_specs() {
         let config = resolve_config(&spec.config, &mut diagnostics);
         ensure_no_diagnostics(&diagnostics);
 
-        println!("FILE PATH: {}", file_path);
+        //debug_here!();
 
         let result = format_text(&spec.file_name, &spec.file_text, &config)
             .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());

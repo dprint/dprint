@@ -1319,7 +1319,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
             let mut items = PrintItems::new();
             for item in old_items.iter() {
                 match item {
-                    PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) | PrintItem::RcPath(_) => items.push(item),
+                    PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) | PrintItem::RcPath(_) => items.push_item(item),
                     PrintItem::Signal(_) => {},
                 }
             }

@@ -73,11 +73,13 @@ export function preparePrintItems(items: PrintItemIterable) {
         function addPath(condition: Condition, pathName: string, pathIterator: PrintItemIterable | undefined) {
             Object.defineProperty(condition, pathName, {
                 get: (() => {
-                    let pastIterator: PrintItemIterable | undefined;
+                    let pastIterator: PrintItem[] | undefined;
                     return () => {
                         if (pathIterator == null)
                             return;
-                        pastIterator = pastIterator || innerGetItemsAsArray(pathIterator);
+                        if (pastIterator != null)
+                            return pastIterator;
+                        pastIterator = innerGetItemsAsArray(pathIterator);
                         return pastIterator;
                     };
                 })(),

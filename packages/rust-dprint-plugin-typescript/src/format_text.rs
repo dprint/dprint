@@ -1,7 +1,6 @@
 use super::*;
 use dprint_core::*;
 use swc_common::{BytePos, comments::{Comment}};
-use std::time::Instant;
 
 pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfiguration) -> Result<Option<String>, String> {
     return swc_common::GLOBALS.set(&swc_common::Globals::new(), || {
@@ -10,20 +9,14 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
             return Ok(None);
         }
 
-        let start = Instant::now();
         let print_items = parse(parsed_source_file, config.clone());
-        println!("{}ms", start.elapsed().as_millis());
-        let start = Instant::now();
 
-        let result = Some(print(print_items, PrintOptions {
+        Ok(Some(print(print_items, PrintOptions {
             indent_width: config.indent_width,
             max_width: config.line_width,
             use_tabs: config.use_tabs,
             newline_kind: get_new_line_kind(file_text, config),
-        }));
-        println!("{}ms", start.elapsed().as_millis());
-
-        Ok(result)
+        })))
     });
 
     fn get_new_line_kind(file_text: &str, config: &TypeScriptConfiguration) -> &'static str {
