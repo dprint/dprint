@@ -5,8 +5,8 @@ use super::get_write_items::{GetWriteItemsOptions};
 use std::collections::HashMap;
 use std::mem::{self, MaybeUninit};
 use std::rc::Rc;
+use std::cell::UnsafeCell;
 
-#[derive(Clone)]
 struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     /// Name for debugging purposes.
     pub name: &'static str,
@@ -41,7 +41,7 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
     resolved_conditions: HashMap<usize, Option<bool>>,
     resolved_infos: HashMap<usize, WriterInfo>,
     look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
-    look_ahead_info_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
+    look_ahead_info_save_points: UnsafeCell<HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>>,
     next_node_stack: Vec<Option<PrintItemPath<TString, TInfo, TCondition>>>,
     max_width: u32,
     skip_moving_next: bool,
@@ -60,7 +60,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             resolved_conditions: HashMap::new(),
             resolved_infos: HashMap::new(),
             look_ahead_condition_save_points: HashMap::new(),
-            look_ahead_info_save_points: HashMap::new(),
+            look_ahead_info_save_points: UnsafeCell::new(HashMap::new()),
             next_node_stack: Vec::new(),
             max_width: options.max_width,
             skip_moving_next: false,
@@ -76,11 +76,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
             if self.skip_moving_next {
                 self.skip_moving_next = false;
-            } else {
-                // move next
-                if let Some(current_node) = self.current_node {
-                    self.current_node = current_node.get_next();
-                }
+            } else if let Some(current_node) = self.current_node {
+                self.current_node = current_node.get_next();
             }
 
             while self.current_node.is_none() && !self.next_node_stack.is_empty() {
@@ -105,28 +102,26 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
-    pub fn get_resolved_info(&mut self, info: &TInfo) -> Option<WriterInfo> {
-        let resolved_info = self.resolved_infos.get(&info.get_unique_id()).map(|x| x.to_owned());
-        if resolved_info.is_none() && !self.look_ahead_info_save_points.contains_key(&info.get_unique_id()) {
+    pub fn get_resolved_info(&self, info: &TInfo) -> Option<&WriterInfo> {
+        let resolved_info = self.resolved_infos.get(&info.get_unique_id());
+        unsafe {
+        if resolved_info.is_none() && !(*self.look_ahead_info_save_points.get()).contains_key(&info.get_unique_id()) {
             let save_point = self.create_save_point_for_restoring_condition(&info.get_name());
-            self.look_ahead_info_save_points.insert(info.get_unique_id(), save_point);
+            (*self.look_ahead_info_save_points.get()).insert(info.get_unique_id(), save_point);
+        }
         }
 
         resolved_info
     }
 
-    pub fn get_resolved_condition(&mut self, condition: &TCondition) -> Option<bool> {
-        if !self.resolved_conditions.contains_key(&condition.get_unique_id()) && !self.look_ahead_condition_save_points.contains_key(&condition.get_unique_id()) {
-            let save_point = self.create_save_point_for_restoring_condition(&condition.get_name());
-            self.look_ahead_condition_save_points.insert(condition.get_unique_id(), save_point);
+    pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
+        if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
+            let save_point = self.create_save_point_for_restoring_condition(&condition_reference.name);
+            self.look_ahead_condition_save_points.insert(condition_reference.id, save_point);
         }
 
-        let result = self.resolved_conditions.get(&condition.get_unique_id());
-        if let Some(result) = result {
-            result.map(|x| x.to_owned())
-        } else {
-            Option::None
-        }
+        let result = self.resolved_conditions.get(&condition_reference.id)?;
+        result.map(|x| x.to_owned())
     }
 
     #[inline]
@@ -145,7 +140,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         self.possible_new_line_save_point = None;
     }
 
-    fn create_save_point(&mut self, name: &'static str, next_node: Option<PrintItemPath<TString, TInfo, TCondition>>) -> Rc<SavePoint<TString, TInfo, TCondition>> {
+    fn create_save_point(&self, name: &'static str, next_node: Option<PrintItemPath<TString, TInfo, TCondition>>) -> Rc<SavePoint<TString, TInfo, TCondition>> {
         Rc::new(SavePoint {
             name,
             possible_new_line_save_point: self.possible_new_line_save_point.clone(),
@@ -153,12 +148,12 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             node: next_node,
             writer_state: self.writer.get_state(),
             look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
-            look_ahead_info_save_points: self.look_ahead_info_save_points.clone(),
+            look_ahead_info_save_points: unsafe { (*self.look_ahead_info_save_points.get()).clone() },
             next_node_stack: self.next_node_stack.clone(),
         })
     }
 
-    fn create_save_point_for_restoring_condition(&mut self, name: &'static str) -> Rc<SavePoint<TString, TInfo, TCondition>> {
+    fn create_save_point_for_restoring_condition(&self, name: &'static str) -> Rc<SavePoint<TString, TInfo, TCondition>> {
         self.create_save_point(name, self.current_node.clone())
     }
 
@@ -185,7 +180,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
                 self.current_node = save_point.node;
                 self.new_line_group_depth = save_point.new_line_group_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points;
-                self.look_ahead_info_save_points = save_point.look_ahead_info_save_points;
+                self.look_ahead_info_save_points = UnsafeCell::new(save_point.look_ahead_info_save_points);
                 self.next_node_stack = save_point.next_node_stack;
             },
             Err(save_point) => {
@@ -194,7 +189,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
                 self.current_node = save_point.node.clone();
                 self.new_line_group_depth = save_point.new_line_group_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
-                self.look_ahead_info_save_points = save_point.look_ahead_info_save_points.clone();
+                self.look_ahead_info_save_points = UnsafeCell::new(save_point.look_ahead_info_save_points.clone());
                 self.next_node_stack = save_point.next_node_stack.clone();
             }
         }
@@ -247,17 +242,22 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     #[inline]
     fn handle_info(&mut self, info: &TInfo) {
         self.resolved_infos.insert(info.get_unique_id(), self.get_writer_info());
-        let option_save_point = self.look_ahead_info_save_points.remove(&info.get_unique_id());
+        unsafe {
+        let option_save_point = (*self.look_ahead_info_save_points.get()).remove(&info.get_unique_id());
         if let Some(save_point) = option_save_point {
             self.update_state_to_save_point(save_point, false);
             return;
         }
     }
+    }
 
     #[inline]
     fn handle_condition(&mut self, condition: &'a TCondition, next_node: &Option<PrintItemPath<TString, TInfo, TCondition>>) {
         let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
-        self.resolved_conditions.insert(condition.get_unique_id(), condition_value);
+
+        if condition.get_is_stored() {
+            self.resolved_conditions.insert(condition.get_unique_id(), condition_value);
+        }
 
         let save_point = self.look_ahead_condition_save_points.get(&condition.get_unique_id());
         if condition_value.is_some() && save_point.is_some() {
@@ -326,7 +326,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         if let Some((_, save_point)) = self.look_ahead_condition_save_points.iter().next() {
             self.panic_for_save_point_existing(save_point)
         }
-        if let Some((_, save_point)) = self.look_ahead_info_save_points.iter().next() {
+        if let Some((_, save_point)) = unsafe { (*self.look_ahead_info_save_points.get()).iter().next() } {
             self.panic_for_save_point_existing(save_point)
         }
     }

@@ -16,12 +16,12 @@ pub fn is_hanging(condition_context: &mut ConditionResolverContext, start_info: 
     let resolved_end_info = get_resolved_end_info(condition_context, end_info)?;
     return Some(resolved_end_info.line_start_indent_level > resolved_start_info.line_start_indent_level);
 
-    fn get_resolved_end_info(condition_context: &mut ConditionResolverContext, end_info: &Option<Info>) -> Option<WriterInfo> {
+    fn get_resolved_end_info<'a>(condition_context: &'a ConditionResolverContext, end_info: &Option<Info>) -> Option<&'a WriterInfo> {
         if let Some(end_info) = end_info {
             condition_context.get_resolved_info(end_info)
         } else {
             // use the current condition position
-            Some(condition_context.writer_info.clone())
+            Some(&condition_context.writer_info)
         }
     }
 }

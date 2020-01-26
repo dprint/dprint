@@ -55,7 +55,7 @@ impl<T> Writer<T> where T : StringRef {
         }
     }
 
-    pub fn get_state(&mut self) -> WriterState<T> {
+    pub fn get_state(&self) -> WriterState<T> {
         self.state.clone()
     }
 

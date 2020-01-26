@@ -60,7 +60,7 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, 
                 if let Some(end_info) = &end_info {
                     context.get_resolved_info(end_info)?
                 } else {
-                    context.writer_info.clone()
+                    &context.writer_info
                 }
             };
 

@@ -33,6 +33,7 @@ pub trait InfoRef {
 
 pub trait ConditionRef<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
     fn get_unique_id(&self) -> usize;
+    fn get_is_stored(&self) -> bool;
     fn get_name(&self) -> &'static str;
     fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>;
     fn get_true_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
@@ -373,7 +374,7 @@ pub struct Info {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
-    pub name: &'static str,
+    name: &'static str,
 }
 
 impl InfoRef for Info {
@@ -406,6 +407,8 @@ pub struct Condition<TString = String, TInfo = Info> where TString : StringRef, 
     id: usize,
     /// Name for debugging purposes.
     name: &'static str,
+    /// If the condition is stored and can be retrieved via a condition resolver.
+    is_stored: bool,
     /// The condition to resolve.
     pub condition: Rc<Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>>,
     /// The items to print when the condition is true.
@@ -418,6 +421,7 @@ impl Clone for Condition {
     fn clone(&self) -> Condition {
         return Condition {
             id: self.id,
+            is_stored: self.is_stored,
             name: self.name,
             condition: self.condition.clone(),
             true_path: self.true_path.clone(),
@@ -432,31 +436,56 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringRef, TInfo 
     pub fn new(name: &'static str, properties: ConditionProperties<TString, TInfo>) -> Condition<TString, TInfo> {
         Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
+            is_stored: false,
             name,
             condition: Rc::new(properties.condition),
             true_path: properties.true_path.map(|x| x.first_node).flatten(),
             false_path: properties.false_path.map(|x| x.first_node).flatten(),
         }
     }
+
+    pub fn get_reference(&mut self) -> ConditionReference {
+        self.is_stored = true;
+        ConditionReference {
+            name: self.name,
+            id: self.id,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct ConditionReference {
+    pub(super) name: &'static str,
+    pub(super) id: usize,
 }
 
 impl<TString, TInfo> ConditionRef<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringRef, TInfo : InfoRef {
+    #[inline]
     fn get_unique_id(&self) -> usize {
         self.id
     }
 
+    #[inline]
     fn get_name(&self) -> &'static str {
         self.name
     }
 
+    #[inline]
+    fn get_is_stored(&self) -> bool {
+        self.is_stored
+    }
+
+    #[inline]
     fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, Self>) -> Option<bool> {
         (self.condition)(context)
     }
 
+    #[inline]
     fn get_true_path(&self) -> Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>> {
         self.true_path.clone()
     }
 
+    #[inline]
     fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>> {
         self.false_path.clone()
     }
@@ -492,12 +521,13 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
     }
 
     /// Gets if a condition was true, false, or returns undefined when not yet resolved.
-    pub fn get_resolved_condition(&mut self, condition: &TCondition) -> Option<bool> {
-        self.printer.get_resolved_condition(condition)
+    /// A condition reference can be retrieved by calling the `get_reference()` on a condition.
+    pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
+        self.printer.get_resolved_condition(condition_reference)
     }
 
     /// Gets the writer info at a specified info or returns undefined when not yet resolved.
-    pub fn get_resolved_info(&mut self, info: &TInfo) -> Option<WriterInfo> {
+    pub fn get_resolved_info(&self, info: &TInfo) -> Option<&WriterInfo> {
         self.printer.get_resolved_info(info)
     }
 }

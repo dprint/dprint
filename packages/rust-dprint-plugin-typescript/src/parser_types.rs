@@ -2,7 +2,7 @@ use std::str;
 use std::rc::Rc;
 use super::*;
 use std::collections::{HashSet, HashMap};
-use dprint_core::{Info, Condition};
+use dprint_core::{Info, ConditionReference};
 use utils::{Stack};
 use swc_common::{SpanData, BytePos, comments::{Comment}, SourceFile, Spanned, Span};
 use swc_ecma_ast::*;
@@ -20,7 +20,7 @@ pub struct Context<'a> {
     stored_infos: HashMap<BytePos, Info>,
     pub end_statement_or_member_infos: Stack<Info>,
     disable_indent_for_next_bin_expr: bool,
-    if_stmt_last_brace_condition: Option<Condition>,
+    if_stmt_last_brace_condition_ref: Option<ConditionReference>,
 }
 
 impl<'a> Context<'a> {
@@ -45,7 +45,7 @@ impl<'a> Context<'a> {
             stored_infos: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),
             disable_indent_for_next_bin_expr: false,
-            if_stmt_last_brace_condition: None,
+            if_stmt_last_brace_condition_ref: None,
         }
     }
 
@@ -84,12 +84,12 @@ impl<'a> Context<'a> {
         return value;
     }
 
-    pub fn store_if_stmt_last_brace_condition(&mut self, condition: Condition) {
-        self.if_stmt_last_brace_condition = Some(condition);
+    pub fn store_if_stmt_last_brace_condition_ref(&mut self, condition_reference: ConditionReference) {
+        self.if_stmt_last_brace_condition_ref = Some(condition_reference);
     }
 
-    pub fn take_if_stmt_last_brace_condition(&mut self) -> Option<Condition> {
-        self.if_stmt_last_brace_condition.take()
+    pub fn take_if_stmt_last_brace_condition_ref(&mut self) -> Option<ConditionReference> {
+        self.if_stmt_last_brace_condition_ref.take()
     }
 }
 

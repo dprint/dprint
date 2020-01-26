@@ -1,6 +1,5 @@
 extern crate dprint_core;
 
-use std::rc::Rc;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
@@ -22,8 +21,7 @@ pub fn parse(source_file: ParsedSourceFile, config: TypeScriptConfiguration) -> 
         module,
         source_file.info
     );
-    let mut items = PrintItems::new();
-    items.extend(parse_node(Node::Module(&source_file.module), &mut context));
+    let mut items = parse_node(Node::Module(&source_file.module), &mut context);
     items.extend(if_true(
         "endOfFileNewLine",
         |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
@@ -37,8 +35,6 @@ fn parse_node<'a>(node: Node<'a>, context: &mut Context<'a>) -> PrintItems {
 }
 
 fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, inner_parse: impl Fn(PrintItems) -> PrintItems + Clone + 'static) -> PrintItems {
-    let mut items = PrintItems::new();
-
     // println!("Node kind: {:?}", node.kind());
     // println!("Text: {:?}", node.text(context));
 
@@ -54,7 +50,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     let leading_comments = context.comments.leading_comments_with_previous(node_lo);
     let has_ignore_comment = get_has_ignore_comment(&leading_comments, &node_lo, context);
 
-    items.extend(parse_comments_as_leading(&node_span, leading_comments, context));
+    let mut items = parse_comments_as_leading(&node_span, leading_comments, context);
 
     items.extend(if has_ignore_comment {
         parser_helpers::parse_raw_string(&node.text(context))
@@ -403,7 +399,7 @@ fn parse_catch_clause<'a>(node: &'a CatchClause, context: &mut Context<'a>) -> P
         use_braces: UseBraces::Always,
         brace_position: context.config.try_statement_brace_position,
         single_body_position: None,
-        requires_braces_condition: None,
+        requires_braces_condition_ref: None,
         header_start_token: None,
         start_header_info: Some(start_header_info),
         end_header_info: Some(end_header_info),
@@ -424,7 +420,7 @@ fn parse_computed_prop_name<'a>(node: &'a ComputedPropName, context: &mut Contex
 
 fn parse_identifier<'a>(node: &'a Ident, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    items.push_str((&node.sym as &str));
+    items.push_str(&node.sym as &str);
 
     if node.optional {
         items.push_str("?");
@@ -2688,7 +2684,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
         use_braces: context.config.for_statement_use_braces,
         brace_position: context.config.for_statement_brace_position,
         single_body_position: Some(context.config.for_statement_single_body_position),
-        requires_braces_condition: None,
+        requires_braces_condition_ref: None,
         header_start_token: None,
         start_header_info: Some(start_header_info),
         end_header_info: Some(end_header_info),
@@ -2726,7 +2722,7 @@ fn parse_for_in_stmt<'a>(node: &'a ForInStmt, context: &mut Context<'a>) -> Prin
         use_braces: context.config.for_in_statement_use_braces,
         brace_position: context.config.for_in_statement_brace_position,
         single_body_position: Some(context.config.for_in_statement_single_body_position),
-        requires_braces_condition: None,
+        requires_braces_condition_ref: None,
         header_start_token: None,
         start_header_info: Some(start_header_info),
         end_header_info: Some(end_header_info),
@@ -2768,7 +2764,7 @@ fn parse_for_of_stmt<'a>(node: &'a ForOfStmt, context: &mut Context<'a>) -> Prin
         use_braces: context.config.for_of_statement_use_braces,
         brace_position: context.config.for_of_statement_brace_position,
         single_body_position: Some(context.config.for_of_statement_single_body_position),
-        requires_braces_condition: None,
+        requires_braces_condition_ref: None,
         header_start_token: None,
         start_header_info: Some(start_header_info),
         end_header_info: Some(end_header_info),
@@ -2795,7 +2791,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> PrintItems 
         use_braces: context.config.if_statement_use_braces,
         brace_position: context.config.if_statement_brace_position,
         single_body_position: Some(context.config.if_statement_single_body_position),
-        requires_braces_condition: context.take_if_stmt_last_brace_condition(),
+        requires_braces_condition_ref: context.take_if_stmt_last_brace_condition_ref(),
     }, context);
 
     items.extend(result.parsed_node);
@@ -2803,7 +2799,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> PrintItems 
     if let Some(alt) = &node.alt {
         if let Stmt::If(alt_alt) = &**alt {
             if alt_alt.alt.is_none() {
-                context.store_if_stmt_last_brace_condition(result.open_brace_condition.clone());
+                context.store_if_stmt_last_brace_condition_ref(result.open_brace_condition_ref);
             }
         }
 
@@ -2828,7 +2824,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> PrintItems 
                 use_braces: context.config.if_statement_use_braces,
                 brace_position: context.config.if_statement_brace_position,
                 single_body_position: Some(context.config.if_statement_single_body_position),
-                requires_braces_condition: Some(result.open_brace_condition),
+                requires_braces_condition_ref: Some(result.open_brace_condition_ref),
                 header_start_token: Some(else_keyword),
                 start_header_info: Some(start_else_header_info),
                 end_header_info: None,
@@ -3074,7 +3070,7 @@ fn parse_while_stmt<'a>(node: &'a WhileStmt, context: &mut Context<'a>) -> Print
         use_braces: context.config.while_statement_use_braces,
         brace_position: context.config.while_statement_brace_position,
         single_body_position: Some(context.config.while_statement_single_body_position),
-        requires_braces_condition: None,
+        requires_braces_condition_ref: None,
         header_start_token: None,
         start_header_info: Some(start_header_info),
         end_header_info: Some(end_header_info),
@@ -3175,7 +3171,7 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Pri
                 let mut items = PrintItems::new();
                 items.push_signal(Signal::SpaceOrNewLine);
                 items.push_str("=> ");
-                Some(items.into())
+                Some(items)
             },
         }, context)),
     }, context));
@@ -4088,13 +4084,13 @@ fn parse_comma_separated_values<'a>(
                     let mut items = PrintItems::new();
                     items.push_signal(Signal::NewLine);
                     items.extend(parsed_value.clone().into());
-                    Some(items.into())
+                    Some(items)
                 },
                 false_path: {
                     let mut items = PrintItems::new();
                     items.push_signal(Signal::SpaceOrNewLine);
                     items.push_condition(conditions::indent_if_start_of_line(parsed_value.into()));
-                    Some(items.into())
+                    Some(items)
                 },
             }));
         }
@@ -4398,12 +4394,12 @@ struct ParseHeaderWithConditionalBraceBodyOptions<'a> {
     use_braces: UseBraces,
     brace_position: BracePosition,
     single_body_position: Option<SingleBodyPosition>,
-    requires_braces_condition: Option<Condition>,
+    requires_braces_condition_ref: Option<ConditionReference>,
 }
 
 struct ParseHeaderWithConditionalBraceBodyResult {
     parsed_node: PrintItems,
-    open_brace_condition: Condition,
+    open_brace_condition_ref: ConditionReference,
 }
 
 fn parse_header_with_conditional_brace_body<'a>(opts: ParseHeaderWithConditionalBraceBodyOptions<'a>, context: &mut Context<'a>) -> ParseHeaderWithConditionalBraceBodyResult {
@@ -4420,7 +4416,7 @@ fn parse_header_with_conditional_brace_body<'a>(opts: ParseHeaderWithConditional
         use_braces: opts.use_braces,
         brace_position: opts.brace_position,
         single_body_position: opts.single_body_position,
-        requires_braces_condition: opts.requires_braces_condition,
+        requires_braces_condition_ref: opts.requires_braces_condition_ref,
         header_start_token: None,
         start_header_info: Some(start_header_info),
         end_header_info: Some(end_header_info),
@@ -4428,7 +4424,7 @@ fn parse_header_with_conditional_brace_body<'a>(opts: ParseHeaderWithConditional
     items.extend(result.parsed_node);
 
     return ParseHeaderWithConditionalBraceBodyResult {
-        open_brace_condition: result.open_brace_condition,
+        open_brace_condition_ref: result.open_brace_condition_ref,
         parsed_node: items,
     };
 }
@@ -4439,7 +4435,7 @@ struct ParseConditionalBraceBodyOptions<'a> {
     use_braces: UseBraces,
     brace_position: BracePosition,
     single_body_position: Option<SingleBodyPosition>,
-    requires_braces_condition: Option<Condition>,
+    requires_braces_condition_ref: Option<ConditionReference>,
     header_start_token: Option<&'a TokenAndSpan>,
     start_header_info: Option<Info>,
     end_header_info: Option<Info>,
@@ -4447,13 +4443,13 @@ struct ParseConditionalBraceBodyOptions<'a> {
 
 struct ParseConditionalBraceBodyResult {
     parsed_node: PrintItems,
-    open_brace_condition: Condition,
+    open_brace_condition_ref: ConditionReference,
 }
 
 fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, context: &mut Context<'a>) -> ParseConditionalBraceBodyResult {
     let start_header_info = opts.start_header_info;
     let end_header_info = opts.end_header_info;
-    let requires_braces_condition = opts.requires_braces_condition;
+    let requires_braces_condition = opts.requires_braces_condition_ref;
     let start_statements_info = Info::new("startStatements");
     let end_statements_info = Info::new("endStatements");
     let header_trailing_comments = get_header_trailing_comments(&opts.body_node, context);
@@ -4468,7 +4464,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
     );
     let open_brace_token = get_open_brace_token(&opts.body_node, context);
     let use_braces = opts.use_braces;
-    let newline_or_space_condition = Condition::new("newLineOrSpace", ConditionProperties {
+    let mut newline_or_space_condition = Condition::new("newLineOrSpace", ConditionProperties {
         condition: {
             let start_header_info = start_header_info.clone();
             let end_statements_info = end_statements_info.clone();
@@ -4488,17 +4484,17 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         true_path: Some(Signal::NewLine.into()),
         false_path: Some(" ".into()),
     });
-    let open_brace_condition = Condition::new("openBrace", ConditionProperties {
+    let newline_or_space_condition_ref = newline_or_space_condition.get_reference();
+    let mut open_brace_condition = Condition::new("openBrace", ConditionProperties {
         condition: {
             let start_header_info = start_header_info.clone();
             let end_header_info = end_header_info.clone();
             let start_statements_info = start_statements_info.clone();
             let end_statements_info = end_statements_info.clone();
             let has_open_brace_token = open_brace_token.is_some();
-            let newline_or_space_condition = newline_or_space_condition.clone();
             Box::new(move |condition_context| {
                 match use_braces {
-                    UseBraces::WhenNotSingleLine => condition_context.get_resolved_condition(&newline_or_space_condition),
+                    UseBraces::WhenNotSingleLine => condition_context.get_resolved_condition(&newline_or_space_condition_ref),
                     UseBraces::Maintain => Some(has_open_brace_token),
                     UseBraces::Always => Some(true),
                     UseBraces::PreferNone => {
@@ -4539,20 +4535,21 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
                 start_header_info: start_header_info.clone(),
             }, context));
             items.push_str("{");
-            Some(items.into())
+            Some(items)
         },
         false_path: None,
     });
+    let open_brace_condition_ref = open_brace_condition.get_reference();
 
     // parse body
     let mut items = PrintItems::new();
-    items.push_condition(open_brace_condition.clone());
+    items.push_condition(open_brace_condition);
     let parsed_comments = parse_comment_collection(header_trailing_comments.into_iter(), None, context);
     if !parsed_comments.is_empty() {
         items.push_str(" ");
         items.extend(parsed_comments);
     }
-    items.push_condition(newline_or_space_condition.clone());
+    items.push_condition(newline_or_space_condition);
     items.push_info(start_statements_info.clone());
 
     if let Node::BlockStmt(body_node) = opts.body_node {
@@ -4576,26 +4573,20 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
 
     items.push_info(end_statements_info.clone());
     items.push_condition(Condition::new("closeBrace", ConditionProperties {
-        condition: {
-            let open_brace_condition = open_brace_condition.clone();
-            Box::new(move |condition_context| condition_context.get_resolved_condition(&open_brace_condition))
-        },
+        condition: Box::new(move |condition_context| condition_context.get_resolved_condition(&open_brace_condition_ref)),
         true_path: Some({
             let mut items = PrintItems::new();
             items.push_condition(Condition::new("closeBraceNewLine", ConditionProperties {
-                condition: {
-                    let newline_or_space_condition = newline_or_space_condition.clone();
-                    Box::new(move |condition_context| {
-                        let is_new_line = condition_context.get_resolved_condition(&newline_or_space_condition)?;
-                        if !is_new_line { return Some(false); }
-                        let are_infos_equal = condition_resolvers::are_infos_equal(condition_context, &start_statements_info, &end_statements_info)?;
-                        return Some(!are_infos_equal);
-                    })
-                },
+                condition: Box::new(move |condition_context| {
+                    let is_new_line = condition_context.get_resolved_condition(&newline_or_space_condition_ref)?;
+                    if !is_new_line { return Some(false); }
+                    let are_infos_equal = condition_resolvers::are_infos_equal(condition_context, &start_statements_info, &end_statements_info)?;
+                    return Some(!are_infos_equal);
+                }),
                 true_path: Some(Signal::NewLine.into()),
                 false_path: Some(Condition::new("closeBraceSpace", ConditionProperties {
                     condition: Box::new(move |condition_context| {
-                        let is_new_line = condition_context.get_resolved_condition(&newline_or_space_condition)?;
+                        let is_new_line = condition_context.get_resolved_condition(&newline_or_space_condition_ref)?;
                         return Some(!is_new_line);
                     }),
                     true_path: Some(" ".into()),
@@ -4610,8 +4601,8 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
 
     // return result
     return ParseConditionalBraceBodyResult {
-        parsed_node: items.into(),
-        open_brace_condition,
+        parsed_node: items,
+        open_brace_condition_ref,
     };
 
     fn get_should_use_new_line<'a>(
