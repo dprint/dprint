@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use super::writer::*;
 use super::print_write_items;
+use super::StringContainer;
 use super::PrintWriteItemsOptions;
 
 // todo: some basic unit tests just to make sure I'm not way off
@@ -61,7 +62,7 @@ fn assert_writer_equal(writer: Writer<String>, text: &str) {
 }
 
 fn write_text(writer: &mut Writer<String>, text: &'static str) {
-    writer.write(&Rc::new(String::from(text)));
+    writer.write(Rc::new(StringContainer::new(String::from(text))));
 }
 
 fn create_writer() -> Writer<String> {

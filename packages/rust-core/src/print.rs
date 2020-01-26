@@ -10,21 +10,17 @@ pub struct PrintOptions {
     pub use_tabs: bool,
     /// The newline character to use when doing a new line.
     pub newline_kind: &'static str,
-    // Set this to true and the printer will do additional validation
-    // on input strings to ensure the printer is being used correctly.
-    // Setting this to true will make things much slower.
-    pub is_testing: bool,
 }
 
 /// Prints out the print items using the provided
 pub fn print<TString, TInfo, TCondition>(
-    print_items: Vec<PrintItem<TString, TInfo, TCondition>>,
+    print_items: PrintItems<TString, TInfo, TCondition>,
     options: PrintOptions
-) -> String where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    let write_items = get_write_items(print_items, GetWriteItemsOptions {
+) -> String where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+    let write_items = get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: options.indent_width,
         max_width: options.max_width,
-        is_testing: options.is_testing,
+        is_testing: false, // todo: remove
     });
 
     print_write_items(write_items, PrintWriteItemsOptions {

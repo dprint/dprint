@@ -8,12 +8,12 @@ pub fn format_text(file_path: &str, file_text: &str, config: &TypeScriptConfigur
         if !should_format_file(&mut parsed_source_file) {
             return Ok(None);
         }
+
         let print_items = parse(parsed_source_file, config.clone());
 
         Ok(Some(print(print_items, PrintOptions {
             indent_width: config.indent_width,
             max_width: config.line_width,
-            is_testing: false, // todo: this should be true when testing
             use_tabs: config.use_tabs,
             newline_kind: get_new_line_kind(file_text, config),
         })))

@@ -1,19 +1,20 @@
-use super::StringRef;
+use super::StringContainer;
+use super::StringTrait;
 use super::WriteItem;
 use super::collections::{GraphNode, GraphNodeIterator};
 use std::rc::Rc;
 
-pub struct WriterState<T> where T : StringRef {
+pub struct WriterState<T> where T : StringTrait {
     current_line_column: u32,
     current_line_number: u32,
-    last_line_indent_level: u16,
-    indent_level: u16,
+    last_line_indent_level: u8,
+    indent_level: u8,
     expect_newline_next: bool,
     ignore_indent_count: u8,
     items: Option<Rc<GraphNode<WriteItem<T>>>>,
 }
 
-impl<T> Clone for WriterState<T> where T : StringRef {
+impl<T> Clone for WriterState<T> where T : StringTrait {
     fn clone(&self) -> WriterState<T> {
         WriterState {
             current_line_column: self.current_line_column,
@@ -31,12 +32,12 @@ pub struct WriterOptions {
     pub indent_width: u8,
 }
 
-pub struct Writer<T> where T : StringRef {
+pub struct Writer<T> where T : StringTrait {
     state: WriterState<T>,
     indent_width: u8,
 }
 
-impl<T> Writer<T> where T : StringRef {
+impl<T> Writer<T> where T : StringTrait {
     pub fn new(options: WriterOptions) -> Writer<T> {
         Writer {
             indent_width: options.indent_width,
@@ -52,7 +53,7 @@ impl<T> Writer<T> where T : StringRef {
         }
     }
 
-    pub fn get_state(&mut self) -> WriterState<T> {
+    pub fn get_state(&self) -> WriterState<T> {
         self.state.clone()
     }
 
@@ -72,7 +73,7 @@ impl<T> Writer<T> where T : StringRef {
         self.set_indent_level(self.state.indent_level - 1);
     }
 
-    fn set_indent_level(&mut self, new_level: u16) {
+    fn set_indent_level(&mut self, new_level: u8) {
         self.state.indent_level = new_level;
 
         // If it's on the first column, update the indent level
@@ -94,11 +95,11 @@ impl<T> Writer<T> where T : StringRef {
         self.state.expect_newline_next = true;
     }
 
-    pub fn get_line_start_indent_level(&self) -> u16 {
+    pub fn get_line_start_indent_level(&self) -> u8 {
         self.state.last_line_indent_level
     }
 
-    pub fn get_indentation_level(&self) -> u16 {
+    pub fn get_indentation_level(&self) -> u8 {
         self.state.indent_level
     }
 
@@ -129,7 +130,7 @@ impl<T> Writer<T> where T : StringRef {
     pub fn single_indent(&mut self) {
         self.handle_first_column();
         self.state.current_line_column += self.indent_width as u32;
-        self.push_item(WriteItem::Indent);
+        self.push_item(WriteItem::Indent(1));
     }
 
     pub fn tab(&mut self) {
@@ -144,10 +145,10 @@ impl<T> Writer<T> where T : StringRef {
         self.push_item(WriteItem::Space);
     }
 
-    pub fn write(&mut self, text: &Rc<T>) {
+    pub fn write(&mut self, text: Rc<StringContainer<T>>) {
         self.handle_first_column();
-        self.state.current_line_column += text.get_length() as u32;
-        self.push_item(WriteItem::String(text.clone()));
+        self.state.current_line_column += text.char_count;
+        self.push_item(WriteItem::String(text));
     }
 
     fn handle_first_column(&mut self) {
@@ -160,8 +161,8 @@ impl<T> Writer<T> where T : StringRef {
             // update the indent level again since on the first column
             self.state.last_line_indent_level = self.state.indent_level;
 
-            for _ in 0..self.state.indent_level {
-                self.push_item(WriteItem::Indent);
+            if self.state.indent_level > 0 {
+                self.push_item(WriteItem::Indent(self.state.indent_level));
             }
 
             self.state.current_line_column += self.state.indent_level as u32 * self.indent_width as u32;
