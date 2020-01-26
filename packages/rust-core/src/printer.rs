@@ -1,5 +1,4 @@
 use super::WriteItem;
-use super::collections::*;
 use super::print_items::*;
 use super::writer::*;
 use super::get_write_items::{GetWriteItemsOptions};
@@ -9,8 +8,6 @@ use std::rc::Rc;
 
 #[derive(Clone)]
 struct SavePoint<TString, TInfo, TCondition> where TString : StringRef, TInfo : InfoRef, TCondition : ConditionRef<TString, TInfo, TCondition> {
-    // Unique id
-    pub id: u32,
     /// Name for debugging purposes.
     pub name: &'static str,
     pub new_line_group_depth: u16,
@@ -40,7 +37,6 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringRef, TInfo 
     possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
     new_line_group_depth: u16,
     current_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
-    save_point_increment: u32, // todo: remove
     writer: Writer<TString>,
     resolved_conditions: HashMap<usize, Option<bool>>,
     resolved_infos: HashMap<usize, WriterInfo>,
@@ -58,7 +54,6 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             possible_new_line_save_point: None,
             new_line_group_depth: 0,
             current_node: start_node,
-            save_point_increment: 0,
             writer: Writer::new(WriterOptions {
                 indent_width: options.indent_width,
             }),
@@ -151,9 +146,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     }
 
     fn create_save_point(&mut self, name: &'static str, next_node: Option<PrintItemPath<TString, TInfo, TCondition>>) -> Rc<SavePoint<TString, TInfo, TCondition>> {
-        self.save_point_increment += 1;
         Rc::new(SavePoint {
-            id: self.save_point_increment,
             name,
             possible_new_line_save_point: self.possible_new_line_save_point.clone(),
             new_line_group_depth: self.new_line_group_depth,
