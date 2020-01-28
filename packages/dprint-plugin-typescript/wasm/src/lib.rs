@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 #[wasm_bindgen]
 pub struct FormatContext {
-    configuration: TypeScriptConfiguration,
+    configuration: ResolvedTypeScriptConfiguration,
     diagnostics: Vec<ConfigurationDiagnostic>,
 }
 
@@ -28,11 +28,10 @@ impl FormatContext {
             }
         }
 
-        let mut diagnostics = Vec::new();
-        let configuration = resolve_config(&hash_map, &mut diagnostics);
+        let config_result = resolve_config(&hash_map);
         FormatContext {
-            configuration,
-            diagnostics,
+            configuration: config_result.config,
+            diagnostics: config_result.diagnostics,
         }
     }
 

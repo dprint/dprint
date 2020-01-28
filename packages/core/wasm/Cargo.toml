@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 console_error_panic_hook = "0.1.6"
 wasm-bindgen = "0.2.58"
 js-sys = "0.3.29"
-dprint-core = { path = "../../rust-core", version = "0.6.0" }
+dprint-core = { path = "../../rust-core" }

@@ -8,7 +8,6 @@ use dprint_development::*;
 use std::fs::{self};
 use std::path::Path;
 use std::time::Instant;
-use std::collections::HashMap;
 
 struct FailedTestResult {
     file_path: String,
@@ -20,18 +19,15 @@ struct FailedTestResult {
 fn test_performance() {
     // run this with `cargo test --release -- --nocapture`
 
-    // todo: fix up this javascript era code
-    let mut unresolved_config = HashMap::new();
     // This file was not written with an 80 line width in mind so overall
     // it's not too bad, but there are a few small issues to fix here and there.
-    unresolved_config.insert(String::from("lineWidth"), String::from("80"));
-    unresolved_config.insert(String::from("forceMultiLineArguments"), String::from("true"));
-    unresolved_config.insert(String::from("forceMultiLineParameters"), String::from("true"));
-    unresolved_config.insert(String::from("singleQuotes"), String::from("true"));
-    unresolved_config.insert(String::from("nextControlFlowPosition"), String::from("sameLine"));
-    let mut diagnostics = Vec::new();
-
-    let config = resolve_config(&unresolved_config, &mut diagnostics);
+    let config = TypeScriptConfiguration::new()
+        .line_width(80)
+        .force_multi_line_parameters(true)
+        .force_multi_line_arguments(true)
+        .single_quotes(true)
+        .next_control_flow_position(NextControlFlowPosition::SameLine)
+        .resolve();
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 
     //debug_here!();
@@ -57,13 +53,12 @@ fn test_specs() {
     let mut failed_tests = Vec::new();
 
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
-        let mut diagnostics = Vec::new();
-        let config = resolve_config(&spec.config, &mut diagnostics);
-        ensure_no_diagnostics(&diagnostics);
+        let config_result = resolve_config(&spec.config);
+        ensure_no_diagnostics(&config_result.diagnostics);
 
         //debug_here!();
 
-        let result = format_text(&spec.file_name, &spec.file_text, &config)
+        let result = format_text(&spec.file_name, &spec.file_text, &config_result.config)
             .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
         let result = if let Some(result) = result { result } else { spec.file_text.clone() };
         if result != spec.expected_text {

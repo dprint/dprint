@@ -20,3 +20,6 @@ use tokens::*;
 
 pub use configuration::*;
 pub use format_text::{format_text};
+
+#[cfg(test)]
+mod configuration_tests;
