@@ -24,7 +24,7 @@ pub fn format_text(file_text: &str, configuration: &js_sys::Map) -> String {
     }
 }
 
-fn resolve_to_typescript_config(configuration: &js_sys::Map) -> TypeScriptConfiguration {
+fn resolve_to_typescript_config(configuration: &js_sys::Map) -> ResolvedTypeScriptConfiguration {
     let mut hash_map = HashMap::new();
     for key in configuration.keys() {
         let key = key.unwrap();
@@ -35,6 +35,5 @@ fn resolve_to_typescript_config(configuration: &js_sys::Map) -> TypeScriptConfig
         }
     }
 
-    let mut diagnostics = Vec::new();
-    return dprint_plugin_typescript::resolve_config(&hash_map, &mut diagnostics);
+    return dprint_plugin_typescript::resolve_config(&hash_map).config;
 }
