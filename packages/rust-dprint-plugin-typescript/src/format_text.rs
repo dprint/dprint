@@ -6,6 +6,8 @@ use swc_common::{BytePos, comments::{Comment}};
 ///
 /// # Example
 /// ```
+/// use dprint_plugin_typescript::*;
+///
 /// // resolve the configuration once...
 /// let config = TypeScriptConfiguration::new()
 ///     .line_width(80)
@@ -16,7 +18,8 @@ use swc_common::{BytePos, comments::{Comment}};
 ///     .resolve();
 ///
 /// // now format many files (consider parallelizing this)
-/// for (file_path, file_text) in your_files_to_format {
+/// let files_to_format = vec![("path/to/file.ts", "const  t  =  5 ;")];
+/// for (file_path, file_text) in files_to_format {
 ///     let formatted_text = format_text(file_path, file_text, &config);
 ///     // ...save formatted_text here...
 /// }

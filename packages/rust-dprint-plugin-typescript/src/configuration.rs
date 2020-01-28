@@ -8,6 +8,8 @@ use serde::{Serialize, Deserialize};
 /// # Example
 ///
 /// ```
+/// use dprint_plugin_typescript::*;
+///
 /// let config = TypeScriptConfiguration::new()
 ///     .line_width(80)
 ///     .force_multi_line_parameters(true)
