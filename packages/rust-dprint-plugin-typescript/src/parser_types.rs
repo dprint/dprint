@@ -9,7 +9,7 @@ use swc_ecma_ast::*;
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
 pub struct Context<'a> {
-    pub config: ResolvedTypeScriptConfiguration,
+    pub config: Configuration,
     pub comments: CommentCollection<'a>,
     pub token_finder: TokenFinder<'a>,
     pub file_bytes: &'a Vec<u8>,
@@ -25,7 +25,7 @@ pub struct Context<'a> {
 
 impl<'a> Context<'a> {
     pub fn new(
-        config: ResolvedTypeScriptConfiguration,
+        config: Configuration,
         leading_comments: &'a HashMap<BytePos, Vec<Comment>>,
         trailing_comments: &'a HashMap<BytePos, Vec<Comment>>,
         tokens: &'a Vec<TokenAndSpan>,

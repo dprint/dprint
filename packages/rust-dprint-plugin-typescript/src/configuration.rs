@@ -10,28 +10,28 @@ use serde::{Serialize, Deserialize};
 /// ```
 /// use dprint_plugin_typescript::*;
 ///
-/// let config = TypeScriptConfiguration::new()
+/// let config = ConfigurationBuilder::new()
 ///     .line_width(80)
 ///     .force_multi_line_parameters(true)
 ///     .force_multi_line_arguments(true)
 ///     .single_quotes(true)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
-///     .resolve();
+///     .build();
 /// ```
-pub struct TypeScriptConfiguration {
+pub struct ConfigurationBuilder {
     config: HashMap<String, String>,
 }
 
-impl TypeScriptConfiguration {
-    /// Constructs a new `TypeScriptConfiguration`
-    pub fn new() -> TypeScriptConfiguration {
-        TypeScriptConfiguration {
+impl ConfigurationBuilder {
+    /// Constructs a new configuration builder.
+    pub fn new() -> ConfigurationBuilder {
+        ConfigurationBuilder {
             config: HashMap::new(),
         }
     }
 
     /// Gets the final configuration that can be used to format a file.
-    pub fn resolve(&self) -> ResolvedTypeScriptConfiguration {
+    pub fn build(&self) -> Configuration {
         resolve_config(&self.config).config
     }
 
@@ -870,12 +870,12 @@ pub struct ResolveConfigurationResult {
 
     /// The configuration derived from the unresolved configuration
     /// that can be used to format a file.
-    pub config: ResolvedTypeScriptConfiguration,
+    pub config: Configuration,
 }
 
 /// Resolves configuration from a collection of key value strings.
 ///
-/// Note: You most likely want to use `TypeScriptConfiguration` instead.
+/// Note: You most likely want to use `ConfigurationBuilder` instead.
 pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationResult {
     let mut diagnostics = Vec::new();
     let mut config = config.clone();
@@ -890,7 +890,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
     let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::Never, &mut diagnostics);
     let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, &mut diagnostics);
 
-    let resolved_config = ResolvedTypeScriptConfiguration {
+    let resolved_config = Configuration {
         line_width: get_value(&mut config, "lineWidth", 120, &mut diagnostics),
         use_tabs: get_value(&mut config, "useTabs", false, &mut diagnostics),
         indent_width: get_value(&mut config, "indentWidth", 4, &mut diagnostics),
@@ -1060,7 +1060,7 @@ fn get_value<T>(
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResolvedTypeScriptConfiguration {
+pub struct Configuration {
     pub indent_width: u8,
     pub line_width: u32,
     pub use_tabs: bool,

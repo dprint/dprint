@@ -24,7 +24,7 @@ pub fn format_text(file_text: &str, configuration: &js_sys::Map) -> String {
     }
 }
 
-fn resolve_to_typescript_config(configuration: &js_sys::Map) -> ResolvedTypeScriptConfiguration {
+fn resolve_to_typescript_config(configuration: &js_sys::Map) -> Configuration {
     let mut hash_map = HashMap::new();
     for key in configuration.keys() {
         let key = key.unwrap();
