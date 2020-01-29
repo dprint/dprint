@@ -10,7 +10,7 @@ use swc_ecma_parser::{token::{TokenAndSpan}};
 
 // todo: Remove putting functions on heap by using type parameters?
 
-pub fn parse(source_file: ParsedSourceFile, config: ResolvedTypeScriptConfiguration) -> PrintItems {
+pub fn parse(source_file: ParsedSourceFile, config: Configuration) -> PrintItems {
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
         config,

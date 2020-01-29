@@ -21,13 +21,13 @@ fn test_performance() {
 
     // This file was not written with an 80 line width in mind so overall
     // it's not too bad, but there are a few small issues to fix here and there.
-    let config = TypeScriptConfiguration::new()
+    let config = ConfigurationBuilder::new()
         .line_width(80)
         .force_multi_line_parameters(true)
         .force_multi_line_arguments(true)
         .single_quotes(true)
         .next_control_flow_position(NextControlFlowPosition::SameLine)
-        .resolve();
+        .build();
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 
     //debug_here!();

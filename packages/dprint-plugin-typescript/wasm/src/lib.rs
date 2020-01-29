@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 #[wasm_bindgen]
 pub struct FormatContext {
-    configuration: ResolvedTypeScriptConfiguration,
+    configuration: Configuration,
     diagnostics: Vec<ConfigurationDiagnostic>,
 }
 

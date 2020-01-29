@@ -2,7 +2,7 @@ use super::configuration::*;
 
 #[test]
 fn check_all_values_set() {
-    let mut config = TypeScriptConfiguration::new();
+    let mut config = ConfigurationBuilder::new();
     config.new_line_kind(NewLineKind::Auto)
         .line_width(80)
         .use_tabs(false)

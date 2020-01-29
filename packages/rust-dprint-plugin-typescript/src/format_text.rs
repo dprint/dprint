@@ -8,14 +8,14 @@ use swc_common::{BytePos, comments::{Comment}};
 /// ```
 /// use dprint_plugin_typescript::*;
 ///
-/// // resolve the configuration once...
-/// let config = TypeScriptConfiguration::new()
+/// // build the configuration once...
+/// let config = ConfigurationBuilder::new()
 ///     .line_width(80)
 ///     .force_multi_line_parameters(true)
 ///     .force_multi_line_arguments(true)
 ///     .single_quotes(true)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
-///     .resolve();
+///     .build();
 ///
 /// // now format many files (consider parallelizing this)
 /// let files_to_format = vec![("path/to/file.ts", "const  t  =  5 ;")];
@@ -24,7 +24,7 @@ use swc_common::{BytePos, comments::{Comment}};
 ///     // ...save formatted_text here...
 /// }
 /// ```
-pub fn format_text(file_path: &str, file_text: &str, config: &ResolvedTypeScriptConfiguration) -> Result<Option<String>, String> {
+pub fn format_text(file_path: &str, file_text: &str, config: &Configuration) -> Result<Option<String>, String> {
     return swc_common::GLOBALS.set(&swc_common::Globals::new(), || {
         let mut parsed_source_file = parse_to_swc_ast(&file_path, &file_text)?;
         if !should_format_file(&mut parsed_source_file) {
@@ -41,7 +41,7 @@ pub fn format_text(file_path: &str, file_text: &str, config: &ResolvedTypeScript
         })))
     });
 
-    fn get_new_line_kind(file_text: &str, config: &ResolvedTypeScriptConfiguration) -> &'static str {
+    fn get_new_line_kind(file_text: &str, config: &Configuration) -> &'static str {
         match config.new_line_kind {
             NewLineKind::Unix => "\n",
             NewLineKind::Windows => "\r\n",
