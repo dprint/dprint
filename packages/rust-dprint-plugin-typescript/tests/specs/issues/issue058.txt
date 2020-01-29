@@ -1,5 +1,0 @@
-== should support async generator functions ==
-call(async function* agf() {})
-
-[expect]
-call(async function* agf() {})
