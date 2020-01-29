@@ -11,7 +11,9 @@ Mono-repo for dprint—a configurable and plugable code formatter.
 * [@dprint/core](packages/core) - Core functionality and library for creating formatters in TypeScript.
 * [dprint-core](packages/rust-core) (Rust) - Library for creating formatters in Rust.
 
-**NOTICE:** This library is under active early development. I highly recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
+This library is under active early development. I recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
+
+**NOTE:** The code in master has not been released to npm so that package is currently using the old slow formatter.
 
 ## Goals
 
