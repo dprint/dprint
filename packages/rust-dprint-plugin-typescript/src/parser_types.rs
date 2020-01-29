@@ -487,6 +487,7 @@ generate_traits![JSXElementChild, JSXText, JSXExprContainer, JSXSpreadChild, JSX
 generate_traits![JSXAttrName, Ident, JSXNamespacedName];
 generate_traits![JSXAttrOrSpread, JSXAttr, SpreadElement];
 generate_traits![JSXElementName, Ident, JSXMemberExpr, JSXNamespacedName];
+generate_traits![JSXAttrValue, Lit, JSXExprContainer, JSXElement, JSXFragment];
 generate_traits![JSXExpr, JSXEmptyExpr, Expr];
 generate_traits![JSXObject, JSXMemberExpr, Ident];
 

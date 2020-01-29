@@ -19,6 +19,14 @@ export function* test (  )  :   string
 export function* test(): string {
 }
 
+== should format an async generator ==
+async function* test () {
+}
+
+[expect]
+async function* test() {
+}
+
 == should format a declare function with an export keyword ==
 export declare function
 test<T, U>
