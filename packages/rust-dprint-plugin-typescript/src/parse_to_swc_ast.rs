@@ -48,7 +48,12 @@ pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSource
         let tokens = parser.input().take();
 
         match parse_module_result {
-            Err(error) => Err(error.message()),
+            Err(mut error) => {
+                // mark the diagnostic as being handled (otherwise it will panic in its drop)
+                error.cancel();
+                // return the formatted diagnostic string
+                Err(format_diagnostic(&error, file_text))
+            },
             Ok(module) => Ok((module, tokens))
         }
     }?;
@@ -91,4 +96,17 @@ impl Emitter for EmptyEmitter {
     fn should_show_explain(&self) -> bool {
         false
     }
+}
+
+fn format_diagnostic(error: &DiagnosticBuilder, file_text: &str) -> String {
+    // todo: handling sub diagnostics?
+    let mut message = String::new();
+    if let Some(primary_span) = error.span.primary_span() {
+        let error_pos = primary_span.lo().0 as usize;
+        let line_number = utils::get_line_number_of_pos(file_text, error_pos);
+        let column_number = utils::get_column_number_of_pos(file_text, error_pos);
+        message.push_str(&format!("Line {}, column {}: ", line_number, column_number))
+    }
+    message.push_str(&error.message());
+    return message;
 }
