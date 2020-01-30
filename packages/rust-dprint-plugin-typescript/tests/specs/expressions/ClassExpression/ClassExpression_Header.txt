@@ -11,15 +11,13 @@ const t = class Test { // test
 const t = class {};
 
 [expect]
-const t = class {
-};
+const t = class {};
 
 == should print an extends clause ==
 const t = class Test extends Other {};
 
 [expect]
-const t = class Test extends Other {
-};
+const t = class Test extends Other {};
 
 == should print a verly long extends clause so that it goes to the next line ==
 const t = class Test extends OtherOtherOtherOtherOtherOtherOtherOther {

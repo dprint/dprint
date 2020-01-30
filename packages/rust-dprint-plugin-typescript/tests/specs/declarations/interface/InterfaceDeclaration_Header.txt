@@ -1,10 +1,17 @@
 ~~ lineWidth: 60 ~~
 == should print with no members ==
-interface Test {}
+interface Test {
+}
 
 [expect]
 interface Test {
 }
+
+== should print with no members and when on same line ==
+interface Test {}
+
+[expect]
+interface Test {}
 
 == should print declare ==
 declare interface Test {

@@ -39,3 +39,9 @@ class Test {
     /* testing */ // 1
     // test
 }
+
+== should leave an empty class declaration block on the same line ==
+class Test {}
+
+[expect]
+class Test {}

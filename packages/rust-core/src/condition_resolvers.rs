@@ -43,3 +43,8 @@ pub fn is_on_same_line(condition_context: &mut ConditionResolverContext, start_i
     let start_info = condition_context.get_resolved_info(start_info)?;
     return Some(start_info.line_number == condition_context.writer_info.line_number);
 }
+
+pub fn is_on_different_line(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
+    let start_info = condition_context.get_resolved_info(start_info)?;
+    return Some(start_info.line_number != condition_context.writer_info.line_number);
+}

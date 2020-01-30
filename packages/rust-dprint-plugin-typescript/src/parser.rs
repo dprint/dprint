@@ -22,7 +22,7 @@ pub fn parse(source_file: ParsedSourceFile, config: Configuration) -> PrintItems
         source_file.info
     );
     let mut items = parse_node(Node::Module(&source_file.module), &mut context);
-    items.extend(if_true(
+    items.push_condition(if_true(
         "endOfFileNewLine",
         |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
         Signal::NewLine.into()
@@ -2433,29 +2433,45 @@ fn parse_block_stmt<'a>(node: &'a BlockStmt, context: &mut Context<'a>) -> Print
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(&node);
 
     items.push_str("{");
-    items.extend(parse_trailing_comments(&open_brace_token, context));
-
-    // Allow: const t = () => {}; and const t = function() {};
-    let is_arrow_or_fn_expr = match context.parent().kind() { NodeKind::ArrowExpr | NodeKind::FnExpr => true, _ => false };
-    if is_arrow_or_fn_expr && node.start_line(context) == node.end_line(context) && node.stmts.is_empty() && !node.leading_comments(context).peekable().peek().is_some() {
-        items.push_str("}");
-        return items;
-    }
-
+    let after_open_brace_info = Info::new("after_open_brace_info");
+    let open_brace_trailing_comments = open_brace_token.trailing_comments(context);
+    let open_brace_trailing_comments_ends_with_comment_block = open_brace_trailing_comments.get_last_comment().map(|x| x.kind == CommentKind::Block).unwrap_or(false);
+    let is_braces_same_line_and_empty = node.start_line(context) == node.end_line(context) && node.stmts.is_empty();
+    items.extend(parse_comments_as_trailing(&open_brace_token, open_brace_trailing_comments, context));
     items.extend(parse_first_line_trailing_comments(&node, node.stmts.get(0).map(|x| x as &dyn Spanned), context));
-    items.push_signal(Signal::NewLine);
+
+    if !is_braces_same_line_and_empty {
+        items.push_signal(Signal::NewLine);
+    }
     items.push_info(start_statements_info);
     items.extend(parser_helpers::with_indent(
         parse_statements(node.get_inner_span(context), node.stmts.iter().map(|stmt| stmt.into()).collect(), context)
     ));
     items.push_info(end_statements_info);
-    items.push_condition(Condition::new("endStatementsNewLine", ConditionProperties {
-        condition: Box::new(move |context| {
-            condition_resolvers::are_infos_equal(context, &start_statements_info, &end_statements_info)
-        }),
-        true_path: None,
-        false_path: Some(Signal::NewLine.into()),
-    }));
+
+    if is_braces_same_line_and_empty {
+        items.push_condition(if_true_or(
+            "newLineIfDifferentLine",
+            move |context| condition_resolvers::is_on_different_line(context, &after_open_brace_info),
+            Signal::NewLine.into(),
+            {
+                if open_brace_trailing_comments_ends_with_comment_block {
+                    Signal::SpaceOrNewLine.into()
+                } else {
+                    PrintItems::new()
+                }
+            }
+        ));
+    } else {
+        items.push_condition(Condition::new("endStatementsNewLine", ConditionProperties {
+            condition: Box::new(move |context| {
+                condition_resolvers::are_infos_equal(context, &start_statements_info, &end_statements_info)
+            }),
+            true_path: None,
+            false_path: Some(Signal::NewLine.into()),
+        }));
+    }
+
     items.push_str("}");
 
     return items;
@@ -3813,6 +3829,7 @@ fn parse_membered_body<'a, FShouldUseBlankLine>(
     let mut items = PrintItems::new();
     let open_brace_token = context.token_finder.get_first_open_brace_token_before(&if opts.members.is_empty() { opts.span.hi() } else { opts.members[0].lo() });
     let close_brace_token_pos = BytePos(opts.span.hi().0 - 1);
+    let has_members = !opts.members.is_empty();
 
     items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
         brace_position: opts.brace_position,
@@ -3821,7 +3838,11 @@ fn parse_membered_body<'a, FShouldUseBlankLine>(
     }, context));
 
     items.push_str("{");
-    items.extend(parse_trailing_comments(&open_brace_token, context));
+    let after_open_brace_info = Info::new("afterOpenBrace");
+    items.push_info(after_open_brace_info);
+    let open_brace_trailing_comments = open_brace_token.trailing_comments(context);
+    let open_brace_trailing_comments_ends_with_comment_block = open_brace_trailing_comments.get_last_comment().map(|x| x.kind == CommentKind::Block).unwrap_or(false);
+    items.extend(parse_comments_as_trailing(&open_brace_token, open_brace_trailing_comments, context));
     items.extend(parser_helpers::with_indent({
         let mut items = PrintItems::new();
         if !opts.members.is_empty() || close_brace_token_pos.leading_comments(context).any(|c| !context.has_handled_comment(&c)) {
@@ -3839,7 +3860,24 @@ fn parse_membered_body<'a, FShouldUseBlankLine>(
 
         items
     }));
-    items.push_signal(Signal::NewLine);
+
+    if opts.span.start_line(context) == opts.span.end_line(context) && !has_members {
+        items.push_condition(if_true_or(
+            "newLineIfDifferentLine",
+            move |context| condition_resolvers::is_on_different_line(context, &after_open_brace_info),
+            Signal::NewLine.into(),
+            {
+                if open_brace_trailing_comments_ends_with_comment_block {
+                    Signal::SpaceOrNewLine.into()
+                } else {
+                    PrintItems::new()
+                }
+            }
+        ));
+    } else {
+        items.push_signal(Signal::NewLine);
+    }
+
     items.push_str("}");
 
     items

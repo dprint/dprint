@@ -28,12 +28,12 @@ pub fn if_true(
     name: &'static str,
     resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     true_path: PrintItems
-) -> PrintItems {
+) -> Condition {
     Condition::new(name, ConditionProperties {
         true_path: Some(true_path),
         false_path: None,
         condition: Box::new(resolver.clone()),
-    }).into()
+    })
 }
 
 pub fn if_true_or(
@@ -41,12 +41,12 @@ pub fn if_true_or(
     resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     true_path: PrintItems,
     false_path: PrintItems
-) -> PrintItems {
+) -> Condition {
     Condition::new(name, ConditionProperties {
         true_path: Some(true_path),
         false_path: Some(false_path),
         condition: Box::new(resolver.clone())
-    }).into()
+    })
 }
 
 pub fn parse_raw_string(text: &str) -> PrintItems {
