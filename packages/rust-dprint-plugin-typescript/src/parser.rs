@@ -1567,10 +1567,12 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Print
 }
 
 fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> PrintItems {
-    return conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
-        (&node.expr).into(),
-        |context| parse_node((&node.expr).into(), context),
-        context
+    return conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(
+        parse_node_in_parens(
+            (&node.expr).into(),
+            |context| parse_node((&node.expr).into(), context),
+            context
+        )
     )).into();
 }
 
@@ -3055,8 +3057,9 @@ fn parse_var_declarator<'a>(node: &'a VarDeclarator, context: &mut Context<'a>) 
     items.extend(parse_node((&node.name).into(), context));
 
     if let Some(init) = &node.init {
-        items.push_str(" = ");
-        items.extend(parse_node(init.into(), context));
+        items.push_str(" =");
+        items.extend(Signal::SpaceOrNewLine.into());
+        items.push_condition(conditions::indent_if_start_of_line(parse_node(init.into(), context)));
     }
 
     items
@@ -3292,10 +3295,12 @@ fn parse_qualified_name<'a>(node: &'a TsQualifiedName, context: &mut Context<'a>
 }
 
 fn parse_parenthesized_type<'a>(node: &'a TsParenthesizedType, context: &mut Context<'a>) -> PrintItems {
-    conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
-        (&node.type_ann).into(),
-        |context| parse_node((&node.type_ann).into(), context),
-        context
+    conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(
+        parse_node_in_parens(
+            (&node.type_ann).into(),
+            |context| parse_node((&node.type_ann).into(), context),
+            context
+        )
     )).into()
 }
 
@@ -4225,19 +4230,17 @@ fn parse_node_in_parens<'a, F>(first_inner_node: Node<'a>, inner_parse_node: F, 
 }
 
 fn wrap_in_parens(parsed_node: PrintItems, use_new_lines: bool) -> PrintItems {
-    parser_helpers::new_line_group({
-        let mut items = PrintItems::new();
-        items.push_str("(");
-        if use_new_lines {
-            items.push_signal(Signal::NewLine);
-            items.extend(parser_helpers::with_indent(parsed_node));
-            items.push_signal(Signal::NewLine);
-        } else {
-            items.extend(parsed_node);
-        }
-        items.push_str(")");
-        items
-    })
+    let mut items = PrintItems::new();
+    items.push_str("(");
+    if use_new_lines {
+        items.push_signal(Signal::NewLine);
+        items.extend(parser_helpers::with_indent(parsed_node));
+        items.push_signal(Signal::NewLine);
+    } else {
+        items.extend(parsed_node);
+    }
+    items.push_str(")");
+    items
 }
 
 fn parse_extends_or_implements<'a>(text: &'a str, type_items: Vec<Node<'a>>, start_header_info: Info, context: &mut Context<'a>) -> PrintItems {

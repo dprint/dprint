@@ -1,0 +1,7 @@
+~~ lineWidth: 80 ~~
+== should format with a line break ==
+export const BodyUsedError = "Failed to execute 'clone' on 'Body': body is already used";
+
+[expect]
+export const BodyUsedError =
+    "Failed to execute 'clone' on 'Body': body is already used";

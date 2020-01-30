@@ -96,10 +96,10 @@ testing
     && t === uv;
 
 == should indent when a non-breaking expression happens to be on a new line ==
-const t = 4545 & 53453443;
+4545454444545 & 53453443;
 
 [expect]
-const t = 4545
+4545454444545
     & 53453443;
 
 == should not place triple equals at same indentation as OR ===
