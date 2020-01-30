@@ -128,7 +128,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
     items.push_info(start_info);
 
     items.push_str("[");
-    items.extend(parser_helpers::if_true(
+    items.push_condition(parser_helpers::if_true(
         "arrayStartNewLine",
         is_multiple_lines.clone(),
         Signal::NewLine.into()
@@ -141,7 +141,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
         false_path: Some(parsed_elements.into()),
     }).into());
 
-    items.extend(parser_helpers::if_true(
+    items.push_condition(parser_helpers::if_true(
         "arrayEndNewLine",
         is_multiple_lines,
         Signal::NewLine.into()
@@ -164,7 +164,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 
             if i < elements_len - 1 {
                 items.push_str(",");
-                items.extend(parser_helpers::if_true_or(
+                items.push_condition(parser_helpers::if_true_or(
                     "afterCommaSeparator",
                     is_multiple_lines.clone(),
                     Signal::NewLine.into(),
