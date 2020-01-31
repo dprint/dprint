@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should keep parameters on multiple lines on multiple lines ==
 function test(
     p1,

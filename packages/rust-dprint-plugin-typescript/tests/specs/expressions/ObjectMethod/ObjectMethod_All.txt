@@ -29,6 +29,35 @@ const obj = {
     }
 };
 
+== should force multi-line parameters when exceeding the line width ==
+const o = {
+    test(testing, thisOut, byExceeding, theLineWidth) {
+    }
+};
+
+[expect]
+const o = {
+    test(
+        testing,
+        thisOut,
+        byExceeding,
+        theLineWidth
+    ) {
+    }
+};
+
+== should not be multi-line when not exceeding the line width ==
+const o = {
+    test(testing, this) {
+    }
+};
+
+[expect]
+const o = {
+    test(testing, this) {
+    }
+};
+
 == should format the return type as hanging when it's hanging ==
 const obj = {
     method(param: string): test | other | number {
@@ -40,33 +69,5 @@ const obj = {
     method(param: string): test | other
         | number
     {
-    }
-};
-
-== should format the return type on the same line when the rest of the header is hanging ==
-const obj = {
-    method(param: string, otherTestinginging: string): test | other {
-    }
-}
-
-[expect]
-const obj = {
-    method(param: string,
-        otherTestinginging: string): test | other
-    {
-    }
-};
-
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
-const obj = {
-    method(param: string, otherTestinginging: string): test | other | testing {
-    }
-}
-
-[expect]
-const obj = {
-    method(param: string,
-        otherTestinginging: string
-    ): test | other | testing {
     }
 };

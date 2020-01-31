@@ -44,8 +44,8 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
             singleBodyPosition: initialConfig["ifStatement.singleBodyPosition"],
             nextControlFlowPosition: initialConfig["ifStatement.nextControlFlowPosition"],
             operatorPosition: initialConfig["binaryExpression.operatorPosition"],
-            forceMultiLineArguments: initialConfig["callExpression.forceMultiLineArguments"],
-            forceMultiLineParameters: initialConfig["functionDeclaration.forceMultiLineParameters"],
+            preferHangingArguments: initialConfig["callExpression.preferHangingArguments"],
+            preferHangingParameters: initialConfig["functionDeclaration.preferHangingParameters"],
             "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
             "arrowFunctionExpression.useParentheses": initialConfig["arrowFunctionExpression.useParentheses"]
         };

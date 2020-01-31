@@ -361,76 +361,80 @@ describe("configuration", () => {
         }
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c.forceMultiLineArguments), () => {
+    describe(nameof<TypeScriptConfiguration>(c => c.preferHangingArguments), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("forceMultiLineArguments"));
+            doTest(config, expectedConfig, prop => prop.endsWith("preferHangingArguments"));
         }
 
+        let defaultValue = false;
+
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(false));
+            doSpecificTest({}, getObject(defaultValue));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ forceMultiLineArguments: false }, getObject(false));
+            doSpecificTest({ preferHangingArguments: defaultValue }, getObject(defaultValue));
         });
 
         it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ forceMultiLineArguments: true }, getObject(true));
+            doSpecificTest({ preferHangingArguments: !defaultValue }, getObject(!defaultValue));
         });
 
         it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(false);
+            const expectedConfig = getObject(defaultValue);
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.forceMultiLineArguments = true;
+            config.preferHangingArguments = !defaultValue;
             doSpecificTest(config, expectedConfig);
         });
 
-        function getObject(value: NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
+        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "callExpression.forceMultiLineArguments": value,
-                "newExpression.forceMultiLineArguments": value
+                "callExpression.preferHangingArguments": value,
+                "newExpression.preferHangingArguments": value
             };
         }
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c.forceMultiLineParameters), () => {
+    describe(nameof<TypeScriptConfiguration>(c => c.preferHangingParameters), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("forceMultiLineParameters"));
+            doTest(config, expectedConfig, prop => prop.endsWith("preferHangingParameters"));
         }
 
+        let defaultValue = false;
+
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(false));
+            doSpecificTest({}, getObject(defaultValue));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ forceMultiLineParameters: false }, getObject(false));
+            doSpecificTest({ preferHangingParameters: defaultValue }, getObject(defaultValue));
         });
 
         it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ forceMultiLineParameters: true }, getObject(true));
+            doSpecificTest({ preferHangingParameters: !defaultValue }, getObject(!defaultValue));
         });
 
         it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(false);
+            const expectedConfig = getObject(defaultValue);
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.forceMultiLineParameters = true;
+            config.preferHangingParameters = !defaultValue;
             doSpecificTest(config, expectedConfig);
         });
 
-        function getObject(value: NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>): Partial<ResolvedTypeScriptConfiguration> {
+        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingParameters"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "arrowFunctionExpression.forceMultiLineParameters": value,
-                "callSignature.forceMultiLineParameters": value,
-                "constructor.forceMultiLineParameters": value,
-                "constructSignature.forceMultiLineParameters": value,
-                "constructorType.forceMultiLineParameters": value,
-                "functionDeclaration.forceMultiLineParameters": value,
-                "functionExpression.forceMultiLineParameters": value,
-                "functionType.forceMultiLineParameters": value,
-                "getAccessor.forceMultiLineParameters": value,
-                "method.forceMultiLineParameters": value,
-                "methodSignature.forceMultiLineParameters": value,
-                "setAccessor.forceMultiLineParameters": value
+                "arrowFunctionExpression.preferHangingParameters": value,
+                "callSignature.preferHangingParameters": value,
+                "constructor.preferHangingParameters": value,
+                "constructSignature.preferHangingParameters": value,
+                "constructorType.preferHangingParameters": value,
+                "functionDeclaration.preferHangingParameters": value,
+                "functionExpression.preferHangingParameters": value,
+                "functionType.preferHangingParameters": value,
+                "getAccessor.preferHangingParameters": value,
+                "method.preferHangingParameters": value,
+                "methodSignature.preferHangingParameters": value,
+                "setAccessor.preferHangingParameters": value
             };
         }
     });

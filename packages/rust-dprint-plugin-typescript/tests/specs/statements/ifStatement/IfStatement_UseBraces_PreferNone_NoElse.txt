@@ -17,13 +17,22 @@ if (thisIsAVery && longerConditionThatWill && goOverTheLimitOf80CharAtTheSpace) 
 if (thisIsAVery && longerConditionThatWill && goOverTheLimitOf80CharAtTheSpace)
     a;
 
-== should use braces when the single statement is hanging ==
+== should use braces when the single statement becomes multiple lines ==
 if(true)call(theseAreSome,argumentsThatWill,take,this, over,the, limit,of80, columns);
 
 [expect]
 if (true) {
-    call(theseAreSome, argumentsThatWill, take, this, over, the, limit, of80,
-        columns);
+    call(
+        theseAreSome,
+        argumentsThatWill,
+        take,
+        this,
+        over,
+        the,
+        limit,
+        of80,
+        columns
+    );
 }
 
 == should use braces when there is a comment and statement and separate lines ==

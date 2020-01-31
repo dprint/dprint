@@ -33,6 +33,7 @@ pub trait ConditionTrait<TString, TInfo, TCondition> where TString : StringTrait
     fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>;
     fn get_true_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
     fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
+    fn get_dependent_infos<'a>(&'a self) -> &'a Option<Vec<TInfo>>;
 }
 
 /** Print Items */
@@ -442,6 +443,9 @@ pub struct Condition<TString = String, TInfo = Info> where TString : StringTrait
     pub true_path: Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>>,
     /// The items to print when the condition is false or undefined (not yet resolved).
     pub false_path: Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>>,
+    /// Any infos that should cause the re-evaluation of this condition.
+    /// This is only done on request for performance reasons.
+    pub(super) dependent_infos: Option<Vec<TInfo>>,
 }
 
 impl Clone for Condition {
@@ -453,6 +457,7 @@ impl Clone for Condition {
             condition: self.condition.clone(),
             true_path: self.true_path.clone(),
             false_path: self.false_path.clone(),
+            dependent_infos: self.dependent_infos.clone(),
         };
     }
 }
@@ -461,13 +466,22 @@ static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl<TString, TInfo> Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
     pub fn new(name: &'static str, properties: ConditionProperties<TString, TInfo>) -> Condition<TString, TInfo> {
+        Condition::new_internal(name, properties, None)
+    }
+
+    pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties<TString, TInfo>, dependent_infos: Vec<TInfo>) -> Condition<TString, TInfo> {
+        Condition::new_internal(name, properties, Some(dependent_infos))
+    }
+
+    fn new_internal(name: &'static str, properties: ConditionProperties<TString, TInfo>, dependent_infos: Option<Vec<TInfo>>) -> Condition<TString, TInfo> {
         Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
-            is_stored: false,
+            is_stored: dependent_infos.is_some(),
             name,
             condition: Rc::new(properties.condition),
             true_path: properties.true_path.map(|x| x.first_node).flatten(),
             false_path: properties.false_path.map(|x| x.first_node).flatten(),
+            dependent_infos,
         }
     }
 
@@ -518,6 +532,11 @@ impl<TString, TInfo> ConditionTrait<TString, TInfo, Condition<TString, TInfo>> f
     #[inline]
     fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>> {
         self.false_path.clone()
+    }
+
+    #[inline]
+    fn get_dependent_infos<'a>(&'a self) -> &'a Option<Vec<TInfo>> {
+        &self.dependent_infos
     }
 }
 

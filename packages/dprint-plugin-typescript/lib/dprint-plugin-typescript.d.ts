@@ -89,19 +89,19 @@ export interface TypeScriptConfiguration {
      */
     operatorPosition?: "maintain" | "sameLine" | "nextLine";
     /**
-     * Forces an argument list to be multi-line when it exceeds the line width.
-     * @remarks - When false, it will be hanging when the first argument is on the same line
+     * Prefers an argument list to be hanging when it exceeds the line width.
+     * @remarks It will be hanging when the first argument is on the same line
      * as the open parenthesis and multi-line when on a different line.
      * @default false
      */
-    forceMultiLineArguments?: boolean;
+    preferHangingArguments?: boolean;
     /**
      * Forces a parameter list to be multi-line when it exceeds the line width.
-     * @remarks - When false, it will be hanging when the first parameter is on the same line
+     * @remarks It will be hanging when the first parameter is on the same line
      * as the open parenthesis and multi-line when on a different line.
      * @default false
      */
-    forceMultiLineParameters?: boolean;
+    preferHangingParameters?: boolean;
     /**
      * Whether to use parentheses around a single parameter in an arrow function.
      * @default "maintain"
@@ -334,20 +334,20 @@ export interface TypeScriptConfiguration {
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
-    "callExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
-    "newExpression.forceMultiLineArguments"?: TypeScriptConfiguration["forceMultiLineArguments"];
-    "arrowFunctionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "callSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "constructor.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "constructorType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "constructSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "functionDeclaration.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "functionExpression.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "functionType.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "getAccessor.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "method.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "methodSignature.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
-    "setAccessor.forceMultiLineParameters"?: TypeScriptConfiguration["forceMultiLineParameters"];
+    "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
+    "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
+    "arrowFunctionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "callSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "constructor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "constructorType.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "constructSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "functionDeclaration.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "functionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "functionType.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "getAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "method.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "methodSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "setAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
 }
 
 /**
@@ -424,20 +424,20 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
-    readonly "callExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
-    readonly "newExpression.forceMultiLineArguments": NonNullable<TypeScriptConfiguration["forceMultiLineArguments"]>;
-    readonly "arrowFunctionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "callSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "constructor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "constructorType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "constructSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "functionDeclaration.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "functionExpression.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "functionType.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "getAccessor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "method.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "methodSignature.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
-    readonly "setAccessor.forceMultiLineParameters": NonNullable<TypeScriptConfiguration["forceMultiLineParameters"]>;
+    readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
+    readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
+    readonly "arrowFunctionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "callSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "constructor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "constructorType.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "constructSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "functionDeclaration.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "functionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "functionType.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "getAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "method.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "methodSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "setAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;

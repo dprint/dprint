@@ -1,4 +1,4 @@
-~~ lineWidth: 80 ~~
+~~ arrowFunctionExpression.preferHangingParameters: true, lineWidth: 80 ~~
 == should format params with a hanging indent by default ==
 const t = (here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) => {
 }
@@ -16,4 +16,34 @@ const t = (p1, p2,
 
 [expect]
 const t = (p1, p2, p3) => {
+};
+
+== should keep parameters on multiple lines on multiple lines ==
+const t = (
+    p1,
+    p2
+) =>
+{
+}
+
+[expect]
+const t = (
+    p1,
+    p2
+) => {
+};
+
+== should make multi-line when first param is on a new line ==
+const t = (
+    p1, p2,
+    p3) =>
+{
+}
+
+[expect]
+const t = (
+    p1,
+    p2,
+    p3
+) => {
 };

@@ -26,25 +26,27 @@ interface T {
         | number;
 }
 
-== should format the return type on the same line when the rest of the header is hanging ==
+== should force multi-line parameters when exceeding the line width ==
 interface T {
-    method(param: string, otherTest: string): test | ing;
+    method(testing, thisOut, byExceeding, theLineWidth): void;
 }
 
 [expect]
 interface T {
-    method(param: string,
-        otherTest: string): test | ing;
+    method(
+        testing,
+        thisOut,
+        byExceeding,
+        theLineWidth
+    ): void;
 }
 
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+== should not be multi-line when not exceeding the line width ==
 interface T {
-    method(param: string, otherTest: string): test | other | other;
+    method(testing, thisOut): void;
 }
 
 [expect]
 interface T {
-    method(param: string,
-        otherTest: string
-    ): test | other | other;
+    method(testing, thisOut): void;
 }

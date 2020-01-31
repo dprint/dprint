@@ -1,0 +1,48 @@
+~~ lineWidth: 80, functionExpression.preferHangingParameters: true ~~
+== should format params with a hanging indent ==
+const t = function(here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) {
+}
+
+[expect]
+const t = function(here, are, some, parens, that, will, go, over, the, limit,
+    of, width, source, file)
+{
+};
+
+== should revert a hanging indent to a single line if short enough ==
+const t = function(p1, p2,
+    p3) {
+}
+
+[expect]
+const t = function(p1, p2, p3) {
+};
+
+== should keep parameters on multiple lines on multiple lines ==
+const t = function test(
+    p1,
+    p2
+)
+{
+}
+
+[expect]
+const t = function test(
+    p1,
+    p2
+) {
+};
+
+== should make multiline when the first param is on a different line ==
+const t = function test(
+    p1, p2, p3)
+{
+}
+
+[expect]
+const t = function test(
+    p1,
+    p2,
+    p3
+) {
+};

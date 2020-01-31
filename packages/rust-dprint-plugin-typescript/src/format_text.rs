@@ -11,8 +11,8 @@ use swc_common::{BytePos, comments::{Comment}};
 /// // build the configuration once...
 /// let config = ConfigurationBuilder::new()
 ///     .line_width(80)
-///     .force_multi_line_parameters(true)
-///     .force_multi_line_arguments(true)
+///     .prefer_hanging_parameters(true)
+///     .prefer_hanging_arguments(true)
 ///     .single_quotes(true)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
 ///     .build();

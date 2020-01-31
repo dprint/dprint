@@ -1,4 +1,6 @@
 extern crate dprint_core;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
@@ -692,10 +694,10 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
 
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: func.params.iter().map(|node| node.into()).collect(),
-        force_multi_line_when_multiple_lines: if node.is_func_decl {
-            context.config.function_declaration_force_multi_line_parameters
+        prefer_hanging: if node.is_func_decl {
+            context.config.function_declaration_prefer_hanging_parameters
         } else {
-            context.config.function_expression_force_multi_line_parameters
+            context.config.function_expression_prefer_hanging_parameters
         },
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info: start_header_info,
@@ -982,7 +984,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
     if should_use_params {
         items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
             nodes: node.params.iter().map(|node| node.into()).collect(),
-            force_multi_line_when_multiple_lines: context.config.arrow_function_expression_force_multi_line_parameters,
+            prefer_hanging: context.config.arrow_function_expression_prefer_hanging_parameters,
             custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
                 start_info: header_start_info,
                 type_node: node.return_type.as_ref().map(|x| x.into()),
@@ -1268,7 +1270,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
 
         items.push_condition(conditions::with_indent_if_start_of_line_indented(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
             nodes: node.args.iter().map(|node| node.into()).collect(),
-            force_multi_line_when_multiple_lines: context.config.call_expression_force_multi_line_arguments,
+            prefer_hanging: context.config.call_expression_prefer_hanging_arguments,
             custom_close_paren: None,
         }, context)));
 
@@ -1545,7 +1547,7 @@ fn parse_new_expr<'a>(node: &'a NewExpr, context: &mut Context<'a>) -> PrintItem
     };
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: args,
-        force_multi_line_when_multiple_lines: context.config.new_expression_force_multi_line_arguments,
+        prefer_hanging: context.config.new_expression_prefer_hanging_arguments,
         custom_close_paren: None,
     }, context));
     return items;
@@ -1577,7 +1579,7 @@ fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Print
 }
 
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> PrintItems {
-    parse_comma_separated_values(node.exprs.iter().map(|x| x.into()).collect(), |_| { Some(false) }, context)
+    parse_comma_separated_values(node.exprs.iter().map(|x| x.into()).collect(), |_| { Some(false) }, context).items
 }
 
 fn parse_setter_prop<'a>(node: &'a SetterProp, context: &mut Context<'a>) -> PrintItems {
@@ -1623,29 +1625,27 @@ fn parse_tpl_element<'a>(node: &'a TplElement, context: &mut Context<'a>) -> Pri
 }
 
 fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>, context: &mut Context<'a>) -> PrintItems {
-    return parser_helpers::new_line_group({
-        let mut items = PrintItems::new();
-        items.push_str("`");
-        items.push_signal(Signal::StartIgnoringIndent);
-        for node in get_nodes(quasis, exprs) {
-            if node.kind() == NodeKind::TplElement {
-                items.extend(parse_node(node, context));
-            } else {
-                items.push_str("${");
-                items.push_signal(Signal::FinishIgnoringIndent);
-                items.push_signal(Signal::PossibleNewLine);
-                items.push_condition(conditions::single_indent_if_start_of_line());
-                items.extend(parse_node(node, context));
-                items.push_signal(Signal::PossibleNewLine);
-                items.push_condition(conditions::single_indent_if_start_of_line());
-                items.push_str("}");
-                items.push_signal(Signal::StartIgnoringIndent);
-            }
+    let mut items = PrintItems::new();
+    items.push_str("`");
+    items.push_signal(Signal::StartIgnoringIndent);
+    for node in get_nodes(quasis, exprs) {
+        if node.kind() == NodeKind::TplElement {
+            items.extend(parse_node(node, context));
+        } else {
+            items.push_str("${");
+            items.push_signal(Signal::FinishIgnoringIndent);
+            items.push_signal(Signal::PossibleNewLine);
+            items.push_condition(conditions::single_indent_if_start_of_line());
+            items.extend(parse_node(node, context));
+            items.push_signal(Signal::PossibleNewLine);
+            items.push_condition(conditions::single_indent_if_start_of_line());
+            items.push_str("}");
+            items.push_signal(Signal::StartIgnoringIndent);
         }
-        items.push_str("`");
-        items.push_signal(Signal::FinishIgnoringIndent);
-        items
-    });
+    }
+    items.push_str("`");
+    items.push_signal(Signal::FinishIgnoringIndent);
+    return items;
 
     fn get_nodes<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>) -> Vec<Node<'a>> {
         let quasis = quasis;
@@ -1810,7 +1810,7 @@ fn parse_call_signature_decl<'a>(node: &'a TsCallSignatureDecl, context: &mut Co
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        force_multi_line_when_multiple_lines: context.config.call_signature_force_multi_line_parameters,
+        prefer_hanging: context.config.call_signature_prefer_hanging_parameters,
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
@@ -1832,7 +1832,7 @@ fn parse_construct_signature_decl<'a>(node: &'a TsConstructSignatureDecl, contex
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        force_multi_line_when_multiple_lines: context.config.construct_signature_force_multi_line_parameters,
+        prefer_hanging: context.config.construct_signature_prefer_hanging_parameters,
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
@@ -1896,7 +1896,7 @@ fn parse_method_signature<'a>(node: &'a TsMethodSignature, context: &mut Context
 
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        force_multi_line_when_multiple_lines: context.config.method_signature_force_multi_line_parameters,
+        prefer_hanging: context.config.method_signature_prefer_hanging_parameters,
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
@@ -2359,7 +2359,7 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
 
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.into_iter().map(|node| node.into()).collect(),
-        force_multi_line_when_multiple_lines: get_force_multi_line_parameters(&node.kind, context),
+        prefer_hanging: get_prefer_hanging_parameters(&node.kind, context),
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info: start_header_info,
             type_node: node.return_type,
@@ -2381,12 +2381,12 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
 
     return items;
 
-    fn get_force_multi_line_parameters(kind: &ClassOrObjectMethodKind, context: &mut Context) -> bool {
+    fn get_prefer_hanging_parameters(kind: &ClassOrObjectMethodKind, context: &mut Context) -> bool {
         match kind {
-            ClassOrObjectMethodKind::Constructor => context.config.constructor_force_multi_line_parameters,
-            ClassOrObjectMethodKind::Getter => context.config.get_accessor_force_multi_line_parameters,
-            ClassOrObjectMethodKind::Setter => context.config.set_accessor_force_multi_line_parameters,
-            ClassOrObjectMethodKind::Method => context.config.method_force_multi_line_parameters,
+            ClassOrObjectMethodKind::Constructor => context.config.constructor_prefer_hanging_parameters,
+            ClassOrObjectMethodKind::Getter => context.config.get_accessor_prefer_hanging_parameters,
+            ClassOrObjectMethodKind::Setter => context.config.set_accessor_prefer_hanging_parameters,
+            ClassOrObjectMethodKind::Method => context.config.method_prefer_hanging_parameters,
         }
     }
 
@@ -3151,7 +3151,7 @@ fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context
     }
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        force_multi_line_when_multiple_lines: context.config.constructor_type_force_multi_line_parameters,
+        prefer_hanging: context.config.constructor_type_prefer_hanging_parameters,
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: Some((&node.type_ann).into()),
@@ -3175,7 +3175,7 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Pri
     }
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        force_multi_line_when_multiple_lines: context.config.function_type_force_multi_line_parameters,
+        prefer_hanging: context.config.function_type_prefer_hanging_parameters,
         custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: Some((&node.type_ann).into()),
@@ -3980,7 +3980,7 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
 
 struct ParseParametersOrArgumentsOptions<'a> {
     nodes: Vec<Node<'a>>,
-    force_multi_line_when_multiple_lines: bool,
+    prefer_hanging: bool,
     custom_close_paren: Option<PrintItems>,
 }
 
@@ -3989,26 +3989,49 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     let start_info = Info::new("startParamsOrArgs");
     let end_info = Info::new("endParamsOrArgs");
     let use_new_lines = get_use_new_lines(&nodes, context);
-    let force_multi_lines_when_multiple_lines = opts.force_multi_line_when_multiple_lines;
-    let is_single_function = nodes.len() == 1 && is_function_or_arrow_expr(&nodes[0]);
+    let prefer_hanging = opts.prefer_hanging;
+    let param_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
+    // todo: something better in the core library in order to facilitate this
+    let mut is_any_param_on_new_line_condition = {
+        let param_start_infos = param_start_infos.clone();
+        Condition::new_with_dependent_infos("isAnyParamOnNewLineCondition", ConditionProperties {
+            condition: Box::new(move |condition_context| {
+                if use_new_lines { return Some(true); }
+                if prefer_hanging { return Some(false); }
+                // check if any of the param/arg starts are at the beginning of the line
+                for param_start_info in param_start_infos.borrow().iter() {
+                    let param_start_info = condition_context.get_resolved_info(param_start_info)?;
+                    if param_start_info.column_number == param_start_info.line_start_column_number {
+                        return Some(true);
+                    }
+                }
+
+                Some(false)
+            }),
+            false_path: None,
+            true_path: None,
+        }, vec![end_info])
+    };
+    let is_any_param_on_new_line_condition_ref = is_any_param_on_new_line_condition.get_reference();
     let is_multi_line_or_hanging = move |condition_context: &mut ConditionResolverContext| {
-        if use_new_lines { return Some(true); }
-        if force_multi_lines_when_multiple_lines && !is_single_function {
-            return condition_resolvers::is_multiple_lines(condition_context, &start_info, &end_info);
-        }
-        return Some(false);
+        return condition_context.get_resolved_condition(&is_any_param_on_new_line_condition_ref);
     };
 
     let mut items = PrintItems::new();
-    items.push_info(start_info);
     items.push_str("(");
+    items.push_info(start_info);
+    items.push_condition(is_any_param_on_new_line_condition);
 
-    let param_list = parse_comma_separated_values(nodes, is_multi_line_or_hanging, context).into_rc_path();
+    let parse_comma_separated_values_result = parse_comma_separated_values(nodes, is_multi_line_or_hanging, context);
+    param_start_infos.borrow_mut().extend(parse_comma_separated_values_result.item_start_infos);
+    let param_list = parse_comma_separated_values_result.items.into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
         condition: Box::new(is_multi_line_or_hanging),
         true_path: Some(surround_with_new_lines(with_indent(param_list.clone().into()))),
         false_path: Some(param_list.into()),
     }));
+
+    items.push_info(end_info);
 
     if let Some(custom_close_paren) = opts.custom_close_paren {
         items.extend(custom_close_paren);
@@ -4016,8 +4039,6 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     else {
         items.push_str(")");
     }
-
-    items.push_info(end_info);
 
     return items;
 
@@ -4094,19 +4115,36 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
     }
 }
 
+struct ParseCommaAndSeparatedValuesResult {
+    items: PrintItems,
+    item_start_infos: Vec<Info>,
+}
+
 fn parse_comma_separated_values<'a>(
     values: Vec<Node<'a>>,
     multi_line_or_hanging_condition_resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     context: &mut Context<'a>
-) -> PrintItems {
+) -> ParseCommaAndSeparatedValuesResult {
     let mut items = PrintItems::new();
+    let mut item_start_infos = Vec::new();
     let values_count = values.len();
 
     for (i, value) in values.into_iter().enumerate() {
         let has_comma = i < values_count - 1;
         let parsed_value = parse_value(value, has_comma, context);
+        let start_info = Info::new("itemStartInfo");
+        item_start_infos.push(start_info);
 
         if i == 0 {
+            if values_count > 1 {
+                items.push_condition(if_false(
+                    "is_not_start_of_line",
+                    |context| Some(condition_resolvers::is_start_of_new_line(context)),
+                    Signal::PossibleNewLine.into()
+                ));
+            }
+
+            items.push_info(start_info);
             items.extend(parsed_value);
         } else {
             let parsed_value = parsed_value.into_rc_path();
@@ -4115,12 +4153,14 @@ fn parse_comma_separated_values<'a>(
                 true_path: {
                     let mut items = PrintItems::new();
                     items.push_signal(Signal::NewLine);
+                    items.push_info(start_info);
                     items.extend(parsed_value.clone().into());
                     Some(items)
                 },
                 false_path: {
                     let mut items = PrintItems::new();
                     items.push_signal(Signal::SpaceOrNewLine);
+                    items.push_info(start_info);
                     items.push_condition(conditions::indent_if_start_of_line(parsed_value.into()));
                     Some(items)
                 },
@@ -4128,13 +4168,16 @@ fn parse_comma_separated_values<'a>(
         }
     }
 
-    return items;
+    return ParseCommaAndSeparatedValuesResult {
+        items,
+        item_start_infos,
+    };
 
     fn parse_value<'a>(value: Node<'a>, has_comma: bool, context: &mut Context<'a>) -> PrintItems {
         parser_helpers::new_line_group(parse_node_with_inner_parse(value, context, move |mut items| {
             if has_comma { items.push_str(","); }
             items
-        })).into()
+        }))
     }
 }
 
@@ -4878,19 +4921,6 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
 fn is_expr_template(node: &Expr) -> bool { // todo: remove
     match node {
         Expr::Tpl(_) => true,
-        _ => false
-    }
-}
-
-fn is_function_or_arrow_expr(node: &Node) -> bool {
-    match node {
-        Node::FnExpr(_) | Node::ArrowExpr(_) => true,
-        Node::ExprOrSpread(ref expr) => {
-            match *expr.expr {
-                Expr::Fn(_) | Expr::Arrow(_) => true,
-                _ => false,
-            }
-        },
         _ => false
     }
 }

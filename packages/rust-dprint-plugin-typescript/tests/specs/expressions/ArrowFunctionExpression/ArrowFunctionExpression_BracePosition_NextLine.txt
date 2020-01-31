@@ -1,4 +1,4 @@
-~~ arrowFunctionExpression.bracePosition: nextLine, lineWidth: 30 ~~
+~~ arrowFunctionExpression.bracePosition: nextLine, arrowFunctionExpression.preferHangingParameters: true, lineWidth: 30 ~~
 == should use the next line for the brace position ==
 const t = () => {
 };

@@ -12,8 +12,8 @@ use serde::{Serialize, Deserialize};
 ///
 /// let config = ConfigurationBuilder::new()
 ///     .line_width(80)
-///     .force_multi_line_parameters(true)
-///     .force_multi_line_arguments(true)
+///     .prefer_hanging_parameters(true)
+///     .prefer_hanging_arguments(true)
 ///     .single_quotes(true)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
 ///     .build();
@@ -71,20 +71,20 @@ impl ConfigurationBuilder {
         self.insert("semiColons", value)
     }
 
-    /// Forces an argument list to be multi-line when it exceeds the line width.
-    /// Note: When false, it will be hanging when the first argument is on the same line
+    /// Prefers an argument list is hanging when it exceeds the line width.
+    /// Note: It will be hanging when the first argument is on the same line
     /// as the open parenthesis and multi-line when on a different line.
     /// Default: false
-    pub fn force_multi_line_arguments(&mut self, value: bool) -> &mut Self {
-        self.insert("forceMultiLineArguments", value)
+    pub fn prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
+        self.insert("preferHangingArguments", value)
     }
 
-    /// Forces a parameter list to be multi-line when it exceeds the line width.
-    /// Note: When false, it will be hanging when the first parameter is on the same line
+    /// Prefers a parameter list to be hanging when it exceeds the line width.
+    /// Note: It will be hanging when the first parameter is on the same line
     /// as the open parenthesis and multi-line when on a different line.
     /// Default: false
-    pub fn force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("forceMultiLineParameters", value)
+    pub fn prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("preferHangingParameters", value)
     }
 
     /// Where to place the opening brace.
@@ -362,62 +362,62 @@ impl ConfigurationBuilder {
         self.insert("whileStatement.bracePosition", value)
     }
 
-    /* force multi-line arguments */
-    pub fn call_expression_force_multi_line_arguments(&mut self, value: bool) -> &mut Self {
-        self.insert("callExpression.forceMultiLineArguments", value)
+    /* prefer hanging arguments */
+    pub fn call_expression_prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
+        self.insert("callExpression.preferHangingArguments", value)
     }
 
-    pub fn new_expression_force_multi_line_arguments(&mut self, value: bool) -> &mut Self {
-        self.insert("newExpression.forceMultiLineArguments", value)
+    pub fn new_expression_prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
+        self.insert("newExpression.preferHangingArguments", value)
     }
 
-    /* force multi-line parameters */
-    pub fn arrow_function_expression_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("arrowFunctionExpression.forceMultiLineParameters", value)
+    /* prefer hanging parameters */
+    pub fn arrow_function_expression_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("arrowFunctionExpression.preferHangingParameters", value)
     }
 
-    pub fn call_signature_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("callSignature.forceMultiLineParameters", value)
+    pub fn call_signature_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("callSignature.preferHangingParameters", value)
     }
 
-    pub fn construct_signature_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("constructSignature.forceMultiLineParameters", value)
+    pub fn construct_signature_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("constructSignature.preferHangingParameters", value)
     }
 
-    pub fn constructor_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("constructor.forceMultiLineParameters", value)
+    pub fn constructor_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("constructor.preferHangingParameters", value)
     }
 
-    pub fn constructor_type_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("constructorType.forceMultiLineParameters", value)
+    pub fn constructor_type_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("constructorType.preferHangingParameters", value)
     }
 
-    pub fn function_declaration_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("functionDeclaration.forceMultiLineParameters", value)
+    pub fn function_declaration_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("functionDeclaration.preferHangingParameters", value)
     }
 
-    pub fn function_expression_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("functionExpression.forceMultiLineParameters", value)
+    pub fn function_expression_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("functionExpression.preferHangingParameters", value)
     }
 
-    pub fn function_type_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("functionType.forceMultiLineParameters", value)
+    pub fn function_type_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("functionType.preferHangingParameters", value)
     }
 
-    pub fn get_accessor_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("getAccessor.forceMultiLineParameters", value)
+    pub fn get_accessor_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("getAccessor.preferHangingParameters", value)
     }
 
-    pub fn method_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("method.forceMultiLineParameters", value)
+    pub fn method_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("method.preferHangingParameters", value)
     }
 
-    pub fn method_signature_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("methodSignature.forceMultiLineParameters", value)
+    pub fn method_signature_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("methodSignature.preferHangingParameters", value)
     }
 
-    pub fn set_accessor_force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("setAccessor.forceMultiLineParameters", value)
+    pub fn set_accessor_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("setAccessor.preferHangingParameters", value)
     }
 
     /* member spacing */
@@ -881,8 +881,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
     let mut config = config.clone();
 
     let semi_colons = get_value(&mut config, "semiColons", true, &mut diagnostics);
-    let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false, &mut diagnostics);
-    let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false, &mut diagnostics);
+    let prefer_hanging_arguments = get_value(&mut config, "preferHangingArguments", false, &mut diagnostics);
+    let prefer_hanging_parameters = get_value(&mut config, "preferHangingParameters", false, &mut diagnostics);
     let brace_position = get_value(&mut config, "bracePosition", BracePosition::NextLineIfHanging, &mut diagnostics);
     let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::NextLine, &mut diagnostics);
     let operator_position = get_value(&mut config, "operatorPosition", OperatorPosition::NextLine, &mut diagnostics);
@@ -920,22 +920,22 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
         switch_statement_brace_position: get_value(&mut config, "switchStatement.bracePosition", brace_position, &mut diagnostics),
         try_statement_brace_position: get_value(&mut config, "tryStatement.bracePosition", brace_position, &mut diagnostics),
         while_statement_brace_position: get_value(&mut config, "whileStatement.bracePosition", brace_position, &mut diagnostics),
-        /* force multi-line arguments */
-        call_expression_force_multi_line_arguments: get_value(&mut config, "callExpression.forceMultiLineArguments", force_multi_line_arguments, &mut diagnostics),
-        new_expression_force_multi_line_arguments: get_value(&mut config, "newExpression.forceMultiLineArguments", force_multi_line_arguments, &mut diagnostics),
-        /* force multi-line parameters */
-        arrow_function_expression_force_multi_line_parameters: get_value(&mut config, "arrowFunctionExpression.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        call_signature_force_multi_line_parameters: get_value(&mut config, "callSignature.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        construct_signature_force_multi_line_parameters: get_value(&mut config, "constructSignature.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        constructor_force_multi_line_parameters: get_value(&mut config, "constructor.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        constructor_type_force_multi_line_parameters: get_value(&mut config, "constructorType.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        function_declaration_force_multi_line_parameters: get_value(&mut config, "functionDeclaration.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        function_expression_force_multi_line_parameters: get_value(&mut config, "functionExpression.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        function_type_force_multi_line_parameters: get_value(&mut config, "functionType.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        get_accessor_force_multi_line_parameters: get_value(&mut config, "getAccessor.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        method_force_multi_line_parameters: get_value(&mut config, "method.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        method_signature_force_multi_line_parameters: get_value(&mut config, "methodSignature.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
-        set_accessor_force_multi_line_parameters: get_value(&mut config, "setAccessor.forceMultiLineParameters", force_multi_line_parameters, &mut diagnostics),
+        /* prefer hanging arguments */
+        call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
+        new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
+        /* prefer hanging parameters */
+        arrow_function_expression_prefer_hanging_parameters: get_value(&mut config, "arrowFunctionExpression.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        call_signature_prefer_hanging_parameters: get_value(&mut config, "callSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        construct_signature_prefer_hanging_parameters: get_value(&mut config, "constructSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        constructor_prefer_hanging_parameters: get_value(&mut config, "constructor.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        constructor_type_prefer_hanging_parameters: get_value(&mut config, "constructorType.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        function_declaration_prefer_hanging_parameters: get_value(&mut config, "functionDeclaration.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        function_expression_prefer_hanging_parameters: get_value(&mut config, "functionExpression.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        function_type_prefer_hanging_parameters: get_value(&mut config, "functionType.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        get_accessor_prefer_hanging_parameters: get_value(&mut config, "getAccessor.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        method_prefer_hanging_parameters: get_value(&mut config, "method.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        method_signature_prefer_hanging_parameters: get_value(&mut config, "methodSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        set_accessor_prefer_hanging_parameters: get_value(&mut config, "setAccessor.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
         /* member spacing */
         enum_declaration_member_spacing: get_value(&mut config, "enumDeclaration.memberSpacing", MemberSpacing::Maintain, &mut diagnostics),
         /* next control flow position */
@@ -1112,36 +1112,36 @@ pub struct Configuration {
     pub try_statement_brace_position: BracePosition,
     #[serde(rename = "whileStatement.bracePosition")]
     pub while_statement_brace_position: BracePosition,
-    /* force multi-line arguments */
-    #[serde(rename = "callExpression.forceMultiLineArguments")]
-    pub call_expression_force_multi_line_arguments: bool,
-    #[serde(rename = "newExpression.forceMultiLineArguments")]
-    pub new_expression_force_multi_line_arguments: bool,
-    /* force multi-line parameters */
-    #[serde(rename = "arrowFunctionExpression.forceMultiLineParameters")]
-    pub arrow_function_expression_force_multi_line_parameters: bool,
-    #[serde(rename = "callSignature.forceMultiLineParameters")]
-    pub call_signature_force_multi_line_parameters: bool,
-    #[serde(rename = "constructSignature.forceMultiLineParameters")]
-    pub construct_signature_force_multi_line_parameters: bool,
-    #[serde(rename = "constructor.forceMultiLineParameters")]
-    pub constructor_force_multi_line_parameters: bool,
-    #[serde(rename = "constructorType.forceMultiLineParameters")]
-    pub constructor_type_force_multi_line_parameters: bool,
-    #[serde(rename = "functionDeclaration.forceMultiLineParameters")]
-    pub function_declaration_force_multi_line_parameters: bool,
-    #[serde(rename = "functionExpression.forceMultiLineParameters")]
-    pub function_expression_force_multi_line_parameters: bool,
-    #[serde(rename = "functionType.forceMultiLineParameters")]
-    pub function_type_force_multi_line_parameters: bool,
-    #[serde(rename = "getAccessor.forceMultiLineParameters")]
-    pub get_accessor_force_multi_line_parameters: bool,
-    #[serde(rename = "method.forceMultiLineParameters")]
-    pub method_force_multi_line_parameters: bool,
-    #[serde(rename = "methodSignature.forceMultiLineParameters")]
-    pub method_signature_force_multi_line_parameters: bool,
-    #[serde(rename = "setAccessor.forceMultiLineParameters")]
-    pub set_accessor_force_multi_line_parameters: bool,
+    /* prefer hanging arguments */
+    #[serde(rename = "callExpression.preferHangingArguments")]
+    pub call_expression_prefer_hanging_arguments: bool,
+    #[serde(rename = "newExpression.preferHangingArguments")]
+    pub new_expression_prefer_hanging_arguments: bool,
+    /* prefer hanging parameters */
+    #[serde(rename = "arrowFunctionExpression.preferHangingParameters")]
+    pub arrow_function_expression_prefer_hanging_parameters: bool,
+    #[serde(rename = "callSignature.preferHangingParameters")]
+    pub call_signature_prefer_hanging_parameters: bool,
+    #[serde(rename = "constructSignature.preferHangingParameters")]
+    pub construct_signature_prefer_hanging_parameters: bool,
+    #[serde(rename = "constructor.preferHangingParameters")]
+    pub constructor_prefer_hanging_parameters: bool,
+    #[serde(rename = "constructorType.preferHangingParameters")]
+    pub constructor_type_prefer_hanging_parameters: bool,
+    #[serde(rename = "functionDeclaration.preferHangingParameters")]
+    pub function_declaration_prefer_hanging_parameters: bool,
+    #[serde(rename = "functionExpression.preferHangingParameters")]
+    pub function_expression_prefer_hanging_parameters: bool,
+    #[serde(rename = "functionType.preferHangingParameters")]
+    pub function_type_prefer_hanging_parameters: bool,
+    #[serde(rename = "getAccessor.preferHangingParameters")]
+    pub get_accessor_prefer_hanging_parameters: bool,
+    #[serde(rename = "method.preferHangingParameters")]
+    pub method_prefer_hanging_parameters: bool,
+    #[serde(rename = "methodSignature.preferHangingParameters")]
+    pub method_signature_prefer_hanging_parameters: bool,
+    #[serde(rename = "setAccessor.preferHangingParameters")]
+    pub set_accessor_prefer_hanging_parameters: bool,
     /* member spacing */
     #[serde(rename = "enumDeclaration.memberSpacing")]
     pub enum_declaration_member_spacing: MemberSpacing,

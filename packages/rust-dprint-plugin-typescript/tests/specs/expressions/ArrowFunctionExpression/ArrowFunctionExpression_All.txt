@@ -68,22 +68,26 @@ const t = (param: string, other: number): testing
 {
 };
 
-== should format the return type on the same line when the rest of the header is hanging ==
+== should format the return type on the same line when the rest of the header is multi-line ==
 const testing = (param: string, other: number, finalParameterThatIs: string): testing | this => {
 }
 
 [expect]
-const testing = (param: string, other: number,
-    finalParameterThatIs: string): testing | this =>
-{
+const testing = (
+    param: string,
+    other: number,
+    finalParameterThatIs: string
+): testing | this => {
 };
 
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+== should format the return type on a new line when it's hanging and the rest of the header is multi-line ==
 const testing = (param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut => {
 }
 
 [expect]
-const testing = (param: string, other: number,
+const testing = (
+    param: string,
+    other: number,
     finalParameterThatIsReallyReallyLong: string
 ): testing | other | other | test | test | asdf
     | testingThisOut | testingThisOut =>

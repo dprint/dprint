@@ -1,0 +1,22 @@
+~~ constructorType.preferHangingParameters: true, lineWidth: 40 ~~
+== should format the return type as hanging when it's hanging ==
+type Test = new (param: string) => str | number;
+
+[expect]
+type Test = new(param: string) => str
+    | number;
+
+== should format the return type on the same line when the rest of the header is hanging ==
+type Test = new(param: string, otherParam) => str | number;
+
+[expect]
+type Test = new(param: string,
+    otherParam) => str | number;
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+type Test = new (param: string, otherParam) => str | number | other | other;
+
+[expect]
+type Test = new(param: string,
+    otherParam
+) => str | number | other | other;

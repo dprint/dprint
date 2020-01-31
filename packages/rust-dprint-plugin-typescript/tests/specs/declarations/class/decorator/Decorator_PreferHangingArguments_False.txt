@@ -1,0 +1,11 @@
+~~ lineWidth: 30, preferHangingArguments: true ~~
+== should print a decorator with hanging indentation ==
+@dec(testing, this, out, toSee, ifItHangs)
+class T {
+}
+
+[expect]
+@dec(testing, this, out,
+    toSee, ifItHangs)
+class T {
+}

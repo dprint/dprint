@@ -1,4 +1,4 @@
-~~ functionDeclaration.bracePosition: maintain, lineWidth: 30 ~~
+~~ functionDeclaration.bracePosition: maintain, functionDeclaration.preferHangingParameters: true, lineWidth: 30 ~~
 == should maintain the position for the brace position when on same line ==
 function t() {
 }

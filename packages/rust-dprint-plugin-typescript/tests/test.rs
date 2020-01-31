@@ -23,8 +23,6 @@ fn test_performance() {
     // it's not too bad, but there are a few small issues to fix here and there.
     let config = ConfigurationBuilder::new()
         .line_width(80)
-        .force_multi_line_parameters(true)
-        .force_multi_line_arguments(true)
         .single_quotes(true)
         .next_control_flow_position(NextControlFlowPosition::SameLine)
         .build();

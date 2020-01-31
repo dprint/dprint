@@ -19,13 +19,17 @@ class T {
 class T {
 }
 
-== should print a decorator with hanging indentation ==
-@dec(testing, this, out, toSee, ifItHangs)
+== should print a decorator parameters on multiple lines when exceeding the line width ==
+@dec(testing, this, out, toSee)
 class T {
 }
 
 [expect]
-@dec(testing, this, out,
-    toSee, ifItHangs)
+@dec(
+    testing,
+    this,
+    out,
+    toSee
+)
 class T {
 }
