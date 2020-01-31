@@ -1625,29 +1625,27 @@ fn parse_tpl_element<'a>(node: &'a TplElement, context: &mut Context<'a>) -> Pri
 }
 
 fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>, context: &mut Context<'a>) -> PrintItems {
-    return parser_helpers::new_line_group({
-        let mut items = PrintItems::new();
-        items.push_str("`");
-        items.push_signal(Signal::StartIgnoringIndent);
-        for node in get_nodes(quasis, exprs) {
-            if node.kind() == NodeKind::TplElement {
-                items.extend(parse_node(node, context));
-            } else {
-                items.push_str("${");
-                items.push_signal(Signal::FinishIgnoringIndent);
-                items.push_signal(Signal::PossibleNewLine);
-                items.push_condition(conditions::single_indent_if_start_of_line());
-                items.extend(parse_node(node, context));
-                items.push_signal(Signal::PossibleNewLine);
-                items.push_condition(conditions::single_indent_if_start_of_line());
-                items.push_str("}");
-                items.push_signal(Signal::StartIgnoringIndent);
-            }
+    let mut items = PrintItems::new();
+    items.push_str("`");
+    items.push_signal(Signal::StartIgnoringIndent);
+    for node in get_nodes(quasis, exprs) {
+        if node.kind() == NodeKind::TplElement {
+            items.extend(parse_node(node, context));
+        } else {
+            items.push_str("${");
+            items.push_signal(Signal::FinishIgnoringIndent);
+            items.push_signal(Signal::PossibleNewLine);
+            items.push_condition(conditions::single_indent_if_start_of_line());
+            items.extend(parse_node(node, context));
+            items.push_signal(Signal::PossibleNewLine);
+            items.push_condition(conditions::single_indent_if_start_of_line());
+            items.push_str("}");
+            items.push_signal(Signal::StartIgnoringIndent);
         }
-        items.push_str("`");
-        items.push_signal(Signal::FinishIgnoringIndent);
-        items
-    });
+    }
+    items.push_str("`");
+    items.push_signal(Signal::FinishIgnoringIndent);
+    return items;
 
     fn get_nodes<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>) -> Vec<Node<'a>> {
         let quasis = quasis;
@@ -4138,6 +4136,14 @@ fn parse_comma_separated_values<'a>(
         item_start_infos.push(start_info);
 
         if i == 0 {
+            if values_count > 1 {
+                items.push_condition(if_false(
+                    "is_not_start_of_line",
+                    |context| Some(condition_resolvers::is_start_of_new_line(context)),
+                    Signal::PossibleNewLine.into()
+                ));
+            }
+
             items.push_info(start_info);
             items.extend(parsed_value);
         } else {
@@ -4171,7 +4177,7 @@ fn parse_comma_separated_values<'a>(
         parser_helpers::new_line_group(parse_node_with_inner_parse(value, context, move |mut items| {
             if has_comma { items.push_str(","); }
             items
-        })).into()
+        }))
     }
 }
 
@@ -4915,19 +4921,6 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
 fn is_expr_template(node: &Expr) -> bool { // todo: remove
     match node {
         Expr::Tpl(_) => true,
-        _ => false
-    }
-}
-
-fn is_function_or_arrow_expr(node: &Node) -> bool {
-    match node {
-        Node::FnExpr(_) | Node::ArrowExpr(_) => true,
-        Node::ExprOrSpread(ref expr) => {
-            match *expr.expr {
-                Expr::Fn(_) | Expr::Arrow(_) => true,
-                _ => false,
-            }
-        },
         _ => false
     }
 }

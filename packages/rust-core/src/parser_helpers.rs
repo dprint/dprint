@@ -49,6 +49,18 @@ pub fn if_true_or(
     })
 }
 
+pub fn if_false(
+    name: &'static str,
+    resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
+    false_path: PrintItems
+) -> Condition {
+    Condition::new(name, ConditionProperties {
+        true_path: None,
+        false_path: Some(false_path),
+        condition: Box::new(resolver.clone()),
+    })
+}
+
 pub fn parse_raw_string(text: &str) -> PrintItems {
     let mut items = PrintItems::new();
     let mut has_ignored_indent = false;
