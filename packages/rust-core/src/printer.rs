@@ -43,6 +43,7 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringTrait, TInf
     look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint<TString, TInfo, TCondition>>>,
     look_ahead_info_save_points: FastCellMap<usize, SavePoint<TString, TInfo, TCondition>>,
     next_node_stack: Vec<Option<PrintItemPath<TString, TInfo, TCondition>>>,
+    conditions_for_infos: HashMap<usize, HashMap<usize, (Rc<TCondition>, Rc<SavePoint<TString, TInfo, TCondition>>)>>,
     max_width: u32,
     skip_moving_next: bool,
     is_testing: bool, // todo: compiler directives
@@ -61,6 +62,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             resolved_infos: HashMap::new(),
             look_ahead_condition_save_points: HashMap::new(),
             look_ahead_info_save_points: FastCellMap::new(),
+            conditions_for_infos: HashMap::new(),
             next_node_stack: Vec::new(),
             max_width: options.max_width,
             skip_moving_next: false,
@@ -239,25 +241,60 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
     #[inline]
     fn handle_info(&mut self, info: &TInfo) {
-        self.resolved_infos.insert(info.get_unique_id(), self.get_writer_info());
-        let option_save_point = self.look_ahead_info_save_points.remove(&info.get_unique_id());
+        let info_id = info.get_unique_id();
+        self.resolved_infos.insert(info_id, self.get_writer_info());
+        let option_save_point = self.look_ahead_info_save_points.remove(&info_id);
         if let Some(save_point) = option_save_point {
             self.update_state_to_save_point(save_point, false);
             return;
         }
+
+        // check if there are any conditions that should be re-evaluated based on this info update
+        if self.conditions_for_infos.contains_key(&info_id) {
+            // todo: avoid this clone
+            let conditions_for_info = self.conditions_for_infos.get(&info_id).unwrap().clone();
+            for (condition, save_point) in conditions_for_info.values() {
+                let condition_id = condition.get_unique_id();
+                if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).map(|x| x.to_owned()).flatten() {
+                    // todo: this should definitely not use the condition context because the printer is not on the condition
+                    if let Some(condition_value) = condition.resolve(&mut ConditionResolverContext::new(self)) {
+                        if condition_value != resolved_condition_value {
+                            self.update_state_to_save_point(save_point.clone(), false);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[inline]
-    fn handle_condition(&mut self, condition: &'a TCondition, next_node: &Option<PrintItemPath<TString, TInfo, TCondition>>) {
-        let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
+    fn handle_condition(&mut self, condition: &'a Rc<TCondition>, next_node: &Option<PrintItemPath<TString, TInfo, TCondition>>) {
+        let condition_id = condition.get_unique_id();
+        if let Some(dependent_infos) = condition.get_dependent_infos() {
+            for info in dependent_infos {
+                let info_id = info.get_unique_id();
+                let save_point = self.create_save_point_for_restoring_condition(condition.get_name());
+                let conditions_for_info = if let Some(conditions) = self.conditions_for_infos.get_mut(&info_id) {
+                    conditions
+                } else {
+                    self.conditions_for_infos.insert(info_id, HashMap::new());
+                    self.conditions_for_infos.get_mut(&info_id).unwrap()
+                };
 
-        if condition.get_is_stored() {
-            self.resolved_conditions.insert(condition.get_unique_id(), condition_value);
+                let condition_id = condition.get_unique_id();
+                conditions_for_info.insert(condition_id, (condition.clone(), save_point));
+            }
         }
 
-        let save_point = self.look_ahead_condition_save_points.get(&condition.get_unique_id());
+        let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
+        if condition.get_is_stored() {
+            self.resolved_conditions.insert(condition_id, condition_value);
+        }
+
+        let save_point = self.look_ahead_condition_save_points.get(&condition_id);
         if condition_value.is_some() && save_point.is_some() {
-            let save_point = self.look_ahead_condition_save_points.remove(&condition.get_unique_id());
+            let save_point = self.look_ahead_condition_save_points.remove(&condition_id);
             self.update_state_to_save_point(save_point.unwrap(), false);
             return;
         }

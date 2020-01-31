@@ -65,11 +65,11 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Trailing commas">
                 {this.getSelectForConfig("trailingCommas", trailingCommaOptions)}
             </ConfigurationItem>
-            <ConfigurationItem title="Force multi-line arguments">
-                {this.getBooleanConfig("forceMultiLineArguments")}
+            <ConfigurationItem title="Prefer hanging arguments">
+                {this.getBooleanConfig("preferHangingArguments")}
             </ConfigurationItem>
-            <ConfigurationItem title="Force multi-line parameters">
-                {this.getBooleanConfig("forceMultiLineParameters")}
+            <ConfigurationItem title="Prefer hanging parameters">
+                {this.getBooleanConfig("preferHangingParameters")}
             </ConfigurationItem>
             <ConfigurationItem title="Arrow Function - Use parentheses">
                 {this.getSelectForConfig("arrowFunctionExpression.useParentheses", arrowFunctionUseParenthesesOptions)}
