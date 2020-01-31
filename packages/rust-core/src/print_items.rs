@@ -444,7 +444,7 @@ pub struct Condition<TString = String, TInfo = Info> where TString : StringTrait
     /// The items to print when the condition is false or undefined (not yet resolved).
     pub false_path: Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>>,
     /// Any infos that should cause the re-evaluation of this condition.
-    /// This is only done on request for performance reasons, but perhaps.
+    /// This is only done on request for performance reasons.
     pub(super) dependent_infos: Option<Vec<TInfo>>,
 }
 
