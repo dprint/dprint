@@ -59,7 +59,8 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
             if (filePaths.length > 0) {
                 for (const filePath of filePaths)
                     environment.log(filePath);
-            } else {
+            }
+            else {
                 environment.log("Found 0 files.");
             }
             return;
