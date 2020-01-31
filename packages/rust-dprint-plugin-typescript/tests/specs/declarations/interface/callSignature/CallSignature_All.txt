@@ -17,8 +17,10 @@ interface T {
     <T>(a: T): T;
     <T, U, V>(): string;
     (a: string, b: number): string;
-    (param: string,
-        otherParameter: number): str;
+    (
+        param: string,
+        otherParameter: number
+    ): str;
     (
         param: string
     ): number;
@@ -35,25 +37,27 @@ interface T {
         | number;
 }
 
-== should format the return type on the same line when the rest of the header is hanging ==
+== should force multi-line parameters when exceeding the line width ==
 interface T {
-    (param: string, otherTesting: string): te | st;
+    (testing, thisOut, byExceeding, theLineWidth): void;
 }
 
 [expect]
 interface T {
-    (param: string,
-        otherTesting: string): te | st;
+    (
+        testing,
+        thisOut,
+        byExceeding,
+        theLineWidth
+    ): void;
 }
 
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+== should not be multi-line when not exceeding the line width ==
 interface T {
-    (param: string, otherTesting: string): test | other | other;
+    (testing, thisOut): void;
 }
 
 [expect]
 interface T {
-    (param: string,
-        otherTesting: string
-    ): test | other | other;
+    (testing, thisOut): void;
 }

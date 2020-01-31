@@ -366,22 +366,24 @@ describe("configuration", () => {
             doTest(config, expectedConfig, prop => prop.endsWith("forceMultiLineArguments"));
         }
 
+        let defaultValue = true;
+
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(false));
+            doSpecificTest({}, getObject(defaultValue));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ forceMultiLineArguments: false }, getObject(false));
+            doSpecificTest({ forceMultiLineArguments: defaultValue }, getObject(defaultValue));
         });
 
         it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ forceMultiLineArguments: true }, getObject(true));
+            doSpecificTest({ forceMultiLineArguments: !defaultValue }, getObject(!defaultValue));
         });
 
         it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(false);
+            const expectedConfig = getObject(defaultValue);
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.forceMultiLineArguments = true;
+            config.forceMultiLineArguments = !defaultValue;
             doSpecificTest(config, expectedConfig);
         });
 
@@ -398,22 +400,24 @@ describe("configuration", () => {
             doTest(config, expectedConfig, prop => prop.endsWith("forceMultiLineParameters"));
         }
 
+        let defaultValue = true;
+
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(false));
+            doSpecificTest({}, getObject(defaultValue));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ forceMultiLineParameters: false }, getObject(false));
+            doSpecificTest({ forceMultiLineParameters: defaultValue }, getObject(defaultValue));
         });
 
         it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ forceMultiLineParameters: true }, getObject(true));
+            doSpecificTest({ forceMultiLineParameters: !defaultValue }, getObject(!defaultValue));
         });
 
         it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(false);
+            const expectedConfig = getObject(defaultValue);
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.forceMultiLineParameters = true;
+            config.forceMultiLineParameters = !defaultValue;
             doSpecificTest(config, expectedConfig);
         });
 

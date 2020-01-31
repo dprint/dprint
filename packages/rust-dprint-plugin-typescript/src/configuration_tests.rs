@@ -10,8 +10,8 @@ fn check_all_values_set() {
         /* common */
         .single_quotes(true)
         .semi_colons(true)
-        .force_multi_line_arguments(true)
-        .force_multi_line_parameters(true)
+        .force_multi_line_arguments(false)
+        .force_multi_line_parameters(false)
         .brace_position(BracePosition::NextLine)
         .next_control_flow_position(NextControlFlowPosition::SameLine)
         .operator_position(OperatorPosition::SameLine)

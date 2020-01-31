@@ -37,14 +37,16 @@ it(`testing this out ${test} testing testing`, () => {
 it(`testing this out ${test} testing testing`, () => {
 });
 
-== should hanging indent when the arrow function expression is not on the same line ==
+== should make multi-line when the arrow function expression is not on the same line (since doing this makes it not match the test library code) ==
 it("testing this out with a long string",
 () => {
     // etc...
 });
 
 [expect]
-it("testing this out with a long string",
+it(
+    "testing this out with a long string",
     () => {
         // etc...
-    });
+    }
+);

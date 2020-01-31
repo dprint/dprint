@@ -1,4 +1,6 @@
 extern crate dprint_core;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
@@ -1577,7 +1579,7 @@ fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Print
 }
 
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> PrintItems {
-    parse_comma_separated_values(node.exprs.iter().map(|x| x.into()).collect(), |_| { Some(false) }, context)
+    parse_comma_separated_values(node.exprs.iter().map(|x| x.into()).collect(), |_| { Some(false) }, context).items
 }
 
 fn parse_setter_prop<'a>(node: &'a SetterProp, context: &mut Context<'a>) -> PrintItems {
@@ -3990,25 +3992,48 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     let end_info = Info::new("endParamsOrArgs");
     let use_new_lines = get_use_new_lines(&nodes, context);
     let force_multi_lines_when_multiple_lines = opts.force_multi_line_when_multiple_lines;
-    let is_single_function = nodes.len() == 1 && is_function_or_arrow_expr(&nodes[0]);
+    let param_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
+    // todo: something better in the core library in order to facilitate this
+    let mut is_any_param_on_new_line_condition = {
+        let param_start_infos = param_start_infos.clone();
+        Condition::new_with_dependent_infos("isAnyParamOnNewLineCondition", ConditionProperties {
+            condition: Box::new(move |condition_context| {
+                if use_new_lines { return Some(true); }
+                if force_multi_lines_when_multiple_lines {
+                    // check if any of the param/arg starts are at the beginning of the line
+                    for param_start_info in param_start_infos.borrow().iter() {
+                        let param_start_info = condition_context.get_resolved_info(param_start_info)?;
+                        if param_start_info.column_number == param_start_info.line_start_column_number {
+                            return Some(true);
+                        }
+                    }
+                }
+                return Some(false);
+            }),
+            false_path: None,
+            true_path: None,
+        }, vec![end_info])
+    };
+    let is_any_param_on_new_line_condition_ref = is_any_param_on_new_line_condition.get_reference();
     let is_multi_line_or_hanging = move |condition_context: &mut ConditionResolverContext| {
-        if use_new_lines { return Some(true); }
-        if force_multi_lines_when_multiple_lines && !is_single_function {
-            return condition_resolvers::is_multiple_lines(condition_context, &start_info, &end_info);
-        }
-        return Some(false);
+        return condition_context.get_resolved_condition(&is_any_param_on_new_line_condition_ref);
     };
 
     let mut items = PrintItems::new();
-    items.push_info(start_info);
     items.push_str("(");
+    items.push_info(start_info);
+    items.push_condition(is_any_param_on_new_line_condition);
 
-    let param_list = parse_comma_separated_values(nodes, is_multi_line_or_hanging, context).into_rc_path();
+    let parse_comma_separated_values_result = parse_comma_separated_values(nodes, is_multi_line_or_hanging, context);
+    param_start_infos.borrow_mut().extend(parse_comma_separated_values_result.item_start_infos);
+    let param_list = parse_comma_separated_values_result.items.into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
         condition: Box::new(is_multi_line_or_hanging),
         true_path: Some(surround_with_new_lines(with_indent(param_list.clone().into()))),
         false_path: Some(param_list.into()),
     }));
+
+    items.push_info(end_info);
 
     if let Some(custom_close_paren) = opts.custom_close_paren {
         items.extend(custom_close_paren);
@@ -4016,8 +4041,6 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     else {
         items.push_str(")");
     }
-
-    items.push_info(end_info);
 
     return items;
 
@@ -4094,19 +4117,28 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
     }
 }
 
+struct ParseCommaAndSeparatedValuesResult {
+    items: PrintItems,
+    item_start_infos: Vec<Info>,
+}
+
 fn parse_comma_separated_values<'a>(
     values: Vec<Node<'a>>,
     multi_line_or_hanging_condition_resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
     context: &mut Context<'a>
-) -> PrintItems {
+) -> ParseCommaAndSeparatedValuesResult {
     let mut items = PrintItems::new();
+    let mut item_start_infos = Vec::new();
     let values_count = values.len();
 
     for (i, value) in values.into_iter().enumerate() {
         let has_comma = i < values_count - 1;
         let parsed_value = parse_value(value, has_comma, context);
+        let start_info = Info::new("itemStartInfo");
+        item_start_infos.push(start_info);
 
         if i == 0 {
+            items.push_info(start_info);
             items.extend(parsed_value);
         } else {
             let parsed_value = parsed_value.into_rc_path();
@@ -4115,12 +4147,14 @@ fn parse_comma_separated_values<'a>(
                 true_path: {
                     let mut items = PrintItems::new();
                     items.push_signal(Signal::NewLine);
+                    items.push_info(start_info);
                     items.extend(parsed_value.clone().into());
                     Some(items)
                 },
                 false_path: {
                     let mut items = PrintItems::new();
                     items.push_signal(Signal::SpaceOrNewLine);
+                    items.push_info(start_info);
                     items.push_condition(conditions::indent_if_start_of_line(parsed_value.into()));
                     Some(items)
                 },
@@ -4128,7 +4162,10 @@ fn parse_comma_separated_values<'a>(
         }
     }
 
-    return items;
+    return ParseCommaAndSeparatedValuesResult {
+        items,
+        item_start_infos,
+    };
 
     fn parse_value<'a>(value: Node<'a>, has_comma: bool, context: &mut Context<'a>) -> PrintItems {
         parser_helpers::new_line_group(parse_node_with_inner_parse(value, context, move |mut items| {

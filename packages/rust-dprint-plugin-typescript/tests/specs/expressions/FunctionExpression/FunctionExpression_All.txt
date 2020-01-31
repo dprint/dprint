@@ -35,22 +35,26 @@ const t = function(param: string, other: number, finalParam: string): testing
 {
 };
 
-== should format the return type on the same line when the rest of the header is hanging ==
+== should format the return type on the same line when the rest of the header is multi-line ==
 const testing = function(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | this {
 }
 
 [expect]
-const testing = function(param: string, other: number,
-    finalParameterThatIsReallyReallyLong: string): testing | this
-{
+const testing = function(
+    param: string,
+    other: number,
+    finalParameterThatIsReallyReallyLong: string
+): testing | this {
 };
 
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+== should format the return type on a new line when it's multi-line and the rest of the header is hanging ==
 const testing = function(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut {
 }
 
 [expect]
-const testing = function(param: string, other: number,
+const testing = function(
+    param: string,
+    other: number,
     finalParameterThatIsReallyReallyLong: string
 ): testing | other | other | test | test | asdf | testingThisOut
     | testingThisOut

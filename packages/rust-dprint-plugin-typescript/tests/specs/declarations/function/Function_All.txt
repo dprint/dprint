@@ -54,28 +54,6 @@ function testing(param: string, other: number, finalParameter: string): testing
 {
 }
 
-== should format the return type on the same line when the rest of the header is hanging ==
-function testing(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | this {
-}
-
-[expect]
-function testing(param: string, other: number,
-    finalParameterThatIsReallyReallyLong: string): testing | this
-{
-}
-
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
-function testing(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut {
-}
-
-[expect]
-function testing(param: string, other: number,
-    finalParameterThatIsReallyReallyLong: string
-): testing | other | other | test | test | asdf | testingThisOut
-    | testingThisOut
-{
-}
-
 == should not move the close brace to the next line when empty and on the same line ==
 function test() {}
 
@@ -94,4 +72,27 @@ function t({ a, b }: { a: string; b: number; }) {
 
 [expect]
 function t({ a, b }: { a: string; b: number; }) {
+}
+
+== should force multi-line parameters when exceeding the line width ==
+function test(testing, thisOut, byExceeding, theLineWidth, testing, thisOuttttt) {
+}
+
+[expect]
+function test(
+    testing,
+    thisOut,
+    byExceeding,
+    theLineWidth,
+    testing,
+    thisOuttttt
+) {
+}
+
+== should not be multi-line when not exceeding the line width ==
+function test(testing, this) {
+}
+
+[expect]
+function test(testing, this) {
 }

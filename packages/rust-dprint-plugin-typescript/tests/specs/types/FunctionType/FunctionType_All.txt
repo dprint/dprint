@@ -9,24 +9,19 @@ type T = () => void;
 type U = (param: string) => void;
 type V = <T>(param: string) => void;
 
-== should format the return type as hanging when it's hanging ==
-type Test = (param: string) => str | number;
+== should force multi-line parameters when exceeding the line width ==
+type Test = (testing, thisOut, byExceeding, theLineWidth) => Date;
 
 [expect]
-type Test = (param: string) => str
-    | number;
+type Test = (
+    testing,
+    thisOut,
+    byExceeding,
+    theLineWidth
+) => Date;
 
-== should format the return type on the same line when the rest of the header is hanging ==
-type Test = (param: string, otherParamTest) => str | number;
-
-[expect]
-type Test = (param: string,
-    otherParamTest) => str | number;
-
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
-type Test = (param: string, otherParamTest) => str | number | other | other;
+== should not be multi-line when not exceeding the line width ==
+type Test = (testing, out) => Date;
 
 [expect]
-type Test = (param: string,
-    otherParamTest
-) => str | number | other | other;
+type Test = (testing, out) => Date;

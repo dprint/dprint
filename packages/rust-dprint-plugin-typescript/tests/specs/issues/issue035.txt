@@ -1,4 +1,4 @@
-~~ lineWidth: 40 ~~
+~~ lineWidth: 40, forceMultiLineArguments: false ~~
 == should not throw error about finishIndent being called without a corresponding startIndent ==
 t(u, tbdstdddddbbSftt ? dddddmdd : tesf);
 

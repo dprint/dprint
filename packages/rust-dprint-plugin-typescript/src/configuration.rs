@@ -12,8 +12,8 @@ use serde::{Serialize, Deserialize};
 ///
 /// let config = ConfigurationBuilder::new()
 ///     .line_width(80)
-///     .force_multi_line_parameters(true)
-///     .force_multi_line_arguments(true)
+///     .force_multi_line_parameters(false)
+///     .force_multi_line_arguments(false)
 ///     .single_quotes(true)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
 ///     .build();
@@ -74,7 +74,7 @@ impl ConfigurationBuilder {
     /// Forces an argument list to be multi-line when it exceeds the line width.
     /// Note: When false, it will be hanging when the first argument is on the same line
     /// as the open parenthesis and multi-line when on a different line.
-    /// Default: false
+    /// Default: true
     pub fn force_multi_line_arguments(&mut self, value: bool) -> &mut Self {
         self.insert("forceMultiLineArguments", value)
     }
@@ -82,7 +82,7 @@ impl ConfigurationBuilder {
     /// Forces a parameter list to be multi-line when it exceeds the line width.
     /// Note: When false, it will be hanging when the first parameter is on the same line
     /// as the open parenthesis and multi-line when on a different line.
-    /// Default: false
+    /// Default: true
     pub fn force_multi_line_parameters(&mut self, value: bool) -> &mut Self {
         self.insert("forceMultiLineParameters", value)
     }
@@ -881,8 +881,8 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
     let mut config = config.clone();
 
     let semi_colons = get_value(&mut config, "semiColons", true, &mut diagnostics);
-    let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", false, &mut diagnostics);
-    let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", false, &mut diagnostics);
+    let force_multi_line_arguments = get_value(&mut config, "forceMultiLineArguments", true, &mut diagnostics);
+    let force_multi_line_parameters = get_value(&mut config, "forceMultiLineParameters", true, &mut diagnostics);
     let brace_position = get_value(&mut config, "bracePosition", BracePosition::NextLineIfHanging, &mut diagnostics);
     let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::NextLine, &mut diagnostics);
     let operator_position = get_value(&mut config, "operatorPosition", OperatorPosition::NextLine, &mut diagnostics);

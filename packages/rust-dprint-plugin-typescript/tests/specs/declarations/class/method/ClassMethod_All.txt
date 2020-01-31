@@ -97,30 +97,31 @@ class Test {
     }
 }
 
-== should format the return type on the same line when the rest of the header is hanging ==
+== should force multi-line parameters when exceeding the line width ==
 class Test {
-    method(param: string, otherTestinginging: string): test | other {
+    test(testing, thisOut, byExceeding, theLineWidth) {
     }
 }
 
 [expect]
 class Test {
-    method(param: string,
-        otherTestinginging: string): test | other
-    {
+    test(
+        testing,
+        thisOut,
+        byExceeding,
+        theLineWidth
+    ) {
     }
 }
 
-== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+== should not be multi-line when not exceeding the line width ==
 class Test {
-    method(param: string, otherTestinginging: string): test | other | testing {
+    test(testing, this) {
     }
 }
 
 [expect]
 class Test {
-    method(param: string,
-        otherTestinginging: string
-    ): test | other | testing {
+    test(testing, this) {
     }
 }
