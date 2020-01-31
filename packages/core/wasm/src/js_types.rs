@@ -191,4 +191,8 @@ impl ConditionTrait<JsString, JsInfo, JsCondition> for JsCondition {
 
         self.cached_false_path.borrow().as_ref().map(|x| x.clone()).unwrap_or(None)
     }
+
+    fn get_dependent_infos<'a>(&'a self) -> &'a Option<Vec<JsInfo>> {
+        &None
+    }
 }

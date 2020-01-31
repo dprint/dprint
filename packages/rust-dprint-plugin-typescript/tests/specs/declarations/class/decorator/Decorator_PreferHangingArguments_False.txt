@@ -1,4 +1,4 @@
-~~ lineWidth: 30, forceMultiLineArguments: false ~~
+~~ lineWidth: 30, preferHangingArguments: true ~~
 == should print a decorator with hanging indentation ==
 @dec(testing, this, out, toSee, ifItHangs)
 class T {

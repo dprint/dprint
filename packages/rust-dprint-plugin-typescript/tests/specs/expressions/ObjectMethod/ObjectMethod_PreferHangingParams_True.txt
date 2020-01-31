@@ -1,4 +1,4 @@
-~~ method.forceMultiLineParameters: false, lineWidth: 50 ~~
+~~ method.preferHangingParameters: true, lineWidth: 50 ~~
 == should format the return type on the same line when the rest of the header is hanging ==
 const obj = {
     method(param: string, otherTestinginging: string): test | other {

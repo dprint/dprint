@@ -1,4 +1,4 @@
-~~ methodSignature.forceMultiLineParameters: false, lineWidth: 40 ~~
+~~ methodSignature.preferHangingParameters: true, lineWidth: 40 ~~
 == should format the return type on the same line when the rest of the header is hanging ==
 interface T {
     method(param: string, otherTest: string): test | ing;

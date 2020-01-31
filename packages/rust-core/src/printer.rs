@@ -251,6 +251,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
         // check if there are any conditions that should be re-evaluated based on this info update
         if self.conditions_for_infos.contains_key(&info_id) {
+            // todo: avoid this clone
             let conditions_for_info = self.conditions_for_infos.get(&info_id).unwrap().clone();
             for (condition, save_point) in conditions_for_info.values() {
                 let condition_id = condition.get_unique_id();

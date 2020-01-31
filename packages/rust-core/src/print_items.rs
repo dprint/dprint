@@ -21,7 +21,7 @@ impl StringTrait for String {
     }
 }
 
-pub trait InfoTrait : Clone {
+pub trait InfoTrait {
     fn get_unique_id(&self) -> usize;
     fn get_name(&self) -> &'static str;
 }

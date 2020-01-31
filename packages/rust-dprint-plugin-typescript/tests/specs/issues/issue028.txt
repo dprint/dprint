@@ -1,4 +1,4 @@
-~~ lineWidth: 80, forceMultiLineArguments: true, singleQuotes: true ~~
+~~ lineWidth: 80, preferHangingArguments: false, singleQuotes: true ~~
 == should format ==
 export class Testing {
     constructor() {

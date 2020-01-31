@@ -1,4 +1,4 @@
-~~ functionDeclaration.forceMultiLineParameters: false, lineWidth: 80 ~~
+~~ functionDeclaration.preferHangingParameters: true, lineWidth: 80 ~~
 == should format params with a hanging indent ==
 function test(here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) {
 }
