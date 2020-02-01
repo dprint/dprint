@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
 use super::*;
-use super::configuration::{BracePosition, MemberSpacing, NextControlFlowPosition, OperatorPosition, SingleBodyPosition, TrailingCommas, UseBraces, UseParentheses};
+use super::configuration::*;
 use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span};
 use swc_ecma_parser::{token::{TokenAndSpan}};

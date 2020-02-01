@@ -1,4 +1,5 @@
 mod collections;
+pub mod configuration;
 mod print_items;
 mod get_write_items;
 mod printer;
@@ -18,3 +19,5 @@ pub use print::{print, PrintOptions};
 
 #[cfg(test)]
 mod writer_tests;
+#[cfg(test)]
+mod configuration_tests;

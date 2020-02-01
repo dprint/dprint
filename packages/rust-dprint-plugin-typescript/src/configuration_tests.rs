@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use dprint_core::configuration::{resolve_global_config, NewLineKind};
 use super::configuration::*;
 
 #[test]
@@ -139,6 +141,6 @@ fn check_all_values_set() {
 
     let inner_config = config.get_inner_config();
     assert_eq!(inner_config.len(), 120);
-    let diagnostics = resolve_config(&inner_config).diagnostics;
+    let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

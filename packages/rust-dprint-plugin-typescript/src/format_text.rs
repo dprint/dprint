@@ -1,5 +1,7 @@
 use super::*;
 use dprint_core::*;
+use dprint_core::configuration::{NewLineKind};
+use super::configuration::Configuration;
 use swc_common::{BytePos, comments::{Comment}};
 
 /// Formats a file.
@@ -7,6 +9,7 @@ use swc_common::{BytePos, comments::{Comment}};
 /// # Example
 /// ```
 /// use dprint_plugin_typescript::*;
+/// use dprint_plugin_typescript::configuration::*;
 ///
 /// // build the configuration once...
 /// let config = ConfigurationBuilder::new()

@@ -3,11 +3,15 @@ extern crate dprint_development;
 
 #[macro_use] extern crate debug_here;
 
-use dprint_plugin_typescript::*;
-use dprint_development::*;
+use std::collections::HashMap;
 use std::fs::{self};
 use std::path::Path;
 use std::time::Instant;
+
+use dprint_plugin_typescript::*;
+use dprint_plugin_typescript::configuration::*;
+use dprint_core::configuration::*;
+use dprint_development::*;
 
 struct FailedTestResult {
     file_path: String,
@@ -49,9 +53,10 @@ fn test_specs() {
     let specs = get_specs();
     let test_count = specs.len();
     let mut failed_tests = Vec::new();
+    let global_config = resolve_global_config(&HashMap::new()).config;
 
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
-        let config_result = resolve_config(&spec.config);
+        let config_result = resolve_config(&spec.config, &global_config);
         ensure_no_diagnostics(&config_result.diagnostics);
 
         //debug_here!();
