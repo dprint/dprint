@@ -46,6 +46,7 @@
     "@wasm-tool/wasm-pack-plugin": "^1.1.0",
     "conditional-type-checks": "^1.0.5",
     "react-app-rewired": "^2.1.5",
-    "typescript": "^3.7.5"
+    "typescript": "^3.7.5",
+    "wasm-pack": "^0.8.1"
   }
 }
