@@ -849,6 +849,7 @@ generate_str_to_from![
 ///
 /// let config_map = HashMap::new(); // get a collection of key value pairs from somewhere
 /// let global_config_result = resolve_global_config(&config_map);
+///
 /// // check global_config_result.diagnostics here...
 ///
 /// let typescript_config_map = HashMap::new(); // get a collection of k/v pairs from somewhere
