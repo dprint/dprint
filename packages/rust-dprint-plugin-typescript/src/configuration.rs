@@ -839,6 +839,26 @@ generate_str_to_from![
 ];
 
 /// Resolves configuration from a collection of key value strings.
+///
+/// # Example
+///
+/// ```
+/// use std::collections::HashMap;
+/// use dprint_core::configuration::{resolve_global_config};
+/// use dprint_plugin_typescript::configuration::{resolve_config};
+///
+/// let config_map = HashMap::new(); // get a collection of key value pairs from somewhere
+/// let global_config_result = resolve_global_config(&config_map);
+/// // check global_config_result.diagnostics here...
+///
+/// let typescript_config_map = HashMap::new(); // get a collection of k/v pairs from somewhere
+/// let config_result = resolve_config(
+///     &typescript_config_map,
+///     &global_config_result.config
+/// );
+///
+/// // check config_result.diagnostics here and use config_result.config
+/// ```
 pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut diagnostics = Vec::new();
     let mut config = config.clone();
@@ -982,7 +1002,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     for (key, _) in config.iter() {
         diagnostics.push(ConfigurationDiagnostic {
             property_name: String::from(key),
-            message: format!("Unexpected property in configuration: {}", key),
+            message: format!("Unknown property in configuration: {}", key),
         });
     }
 

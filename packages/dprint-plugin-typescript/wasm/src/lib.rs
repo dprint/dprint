@@ -3,7 +3,8 @@
 extern crate console_error_panic_hook;
 extern crate dprint_plugin_typescript;
 
-use dprint_plugin_typescript::*;
+use dprint_core::configuration::*;
+use dprint_plugin_typescript::configuration::*;
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 
@@ -28,7 +29,8 @@ impl FormatContext {
             }
         }
 
-        let config_result = resolve_config(&hash_map);
+        let global_config = resolve_global_config(&HashMap::new()).config;
+        let config_result = resolve_config(&hash_map, &global_config);
         FormatContext {
             configuration: config_result.config,
             diagnostics: config_result.diagnostics,

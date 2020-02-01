@@ -39,18 +39,22 @@ pub enum NewLineKind {
     #[serde(rename = "auto")]
     Auto,
     /// Use slash n new lines.
-    #[serde(rename = "\n")]
-    Unix,
+    #[serde(rename = "lf")]
+    LineFeed,
     /// Use slash r slash n new lines.
-    #[serde(rename = "\r\n")]
-    Windows,
+    #[serde(rename = "crlf")]
+    CarriageReturnLineFeed,
+    /// Use the system standard (ex. crlf on Windows)
+    #[serde(rename = "system")]
+    System,
 }
 
 generate_str_to_from![
     NewLineKind,
     [Auto, "auto"],
-    [Unix, "\n"],
-    [Windows, "\r\n"]
+    [LineFeed, "lf"],
+    [CarriageReturnLineFeed, "crlf"],
+    [System, "system"]
 ];
 
 /// Represents a problem within the configuration.
@@ -98,7 +102,7 @@ pub fn resolve_global_config(config: &HashMap<String, String>) -> ResolveConfigu
     for (key, _) in config.iter() {
         diagnostics.push(ConfigurationDiagnostic {
             property_name: String::from(key),
-            message: format!("Unexpected property in configuration: {}", key),
+            message: format!("Unknown property in configuration: {}", key),
         });
     }
 
@@ -118,7 +122,7 @@ pub fn get_value<T>(
     diagnostics: &mut Vec<ConfigurationDiagnostic>
 ) -> T where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Display {
     let value = if let Some(raw_value) = config.get(key) {
-        if raw_value.trim() == "" {
+        if raw_value.trim().is_empty() {
             default_value
         } else {
             let parsed_value = raw_value.parse::<T>();
