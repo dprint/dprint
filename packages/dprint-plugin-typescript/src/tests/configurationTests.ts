@@ -267,22 +267,25 @@ describe("configuration", () => {
             doTest(config, expectedConfig, prop => prop.endsWith("nextControlFlowPosition"));
         }
 
+        const defaultValue = "sameLine";
+        const nonDefaultValue = "nextLine";
+
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject("nextLine"));
+            doSpecificTest({}, getObject(defaultValue));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ nextControlFlowPosition: "nextLine" }, getObject("nextLine"));
+            doSpecificTest({ nextControlFlowPosition: defaultValue }, getObject(defaultValue));
         });
 
         it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ nextControlFlowPosition: "sameLine" }, getObject("sameLine"));
+            doSpecificTest({ nextControlFlowPosition: nonDefaultValue }, getObject(nonDefaultValue));
         });
 
         it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject("sameLine");
+            const expectedConfig = getObject(nonDefaultValue);
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.nextControlFlowPosition = "nextLine";
+            config.nextControlFlowPosition = defaultValue;
             doSpecificTest(config, expectedConfig);
         });
 

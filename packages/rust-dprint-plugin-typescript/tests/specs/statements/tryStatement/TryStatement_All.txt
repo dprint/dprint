@@ -9,24 +9,21 @@ try{
 [expect]
 try {
     a;
-}
-catch {
+} catch {
     b;
 }
 
 == should output with finally ==
 try{
     a;
-} finally
-{
+} finally {
     b;
 }
 
 [expect]
 try {
     a;
-}
-finally {
+} finally {
     b;
 }
 
@@ -43,10 +40,8 @@ try{
 [expect]
 try {
     a;
-}
-catch (ex) {
+} catch (ex) {
     b;
-}
-finally {
+} finally {
     c;
 }

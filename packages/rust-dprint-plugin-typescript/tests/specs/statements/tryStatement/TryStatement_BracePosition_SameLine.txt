@@ -1,19 +1,25 @@
-~~ tryStatement.bracePosition: sameLine, lineWidth: 40 ~~
+~~ tryStatement.bracePosition: sameLine, tryStatement.nextControlFlowPosition: nextLine, lineWidth: 40 ~~
 == should use the same line for the brace position ==
 try
 {
+    test;
 }
 catch
 {
+    test;
 }
 finally
 {
+    test;
 }
 
 [expect]
 try {
+    test;
 }
 catch {
+    test;
 }
 finally {
+    test;
 }

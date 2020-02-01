@@ -1,16 +1,12 @@
 ~~ ifStatement.spaceAfterIfKeyword: false ~~
 == should print ==
 if (true) {
-}
-else if (false) {
-}
-else {
+} else if (false) {
+} else {
 }
 
 [expect]
 if(true) {
-}
-else if(false) {
-}
-else {
+} else if(false) {
+} else {
 }

@@ -13,6 +13,27 @@ if (true)
 else
     b;
 
+== should not use braces when only one line for many blocks ==
+if (true) {
+    a;
+} else if (false) {
+    b;
+} else if (asdf) {
+    c;
+} else {
+    d;
+}
+
+[expect]
+if (true)
+    a;
+else if (false)
+    b;
+else if (asdf)
+    c;
+else
+    d;
+
 == should use braces when the previous had braces ==
 if (true) {
     // 1
@@ -26,8 +47,7 @@ else {
 if (true) {
     // 1
     a;
-}
-else {
+} else {
     b;
 }
 
@@ -65,8 +85,7 @@ else {
 if (true) {
     a;
     a;
-}
-else if (true)
+} else if (true)
     b;
 else {
     c;
@@ -102,11 +121,9 @@ else if (true) {
 if (true) {
     call1();
     call2();
-}
-else if (true) {
+} else if (true) {
     call1();
     call2();
-}
-else if (true) {
+} else if (true) {
     call1();
 }

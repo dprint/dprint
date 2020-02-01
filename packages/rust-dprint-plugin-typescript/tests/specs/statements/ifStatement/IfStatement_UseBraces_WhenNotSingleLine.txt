@@ -10,11 +10,9 @@ else c;
 [expect]
 if (true) {
     a;
-}
-else if (true) {
+} else if (true) {
     b;
-}
-else c;
+} else c;
 
 == should not when single line ==
 if (true) test;

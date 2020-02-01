@@ -8,8 +8,7 @@ else
 [expect]
 if (true) {
     a;
-}
-else {
+} else {
     b;
 }
 
@@ -20,27 +19,6 @@ if (true)
 [expect]
 if (true) {
     console.log(5); // test
-}
-
-== should ensure comments before an else if and else stay on line before ==
-if (true) {
-}
-// comment
-else if (true)
-    call();
-// other
-else {
-}
-
-[expect]
-if (true) {
-}
-// comment
-else if (true) {
-    call();
-}
-// other
-else {
 }
 
 == should use even when single line ==

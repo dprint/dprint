@@ -884,7 +884,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
     let prefer_hanging_arguments = get_value(&mut config, "preferHangingArguments", false, &mut diagnostics);
     let prefer_hanging_parameters = get_value(&mut config, "preferHangingParameters", false, &mut diagnostics);
     let brace_position = get_value(&mut config, "bracePosition", BracePosition::NextLineIfHanging, &mut diagnostics);
-    let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::NextLine, &mut diagnostics);
+    let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::SameLine, &mut diagnostics);
     let operator_position = get_value(&mut config, "operatorPosition", OperatorPosition::NextLine, &mut diagnostics);
     let single_body_position = get_value(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain, &mut diagnostics);
     let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::Never, &mut diagnostics);
