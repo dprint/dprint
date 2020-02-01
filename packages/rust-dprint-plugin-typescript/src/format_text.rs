@@ -6,8 +6,11 @@ use swc_common::{BytePos, comments::{Comment}};
 
 /// Formats a file.
 ///
+/// Returns the file text when the file was formatted, `None` when the file had an ignore comment, and
+/// an error when it failed to parse.
+///
 /// # Example
-/// 
+///
 /// ```
 /// use dprint_plugin_typescript::*;
 /// use dprint_plugin_typescript::configuration::*;

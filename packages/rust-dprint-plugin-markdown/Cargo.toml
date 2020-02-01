@@ -1,0 +1,13 @@
+[package]
+name = "dprint-plugin-markdown"
+version = "0.1.0-alpha"
+authors = ["David Sherret <dsherret@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+dprint-core = { path = "../rust-core", version = "0.7.0-alpha.2" }
+comrak = "0.7"
+serde = { version = "1.0.88", features = ["derive"] }
+
+[dev-dependencies]
+dprint-development = { path = "../rust-development" }
