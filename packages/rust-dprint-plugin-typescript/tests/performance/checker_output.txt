@@ -11677,6 +11677,7 @@ namespace ts {
                         }
                         // Exported members/ambient module elements (exception import declaration) are visible if parent is visible
                         return isDeclarationVisible(parent);
+
                     case SyntaxKind.PropertyDeclaration:
                     case SyntaxKind.PropertySignature:
                     case SyntaxKind.GetAccessor:
@@ -11711,12 +11712,14 @@ namespace ts {
 
                     // Default binding, import specifier and namespace import is visible
                     // only on demand so by default it is not visible
+
                     case SyntaxKind.ImportClause:
                     case SyntaxKind.NamespaceImport:
                     case SyntaxKind.ImportSpecifier:
                         return false;
 
                     // Type parameters are always visible
+
                     case SyntaxKind.TypeParameter:
 
                     // Source file and namespace export are always visible
@@ -11726,8 +11729,10 @@ namespace ts {
                         return true;
 
                     // Export assignments do not create name bindings outside the module
+
                     case SyntaxKind.ExportAssignment:
                         return false;
+
                     default:
                         return false;
                 }
@@ -17630,6 +17635,7 @@ namespace ts {
                     case SyntaxKind.Identifier:
                         return (<Identifier> node).escapedText === 'arguments'
                             && isExpressionNode(node);
+
                     case SyntaxKind.PropertyDeclaration:
                     case SyntaxKind.MethodDeclaration:
                     case SyntaxKind.GetAccessor:
@@ -17637,6 +17643,7 @@ namespace ts {
                         return (<NamedDeclaration> node).name!.kind
                             === SyntaxKind.ComputedPropertyName
                             && traverse((<NamedDeclaration> node).name!);
+
                     default:
                         return !nodeStartsNewLexicalEnvironment(node)
                             && !isPartOfTypeNode(node)
@@ -42543,17 +42550,21 @@ namespace ts {
                 case SyntaxKind.ClassExpression:
                     return Diagnostics
                         .Unable_to_resolve_signature_of_class_decorator_when_called_as_an_expression;
+
                 case SyntaxKind.Parameter:
                     return Diagnostics
                         .Unable_to_resolve_signature_of_parameter_decorator_when_called_as_an_expression;
+
                 case SyntaxKind.PropertyDeclaration:
                     return Diagnostics
                         .Unable_to_resolve_signature_of_property_decorator_when_called_as_an_expression;
+
                 case SyntaxKind.MethodDeclaration:
                 case SyntaxKind.GetAccessor:
                 case SyntaxKind.SetAccessor:
                     return Diagnostics
                         .Unable_to_resolve_signature_of_method_decorator_when_called_as_an_expression;
+
                 default:
                     return Debug.fail();
             }
@@ -45498,11 +45509,13 @@ namespace ts {
                 case SyntaxKind.JsxSelfClosingElement:
                 case SyntaxKind.JsxElement:
                     return true;
+
                 case SyntaxKind.ConditionalExpression:
                     return isSideEffectFree((node as ConditionalExpression)
                         .whenTrue)
                         && isSideEffectFree((node as ConditionalExpression)
                             .whenFalse);
+
                 case SyntaxKind.BinaryExpression:
                     if (isAssignmentOperator((node as BinaryExpression)
                         .operatorToken.kind))
@@ -45511,6 +45524,7 @@ namespace ts {
                     }
                     return isSideEffectFree((node as BinaryExpression).left)
                         && isSideEffectFree((node as BinaryExpression).right);
+
                 case SyntaxKind.PrefixUnaryExpression:
                 case SyntaxKind.PostfixUnaryExpression:
                     // Unary operators ~, !, +, and - have no side effects.
@@ -45525,6 +45539,7 @@ namespace ts {
                     return false;
 
                 // Some forms listed here for clarity
+
                 case SyntaxKind.VoidExpression: // Explicit opt-out
                 case SyntaxKind
                     .TypeAssertionExpression: // Not SEF, but can produce useful type warnings
@@ -45858,6 +45873,7 @@ namespace ts {
                     ) => isTypeEqualityComparableTo(left, right)
                         || isTypeEqualityComparableTo(right, left));
                     return booleanType;
+
                 case SyntaxKind.InstanceOfKeyword:
                     return checkInstanceOfExpression(
                         left,
@@ -45921,6 +45937,7 @@ namespace ts {
                         );
                     }
                     return rightType;
+
                 default:
                     return Debug.fail();
             }
@@ -47634,6 +47651,7 @@ namespace ts {
                                     DeclarationMeaning.GetAccessor
                                 );
                                 break;
+
                             case SyntaxKind.SetAccessor:
                                 addName(
                                     names,
@@ -47642,6 +47660,7 @@ namespace ts {
                                     DeclarationMeaning.SetAccessor
                                 );
                                 break;
+
                             case SyntaxKind.PropertyDeclaration:
                                 addName(
                                     names,
@@ -47650,6 +47669,7 @@ namespace ts {
                                     DeclarationMeaning.GetOrSetAccessor
                                 );
                                 break;
+
                             case SyntaxKind.MethodDeclaration:
                                 addName(
                                     names,
@@ -48989,6 +49009,7 @@ namespace ts {
 
                     // The below options all declare an Alias, which is allowed to merge with other values within the importing module.
                     // falls through
+
                     case SyntaxKind.ImportEqualsDeclaration:
                     case SyntaxKind.NamespaceImport:
                     case SyntaxKind.ImportClause:
@@ -49455,6 +49476,7 @@ namespace ts {
                     expectedReturnType = getUnionType([classConstructorType,
                         voidType]);
                     break;
+
                 case SyntaxKind.Parameter:
                     expectedReturnType = voidType;
                     errorInfo = chainDiagnosticMessages(
@@ -49464,6 +49486,7 @@ namespace ts {
                     );
 
                     break;
+
                 case SyntaxKind.PropertyDeclaration:
                     expectedReturnType = voidType;
                     errorInfo = chainDiagnosticMessages(
@@ -49472,6 +49495,7 @@ namespace ts {
                             .The_return_type_of_a_property_decorator_function_must_be_either_void_or_any
                     );
                     break;
+
                 case SyntaxKind.MethodDeclaration:
                 case SyntaxKind.GetAccessor:
                 case SyntaxKind.SetAccessor:
@@ -49481,6 +49505,7 @@ namespace ts {
                     expectedReturnType = getUnionType([descriptorType,
                         voidType]);
                     break;
+
                 default:
                     return Debug.fail();
             }
@@ -49555,13 +49580,16 @@ namespace ts {
                     case SyntaxKind.UnionType:
                         return getEntityNameForDecoratorMetadataFromTypeList((<UnionOrIntersectionTypeNode> node)
                             .types);
+
                     case SyntaxKind.ConditionalType:
                         return getEntityNameForDecoratorMetadataFromTypeList([(<ConditionalTypeNode> node)
                             .trueType,
                             (<ConditionalTypeNode> node).falseType]);
+
                     case SyntaxKind.ParenthesizedType:
                         return getEntityNameForDecoratorMetadata((<ParenthesizedTypeNode> node)
                             .type);
+
                     case SyntaxKind.TypeReference:
                         return (<TypeReferenceNode> node).typeName;
                 }
@@ -49672,6 +49700,7 @@ namespace ts {
                             }
                         }
                         break;
+
                     case SyntaxKind.GetAccessor:
                     case SyntaxKind.SetAccessor:
                         const otherKind = node.kind === SyntaxKind.GetAccessor
@@ -49695,9 +49724,11 @@ namespace ts {
 
                         markDecoratorMedataDataTypeNodeAsReferenced(getEffectiveReturnTypeNode(<FunctionLikeDeclaration> node));
                         break;
+
                     case SyntaxKind.PropertyDeclaration:
                         markDecoratorMedataDataTypeNodeAsReferenced(getEffectiveTypeAnnotationNode(<ParameterDeclaration> node));
                         break;
+
                     case SyntaxKind.Parameter:
                         markDecoratorMedataDataTypeNodeAsReferenced(getParameterTypeNodeForDecoratorCheck(<ParameterDeclaration> node));
                         const containingSignature =
@@ -55854,6 +55885,7 @@ namespace ts {
                         // this fall-through is necessary because we would like to handle
                         // type parameter inside class expression similar to how we handle it in classDeclaration and interface Declaration.
                         // falls through
+
                         case SyntaxKind.ClassDeclaration:
                         case SyntaxKind.InterfaceDeclaration:
                             // If we didn't come from static member of class or interface,
@@ -56290,6 +56322,7 @@ namespace ts {
                 case SyntaxKind.QualifiedName:
                     return getSymbolOfNameOrPropertyAccessExpression(<EntityName
                         | PrivateIdentifier | PropertyAccessExpression> node);
+
                 case SyntaxKind.ThisKeyword:
                     const container = getThisContainer(
                         node, /*includeArrowFunctions*/
@@ -56308,8 +56341,10 @@ namespace ts {
                 case SyntaxKind.ThisType:
                     return getTypeFromThisTypeNode(node as ThisExpression
                         | ThisTypeNode).symbol;
+
                 case SyntaxKind.SuperKeyword:
                     return checkExpression(node as Expression).symbol;
+
                 case SyntaxKind.ConstructorKeyword:
                     // constructor keyword for an overload, should take us to the definition if it exist
                     const constructorDeclaration = node.parent;
@@ -56321,6 +56356,7 @@ namespace ts {
                             .parent).symbol;
                     }
                     return undefined;
+
                 case SyntaxKind.StringLiteral:
                 case SyntaxKind.NoSubstitutionTemplateLiteral:
                     // 1). import x = require("./mo/*gotToDefinitionHere*/d")
@@ -56374,6 +56410,7 @@ namespace ts {
                             escapeLeadingUnderscores((node as StringLiteral
                                 | NumericLiteral).text)
                         );
+
                 case SyntaxKind.DefaultKeyword:
                 case SyntaxKind.FunctionKeyword:
                 case SyntaxKind.EqualsGreaterThanToken:
@@ -56383,10 +56420,12 @@ namespace ts {
                     return isLiteralImportTypeNode(node)
                         ? getSymbolAtLocation(node.argument.literal)
                         : undefined;
+
                 case SyntaxKind.ExportKeyword:
                     return isExportAssignment(node.parent)
                         ? Debug.assertDefined(node.parent.symbol)
                         : undefined;
+
                 default:
                     return undefined;
             }
@@ -58248,6 +58287,7 @@ namespace ts {
                         }
                         flags |= modifierToFlag(modifier.kind);
                         break;
+
                     case SyntaxKind.StaticKeyword:
                         if (flags & ModifierFlags.Static) {
                             return grammarErrorOnNode(
@@ -58306,6 +58346,7 @@ namespace ts {
                         flags |= ModifierFlags.Static;
                         lastStatic = modifier;
                         break;
+
                     case SyntaxKind.ReadonlyKeyword:
                         if (flags & ModifierFlags.Readonly) {
                             return grammarErrorOnNode(
@@ -58328,6 +58369,7 @@ namespace ts {
                         flags |= ModifierFlags.Readonly;
                         lastReadonly = modifier;
                         break;
+
                     case SyntaxKind.ExportKeyword:
                         if (flags & ModifierFlags.Export) {
                             return grammarErrorOnNode(
@@ -58435,6 +58477,7 @@ namespace ts {
                         flags |= ModifierFlags.Ambient;
                         lastDeclare = modifier;
                         break;
+
                     case SyntaxKind.AbstractKeyword:
                         if (flags & ModifierFlags.Abstract) {
                             return grammarErrorOnNode(
@@ -58500,6 +58543,7 @@ namespace ts {
 
                         flags |= ModifierFlags.Abstract;
                         break;
+
                     case SyntaxKind.AsyncKeyword:
                         if (flags & ModifierFlags.Async) {
                             return grammarErrorOnNode(
@@ -59697,6 +59741,7 @@ namespace ts {
                             );
                         }
                         break;
+
                     case SyntaxKind.PropertyDeclaration:
                         if (!hasModifier(parent, ModifierFlags.Static)
                             || !hasModifier(parent, ModifierFlags.Readonly))
@@ -59708,6 +59753,7 @@ namespace ts {
                             );
                         }
                         break;
+
                     case SyntaxKind.PropertySignature:
                         if (!hasModifier(parent, ModifierFlags.Readonly)) {
                             return grammarErrorOnNode(
@@ -59717,6 +59763,7 @@ namespace ts {
                             );
                         }
                         break;
+
                     default:
                         return grammarErrorOnNode(
                             node,
