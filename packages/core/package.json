@@ -35,6 +35,7 @@
     "@dprint/types": "~0.1.0"
   },
   "devDependencies": {
+    "@wasm-tool/wasm-pack-plugin": "^1.1.0",
     "@types/chai": "^4.2.7",
     "@types/mocha": "^5.2.7",
     "@types/ts-nameof": "^4.2.1",
