@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
+use dprint_core::configuration::*;
 
 // todo: should probably use more macros to reduce the amount of code in here...
 
@@ -9,6 +10,7 @@ use serde::{Serialize, Deserialize};
 ///
 /// ```
 /// use dprint_plugin_typescript::*;
+/// use dprint_plugin_typescript::configuration::*;
 ///
 /// let config = ConfigurationBuilder::new()
 ///     .line_width(80)
@@ -20,6 +22,7 @@ use serde::{Serialize, Deserialize};
 /// ```
 pub struct ConfigurationBuilder {
     config: HashMap<String, String>,
+    global_config: Option<GlobalConfiguration>,
 }
 
 impl ConfigurationBuilder {
@@ -27,12 +30,24 @@ impl ConfigurationBuilder {
     pub fn new() -> ConfigurationBuilder {
         ConfigurationBuilder {
             config: HashMap::new(),
+            global_config: None,
         }
     }
 
     /// Gets the final configuration that can be used to format a file.
     pub fn build(&self) -> Configuration {
-        resolve_config(&self.config).config
+        if let Some(global_config) = &self.global_config {
+            resolve_config(&self.config, global_config).config
+        } else {
+            let global_config = resolve_global_config(&HashMap::new()).config;
+            resolve_config(&self.config, &global_config).config
+        }
+    }
+
+    /// Set the global configuration.
+    pub fn global_config(&mut self, global_config: GlobalConfiguration) -> &mut Self {
+        self.global_config = Some(global_config);
+        self
     }
 
     /// The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
@@ -53,16 +68,16 @@ impl ConfigurationBuilder {
         self.insert("indentWidth", value)
     }
 
-    /// Whether to use single quotes (true) or double quotes (false).
-    /// Default: false
-    pub fn single_quotes(&mut self, value: bool) -> &mut Self {
-        self.insert("singleQuotes", value)
-    }
-
     /// The kind of newline to use.
     /// Default: `NewLineKind::Auto`
     pub fn new_line_kind(&mut self, value: NewLineKind) -> &mut Self {
         self.insert("newLineKind", value)
+    }
+
+    /// Whether to use single quotes (true) or double quotes (false).
+    /// Default: false
+    pub fn single_quotes(&mut self, value: bool) -> &mut Self {
+        self.insert("singleQuotes", value)
     }
 
     /// Whether statements should end in a semi-colon.
@@ -640,15 +655,6 @@ impl ConfigurationBuilder {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseConfigurationError(String);
-
-impl std::fmt::Display for ParseConfigurationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        format!("Found invalid value '{}'.", self.0).fmt(f)
-    }
-}
-
 macro_rules! generate_str_to_from {
     ($enum_name:ident, $([$member_name:ident, $string_value:expr]),* ) => {
         impl std::str::FromStr for $enum_name {
@@ -671,26 +677,6 @@ macro_rules! generate_str_to_from {
         }
     };
 }
-
-#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum NewLineKind {
-    /// Decide which newline kind to use based on the last newline in the file.
-    #[serde(rename = "auto")]
-    Auto,
-    /// Use slash n new lines.
-    #[serde(rename = "\n")]
-    Unix,
-    /// Use slash r slash n new lines.
-    #[serde(rename = "\r\n")]
-    Windows,
-}
-
-generate_str_to_from![
-    NewLineKind,
-    [Auto, "auto"],
-    [Unix, "\n"],
-    [Windows, "\r\n"]
-];
 
 /// Trailing comma possibilities.
 #[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
@@ -852,31 +838,29 @@ generate_str_to_from![
     [PreferNone, "preferNone"]
 ];
 
-/// Represents a problem within the configuration.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConfigurationDiagnostic {
-    /// The property name the problem occurred on.
-    pub property_name: String,
-    /// The diagnostic message that should be displayed to the user
-    pub message: String,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResolveConfigurationResult {
-    /// The configuration diagnostics.
-    pub diagnostics: Vec<ConfigurationDiagnostic>,
-
-    /// The configuration derived from the unresolved configuration
-    /// that can be used to format a file.
-    pub config: Configuration,
-}
-
 /// Resolves configuration from a collection of key value strings.
 ///
-/// Note: You most likely want to use `ConfigurationBuilder` instead.
-pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationResult {
+/// # Example
+///
+/// ```
+/// use std::collections::HashMap;
+/// use dprint_core::configuration::{resolve_global_config};
+/// use dprint_plugin_typescript::configuration::{resolve_config};
+///
+/// let config_map = HashMap::new(); // get a collection of key value pairs from somewhere
+/// let global_config_result = resolve_global_config(&config_map);
+///
+/// // check global_config_result.diagnostics here...
+///
+/// let typescript_config_map = HashMap::new(); // get a collection of k/v pairs from somewhere
+/// let config_result = resolve_config(
+///     &typescript_config_map,
+///     &global_config_result.config
+/// );
+///
+/// // check config_result.diagnostics here and use config_result.config
+/// ```
+pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut diagnostics = Vec::new();
     let mut config = config.clone();
 
@@ -891,11 +875,11 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
     let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, &mut diagnostics);
 
     let resolved_config = Configuration {
-        line_width: get_value(&mut config, "lineWidth", 120, &mut diagnostics),
-        use_tabs: get_value(&mut config, "useTabs", false, &mut diagnostics),
-        indent_width: get_value(&mut config, "indentWidth", 4, &mut diagnostics),
+        line_width: get_value(&mut config, "lineWidth", global_config.line_width, &mut diagnostics),
+        use_tabs: get_value(&mut config, "useTabs", global_config.use_tabs, &mut diagnostics),
+        indent_width: get_value(&mut config, "indentWidth", global_config.indent_width, &mut diagnostics),
+        new_line_kind: get_value(&mut config, "newLineKind", global_config.new_line_kind, &mut diagnostics),
         single_quotes: get_value(&mut config, "singleQuotes", false, &mut diagnostics),
-        new_line_kind: get_value(&mut config, "newLineKind", NewLineKind::Auto, &mut diagnostics),
         /* use parentheses */
         arrow_function_expression_use_parentheses: get_value(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain, &mut diagnostics),
         /* brace position */
@@ -1019,7 +1003,7 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
     for (key, _) in config.iter() {
         diagnostics.push(ConfigurationDiagnostic {
             property_name: String::from(key),
-            message: format!("Unexpected property in configuration: {}", key),
+            message: format!("Unknown property in configuration: {}", key),
         });
     }
 
@@ -1029,43 +1013,14 @@ pub fn resolve_config(config: &HashMap<String, String>) -> ResolveConfigurationR
     }
 }
 
-fn get_value<T>(
-    config: &mut HashMap<String, String>,
-    prop: &'static str,
-    default_value: T,
-    diagnostics: &mut Vec<ConfigurationDiagnostic>
-) -> T where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Display {
-    let value = if let Some(raw_value) = config.get(prop) {
-        if raw_value.trim() == "" {
-            default_value
-        } else {
-            let parsed_value = raw_value.parse::<T>();
-            match parsed_value {
-                Ok(parsed_value) => parsed_value,
-                Err(message) => {
-                    diagnostics.push(ConfigurationDiagnostic {
-                        property_name: String::from(prop),
-                        message: format!("Error parsing configuration value for '{}'. Message: {}", prop, message)
-                    });
-                    default_value
-                }
-            }
-        }
-    } else {
-        default_value
-    };
-    config.remove(prop);
-    return value;
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Configuration {
     pub indent_width: u8,
     pub line_width: u32,
     pub use_tabs: bool,
-    pub single_quotes: bool,
     pub new_line_kind: NewLineKind,
+    pub single_quotes: bool,
     /* use parentheses */
     #[serde(rename = "arrowFunctionExpression.useParentheses")]
     pub arrow_function_expression_use_parentheses: UseParentheses,

@@ -1,6 +1,7 @@
 use std::str;
 use std::rc::Rc;
 use super::*;
+use super::configuration::*;
 use std::collections::{HashSet, HashMap};
 use dprint_core::{Info, ConditionReference};
 use utils::{Stack};

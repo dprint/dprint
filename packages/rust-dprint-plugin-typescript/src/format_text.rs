@@ -1,12 +1,16 @@
 use super::*;
 use dprint_core::*;
+use dprint_core::configuration::{NewLineKind};
+use super::configuration::Configuration;
 use swc_common::{BytePos, comments::{Comment}};
 
 /// Formats a file.
 ///
 /// # Example
+/// 
 /// ```
 /// use dprint_plugin_typescript::*;
+/// use dprint_plugin_typescript::configuration::*;
 ///
 /// // build the configuration once...
 /// let config = ConfigurationBuilder::new()
@@ -43,8 +47,8 @@ pub fn format_text(file_path: &str, file_text: &str, config: &Configuration) -> 
 
     fn get_new_line_kind(file_text: &str, config: &Configuration) -> &'static str {
         match config.new_line_kind {
-            NewLineKind::Unix => "\n",
-            NewLineKind::Windows => "\r\n",
+            NewLineKind::LineFeed => "\n",
+            NewLineKind::CarriageReturnLineFeed => "\r\n",
             NewLineKind::Auto => {
                 let mut found_slash_n = false;
                 for c in file_text.as_bytes().iter().rev() {
@@ -62,6 +66,13 @@ pub fn format_text(file_path: &str, file_text: &str, config: &Configuration) -> 
                 }
 
                 return "\n";
+            },
+            NewLineKind::System => {
+                if cfg!(windows) {
+                    "\r\n"
+                } else {
+                    "\n"
+                }
             }
         }
     }

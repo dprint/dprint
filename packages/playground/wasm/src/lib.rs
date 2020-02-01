@@ -2,8 +2,10 @@
 
 extern crate console_error_panic_hook;
 extern crate dprint_plugin_typescript;
+extern crate dprint_core;
 
-use dprint_plugin_typescript::*;
+use dprint_core::configuration::*;
+use dprint_plugin_typescript::configuration::*;
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 
@@ -35,5 +37,6 @@ fn resolve_to_typescript_config(configuration: &js_sys::Map) -> Configuration {
         }
     }
 
-    return dprint_plugin_typescript::resolve_config(&hash_map).config;
+    let global_config = resolve_global_config(&HashMap::new()).config;
+    return dprint_plugin_typescript::configuration::resolve_config(&hash_map, &global_config).config;
 }

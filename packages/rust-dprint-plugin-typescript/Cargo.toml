@@ -2,7 +2,7 @@
 name = "dprint-plugin-typescript"
 description = "TypeScript formatter for dprint."
 keywords = ["formatting", "formatter", "typescript"]
-version = "0.3.0-alpha.4"
+version = "0.3.0-alpha.5"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -10,7 +10,7 @@ homepage = "https://github.com/dsherret/dprint/tree/master/packages/rust-dprint-
 repository = "https://github.com/dsherret/dprint"
 
 [dependencies]
-dprint-core = { path = "../rust-core", version = "0.7.0-alpha.1" }
+dprint-core = { path = "../rust-core", version = "0.7.0-alpha.2" }
 swc_common = "0.4.6"
 swc_ecma_ast = "0.15.0"
 swc_ecma_parser = "0.17.2"
