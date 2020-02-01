@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 publish = false
-wasm-opt = false
 
 [lib]
 crate-type = ["cdylib"]
