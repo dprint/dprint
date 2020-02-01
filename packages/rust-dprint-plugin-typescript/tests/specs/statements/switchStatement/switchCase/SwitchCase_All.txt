@@ -21,6 +21,7 @@ switch (expr) {
     // testing
     case 7: // test
         6;
+
     default:
         console.log(5);
 
@@ -85,4 +86,50 @@ switch (expr) {
         testing;
         // this should increase because
         // it's last
+}
+
+== should preserve blank lines between switch cases except when the previous case has no body (issue #76) ==
+switch (n) {
+    case 1:
+        break;
+
+    case 2:
+        break;
+
+    case 3:
+        break;
+    case 4:
+
+    case 5:
+        break;
+
+    case 6:
+
+    case 7:
+        break;
+
+    default:
+        break;
+}
+
+[expect]
+switch (n) {
+    case 1:
+        break;
+
+    case 2:
+        break;
+
+    case 3:
+        break;
+    case 4:
+    case 5:
+        break;
+
+    case 6:
+    case 7:
+        break;
+
+    default:
+        break;
 }

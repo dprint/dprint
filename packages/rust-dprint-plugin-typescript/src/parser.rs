@@ -2894,7 +2894,15 @@ fn parse_switch_stmt<'a>(node: &'a SwitchStmt, context: &mut Context<'a>) -> Pri
         members: node.cases.iter().map(|x| x.into()).collect(),
         start_header_info: Some(start_header_info),
         brace_position: context.config.switch_statement_brace_position,
-        should_use_blank_line: |_, _, _| false,
+        should_use_blank_line: |previous, next, context| {
+            // do not put a blank line when the previous case has no body
+            if let Node::SwitchCase(previous) = previous {
+                if previous.cons.is_empty() {
+                    return false;
+                }
+            }
+            node_helpers::has_separating_blank_line(previous, next, context)
+        },
         trailing_commas: None,
     }, context));
     return items;
