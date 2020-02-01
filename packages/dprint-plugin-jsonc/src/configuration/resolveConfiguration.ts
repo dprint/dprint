@@ -94,7 +94,7 @@ export function resolveConfiguration(
         for (const propertyName in pluginConfig) {
             diagnostics.push({
                 propertyName: propertyName as keyof typeof pluginConfig,
-                message: `Unexpected property in configuration: ${propertyName}`
+                message: `Unknown property in configuration: ${propertyName}`
             });
         }
     }

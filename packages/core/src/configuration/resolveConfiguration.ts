@@ -103,7 +103,7 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
 
             diagnostics.push({
                 propertyName: propertyName as keyof typeof config,
-                message: `Unexpected property in configuration: ${propertyName}`
+                message: `Unknown property in configuration: ${propertyName}`
             });
         }
     }

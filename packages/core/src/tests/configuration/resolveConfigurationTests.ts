@@ -36,7 +36,7 @@ describe(nameof(resolveConfiguration), () => {
 
         it("should do a diagnostic when providing an excess property", () => {
             doTest({ asdf: 5 } as any, {}, () => false, [{
-                message: "Unexpected property in configuration: asdf",
+                message: "Unknown property in configuration: asdf",
                 propertyName: "asdf"
             }]);
         });
