@@ -1,14 +1,14 @@
-extern crate dprint_core;
 use std::rc::Rc;
 use std::cell::RefCell;
 
 use dprint_core::*;
 use dprint_core::{parser_helpers::*,condition_resolvers};
-use super::*;
-use super::configuration::*;
 use swc_ecma_ast::*;
 use swc_common::{comments::{Comment, CommentKind}, Spanned, BytePos, Span};
 use swc_ecma_parser::{token::{TokenAndSpan}};
+
+use super::*;
+use super::configuration::*;
 
 // todo: Remove putting functions on heap by using type parameters?
 

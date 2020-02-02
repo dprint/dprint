@@ -8,7 +8,7 @@ pub struct PrintWriteItemsOptions {
     /// Whether to use tabs for indenting.
     pub use_tabs: bool,
     /// The newline character to use when doing a new line.
-    pub newline_kind: &'static str,
+    pub new_line_text: &'static str,
 }
 
 /// Prints string based writer items.
@@ -20,7 +20,7 @@ pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, opt
     for item in write_items.into_iter() {
         match item {
             WriteItem::Indent(times) => final_string.push_str(&indent_string.repeat(times as usize)),
-            WriteItem::NewLine => final_string.push_str(&options.newline_kind),
+            WriteItem::NewLine => final_string.push_str(&options.new_line_text),
             WriteItem::Tab => final_string.push_str("\t"),
             WriteItem::Space => final_string.push_str(" "),
             WriteItem::String(text) => final_string.push_str(text.text.get_text()),

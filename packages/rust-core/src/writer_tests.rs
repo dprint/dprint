@@ -56,7 +56,7 @@ fn assert_writer_equal(writer: Writer<String>, text: &str) {
     let result = print_write_items(writer.get_items(), PrintWriteItemsOptions {
         indent_width: 2,
         use_tabs: false,
-        newline_kind: "\n",
+        new_line_text: "\n",
     });
     assert_eq!(result, String::from(text));
 }

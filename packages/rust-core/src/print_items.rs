@@ -391,6 +391,10 @@ pub enum Signal {
     StartIgnoringIndent,
     /// Signal to the printer that it should start using indentation again.
     FinishIgnoringIndent,
+    /// Signal to the printer that it shouldn't print any new lines.
+    StartForceNoNewLines,
+    /// Signal to the printer that it should finish not printing any new lines.
+    FinishForceNoNewLines,
 }
 
 /// Can be used to get information at a certain location being printed. These

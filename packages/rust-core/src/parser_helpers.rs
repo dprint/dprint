@@ -16,6 +16,14 @@ pub fn with_indent(item: PrintItems) -> PrintItems {
     items
 }
 
+pub fn with_no_new_lines(item: PrintItems) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_signal(Signal::StartForceNoNewLines);
+    items.extend(item);
+    items.push_signal(Signal::FinishForceNoNewLines);
+    items
+}
+
 pub fn new_line_group(item: PrintItems) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_signal(Signal::StartNewLineGroup);

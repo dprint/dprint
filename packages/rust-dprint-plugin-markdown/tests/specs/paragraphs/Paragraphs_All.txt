@@ -1,0 +1,28 @@
+~~ lineWidth: 40 ~~
+!! should format a paragraph !!
+testing this out
+with multiple multiple lines
+and more lines
+
+[expect]
+testing this out with multiple multiple
+lines and more lines
+
+!! should format multiple paragraphs and keep the blank lines (only) !!
+testing this out
+
+even more
+
+
+
+and more
+and more
+
+[expect]
+testing this out
+
+even more
+
+
+
+and more and more

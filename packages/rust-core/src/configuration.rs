@@ -165,3 +165,36 @@ fn get_nullable_value<T>(
     config.remove(key);
     value
 }
+
+/// Resolves the `NewLineKind` text from the provided file text and `NewLineKind`.
+pub fn resolve_new_line_kind(file_text: &str, new_line_kind: &NewLineKind) -> &'static str {
+    match new_line_kind {
+        NewLineKind::LineFeed => "\n",
+        NewLineKind::CarriageReturnLineFeed => "\r\n",
+        NewLineKind::Auto => {
+            let mut found_slash_n = false;
+            for c in file_text.as_bytes().iter().rev() {
+                if found_slash_n {
+                    if c == &('\r' as u8) {
+                        return "\r\n";
+                    } else {
+                        return "\n";
+                    }
+                }
+
+                if c == &('\n' as u8) {
+                    found_slash_n = true;
+                }
+            }
+
+            return "\n";
+        },
+        NewLineKind::System => {
+            if cfg!(windows) {
+                "\r\n"
+            } else {
+                "\n"
+            }
+        }
+    }
+}

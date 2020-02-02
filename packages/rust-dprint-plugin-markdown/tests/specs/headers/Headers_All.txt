@@ -1,0 +1,47 @@
+~~ lineWidth: 40 ~~
+!! should format the headers !!
+# H1
+
+## H2
+
+### H3
+
+#### H4
+
+First Header
+============
+
+Second Header
+-------------
+
+[expect]
+# H1
+
+## H2
+
+### H3
+
+#### H4
+
+# First Header
+
+## Second Header
+
+!! should format links in headers !!
+
+# Text [  Some text  ](  Other   text  ) other
+
+[expect]
+# Text [ Some text ]( Other text ) other
+
+!! should keep a header on a single line even when it goes over the line width !!
+# Testing this out by going over the line width
+
+[expect]
+# Testing this out by going over the line width
+
+!! should remove consecutive spaces in the header text !!
+# Here   is      a           test
+
+[expect]
+# Here is a test

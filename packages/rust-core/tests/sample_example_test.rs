@@ -97,7 +97,7 @@ fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
     });
     let result = print_write_items(write_items, PrintWriteItemsOptions {
         use_tabs: false,
-        newline_kind: "\n",
+        new_line_text: "\n",
         indent_width: 2
     });
     assert_eq!(result, expected_text);

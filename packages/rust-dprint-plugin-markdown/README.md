@@ -4,4 +4,4 @@
 
 Markdown formatting plugin for dprint.
 
-This uses the [comrak](https://github.com/kivikakk/comrak) parser for markdown.
+This uses the [pulldown-cmark](https://github.com/raphlinus/pulldown-cmark) parser for markdown.

@@ -1,12 +1,16 @@
 [package]
 name = "dprint-plugin-markdown"
+description = "Markdown formatter for dprint."
 version = "0.1.0-alpha"
 authors = ["David Sherret <dsherret@gmail.com>"]
+license = "MIT"
 edition = "2018"
+homepage = "https://github.com/dsherret/dprint/tree/master/packages/rust-dprint-plugin-markdown"
+repository = "https://github.com/dsherret/dprint"
 
 [dependencies]
-dprint-core = { path = "../rust-core", version = "0.7.0-alpha.2" }
-comrak = "0.7"
+dprint-core = { path = "../rust-core", version = "0.7.0-alpha.3" }
+pulldown-cmark = { version = "0.6", default-features = false }
 serde = { version = "1.0.88", features = ["derive"] }
 
 [dev-dependencies]
