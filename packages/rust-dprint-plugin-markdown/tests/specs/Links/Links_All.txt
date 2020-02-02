@@ -19,7 +19,7 @@
 testing
 
 [expect]
-[ testing ][ Some reference ]
+[testing][Some reference]
 
 [Some reference]: https://dprint.dev
 

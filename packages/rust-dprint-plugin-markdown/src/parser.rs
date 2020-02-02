@@ -29,6 +29,7 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::Text(node) => parse_text(node, context),
         Node::TextDecoration(node) => parse_text_decoration(node, context),
         Node::Link(node) => parse_link(node, context),
+        Node::Image(node) => parse_image(node, context),
         Node::SoftBreak(_) => PrintItems::new(),
         Node::HardBreak(_) => Signal::NewLine.into(),
         Node::NotImplemented(_) => parse_raw_string(node.text(context)),
@@ -234,11 +235,11 @@ fn parse_text_decoration(text: &TextDecoration, context: &mut Context) -> PrintI
 fn parse_link(link: &Link, context: &mut Context) -> PrintItems {
     // todo... pulldown-cmark doesn't give me all the data I need.
     let mut items = PrintItems::new();
+    items.push_str("[");
+    items.extend(parse_nodes(&link.children, context));
+    items.push_str("]");
     match &link.link_type {
         LinkType::Inline => {
-            items.push_str("[");
-            items.extend(parse_nodes(&link.children, context));
-            items.push_str("]");
             items.push_str("(");
             items.push_str(&link.reference);
             if let Some(title) = &link.title {
@@ -248,10 +249,32 @@ fn parse_link(link: &Link, context: &mut Context) -> PrintItems {
         },
         LinkType::Reference => {
             items.push_str("[");
-            items.extend(parse_nodes(&link.children, context));
-            items.push_str("]");
-            items.push_str("[");
             items.push_str(&link.reference);
+            items.push_str("]");
+        },
+        _ => {},
+    }
+    items
+}
+
+fn parse_image(image: &Image, context: &mut Context) -> PrintItems {
+    // todo... pulldown-cmark doesn't give me all the data I need.
+    let mut items = PrintItems::new();
+    items.push_str("![");
+    items.extend(parse_nodes(&image.children, context));
+    items.push_str("]");
+    match &image.link_type {
+        LinkType::Inline => {
+            items.push_str("(");
+            items.push_str(&image.reference);
+            if let Some(title) = &image.title {
+                items.push_str(&format!(" \"{}\"", title));
+            }
+            items.push_str(")");
+        },
+        LinkType::Reference => {
+            items.push_str("[");
+            items.push_str(&image.reference);
             items.push_str("]");
         },
         _ => {},

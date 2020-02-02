@@ -1,0 +1,26 @@
+~~ lineWidth: 40 ~~
+!! should format an inline image !!
+![  testing  ](  https://dprint.dev/image.png  )
+
+[expect]
+![testing](https://dprint.dev/image.png)
+
+!! should format an inline image with a title !!
+![  testing  ](  https://dprint.dev/image.png  "Dprint homepage"  )
+
+[expect]
+![testing](https://dprint.dev/image.png "Dprint homepage")
+
+!! should format a reference link (skip) !!
+![testing][Some reference]
+
+[Some reference]: https://dprint.dev/image.png
+
+testing
+
+[expect]
+![testing][Some reference]
+
+[Some reference]: https://dprint.dev/image.png
+
+testing

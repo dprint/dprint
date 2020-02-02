@@ -53,6 +53,14 @@ pub struct Link {
     pub children: Vec<Node>,
 }
 
+pub struct Image {
+    pub range: Range,
+    pub link_type: pulldown_cmark::LinkType,
+    pub reference: String,
+    pub title: Option<String>,
+    pub children: Vec<Node>,
+}
+
 impl Text {
     pub fn starts_with_whitespace(&self) -> bool {
         if let Some(first_char) = self.text.chars().next() {
@@ -152,6 +160,7 @@ generate_node![
     Text,
     TextDecoration,
     Link,
+    Image,
     SoftBreak,
     HardBreak,
     Code,
