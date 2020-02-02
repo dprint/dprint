@@ -23,6 +23,11 @@ pub struct Paragraph {
     pub children: Vec<Node>,
 }
 
+pub struct BlockQuote {
+    pub range: Range,
+    pub children: Vec<Node>,
+}
+
 pub struct Text {
     pub range: Range,
     pub text: String,
@@ -115,6 +120,7 @@ generate_node![
     SourceFile,
     Heading,
     Paragraph,
+    BlockQuote,
     Text,
     SoftBreak,
     HardBreak,

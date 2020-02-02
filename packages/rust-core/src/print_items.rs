@@ -109,7 +109,8 @@ impl PrintItems {
         self.first_node.is_none()
     }
 
-    // todo: only compile when debugging and clean this up
+    // todo: clean this up
+    #[cfg(debug_assertions)]
     pub fn get_as_text(&self) -> String {
         return if let Some(first_node) = &self.first_node {
             get_items_as_text(first_node.clone(), String::from(""))

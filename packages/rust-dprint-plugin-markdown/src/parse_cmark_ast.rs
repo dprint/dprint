@@ -85,7 +85,7 @@ pub fn parse_cmark_ast(file_text: &str) -> Result<SourceFile, ParseError> {
 fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, ParseError> {
     match event {
         Event::Start(tag) => parse_start(tag, iterator),
-        Event::End(tag) => Ok(iterator.get_not_implemented()),
+        Event::End(_) => Ok(iterator.get_not_implemented()), // do nothing
         Event::Code(code) => parse_code(code, iterator).map(|x| x.into()),
         Event::Text(text) => parse_text(text, iterator).map(|x| x.into()),
         Event::Html(html) => Ok(iterator.get_not_implemented()),
@@ -101,7 +101,7 @@ fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, Par
     match start_tag {
         Tag::Heading(level) => parse_heading(level, iterator).map(|x| x.into()),
         Tag::Paragraph => parse_paragraph(iterator).map(|x| x.into()),
-        Tag::BlockQuote => Ok(iterator.get_not_implemented()),
+        Tag::BlockQuote => parse_block_quote(iterator).map(|x| x.into()),
         Tag::CodeBlock(tag) => parse_code_block(tag, iterator).map(|x| x.into()),
         Tag::List(first_item_number) => Ok(iterator.get_not_implemented()),
         Tag::Item => Ok(iterator.get_not_implemented()),
@@ -154,6 +154,23 @@ fn parse_paragraph(iterator: &mut EventIterator) -> Result<Paragraph, ParseError
     }
 
     Ok(Paragraph {
+        range: iterator.get_range_for_start(start),
+        children,
+    })
+}
+
+fn parse_block_quote(iterator: &mut EventIterator) -> Result<BlockQuote, ParseError> {
+    let start = iterator.start();
+    let mut children = Vec::new();
+
+    while let Some(event) = iterator.next() {
+        match event {
+            Event::End(Tag::BlockQuote) => break,
+            _ => children.push(parse_event(event, iterator)?),
+        }
+    }
+
+    Ok(BlockQuote {
         range: iterator.get_range_for_start(start),
         children,
     })

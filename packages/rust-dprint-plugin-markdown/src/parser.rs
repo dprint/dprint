@@ -22,6 +22,7 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::SourceFile(node) => parse_source_file(node, context),
         Node::Heading(node) => parse_heading(node, context),
         Node::Paragraph(node) => parse_paragraph(node, context),
+        Node::BlockQuote(node) => parse_block_quote(node, context),
         Node::CodeBlock(node) => parse_code_block(node, context),
         Node::Code(node) => parse_code(node, context),
         Node::Text(node) => parse_text(node, context),
@@ -85,6 +86,36 @@ fn parse_heading(heading: &Heading, context: &mut Context) -> PrintItems {
 
 fn parse_paragraph(paragraph: &Paragraph, context: &mut Context) -> PrintItems {
     parse_nodes(&paragraph.children, context)
+}
+
+fn parse_block_quote(block_quote: &BlockQuote, context: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str("> ");
+
+    // add a > for any string that is on the start of a line
+    for print_item in parse_nodes(&block_quote.children, context).iter() {
+        match print_item {
+            PrintItem::String(text) => {
+                items.push_condition(Condition::new("isStartOfLine", ConditionProperties {
+                    condition: Box::new(|context| Some(condition_resolvers::is_start_of_new_line(context))),
+                    true_path: Some({
+                        let mut items = PrintItems::new();
+                        items.push_str("> ");
+                        items.push_item(PrintItem::String(text.clone()));
+                        items
+                    }),
+                    false_path: Some({
+                        let mut items = PrintItems::new();
+                        items.push_item(PrintItem::String(text));
+                        items
+                    }),
+                }));
+            },
+            _ => items.push_item(print_item),
+        }
+    }
+
+    items
 }
 
 fn parse_code_block(code_block: &CodeBlock, context: &mut Context) -> PrintItems {
