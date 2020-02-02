@@ -54,6 +54,18 @@ pub struct HardBreak {
     pub range: Range,
 }
 
+/// Inline code.
+pub struct Code {
+    pub range: Range,
+    pub code: String,
+}
+
+pub struct CodeBlock {
+    pub range: Range,
+    pub tag: Option<String>,
+    pub code: String,
+}
+
 pub struct NotImplemented {
     pub range: Range,
 }
@@ -105,5 +117,7 @@ generate_node![
     Paragraph,
     Text,
     SoftBreak,
-    HardBreak
+    HardBreak,
+    Code,
+    CodeBlock
 ];

@@ -22,11 +22,10 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::SourceFile(node) => parse_source_file(node, context),
         Node::Heading(node) => parse_heading(node, context),
         Node::Paragraph(node) => parse_paragraph(node, context),
+        Node::CodeBlock(node) => parse_code_block(node, context),
+        Node::Code(node) => parse_code(node, context),
         Node::Text(node) => parse_text(node, context),
-        Node::SoftBreak(_) => {
-            // todo: configuration to soft break
-            PrintItems::new()
-        },
+        Node::SoftBreak(_) => PrintItems::new(),
         Node::HardBreak(_) => Signal::NewLine.into(),
         Node::NotImplemented(_) => parse_raw_string(node.text(context)),
     }
@@ -37,9 +36,11 @@ fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {
     let mut last_node: Option<&Node> = None;
 
     for node in nodes {
+        // todo: this area needs to be thought out more
+        let is_current_soft_break = match node { Node::SoftBreak(_) => true, _=> false, };
         if let Some(last_node) = last_node {
             match last_node {
-                Node::Heading(_) => {
+                Node::Heading(_) | Node::Paragraph(_) | Node::CodeBlock(_) => {
                     items.push_signal(Signal::NewLine);
                     items.push_signal(Signal::NewLine);
                 },
@@ -53,14 +54,13 @@ fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {
                     }
                 },
                 Node::SoftBreak(_) => {
-                    if let Node::Text(_) = node {
+                    if !is_current_soft_break {
                         items.push_signal(Signal::SpaceOrNewLine);
                     }
                 },
-                Node::Paragraph(paragraph) => {
-                    // start of a paragraph is the end of the previous line, so plus 1 this
-                    for _ in 0..context.get_new_lines_in_range(paragraph.range.end, node.range().start) + 1 {
-                        items.push_signal(Signal::NewLine);
+                Node::Code(_) => {
+                    if !is_current_soft_break {
+                        items.push_signal(Signal::SpaceOrNewLine);
                     }
                 },
                 _ => {},
@@ -87,6 +87,35 @@ fn parse_paragraph(paragraph: &Paragraph, context: &mut Context) -> PrintItems {
     parse_nodes(&paragraph.children, context)
 }
 
+fn parse_code_block(code_block: &CodeBlock, context: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    let indent_level = context.get_indent_level_at_pos(code_block.range.start);
+
+    // header
+    if indent_level == 0 {
+        items.push_str("```");
+        if let Some(tag) = &code_block.tag {
+            items.push_str(tag);
+        }
+        items.push_signal(Signal::NewLine);
+    }
+
+    // body
+    items.extend(parser_helpers::parse_string(&code_block.code.trim()));
+
+    // footer
+    if indent_level == 0 {
+        items.push_signal(Signal::NewLine);
+        items.push_str("```");
+    }
+
+    return with_indent_times(items, indent_level);
+}
+
+fn parse_code(code: &Code, _: &mut Context) -> PrintItems {
+    format!("`{}`", code.code.trim()).into()
+}
+
 fn parse_text(text: &Text, _: &mut Context) -> PrintItems {
     let mut text_builder = TextBuilder::new();
 
@@ -98,56 +127,56 @@ fn parse_text(text: &Text, _: &mut Context) -> PrintItems {
         }
     }
 
-    text_builder.build()
-}
+    return text_builder.build();
 
-struct TextBuilder {
-    items: PrintItems,
-    was_last_whitespace: bool,
-    current_word: Option<String>,
-}
-
-impl TextBuilder {
-    pub fn new() -> TextBuilder {
-        TextBuilder {
-            items: PrintItems::new(),
-            was_last_whitespace: false,
-            current_word: None,
-        }
+    struct TextBuilder {
+        items: PrintItems,
+        was_last_whitespace: bool,
+        current_word: Option<String>,
     }
 
-    pub fn build(mut self) -> PrintItems {
-        self.flush_current_word();
-        self.items
-    }
-
-    pub fn space_or_new_line(&mut self) {
-        if self.items.is_empty() && self.current_word.is_none() { return; }
-        if self.was_last_whitespace { return; }
-
-        self.flush_current_word();
-
-        self.was_last_whitespace = true;
-    }
-
-    pub fn add_char(&mut self, character: char) {
-        if self.was_last_whitespace {
-            self.items.push_signal(Signal::SpaceOrNewLine);
-            self.was_last_whitespace = false;
+    impl TextBuilder {
+        pub fn new() -> TextBuilder {
+            TextBuilder {
+                items: PrintItems::new(),
+                was_last_whitespace: false,
+                current_word: None,
+            }
         }
 
-        if let Some(current_word) = self.current_word.as_mut() {
-            current_word.push(character);
-        } else {
-            let mut text = String::new();
-            text.push(character);
-            self.current_word = Some(text);
+        pub fn build(mut self) -> PrintItems {
+            self.flush_current_word();
+            self.items
         }
-    }
 
-    fn flush_current_word(&mut self) {
-        if let Some(current_word) = self.current_word.take() {
-            self.items.push_str(&current_word);
+        pub fn space_or_new_line(&mut self) {
+            if self.items.is_empty() && self.current_word.is_none() { return; }
+            if self.was_last_whitespace { return; }
+
+            self.flush_current_word();
+
+            self.was_last_whitespace = true;
+        }
+
+        pub fn add_char(&mut self, character: char) {
+            if self.was_last_whitespace {
+                self.items.push_signal(Signal::SpaceOrNewLine);
+                self.was_last_whitespace = false;
+            }
+
+            if let Some(current_word) = self.current_word.as_mut() {
+                current_word.push(character);
+            } else {
+                let mut text = String::new();
+                text.push(character);
+                self.current_word = Some(text);
+            }
+        }
+
+        fn flush_current_word(&mut self) {
+            if let Some(current_word) = self.current_word.take() {
+                self.items.push_str(&current_word);
+            }
         }
     }
 }

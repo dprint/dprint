@@ -1,0 +1,19 @@
+!! should format inline blocks !!
+Testing ` this `  out.
+
+[expect]
+Testing `this` out.
+
+!! should properly space when last on line with soft break !!
+Testing `this`
+out.
+
+[expect]
+Testing `this` out.
+
+!! should properly space when first line after soft break !!
+Testing
+`this` out.
+
+[expect]
+Testing `this` out.

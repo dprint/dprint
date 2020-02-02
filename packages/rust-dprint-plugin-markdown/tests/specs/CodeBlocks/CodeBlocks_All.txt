@@ -1,0 +1,42 @@
+!! should format code blocks !!
+Testing:
+```ts
+
+const t = 5;
+
+test;
+
+```
+```
+other
+```
+
+    const t = 4;
+
+        const t = 4;
+
+
+    const t = 4;
+
+
+
+
+[expect]
+Testing:
+
+```ts
+const t = 5;
+
+test;
+```
+
+```
+other
+```
+
+    const t = 4;
+
+        const t = 4;
+
+
+    const t = 4;

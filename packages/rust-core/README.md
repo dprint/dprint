@@ -13,9 +13,6 @@ let print_items = ...; // parsed out IR (see example below)
 let result = dprint_core::print(print_items, PrintOptions {
     indent_width: 4,
     max_width: 10,
-    // Set this to true while testing. It runs additional validation on the
-    // strings to ensure the print items are being parsed out correctly.
-    is_testing: false,
     use_tabs: false,
     newline_kind: "\n",
 });
@@ -28,7 +25,6 @@ Or do the steps individually:
 let write_items = dprint_core::get_write_items(print_items, GetWriteItemsOptions {
     indent_width: 4,
     max_width: 10,
-    is_testing: false,
 });
 
 // Write out the write items to a string.

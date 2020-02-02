@@ -1,6 +1,19 @@
 use pulldown_cmark::*;
 use super::ast_nodes::*;
 
+pub struct ParseError {
+    /// This range the parse error occurred.
+    pub range: Range,
+    /// The associated error message.
+    pub message: String,
+}
+
+impl ParseError {
+    pub(super) fn new(range: Range, message: &str) -> ParseError {
+        ParseError { range, message: String::from(message) }
+    }
+}
+
 struct EventIterator<'a> {
     iterator: OffsetIter<'a>,
     last_range: Range,
@@ -20,10 +33,15 @@ impl<'a> EventIterator<'a> {
     pub fn next(&mut self) -> Option<Event<'a>> {
         if let Some((event, range)) = self.iterator.next() {
             self.last_range = range;
+            println!("Event: {:?}", event);
             Some(event)
         } else {
             None
         }
+    }
+
+    pub fn start(&self) -> usize {
+        self.last_range.start
     }
 
     pub fn get_range_for_start(&self, start: usize) -> Range {
@@ -44,7 +62,7 @@ impl<'a> EventIterator<'a> {
     }
 }
 
-pub fn parse_cmark_ast(file_text: &str) -> Result<SourceFile, String> {
+pub fn parse_cmark_ast(file_text: &str) -> Result<SourceFile, ParseError> {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
@@ -64,14 +82,12 @@ pub fn parse_cmark_ast(file_text: &str) -> Result<SourceFile, String> {
     })
 }
 
-fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, String> {
-    println!("Event: {:?}", event);
-
+fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, ParseError> {
     match event {
         Event::Start(tag) => parse_start(tag, iterator),
         Event::End(tag) => Ok(iterator.get_not_implemented()),
-        Event::Code(code) => Ok(iterator.get_not_implemented()),
-        Event::Text(text) => parse_text(text, iterator),
+        Event::Code(code) => parse_code(code, iterator).map(|x| x.into()),
+        Event::Text(text) => parse_text(text, iterator).map(|x| x.into()),
         Event::Html(html) => Ok(iterator.get_not_implemented()),
         Event::FootnoteReference(reference) => Ok(iterator.get_not_implemented()),
         Event::SoftBreak => Ok(SoftBreak { range: iterator.get_last_range() }.into()),
@@ -81,12 +97,12 @@ fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, Strin
     }
 }
 
-fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, String> {
+fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, ParseError> {
     match start_tag {
-        Tag::Paragraph => parse_paragraph(iterator),
-        Tag::Heading(level) => parse_heading(level, iterator),
+        Tag::Heading(level) => parse_heading(level, iterator).map(|x| x.into()),
+        Tag::Paragraph => parse_paragraph(iterator).map(|x| x.into()),
         Tag::BlockQuote => Ok(iterator.get_not_implemented()),
-        Tag::CodeBlock(code_block) => Ok(iterator.get_not_implemented()),
+        Tag::CodeBlock(tag) => parse_code_block(tag, iterator).map(|x| x.into()),
         Tag::List(first_item_number) => Ok(iterator.get_not_implemented()),
         Tag::Item => Ok(iterator.get_not_implemented()),
         Tag::FootnoteDefinition(label) => Ok(iterator.get_not_implemented()),
@@ -102,15 +118,18 @@ fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, Str
     }
 }
 
-fn parse_heading(level: u32, iterator: &mut EventIterator) -> Result<Node, String> {
-    let start = iterator.last_range.start;
+fn parse_heading(level: u32, iterator: &mut EventIterator) -> Result<Heading, ParseError> {
+    let start = iterator.start();
     let mut children = Vec::new();
 
     while let Some(event) = iterator.next() {
         match event {
             Event::End(Tag::Heading(end_level)) => {
                 if end_level == level { break; }
-                return Err(format!("Found end tag with level {}, but expected {}", end_level, level));
+                return Err(ParseError::new(
+                    iterator.get_last_range(),
+                    &format!("Found end tag with level {}, but expected {}", end_level, level)
+                ));
             },
             _ => children.push(parse_event(event, iterator)?),
         }
@@ -120,11 +139,11 @@ fn parse_heading(level: u32, iterator: &mut EventIterator) -> Result<Node, Strin
         range: iterator.get_range_for_start(start),
         level,
         children,
-    }.into())
+    })
 }
 
-fn parse_paragraph(iterator: &mut EventIterator) -> Result<Node, String> {
-    let start = iterator.last_range.start;
+fn parse_paragraph(iterator: &mut EventIterator) -> Result<Paragraph, ParseError> {
+    let start = iterator.start();
     let mut children = Vec::new();
 
     while let Some(event) = iterator.next() {
@@ -137,12 +156,41 @@ fn parse_paragraph(iterator: &mut EventIterator) -> Result<Node, String> {
     Ok(Paragraph {
         range: iterator.get_range_for_start(start),
         children,
-    }.into())
+    })
 }
 
-fn parse_text(text: CowStr, iterator: &mut EventIterator) -> Result<Node, String> {
+fn parse_code_block(tag: CowStr, iterator: &mut EventIterator) -> Result<CodeBlock, ParseError> {
+    let start = iterator.start();
+    let mut code = String::new();
+
+    while let Some(event) = iterator.next() {
+        match event {
+            Event::End(Tag::CodeBlock(_)) => break,
+            Event::Text(event_text) => code.push_str(event_text.as_ref()),
+            _ => return Err(ParseError::new(iterator.get_last_range(), "Unexpected event found when parsing code block.")),
+        }
+    }
+
+    let tag = String::from(tag.as_ref().trim());
+    let tag = if tag.is_empty() { None } else { Some(tag) };
+
+    Ok(CodeBlock {
+        range: iterator.get_range_for_start(start),
+        tag,
+        code,
+    })
+}
+
+fn parse_code(code: CowStr, iterator: &mut EventIterator) -> Result<Code, ParseError> {
+    Ok(Code {
+        range: iterator.get_last_range(),
+        code: String::from(code.as_ref()),
+    })
+}
+
+fn parse_text(text: CowStr, iterator: &mut EventIterator) -> Result<Text, ParseError> {
     Ok(Text {
         range: iterator.get_last_range(),
         text: String::from(text.as_ref()),
-    }.into())
+    })
 }

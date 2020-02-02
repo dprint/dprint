@@ -47,7 +47,6 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringTrait, TInf
     conditions_for_infos: HashMap<usize, HashMap<usize, (Rc<TCondition>, Rc<SavePoint<TString, TInfo, TCondition>>)>>,
     max_width: u32,
     skip_moving_next: bool,
-    is_testing: bool, // todo: compiler directives
 }
 
 impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
@@ -68,7 +67,6 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             next_node_stack: Vec::new(),
             max_width: options.max_width,
             skip_moving_next: false,
-            is_testing: options.is_testing,
         }
     }
 
@@ -89,7 +87,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             }
         }
 
-        if self.is_testing { self.verify_no_look_ahead_save_points(); }
+        #[cfg(debug_assertions)]
+        self.verify_no_look_ahead_save_points();
 
         let writer = mem::replace(&mut self.writer, unsafe { MaybeUninit::zeroed().assume_init() });
         mem::drop(self);
@@ -332,9 +331,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
     #[inline]
     fn handle_string(&mut self, text: &Rc<StringContainer<TString>>) {
-        if self.is_testing {
-            self.validate_string(&text.text);
-        }
+        #[cfg(debug_assertions)]
+        self.validate_string(&text.text);
 
         if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) {
             let save_point = mem::replace(&mut self.possible_new_line_save_point, Option::None);
@@ -349,11 +347,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         self.force_no_newlines_depth == 0
     }
 
+    #[cfg(debug_assertions)]
     fn validate_string(&self, text: &TString) {
-        if !self.is_testing {
-            panic!("Don't call this method unless self.is_testing is true.");
-        }
-
         let text_as_string = text.get_text();
         if text_as_string.contains("\t") {
             panic!("Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}", text_as_string);
@@ -363,6 +358,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[cfg(debug_assertions)]
     fn verify_no_look_ahead_save_points(&self) {
         // The look ahead save points should be empty when printing is finished. If it's not
         // then that indicates that the parser tried to resolve a condition or info that was
@@ -377,6 +373,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[cfg(debug_assertions)]
     fn panic_for_save_point_existing(&self, save_point: &SavePoint<TString, TInfo, TCondition>) {
         panic!(
             concat!(

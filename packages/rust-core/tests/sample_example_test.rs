@@ -93,7 +93,6 @@ fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
     let write_items = dprint_core::get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: 2,
         max_width: 40,
-        is_testing: true,
     });
     let result = print_write_items(write_items, PrintWriteItemsOptions {
         use_tabs: false,

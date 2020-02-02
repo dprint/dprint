@@ -11,8 +11,11 @@ use super::parser_types::Context;
 /// Returns the file text when the file was formatted, `None` when the file had an ignore comment, and
 /// an error when it failed to parse.
 pub fn format_text(file_text: &str, config: &Configuration) -> Result<Option<String>, String> {
-    let source_file = parse_cmark_ast(file_text)?;
-    let print_items = parse_node(&source_file.into(), &mut Context::new(file_text));
+    let source_file = match parse_cmark_ast(file_text) {
+        Ok(source_file) => source_file,
+        Err(error) => return Err(error.message), // todo: inspect range for line and column
+    };
+    let print_items = parse_node(&source_file.into(), &mut Context::new(file_text, config));
 
     Ok(Some(print(print_items, PrintOptions {
         indent_width: config.indent_width,

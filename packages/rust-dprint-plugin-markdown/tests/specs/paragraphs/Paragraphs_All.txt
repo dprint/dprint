@@ -8,7 +8,7 @@ and more lines
 testing this out with multiple multiple
 lines and more lines
 
-!! should format multiple paragraphs and keep the blank lines (only) !!
+!! should format multiple paragraphs and keep the blank lines !!
 testing this out
 
 even more
@@ -22,7 +22,5 @@ and more
 testing this out
 
 even more
-
-
 
 and more and more

@@ -20,7 +20,6 @@ pub fn print<TString, TInfo, TCondition>(
     let write_items = get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: options.indent_width,
         max_width: options.max_width,
-        is_testing: false, // todo: remove
     });
 
     print_write_items(write_items, PrintWriteItemsOptions {
