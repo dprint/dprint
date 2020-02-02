@@ -110,10 +110,10 @@ fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, Par
         Tag::TableHead => Ok(iterator.get_not_implemented()),
         Tag::TableRow => Ok(iterator.get_not_implemented()),
         Tag::TableCell => Ok(iterator.get_not_implemented()),
-        Tag::Emphasis => Ok(iterator.get_not_implemented()),
-        Tag::Strong => Ok(iterator.get_not_implemented()),
-        Tag::Strikethrough => Ok(iterator.get_not_implemented()),
-        Tag::Link(link_type, destination_url, title) => Ok(iterator.get_not_implemented()),
+        Tag::Emphasis => parse_text_decoration(TextDecorationKind::Emphasis, iterator).map(|x| x.into()),
+        Tag::Strong => parse_text_decoration(TextDecorationKind::Strong, iterator).map(|x| x.into()),
+        Tag::Strikethrough => parse_text_decoration(TextDecorationKind::Strikethrough, iterator).map(|x| x.into()),
+        Tag::Link(link_type, destination_url, title) => parse_link(link_type, destination_url, title, iterator).map(|x| x.into()),
         Tag::Image(link_type, destination_url, title) => Ok(iterator.get_not_implemented()),
     }
 }
@@ -209,5 +209,46 @@ fn parse_text(text: CowStr, iterator: &mut EventIterator) -> Result<Text, ParseE
     Ok(Text {
         range: iterator.get_last_range(),
         text: String::from(text.as_ref()),
+    })
+}
+
+fn parse_text_decoration(kind: TextDecorationKind, iterator: &mut EventIterator) -> Result<TextDecoration, ParseError> {
+    let start = iterator.start();
+    let mut children = Vec::new();
+
+    while let Some(event) = iterator.next() {
+        match event {
+            Event::End(Tag::Emphasis) => break,
+            Event::End(Tag::Strikethrough) => break,
+            Event::End(Tag::Strong) => break,
+            _ => children.push(parse_event(event, iterator)?),
+        }
+    }
+
+    Ok(TextDecoration {
+        range: iterator.get_range_for_start(start),
+        kind,
+        children,
+    })
+}
+
+fn parse_link(link_type: LinkType, destination_url: CowStr, title: CowStr, iterator: &mut EventIterator) -> Result<Link, ParseError> {
+    let start = iterator.start();
+    let mut children = Vec::new();
+
+    while let Some(event) = iterator.next() {
+        match event {
+            Event::End(Tag::Link(_, _, _)) => break,
+            _ => children.push(parse_event(event, iterator)?),
+        }
+    }
+
+    let title = title.as_ref().trim();
+    Ok(Link {
+        range: iterator.get_range_for_start(start),
+        link_type,
+        reference: String::from(destination_url.as_ref()),
+        title: if title.is_empty() { None } else { Some(String::from(title)) },
+        children,
     })
 }

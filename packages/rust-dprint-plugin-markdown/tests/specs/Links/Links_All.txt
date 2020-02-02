@@ -1,0 +1,26 @@
+~~ lineWidth: 40 ~~
+!! should format an inline link !!
+[  testing  ](  https://dprint.dev  )
+
+[expect]
+[testing](https://dprint.dev)
+
+!! should format an inline link with a title !!
+[  testing  ](  https://dprint.dev  "Dprint homepage"  )
+
+[expect]
+[testing](https://dprint.dev "Dprint homepage")
+
+!! should format a reference link (skip) !!
+[testing][Some reference]
+
+[Some reference]: https://github.com
+
+testing
+
+[expect]
+[ testing ][ Some reference ]
+
+[Some reference]: https://dprint.dev
+
+testing

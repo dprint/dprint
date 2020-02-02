@@ -33,10 +33,38 @@ pub struct Text {
     pub text: String,
 }
 
+pub struct TextDecoration {
+    pub range: Range,
+    pub kind: TextDecorationKind,
+    pub children: Vec<Node>,
+}
+
+pub enum TextDecorationKind {
+    Emphasis,
+    Strong,
+    Strikethrough,
+}
+
+pub struct Link {
+    pub range: Range,
+    pub link_type: pulldown_cmark::LinkType,
+    pub reference: String,
+    pub title: Option<String>,
+    pub children: Vec<Node>,
+}
+
 impl Text {
     pub fn starts_with_whitespace(&self) -> bool {
         if let Some(first_char) = self.text.chars().next() {
             first_char.is_whitespace()
+        } else {
+            false
+        }
+    }
+
+    pub fn starts_with_punctuation(&self) -> bool {
+        if let Some(first_char) = self.text.chars().next() {
+            first_char.is_ascii_punctuation()
         } else {
             false
         }
@@ -122,6 +150,8 @@ generate_node![
     Paragraph,
     BlockQuote,
     Text,
+    TextDecoration,
+    Link,
     SoftBreak,
     HardBreak,
     Code,

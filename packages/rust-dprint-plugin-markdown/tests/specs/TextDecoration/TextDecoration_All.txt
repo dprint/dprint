@@ -1,0 +1,17 @@
+!! should format !!
+test *emphasis* or _emphasis_ test
+
+test **strong** or __strong__ test
+
+Both **strong and _emphasis_ and *emphasis***.
+
+Test ~~strikethrough~~ test
+
+[expect]
+test _emphasis_ or _emphasis_ test
+
+test **strong** or **strong** test
+
+Both **strong and _emphasis_ and _emphasis_**.
+
+Test ~~strikethrough~~ test

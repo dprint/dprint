@@ -1,5 +1,6 @@
 use dprint_core::*;
 use dprint_core::{parser_helpers::*, condition_resolvers};
+use pulldown_cmark::LinkType;
 use super::ast_nodes::*;
 use super::parser_types::*;
 
@@ -26,6 +27,8 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::CodeBlock(node) => parse_code_block(node, context),
         Node::Code(node) => parse_code(node, context),
         Node::Text(node) => parse_text(node, context),
+        Node::TextDecoration(node) => parse_text_decoration(node, context),
+        Node::Link(node) => parse_link(node, context),
         Node::SoftBreak(_) => PrintItems::new(),
         Node::HardBreak(_) => Signal::NewLine.into(),
         Node::NotImplemented(_) => parse_raw_string(node.text(context)),
@@ -54,13 +57,14 @@ fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {
                         }
                     }
                 },
-                Node::SoftBreak(_) => {
-                    if !is_current_soft_break {
-                        items.push_signal(Signal::SpaceOrNewLine);
-                    }
-                },
-                Node::Code(_) => {
-                    if !is_current_soft_break {
+                Node::Code(_) | Node::SoftBreak(_) | Node::TextDecoration(_) => {
+                    let needs_space = if let Node::Text(text) = node {
+                        !text.starts_with_punctuation()
+                    } else {
+                        true
+                    };
+
+                    if needs_space && !is_current_soft_break {
                         items.push_signal(Signal::SpaceOrNewLine);
                     }
                 },
@@ -210,4 +214,47 @@ fn parse_text(text: &Text, _: &mut Context) -> PrintItems {
             }
         }
     }
+}
+
+fn parse_text_decoration(text: &TextDecoration, context: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    let decoration_text = match &text.kind {
+        TextDecorationKind::Emphasis => "_", // todo: config for * instead
+        TextDecorationKind::Strong => "**", // todo: config for __ instead
+        TextDecorationKind::Strikethrough => "~~",
+    };
+
+    items.push_str(&decoration_text);
+    items.extend(parse_nodes(&text.children, context));
+    items.push_str(&decoration_text);
+
+    items
+}
+
+fn parse_link(link: &Link, context: &mut Context) -> PrintItems {
+    // todo... pulldown-cmark doesn't give me all the data I need.
+    let mut items = PrintItems::new();
+    match &link.link_type {
+        LinkType::Inline => {
+            items.push_str("[");
+            items.extend(parse_nodes(&link.children, context));
+            items.push_str("]");
+            items.push_str("(");
+            items.push_str(&link.reference);
+            if let Some(title) = &link.title {
+                items.push_str(&format!(" \"{}\"", title));
+            }
+            items.push_str(")");
+        },
+        LinkType::Reference => {
+            items.push_str("[");
+            items.extend(parse_nodes(&link.children, context));
+            items.push_str("]");
+            items.push_str("[");
+            items.push_str(&link.reference);
+            items.push_str("]");
+        },
+        _ => {},
+    }
+    items
 }
