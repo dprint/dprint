@@ -2436,6 +2436,7 @@ fn parse_block_stmt<'a>(node: &'a BlockStmt, context: &mut Context<'a>) -> Print
 
     items.push_str("{");
     let after_open_brace_info = Info::new("after_open_brace_info");
+    items.push_info(after_open_brace_info);
     let open_brace_trailing_comments = open_brace_token.trailing_comments(context);
     let open_brace_trailing_comments_ends_with_comment_block = open_brace_trailing_comments.get_last_comment().map(|x| x.kind == CommentKind::Block).unwrap_or(false);
     let is_braces_same_line_and_empty = node.start_line(context) == node.end_line(context) && node.stmts.is_empty();
