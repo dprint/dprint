@@ -7,4 +7,4 @@ scripts
 rollup.config.js
 tsconfig.*
 yarn-error.log
-wasm
+/wasm

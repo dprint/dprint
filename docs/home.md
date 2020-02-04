@@ -2,7 +2,7 @@
 
 dprint is a configurable and plugable code formatter.
 
-Currently only TypeScript and JSONC is supported.
+Currently only TypeScript, JavaScript, and JSONC are supported.
 
 ## Install
 

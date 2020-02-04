@@ -1,7 +1,7 @@
 // dprint-ignore-file
 import { Condition, Signal, Info, PrintItem, PrintItemIterable, WriterInfo, Plugin, Configuration, ConfigurationDiagnostic, ResolvedConfiguration, ResolveConditionContext, BaseResolvedConfiguration, LoggingEnvironment } from "@dprint/types";
 
-export declare const version = "0.4.4";
+export declare const version = "0.5.0";
 
 export declare function makeIterableRepeatable<T>(iterable: Iterable<T>): Iterable<T>;
 
