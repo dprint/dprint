@@ -11,10 +11,6 @@ pub struct GetWriteItemsOptions {
     pub max_width: u32,
     /// The number of columns to count when indenting or using a tab.
     pub indent_width: u8,
-    // Set this to true and the printer will do additional validation
-    // on input strings to ensure the printer is being used correctly.
-    // Setting this to true will make things much slower.
-    pub is_testing: bool,
 }
 
 /// Gets write items from the print items.

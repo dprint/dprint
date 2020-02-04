@@ -6,10 +6,10 @@ fn get_default_config_when_empty() {
     let config_result = resolve_global_config(&HashMap::new());
     let config = config_result.config;
     assert_eq!(config_result.diagnostics.len(), 0);
-    assert_eq!(config.line_width, 120);
-    assert_eq!(config.indent_width, 4);
-    assert_eq!(config.new_line_kind == NewLineKind::Auto, true);
-    assert_eq!(config.use_tabs, false);
+    assert_eq!(config.line_width, None);
+    assert_eq!(config.indent_width, None);
+    assert_eq!(config.new_line_kind.is_none(), true);
+    assert_eq!(config.use_tabs, None);
 }
 
 #[test]
@@ -22,10 +22,10 @@ fn get_values_when_filled() {
     let config_result = resolve_global_config(&global_config);
     let config = config_result.config;
     assert_eq!(config_result.diagnostics.len(), 0);
-    assert_eq!(config.line_width, 80);
-    assert_eq!(config.indent_width, 8);
-    assert_eq!(config.new_line_kind == NewLineKind::CarriageReturnLineFeed, true);
-    assert_eq!(config.use_tabs, true);
+    assert_eq!(config.line_width, Some(80));
+    assert_eq!(config.indent_width, Some(8));
+    assert_eq!(config.new_line_kind == Some(NewLineKind::CarriageReturnLineFeed), true);
+    assert_eq!(config.use_tabs, Some(true));
 }
 
 #[test]

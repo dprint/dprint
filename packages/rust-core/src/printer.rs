@@ -36,6 +36,7 @@ impl<'a, TString, TInfo, TCondition> Clone for PrintItemContainer<'a, TString, T
 pub struct Printer<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
     possible_new_line_save_point: Option<Rc<SavePoint<TString, TInfo, TCondition>>>,
     new_line_group_depth: u16,
+    force_no_newlines_depth: u8,
     current_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
     writer: Writer<TString>,
     resolved_conditions: HashMap<usize, Option<bool>>,
@@ -46,7 +47,6 @@ pub struct Printer<TString, TInfo, TCondition> where TString : StringTrait, TInf
     conditions_for_infos: HashMap<usize, HashMap<usize, (Rc<TCondition>, Rc<SavePoint<TString, TInfo, TCondition>>)>>,
     max_width: u32,
     skip_moving_next: bool,
-    is_testing: bool, // todo: compiler directives
 }
 
 impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
@@ -54,6 +54,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         Printer {
             possible_new_line_save_point: None,
             new_line_group_depth: 0,
+            force_no_newlines_depth: 0,
             current_node: start_node,
             writer: Writer::new(WriterOptions {
                 indent_width: options.indent_width,
@@ -66,7 +67,6 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             next_node_stack: Vec::new(),
             max_width: options.max_width,
             skip_moving_next: false,
-            is_testing: options.is_testing,
         }
     }
 
@@ -87,7 +87,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             }
         }
 
-        if self.is_testing { self.verify_no_look_ahead_save_points(); }
+        #[cfg(debug_assertions)]
+        self.verify_no_look_ahead_save_points();
 
         let writer = mem::replace(&mut self.writer, unsafe { MaybeUninit::zeroed().assume_init() });
         mem::drop(self);
@@ -204,28 +205,33 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     #[inline]
     fn handle_signal(&mut self, signal: &Signal) {
         match signal {
-            Signal::NewLine => self.write_new_line(),
+            Signal::NewLine => if self.allow_new_lines() { self.write_new_line() },
             Signal::Tab => self.writer.tab(),
             Signal::ExpectNewLine => {
+                // just always allow this for now since it's most likely a comment...
                 self.writer.mark_expect_new_line();
                 self.possible_new_line_save_point = None;
             }
-            Signal::PossibleNewLine => self.mark_possible_new_line_if_able(),
+            Signal::PossibleNewLine => if self.allow_new_lines() { self.mark_possible_new_line_if_able() },
             Signal::SpaceOrNewLine => {
-                if self.is_above_max_width(1) {
-                    let optional_save_state = mem::replace(&mut self.possible_new_line_save_point, None);
-                    if optional_save_state.is_none() {
-                        self.write_new_line();
-                    } else if let Some(save_state) = optional_save_state {
-                        if save_state.new_line_group_depth >= self.new_line_group_depth {
+                if self.allow_new_lines() {
+                    if self.is_above_max_width(1) {
+                        let optional_save_state = mem::replace(&mut self.possible_new_line_save_point, None);
+                        if optional_save_state.is_none() {
                             self.write_new_line();
-                        } else {
-                            self.update_state_to_save_point(save_state, true);
-                            return;
+                        } else if let Some(save_state) = optional_save_state {
+                            if save_state.new_line_group_depth >= self.new_line_group_depth {
+                                self.write_new_line();
+                            } else {
+                                self.update_state_to_save_point(save_state, true);
+                                return;
+                            }
                         }
+                    } else {
+                        self.mark_possible_new_line_if_able();
+                        self.writer.space();
                     }
                 } else {
-                    self.mark_possible_new_line_if_able();
                     self.writer.space();
                 }
             }
@@ -236,6 +242,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             Signal::SingleIndent => self.writer.single_indent(),
             Signal::StartIgnoringIndent => self.writer.start_ignoring_indent(),
             Signal::FinishIgnoringIndent => self.writer.finish_ignoring_indent(),
+            Signal::StartForceNoNewLines => self.force_no_newlines_depth += 1,
+            Signal::FinishForceNoNewLines => self.force_no_newlines_depth -= 1,
         }
     }
 
@@ -323,9 +331,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
     #[inline]
     fn handle_string(&mut self, text: &Rc<StringContainer<TString>>) {
-        if self.is_testing {
-            self.validate_string(&text.text);
-        }
+        #[cfg(debug_assertions)]
+        self.validate_string(&text.text);
 
         if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) {
             let save_point = mem::replace(&mut self.possible_new_line_save_point, Option::None);
@@ -335,11 +342,13 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
-    fn validate_string(&self, text: &TString) {
-        if !self.is_testing {
-            panic!("Don't call this method unless self.is_testing is true.");
-        }
+    #[inline]
+    fn allow_new_lines(&self) -> bool {
+        self.force_no_newlines_depth == 0
+    }
 
+    #[cfg(debug_assertions)]
+    fn validate_string(&self, text: &TString) {
         let text_as_string = text.get_text();
         if text_as_string.contains("\t") {
             panic!("Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}", text_as_string);
@@ -349,6 +358,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[cfg(debug_assertions)]
     fn verify_no_look_ahead_save_points(&self) {
         // The look ahead save points should be empty when printing is finished. If it's not
         // then that indicates that the parser tried to resolve a condition or info that was
@@ -363,6 +373,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
     }
 
+    #[cfg(debug_assertions)]
     fn panic_for_save_point_existing(&self, save_point: &SavePoint<TString, TInfo, TCondition>) {
         panic!(
             concat!(

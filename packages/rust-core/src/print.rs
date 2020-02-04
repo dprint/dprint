@@ -9,7 +9,7 @@ pub struct PrintOptions {
     /// Whether to use tabs for indenting.
     pub use_tabs: bool,
     /// The newline character to use when doing a new line.
-    pub newline_kind: &'static str,
+    pub new_line_text: &'static str,
 }
 
 /// Prints out the print items using the provided
@@ -20,12 +20,11 @@ pub fn print<TString, TInfo, TCondition>(
     let write_items = get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: options.indent_width,
         max_width: options.max_width,
-        is_testing: false, // todo: remove
     });
 
     print_write_items(write_items, PrintWriteItemsOptions {
         use_tabs: options.use_tabs,
-        newline_kind: options.newline_kind,
+        new_line_text: options.new_line_text,
         indent_width: options.indent_width,
     })
 }

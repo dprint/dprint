@@ -9,10 +9,22 @@ pub fn surround_with_new_lines(item: PrintItems) -> PrintItems {
 }
 
 pub fn with_indent(item: PrintItems) -> PrintItems {
+    with_indent_times(item, 1)
+}
+
+pub fn with_indent_times(item: PrintItems, times: u32) -> PrintItems {
     let mut items = PrintItems::new();
-    items.push_signal(Signal::StartIndent);
+    for _ in 0..times { items.push_signal(Signal::StartIndent); }
     items.extend(item);
-    items.push_signal(Signal::FinishIndent);
+    for _ in 0..times { items.push_signal(Signal::FinishIndent); }
+    items
+}
+
+pub fn with_no_new_lines(item: PrintItems) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_signal(Signal::StartForceNoNewLines);
+    items.extend(item);
+    items.push_signal(Signal::FinishForceNoNewLines);
     items
 }
 
@@ -61,9 +73,20 @@ pub fn if_false(
     })
 }
 
+/// Parses a string as is and ignores its indent.
 pub fn parse_raw_string(text: &str) -> PrintItems {
+    let add_ignore_indent = text.find("\n").is_some();
     let mut items = PrintItems::new();
-    let mut has_ignored_indent = false;
+    if add_ignore_indent { items.push_signal(Signal::StartIgnoringIndent); }
+    items.extend(parse_string(text));
+    if add_ignore_indent { items.push_signal(Signal::FinishIgnoringIndent); }
+
+    return items;
+}
+
+/// Parses a string to a series of PrintItems.
+pub fn parse_string(text: &str) -> PrintItems {
+    let mut items = PrintItems::new();
     let mut lines = text.lines().collect::<Vec<&str>>();
 
     // todo: this is kind of hacky...
@@ -74,19 +97,10 @@ pub fn parse_raw_string(text: &str) -> PrintItems {
 
     for i in 0..lines.len() {
         if i > 0 {
-            if !has_ignored_indent {
-                items.push_signal(Signal::StartIgnoringIndent);
-                has_ignored_indent = true;
-            }
-
             items.push_signal(Signal::NewLine);
         }
 
         items.extend(parse_line(&lines[i]));
-    }
-
-    if has_ignored_indent {
-        items.push_signal(Signal::FinishIgnoringIndent);
     }
 
     return items;
@@ -98,7 +112,9 @@ pub fn parse_raw_string(text: &str) -> PrintItems {
             if i > 0 {
                 items.push_signal(Signal::Tab);
             }
-            items.push_str(parts[i]);
+            if !parts[i].is_empty() {
+                items.push_str(parts[i]);
+            }
         }
         items.into()
     }

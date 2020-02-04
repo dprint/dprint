@@ -70,9 +70,23 @@ pub struct ConfigurationDiagnostic {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalConfiguration {
-    pub indent_width: u8,
+    pub line_width: Option<u32>,
+    pub use_tabs: Option<bool>,
+    pub indent_width: Option<u8>,
+    pub new_line_kind: Option<NewLineKind>,
+}
+
+pub const DEFAULT_GLOBAL_CONFIGURATION: DefaultGlobalConfiguration = DefaultGlobalConfiguration {
+    line_width: 120,
+    indent_width: 4,
+    use_tabs: false,
+    new_line_kind: NewLineKind::Auto,
+};
+
+pub struct DefaultGlobalConfiguration {
     pub line_width: u32,
     pub use_tabs: bool,
+    pub indent_width: u8,
     pub new_line_kind: NewLineKind,
 }
 
@@ -93,10 +107,10 @@ pub fn resolve_global_config(config: &HashMap<String, String>) -> ResolveConfigu
     let mut config = config.clone();
 
     let resolved_config = GlobalConfiguration {
-        line_width: get_value(&mut config, "lineWidth", 120, &mut diagnostics),
-        use_tabs: get_value(&mut config, "useTabs", false, &mut diagnostics),
-        indent_width: get_value(&mut config, "indentWidth", 4, &mut diagnostics),
-        new_line_kind: get_value(&mut config, "newLineKind", NewLineKind::Auto, &mut diagnostics),
+        line_width: get_nullable_value(&mut config, "lineWidth", &mut diagnostics),
+        use_tabs: get_nullable_value(&mut config, "useTabs", &mut diagnostics),
+        indent_width: get_nullable_value(&mut config, "indentWidth", &mut diagnostics),
+        new_line_kind: get_nullable_value(&mut config, "newLineKind", &mut diagnostics),
     };
 
     for (key, _) in config.iter() {
@@ -121,25 +135,66 @@ pub fn get_value<T>(
     default_value: T,
     diagnostics: &mut Vec<ConfigurationDiagnostic>
 ) -> T where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Display {
+    get_nullable_value(config, key, diagnostics).unwrap_or(default_value)
+}
+
+fn get_nullable_value<T>(
+    config: &mut HashMap<String, String>,
+    key: &'static str,
+    diagnostics: &mut Vec<ConfigurationDiagnostic>
+) -> Option<T> where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Display {
     let value = if let Some(raw_value) = config.get(key) {
         if raw_value.trim().is_empty() {
-            default_value
+            None
         } else {
             let parsed_value = raw_value.parse::<T>();
             match parsed_value {
-                Ok(parsed_value) => parsed_value,
+                Ok(parsed_value) => Some(parsed_value),
                 Err(message) => {
                     diagnostics.push(ConfigurationDiagnostic {
                         property_name: String::from(key),
                         message: format!("Error parsing configuration value for '{}'. Message: {}", key, message)
                     });
-                    default_value
+                    None
                 }
             }
         }
     } else {
-        default_value
+        None
     };
     config.remove(key);
-    return value;
+    value
+}
+
+/// Resolves the `NewLineKind` text from the provided file text and `NewLineKind`.
+pub fn resolve_new_line_kind(file_text: &str, new_line_kind: &NewLineKind) -> &'static str {
+    match new_line_kind {
+        NewLineKind::LineFeed => "\n",
+        NewLineKind::CarriageReturnLineFeed => "\r\n",
+        NewLineKind::Auto => {
+            let mut found_slash_n = false;
+            for c in file_text.as_bytes().iter().rev() {
+                if found_slash_n {
+                    if c == &('\r' as u8) {
+                        return "\r\n";
+                    } else {
+                        return "\n";
+                    }
+                }
+
+                if c == &('\n' as u8) {
+                    found_slash_n = true;
+                }
+            }
+
+            return "\n";
+        },
+        NewLineKind::System => {
+            if cfg!(windows) {
+                "\r\n"
+            } else {
+                "\n"
+            }
+        }
+    }
 }
