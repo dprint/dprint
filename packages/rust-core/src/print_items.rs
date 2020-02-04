@@ -109,7 +109,8 @@ impl PrintItems {
         self.first_node.is_none()
     }
 
-    // todo: only compile when debugging and clean this up
+    // todo: clean this up
+    #[cfg(debug_assertions)]
     pub fn get_as_text(&self) -> String {
         return if let Some(first_node) = &self.first_node {
             get_items_as_text(first_node.clone(), String::from(""))
@@ -391,6 +392,10 @@ pub enum Signal {
     StartIgnoringIndent,
     /// Signal to the printer that it should start using indentation again.
     FinishIgnoringIndent,
+    /// Signal to the printer that it shouldn't print any new lines.
+    StartForceNoNewLines,
+    /// Signal to the printer that it should finish not printing any new lines.
+    FinishForceNoNewLines,
 }
 
 /// Can be used to get information at a certain location being printed. These

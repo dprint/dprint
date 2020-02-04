@@ -16,7 +16,7 @@ pub struct ParsedSourceFile {
     pub trailing_comments: HashMap<BytePos, Vec<Comment>>,
 }
 
-pub fn parse_to_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
+pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
     let handler = Handler::with_emitter(false, false, Box::new(EmptyEmitter {}));
     let session = Session { handler: &handler };
 

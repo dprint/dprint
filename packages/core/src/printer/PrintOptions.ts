@@ -8,9 +8,4 @@ export interface PrintOptions {
     useTabs: boolean;
     /** The newline character to use when doing a new line. */
     newLineKind: "\r\n" | "\n";
-    /**
-     * Set to true when testing in order to run additional validation on the inputted strings, which
-     * ensures the printer is being used correctly.
-     */
-    isTesting: boolean;
 }

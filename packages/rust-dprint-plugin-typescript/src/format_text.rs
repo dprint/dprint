@@ -1,13 +1,16 @@
 use super::*;
 use dprint_core::*;
-use dprint_core::configuration::{NewLineKind};
+use dprint_core::configuration::{resolve_new_line_kind};
 use super::configuration::Configuration;
 use swc_common::{BytePos, comments::{Comment}};
 
 /// Formats a file.
 ///
+/// Returns the file text when the file was formatted, `None` when the file had an ignore comment, and
+/// an error when it failed to parse.
+///
 /// # Example
-/// 
+///
 /// ```
 /// use dprint_plugin_typescript::*;
 /// use dprint_plugin_typescript::configuration::*;
@@ -30,7 +33,7 @@ use swc_common::{BytePos, comments::{Comment}};
 /// ```
 pub fn format_text(file_path: &str, file_text: &str, config: &Configuration) -> Result<Option<String>, String> {
     return swc_common::GLOBALS.set(&swc_common::Globals::new(), || {
-        let mut parsed_source_file = parse_to_swc_ast(&file_path, &file_text)?;
+        let mut parsed_source_file = parse_swc_ast(&file_path, &file_text)?;
         if !should_format_file(&mut parsed_source_file) {
             return Ok(None);
         }
@@ -41,41 +44,9 @@ pub fn format_text(file_path: &str, file_text: &str, config: &Configuration) -> 
             indent_width: config.indent_width,
             max_width: config.line_width,
             use_tabs: config.use_tabs,
-            newline_kind: get_new_line_kind(file_text, config),
+            new_line_text: resolve_new_line_kind(file_text, &config.new_line_kind),
         })))
     });
-
-    fn get_new_line_kind(file_text: &str, config: &Configuration) -> &'static str {
-        match config.new_line_kind {
-            NewLineKind::LineFeed => "\n",
-            NewLineKind::CarriageReturnLineFeed => "\r\n",
-            NewLineKind::Auto => {
-                let mut found_slash_n = false;
-                for c in file_text.as_bytes().iter().rev() {
-                    if found_slash_n {
-                        if c == &('\r' as u8) {
-                            return "\r\n";
-                        } else {
-                            return "\n";
-                        }
-                    }
-
-                    if c == &('\n' as u8) {
-                        found_slash_n = true;
-                    }
-                }
-
-                return "\n";
-            },
-            NewLineKind::System => {
-                if cfg!(windows) {
-                    "\r\n"
-                } else {
-                    "\n"
-                }
-            }
-        }
-    }
 
     fn should_format_file(file: &mut ParsedSourceFile) -> bool {
         // just the way it is in swc

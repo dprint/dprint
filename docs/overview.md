@@ -77,7 +77,7 @@ The printer never checks the contents of the provided strings—it only looks at
 
 Strings that include newlines or tabs should be broken up when parsed (ex. template literals in JavaScript may contain those characters).
 
-On the printer there is an `isTesting` (JS) or `is_testing` (Rust) property that when set to true will enforce these rules.
+The printer will enforce these rules in non-release mode.
 
 ## Example IR Generation
 

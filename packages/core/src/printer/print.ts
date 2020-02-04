@@ -10,6 +10,6 @@ import { printWriteItems } from "./printWriteItems";
  * @param options - Options for printing.
  */
 export function print(items: PrintItemIterable, options: PrintOptions) {
-    const writeItems = wasmPrinter.get_write_items(preparePrintItems(items), options.maxWidth, options.indentWidth, options.isTesting);
+    const writeItems = wasmPrinter.get_write_items(preparePrintItems(items), options.maxWidth, options.indentWidth);
     return printWriteItems(writeItems, options);
 }

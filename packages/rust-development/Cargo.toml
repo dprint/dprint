@@ -7,3 +7,4 @@ edition = "2018"
 license = "MIT"
 
 [dependencies]
+dprint-core = { path = "../rust-core" }
