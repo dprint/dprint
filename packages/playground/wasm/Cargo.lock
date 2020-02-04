@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.7.0-alpha.2"
+version = "0.7.0-alpha.4"
 dependencies = [
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -160,8 +160,8 @@ name = "dprint-playground-wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "dprint-core 0.7.0-alpha.2",
- "dprint-plugin-typescript 0.3.0-alpha.5",
+ "dprint-core 0.7.0-alpha.4",
+ "dprint-plugin-typescript 0.3.0-alpha.6",
  "js-sys 0.3.35 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.44 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasm-bindgen 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -169,9 +169,9 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.3.0-alpha.5"
+version = "0.3.0-alpha.6"
 dependencies = [
- "dprint-core 0.7.0-alpha.2",
+ "dprint-core 0.7.0-alpha.4",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "swc_common 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "swc_ecma_ast 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
