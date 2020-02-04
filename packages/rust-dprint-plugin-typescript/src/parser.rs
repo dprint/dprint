@@ -4431,7 +4431,15 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
     let is_optional = context.parent().kind() == NodeKind::OptChainExpr;
 
     items.extend(parse_node(node.left_node, context));
-    items.push_signal(if use_new_line { Signal::NewLine } else { Signal::PossibleNewLine });
+    if use_new_line {
+        items.push_signal(Signal::NewLine);
+    } else {
+        items.push_condition(conditions::if_above_width(
+            context.config.indent_width,
+            Signal::PossibleNewLine.into()
+        ));
+    }
+
     items.push_condition(conditions::indent_if_start_of_line({
         let mut items = PrintItems::new();
 

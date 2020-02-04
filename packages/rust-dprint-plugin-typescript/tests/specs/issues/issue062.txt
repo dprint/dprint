@@ -1,0 +1,15 @@
+~~ lineWidth: 10 ~~
+== should keep on a single line if newline column is less than indent width ==
+t.abcdefghij;
+ta.bcdefghij;
+tab.cdefghij;
+tabc.defghij;
+tabcd.efghij;
+
+[expect]
+t.abcdefghij;
+ta.bcdefghij;
+tab.cdefghij;
+tabc.defghij;
+tabcd
+    .efghij;
