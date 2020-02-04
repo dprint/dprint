@@ -4036,12 +4036,21 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
         Condition::new_with_dependent_infos("isAnyParamOnNewLineCondition", ConditionProperties {
             condition: Box::new(move |condition_context| {
                 if use_new_lines { return Some(true); }
-                if prefer_hanging { return Some(false); }
-                // check if any of the param/arg starts are at the beginning of the line
-                for param_start_info in param_start_infos.borrow().iter() {
-                    let param_start_info = condition_context.get_resolved_info(param_start_info)?;
-                    if param_start_info.column_number == param_start_info.line_start_column_number {
-                        return Some(true);
+                if prefer_hanging {
+                    // check only if the first param/arg is at the beginning of the line
+                    if let Some(first_param_start_info) = param_start_infos.borrow().iter().next() {
+                        let first_param_info = condition_context.get_resolved_info(first_param_start_info)?;
+                        if first_param_info.column_number == first_param_info.line_start_column_number {
+                            return Some(true);
+                        }
+                    }
+                } else {
+                    // check if any of the param/arg starts are at the beginning of the line
+                    for param_start_info in param_start_infos.borrow().iter() {
+                        let param_start_info = condition_context.get_resolved_info(param_start_info)?;
+                        if param_start_info.column_number == param_start_info.line_start_column_number {
+                            return Some(true);
+                        }
                     }
                 }
 
