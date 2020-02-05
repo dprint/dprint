@@ -265,6 +265,13 @@ impl ConfigurationBuilder {
         self.insert("setAccessor.spaceBeforeParentheses", value)
     }
 
+    /// Whether to add a space before the literal in a tagged templte.
+    /// `true` (default) - Ex. `html \`<element />\``
+    /// `false` - Ex. `html\`<element />\``
+    pub fn tagged_template_space_before_literal(&mut self, value: bool) -> &mut Self {
+        self.insert("taggedTemplate.spaceBeforeLiteral", value)
+    }
+
     /// Whether to add a space before the colon of a type annotation.
     /// * `true` - Ex. `function myFunction() : string`
     /// * `false` (default) - Ex. `function myFunction(): string`
@@ -994,6 +1001,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         jsx_expression_container_space_surrounding_expression: get_value(&mut config, "jsxExpressionContainer.spaceSurroundingExpression", false, &mut diagnostics),
         method_space_before_parentheses: get_value(&mut config, "method.spaceBeforeParentheses", false, &mut diagnostics),
         set_accessor_space_before_parentheses: get_value(&mut config, "setAccessor.spaceBeforeParentheses", false, &mut diagnostics),
+        tagged_template_space_before_literal: get_value(&mut config, "taggedTemplate.spaceBeforeLiteral", true, &mut diagnostics),
         type_annotation_space_before_colon: get_value(&mut config, "typeAnnotation.spaceBeforeColon", false, &mut diagnostics),
         type_assertion_space_before_expression: get_value(&mut config, "typeAssertion.spaceBeforeExpression", true, &mut diagnostics),
         while_statement_space_after_while_keyword: get_value(&mut config, "whileStatement.spaceAfterWhileKeyword", true, &mut diagnostics),
@@ -1214,7 +1222,7 @@ pub struct Configuration {
     pub constructor_type_space_after_new_keyword: bool,
     #[serde(rename = "doWhileStatement.spaceAfterWhileKeyword")]
     pub do_while_statement_space_after_while_keyword: bool,
-    #[serde(rename = "exportDeclarationSpace.surroundingNamedExports")]
+    #[serde(rename = "exportDeclaration.spaceSurroundingNamedExports")]
     pub export_declaration_space_surrounding_named_exports: bool,
     #[serde(rename = "forStatement.spaceAfterForKeyword")]
     pub for_statement_space_after_for_keyword: bool,
@@ -1240,6 +1248,8 @@ pub struct Configuration {
     pub method_space_before_parentheses: bool,
     #[serde(rename = "setAccessor.spaceBeforeParentheses")]
     pub set_accessor_space_before_parentheses: bool,
+    #[serde(rename = "taggedTemplate.spaceBeforeLiteral")]
+    pub tagged_template_space_before_literal: bool,
     #[serde(rename = "typeAnnotation.spaceBeforeColon")]
     pub type_annotation_space_before_colon: bool,
     #[serde(rename = "typeAssertion.spaceBeforeExpression")]

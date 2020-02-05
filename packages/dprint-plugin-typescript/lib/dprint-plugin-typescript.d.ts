@@ -245,6 +245,13 @@ export interface TypeScriptConfiguration {
      */
     "setAccessor.spaceBeforeParentheses"?: boolean;
     /**
+     * Whether to add a space before the literal in a tagged templte.
+     * @default true
+     * @value true - Ex. `html \`<element />\``
+     * @value false - Ex. `html\`<element />\``
+     */
+    "taggedTemplate.spaceBeforeLiteral"?: boolean;
+    /**
      * Whether to add a space before the colon of a type annotation.
      * @default false
      * @value true - Ex. `function myFunction() : string`
@@ -458,6 +465,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "jsxExpressionContainer.spaceSurroundingExpression": boolean;
     readonly "method.spaceBeforeParentheses": boolean;
     readonly "setAccessor.spaceBeforeParentheses": boolean;
+    readonly "taggedTemplate.spaceBeforeLiteral": boolean;
     readonly "typeAnnotation.spaceBeforeColon": boolean;
     readonly "typeAssertion.spaceBeforeExpression": boolean;
     readonly "whileStatement.spaceAfterWhileKeyword": boolean;

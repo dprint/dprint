@@ -1608,10 +1608,16 @@ fn parse_spread_element<'a>(node: &'a SpreadElement, context: &mut Context<'a>) 
 }
 
 fn parse_tagged_tpl<'a>(node: &'a TaggedTpl, context: &mut Context<'a>) -> PrintItems {
-    let mut items = PrintItems::new();
-    items.extend(parse_node((&node.tag).into(), context));
+    let use_space = context.config.tagged_template_space_before_literal;
+    let mut items = parse_node((&node.tag).into(), context);
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
-    items.push_signal(Signal::SpaceOrNewLine);
+
+    items.push_condition(conditions::if_above_width_or(
+        context.config.indent_width,
+        if use_space { Signal::SpaceOrNewLine } else { Signal::PossibleNewLine }.into(),
+        if use_space { " ".into() } else { PrintItems::new() }
+    ));
+
     items.push_condition(conditions::indent_if_start_of_line(parse_template_literal(&node.quasis, &node.exprs.iter().map(|x| &**x).collect(), context)));
     return items;
 }

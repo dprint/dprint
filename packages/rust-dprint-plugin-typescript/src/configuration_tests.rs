@@ -135,12 +135,13 @@ fn check_all_values_set() {
         .jsx_expression_container_space_surrounding_expression(true)
         .method_space_before_parentheses(true)
         .set_accessor_space_before_parentheses(true)
+        .tagged_template_space_before_literal(false)
         .type_annotation_space_before_colon(true)
         .type_assertion_space_before_expression(true)
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 120);
+    assert_eq!(inner_config.len(), 121);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

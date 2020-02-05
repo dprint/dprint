@@ -475,4 +475,48 @@ describe("configuration", () => {
             );
         });
     });
+
+    describe("space settings", () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => expectedConfig.hasOwnProperty(prop));
+        }
+
+        function createConfigWithValue(keys: (keyof TypeScriptConfiguration)[], value: boolean): TypeScriptConfiguration {
+            const config: TypeScriptConfiguration = {};
+            for (const key of keys) {
+                (config as any)[key] = value;
+            }
+            return config;
+        }
+
+        it("should set the space settings", () => {
+            const keys: (keyof TypeScriptConfiguration)[] = [
+                "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator",
+                "constructor.spaceBeforeParentheses",
+                "constructorType.spaceAfterNewKeyword",
+                "constructSignature.spaceAfterNewKeyword",
+                "doWhileStatement.spaceAfterWhileKeyword",
+                "exportDeclaration.spaceSurroundingNamedExports",
+                "forInStatement.spaceAfterForKeyword",
+                "forOfStatement.spaceAfterForKeyword",
+                "forStatement.spaceAfterForKeyword",
+                "forStatement.spaceAfterSemiColons",
+                "functionDeclaration.spaceBeforeParentheses",
+                "functionExpression.spaceBeforeParentheses",
+                "getAccessor.spaceBeforeParentheses",
+                "ifStatement.spaceAfterIfKeyword",
+                "importDeclaration.spaceSurroundingNamedImports",
+                "jsxExpressionContainer.spaceSurroundingExpression",
+                "method.spaceBeforeParentheses",
+                "setAccessor.spaceBeforeParentheses",
+                "taggedTemplate.spaceBeforeLiteral",
+                "typeAnnotation.spaceBeforeColon",
+                "typeAssertion.spaceBeforeExpression",
+                "whileStatement.spaceAfterWhileKeyword"
+            ];
+
+            doSpecificTest(createConfigWithValue(keys, true), createConfigWithValue(keys, true) as any);
+            doSpecificTest(createConfigWithValue(keys, false), createConfigWithValue(keys, false) as any);
+        });
+    });
 });
