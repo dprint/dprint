@@ -92,13 +92,19 @@ pub fn single_indent_if_start_of_line() -> Condition {
 /// Prints the provided items when the current relative column number is above
 /// the specified width.
 pub fn if_above_width(width: u8, items: PrintItems) -> Condition {
+    if_above_width_or(width, items, PrintItems::new())
+}
+
+/// Prints the provided true_items when the current relative column number is above
+/// the specified width or prints the false_items otherwise.
+pub fn if_above_width_or(width: u8, true_items: PrintItems, false_items: PrintItems) -> Condition {
     Condition::new("ifAboveWidth", ConditionProperties {
         condition: Box::new(move |context| {
             let writer_info = &context.writer_info;
             let first_indent_col = writer_info.line_start_column_number + (width as u32);
             Some(writer_info.column_number > first_indent_col)
         }),
-        true_path: Some(items),
-        false_path: None
+        true_path: Some(true_items),
+        false_path: if false_items.is_empty() { None } else { Some(false_items) }
     })
 }
