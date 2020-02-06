@@ -2,7 +2,7 @@ use super::*;
 use std::collections::{HashMap};
 use swc_common::{
     errors::{Handler, Emitter, DiagnosticBuilder},
-    FileName, comments::{Comment, Comments}, SourceFile, BytePos
+    FileName, comments::{Comment, Comments, CommentMap}, SourceFile, BytePos
 };
 use swc_ecma_ast::{Module};
 use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget, token::{TokenAndSpan}};
@@ -61,11 +61,8 @@ pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFil
     let (leading_comments, trailing_comments) = comments.take_all();
 
     return Ok(ParsedSourceFile {
-        // It is much more performant to look into HashMaps instead of CHashMaps
-        // because then locking on each comment lookup is not necessary. We don't
-        // need to support multi-threading so convert to HashMap.
-        leading_comments: leading_comments.into_iter().collect(),
-        trailing_comments: trailing_comments.into_iter().collect(),
+        leading_comments: comment_map_to_hash_map(leading_comments),
+        trailing_comments: comment_map_to_hash_map(trailing_comments),
         module,
         info: source_file,
         tokens,
@@ -82,6 +79,22 @@ pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFil
             let period_pos = file_path.rfind('.')?;
             return Some(file_path[period_pos + 1..].to_lowercase());
         }
+    }
+
+    fn comment_map_to_hash_map(comments: CommentMap) -> HashMap<BytePos, Vec<Comment>> {
+        // todo: This next comment needs updating because now it's a DashMap and
+        // cloning is happening where previously it would take all the items out.
+
+        // It is much more performant to look into HashMaps instead of CHashMaps
+        // because then locking on each comment lookup is not necessary. We don't
+        // need to support multi-threading so convert to HashMap.
+
+        // todo: the cloning needs to be removed here!!
+        return comments.iter_mut().map(|x| {
+            let key = x.key().to_owned();
+            let value = x.value().to_owned();
+            (key, value)
+        }).collect();
     }
 }
 
