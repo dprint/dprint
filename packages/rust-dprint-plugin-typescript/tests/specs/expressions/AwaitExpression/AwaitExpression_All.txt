@@ -7,3 +7,9 @@ async function test() {
 async function test() {
     await test;
 }
+
+== should parse a top level await ==
+await    test   ;
+
+[expect]
+await test;

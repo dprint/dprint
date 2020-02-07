@@ -2207,14 +2207,9 @@ fn parse_module<'a>(node: &'a Module, context: &mut Context<'a>) -> PrintItems {
             }
         }
     }
-    items.extend(parse_statements_or_members(ParseStatementsOrMembersOptions {
-        inner_span: node.span,
-        items: node.body.iter().map(|module_item| (module_item.into(), None)).collect(),
-        should_use_space: None,
-        should_use_new_line: None,
-        should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
-        trailing_commas: None,
-    }, context));
+
+    items.extend(parse_statements(node.span, node.body.iter().map(|x| x.into()), context));
+
     return items;
 }
 
@@ -2454,7 +2449,7 @@ fn parse_block_stmt<'a>(node: &'a BlockStmt, context: &mut Context<'a>) -> Print
     }
     items.push_info(start_statements_info);
     items.extend(parser_helpers::with_indent(
-        parse_statements(node.get_inner_span(context), node.stmts.iter().map(|stmt| stmt.into()).collect(), context)
+        parse_statements(node.get_inner_span(context), node.stmts.iter().map(|stmt| stmt.into()), context)
     ));
     items.push_info(end_statements_info);
 
@@ -2561,7 +2556,8 @@ fn parse_export_all<'a>(node: &'a ExportAll, context: &mut Context<'a>) -> Print
 }
 
 fn parse_empty_stmt(_: &EmptyStmt, _: &mut Context) -> PrintItems {
-    ";".into()
+    // empty statement is just a semi-colon, so get rid of it
+    PrintItems::new()
 }
 
 fn parse_export_assignment<'a>(node: &'a TsExportAssignment, context: &mut Context<'a>) -> PrintItems {
@@ -3933,7 +3929,7 @@ fn parse_membered_body<'a, FShouldUseBlankLine>(
     items
 }
 
-fn parse_statements<'a>(inner_span: Span, stmts: Vec<Node<'a>>, context: &mut Context<'a>) -> PrintItems {
+fn parse_statements<'a>(inner_span: Span, stmts: impl Iterator<Item=Node<'a>>, context: &mut Context<'a>) -> PrintItems {
     parse_statements_or_members(ParseStatementsOrMembersOptions {
         inner_span,
         items: stmts.into_iter().map(|stmt| (stmt, None)).collect(),
@@ -3963,41 +3959,52 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
     let children_len = opts.items.len();
 
     for (i, (node, optional_print_items)) in opts.items.into_iter().enumerate() {
-        if let Some(last_node) = last_node {
-            if should_use_new_line(&opts.should_use_new_line, &last_node, &node, context) {
-                items.push_signal(Signal::NewLine);
-
-                if (opts.should_use_blank_line)(&last_node, &node, context) {
+        let is_empty_stmt = match node { Node::EmptyStmt(_) => true, _ => false };
+        if !is_empty_stmt {
+            if let Some(last_node) = last_node {
+                if should_use_new_line(&opts.should_use_new_line, &last_node, &node, context) {
                     items.push_signal(Signal::NewLine);
-                }
-            }
-            else if let Some(should_use_space) = &opts.should_use_space {
-                if should_use_space(&last_node, &node, context) {
-                    items.push_signal(Signal::SpaceOrNewLine);
-                }
-            }
-        }
 
-        let end_info = Info::new("endStatementOrMemberInfo");
-        context.end_statement_or_member_infos.push(end_info);
-        items.extend(if let Some(print_items) = optional_print_items {
-            print_items
-        } else {
-            let trailing_commas = opts.trailing_commas;
-            parse_node_with_inner_parse(node.clone(), context, move |mut items| {
-                if let Some(trailing_commas) = trailing_commas {
-                    let force_trailing_commas = get_force_trailing_commas(trailing_commas, true);
-                    if force_trailing_commas || i < children_len - 1 {
-                        items.push_str(",");
+                    if (opts.should_use_blank_line)(&last_node, &node, context) {
+                        items.push_signal(Signal::NewLine);
                     }
                 }
-                items
-            })
-        });
-        items.push_info(end_info);
-        context.end_statement_or_member_infos.pop();
+                else if let Some(should_use_space) = &opts.should_use_space {
+                    if should_use_space(&last_node, &node, context) {
+                        items.push_signal(Signal::SpaceOrNewLine);
+                    }
+                }
+            }
 
-        last_node = Some(node);
+            let end_info = Info::new("endStatementOrMemberInfo");
+            context.end_statement_or_member_infos.push(end_info);
+            items.extend(if let Some(print_items) = optional_print_items {
+                print_items
+            } else {
+                let trailing_commas = opts.trailing_commas;
+                parse_node_with_inner_parse(node.clone(), context, move |mut items| {
+                    if let Some(trailing_commas) = trailing_commas {
+                        let force_trailing_commas = get_force_trailing_commas(trailing_commas, true);
+                        if force_trailing_commas || i < children_len - 1 {
+                            items.push_str(",");
+                        }
+                    }
+                    items
+                })
+            });
+            items.push_info(end_info);
+            context.end_statement_or_member_infos.pop();
+
+            last_node = Some(node);
+        } else {
+            items.extend(parse_comment_collection(node.leading_comments(context), None, context));
+            items.extend(parse_comment_collection(node.trailing_comments(context), None, context));
+
+            // ensure if this is last that it parses the trailing comment statements
+            if i == children_len - 1 {
+                last_node = Some(node);
+            }
+        }
     }
 
     if let Some(last_node) = &last_node {
@@ -4710,7 +4717,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
             // parse the remaining trailing comments inside because some of them are parsed already
             // by parsing the header trailing comments
             items.extend(parse_leading_comments(&body_node, context));
-            items.extend(parse_statements(body_node.get_inner_span(context), body_node.stmts.iter().map(|x| x.into()).collect(), context));
+            items.extend(parse_statements(body_node.get_inner_span(context), body_node.stmts.iter().map(|x| x.into()), context));
             items
         }));
     } else {
