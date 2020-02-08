@@ -1,4 +1,4 @@
-== should parse the await expression ==
+== should format the await expression ==
 async function test() {
     await   test;
 }
@@ -8,8 +8,10 @@ async function test() {
     await test;
 }
 
-== should parse a top level await ==
+== should format a top level await ==
 await    test   ;
+const t =   await   test  ;
 
 [expect]
 await test;
+const t = await test;
