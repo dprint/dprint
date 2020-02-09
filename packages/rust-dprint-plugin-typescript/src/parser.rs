@@ -2241,7 +2241,7 @@ fn parse_array_pat<'a>(node: &'a ArrayPat, context: &mut Context<'a>) -> PrintIt
     items.extend(parse_array_like_nodes(ParseArrayLikeNodesOptions {
         parent_span: node.span,
         nodes: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
-        prefer_hanging: true, // todo: config
+        prefer_hanging: context.config.array_pattern_prefer_hanging,
         trailing_commas: context.config.array_pattern_trailing_commas,
     }, context));
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));

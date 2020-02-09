@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should format ==
 function t([  a   ,   b  ]) {
 }
@@ -19,3 +20,19 @@ function t([a, b]: [string, number]) {
 
 [expect]
 [a, , b] = 0;
+
+== should format as multi-line when exceeding the line width ==
+function t(
+    [testing, thisOutWhere, itGoesOverTheLineWidth]
+) {
+}
+
+[expect]
+function t(
+    [
+        testing,
+        thisOutWhere,
+        itGoesOverTheLineWidth
+    ]
+) {
+}

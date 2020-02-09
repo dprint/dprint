@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -31,7 +31,7 @@ name = "dprint-rust-printer"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "dprint-core 0.9.0",
+ "dprint-core 0.10.0",
  "js-sys 0.3.35 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasm-bindgen 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
