@@ -99,7 +99,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::TsNamespaceDecl(node) => parse_namespace_decl(node, context),
             Node::TsTypeAliasDecl(node) => parse_type_alias(node, context),
             /* expressions */
-            Node::ArrayLit(node) => parse_array_expr(node, context),
+            Node::ArrayLit(node) => parse_array_lit(node, context),
             Node::ArrowExpr(node) => parse_arrow_func_expr(node, context),
             Node::AssignExpr(node) => parse_assignment_expr(node, context),
             Node::AwaitExpr(node) => parse_await_expr(node, context),
@@ -970,7 +970,7 @@ fn parse_named_import_or_export_specifiers<'a>(parent_decl: NamedImportOrExportD
 
 /* expressions */
 
-fn parse_array_expr<'a>(node: &'a ArrayLit, context: &mut Context<'a>) -> PrintItems {
+fn parse_array_lit<'a>(node: &'a ArrayLit, context: &mut Context<'a>) -> PrintItems {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
         parent_span: node.span,
         elements: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
@@ -1595,7 +1595,11 @@ fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Print
 }
 
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> PrintItems {
-    parse_comma_separated_values(node.exprs.iter().map(|x| x.into()).collect(), |_| { Some(false) }, context).items
+    parse_comma_separated_values(ParseCommaSeparatedValuesOptions {
+        values: node.exprs.iter().map(|x| x.into()).collect(),
+        is_multi_line_or_hanging: |_| { Some(false) },
+        trailing_commas: false,
+    }, context).items
 }
 
 fn parse_setter_prop<'a>(node: &'a SetterProp, context: &mut Context<'a>) -> PrintItems {
@@ -4233,7 +4237,11 @@ fn parse_comma_separated_values_possibly_multiline<'a>(
     let mut items = PrintItems::new();
     items.push_condition(is_any_node_on_new_line_condition);
 
-    let parse_comma_separated_values_result = parse_comma_separated_values(nodes, is_multi_line_or_hanging.clone(), context);
+    let parse_comma_separated_values_result = parse_comma_separated_values(ParseCommaSeparatedValuesOptions {
+        values: nodes,
+        is_multi_line_or_hanging: is_multi_line_or_hanging.clone(),
+        trailing_commas: false,
+    }, context);
     node_start_infos.borrow_mut().extend(parse_comma_separated_values_result.item_start_infos);
     let node_list = parse_comma_separated_values_result.items.into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
@@ -4257,22 +4265,30 @@ fn parse_comma_separated_values_possibly_multiline<'a>(
     return items;
 }
 
-struct ParseCommaAndSeparatedValuesResult {
+struct ParseCommaSeparatedValuesOptions<'a, T> where T : Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
+    values: Vec<Node<'a>>,
+    is_multi_line_or_hanging: T,
+    trailing_commas: bool,
+}
+
+struct ParseCommaSeparatedValuesResult {
     items: PrintItems,
     item_start_infos: Vec<Info>,
 }
 
-fn parse_comma_separated_values<'a>(
-    values: Vec<Node<'a>>,
-    multi_line_or_hanging_condition_resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
+fn parse_comma_separated_values<'a, T>(
+    opts: ParseCommaSeparatedValuesOptions<'a, T>,
     context: &mut Context<'a>
-) -> ParseCommaAndSeparatedValuesResult {
+) -> ParseCommaSeparatedValuesResult where T : Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
     let mut items = PrintItems::new();
     let mut item_start_infos = Vec::new();
+    let values = opts.values;
     let values_count = values.len();
+    let trailing_commas = opts.trailing_commas;
+    let multi_line_or_hanging_condition_resolver = opts.is_multi_line_or_hanging;
 
     for (i, value) in values.into_iter().enumerate() {
-        let has_comma = i < values_count - 1;
+        let has_comma = trailing_commas || i < values_count - 1;
         let parsed_value = parse_value(value, has_comma, context);
         let start_info = Info::new("itemStartInfo");
         item_start_infos.push(start_info);
@@ -4310,7 +4326,7 @@ fn parse_comma_separated_values<'a>(
         }
     }
 
-    return ParseCommaAndSeparatedValuesResult {
+    return ParseCommaSeparatedValuesResult {
         items,
         item_start_infos,
     };
