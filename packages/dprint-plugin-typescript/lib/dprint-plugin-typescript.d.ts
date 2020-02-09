@@ -89,6 +89,14 @@ export interface TypeScriptConfiguration {
      */
     operatorPosition?: "maintain" | "sameLine" | "nextLine";
     /**
+     * Set to prefer hanging indentation when exceeding the line width.
+     * @remarks When set, this value propagates down as the default value for
+     * other configuration such as `preferHangingArguments` and
+     * `preferHangingParameters`.
+     * @default false
+     */
+    preferHanging?: boolean;
+    /**
      * Prefers an argument list to be hanging when it exceeds the line width.
      * @remarks It will be hanging when the first argument is on the same line
      * as the open parenthesis and multi-line when on a different line.

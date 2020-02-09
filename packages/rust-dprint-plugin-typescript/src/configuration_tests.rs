@@ -12,14 +12,16 @@ fn check_all_values_set() {
         /* common */
         .single_quotes(true)
         .semi_colons(true)
-        .prefer_hanging_arguments(false)
-        .prefer_hanging_parameters(false)
         .brace_position(BracePosition::NextLine)
         .next_control_flow_position(NextControlFlowPosition::SameLine)
         .operator_position(OperatorPosition::SameLine)
         .single_body_position(SingleBodyPosition::SameLine)
         .trailing_commas(TrailingCommas::Never)
         .use_braces(UseBraces::WhenNotSingleLine)
+        /* prefer hanging */
+        .prefer_hanging(false)
+        .prefer_hanging_arguments(false)
+        .prefer_hanging_parameters(false)
         /* use parentheses */
         .arrow_function_expression_use_parentheses(UseParentheses::Force)
         /* brace position*/
@@ -141,7 +143,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 121);
+    assert_eq!(inner_config.len(), 122);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }
