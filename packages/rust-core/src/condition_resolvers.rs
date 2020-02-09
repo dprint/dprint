@@ -26,6 +26,11 @@ pub fn is_hanging(condition_context: &mut ConditionResolverContext, start_info: 
     }
 }
 
+pub fn are_infos_not_equal(condition_context: &mut ConditionResolverContext, start_info: &Info, end_info: &Info) -> Option<bool> {
+    let are_equal = are_infos_equal(condition_context, start_info, end_info)?;
+    Some(!are_equal)
+}
+
 pub fn are_infos_equal(condition_context: &mut ConditionResolverContext, start_info: &Info, end_info: &Info) -> Option<bool> {
     let start_info = condition_context.get_resolved_info(start_info)?;
     let end_info = condition_context.get_resolved_info(end_info)?;
