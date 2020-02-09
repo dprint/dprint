@@ -506,6 +506,14 @@ impl ConditionReference {
     pub fn new(name: &'static str, id: usize) -> ConditionReference {
         ConditionReference { name, id }
     }
+
+    /// Creates a condition resolver that checks the value of the condition this references.
+    pub fn create_resolver(&self) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
+        let captured_self = self.clone();
+        move |condition_context: &mut ConditionResolverContext| {
+            condition_context.get_resolved_condition(&captured_self)
+        }
+    }
 }
 
 impl<TString, TInfo> ConditionTrait<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {

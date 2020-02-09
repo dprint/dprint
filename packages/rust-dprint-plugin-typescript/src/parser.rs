@@ -4088,73 +4088,15 @@ struct ParseParametersOrArgumentsOptions<'a> {
 }
 
 fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>, context: &mut Context<'a>) -> PrintItems {
-    let nodes = opts.nodes;
-    let start_info = Info::new("startParamsOrArgs");
-    let end_info = Info::new("endParamsOrArgs");
-    let use_new_lines = get_use_new_lines(&nodes, context);
-    let prefer_hanging = opts.prefer_hanging;
-    let param_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
-    let has_params = !nodes.is_empty();
-    // todo: something better in the core library in order to facilitate this
-    let mut is_any_param_on_new_line_condition = {
-        let param_start_infos = param_start_infos.clone();
-        Condition::new_with_dependent_infos("isAnyParamOnNewLineCondition", ConditionProperties {
-            condition: Box::new(move |condition_context| {
-                if use_new_lines { return Some(true); }
-                if prefer_hanging {
-                    // check only if the first param/arg is at the beginning of the line
-                    if let Some(first_param_start_info) = param_start_infos.borrow().iter().next() {
-                        let first_param_info = condition_context.get_resolved_info(first_param_start_info)?;
-                        if first_param_info.column_number == first_param_info.line_start_column_number {
-                            return Some(true);
-                        }
-                    }
-                } else {
-                    // check if any of the param/arg starts are at the beginning of the line
-                    for param_start_info in param_start_infos.borrow().iter() {
-                        let param_start_info = condition_context.get_resolved_info(param_start_info)?;
-                        if param_start_info.column_number == param_start_info.line_start_column_number {
-                            return Some(true);
-                        }
-                    }
-                }
-
-                Some(false)
-            }),
-            false_path: None,
-            true_path: None,
-        }, vec![end_info])
-    };
-    let is_any_param_on_new_line_condition_ref = is_any_param_on_new_line_condition.get_reference();
-    let is_multi_line_or_hanging = move |condition_context: &mut ConditionResolverContext| {
-        return condition_context.get_resolved_condition(&is_any_param_on_new_line_condition_ref);
-    };
-
+    let force_use_new_lines = get_use_new_lines(&opts.nodes, context);
     let mut items = PrintItems::new();
     items.push_str("(");
-    items.push_info(start_info);
-    items.push_condition(is_any_param_on_new_line_condition);
 
-    let parse_comma_separated_values_result = parse_comma_separated_values(nodes, is_multi_line_or_hanging, context);
-    param_start_infos.borrow_mut().extend(parse_comma_separated_values_result.item_start_infos);
-    let param_list = parse_comma_separated_values_result.items.into_rc_path();
-    items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
-        condition: Box::new(is_multi_line_or_hanging),
-        true_path: Some(surround_with_new_lines(with_indent(param_list.clone().into()))),
-        false_path: Some({
-            let mut items = PrintItems::new();
-            if has_params {
-                items.push_condition(conditions::if_above_width(
-                    context.config.indent_width,
-                    Signal::PossibleNewLine.into()
-                ));
-            }
-            items.extend(param_list.into());
-            items
-        }),
-    }));
-
-    items.push_info(end_info);
+    items.extend(parse_comma_separated_values_possibly_multiline(ParseCommaSeparatedValuesPossiblyMultiLineOptions {
+        nodes: opts.nodes,
+        prefer_hanging: opts.prefer_hanging,
+        force_use_new_lines,
+    }, context));
 
     if let Some(custom_close_paren) = opts.custom_close_paren {
         items.extend(custom_close_paren);
@@ -4238,6 +4180,83 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
     }
 }
 
+struct ParseCommaSeparatedValuesPossiblyMultiLineOptions<'a> {
+    nodes: Vec<Node<'a>>,
+    prefer_hanging: bool,
+    force_use_new_lines: bool,
+}
+
+fn parse_comma_separated_values_possibly_multiline<'a>(
+    opts: ParseCommaSeparatedValuesPossiblyMultiLineOptions<'a>,
+    context: &mut Context<'a>
+) -> PrintItems {
+    let nodes = opts.nodes;
+    let use_new_lines = opts.force_use_new_lines;
+    let prefer_hanging = opts.prefer_hanging;
+    let end_info = Info::new("endCommaSeparatedValues");
+    let node_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
+    let has_nodes = !nodes.is_empty();
+
+    // todo: something better in the core library in order to facilitate this
+    let mut is_any_node_on_new_line_condition = {
+        let node_start_infos = node_start_infos.clone();
+        Condition::new_with_dependent_infos("isAnyNodeOnNewLineCondition", ConditionProperties {
+            condition: Box::new(move |condition_context| {
+                if use_new_lines { return Some(true); }
+                if prefer_hanging {
+                    // check only if the first node is at the beginning of the line
+                    if let Some(first_node_start_info) = node_start_infos.borrow().iter().next() {
+                        let first_node_info = condition_context.get_resolved_info(first_node_start_info)?;
+                        if first_node_info.column_number == first_node_info.line_start_column_number {
+                            return Some(true);
+                        }
+                    }
+                } else {
+                    // check if any of the node starts are at the beginning of the line
+                    for node_start_info in node_start_infos.borrow().iter() {
+                        let node_start_info = condition_context.get_resolved_info(node_start_info)?;
+                        if node_start_info.column_number == node_start_info.line_start_column_number {
+                            return Some(true);
+                        }
+                    }
+                }
+
+                Some(false)
+            }),
+            false_path: None,
+            true_path: None,
+        }, vec![end_info])
+    };
+    let is_any_node_on_new_line_condition_ref = is_any_node_on_new_line_condition.get_reference();
+    let is_multi_line_or_hanging = is_any_node_on_new_line_condition_ref.create_resolver();
+
+    let mut items = PrintItems::new();
+    items.push_condition(is_any_node_on_new_line_condition);
+
+    let parse_comma_separated_values_result = parse_comma_separated_values(nodes, is_multi_line_or_hanging.clone(), context);
+    node_start_infos.borrow_mut().extend(parse_comma_separated_values_result.item_start_infos);
+    let node_list = parse_comma_separated_values_result.items.into_rc_path();
+    items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
+        condition: Box::new(is_multi_line_or_hanging),
+        true_path: Some(surround_with_new_lines(with_indent(node_list.clone().into()))),
+        false_path: Some({
+            let mut items = PrintItems::new();
+            if has_nodes {
+                items.push_condition(conditions::if_above_width(
+                    context.config.indent_width,
+                    Signal::PossibleNewLine.into()
+                ));
+            }
+            items.extend(node_list.into());
+            items
+        }),
+    }));
+
+    items.push_info(end_info);
+
+    return items;
+}
+
 struct ParseCommaAndSeparatedValuesResult {
     items: PrintItems,
     item_start_infos: Vec<Info>,
@@ -4261,7 +4280,7 @@ fn parse_comma_separated_values<'a>(
         if i == 0 {
             if values_count > 1 {
                 items.push_condition(if_false(
-                    "is_not_start_of_line",
+                    "isNotStartOfLine",
                     |context| Some(condition_resolvers::is_start_of_new_line(context)),
                     Signal::PossibleNewLine.into()
                 ));
