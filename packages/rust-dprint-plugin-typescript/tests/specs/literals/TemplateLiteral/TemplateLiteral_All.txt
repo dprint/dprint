@@ -26,22 +26,22 @@ log(`testing ${  3 } this ${  6  } out`);
 log(`testing ${3} this ${6} out`);
 
 == should indent within the expression when it goes over the line width ==
-log(`testing this out a little bit ${4} testing`);
+`testing this out a little bit ${4} testing`;
 
 [expect]
-log(`testing this out a little bit ${4
-    } testing`);
+`testing this out a little bit ${4
+    } testing`;
 
 == should indent properly within the expressions ==
 function test() {
-    log(`const t = 5; ${testing ? thisIsATest : testing}`);
+    `const t = 5; ${testing ? thisIsATest : testing}`;
 }
 
 [expect]
 function test() {
-    log(`const t = 5; ${testing
+    `const t = 5; ${testing
         ? thisIsATest
-        : testing}`);
+        : testing}`;
 }
 
 == should do a tagged template literal ==

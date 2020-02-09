@@ -4079,6 +4079,7 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     let use_new_lines = get_use_new_lines(&nodes, context);
     let prefer_hanging = opts.prefer_hanging;
     let param_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
+    let has_params = !nodes.is_empty();
     // todo: something better in the core library in order to facilitate this
     let mut is_any_param_on_new_line_condition = {
         let param_start_infos = param_start_infos.clone();
@@ -4125,7 +4126,17 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
         condition: Box::new(is_multi_line_or_hanging),
         true_path: Some(surround_with_new_lines(with_indent(param_list.clone().into()))),
-        false_path: Some(param_list.into()),
+        false_path: Some({
+            let mut items = PrintItems::new();
+            if has_params {
+                items.push_condition(conditions::if_above_width(
+                    context.config.indent_width,
+                    Signal::PossibleNewLine.into()
+                ));
+            }
+            items.extend(param_list.into());
+            items
+        }),
     }));
 
     items.push_info(end_info);
