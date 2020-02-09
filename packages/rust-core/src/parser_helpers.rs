@@ -36,6 +36,8 @@ pub fn new_line_group(item: PrintItems) -> PrintItems {
     items
 }
 
+// todo: move these conditions to the conditions module
+
 pub fn if_true(
     name: &'static str,
     resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,

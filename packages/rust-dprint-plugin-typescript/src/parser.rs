@@ -3237,6 +3237,13 @@ fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context
 fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> PrintItems {
     let start_info = Info::new("startFunctionType");
     let mut items = PrintItems::new();
+    let mut indent_after_arrow_condition = parser_helpers::if_true(
+        "indentIfIsStartOfLineAfterArrow",
+        |context| Some(condition_resolvers::is_start_of_new_line(&context)),
+        Signal::StartIndent.into()
+    );
+    let indent_after_arrow_condition_ref = indent_after_arrow_condition.get_reference();
+
     items.push_info(start_info);
     if let Some(type_params) = &node.type_params {
         items.extend(parse_node(type_params.into(), context));
@@ -3249,12 +3256,20 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Pri
             type_node: Some((&node.type_ann).into()),
             type_node_separator: {
                 let mut items = PrintItems::new();
+                items.push_str(" =>");
                 items.push_signal(Signal::SpaceOrNewLine);
-                items.push_str("=> ");
+                items.push_condition(indent_after_arrow_condition);
                 Some(items)
             },
         }, context)),
     }, context));
+
+    items.push_condition(parser_helpers::if_true(
+        "shouldFinishIndent",
+        move |context| context.get_resolved_condition(&indent_after_arrow_condition_ref),
+        Signal::FinishIndent.into()
+    ));
+
     return items;
 }
 
