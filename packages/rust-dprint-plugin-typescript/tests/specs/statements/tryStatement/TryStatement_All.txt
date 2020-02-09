@@ -45,3 +45,29 @@ try {
 } finally {
     c;
 }
+
+== should format with an empty catch (issue #77) ==
+try {
+    test;
+} catch {}
+
+[expect]
+try {
+    test;
+} catch {}
+
+== should expand to try block being on one line when all are on one line ==
+try {} catch {}
+
+[expect]
+try {
+} catch {}
+
+== should expand to try block being on one line when all are on one line ==
+try {} catch {} finally {}
+
+[expect]
+try {
+} catch {
+} finally {
+}

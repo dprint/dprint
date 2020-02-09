@@ -53,3 +53,17 @@ for (
     const t of test
 ) {
 }
+
+== should print empty on same line when on same line ==
+for (const t of test) {}
+
+[expect]
+for (const t of test) {}
+
+== should print empty on different line when on different line ==
+for (const t of test) {
+}
+
+[expect]
+for (const t of test) {
+}

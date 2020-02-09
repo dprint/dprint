@@ -807,9 +807,9 @@ generate_str_to_from![
 #[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum UseBraces {
-    /// Uses braces when the body is on a different line.
-    Maintain,
     /// Uses braces if they're used. Doesn't use braces if they're not used.
+    Maintain,
+    /// Uses braces when the body is on a different line.
     WhenNotSingleLine,
     /// Forces the use of braces. Will add them if they aren't used.
     Always,

@@ -35,3 +35,23 @@ while (
     true
 ) {
 }
+
+== should print empty while statement on same line when on same line ==
+while (true) {}
+
+[expect]
+while (true) {}
+
+== should print empty while statement on different line when close brace on different line ==
+while (true) {
+}
+
+[expect]
+while (true) {
+}
+
+== should print empty with inner comment on same line ==
+while (true) { /* 1 */ }
+
+[expect]
+while (true) { /* 1 */ }

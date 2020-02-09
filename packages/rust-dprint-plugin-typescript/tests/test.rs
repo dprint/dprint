@@ -21,7 +21,6 @@ fn test_performance() {
     let config = ConfigurationBuilder::new()
         .line_width(80)
         .single_quotes(true)
-        .next_control_flow_position(NextControlFlowPosition::SameLine)
         .build();
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 

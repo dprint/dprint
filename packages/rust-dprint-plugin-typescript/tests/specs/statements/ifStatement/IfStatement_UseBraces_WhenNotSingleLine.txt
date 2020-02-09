@@ -1,4 +1,4 @@
-~~ ifStatement.useBraces: whenNotSingleLine ~~
+~~ ifStatement.useBraces: whenNotSingleLine, lineWidth: 40 ~~
 == should when not single line ==
 if (true)
     a;
@@ -23,3 +23,44 @@ else asdf;
 if (true) test;
 else if (false) other;
 else asdf;
+
+== should add braces when the single line body goes over the line width ==
+if (testingThisOut && otherTest) logger;
+
+[expect]
+if (testingThisOut && otherTest) {
+    logger;
+}
+
+== should leave the first line trailing comments as-is when going over the line width within the comment ==
+if (testingThisOut && otherTest) { // testing this out
+    logger;
+}
+
+[expect]
+if (testingThisOut && otherTest) { // testing this out
+    logger;
+}
+
+== for now, it does this when going over the line width on the second space ==
+if (testingThisOut && otherTestTestt) { // testing this out
+    logger;
+}
+
+[expect]
+if (testingThisOut && otherTestTestt) {
+    // testing this out
+    logger;
+}
+
+== should break expression when going over the line width on the first space ==
+if (testingThisOut && otherTestTestttt) { // testing this out
+    logger;
+}
+
+[expect]
+if (testingThisOut
+    && otherTestTestttt)
+{ // testing this out
+    logger;
+}

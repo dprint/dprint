@@ -135,7 +135,7 @@ impl PrintItems {
                             text.push_str(&get_items_as_text(false_path.clone(), format!("{}    ", &indent_text)));
                         }
                     },
-                    PrintItem::String(str_text) => text.push_str(&get_line(str_text.text.to_string(), &indent_text)),
+                    PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text.to_string()), &indent_text)),
                     PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path.clone(), indent_text.clone())),
                 }
             }

@@ -89,6 +89,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
         #[cfg(debug_assertions)]
         self.verify_no_look_ahead_save_points();
+        #[cfg(debug_assertions)]
+        self.ensure_counts_zero();
 
         let writer = mem::replace(&mut self.writer, unsafe { MaybeUninit::zeroed().assume_init() });
         mem::drop(self);
@@ -334,7 +336,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         #[cfg(debug_assertions)]
         self.validate_string(&text.text);
 
-        if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) {
+        if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
             let save_point = mem::replace(&mut self.possible_new_line_save_point, Option::None);
             self.update_state_to_save_point(save_point.unwrap(), true);
         } else {
@@ -382,5 +384,15 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             ),
             save_point.name
         );
+    }
+
+    #[cfg(debug_assertions)]
+    fn ensure_counts_zero(&self) {
+        if self.new_line_group_depth != 0 {
+            panic!("The new line group depth was not zero after printing. {0}", self.new_line_group_depth);
+        }
+        if self.force_no_newlines_depth != 0 {
+            panic!("The force no newlines depth was not zero after printing. {0}", self.force_no_newlines_depth);
+        }
     }
 }
