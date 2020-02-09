@@ -1,4 +1,4 @@
-~~ arrayExpression.trailingCommas: always ~~
+~~ arrayExpression.trailingCommas: always, lineWidth: 40 ~~
 == should format with trailing commas when multiline ==
 const t = [
     5    ,
@@ -16,3 +16,15 @@ const t = [5    , 6,];
 
 [expect]
 const t = [5, 6,];
+
+== should print with trailing comma when becoming multi-line due to the line width ==
+const t = [other, other, other, otherTest, other];
+
+[expect]
+const t = [
+    other,
+    other,
+    other,
+    otherTest,
+    other,
+];

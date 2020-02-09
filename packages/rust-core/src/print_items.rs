@@ -105,6 +105,12 @@ impl PrintItems {
         self.push_item_internal(PrintItem::RcPath(path))
     }
 
+    pub fn push_optional_path(&mut self, path: Option<PrintItemPath>) {
+        if let Some(path) = path {
+            self.push_path(path);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.first_node.is_none()
     }
@@ -564,7 +570,7 @@ pub struct ConditionProperties<TString = String, TInfo = Info> where TString : S
 }
 
 /// Function used to resolve a condition.
-pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
+pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc; once supported
 
 /// Context used when resolving a condition.
 pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {

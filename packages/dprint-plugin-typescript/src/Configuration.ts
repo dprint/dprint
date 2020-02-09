@@ -360,7 +360,7 @@ export interface TypeScriptConfiguration {
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
 
-    "arrayLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
 
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
@@ -469,7 +469,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
 
     // prefer hanging
-    readonly "arrayLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
 
     // prefer hanging arguments
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;

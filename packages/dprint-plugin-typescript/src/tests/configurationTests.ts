@@ -392,7 +392,7 @@ describe("configuration", () => {
 
         function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "arrayLiteral.preferHanging": value,
+                "arrayExpression.preferHanging": value,
                 "callExpression.preferHangingArguments": value,
                 "newExpression.preferHangingArguments": value,
                 "arrowFunctionExpression.preferHangingParameters": value,

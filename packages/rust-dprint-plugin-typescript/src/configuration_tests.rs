@@ -47,7 +47,7 @@ fn check_all_values_set() {
         .try_statement_brace_position(BracePosition::NextLine)
         .while_statement_brace_position(BracePosition::NextLine)
         /* prefer hanging */
-        .array_literal_prefer_hanging(true)
+        .array_expression_prefer_hanging(true)
         /* prefer hanging arguments */
         .call_expression_prefer_hanging_arguments(true)
         .new_expression_prefer_hanging_arguments(true)
