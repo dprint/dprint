@@ -394,5 +394,11 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         if self.force_no_newlines_depth != 0 {
             panic!("The force no newlines depth was not zero after printing. {0}", self.force_no_newlines_depth);
         }
+        if self.writer.get_indentation_level() != 0 {
+            panic!("The writer indentation level was not zero after printing. {0}", self.writer.get_indentation_level());
+        }
+        if self.writer.get_ignore_indent_count() != 0 {
+            panic!("The writer ignore indent count was not zero after printing. {0}", self.writer.get_ignore_indent_count());
+        }
     }
 }
