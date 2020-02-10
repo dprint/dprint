@@ -394,7 +394,10 @@ describe("configuration", () => {
             return {
                 "arrayExpression.preferHanging": value,
                 "arrayPattern.preferHanging": value,
+                "objectExpression.preferHanging": value,
+                "objectPattern.preferHanging": value,
                 "tupleType.preferHanging": value,
+                "typeLiteral.preferHanging": value,
                 "callExpression.preferHangingArguments": value,
                 "newExpression.preferHangingArguments": value,
                 "arrowFunctionExpression.preferHangingParameters": value,

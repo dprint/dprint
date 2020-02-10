@@ -351,7 +351,10 @@ export interface TypeScriptConfiguration {
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "arrowFunctionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
@@ -444,7 +447,10 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "arrowFunctionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;

@@ -362,7 +362,10 @@ export interface TypeScriptConfiguration {
 
     "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
 
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
@@ -473,7 +476,10 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     // prefer hanging
     readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
 
     // prefer hanging arguments
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
