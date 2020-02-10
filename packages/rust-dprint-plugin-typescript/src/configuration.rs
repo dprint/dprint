@@ -50,45 +50,63 @@ impl ConfigurationBuilder {
     }
 
     /// The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
-    /// Default: 120
+    ///
+    /// Default: `120`
     pub fn line_width(&mut self, value: u32) -> &mut Self {
         self.insert("lineWidth", value)
     }
 
     /// Whether to use tabs (true) or spaces (false).
-    /// Default: false
+    ///
+    /// Default: `false`
     pub fn use_tabs(&mut self, value: bool) -> &mut Self {
         self.insert("useTabs", value)
     }
 
     /// The number of columns for an indent.
-    /// Default: 4
+    ///
+    /// Default: `4`
     pub fn indent_width(&mut self, value: u8) -> &mut Self {
         self.insert("indentWidth", value)
     }
 
     /// The kind of newline to use.
+    ///
     /// Default: `NewLineKind::Auto`
     pub fn new_line_kind(&mut self, value: NewLineKind) -> &mut Self {
         self.insert("newLineKind", value)
     }
 
     /// Whether to use single quotes (true) or double quotes (false).
-    /// Default: false
+    ///
+    /// Default: `false`
     pub fn single_quotes(&mut self, value: bool) -> &mut Self {
         self.insert("singleQuotes", value)
     }
 
     /// Whether statements should end in a semi-colon.
-    /// Default: true
+    ///
+    /// Default: `true`
     pub fn semi_colons(&mut self, value: bool) -> &mut Self {
         self.insert("semiColons", value)
+    }
+
+    /// Set to prefer hanging indentation when exceeding the line width.
+    ///
+    /// Remarks: When set, this value propagtes down as the default value
+    /// for other configuration such as `preferHangingArguments` and
+    /// `preferHangingParameters`.
+    ///
+    /// Default: `false`
+    pub fn prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("preferHanging", value)
     }
 
     /// Prefers an argument list is hanging when it exceeds the line width.
     /// Note: It will be hanging when the first argument is on the same line
     /// as the open parenthesis and multi-line when on a different line.
-    /// Default: false
+    ///
+    /// Default: `false`
     pub fn prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
         self.insert("preferHangingArguments", value)
     }
@@ -96,42 +114,49 @@ impl ConfigurationBuilder {
     /// Prefers a parameter list to be hanging when it exceeds the line width.
     /// Note: It will be hanging when the first parameter is on the same line
     /// as the open parenthesis and multi-line when on a different line.
-    /// Default: false
+    ///
+    /// Default: `false`
     pub fn prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
         self.insert("preferHangingParameters", value)
     }
 
     /// Where to place the opening brace.
+    ///
     /// Default: `BracePosition::NextLineIfHanging`
     pub fn brace_position(&mut self, value: BracePosition) -> &mut Self {
         self.insert("bracePosition", value)
     }
 
     /// Where to place the next control flow within a control flow statement.
+    ///
     /// Default: `NextControlFlowPosition::NextLine`
     pub fn next_control_flow_position(&mut self, value: NextControlFlowPosition) -> &mut Self {
         self.insert("nextControlFlowPosition", value)
     }
 
     /// Where to place the operator for expressions that span multiple lines.
+    ///
     /// Default: `OperatorPosition::NextLine`
     pub fn operator_position(&mut self, value: OperatorPosition) -> &mut Self {
         self.insert("operatorPosition", value)
     }
 
     /// Where to place the expression of a statement that could possibly be on one line (ex. `if (true) console.log(5);`).
+    ///
     /// Default: SingleBodyPosition::Maintain
     pub fn single_body_position(&mut self, value: SingleBodyPosition) -> &mut Self {
         self.insert("singleBodyPosition", value)
     }
 
     /// If trailing commas should be used.
+    ///
     /// Default: `TrailingCommas::Never`
     pub fn trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
         self.insert("trailingCommas", value)
     }
 
     /// If braces should be used or not.
+    ///
     /// Default: `UseBraces::WhenNotSingleLine`
     pub fn use_braces(&mut self, value: UseBraces) -> &mut Self {
         self.insert("useBraces", value)
@@ -140,6 +165,7 @@ impl ConfigurationBuilder {
     /* space settings */
 
     /// Whether to surround bitwise and arithmetic operators in a binary expression with spaces.
+    ///
     /// * `true` (default) - Ex. `1 + 2`
     /// * `false` - Ex. `1+2`
     pub fn binary_expression_space_surrounding_bitwise_and_arithmetic_operator(&mut self, value: bool) -> &mut Self {
@@ -147,6 +173,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `new` keyword in a construct signature.
+    ///
     /// `true` - Ex. `new (): MyClass;`
     /// `false` (default) - Ex. `new(): MyClass;`
     pub fn construct_signature_space_after_new_keyword(&mut self, value: bool) -> &mut Self {
@@ -154,6 +181,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the parentheses of a constructor.
+    ///
     /// `true` - Ex. `constructor ()`
     /// `false` (false) - Ex. `constructor()`
     pub fn constructor_space_before_parentheses(&mut self, value: bool) -> &mut Self {
@@ -161,6 +189,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `new` keyword in a constructor type.
+    ///
     /// `true` - Ex. `type MyClassCtor = new () => MyClass;`
     /// `false` (default) - Ex. `type MyClassCtor = new() => MyClass;`
     pub fn constructor_type_space_after_new_keyword(&mut self, value: bool) -> &mut Self {
@@ -168,6 +197,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `while` keyword in a do while statement.
+    ///
     /// `true` (true) - Ex. `do {\n} while (condition);`
     /// `false` - Ex. `do {\n} while(condition);`
     pub fn do_while_statement_space_after_while_keyword(&mut self, value: bool) -> &mut Self {
@@ -175,6 +205,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add spaces around named exports in an export declaration.
+    ///
     /// * `true` (default) - Ex. `export { SomeExport, OtherExport };`
     /// * `false` - Ex. `export {SomeExport, OtherExport};`
     pub fn export_declaration_space_surrounding_named_exports(&mut self, value: bool) -> &mut Self {
@@ -182,6 +213,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `for` keyword in a "for" statement.
+    ///
     /// * `true` (default) - Ex. `for (let i = 0; i < 5; i++)`
     /// * `false` - Ex. `for(let i = 0; i < 5; i++)`
     pub fn for_statement_space_after_for_keyword(&mut self, value: bool) -> &mut Self {
@@ -189,6 +221,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the semi-colons in a "for" statement.
+    ///
     /// * `true` (default) - Ex. `for (let i = 0; i < 5; i++)`
     /// * `false` - Ex. `for (let i = 0;i < 5;i++)`
     pub fn for_statement_space_after_semi_colons(&mut self, value: bool) -> &mut Self {
@@ -196,6 +229,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `for` keyword in a "for in" statement.
+    ///
     /// * `true` (default) - Ex. `for (const prop in obj)`
     /// * `false` - Ex. `for(const prop in obj)`
     pub fn for_in_statement_space_after_for_keyword(&mut self, value: bool) -> &mut Self {
@@ -203,6 +237,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `for` keyword in a "for of" statement.
+    ///
     /// * `true` (default) - Ex. `for (const value of myArray)`
     /// * `false` - Ex. `for(const value of myArray)`
     pub fn for_of_statement_space_after_for_keyword(&mut self, value: bool) -> &mut Self {
@@ -210,6 +245,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the parentheses of a function declaration.
+    ///
     /// * `true` - Ex. `function myFunction ()`
     /// * `false` (default) - Ex. `function myFunction()`
     pub fn function_declaration_space_before_parentheses(&mut self, value: bool) -> &mut Self {
@@ -217,6 +253,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the parentheses of a function expression.
+    ///
     /// `true` - Ex. `function ()`
     /// `false` (default) - Ex. `function()`
     pub fn function_expression_space_before_parentheses(&mut self, value: bool) -> &mut Self {
@@ -224,6 +261,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the parentheses of a get accessor.
+    ///
     /// `true` - Ex. `get myProp ()`
     /// `false` (false) - Ex. `get myProp()`
     pub fn get_accessor_space_before_parentheses(&mut self, value: bool) -> &mut Self {
@@ -231,6 +269,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `if` keyword in an "if" statement.
+    ///
     /// `true` (default) - Ex. `if (true)`
     /// `false` - Ex. `if(true)`
     pub fn if_statement_space_after_if_keyword(&mut self, value: bool) -> &mut Self {
@@ -238,6 +277,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add spaces around named imports in an import declaration.
+    ///
     /// * `true` (default) - Ex. `import { SomeExport, OtherExport } from "my-module";`
     /// * `false` - Ex. `import {SomeExport, OtherExport} from "my-module";`
     pub fn import_declaration_space_surrounding_named_imports(&mut self, value: bool) -> &mut Self {
@@ -245,6 +285,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space surrounding the expression of a JSX container.
+    ///
     /// * `true` - Ex. `{ myValue }`
     /// * `false` (default) - Ex. `{myValue}`
     pub fn jsx_expression_container_space_surrounding_expression(&mut self, value: bool) -> &mut Self {
@@ -252,6 +293,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the parentheses of a method.
+    ///
     /// `true` - Ex. `myMethod ()`
     /// `false` - Ex. `myMethod()`
     pub fn method_space_before_parentheses(&mut self, value: bool) -> &mut Self {
@@ -259,13 +301,15 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the parentheses of a set accessor.
+    ///
     /// `true` - Ex. `set myProp (value: string)`
     /// `false` (default) - Ex. `set myProp(value: string)`
     pub fn set_accessor_space_before_parentheses(&mut self, value: bool) -> &mut Self {
         self.insert("setAccessor.spaceBeforeParentheses", value)
     }
 
-    /// Whether to add a space before the literal in a tagged templte.
+    /// Whether to add a space before the literal in a tagged template.
+    ///
     /// `true` (default) - Ex. `html \`<element />\``
     /// `false` - Ex. `html\`<element />\``
     pub fn tagged_template_space_before_literal(&mut self, value: bool) -> &mut Self {
@@ -273,6 +317,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the colon of a type annotation.
+    ///
     /// * `true` - Ex. `function myFunction() : string`
     /// * `false` (default) - Ex. `function myFunction(): string`
     pub fn type_annotation_space_before_colon(&mut self, value: bool) -> &mut Self {
@@ -280,6 +325,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space before the expression in a type assertion.
+    ///
     /// * `true` (default) - Ex. `<string> myValue`
     /// * `false` - Ex. `<string>myValue`
     pub fn type_assertion_space_before_expression(&mut self, value: bool) -> &mut Self {
@@ -287,6 +333,7 @@ impl ConfigurationBuilder {
     }
 
     /// Whether to add a space after the `while` keyword in a while statement.
+    ///
     /// * `true` (default) - Ex. `while (true)`
     /// * `false` - Ex. `while(true)`
     pub fn while_statement_space_after_while_keyword(&mut self, value: bool) -> &mut Self {
@@ -381,6 +428,31 @@ impl ConfigurationBuilder {
 
     pub fn while_statement_brace_position(&mut self, value: BracePosition) -> &mut Self {
         self.insert("whileStatement.bracePosition", value)
+    }
+
+    /* prefer hanging */
+    pub fn array_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("arrayExpression.preferHanging", value)
+    }
+
+    pub fn array_pattern_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("arrayPattern.preferHanging", value)
+    }
+
+    pub fn object_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("objectExpression.preferHanging", value)
+    }
+
+    pub fn object_pattern_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("objectPattern.preferHanging", value)
+    }
+
+    pub fn tuple_type_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("tupleType.preferHanging", value)
+    }
+
+    pub fn type_literal_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("typeLiteral.preferHanging", value)
     }
 
     /* prefer hanging arguments */
@@ -871,14 +943,16 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let mut config = config.clone();
 
     let semi_colons = get_value(&mut config, "semiColons", true, &mut diagnostics);
-    let prefer_hanging_arguments = get_value(&mut config, "preferHangingArguments", false, &mut diagnostics);
-    let prefer_hanging_parameters = get_value(&mut config, "preferHangingParameters", false, &mut diagnostics);
     let brace_position = get_value(&mut config, "bracePosition", BracePosition::NextLineIfHanging, &mut diagnostics);
     let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::SameLine, &mut diagnostics);
     let operator_position = get_value(&mut config, "operatorPosition", OperatorPosition::NextLine, &mut diagnostics);
     let single_body_position = get_value(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain, &mut diagnostics);
     let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::Never, &mut diagnostics);
     let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, &mut diagnostics);
+    // prefer hanging config
+    let prefer_hanging = get_value(&mut config, "preferHanging", false, &mut diagnostics);
+    let prefer_hanging_arguments = get_value(&mut config, "preferHangingArguments", prefer_hanging, &mut diagnostics);
+    let prefer_hanging_parameters = get_value(&mut config, "preferHangingParameters", prefer_hanging, &mut diagnostics);
 
     let resolved_config = Configuration {
         line_width: get_value(&mut config, "lineWidth", global_config.line_width.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.line_width), &mut diagnostics),
@@ -910,6 +984,13 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         switch_statement_brace_position: get_value(&mut config, "switchStatement.bracePosition", brace_position, &mut diagnostics),
         try_statement_brace_position: get_value(&mut config, "tryStatement.bracePosition", brace_position, &mut diagnostics),
         while_statement_brace_position: get_value(&mut config, "whileStatement.bracePosition", brace_position, &mut diagnostics),
+        /* prefer hanging */
+        array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
+        array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        object_expression_prefer_hanging: get_value(&mut config, "objectExpression.preferHanging", prefer_hanging, &mut diagnostics),
+        object_pattern_prefer_hanging: get_value(&mut config, "objectPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
+        type_literal_prefer_hanging: get_value(&mut config, "typeLiteral.preferHanging", prefer_hanging, &mut diagnostics),
         /* prefer hanging arguments */
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
         new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
@@ -1074,6 +1155,19 @@ pub struct Configuration {
     pub try_statement_brace_position: BracePosition,
     #[serde(rename = "whileStatement.bracePosition")]
     pub while_statement_brace_position: BracePosition,
+    /* prefer hanging */
+    #[serde(rename = "arrayExpression.preferHanging")]
+    pub array_expression_prefer_hanging: bool,
+    #[serde(rename = "arrayPattern.preferHanging")]
+    pub array_pattern_prefer_hanging: bool,
+    #[serde(rename = "objectExpression.preferHanging")]
+    pub object_expression_prefer_hanging: bool,
+    #[serde(rename = "objectPattern.preferHanging")]
+    pub object_pattern_prefer_hanging: bool,
+    #[serde(rename = "tupleType.preferHanging")]
+    pub tuple_type_prefer_hanging: bool,
+    #[serde(rename = "typeLiteral.preferHanging")]
+    pub type_literal_prefer_hanging: bool,
     /* prefer hanging arguments */
     #[serde(rename = "callExpression.preferHangingArguments")]
     pub call_expression_prefer_hanging_arguments: bool,

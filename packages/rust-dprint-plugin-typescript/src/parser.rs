@@ -36,7 +36,7 @@ fn parse_node<'a>(node: Node<'a>, context: &mut Context<'a>) -> PrintItems {
     parse_node_with_inner_parse(node, context, |items| items)
 }
 
-fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, inner_parse: impl Fn(PrintItems) -> PrintItems + Clone + 'static) -> PrintItems {
+fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, inner_parse: impl Fn(PrintItems) -> PrintItems) -> PrintItems {
     // println!("Node kind: {:?}", node.kind());
     // println!("Text: {:?}", node.text(context));
 
@@ -973,7 +973,8 @@ fn parse_named_import_or_export_specifiers<'a>(parent_decl: NamedImportOrExportD
 fn parse_array_expr<'a>(node: &'a ArrayLit, context: &mut Context<'a>) -> PrintItems {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
         parent_span: node.span,
-        elements: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
+        nodes: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
+        prefer_hanging: context.config.array_expression_prefer_hanging,
         trailing_commas: context.config.array_expression_trailing_commas,
     }, context)
 }
@@ -1581,6 +1582,7 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Print
         node_span: node.span,
         members: node.props.iter().map(|x| x.into()).collect(),
         trailing_commas: Some(context.config.object_expression_trailing_commas),
+        prefer_hanging: context.config.object_expression_prefer_hanging,
     }, context);
 }
 
@@ -1595,7 +1597,13 @@ fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Print
 }
 
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> PrintItems {
-    parse_comma_separated_values(node.exprs.iter().map(|x| x.into()).collect(), |_| { Some(false) }, context).items
+    parse_separated_values(ParseSeparatedValuesOptions {
+        nodes: node.exprs.iter().map(|x| Some(x.into())).collect(),
+        prefer_hanging: true, // todo: config
+        force_use_new_lines: false,
+        trailing_commas: Some(TrailingCommas::Never),
+        surround_single_line_with_spaces: false,
+    }, context)
 }
 
 fn parse_setter_prop<'a>(node: &'a SetterProp, context: &mut Context<'a>) -> PrintItems {
@@ -1959,7 +1967,8 @@ fn parse_type_lit<'a>(node: &'a TsTypeLit, context: &mut Context<'a>) -> PrintIt
     return parse_object_like_node(ParseObjectLikeNodeOptions {
         node_span: node.span,
         members: node.members.iter().map(|m| m.into()).collect(),
-        trailing_commas: None
+        trailing_commas: None,
+        prefer_hanging: context.config.type_literal_prefer_hanging,
     }, context);
 }
 
@@ -2235,7 +2244,8 @@ fn parse_array_pat<'a>(node: &'a ArrayPat, context: &mut Context<'a>) -> PrintIt
     let mut items = PrintItems::new();
     items.extend(parse_array_like_nodes(ParseArrayLikeNodesOptions {
         parent_span: node.span,
-        elements: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
+        nodes: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
+        prefer_hanging: context.config.array_pattern_prefer_hanging,
         trailing_commas: context.config.array_pattern_trailing_commas,
     }, context));
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
@@ -2288,6 +2298,7 @@ fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Print
         node_span: node.span,
         members: node.props.iter().map(|x| x.into()).collect(),
         trailing_commas: Some(TrailingCommas::Never),
+        prefer_hanging: context.config.object_pattern_prefer_hanging,
     }, context));
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
     return items;
@@ -3397,7 +3408,8 @@ fn parse_rest_type<'a>(node: &'a TsRestType, context: &mut Context<'a>) -> Print
 fn parse_tuple_type<'a>(node: &'a TsTupleType, context: &mut Context<'a>) -> PrintItems {
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
         parent_span: node.span,
-        elements: node.elem_types.iter().map(|x| Some(x.into())).collect(),
+        nodes: node.elem_types.iter().map(|x| Some(x.into())).collect(),
+        prefer_hanging: context.config.tuple_type_prefer_hanging,
         trailing_commas: context.config.tuple_type_trailing_commas,
     }, context)
 }
@@ -3814,86 +3826,36 @@ fn get_jsx_empty_expr_comments<'a>(node: &JSXEmptyExpr, context: &mut Context<'a
 
 struct ParseArrayLikeNodesOptions<'a> {
     parent_span: Span,
-    elements: Vec<Option<Node<'a>>>,
+    nodes: Vec<Option<Node<'a>>>,
     trailing_commas: TrailingCommas,
+    prefer_hanging: bool,
 }
 
 fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mut Context<'a>) -> PrintItems {
     let parent_span = opts.parent_span;
-    let elements = opts.elements;
-    let use_new_lines = get_use_new_lines(&parent_span, &elements, context);
-    let force_trailing_commas = get_force_trailing_commas(opts.trailing_commas, use_new_lines);
+    let nodes = opts.nodes;
+    let force_use_new_lines = get_force_use_new_lines(&parent_span, &nodes, context);
     let mut items = PrintItems::new();
 
     items.push_str("[");
-    if !elements.is_empty() {
-        items.extend(parse_elements(&parent_span, elements, use_new_lines, force_trailing_commas, context));
-    }
+    // todo: hanlde inner comments inside parse_comma_separated_values?
+    items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+        nodes: nodes,
+        prefer_hanging: opts.prefer_hanging,
+        force_use_new_lines,
+        trailing_commas: Some(opts.trailing_commas),
+        surround_single_line_with_spaces: false,
+    }, context));
     items.push_str("]");
 
     return items;
 
-    fn parse_elements<'a>(parent_span: &Span, elements: Vec<Option<Node<'a>>>, use_new_lines: bool, force_trailing_commas: bool, context: &mut Context<'a>) -> PrintItems {
-        let mut items = PrintItems::new();
-        let elements_len = elements.len();
-
-        if use_new_lines { items.push_signal(Signal::NewLine); }
-
-        for (i, element) in elements.into_iter().enumerate() {
-            if i > 0 && !use_new_lines {
-                items.push_signal(Signal::SpaceOrNewLine);
-            }
-
-            let has_comma = force_trailing_commas || i < elements_len - 1;
-            items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_element(&parent_span, element, has_comma, context))));
-
-            if use_new_lines { items.push_signal(Signal::NewLine); }
-        }
-
-        return items;
-    }
-
-    fn parse_element<'a>(parent_span: &Span, element: Option<Node<'a>>, has_comma: bool, context: &mut Context<'a>) -> PrintItems {
-        let mut items = PrintItems::new();
-        let comma_token = get_comma_token(parent_span, &element, context);
-
-        if let Some(element) = element {
-            items.extend(parse_node_with_inner_parse(element, context, move |mut items| {
-                if has_comma { items.push_str(","); }
-                items
-            }));
-        } else if has_comma {
-            items.push_str(",");
-        }
-
-        // get the trailing comments after the comma token
-        if let Some(comma_token) = &comma_token {
-            items.extend(parse_trailing_comments(comma_token, context));
-        }
-        return items;
-
-        fn get_comma_token<'a>(parent_span: &Span, element: &Option<Node<'a>>, context: &mut Context<'a>) -> Option<&'a TokenAndSpan> {
-            if let Some(element) = &element {
-                let comma_token = context.token_finder.get_next_token_if_comma(&element);
-                if let Some(comma_token) = comma_token {
-                    if comma_token.lo() > parent_span.hi() {
-                        return None;
-                    }
-                }
-                return comma_token;
-            } else {
-                // Not worth handling this scenario at the moment.
-                return None;
-            }
-        }
-    }
-
-    fn get_use_new_lines(node: &dyn Ranged, elements: &Vec<Option<Node>>, context: &mut Context) -> bool {
-        if elements.is_empty() {
+    fn get_force_use_new_lines(node: &dyn Ranged, nodes: &Vec<Option<Node>>, context: &mut Context) -> bool {
+        if nodes.is_empty() {
             false
         } else {
             let open_bracket_token = context.token_finder.get_first_open_bracket_token_within(node).expect("Expected to find an open bracket token.");
-            if let Some(first_node) = &elements[0] {
+            if let Some(first_node) = &nodes[0] {
                 node_helpers::get_use_new_lines_for_nodes(&open_bracket_token, first_node, context)
             } else {
                 // todo: tests for this (ex. [\n,] -> [\n    ,\n])
@@ -4032,16 +3994,12 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
             items.extend(if let Some(print_items) = optional_print_items {
                 print_items
             } else {
-                let trailing_commas = opts.trailing_commas;
-                parse_node_with_inner_parse(node.clone(), context, move |mut items| {
-                    if let Some(trailing_commas) = trailing_commas {
-                        let force_trailing_commas = get_force_trailing_commas(trailing_commas, true);
-                        if force_trailing_commas || i < children_len - 1 {
-                            items.push_str(",");
-                        }
-                    }
-                    items
-                })
+                if let Some(trailing_commas) = opts.trailing_commas {
+                    let parsed_comma = get_parsed_trailing_comma(trailing_commas, i == children_len - 1, &|_| Some(true));
+                    parse_comma_separated_value(Some(node.clone()), parsed_comma, context)
+                } else {
+                    parse_node(node.clone(), context)
+                }
             });
             items.push_info(end_info);
             context.end_statement_or_member_infos.pop();
@@ -4088,73 +4046,17 @@ struct ParseParametersOrArgumentsOptions<'a> {
 }
 
 fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>, context: &mut Context<'a>) -> PrintItems {
-    let nodes = opts.nodes;
-    let start_info = Info::new("startParamsOrArgs");
-    let end_info = Info::new("endParamsOrArgs");
-    let use_new_lines = get_use_new_lines(&nodes, context);
-    let prefer_hanging = opts.prefer_hanging;
-    let param_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
-    let has_params = !nodes.is_empty();
-    // todo: something better in the core library in order to facilitate this
-    let mut is_any_param_on_new_line_condition = {
-        let param_start_infos = param_start_infos.clone();
-        Condition::new_with_dependent_infos("isAnyParamOnNewLineCondition", ConditionProperties {
-            condition: Box::new(move |condition_context| {
-                if use_new_lines { return Some(true); }
-                if prefer_hanging {
-                    // check only if the first param/arg is at the beginning of the line
-                    if let Some(first_param_start_info) = param_start_infos.borrow().iter().next() {
-                        let first_param_info = condition_context.get_resolved_info(first_param_start_info)?;
-                        if first_param_info.column_number == first_param_info.line_start_column_number {
-                            return Some(true);
-                        }
-                    }
-                } else {
-                    // check if any of the param/arg starts are at the beginning of the line
-                    for param_start_info in param_start_infos.borrow().iter() {
-                        let param_start_info = condition_context.get_resolved_info(param_start_info)?;
-                        if param_start_info.column_number == param_start_info.line_start_column_number {
-                            return Some(true);
-                        }
-                    }
-                }
-
-                Some(false)
-            }),
-            false_path: None,
-            true_path: None,
-        }, vec![end_info])
-    };
-    let is_any_param_on_new_line_condition_ref = is_any_param_on_new_line_condition.get_reference();
-    let is_multi_line_or_hanging = move |condition_context: &mut ConditionResolverContext| {
-        return condition_context.get_resolved_condition(&is_any_param_on_new_line_condition_ref);
-    };
-
+    let force_use_new_lines = get_use_new_lines(&opts.nodes, context);
     let mut items = PrintItems::new();
     items.push_str("(");
-    items.push_info(start_info);
-    items.push_condition(is_any_param_on_new_line_condition);
 
-    let parse_comma_separated_values_result = parse_comma_separated_values(nodes, is_multi_line_or_hanging, context);
-    param_start_infos.borrow_mut().extend(parse_comma_separated_values_result.item_start_infos);
-    let param_list = parse_comma_separated_values_result.items.into_rc_path();
-    items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
-        condition: Box::new(is_multi_line_or_hanging),
-        true_path: Some(surround_with_new_lines(with_indent(param_list.clone().into()))),
-        false_path: Some({
-            let mut items = PrintItems::new();
-            if has_params {
-                items.push_condition(conditions::if_above_width(
-                    context.config.indent_width,
-                    Signal::PossibleNewLine.into()
-                ));
-            }
-            items.extend(param_list.into());
-            items
-        }),
-    }));
-
-    items.push_info(end_info);
+    items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+        nodes: opts.nodes.into_iter().map(|x| Some(x)).collect(),
+        prefer_hanging: opts.prefer_hanging,
+        force_use_new_lines,
+        trailing_commas: Some(TrailingCommas::Never),
+        surround_single_line_with_spaces: false,
+    }, context));
 
     if let Some(custom_close_paren) = opts.custom_close_paren {
         items.extend(custom_close_paren);
@@ -4238,69 +4140,189 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
     }
 }
 
-struct ParseCommaAndSeparatedValuesResult {
-    items: PrintItems,
-    item_start_infos: Vec<Info>,
+struct ParseSeparatedValuesOptions<'a> {
+    nodes: Vec<Option<Node<'a>>>,
+    prefer_hanging: bool,
+    force_use_new_lines: bool,
+    trailing_commas: Option<TrailingCommas>,
+    surround_single_line_with_spaces: bool,
 }
 
-fn parse_comma_separated_values<'a>(
-    values: Vec<Node<'a>>,
-    multi_line_or_hanging_condition_resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
+fn parse_separated_values<'a>(
+    opts: ParseSeparatedValuesOptions<'a>,
     context: &mut Context<'a>
-) -> ParseCommaAndSeparatedValuesResult {
+) -> PrintItems {
+    let nodes = opts.nodes;
+    let use_new_lines = opts.force_use_new_lines;
+    let prefer_hanging = opts.prefer_hanging;
+    let end_info = Info::new("endSeparatedValues");
+    let node_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
+    let has_nodes = !nodes.is_empty();
+
+    // todo: something better in the core library in order to facilitate this
+    let mut is_any_node_on_new_line_condition = {
+        let node_start_infos = node_start_infos.clone();
+        Condition::new_with_dependent_infos("isAnyNodeOnNewLineCondition", ConditionProperties {
+            condition: Box::new(move |condition_context| {
+                if use_new_lines { return Some(true); }
+                if prefer_hanging {
+                    // check only if the first node is at the beginning of the line
+                    if let Some(first_node_start_info) = node_start_infos.borrow().iter().next() {
+                        let first_node_info = condition_context.get_resolved_info(first_node_start_info)?;
+                        if first_node_info.column_number == first_node_info.line_start_column_number {
+                            return Some(true);
+                        }
+                    }
+                } else {
+                    // check if any of the node starts are at the beginning of the line
+                    for node_start_info in node_start_infos.borrow().iter() {
+                        let node_start_info = condition_context.get_resolved_info(node_start_info)?;
+                        if node_start_info.column_number == node_start_info.line_start_column_number {
+                            return Some(true);
+                        }
+                    }
+                }
+
+                Some(false)
+            }),
+            false_path: None,
+            true_path: None,
+        }, vec![end_info])
+    };
+    let is_any_node_on_new_line_condition_ref = is_any_node_on_new_line_condition.get_reference();
+    let is_multi_line_or_hanging = is_any_node_on_new_line_condition_ref.create_resolver();
+
     let mut items = PrintItems::new();
-    let mut item_start_infos = Vec::new();
-    let values_count = values.len();
+    items.push_condition(is_any_node_on_new_line_condition);
 
-    for (i, value) in values.into_iter().enumerate() {
-        let has_comma = i < values_count - 1;
-        let parsed_value = parse_value(value, has_comma, context);
-        let start_info = Info::new("itemStartInfo");
-        item_start_infos.push(start_info);
-
-        if i == 0 {
-            if values_count > 1 {
-                items.push_condition(if_false(
-                    "is_not_start_of_line",
-                    |context| Some(condition_resolvers::is_start_of_new_line(context)),
+    let inner_parse_result = inner_parse(
+        nodes,
+        is_multi_line_or_hanging.clone(),
+        opts.trailing_commas,
+        context
+    );
+    node_start_infos.borrow_mut().extend(inner_parse_result.item_start_infos);
+    let node_list = inner_parse_result.items.into_rc_path();
+    items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
+        condition: Box::new(is_multi_line_or_hanging),
+        true_path: Some(surround_with_new_lines(with_indent(node_list.clone().into()))),
+        false_path: Some({
+            let mut items = PrintItems::new();
+            if has_nodes {
+                items.push_condition(conditions::if_above_width(
+                    context.config.indent_width,
                     Signal::PossibleNewLine.into()
                 ));
             }
+            if opts.surround_single_line_with_spaces { items.push_str(" "); }
+            items.extend(node_list.into());
+            if opts.surround_single_line_with_spaces { items.push_str(" "); }
+            items
+        }),
+    }));
 
-            items.push_info(start_info);
-            items.extend(parsed_value);
-        } else {
-            let parsed_value = parsed_value.into_rc_path();
-            items.push_condition(Condition::new("multiLineOrHangingCondition", ConditionProperties {
-                condition: Box::new(multi_line_or_hanging_condition_resolver.clone()),
-                true_path: {
-                    let mut items = PrintItems::new();
-                    items.push_signal(Signal::NewLine);
-                    items.push_info(start_info);
-                    items.extend(parsed_value.clone().into());
-                    Some(items)
-                },
-                false_path: {
-                    let mut items = PrintItems::new();
-                    items.push_signal(Signal::SpaceOrNewLine);
-                    items.push_info(start_info);
-                    items.push_condition(conditions::indent_if_start_of_line(parsed_value.into()));
-                    Some(items)
-                },
-            }));
-        }
+    items.push_info(end_info);
+
+    return items;
+
+    struct InnerParseResult {
+        items: PrintItems,
+        item_start_infos: Vec<Info>,
     }
 
-    return ParseCommaAndSeparatedValuesResult {
-        items,
-        item_start_infos,
-    };
+    fn inner_parse<'a>(
+        nodes: Vec<Option<Node<'a>>>,
+        is_multi_line_or_hanging: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
+        use_commas: Option<TrailingCommas>,
+        context: &mut Context<'a>
+    ) -> InnerParseResult {
+        let mut items = PrintItems::new();
+        let mut item_start_infos = Vec::new();
+        let nodes_count = nodes.len();
 
-    fn parse_value<'a>(value: Node<'a>, has_comma: bool, context: &mut Context<'a>) -> PrintItems {
-        parser_helpers::new_line_group(parse_node_with_inner_parse(value, context, move |mut items| {
-            if has_comma { items.push_str(","); }
+        for (i, value) in nodes.into_iter().enumerate() {
+            let parsed_value = parser_helpers::new_line_group(if let Some(trailing_commas) = use_commas {
+                let parsed_comma = get_parsed_trailing_comma(trailing_commas, i == nodes_count - 1, &is_multi_line_or_hanging);
+                parse_comma_separated_value(value, parsed_comma, context)
+            } else {
+                if let Some(value) = value {
+                    parse_node(value, context)
+                } else {
+                    PrintItems::new()
+                }
+            });
+            let start_info = Info::new("itemStartInfo");
+            item_start_infos.push(start_info);
+
+            if i == 0 {
+                if nodes_count > 1 {
+                    items.push_condition(if_false(
+                        "isNotStartOfLine",
+                        |context| Some(condition_resolvers::is_start_of_new_line(context)),
+                        Signal::PossibleNewLine.into()
+                    ));
+                }
+
+                items.push_info(start_info);
+                items.extend(parsed_value);
+            } else {
+                let parsed_value = parsed_value.into_rc_path();
+                items.push_condition(Condition::new("multiLineOrHangingCondition", ConditionProperties {
+                    condition: Box::new(is_multi_line_or_hanging.clone()),
+                    true_path: {
+                        let mut items = PrintItems::new();
+                        items.push_signal(Signal::NewLine);
+                        items.push_info(start_info);
+                        items.extend(parsed_value.clone().into());
+                        Some(items)
+                    },
+                    false_path: {
+                        let mut items = PrintItems::new();
+                        items.push_signal(Signal::SpaceOrNewLine);
+                        items.push_info(start_info);
+                        items.push_condition(conditions::indent_if_start_of_line(parsed_value.into()));
+                        Some(items)
+                    },
+                }));
+            }
+        }
+
+        return InnerParseResult {
+            items,
+            item_start_infos,
+        };
+    }
+}
+
+fn parse_comma_separated_value<'a>(value: Option<Node<'a>>, parsed_comma: PrintItems, context: &mut Context<'a>) -> PrintItems {
+    let mut items = PrintItems::new();
+    let comma_token = get_comma_token(&value, context);
+
+    if let Some(element) = value {
+        let parsed_comma = parsed_comma.into_rc_path();
+        items.extend(parse_node_with_inner_parse(element, context, move |mut items| {
+            // this Rc clone is necessary because we can't move the captured parsed_comma out of this closure
+            items.push_optional_path(parsed_comma.clone());
             items
-        }))
+        }));
+    } else {
+        items.extend(parsed_comma);
+    }
+
+    // get the trailing comments after the comma token
+    if let Some(comma_token) = &comma_token {
+        items.extend(parse_trailing_comments(comma_token, context));
+    }
+
+    return items;
+
+    fn get_comma_token<'a>(element: &Option<Node<'a>>, context: &mut Context<'a>) -> Option<&'a TokenAndSpan> {
+        if let Some(element) = &element {
+            context.token_finder.get_next_token_if_comma(&element)
+        } else {
+            // todo: handle this
+            None
+        }
     }
 }
 
@@ -4439,6 +4461,7 @@ struct ParseObjectLikeNodeOptions<'a> {
     node_span: Span,
     members: Vec<Node<'a>>,
     trailing_commas: Option<TrailingCommas>,
+    prefer_hanging: bool,
 }
 
 fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mut Context<'a>) -> PrintItems {
@@ -4456,13 +4479,11 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
         &opts.members[0],
         context
     );
-    let separator: PrintItems = if multi_line { Signal::NewLine.into() } else { " ".into() };
-    let separator = separator.into_rc_path();
 
     items.push_str("{");
-    items.extend(separator.clone().into());
 
     if multi_line {
+        items.push_signal(Signal::NewLine);
         items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
             inner_span: Span::new(open_brace_token.hi(), close_brace_token.lo(), Default::default()),
             items: opts.members.into_iter().map(|member| (member.into(), None)).collect(),
@@ -4471,24 +4492,17 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
             should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
             trailing_commas: opts.trailing_commas,
         }, context)));
+        items.push_signal(Signal::NewLine);
     } else {
-        let members_len = opts.members.len();
-        for (i, member) in opts.members.into_iter().enumerate() {
-            if i > 0 { items.push_signal(Signal::SpaceOrNewLine); }
-
-            let trailing_commas = opts.trailing_commas;
-            items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(member, context, move |mut items| {
-                if let Some(trailing_commas) = trailing_commas {
-                    if i < members_len - 1 || get_force_trailing_commas(trailing_commas, multi_line) {
-                        items.push_str(",");
-                    }
-                }
-                items
-            }))));
-        }
+        items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+            nodes: opts.members.into_iter().map(|x| Some(x)).collect(),
+            prefer_hanging: opts.prefer_hanging,
+            force_use_new_lines: false,
+            trailing_commas: opts.trailing_commas,
+            surround_single_line_with_spaces: true,
+        }, context));
     }
 
-    items.extend(separator.into());
     items.push_str("}");
 
     return items;
@@ -5145,10 +5159,20 @@ fn is_expr_template(node: &Expr) -> bool { // todo: remove
 
 /* config helpers */
 
-fn get_force_trailing_commas(option: TrailingCommas, use_new_lines: bool) -> bool {
+fn get_parsed_trailing_comma(option: TrailingCommas, is_trailing: bool, is_multi_line: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static)) -> PrintItems {
+    if !is_trailing { return ",".into(); }
+
     match option {
-        TrailingCommas::Always => true,
-        TrailingCommas::OnlyMultiLine => use_new_lines,
-        TrailingCommas::Never => false,
+        TrailingCommas::Always => ",".into(),
+        TrailingCommas::OnlyMultiLine => {
+            Condition::new("trailingCommaIfMultiLine", ConditionProperties {
+                condition: Box::new(is_multi_line.clone()),
+                true_path: Some(",".into()),
+                false_path: None,
+            }).into()
+        },
+        TrailingCommas::Never => {
+            PrintItems::new()
+        },
     }
 }

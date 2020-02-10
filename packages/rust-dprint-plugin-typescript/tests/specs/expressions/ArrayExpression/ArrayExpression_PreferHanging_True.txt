@@ -1,4 +1,4 @@
-~~ lineWidth: 40 ~~
+~~ lineWidth: 40, arrayExpression.preferHanging: true ~~
 == should format ==
 const t = [   5   , 6   ];
 
@@ -17,14 +17,16 @@ const t = [
     7
 ];
 
-== should print on multiple lines when exceeding line width ==
+== should hang when exceeding line width ==
 const t = [other, other, other, otherTest, other];
 
 [expect]
-const t = [
-    other,
-    other,
-    other,
-    otherTest,
-    other
-];
+const t = [other, other, other,
+    otherTest, other];
+
+== should not divide up elements ==
+const t = [other, other, other, test.thisout];
+
+[expect]
+const t = [other, other, other,
+    test.thisout];

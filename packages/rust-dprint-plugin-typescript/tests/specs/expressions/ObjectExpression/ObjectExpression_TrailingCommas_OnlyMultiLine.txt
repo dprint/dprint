@@ -1,4 +1,4 @@
-~~ objectExpression.trailingCommas: onlyMultiLine ~~
+~~ objectExpression.trailingCommas: onlyMultiLine, lineWidth: 40 ~~
 == should format with trailing commas when multiple lines ==
 const obj =
 {
@@ -17,3 +17,13 @@ const obj = { member1, member2, };
 
 [expect]
 const obj = { member1, member2 };
+
+== should format with trailing commas when going from single line to multi-line ==
+const obj = { member1, member2, member3 };
+
+[expect]
+const obj = {
+    member1,
+    member2,
+    member3,
+};

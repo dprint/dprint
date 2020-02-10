@@ -89,6 +89,14 @@ export interface TypeScriptConfiguration {
      */
     operatorPosition?: "maintain" | "sameLine" | "nextLine";
     /**
+     * Set to prefer hanging indentation when exceeding the line width.
+     * @remarks When set, this value propagates down as the default value for
+     * other configuration such as `preferHangingArguments` and
+     * `preferHangingParameters`.
+     * @default false
+     */
+    preferHanging?: boolean;
+    /**
      * Prefers an argument list to be hanging when it exceeds the line width.
      * @remarks It will be hanging when the first argument is on the same line
      * as the open parenthesis and multi-line when on a different line.
@@ -352,6 +360,13 @@ export interface TypeScriptConfiguration {
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
 
+    "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
 
@@ -457,6 +472,14 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     // operator position
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
+
+    // prefer hanging
+    readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
 
     // prefer hanging arguments
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
