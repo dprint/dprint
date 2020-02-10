@@ -535,9 +535,8 @@ describe("configuration", () => {
 
         function createConfigWithValue(keys: (keyof TypeScriptConfiguration)[], value: boolean): TypeScriptConfiguration {
             const config: TypeScriptConfiguration = {};
-            for (const key of keys) {
+            for (const key of keys)
                 (config as any)[key] = value;
-            }
             return config;
         }
 
