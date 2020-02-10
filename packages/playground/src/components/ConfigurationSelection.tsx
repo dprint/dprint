@@ -65,11 +65,8 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Trailing commas">
                 {this.getSelectForConfig("trailingCommas", trailingCommaOptions)}
             </ConfigurationItem>
-            <ConfigurationItem title="Prefer hanging arguments">
-                {this.getBooleanConfig("preferHangingArguments")}
-            </ConfigurationItem>
-            <ConfigurationItem title="Prefer hanging parameters">
-                {this.getBooleanConfig("preferHangingParameters")}
+            <ConfigurationItem title="Prefer hanging">
+                {this.getBooleanConfig("preferHanging")}
             </ConfigurationItem>
             <ConfigurationItem title="Arrow Function - Use parentheses">
                 {this.getSelectForConfig("arrowFunctionExpression.useParentheses", arrowFunctionUseParenthesesOptions)}
