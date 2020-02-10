@@ -25,12 +25,19 @@ log(`testing ${  3 } this ${  6  } out`);
 [expect]
 log(`testing ${3} this ${6} out`);
 
-== should indent within the expression when it goes over the line width ==
+== should not indent within the expression when it goes over the line width and the expression has no possible newlines ==
 `testing this out a little bit ${4} testing`;
 
 [expect]
-`testing this out a little bit ${4
-    } testing`;
+`testing this out a little bit ${4} testing`;
+
+== should indent within the expression when it goes over the line width and the expression has possible newlines ==
+`testing this out a little bit ${[4]} testing`;
+
+[expect]
+`testing this out a little bit ${[
+    4
+]} testing`;
 
 == should indent properly within the expressions ==
 function test() {

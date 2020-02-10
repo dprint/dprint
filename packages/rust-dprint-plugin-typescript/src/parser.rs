@@ -1664,11 +1664,7 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
         } else {
             items.push_str("${");
             items.push_signal(Signal::FinishIgnoringIndent);
-            items.push_signal(Signal::PossibleNewLine);
-            items.push_condition(conditions::single_indent_if_start_of_line());
             items.extend(parse_node(node, context));
-            items.push_signal(Signal::PossibleNewLine);
-            items.push_condition(conditions::single_indent_if_start_of_line());
             items.push_str("}");
             items.push_signal(Signal::StartIgnoringIndent);
         }
