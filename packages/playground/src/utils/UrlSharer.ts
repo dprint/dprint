@@ -29,7 +29,7 @@ export class UrlSaver {
                 return getDefaultConfig();
 
             try {
-                return updateOldConfig(JSON.parse(decompress(matches[1])));
+                return JSON.parse(decompress(matches[1]));
             } catch (err) {
                 console.error(err);
                 return getDefaultConfig();
@@ -40,19 +40,6 @@ export class UrlSaver {
                     lineWidth: 80
                 };
             }
-        }
-
-        function updateOldConfig(obj: any) {
-            // todo: develop more robust configuration schema and transformations to new versions
-            if (obj == null)
-                return obj;
-
-            if (obj.forceMultiLineArguments != null)
-                obj.preferHangingArguments = !obj.forceMultiLineArguments;
-            if (obj.forceMultiLineParameters != null)
-                obj.preferHangingParameters = !obj.forceMultiLineParameters;
-
-            return obj;
         }
     }
 
