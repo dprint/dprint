@@ -49,6 +49,7 @@ fn check_all_values_set() {
         /* prefer hanging */
         .array_expression_prefer_hanging(true)
         .array_pattern_prefer_hanging(true)
+        .tuple_type_prefer_hanging(true)
         /* prefer hanging arguments */
         .call_expression_prefer_hanging_arguments(true)
         .new_expression_prefer_hanging_arguments(true)
@@ -146,7 +147,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 124);
+    assert_eq!(inner_config.len(), 125);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

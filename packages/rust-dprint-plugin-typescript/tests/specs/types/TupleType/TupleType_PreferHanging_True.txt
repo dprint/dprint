@@ -1,4 +1,4 @@
-~~ lineWidth: 40 ~~
+~~ lineWidth: 40, tupleType.preferHanging: true ~~
 == should format ==
 type T = [   string   , number   ];
 
@@ -17,24 +17,16 @@ type T = [
     other
 ];
 
-== should go multi-line when exceeding line width ==
+== should hang when exceeding line width ==
 type T = [string, number, other, otherTest, other];
 
 [expect]
-type T = [
-    string,
-    number,
-    other,
-    otherTest,
-    other
-];
+type T = [string, number, other,
+    otherTest, other];
 
 == should not split up a tuple type midway through ==
 type T = [string, number, string | number | other];
 
 [expect]
-type T = [
-    string,
-    number,
-    string | number | other
-];
+type T = [string, number,
+    string | number | other];

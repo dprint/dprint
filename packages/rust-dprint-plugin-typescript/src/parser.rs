@@ -3404,7 +3404,7 @@ fn parse_tuple_type<'a>(node: &'a TsTupleType, context: &mut Context<'a>) -> Pri
     parse_array_like_nodes(ParseArrayLikeNodesOptions {
         parent_span: node.span,
         nodes: node.elem_types.iter().map(|x| Some(x.into())).collect(),
-        prefer_hanging: true, // todo: config
+        prefer_hanging: context.config.tuple_type_prefer_hanging,
         trailing_commas: context.config.tuple_type_trailing_commas,
     }, context)
 }

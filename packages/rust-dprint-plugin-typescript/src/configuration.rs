@@ -439,6 +439,10 @@ impl ConfigurationBuilder {
         self.insert("arrayPattern.preferHanging", value)
     }
 
+    pub fn tuple_type_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("tupleType.preferHanging", value)
+    }
+
     /* prefer hanging arguments */
     pub fn call_expression_prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
         self.insert("callExpression.preferHangingArguments", value)
@@ -971,6 +975,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         /* prefer hanging */
         array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
         /* prefer hanging arguments */
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
         new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
@@ -1140,6 +1145,8 @@ pub struct Configuration {
     pub array_expression_prefer_hanging: bool,
     #[serde(rename = "arrayPattern.preferHanging")]
     pub array_pattern_prefer_hanging: bool,
+    #[serde(rename = "tupleType.preferHanging")]
+    pub tuple_type_prefer_hanging: bool,
     /* prefer hanging arguments */
     #[serde(rename = "callExpression.preferHangingArguments")]
     pub call_expression_prefer_hanging_arguments: bool,
