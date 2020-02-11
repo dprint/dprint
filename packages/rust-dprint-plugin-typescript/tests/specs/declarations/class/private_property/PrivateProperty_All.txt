@@ -1,0 +1,21 @@
+== should format ==
+class Test {
+    #p1;
+    #p2 : string;
+    #p3    =   4;
+
+    constructor() {
+        this.#p1 = "test";
+    }
+}
+
+[expect]
+class Test {
+    #p1;
+    #p2: string;
+    #p3 = 4;
+
+    constructor() {
+        this.#p1 = "test";
+    }
+}
