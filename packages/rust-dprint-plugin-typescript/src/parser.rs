@@ -420,8 +420,13 @@ fn parse_class_prop_common<'a>(node: ParseClassPropCommon<'a>, context: &mut Con
     items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
 
     if let Some(value) = node.value {
-        items.push_str(" = ");
-        items.extend(parse_node(value.into(), context));
+        items.push_str(" =");
+        items.push_condition(conditions::if_above_width_or(
+            context.config.indent_width,
+            Signal::SpaceOrNewLine.into(),
+            " ".into()
+        ));
+        items.push_condition(conditions::indent_if_start_of_line(parse_node(value.into(), context)));
     }
 
     if context.config.class_property_semi_colon {
