@@ -1323,7 +1323,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
             let mut items = PrintItems::new();
             items.push_str("(");
             items.extend(parse_node_with_inner_parse((&args[0]).into(), context, |items| {
-                let mut new_items = filter_signals(items);
+                let mut new_items = parser_helpers::with_no_new_lines(items);
                 new_items.push_str(",");
                 new_items
             }));
@@ -1331,17 +1331,6 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
             items.extend(parse_node((&args[1]).into(), context));
             items.push_str(")");
 
-            return items;
-        }
-
-        pub fn filter_signals(old_items: PrintItems) -> PrintItems {
-            let mut items = PrintItems::new();
-            for item in old_items.iter() {
-                match item {
-                    PrintItem::String(_) | PrintItem::Condition(_) | PrintItem::Info(_) | PrintItem::RcPath(_) => items.push_item(item),
-                    PrintItem::Signal(_) => {},
-                }
-            }
             return items;
         }
     }
