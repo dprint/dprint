@@ -22,10 +22,30 @@ declare module Test {
 declare module Test {
 }
 
+== should format with namespace keyword and a declare keyword ==
+declare namespace Test {
+}
+
+[expect]
+declare namespace Test {
+}
+
 == should format with nested declarations ==
 module Test.Test1.Test3 {
 }
 
 [expect]
 module Test.Test1.Test3 {
+}
+
+== should format a "global" namespace ==
+global   {
+    interface   Test   {
+    }
+}
+
+[expect]
+global {
+    interface Test {
+    }
 }

@@ -855,11 +855,9 @@ fn parse_module_or_namespace_decl<'a>(node: ModuleOrNamespaceDecl<'a>, context: 
     items.push_info(start_header_info);
 
     if node.declare { items.push_str("declare "); }
-    if node.global {
-        items.push_str("global");
-        // items.extend(parse_node(node.id.into(), context));
-    } else {
-        let has_namespace_keyword = context.token_finder.get_char_at(&node.span.lo()) == 'n';
+    if !node.global {
+        let module_or_namespace_keyword = context.token_finder.get_previous_token(&node.id).unwrap();
+        let has_namespace_keyword = context.token_finder.get_char_at(&module_or_namespace_keyword.span.lo()) == 'n';
         items.push_str(if has_namespace_keyword { "namespace " } else { "module " });
     }
 

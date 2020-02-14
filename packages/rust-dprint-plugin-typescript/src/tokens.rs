@@ -35,7 +35,7 @@ impl<'a> TokenFinder<'a> {
         return if is_match(&previous_token) { Some(previous_token) } else { None };
     }
 
-    fn get_previous_token(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+    pub fn get_previous_token(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_before(node, |_| true)
     }
 
