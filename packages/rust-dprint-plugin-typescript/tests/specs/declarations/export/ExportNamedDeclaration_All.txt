@@ -12,3 +12,9 @@ export {test};
 [expect]
 const test = 5;
 export { test };
+
+== should format a type-only export ==
+export   type    { test };
+
+[expect]
+export type { test };
