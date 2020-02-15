@@ -25,10 +25,16 @@ export interface TypeScriptConfiguration {
      */
     semiColons?: boolean;
     /**
-     * Whether to use single quotes (true) or double quotes (false).
-     * @default false
+     * How to decide to use single or double quotes.
+     * @default "preferDouble"
+     * @value "alwaysDouble" - Always use double quotes.
+     * @value "alwaysSingle" - Always use single quotes.
+     * @value "preferDouble" - Prefer using double quotes except in scenarios where the string
+     * contains more double quotes than single quotes.
+     * @value "preferSingle" - Prefer using single quotes except in scenarios where the string
+     * contains more single quotes than double quotes.
      */
-    singleQuotes?: boolean;
+    quoteStyle?: "alwaysDouble" | "alwaysSingle" | "preferDouble" | "preferSingle";
     /**
      * The kind of newline to use.
      * @default "auto"
@@ -375,7 +381,7 @@ export interface TypeScriptConfiguration {
  * Resolved configuration from user specified configuration.
  */
 export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
-    readonly singleQuotes: boolean;
+    readonly quoteStyle: NonNullable<TypeScriptConfiguration["quoteStyle"]>;
     readonly "breakStatement.semiColon": boolean;
     readonly "callSignature.semiColon": boolean;
     readonly "classProperty.semiColon": boolean;
