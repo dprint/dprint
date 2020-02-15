@@ -123,21 +123,23 @@ describe("configuration", () => {
         }
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c.singleQuotes), () => {
-        function doSpecificTest(value: boolean | undefined, expectedValue: boolean) {
-            doTest({ singleQuotes: value as any }, { singleQuotes: expectedValue as any }, prop => prop === "singleQuotes");
+    describe(nameof<TypeScriptConfiguration>(c => c.quoteStyle), () => {
+        function doSpecificTest(value: TypeScriptConfiguration["quoteStyle"] | undefined, expectedValue: ResolvedTypeScriptConfiguration["quoteStyle"]) {
+            doTest({ quoteStyle: value }, { quoteStyle: expectedValue }, prop => prop === "quoteStyle");
         }
 
         it("should set when not set", () => {
-            doSpecificTest(undefined, false);
+            doSpecificTest(undefined, "preferDouble");
         });
 
         it("should use when set to the default", () => {
-            doSpecificTest(true, true);
+            doSpecificTest("preferDouble", "preferDouble");
         });
 
         it("should use when not set to the default", () => {
-            doSpecificTest(false, false);
+            doSpecificTest("alwaysDouble", "alwaysDouble");
+            doSpecificTest("alwaysSingle", "alwaysSingle");
+            doSpecificTest("preferSingle", "preferSingle");
         });
     });
 

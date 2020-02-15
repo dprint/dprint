@@ -1,0 +1,56 @@
+~~ quoteStyle: preferDouble ~~
+== should use double quotes ==
+console.log('str');
+
+[expect]
+console.log("str");
+
+== should handle double quotes inside the string ==
+console.log('"');
+
+[expect]
+console.log('"');
+
+== should handle escaped double quotes ==
+console.log("\"testing\"");
+
+[expect]
+console.log('"testing"');
+
+== should handle string literals that span multiple lines ==
+function test() {
+    const test = 'testing\
+this out\
+          testing';
+}
+
+[expect]
+function test() {
+    const test = "testing\
+this out\
+          testing";
+}
+
+== should use double quotes when there is the same number of double as single quotes ==
+log("test\" this' out");
+log('test" this\' out');
+
+[expect]
+log("test\" this' out");
+log("test\" this' out");
+
+== should use double quotes when there is more single than double quotes ==
+log("test' this' out\" a bit");
+log('test\' this\' out" a bit');
+
+[expect]
+log("test' this' out\" a bit");
+log("test' this' out\" a bit");
+
+== should use single quotes when there is more double than single quotes ==
+log("test\" this\" out' a bit");
+log('test" this" out\' a bit');
+
+[expect]
+log('test" this" out\' a bit');
+log('test" this" out\' a bit');

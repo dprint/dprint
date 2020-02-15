@@ -2183,9 +2183,41 @@ fn parse_string_literal<'a>(node: &'a Str, context: &mut Context<'a>) -> PrintIt
     return parse_raw_string(&get_string_literal_text(get_string_value(&node, context), context));
 
     fn get_string_literal_text(string_value: String, context: &mut Context) -> String {
-        match context.config.single_quotes {
-            true => format!("'{}'", string_value.replace("'", "\\'")),
-            false => format!("\"{}\"", string_value.replace("\"", "\\\"")),
+        return match context.config.quote_style {
+            QuoteStyle::AlwaysDouble => format_with_double(string_value),
+            QuoteStyle::AlwaysSingle => format_with_single(string_value),
+            QuoteStyle::PreferDouble => if double_to_single(&string_value) <= 0 {
+                format_with_double(string_value)
+            } else {
+                format_with_single(string_value)
+            },
+            QuoteStyle::PreferSingle => if double_to_single(&string_value) >= 0 {
+                format_with_single(string_value)
+            } else {
+                format_with_double(string_value)
+            },
+        };
+
+        fn format_with_double(string_value: String) -> String {
+            format!("\"{}\"", string_value.replace("\"", "\\\""))
+        }
+
+        fn format_with_single(string_value: String) -> String {
+            format!("'{}'", string_value.replace("'", "\\'"))
+        }
+
+        fn double_to_single(string_value: &str) -> i32 {
+            let mut double_count = 0;
+            let mut single_count = 0;
+            for c in string_value.chars() {
+                match c {
+                    '"' => double_count += 1,
+                    '\'' => single_count += 1,
+                    _ => {},
+                }
+            }
+
+            return double_count - single_count;
         }
     }
 

@@ -1,4 +1,5 @@
-== should use double quotes by default ==
+~~ quoteStyle: alwaysDouble ~~
+== should use double quotes always ==
 console.log('str');
 
 [expect]
