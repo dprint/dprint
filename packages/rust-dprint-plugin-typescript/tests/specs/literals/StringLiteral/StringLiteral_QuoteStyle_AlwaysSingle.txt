@@ -1,4 +1,4 @@
-~~ singleQuotes: true ~~
+~~ quoteStyle: alwaysSingle ~~
 == should use single quotes when specified ==
 console.log("str");
 

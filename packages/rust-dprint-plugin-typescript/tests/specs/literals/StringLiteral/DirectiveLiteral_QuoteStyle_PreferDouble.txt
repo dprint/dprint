@@ -1,3 +1,4 @@
+~~ quoteStyle: preferDouble ~~
 == should use double quotes by default ==
 'str';
 
@@ -8,4 +9,4 @@
 '"';
 
 [expect]
-"\"";
+'"';
