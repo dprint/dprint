@@ -5,6 +5,7 @@ mod ast_nodes;
 pub mod configuration;
 mod format_text;
 mod parse_cmark_ast;
+mod parsing;
 mod parser;
 mod parser_types;
 

@@ -28,8 +28,13 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::Code(node) => parse_code(node, context),
         Node::Text(node) => parse_text(node, context),
         Node::TextDecoration(node) => parse_text_decoration(node, context),
-        Node::Link(node) => parse_link(node, context),
-        Node::Image(node) => parse_image(node, context),
+        Node::InlineLink(node) => parse_inline_link(node, context),
+        Node::ReferenceLink(node) => parse_reference_link(node, context),
+        Node::ShortcutLink(node) => parse_shortcut_link(node, context),
+        Node::AutoLink(node) => parse_auto_link(node, context),
+        Node::LinkReference(node) => parse_link_reference(node, context),
+        Node::InlineImage(node) => parse_inline_image(node, context),
+        Node::ReferenceImage(node) => parse_reference_image(node, context),
         Node::SoftBreak(_) => PrintItems::new(),
         Node::HardBreak(_) => Signal::NewLine.into(),
         Node::NotImplemented(_) => parse_raw_string(node.text(context)),
@@ -69,6 +74,23 @@ fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {
                         items.push_signal(Signal::SpaceOrNewLine);
                     }
                 },
+                Node::InlineLink(_) | Node::ReferenceLink(_) | Node::ShortcutLink(_) | Node::AutoLink(_) => {
+                    let needs_space = if let Node::Text(text) = node {
+                        !text.starts_with_punctuation()
+                    } else {
+                        false
+                    };
+
+                    if needs_space {
+                        items.push_signal(Signal::SpaceOrNewLine);
+                    }
+                },
+                Node::LinkReference(_) => {
+                    let needs_newline = if let Node::LinkReference(_) = node { true } else { false };
+                    if needs_newline {
+                        items.push_signal(Signal::NewLine);
+                    }
+                }
                 _ => {},
             }
         }
@@ -232,52 +254,62 @@ fn parse_text_decoration(text: &TextDecoration, context: &mut Context) -> PrintI
     items
 }
 
-fn parse_link(link: &Link, context: &mut Context) -> PrintItems {
-    // todo... pulldown-cmark doesn't give me all the data I need.
+fn parse_inline_link(link: &InlineLink, _: &mut Context) -> PrintItems {
     let mut items = PrintItems::new();
-    items.push_str("[");
-    items.extend(parse_nodes(&link.children, context));
-    items.push_str("]");
-    match &link.link_type {
-        LinkType::Inline => {
-            items.push_str("(");
-            items.push_str(&link.reference);
-            if let Some(title) = &link.title {
-                items.push_str(&format!(" \"{}\"", title));
-            }
-            items.push_str(")");
-        },
-        LinkType::Reference => {
-            items.push_str("[");
-            items.push_str(&link.reference);
-            items.push_str("]");
-        },
-        _ => {},
+    items.push_str(&format!("[{}]", link.text.trim()));
+    items.push_str("(");
+    items.push_str(&link.url.trim());
+    if let Some(title) = &link.title {
+        items.push_str(&format!(" \"{}\"", title.trim()));
+    }
+    items.push_str(")");
+    items
+}
+
+fn parse_reference_link(link: &ReferenceLink, _: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(&format!("[{}]", link.text.trim()));
+    items.push_str(&format!("[{}]", link.reference.trim()));
+    items
+}
+
+fn parse_shortcut_link(link: &ShortcutLink, _: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(&format!("[{}]", link.text.trim()));
+    items
+}
+
+fn parse_auto_link(link: &AutoLink, _: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(&format!("<{}>", link.text.trim()));
+    items
+}
+
+fn parse_link_reference(link_ref: &LinkReference, _: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(&format!("[{}]: ", link_ref.name.trim()));
+    items.push_str(&link_ref.link.trim());
+    if let Some(title) = &link_ref.title {
+        items.push_str(&format!(" \"{}\"", title.trim()));
     }
     items
 }
 
-fn parse_image(image: &Image, context: &mut Context) -> PrintItems {
-    // todo... pulldown-cmark doesn't give me all the data I need.
+fn parse_inline_image(image: &InlineImage, _: &mut Context) -> PrintItems {
     let mut items = PrintItems::new();
-    items.push_str("![");
-    items.extend(parse_nodes(&image.children, context));
-    items.push_str("]");
-    match &image.link_type {
-        LinkType::Inline => {
-            items.push_str("(");
-            items.push_str(&image.reference);
-            if let Some(title) = &image.title {
-                items.push_str(&format!(" \"{}\"", title));
-            }
-            items.push_str(")");
-        },
-        LinkType::Reference => {
-            items.push_str("[");
-            items.push_str(&image.reference);
-            items.push_str("]");
-        },
-        _ => {},
+    items.push_str(&format!("![{}]", image.text.trim()));
+    items.push_str("(");
+    items.push_str(&image.url.trim());
+    if let Some(title) = &image.title {
+        items.push_str(&format!(" \"{}\"", title.trim()));
     }
+    items.push_str(")");
+    items
+}
+
+fn parse_reference_image(image: &ReferenceImage, _: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(&format!("![{}]", image.text.trim()));
+    items.push_str(&format!("[{}]", image.reference.trim()));
     items
 }

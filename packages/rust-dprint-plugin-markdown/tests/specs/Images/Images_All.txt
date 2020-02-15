@@ -11,16 +11,20 @@
 [expect]
 ![testing](https://dprint.dev/image.png "Dprint homepage")
 
-!! should format a reference link (skip) !!
+!! should format a reference link !!
 ![testing][Some reference]
+![  testing ][Other reference]
 
-[Some reference]: https://dprint.dev/image.png
+[Some reference]:    https://dprint.dev/image.png
+[Other reference]:   https://dprint.dev/image.png    "Testing"
 
 testing
 
 [expect]
 ![testing][Some reference]
+![testing][Other reference]
 
 [Some reference]: https://dprint.dev/image.png
+[Other reference]: https://dprint.dev/image.png "Testing"
 
 testing

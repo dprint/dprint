@@ -1,5 +1,6 @@
 use pulldown_cmark::*;
 use super::ast_nodes::*;
+use super::parsing::{parse_link_reference_definitions, parse_link as parse_link_from_text, parse_image as parse_image_from_text};
 
 pub struct ParseError {
     /// This range the parse error occurred.
@@ -16,12 +17,14 @@ impl ParseError {
 
 struct EventIterator<'a> {
     iterator: OffsetIter<'a>,
+    file_text: &'a str,
     last_range: Range,
 }
 
 impl<'a> EventIterator<'a> {
-    pub fn new(iterator: OffsetIter<'a>) -> EventIterator<'a> {
+    pub fn new(file_text: &'a str, iterator: OffsetIter<'a>) -> EventIterator<'a> {
         EventIterator {
+            file_text,
             iterator,
             last_range: Range {
                 start: 0,
@@ -32,8 +35,9 @@ impl<'a> EventIterator<'a> {
 
     pub fn next(&mut self) -> Option<Event<'a>> {
         if let Some((event, range)) = self.iterator.next() {
-            self.last_range = range;
             println!("Event: {:?}", event);
+            println!("Range: {:?}", range);
+            self.last_range = range;
             Some(event)
         } else {
             None
@@ -70,16 +74,41 @@ pub fn parse_cmark_ast(file_text: &str) -> Result<SourceFile, ParseError> {
     options.insert(Options::ENABLE_TASKLISTS);
 
     let mut children: Vec<Node> = Vec::new();
-    let mut iterator = EventIterator::new(Parser::new_ext(file_text, options).into_offset_iter());
+    let mut iterator = EventIterator::new(file_text, Parser::new_ext(file_text, options).into_offset_iter());
+    let mut last_event_range: Option<Range> = None;
 
     while let Some(event) = iterator.next() {
+        let current_range = iterator.get_last_range();
+        if let Some(references) = parse_references(&last_event_range, current_range.start, &mut iterator)? {
+            children.push(references);
+        }
+
         children.push(parse_event(event, &mut iterator)?);
+        last_event_range = Some(current_range);
+    }
+
+    if let Some(references) = parse_references(&last_event_range, file_text.len(), &mut iterator)? {
+        children.push(references);
     }
 
     Ok(SourceFile {
         children,
         range: iterator.get_range_for_start(0),
     })
+}
+
+fn parse_references(last_event_range: &Option<Range>, end: usize, iterator: &mut EventIterator) -> Result<Option<Node>, ParseError> {
+    if let Some(last_event_range) = last_event_range {
+        let references = parse_link_reference_definitions(last_event_range.end, &iterator.file_text[last_event_range.end..end])?;
+        if !references.is_empty() {
+            return Ok(Some(Paragraph {
+                range: Range { start: references.first().unwrap().range.start, end: references.last().unwrap().range.end },
+                children: references.into_iter().map(|x| x.into()).collect(),
+            }.into()));
+        }
+    }
+
+    Ok(None)
 }
 
 fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, ParseError> {
@@ -113,8 +142,8 @@ fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, Par
         Tag::Emphasis => parse_text_decoration(TextDecorationKind::Emphasis, iterator).map(|x| x.into()),
         Tag::Strong => parse_text_decoration(TextDecorationKind::Strong, iterator).map(|x| x.into()),
         Tag::Strikethrough => parse_text_decoration(TextDecorationKind::Strikethrough, iterator).map(|x| x.into()),
-        Tag::Link(link_type, destination_url, title) => parse_link(link_type, destination_url, title, iterator).map(|x| x.into()),
-        Tag::Image(link_type, destination_url, title) => parse_image(link_type, destination_url, title, iterator).map(|x| x.into()),
+        Tag::Link(link_type, _, _) => parse_link(link_type, iterator),
+        Tag::Image(link_type, _, _) => parse_image(link_type, iterator),
     }
 }
 
@@ -232,46 +261,29 @@ fn parse_text_decoration(kind: TextDecorationKind, iterator: &mut EventIterator)
     })
 }
 
-fn parse_link(link_type: LinkType, destination_url: CowStr, title: CowStr, iterator: &mut EventIterator) -> Result<Link, ParseError> {
+fn parse_link(link_type: LinkType, iterator: &mut EventIterator) -> Result<Node, ParseError> {
     let start = iterator.start();
-    let mut children = Vec::new();
 
     while let Some(event) = iterator.next() {
         match event {
             Event::End(Tag::Link(_, _, _)) => break,
-            _ => children.push(parse_event(event, iterator)?),
+            _ => {}, // ignore link children
         }
     }
 
-    // todo: fix this to properly parse out the reference text
-    let title = title.as_ref().trim();
-    Ok(Link {
-        range: iterator.get_range_for_start(start),
-        link_type,
-        reference: String::from(destination_url.as_ref()),
-        title: if title.is_empty() { None } else { Some(String::from(title)) },
-        children,
-    })
+    // iterator.get_last_range().end in pulldown-cmark is wrong, so just pass all the text from the start (issue #430 in their repo)
+    parse_link_from_text(start, &iterator.file_text[start..], link_type)
 }
 
-fn parse_image(link_type: LinkType, destination_url: CowStr, title: CowStr, iterator: &mut EventIterator) -> Result<Image, ParseError> {
+fn parse_image(link_type: LinkType, iterator: &mut EventIterator) -> Result<Node, ParseError> {
     let start = iterator.start();
-    let mut children = Vec::new();
 
     while let Some(event) = iterator.next() {
         match event {
             Event::End(Tag::Image(_, _, _)) => break,
-            _ => children.push(parse_event(event, iterator)?),
+            _ => {}, // ignore link children
         }
     }
 
-    // todo: fix this to properly parse out the reference text
-    let title = title.as_ref().trim();
-    Ok(Image {
-        range: iterator.get_range_for_start(start),
-        link_type,
-        reference: String::from(destination_url.as_ref()),
-        title: if title.is_empty() { None } else { Some(String::from(title)) },
-        children,
-    })
+    parse_image_from_text(start, &iterator.file_text[start..], link_type)
 }

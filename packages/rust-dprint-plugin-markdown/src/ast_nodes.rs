@@ -45,20 +45,47 @@ pub enum TextDecorationKind {
     Strikethrough,
 }
 
-pub struct Link {
+pub struct InlineLink {
     pub range: Range,
-    pub link_type: pulldown_cmark::LinkType,
-    pub reference: String,
+    pub text: String,
+    pub url: String,
     pub title: Option<String>,
-    pub children: Vec<Node>,
 }
 
-pub struct Image {
+pub struct ReferenceLink {
     pub range: Range,
-    pub link_type: pulldown_cmark::LinkType,
+    pub text: String,
     pub reference: String,
+}
+
+pub struct ShortcutLink {
+    pub range: Range,
+    pub text: String,
+}
+
+pub struct AutoLink {
+    pub range: Range,
+    pub text: String,
+}
+
+pub struct LinkReference {
+    pub range: Range,
+    pub name: String,
+    pub link: String,
     pub title: Option<String>,
-    pub children: Vec<Node>,
+}
+
+pub struct InlineImage {
+    pub range: Range,
+    pub text: String,
+    pub url: String,
+    pub title: Option<String>,
+}
+
+pub struct ReferenceImage {
+    pub range: Range,
+    pub text: String,
+    pub reference: String,
 }
 
 impl Text {
@@ -159,8 +186,13 @@ generate_node![
     BlockQuote,
     Text,
     TextDecoration,
-    Link,
-    Image,
+    InlineLink,
+    ReferenceLink,
+    ShortcutLink,
+    AutoLink,
+    LinkReference,
+    InlineImage,
+    ReferenceImage,
     SoftBreak,
     HardBreak,
     Code,

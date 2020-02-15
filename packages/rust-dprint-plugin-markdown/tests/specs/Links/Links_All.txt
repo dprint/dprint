@@ -11,7 +11,7 @@
 [expect]
 [testing](https://dprint.dev "Dprint homepage")
 
-!! should format a reference link (skip) !!
+!! should format a reference link !!
 [testing][Some reference]
 
 [Some reference]: https://github.com
@@ -21,6 +21,38 @@ testing
 [expect]
 [testing][Some reference]
 
-[Some reference]: https://dprint.dev
+[Some reference]: https://github.com
 
 testing
+
+!! should format a collapsed link (what even is this?) !!
+[testing][]
+
+[]: https://github.com
+
+[expect]
+[testing][]
+
+[]: https://github.com
+
+!! should format a shortcut link !!
+Testing this [out a bit].
+
+[out a bit]:    https://github.com
+
+[expect]
+Testing this [out a bit].
+
+[out a bit]: https://github.com
+
+!! should format an email link !!
+Here is an <email@google.com> link.
+
+[expect]
+Here is an <email@google.com> link.
+
+!! should format an auto link !!
+Testing <https://google.com> this.
+
+[expect]
+Testing <https://google.com> this.
