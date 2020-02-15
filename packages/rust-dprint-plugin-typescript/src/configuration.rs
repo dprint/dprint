@@ -15,7 +15,7 @@ use dprint_core::configuration::*;
 ///     .line_width(80)
 ///     .prefer_hanging_parameters(true)
 ///     .prefer_hanging_arguments(true)
-///     .single_quotes(true)
+///     .quote_style(QuoteStyle::PreferSingle)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
 ///     .build();
 /// ```
@@ -77,11 +77,11 @@ impl ConfigurationBuilder {
         self.insert("newLineKind", value)
     }
 
-    /// Whether to use single quotes (true) or double quotes (false).
+    /// The quote style to use.
     ///
-    /// Default: `false`
-    pub fn single_quotes(&mut self, value: bool) -> &mut Self {
-        self.insert("singleQuotes", value)
+    /// Default: `QuoteStyle::PreferDouble`
+    pub fn quote_style(&mut self, value: QuoteStyle) -> &mut Self {
+        self.insert("quoteStyle", value)
     }
 
     /// Whether statements should end in a semi-colon.
@@ -916,6 +916,30 @@ generate_str_to_from![
     [PreferNone, "preferNone"]
 ];
 
+/// How to decide to use single or double quotes.
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum QuoteStyle {
+    /// Always use double quotes.
+    AlwaysDouble,
+    /// Always use single quotes.
+    AlwaysSingle,
+    /// Prefer using double quotes except in scenarios where the string
+    /// contains more double quotes than single quotes.
+    PreferDouble,
+    /// Prefer using single quotes except in scenarios where the string
+    /// contains more single quotes than double quotes.
+    PreferSingle,
+}
+
+generate_str_to_from![
+    QuoteStyle,
+    [AlwaysDouble, "alwaysDouble"],
+    [AlwaysSingle, "alwaysSingle"],
+    [PreferDouble, "preferDouble"],
+    [PreferSingle, "preferSingle"]
+];
+
 /// Resolves configuration from a collection of key value strings.
 ///
 /// # Example
@@ -959,7 +983,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         use_tabs: get_value(&mut config, "useTabs", global_config.use_tabs.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.use_tabs), &mut diagnostics),
         indent_width: get_value(&mut config, "indentWidth", global_config.indent_width.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.indent_width), &mut diagnostics),
         new_line_kind: get_value(&mut config, "newLineKind", global_config.new_line_kind.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.new_line_kind), &mut diagnostics),
-        single_quotes: get_value(&mut config, "singleQuotes", false, &mut diagnostics),
+        quote_style: get_value(&mut config, "quoteStyle", QuoteStyle::PreferDouble, &mut diagnostics),
         /* use parentheses */
         arrow_function_expression_use_parentheses: get_value(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain, &mut diagnostics),
         /* brace position */
@@ -1108,7 +1132,7 @@ pub struct Configuration {
     pub line_width: u32,
     pub use_tabs: bool,
     pub new_line_kind: NewLineKind,
-    pub single_quotes: bool,
+    pub quote_style: QuoteStyle,
     /* use parentheses */
     #[serde(rename = "arrowFunctionExpression.useParentheses")]
     pub arrow_function_expression_use_parentheses: UseParentheses,

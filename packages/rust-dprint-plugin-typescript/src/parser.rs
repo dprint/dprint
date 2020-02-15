@@ -78,6 +78,8 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::Constructor(node) => parse_constructor(node, context),
             Node::Decorator(node) => parse_decorator(node, context),
             Node::TsParamProp(node) => parse_parameter_prop(node, context),
+            Node::PrivateName(node) => parse_private_name(node, context),
+            Node::PrivateProp(node) => parse_private_prop(node, context),
             /* clauses */
             Node::CatchClause(node) => parse_catch_clause(node, context),
             /* common */
@@ -134,6 +136,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::YieldExpr(node) => parse_yield_expr(node, context),
             /* exports */
             Node::NamedExportSpecifier(node) => parse_export_named_specifier(node, context),
+            Node::NamespaceExportSpecifier(node) => parse_namespace_export_specifier(node, context),
             /* imports */
             Node::ImportSpecific(node) => parse_import_named_specifier(node, context),
             Node::ImportStarAs(node) => parse_import_namespace_specifier(node, context),
@@ -313,35 +316,23 @@ fn parse_class_method<'a>(node: &'a ClassMethod, context: &mut Context<'a>) -> P
 }
 
 fn parse_class_prop<'a>(node: &'a ClassProp, context: &mut Context<'a>) -> PrintItems {
-    let mut items = PrintItems::new();
-    items.extend(parse_decorators(&node.decorators, false, context));
-    if let Some(accessibility) = node.accessibility {
-        items.push_str(&format!("{} ", accessibility_to_str(&accessibility)));
-    }
-    if node.is_static { items.push_str("static "); }
-    if node.is_abstract { items.push_str("abstract "); }
-    if node.readonly { items.push_str("readonly "); }
-    if node.computed { items.push_str("["); }
-    items.extend(parse_node((&node.key).into(), context));
-    if node.computed { items.push_str("]"); }
-    if node.is_optional { items.push_str("?"); }
-    if node.definite { items.push_str("!"); }
-    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
-
-    if let Some(value) = &node.value {
-        items.push_str(" = ");
-        items.extend(parse_node(value.into(), context));
-    }
-
-    if context.config.class_property_semi_colon {
-        items.push_str(";");
-    }
-
-    return items;
+    parse_class_prop_common(ParseClassPropCommon {
+        key: (&node.key).into(),
+        value: &node.value,
+        type_ann: &node.type_ann,
+        is_static: node.is_static,
+        decorators: &node.decorators,
+        computed: node.computed,
+        accessibility: &node.accessibility,
+        is_abstract: node.is_abstract,
+        is_optional: node.is_optional,
+        readonly: node.readonly,
+        definite: node.definite,
+    }, context)
 }
 
 fn parse_constructor<'a>(node: &'a Constructor, context: &mut Context<'a>) -> PrintItems {
-    return parse_class_or_object_method(ClassOrObjectMethod {
+    parse_class_or_object_method(ClassOrObjectMethod {
         decorators: None,
         accessibility: node.accessibility,
         is_static: false,
@@ -355,7 +346,7 @@ fn parse_constructor<'a>(node: &'a Constructor, context: &mut Context<'a>) -> Pr
         params: node.params.iter().map(|x| x.into()).collect(),
         return_type: None,
         body: node.body.as_ref().map(|x| x.into()),
-    }, context);
+    }, context)
 }
 
 fn parse_decorator<'a>(node: &'a Decorator, context: &mut Context<'a>) -> PrintItems {
@@ -373,6 +364,76 @@ fn parse_parameter_prop<'a>(node: &'a TsParamProp, context: &mut Context<'a>) ->
     }
     if node.readonly { items.push_str("readonly "); }
     items.extend(parse_node((&node.param).into(), context));
+    return items;
+}
+
+fn parse_private_name<'a>(node: &'a PrivateName, context: &mut Context<'a>) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str("#");
+    items.extend(parse_node((&node.id).into(), context));
+    items
+}
+
+fn parse_private_prop<'a>(node: &'a PrivateProp, context: &mut Context<'a>) -> PrintItems {
+    parse_class_prop_common(ParseClassPropCommon {
+        key: (&node.key).into(),
+        value: &node.value,
+        type_ann: &node.type_ann,
+        is_static: node.is_static,
+        decorators: &node.decorators,
+        computed: node.computed,
+        accessibility: &node.accessibility,
+        is_abstract: node.is_abstract,
+        is_optional: node.is_optional,
+        readonly: node.readonly,
+        definite: node.definite,
+    }, context)
+}
+
+struct ParseClassPropCommon<'a> {
+    pub key: Node<'a>,
+    pub value: &'a Option<Box<Expr>>,
+    pub type_ann: &'a Option<TsTypeAnn>,
+    pub is_static: bool,
+    pub decorators: &'a Vec<Decorator>,
+    pub computed: bool,
+    pub accessibility: &'a Option<Accessibility>,
+    pub is_abstract: bool,
+    pub is_optional: bool,
+    pub readonly: bool,
+    pub definite: bool,
+}
+
+fn parse_class_prop_common<'a>(node: ParseClassPropCommon<'a>, context: &mut Context<'a>) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.extend(parse_decorators(node.decorators, false, context));
+    if let Some(accessibility) = node.accessibility {
+        items.push_str(&format!("{} ", accessibility_to_str(accessibility)));
+    }
+    if node.is_static { items.push_str("static "); }
+    if node.is_abstract { items.push_str("abstract "); }
+    if node.readonly { items.push_str("readonly "); }
+    if node.computed { items.push_str("["); }
+    items.extend(parse_node(node.key, context));
+    if node.computed { items.push_str("]"); }
+    if node.is_optional { items.push_str("?"); }
+    if node.definite { items.push_str("!"); }
+    items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
+
+    if let Some(value) = node.value {
+        items.push_str(" =");
+        items.push_condition(conditions::if_above_width_or(
+            context.config.indent_width,
+            Signal::SpaceOrNewLine.into(),
+            " ".into()
+        ));
+        items.push_condition(conditions::indent_if_start_of_line(parse_node(value.into(), context)));
+    }
+
+    if context.config.class_property_semi_colon {
+        items.push_str(";");
+    }
+
     return items;
 }
 
@@ -858,11 +919,9 @@ fn parse_module_or_namespace_decl<'a>(node: ModuleOrNamespaceDecl<'a>, context: 
     items.push_info(start_header_info);
 
     if node.declare { items.push_str("declare "); }
-    if node.global {
-        items.push_str("global");
-        // items.extend(parse_node(node.id.into(), context));
-    } else {
-        let has_namespace_keyword = context.token_finder.get_char_at(&node.span.lo()) == 'n';
+    if !node.global {
+        let module_or_namespace_keyword = context.token_finder.get_previous_token(&node.id).unwrap();
+        let has_namespace_keyword = context.token_finder.get_char_at(&module_or_namespace_keyword.span.lo()) == 'n';
         items.push_str(if has_namespace_keyword { "namespace " } else { "module " });
     }
 
@@ -1782,6 +1841,13 @@ fn parse_export_named_specifier<'a>(node: &'a NamedExportSpecifier, context: &mu
     items
 }
 
+fn parse_namespace_export_specifier<'a>(node: &'a NamespaceExportSpecifier, context: &mut Context<'a>) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str("* as ");
+    items.extend(parse_node((&node.name).into(), context));
+    items
+}
+
 /* imports */
 
 fn parse_import_named_specifier<'a>(node: &'a ImportSpecific, context: &mut Context<'a>) -> PrintItems {
@@ -2188,9 +2254,41 @@ fn parse_string_literal<'a>(node: &'a Str, context: &mut Context<'a>) -> PrintIt
     return parse_raw_string(&get_string_literal_text(get_string_value(&node, context), context));
 
     fn get_string_literal_text(string_value: String, context: &mut Context) -> String {
-        match context.config.single_quotes {
-            true => format!("'{}'", string_value.replace("'", "\\'")),
-            false => format!("\"{}\"", string_value.replace("\"", "\\\"")),
+        return match context.config.quote_style {
+            QuoteStyle::AlwaysDouble => format_with_double(string_value),
+            QuoteStyle::AlwaysSingle => format_with_single(string_value),
+            QuoteStyle::PreferDouble => if double_to_single(&string_value) <= 0 {
+                format_with_double(string_value)
+            } else {
+                format_with_single(string_value)
+            },
+            QuoteStyle::PreferSingle => if double_to_single(&string_value) >= 0 {
+                format_with_single(string_value)
+            } else {
+                format_with_double(string_value)
+            },
+        };
+
+        fn format_with_double(string_value: String) -> String {
+            format!("\"{}\"", string_value.replace("\"", "\\\""))
+        }
+
+        fn format_with_single(string_value: String) -> String {
+            format!("'{}'", string_value.replace("'", "\\'"))
+        }
+
+        fn double_to_single(string_value: &str) -> i32 {
+            let mut double_count = 0;
+            let mut single_count = 0;
+            for c in string_value.chars() {
+                match c {
+                    '"' => double_count += 1,
+                    '\'' => single_count += 1,
+                    _ => {},
+                }
+            }
+
+            return double_count - single_count;
         }
     }
 
@@ -3501,8 +3599,10 @@ fn parse_type_predicate<'a>(node: &'a TsTypePredicate, context: &mut Context<'a>
     let mut items = PrintItems::new();
     if node.asserts { items.push_str("asserts "); }
     items.extend(parse_node((&node.param_name).into(), context));
-    items.push_str(" is ");
-    items.extend(parse_node((&node.type_ann).into(), context));
+    if let Some(type_ann) = &node.type_ann {
+        items.push_str(" is ");
+        items.extend(parse_node(type_ann.into(), context));
+    }
     return items;
 }
 
