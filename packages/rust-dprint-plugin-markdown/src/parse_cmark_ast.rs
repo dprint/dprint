@@ -68,8 +68,8 @@ impl<'a> EventIterator<'a> {
 
 pub fn parse_cmark_ast(file_text: &str) -> Result<SourceFile, ParseError> {
     let mut options = Options::empty();
-    options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
 
@@ -118,7 +118,7 @@ fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, Parse
         Event::Code(code) => parse_code(code, iterator).map(|x| x.into()),
         Event::Text(text) => parse_text(text, iterator).map(|x| x.into()),
         Event::Html(html) => parse_html(html, iterator).map(|x| x.into()),
-        Event::FootnoteReference(reference) => Ok(iterator.get_not_implemented()),
+        Event::FootnoteReference(reference) => parse_footnote_reference(reference, iterator).map(|x| x.into()),
         Event::SoftBreak => Ok(SoftBreak { range: iterator.get_last_range() }.into()),
         Event::HardBreak => Ok(SoftBreak { range: iterator.get_last_range() }.into()),
         Event::Rule => Ok(iterator.get_not_implemented()),
@@ -134,7 +134,7 @@ fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, Par
         Tag::CodeBlock(tag) => parse_code_block(tag, iterator).map(|x| x.into()),
         Tag::List(first_item_number) => Ok(iterator.get_not_implemented()),
         Tag::Item => Ok(iterator.get_not_implemented()),
-        Tag::FootnoteDefinition(label) => Ok(iterator.get_not_implemented()),
+        Tag::FootnoteDefinition(label) => parse_footnote_definition(label, iterator).map(|x| x.into()),
         Tag::Table(text_alignment) => Ok(iterator.get_not_implemented()),
         Tag::TableHead => Ok(iterator.get_not_implemented()),
         Tag::TableRow => Ok(iterator.get_not_implemented()),
@@ -271,6 +271,31 @@ fn parse_html(text: CowStr, iterator: &mut EventIterator) -> Result<Html, ParseE
     Ok(Html {
         range: Range { start, end: start + text.len() },
         text,
+    })
+}
+
+fn parse_footnote_reference(name: CowStr, iterator: &mut EventIterator) -> Result<FootnoteReference, ParseError> {
+    Ok(FootnoteReference {
+        range: iterator.get_last_range(),
+        name: String::from(name.as_ref()),
+    })
+}
+
+fn parse_footnote_definition(name: CowStr, iterator: &mut EventIterator) -> Result<FootnoteDefinition, ParseError> {
+    let start = iterator.start();
+    let mut children = Vec::new();
+
+    while let Some(event) = iterator.next() {
+        match event {
+            Event::End(Tag::FootnoteDefinition(_)) => break,
+            _ => children.push(parse_event(event, iterator)?),
+        }
+    }
+
+    Ok(FootnoteDefinition {
+        range: iterator.get_range_for_start(start),
+        name: String::from(name.as_ref()),
+        children,
     })
 }
 

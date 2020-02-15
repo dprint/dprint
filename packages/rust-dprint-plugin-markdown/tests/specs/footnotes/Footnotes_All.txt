@@ -1,0 +1,43 @@
+~~ lineWidth: 40 ~~
+!! should format footnotes !!
+Testing this[^1] out.
+
+[^1]: Footnote.
+
+[expect]
+Testing this[^1] out.
+
+[^1]: Footnote.
+
+!! should format multiple footnotes !!
+Testing this[^1] out[^2].
+
+[^1]: Footnote.
+
+[^2]: Testing.
+
+[expect]
+Testing this[^1] out[^2].
+
+[^1]: Footnote.
+
+[^2]: Testing.
+
+!! should format a multi-line footnote. Todo... doesn't seem to work (skip) !!
+Testing this[^1].
+
+[^1]: Footnote.
+    Testing.
+
+    Other test.
+    Test.
+
+
+[expect]
+Testing this[^1].
+
+[^1]: Footnote.
+    Testing.
+
+    Other test.
+    Test.

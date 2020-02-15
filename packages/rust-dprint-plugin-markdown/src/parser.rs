@@ -29,6 +29,8 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::Text(node) => parse_text(node, context),
         Node::TextDecoration(node) => parse_text_decoration(node, context),
         Node::Html(node) => parse_html(node, context),
+        Node::FootnoteReference(node) => parse_footnote_reference(node, context),
+        Node::FootnoteDefinition(node) => parse_footnote_definition(node, context),
         Node::InlineLink(node) => parse_inline_link(node, context),
         Node::ReferenceLink(node) => parse_reference_link(node, context),
         Node::ShortcutLink(node) => parse_shortcut_link(node, context),
@@ -51,7 +53,7 @@ fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {
         let is_current_soft_break = match node { Node::SoftBreak(_) => true, _=> false, };
         if let Some(last_node) = last_node {
             match last_node {
-                Node::Heading(_) | Node::Paragraph(_) | Node::CodeBlock(_) => {
+                Node::Heading(_) | Node::Paragraph(_) | Node::CodeBlock(_) | Node::FootnoteDefinition(_) => {
                     items.push_signal(Signal::NewLine);
                     items.push_signal(Signal::NewLine);
                 },
@@ -67,7 +69,7 @@ fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {
                         items.push_signal(Signal::SpaceOrNewLine)
                     }
                 },
-                Node::Code(_) | Node::SoftBreak(_) | Node::TextDecoration(_) => {
+                Node::Code(_) | Node::SoftBreak(_) | Node::TextDecoration(_) | Node::FootnoteReference(_) => {
                     let needs_space = if let Node::Text(text) = node {
                         !text.starts_with_punctuation()
                     } else {
@@ -261,6 +263,19 @@ fn parse_text_decoration(text: &TextDecoration, context: &mut Context) -> PrintI
 fn parse_html(html: &Html, _: &mut Context) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str(html.text.trim_end());
+    items
+}
+
+fn parse_footnote_reference(footnote_reference: &FootnoteReference, _: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(&format!("[^{}]", footnote_reference.name.trim()));
+    items
+}
+
+fn parse_footnote_definition(footnote_definition: &FootnoteDefinition, context: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(&format!("[^{}]: ", footnote_definition.name.trim()));
+    items.extend(parse_nodes(&footnote_definition.children, context));
     items
 }
 
