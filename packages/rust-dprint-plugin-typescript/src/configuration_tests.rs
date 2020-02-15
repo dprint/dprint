@@ -10,7 +10,7 @@ fn check_all_values_set() {
         .use_tabs(false)
         .indent_width(4)
         /* common */
-        .single_quotes(true)
+        .quote_style(QuoteStyle::AlwaysDouble)
         .semi_colons(true)
         .brace_position(BracePosition::NextLine)
         .next_control_flow_position(NextControlFlowPosition::SameLine)

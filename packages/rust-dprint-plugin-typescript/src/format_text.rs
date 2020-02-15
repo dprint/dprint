@@ -20,7 +20,7 @@ use swc_common::{BytePos, comments::{Comment}};
 ///     .line_width(80)
 ///     .prefer_hanging_parameters(true)
 ///     .prefer_hanging_arguments(true)
-///     .single_quotes(true)
+///     .quote_style(QuoteStyle::PreferSingle)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
 ///     .build();
 ///

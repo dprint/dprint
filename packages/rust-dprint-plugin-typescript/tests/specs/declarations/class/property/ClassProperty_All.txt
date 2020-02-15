@@ -31,3 +31,16 @@ abstract class Test {
     @dec
     readonly propReadonly = 3;
 }
+
+== should wrap an assignment that goes over the line width when sufficient ==
+class Test {
+    p = tttttttttttttttttttttttttttttttttttttttttttt;
+    testingThis = tttttttttttttttttttttttttttttttttt;
+}
+
+[expect]
+class Test {
+    p = tttttttttttttttttttttttttttttttttttttttttttt;
+    testingThis =
+        tttttttttttttttttttttttttttttttttt;
+}
