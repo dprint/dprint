@@ -1,0 +1,35 @@
+~~ lineWidth: 40 ~~
+== should format ==
+class Test {
+    #p1;
+    #p2 : string;
+    #p3    =   4;
+
+    constructor() {
+        this.#p1 = "test";
+    }
+}
+
+[expect]
+class Test {
+    #p1;
+    #p2: string;
+    #p3 = 4;
+
+    constructor() {
+        this.#p1 = "test";
+    }
+}
+
+== should wrap an assignment that goes over the line width when sufficient ==
+class Test {
+    #p = tttttttttttttttttttttttttttttttttttt;
+    #testingThis = tttttttttttttttttttttttttt;
+}
+
+[expect]
+class Test {
+    #p = tttttttttttttttttttttttttttttttttttt;
+    #testingThis =
+        tttttttttttttttttttttttttt;
+}
