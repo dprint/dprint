@@ -1,0 +1,25 @@
+~~ lineWidth: 40, taggedTemplate.spaceBeforeLiteral: false ~~
+== should format ==
+const t = tag `testing`;
+
+[expect]
+const t = tag`testing`;
+
+== should format with type parameters ==
+const t = tag<T, U> `testing`;
+
+[expect]
+const t = tag<T, U>`testing`;
+
+== should move the template literal to the next line when exceeding the width ==
+const t = tag<Testing, Other>`testing this out`;
+
+[expect]
+const t = tag<Testing, Other>
+    `testing this out`;
+
+== should not newline if the tagged template tag is below the indent width ==
+tag `ttttttttttttttttttttttttttttttttttt`;
+
+[expect]
+tag`ttttttttttttttttttttttttttttttttttt`;

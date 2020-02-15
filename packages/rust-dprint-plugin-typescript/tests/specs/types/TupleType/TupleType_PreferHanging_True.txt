@@ -1,0 +1,32 @@
+~~ lineWidth: 40, tupleType.preferHanging: true ~~
+== should format ==
+type T = [   string   , number   ];
+
+[expect]
+type T = [string, number];
+
+== should split on multiple lines when first is on different line ==
+type T = [
+    string, // test
+    number, other   ];
+
+[expect]
+type T = [
+    string, // test
+    number,
+    other
+];
+
+== should hang when exceeding line width ==
+type T = [string, number, other, otherTest, other];
+
+[expect]
+type T = [string, number, other,
+    otherTest, other];
+
+== should not split up a tuple type midway through ==
+type T = [string, number, string | number | other];
+
+[expect]
+type T = [string, number,
+    string | number | other];

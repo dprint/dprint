@@ -1,7 +1,28 @@
 == should format ==
+test;
 ;
 ;
 
 [expect]
+test;
+
+== should format when comments are around ==
+/* 1 */; // 2
+// 3
 ;
+// 4
+
+[expect]
+/* 1 */ // 2
+// 3
+// 4
+
+== should format when between nodes ==
+test;
 ;
+asdf;
+
+[expect]
+test;
+
+asdf;

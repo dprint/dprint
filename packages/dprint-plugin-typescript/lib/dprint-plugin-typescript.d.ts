@@ -25,10 +25,16 @@ export interface TypeScriptConfiguration {
      */
     semiColons?: boolean;
     /**
-     * Whether to use single quotes (true) or double quotes (false).
-     * @default false
+     * How to decide to use single or double quotes.
+     * @default "preferDouble"
+     * @value "alwaysDouble" - Always use double quotes.
+     * @value "alwaysSingle" - Always use single quotes.
+     * @value "preferDouble" - Prefer using double quotes except in scenarios where the string
+     * contains more double quotes than single quotes.
+     * @value "preferSingle" - Prefer using single quotes except in scenarios where the string
+     * contains more single quotes than double quotes.
      */
-    singleQuotes?: boolean;
+    quoteStyle?: "alwaysDouble" | "alwaysSingle" | "preferDouble" | "preferSingle";
     /**
      * The kind of newline to use.
      * @default "auto"
@@ -88,6 +94,14 @@ export interface TypeScriptConfiguration {
      * @value "nextLine" - Forces the operator to be on the next line.
      */
     operatorPosition?: "maintain" | "sameLine" | "nextLine";
+    /**
+     * Set to prefer hanging indentation when exceeding the line width.
+     * @remarks When set, this value propagates down as the default value for
+     * other configuration such as `preferHangingArguments` and
+     * `preferHangingParameters`.
+     * @default false
+     */
+    preferHanging?: boolean;
     /**
      * Prefers an argument list to be hanging when it exceeds the line width.
      * @remarks It will be hanging when the first argument is on the same line
@@ -245,6 +259,13 @@ export interface TypeScriptConfiguration {
      */
     "setAccessor.spaceBeforeParentheses"?: boolean;
     /**
+     * Whether to add a space before the literal in a tagged templte.
+     * @default true
+     * @value true - Ex. `html \`<element />\``
+     * @value false - Ex. `html\`<element />\``
+     */
+    "taggedTemplate.spaceBeforeLiteral"?: boolean;
+    /**
      * Whether to add a space before the colon of a type annotation.
      * @default false
      * @value true - Ex. `function myFunction() : string`
@@ -334,6 +355,12 @@ export interface TypeScriptConfiguration {
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
+    "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "arrowFunctionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
@@ -354,7 +381,7 @@ export interface TypeScriptConfiguration {
  * Resolved configuration from user specified configuration.
  */
 export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
-    readonly singleQuotes: boolean;
+    readonly quoteStyle: NonNullable<TypeScriptConfiguration["quoteStyle"]>;
     readonly "breakStatement.semiColon": boolean;
     readonly "callSignature.semiColon": boolean;
     readonly "classProperty.semiColon": boolean;
@@ -424,6 +451,12 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
+    readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "arrowFunctionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
@@ -458,6 +491,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "jsxExpressionContainer.spaceSurroundingExpression": boolean;
     readonly "method.spaceBeforeParentheses": boolean;
     readonly "setAccessor.spaceBeforeParentheses": boolean;
+    readonly "taggedTemplate.spaceBeforeLiteral": boolean;
     readonly "typeAnnotation.spaceBeforeColon": boolean;
     readonly "typeAssertion.spaceBeforeExpression": boolean;
     readonly "whileStatement.spaceAfterWhileKeyword": boolean;

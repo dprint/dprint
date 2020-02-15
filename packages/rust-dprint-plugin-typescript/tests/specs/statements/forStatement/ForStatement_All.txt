@@ -62,3 +62,17 @@ for (
     ; i < 5; i++
 ) {
 }
+
+== should print empty on same line when on same line ==
+for (; i < 5; i++) {}
+
+[expect]
+for (; i < 5; i++) {}
+
+== should print empty on different line when on different line ==
+for (; i < 5; i++) {
+}
+
+[expect]
+for (; i < 5; i++) {
+}

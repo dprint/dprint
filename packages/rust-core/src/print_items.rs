@@ -105,6 +105,12 @@ impl PrintItems {
         self.push_item_internal(PrintItem::RcPath(path))
     }
 
+    pub fn push_optional_path(&mut self, path: Option<PrintItemPath>) {
+        if let Some(path) = path {
+            self.push_path(path);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.first_node.is_none()
     }
@@ -135,7 +141,7 @@ impl PrintItems {
                             text.push_str(&get_items_as_text(false_path.clone(), format!("{}    ", &indent_text)));
                         }
                     },
-                    PrintItem::String(str_text) => text.push_str(&get_line(str_text.text.to_string(), &indent_text)),
+                    PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text.to_string()), &indent_text)),
                     PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path.clone(), indent_text.clone())),
                 }
             }
@@ -506,6 +512,14 @@ impl ConditionReference {
     pub fn new(name: &'static str, id: usize) -> ConditionReference {
         ConditionReference { name, id }
     }
+
+    /// Creates a condition resolver that checks the value of the condition this references.
+    pub fn create_resolver(&self) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
+        let captured_self = self.clone();
+        move |condition_context: &mut ConditionResolverContext| {
+            condition_context.get_resolved_condition(&captured_self)
+        }
+    }
 }
 
 impl<TString, TInfo> ConditionTrait<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
@@ -556,7 +570,7 @@ pub struct ConditionProperties<TString = String, TInfo = Info> where TString : S
 }
 
 /// Function used to resolve a condition.
-pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc + Clone + 'static; once supported
+pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc; once supported
 
 /// Context used when resolving a condition.
 pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {

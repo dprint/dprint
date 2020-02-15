@@ -123,21 +123,23 @@ describe("configuration", () => {
         }
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c.singleQuotes), () => {
-        function doSpecificTest(value: boolean | undefined, expectedValue: boolean) {
-            doTest({ singleQuotes: value as any }, { singleQuotes: expectedValue as any }, prop => prop === "singleQuotes");
+    describe(nameof<TypeScriptConfiguration>(c => c.quoteStyle), () => {
+        function doSpecificTest(value: TypeScriptConfiguration["quoteStyle"] | undefined, expectedValue: ResolvedTypeScriptConfiguration["quoteStyle"]) {
+            doTest({ quoteStyle: value }, { quoteStyle: expectedValue }, prop => prop === "quoteStyle");
         }
 
         it("should set when not set", () => {
-            doSpecificTest(undefined, false);
+            doSpecificTest(undefined, "preferDouble");
         });
 
         it("should use when set to the default", () => {
-            doSpecificTest(true, true);
+            doSpecificTest("preferDouble", "preferDouble");
         });
 
         it("should use when not set to the default", () => {
-            doSpecificTest(false, false);
+            doSpecificTest("alwaysDouble", "alwaysDouble");
+            doSpecificTest("alwaysSingle", "alwaysSingle");
+            doSpecificTest("preferSingle", "preferSingle");
         });
     });
 
@@ -364,6 +366,58 @@ describe("configuration", () => {
         }
     });
 
+    describe(nameof<TypeScriptConfiguration>(c => c.preferHanging), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.includes("preferHanging"));
+        }
+
+        let defaultValue = false;
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(defaultValue));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ preferHanging: defaultValue }, getObject(defaultValue));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ preferHanging: !defaultValue }, getObject(!defaultValue));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(defaultValue);
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.preferHanging = !defaultValue;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "arrayExpression.preferHanging": value,
+                "arrayPattern.preferHanging": value,
+                "objectExpression.preferHanging": value,
+                "objectPattern.preferHanging": value,
+                "tupleType.preferHanging": value,
+                "typeLiteral.preferHanging": value,
+                "callExpression.preferHangingArguments": value,
+                "newExpression.preferHangingArguments": value,
+                "arrowFunctionExpression.preferHangingParameters": value,
+                "callSignature.preferHangingParameters": value,
+                "constructor.preferHangingParameters": value,
+                "constructSignature.preferHangingParameters": value,
+                "constructorType.preferHangingParameters": value,
+                "functionDeclaration.preferHangingParameters": value,
+                "functionExpression.preferHangingParameters": value,
+                "functionType.preferHangingParameters": value,
+                "getAccessor.preferHangingParameters": value,
+                "method.preferHangingParameters": value,
+                "methodSignature.preferHangingParameters": value,
+                "setAccessor.preferHangingParameters": value
+            };
+        }
+    });
+
     describe(nameof<TypeScriptConfiguration>(c => c.preferHangingArguments), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop.endsWith("preferHangingArguments"));
@@ -473,6 +527,49 @@ describe("configuration", () => {
                 { "arrowFunctionExpression.useParentheses": "preferNone" },
                 { "arrowFunctionExpression.useParentheses": "preferNone" }
             );
+        });
+    });
+
+    describe("space settings", () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => expectedConfig.hasOwnProperty(prop));
+        }
+
+        function createConfigWithValue(keys: (keyof TypeScriptConfiguration)[], value: boolean): TypeScriptConfiguration {
+            const config: TypeScriptConfiguration = {};
+            for (const key of keys)
+                (config as any)[key] = value;
+            return config;
+        }
+
+        it("should set the space settings", () => {
+            const keys: (keyof TypeScriptConfiguration)[] = [
+                "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator",
+                "constructor.spaceBeforeParentheses",
+                "constructorType.spaceAfterNewKeyword",
+                "constructSignature.spaceAfterNewKeyword",
+                "doWhileStatement.spaceAfterWhileKeyword",
+                "exportDeclaration.spaceSurroundingNamedExports",
+                "forInStatement.spaceAfterForKeyword",
+                "forOfStatement.spaceAfterForKeyword",
+                "forStatement.spaceAfterForKeyword",
+                "forStatement.spaceAfterSemiColons",
+                "functionDeclaration.spaceBeforeParentheses",
+                "functionExpression.spaceBeforeParentheses",
+                "getAccessor.spaceBeforeParentheses",
+                "ifStatement.spaceAfterIfKeyword",
+                "importDeclaration.spaceSurroundingNamedImports",
+                "jsxExpressionContainer.spaceSurroundingExpression",
+                "method.spaceBeforeParentheses",
+                "setAccessor.spaceBeforeParentheses",
+                "taggedTemplate.spaceBeforeLiteral",
+                "typeAnnotation.spaceBeforeColon",
+                "typeAssertion.spaceBeforeExpression",
+                "whileStatement.spaceAfterWhileKeyword"
+            ];
+
+            doSpecificTest(createConfigWithValue(keys, true), createConfigWithValue(keys, true) as any);
+            doSpecificTest(createConfigWithValue(keys, false), createConfigWithValue(keys, false) as any);
         });
     });
 });

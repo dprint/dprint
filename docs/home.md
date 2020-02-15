@@ -2,7 +2,7 @@
 
 dprint is a configurable and plugable code formatter.
 
-Currently only TypeScript and JSONC is supported.
+Currently only TypeScript, JavaScript, and JSONC are supported.
 
 ## Install
 
@@ -157,11 +157,14 @@ Note that when `semiColons` is `false` (or more specifically, when `"expressionS
 
 Defaults to `true`.
 
-### `singleQuotes`
+### `quoteStyle`
 
-Whether to use single quotes (`true`) or double quotes (`false`).
+How to decide to use single or double quotes.
 
-Defaults to double quotes (`false`).
+* `"alwaysDouble"` - Always use double quotes.
+* `"alwaysSingle"` - Always use single quotes.
+* `"preferDouble"` - Prefer using double quotes except in scenarios where the string contains more double quotes than single quotes (default).
+* `"preferSingle"` - Prefer using single quotes except in scenarios where the string contains more single quotes than double quotes.
 
 ### `newLineKind`
 
@@ -234,17 +237,16 @@ If trailing commas should be used.
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBLC8MDaBYAUDTMCsAadWMALPmgLoDc66oksSArrjAG5kyIgBGAVlWuigBPAA4BTGABUx0DsjAMAtlzEAnZtFUBLMAHNK1NLVncecgN4wQUABZrmUGbAC+-Y7FMAmCwSwQQimKkhI7QpK7oQA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
-### `preferHangingArguments`
+### `preferHanging`
 
-When true, it will prefer argument lists to be hanging.
+When true, will prefer hanging indentation instead of making the code become split up on a line per item.
 
-[Playground](https://dprint.dev/playground/#code/MYQwNmCiAeAOBOAKALgUwM7IJYDsDmAKgBZboDyArsgDQAEA7lskQMoD2AtqgEqrhgBPADJt8BVNBq00mOjKny5GKW2ap44zAEoA3AFgAUKAgwEiQ7UvTl1C1dVF1tg1dpsqh3YeNQ4SAKx0AGx0AOxeBt6imLQcAgCSOJggOMCotAC8tDio9LQAwmAg6OgoyriEJORUdIzMIsjkAGYAgvB46HRNbPDxyARsAOJsZABu6sSo+UQg8EJYHEwRwNHIsQlJyClpAEyZ2bkFRSXmLlbyFcSklFJ1RA3NbR1dPX0Dw2MTjtOz84vIy1W60SyVSqAAzPscnlCsVShcxFUbrUmKxOKgnugAEKoMBseh-JY6IA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyDLyisurG1s7cSksXse6cvq8-CAkRwAiMN5gDyx2lAAHTHQRsZzhAAOPmqnW6pD6CQeowCY1oUG8QIAonkoXI9BkpMCGDB7gTSMFGHYEb1oCAAL5AA)
+[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBApgDwIYFsAOAbOMC8MDeMEIKcAanAE4CeAMuAOYBcMArKwMwAsAHKwJwB2bgBoYIAEYArOMCi0AllCpIMAUQRpKcCBAXgWrLhyPdWANhgBfALAAoe6EixipAIKVKSarhgBtY04ufgAGVh5+DhD+LnDuELEAJjNoiLCeWOjRGA4Y9NyQ2J5crnzYgF17R1V1TUoACmVoBTAGABUACwUIAHkAVygxAHclDoBlEjgAJTgaukY2xEGYJuXVsXWVnWWQKA6qRegASgBuaoxarXr7GFut6BEbu939yke7O-EB+1Pzy4bWGJzGJBL8HHYnNAYChqABJZxIMDAbB4MBwIYwADCGCQuka2xa7S6vQGw1G9CgvQAZh4GBAxFSQJRYVA2iAAOIgHoANwO+0xHSQlEUKCUYMhsBh8OgiORiV8aIx2NxEGuHzuq0JnW6-WWIz2FOptPpMEZzNZHK5vMonTgAqFIrFZwh4ChUoRSLgHAV6KxOLxmta2pJetGE3clDpACE4BgQENHVAwfYqX0kVB9GB7lAAIz45pB4m6sl7GZzeitAAKQtQJr2SCgnJ5fLgiY2BNaRwI9ls4NT6cz2cSas+gYYGyLAy7+B7VTs-bkg9WHHzGdaE51U+7disQA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2d9CyCMEXxBGIADs4syGJy0+1z9jAFKwnrcjBczhVVFpjyigQktIIAIjDeYCxeBwB0S4I2M5wusfNVOt1SH0Et9RgExrQoN4DgBRPLnPQZKS-BgwFLfEhoPR+CF9XrQEAAXyAA)
 
-### `preferHangingParameters`
+Sub configuration:
 
-When true, it will prefer parameters to be hanging.
-
-[Playground](https://dprint.dev/playground/#code/GYVwdgxgLglg9mABFApgZygRgBSozMAcwBUALGNAeRCgBpEB3GKUgJRQEMAbLgTwBkEhAAocAThwC2aeiw5QA4nEoA3FGLIp+MSc1npYRAJSIA3gFgAUAF8rV0JFgJkBgEzYriLy-xFZ5KhoTCxs7SwdoeCQ8KABmXAMCQn8Kaihgq2sgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyMvKKBCRHACIw3mAnix2lAAHTHQRsZzhAAOPmqnW6pD6CSeowCY1oUG8IIAonkYXI9BkpKCGDBHkTSMFGHYkb1oCAAL5AA)
+* `preferHangingArguments`
+* `preferHangingParameters`
 
 ### Space separators
 

@@ -33,3 +33,21 @@ call(() => {
 [expect]
 call(() => {
 });
+
+== should not do a newline when the call expr's identifier and paren is below the indent width ==
+cal(tttttttttttttttttttttttttttttttttttttttt);
+
+[expect]
+cal(tttttttttttttttttttttttttttttttttttttttt);
+
+== should do a newline when the call expr's identifier and paren is at or above the indent width ==
+call(tttttttttttttttttttttttttttttttttttttttt);
+calltttttt(tttttttttttttttttttttttttttttttttttttttt);
+
+[expect]
+call(
+    tttttttttttttttttttttttttttttttttttttttt
+);
+calltttttt(
+    tttttttttttttttttttttttttttttttttttttttt
+);

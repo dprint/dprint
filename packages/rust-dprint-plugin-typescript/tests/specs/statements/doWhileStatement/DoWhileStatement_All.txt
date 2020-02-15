@@ -22,3 +22,17 @@ do {
 } while (
     true
 );
+
+== should format when empty and on the same line ==
+do {} while (true);
+
+[expect]
+do {} while (true);
+
+== should format when empty and on different lines ==
+do {
+} while (true);
+
+[expect]
+do {
+} while (true);

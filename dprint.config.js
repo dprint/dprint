@@ -10,8 +10,8 @@ module.exports.config = {
         new TypeScriptPlugin({
             useBraces: "preferNone",
             singleBodyPosition: "nextLine",
-            preferHangingArguments: true,
-            preferHangingParameters: true,
+            preferHanging: true,
+            nextControlFlowPosition: "nextLine",
             "arrowFunctionExpression.useParentheses": "preferNone",
             "tryStatement.nextControlFlowPosition": "sameLine"
         }),

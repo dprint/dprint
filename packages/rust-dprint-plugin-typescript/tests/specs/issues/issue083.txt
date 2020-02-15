@@ -1,0 +1,11 @@
+== should not have inner modules as declare when the outer module is declare ==
+declare module "test" {
+    namespace test {
+    }
+}
+
+[expect]
+declare module "test" {
+    namespace test {
+    }
+}

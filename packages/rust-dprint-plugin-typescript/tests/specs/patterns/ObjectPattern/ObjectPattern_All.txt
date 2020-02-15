@@ -1,4 +1,4 @@
-~~ lineWidth: 50 ~~
+~~ lineWidth: 40 ~~
 == should format ==
 const { t=5, u=4, v: other } = obj;
 
@@ -21,5 +21,7 @@ const {
 const { testingThisOut, withAVeryLongNameeeeeeee } = obj;
 
 [expect]
-const { testingThisOut,
-    withAVeryLongNameeeeeeee } = obj;
+const {
+    testingThisOut,
+    withAVeryLongNameeeeeeee
+} = obj;

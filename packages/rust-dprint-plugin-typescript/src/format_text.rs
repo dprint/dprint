@@ -20,7 +20,7 @@ use swc_common::{BytePos, comments::{Comment}};
 ///     .line_width(80)
 ///     .prefer_hanging_parameters(true)
 ///     .prefer_hanging_arguments(true)
-///     .single_quotes(true)
+///     .quote_style(QuoteStyle::PreferSingle)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
 ///     .build();
 ///
@@ -39,6 +39,8 @@ pub fn format_text(file_path: &str, file_text: &str, config: &Configuration) -> 
         }
 
         let print_items = parse(parsed_source_file, config.clone());
+
+        // println!("{}", print_items.get_as_text());
 
         Ok(Some(print(print_items, PrintOptions {
             indent_width: config.indent_width,

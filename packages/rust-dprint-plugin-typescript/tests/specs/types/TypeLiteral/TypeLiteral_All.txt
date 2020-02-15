@@ -1,4 +1,4 @@
-~~ lineWidth: 80 ~~
+~~ lineWidth: 40 ~~
 == should format when empty ==
 type Test = {
 };
@@ -7,10 +7,10 @@ type Test = {
 type Test = {};
 
 == should format when a single line ==
-type Test = { prop: string; other: number; };
+type Test = { p: string; u: number; };
 
 [expect]
-type Test = { prop: string; other: number; };
+type Test = { p: string; u: number; };
 
 == should format when multi-line ==
 type Test = {
@@ -24,12 +24,14 @@ type Test = {
     other: number;
 };
 
-== should make multiple lines wrap ==
-type Test = { prop: string; other: number; someReallyReallyReallyLongName: number; };
+== should make multiple lines go multi-line ==
+type Test = { prop: string; other: number; };
 
 [expect]
-type Test = { prop: string; other: number;
-    someReallyReallyReallyLongName: number; };
+type Test = {
+    prop: string;
+    other: number;
+};
 
 == should respect blank lines in certain places ==
 type Test = {

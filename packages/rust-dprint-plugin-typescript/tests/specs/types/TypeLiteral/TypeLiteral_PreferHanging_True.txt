@@ -1,0 +1,46 @@
+~~ lineWidth: 40, typeLiteral.preferHanging: true ~~
+== should format when a single line ==
+type Test = { p: string; u: number; };
+
+[expect]
+type Test = { p: string; u: number; };
+
+== should format when multi-line ==
+type Test = {
+    prop: string;
+    other: number;
+};
+
+[expect]
+type Test = {
+    prop: string;
+    other: number;
+};
+
+== should make multiple lines wrap ==
+type Test = { prop: string; other: number; };
+
+[expect]
+type Test = { prop: string;
+    other: number; };
+
+== should respect multi-line ==
+type Test = {
+
+    prop: string;
+
+    other: number;
+    test(): void;
+
+    prop: string;
+};
+
+[expect]
+type Test = {
+    prop: string;
+
+    other: number;
+    test(): void;
+
+    prop: string;
+};

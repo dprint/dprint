@@ -37,15 +37,14 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
             indentWidth: initialConfig.indentWidth,
             useTabs: initialConfig.useTabs,
             semiColons: initialConfig["breakStatement.semiColon"],
-            singleQuotes: initialConfig.singleQuotes,
+            quoteStyle: initialConfig.quoteStyle,
             trailingCommas: initialConfig["tupleType.trailingCommas"],
             useBraces: initialConfig["ifStatement.useBraces"],
             bracePosition: initialConfig["arrowFunctionExpression.bracePosition"],
             singleBodyPosition: initialConfig["ifStatement.singleBodyPosition"],
             nextControlFlowPosition: initialConfig["ifStatement.nextControlFlowPosition"],
             operatorPosition: initialConfig["binaryExpression.operatorPosition"],
-            preferHangingArguments: initialConfig["callExpression.preferHangingArguments"],
-            preferHangingParameters: initialConfig["functionDeclaration.preferHangingParameters"],
+            preferHanging: initialConfig["arrayExpression.preferHanging"],
             "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
             "arrowFunctionExpression.useParentheses": initialConfig["arrowFunctionExpression.useParentheses"]
         };

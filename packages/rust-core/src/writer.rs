@@ -103,6 +103,11 @@ impl<T> Writer<T> where T : StringTrait {
         self.state.indent_level
     }
 
+    #[cfg(debug_assertions)]
+    pub fn get_ignore_indent_count(&self) -> u8 {
+        self.state.ignore_indent_count
+    }
+
     pub fn get_line_start_column_number(&self) -> u32 {
         (self.indent_width as u32) * (self.state.last_line_indent_level as u32)
     }

@@ -1,6 +1,6 @@
 {
   "name": "@dprint/types",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Types used for printing in dprint.",
   "main": "dist/dprint-types.js",
   "types": "lib/dprint-types.d.ts",

@@ -17,3 +17,9 @@ const t = tag<Testing, Other> `testing this out`;
 [expect]
 const t = tag<Testing, Other>
     `testing this out`;
+
+== should not newline if the tagged template tag is below the indent width ==
+tag `ttttttttttttttttttttttttttttttttttt`;
+
+[expect]
+tag `ttttttttttttttttttttttttttttttttttt`;

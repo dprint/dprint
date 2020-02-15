@@ -13,3 +13,25 @@ testingtesting()
 testingtesting()
     .this = 523452346236
         + 234345234652465246;
+
+== should format if the right side goes over the line width ==
+testing.this = testingthisouttttttttttttt;
+
+[expect]
+testing.this =
+    testingthisouttttttttttttt;
+
+== should format when the left side is hanging and the right side goes over the line width ==
+testingtesting()
+    .this = testingthisoutttttttttttttttt;
+
+[expect]
+testingtesting()
+    .this =
+        testingthisoutttttttttttttttt;
+
+== should not do a newline if the assignment is below the indent width ==
+a = ttttttttttttttttttttttttttttttttttttttttttttt;
+
+[expect]
+a = ttttttttttttttttttttttttttttttttttttttttttttt;

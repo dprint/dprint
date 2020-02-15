@@ -17,16 +17,24 @@ type T = [
     other
 ];
 
-== should hang when exceeding line width ==
+== should go multi-line when exceeding line width ==
 type T = [string, number, other, otherTest, other];
 
 [expect]
-type T = [string, number, other,
-    otherTest, other];
+type T = [
+    string,
+    number,
+    other,
+    otherTest,
+    other
+];
 
 == should not split up a tuple type midway through ==
 type T = [string, number, string | number | other];
 
 [expect]
-type T = [string, number,
-    string | number | other];
+type T = [
+    string,
+    number,
+    string | number | other
+];

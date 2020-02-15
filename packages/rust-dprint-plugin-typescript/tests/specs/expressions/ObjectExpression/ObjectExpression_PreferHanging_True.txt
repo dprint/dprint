@@ -1,0 +1,38 @@
+~~ lineWidth: 40, objectExpression.preferHanging: true ~~
+== should format when empty ==
+const obj = {
+};
+
+[expect]
+const obj = {};
+
+== should format when a single line ==
+const obj = { prop:  5, other: 4, t };
+
+[expect]
+const obj = { prop: 5, other: 4, t };
+
+== should make multiple lines wrap ==
+const obj = { prop: 5, other: 6, someName: "testing" };
+
+[expect]
+const obj = { prop: 5, other: 6,
+    someName: "testing" };
+
+== should keep multi-line when multi-line ==
+const obj = {
+
+    prop: 5,
+    other: 7,
+
+    testing: 5
+
+};
+
+[expect]
+const obj = {
+    prop: 5,
+    other: 7,
+
+    testing: 5
+};

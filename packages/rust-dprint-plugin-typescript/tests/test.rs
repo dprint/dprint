@@ -20,8 +20,7 @@ fn test_performance() {
     // it's not too bad, but there are a few small issues to fix here and there.
     let config = ConfigurationBuilder::new()
         .line_width(80)
-        .single_quotes(true)
-        .next_control_flow_position(NextControlFlowPosition::SameLine)
+        .quote_style(QuoteStyle::PreferSingle)
         .build();
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
 

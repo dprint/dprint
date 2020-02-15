@@ -1,0 +1,44 @@
+-- filePath: file.d.ts --
+== should format a declaration file ==
+declare namespace someModule {
+    interface Test {
+        prop: string;
+    }
+}
+
+declare module "test" {
+    class Test {
+        myMethod(): void;
+    }
+}
+
+global {
+    interface GlobalTest {
+        prop: number;
+    }
+}
+
+declare function someFunc(): string;
+export = someFunc;
+
+[expect]
+declare namespace someModule {
+    interface Test {
+        prop: string;
+    }
+}
+
+declare module "test" {
+    class Test {
+        myMethod(): void;
+    }
+}
+
+global {
+    interface GlobalTest {
+        prop: number;
+    }
+}
+
+declare function someFunc(): string;
+export = someFunc;

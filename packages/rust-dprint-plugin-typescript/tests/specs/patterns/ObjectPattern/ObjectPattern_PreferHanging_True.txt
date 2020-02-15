@@ -1,0 +1,23 @@
+~~ lineWidth: 40, objectPattern.preferHanging: true ~~
+== should format ==
+const { v: other } = obj;
+
+[expect]
+const { v: other } = obj;
+
+== should format multi-line ==
+const {
+    test
+} = obj;
+
+[expect]
+const {
+    test
+} = obj;
+
+== should make hanging when exceeding ==
+const { testingThisOut, withAVeryLongNameeeeeeee } = obj;
+
+[expect]
+const { testingThisOut,
+    withAVeryLongNameeeeeeee } = obj;

@@ -12,10 +12,9 @@ namespace test.something {
 namespace test.something {
     function test() {
         if (true) {
-            testingthisout(testingThis,
-                testingThisOutt.abittt.test === TestingThi.SOutALittleBitttt
-                    ? testingThisOudt.morrre
-                    : testingThisEeee);
+            testingthisout(testingThis, testingThisOutt.abittt.test === TestingThi.SOutALittleBitttt
+                ? testingThisOudt.morrre
+                : testingThisEeee);
         }
     }
 }

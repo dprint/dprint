@@ -1,0 +1,11 @@
+~~ lineWidth: 40, arrayPattern.preferHanging: true ~~
+== should format with hanging indentation ==
+function t([testing, thisOutWhere, itGoesOverTheLineWidth]) {
+}
+
+[expect]
+function t(
+    [testing, thisOutWhere,
+        itGoesOverTheLineWidth]
+) {
+}

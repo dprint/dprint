@@ -8,6 +8,9 @@ export interface ConfigurationSelectionProps {
     onUpdateConfig: (config: TypeScriptConfiguration) => void;
 }
 
+const quoteStyleOptions = ["alwaysDouble", "alwaysSingle", "preferDouble", "preferSingle"] as const;
+type _assertQuoteStyleOptions = AssertTrue<IsExact<typeof quoteStyleOptions[number],
+    NonNullable<TypeScriptConfiguration["quoteStyle"]>>>;
 const useBraceOptions = ["maintain", "whenNotSingleLine", "always", "preferNone"] as const;
 type _assertUseBraces = AssertTrue<IsExact<typeof useBraceOptions[number], NonNullable<TypeScriptConfiguration["useBraces"]>>>;
 const bracePositionOptions = ["maintain", "sameLine", "nextLine", "nextLineIfHanging"] as const;
@@ -44,8 +47,8 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Semicolons">
                 {this.getBooleanConfig("semiColons")}
             </ConfigurationItem>
-            <ConfigurationItem title="Single quotes">
-                {this.getBooleanConfig("singleQuotes")}
+            <ConfigurationItem title="Quote style">
+                {this.getSelectForConfig("quoteStyle", quoteStyleOptions)}
             </ConfigurationItem>
             <ConfigurationItem title="Use braces">
                 {this.getSelectForConfig("useBraces", useBraceOptions)}
@@ -65,11 +68,8 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Trailing commas">
                 {this.getSelectForConfig("trailingCommas", trailingCommaOptions)}
             </ConfigurationItem>
-            <ConfigurationItem title="Prefer hanging arguments">
-                {this.getBooleanConfig("preferHangingArguments")}
-            </ConfigurationItem>
-            <ConfigurationItem title="Prefer hanging parameters">
-                {this.getBooleanConfig("preferHangingParameters")}
+            <ConfigurationItem title="Prefer hanging">
+                {this.getBooleanConfig("preferHanging")}
             </ConfigurationItem>
             <ConfigurationItem title="Arrow Function - Use parentheses">
                 {this.getSelectForConfig("arrowFunctionExpression.useParentheses", arrowFunctionUseParenthesesOptions)}

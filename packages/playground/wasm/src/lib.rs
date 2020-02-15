@@ -22,7 +22,7 @@ pub fn format_text(file_text: &str, configuration: &js_sys::Map) -> String {
             Some(result) => result,
             None => String::from(file_text),
         },
-        Err(_) => String::from(file_text),
+        Err(error) => String::from(error),
     }
 }
 
