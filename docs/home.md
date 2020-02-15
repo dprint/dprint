@@ -157,11 +157,14 @@ Note that when `semiColons` is `false` (or more specifically, when `"expressionS
 
 Defaults to `true`.
 
-### `singleQuotes`
+### `quoteStyle`
 
-Whether to use single quotes (`true`) or double quotes (`false`).
+How to decide to use single or double quotes.
 
-Defaults to double quotes (`false`).
+* `"alwaysDouble"` - Always use double quotes.
+* `"alwaysSingle"` - Always use single quotes.
+* `"preferDouble"` - Prefer using double quotes except in scenarios where the string contains more double quotes than single quotes (default).
+* `"preferSingle"` - Prefer using single quotes except in scenarios where the string contains more single quotes than double quotes.
 
 ### `newLineKind`
 
