@@ -117,7 +117,7 @@ fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, Parse
         Event::End(_) => Ok(iterator.get_not_implemented()), // do nothing
         Event::Code(code) => parse_code(code, iterator).map(|x| x.into()),
         Event::Text(text) => parse_text(text, iterator).map(|x| x.into()),
-        Event::Html(html) => Ok(iterator.get_not_implemented()),
+        Event::Html(html) => parse_html(html, iterator).map(|x| x.into()),
         Event::FootnoteReference(reference) => Ok(iterator.get_not_implemented()),
         Event::SoftBreak => Ok(SoftBreak { range: iterator.get_last_range() }.into()),
         Event::HardBreak => Ok(SoftBreak { range: iterator.get_last_range() }.into()),
@@ -235,9 +235,13 @@ fn parse_code(code: CowStr, iterator: &mut EventIterator) -> Result<Code, ParseE
 }
 
 fn parse_text(text: CowStr, iterator: &mut EventIterator) -> Result<Text, ParseError> {
+    let text = text.as_ref();
+    let trimmed_text = text.trim();
+    let start = iterator.get_last_range().start + (text.len() - text.trim_start().len());
+
     Ok(Text {
-        range: iterator.get_last_range(),
-        text: String::from(text.as_ref()),
+        range: Range { start, end: start + trimmed_text.len() },
+        text: String::from(trimmed_text),
     })
 }
 
@@ -258,6 +262,15 @@ fn parse_text_decoration(kind: TextDecorationKind, iterator: &mut EventIterator)
         range: iterator.get_range_for_start(start),
         kind,
         children,
+    })
+}
+
+fn parse_html(text: CowStr, iterator: &mut EventIterator) -> Result<Html, ParseError> {
+    let text = String::from(text.as_ref().trim_end());
+    let start = iterator.get_last_range().start;
+    Ok(Html {
+        range: Range { start, end: start + text.len() },
+        text,
     })
 }
 

@@ -33,16 +33,21 @@ pub struct Text {
     pub text: String,
 }
 
+pub enum TextDecorationKind {
+    Emphasis,
+    Strong,
+    Strikethrough,
+}
+
 pub struct TextDecoration {
     pub range: Range,
     pub kind: TextDecorationKind,
     pub children: Vec<Node>,
 }
 
-pub enum TextDecorationKind {
-    Emphasis,
-    Strong,
-    Strikethrough,
+pub struct Html {
+    pub range: Range,
+    pub text: String,
 }
 
 pub struct InlineLink {
@@ -89,25 +94,9 @@ pub struct ReferenceImage {
 }
 
 impl Text {
-    pub fn starts_with_whitespace(&self) -> bool {
-        if let Some(first_char) = self.text.chars().next() {
-            first_char.is_whitespace()
-        } else {
-            false
-        }
-    }
-
     pub fn starts_with_punctuation(&self) -> bool {
         if let Some(first_char) = self.text.chars().next() {
             first_char.is_ascii_punctuation()
-        } else {
-            false
-        }
-    }
-
-    pub fn ends_with_whitespace(&self) -> bool {
-        if let Some(last_char) = self.text.chars().last() {
-            last_char.is_whitespace()
         } else {
             false
         }
@@ -186,6 +175,7 @@ generate_node![
     BlockQuote,
     Text,
     TextDecoration,
+    Html,
     InlineLink,
     ReferenceLink,
     ShortcutLink,

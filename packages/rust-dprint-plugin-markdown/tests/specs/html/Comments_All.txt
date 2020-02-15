@@ -1,0 +1,19 @@
+!! should format comments !!
+Test
+
+<!--- Comment -->
+<!---
+Multi
+Line
+Comment
+-->
+
+[expect]
+Test
+
+<!--- Comment -->
+<!---
+Multi
+Line
+Comment
+-->

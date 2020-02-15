@@ -1,6 +1,5 @@
 use dprint_core::*;
 use dprint_core::{parser_helpers::*, condition_resolvers};
-use pulldown_cmark::LinkType;
 use super::ast_nodes::*;
 use super::parser_types::*;
 
@@ -19,6 +18,7 @@ fn parse_source_file(source_file: &SourceFile, context: &mut Context) -> PrintIt
 }
 
 pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
+    println!("Text: {:?}", node.text(context));
     match node {
         Node::SourceFile(node) => parse_source_file(node, context),
         Node::Heading(node) => parse_heading(node, context),
@@ -28,6 +28,7 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::Code(node) => parse_code(node, context),
         Node::Text(node) => parse_text(node, context),
         Node::TextDecoration(node) => parse_text_decoration(node, context),
+        Node::Html(node) => parse_html(node, context),
         Node::InlineLink(node) => parse_inline_link(node, context),
         Node::ReferenceLink(node) => parse_reference_link(node, context),
         Node::ShortcutLink(node) => parse_shortcut_link(node, context),
@@ -54,13 +55,16 @@ fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {
                     items.push_signal(Signal::NewLine);
                     items.push_signal(Signal::NewLine);
                 },
-                Node::Text(text) => {
-                    if text.ends_with_whitespace() {
-                        items.push_signal(Signal::SpaceOrNewLine);
-                    } else if let Node::Text(text) = node {
-                        if text.starts_with_whitespace() {
-                            items.push_signal(Signal::SpaceOrNewLine);
+                Node::Text(_) | Node::Html(_) => {
+                    let between_range = (last_node.range().end, node.range().start);
+                    let new_line_count = context.get_new_lines_in_range(between_range.0, between_range.1);
+                    if new_line_count > 0 {
+                        items.push_signal(Signal::NewLine);
+                        if new_line_count > 1 {
+                            items.push_signal(Signal::NewLine);
                         }
+                    } else if between_range.0 < between_range.1 {
+                        items.push_signal(Signal::SpaceOrNewLine)
                     }
                 },
                 Node::Code(_) | Node::SoftBreak(_) | Node::TextDecoration(_) => {
@@ -251,6 +255,12 @@ fn parse_text_decoration(text: &TextDecoration, context: &mut Context) -> PrintI
     items.extend(parse_nodes(&text.children, context));
     items.push_str(&decoration_text);
 
+    items
+}
+
+fn parse_html(html: &Html, _: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str(html.text.trim_end());
     items
 }
 
