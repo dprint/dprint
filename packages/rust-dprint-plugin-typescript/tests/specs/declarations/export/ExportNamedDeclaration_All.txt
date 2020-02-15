@@ -18,3 +18,9 @@ export  *   as   ns   from   "package"  ;
 
 [expect]
 export * as ns from "package";
+
+== should format a type-only export ==
+export   type    { test };
+
+[expect]
+export type { test };

@@ -699,6 +699,7 @@ fn parse_export_named_decl<'a>(node: &'a NamedExport, context: &mut Context<'a>)
     let mut items = PrintItems::new();
 
     items.push_str("export ");
+    if node.type_only { items.push_str("type "); }
 
     if let Some(default_export) = default_export {
         items.extend(parse_node(default_export.into(), context));
@@ -821,7 +822,9 @@ fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> Pri
 
     let mut items = PrintItems::new();
     let has_from = default_import.is_some() || namespace_import.is_some() || !named_imports.is_empty();
+
     items.push_str("import ");
+    if node.type_only { items.push_str("type "); }
 
     if let Some(default_import) = default_import {
         items.extend(parse_node(default_import.into(), context));

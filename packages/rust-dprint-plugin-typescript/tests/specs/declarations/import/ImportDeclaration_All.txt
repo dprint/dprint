@@ -40,3 +40,9 @@ import {n1,n2,n3} from    "test"  ;
 
 [expect]
 import { n1, n2, n3 } from "test";
+
+== should format a type only import ==
+import   type   { n1 } from "test";
+
+[expect]
+import type { n1 } from "test";
