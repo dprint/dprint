@@ -3528,8 +3528,10 @@ fn parse_type_predicate<'a>(node: &'a TsTypePredicate, context: &mut Context<'a>
     let mut items = PrintItems::new();
     if node.asserts { items.push_str("asserts "); }
     items.extend(parse_node((&node.param_name).into(), context));
-    items.push_str(" is ");
-    items.extend(parse_node((&node.type_ann).into(), context));
+    if let Some(type_ann) = &node.type_ann {
+        items.push_str(" is ");
+        items.extend(parse_node(type_ann.into(), context));
+    }
     return items;
 }
 
