@@ -13,3 +13,27 @@ function test(c: any): asserts   c    is   string   {
 [expect]
 function test(c: any): asserts c is string {
 }
+
+== should format with asserts and no "is" ==
+function test(c: any): asserts   c    {
+}
+
+[expect]
+function test(c: any): asserts c {
+}
+
+== should format a "this" type predicate on a class declaration ==
+class C {
+    f(): void {}
+    g(): this is boolean { }
+    h(): asserts this is boolean { }
+    i(): asserts this { }
+}
+
+[expect]
+class C {
+    f(): void {}
+    g(): this is boolean {}
+    h(): asserts this is boolean {}
+    i(): asserts this {}
+}
