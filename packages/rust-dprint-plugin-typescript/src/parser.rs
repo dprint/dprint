@@ -136,6 +136,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::YieldExpr(node) => parse_yield_expr(node, context),
             /* exports */
             Node::NamedExportSpecifier(node) => parse_export_named_specifier(node, context),
+            Node::NamespaceExportSpecifier(node) => parse_namespace_export_specifier(node, context),
             /* imports */
             Node::ImportSpecific(node) => parse_import_named_specifier(node, context),
             Node::ImportStarAs(node) => parse_import_namespace_specifier(node, context),
@@ -1834,6 +1835,13 @@ fn parse_export_named_specifier<'a>(node: &'a NamedExportSpecifier, context: &mu
         }));
     }
 
+    items
+}
+
+fn parse_namespace_export_specifier<'a>(node: &'a NamespaceExportSpecifier, context: &mut Context<'a>) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_str("* as ");
+    items.extend(parse_node((&node.name).into(), context));
     items
 }
 
