@@ -1,6 +1,6 @@
 {
   "name": "dprint-plugin-typescript",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "TypeScript plugin for dprint.",
   "main": "dist/dprint-plugin-typescript.js",
   "types": "lib/dprint-plugin-typescript.d.ts",
@@ -39,7 +39,7 @@
     "@babel/core": "^7.8.3",
     "@babel/parser": "^7.8.3",
     "@babel/preset-typescript": "^7.8.3",
-    "@dprint/core": "~0.5.1",
+    "@dprint/core": "~0.6.0",
     "@dprint/types": "~0.2.0"
   },
   "devDependencies": {
