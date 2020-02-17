@@ -50,6 +50,7 @@ impl<'a> Context<'a> {
             end_statement_or_member_infos: Stack::new(),
             disable_indent_for_next_bin_expr: false,
             if_stmt_last_brace_condition_ref: None,
+            #[cfg(debug_assertions)]
             last_parsed_node_pos: 0,
         }
     }
