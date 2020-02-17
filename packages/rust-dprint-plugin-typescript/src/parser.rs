@@ -40,6 +40,9 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     // println!("Node kind: {:?}", node.kind());
     // println!("Text: {:?}", node.text(context));
 
+    #[cfg(debug_assertions)]
+    assert_parsed_in_order(&node, context);
+
     // store info
     let past_current_node = std::mem::replace(&mut context.current_node, node.clone());
     let parent_hi = past_current_node.span().hi();
@@ -292,6 +295,16 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             }
             return false;
         }
+    }
+
+    #[cfg(debug_assertions)]
+    fn assert_parsed_in_order(node: &Node, context: &mut Context) {
+        let node_pos = node.lo().0;
+        if context.last_parsed_node_pos > node_pos {
+            // todo: if this ever happens, spend time improving the error message
+            panic!("Nodes parsed out of order!")
+        }
+        context.last_parsed_node_pos = node_pos;
     }
 }
 

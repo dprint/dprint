@@ -22,6 +22,9 @@ pub struct Context<'a> {
     pub end_statement_or_member_infos: Stack<Info>,
     disable_indent_for_next_bin_expr: bool,
     if_stmt_last_brace_condition_ref: Option<ConditionReference>,
+    /// Used for ensuring nodes are parsed in order.
+    #[cfg(debug_assertions)]
+    pub last_parsed_node_pos: u32,
 }
 
 impl<'a> Context<'a> {
@@ -47,6 +50,7 @@ impl<'a> Context<'a> {
             end_statement_or_member_infos: Stack::new(),
             disable_indent_for_next_bin_expr: false,
             if_stmt_last_brace_condition_ref: None,
+            last_parsed_node_pos: 0,
         }
     }
 
