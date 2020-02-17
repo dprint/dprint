@@ -767,7 +767,7 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
         } else {
             context.config.function_expression_prefer_hanging_parameters
         },
-        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+        custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info: start_header_info,
             type_node: func.return_type.as_ref().map(|x| x.into()),
             type_node_separator: None,
@@ -1054,7 +1054,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
         items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
             nodes: node.params.iter().map(|node| node.into()).collect(),
             prefer_hanging: context.config.arrow_function_expression_prefer_hanging_parameters,
-            custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+            custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
                 start_info: header_start_info,
                 type_node: node.return_type.as_ref().map(|x| x.into()),
                 type_node_separator: None,
@@ -1350,7 +1350,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
         items.push_condition(conditions::with_indent_if_start_of_line_indented(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
             nodes: node.args.iter().map(|node| node.into()).collect(),
             prefer_hanging: context.config.call_expression_prefer_hanging_arguments,
-            custom_close_paren: None,
+            custom_close_paren: |_| None,
         }, context)));
 
         items
@@ -1616,7 +1616,7 @@ fn parse_new_expr<'a>(node: &'a NewExpr, context: &mut Context<'a>) -> PrintItem
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: args,
         prefer_hanging: context.config.new_expression_prefer_hanging_arguments,
-        custom_close_paren: None,
+        custom_close_paren: |_| None,
     }, context));
     return items;
 }
@@ -1895,7 +1895,7 @@ fn parse_call_signature_decl<'a>(node: &'a TsCallSignatureDecl, context: &mut Co
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
         prefer_hanging: context.config.call_signature_prefer_hanging_parameters,
-        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+        custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
             type_node_separator: None,
@@ -1917,7 +1917,7 @@ fn parse_construct_signature_decl<'a>(node: &'a TsConstructSignatureDecl, contex
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
         prefer_hanging: context.config.construct_signature_prefer_hanging_parameters,
-        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+        custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
             type_node_separator: None,
@@ -1981,7 +1981,7 @@ fn parse_method_signature<'a>(node: &'a TsMethodSignature, context: &mut Context
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
         prefer_hanging: context.config.method_signature_prefer_hanging_parameters,
-        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+        custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
             type_node_separator: None,
@@ -2474,11 +2474,14 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.into_iter().map(|node| node.into()).collect(),
         prefer_hanging: get_prefer_hanging_parameters(&node.kind, context),
-        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
-            start_info: start_header_info,
-            type_node: node.return_type,
-            type_node_separator: None,
-        }, context)),
+        custom_close_paren: {
+            let return_type = node.return_type;
+            move |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+                start_info: start_header_info,
+                type_node: return_type,
+                type_node_separator: None,
+            }, context))
+        },
     }, context));
 
     if let Some(body) = node.body {
@@ -3317,7 +3320,7 @@ fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
         prefer_hanging: context.config.constructor_type_prefer_hanging_parameters,
-        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+        custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: Some((&node.type_ann).into()),
             type_node_separator: Some({
@@ -3348,7 +3351,7 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Pri
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: node.params.iter().map(|node| node.into()).collect(),
         prefer_hanging: context.config.function_type_prefer_hanging_parameters,
-        custom_close_paren: Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
+        custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: Some((&node.type_ann).into()),
             type_node_separator: {
@@ -4127,13 +4130,13 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
     }
 }
 
-struct ParseParametersOrArgumentsOptions<'a> {
+struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
     nodes: Vec<Node<'a>>,
     prefer_hanging: bool,
-    custom_close_paren: Option<PrintItems>,
+    custom_close_paren: F,
 }
 
-fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>, context: &mut Context<'a>) -> PrintItems {
+fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
     let force_use_new_lines = get_use_new_lines(&opts.nodes, context);
     let mut items = PrintItems::new();
     items.push_str("(");
@@ -4146,7 +4149,7 @@ fn parse_parameters_or_arguments<'a>(opts: ParseParametersOrArgumentsOptions<'a>
         surround_single_line_with_spaces: false,
     }, context));
 
-    if let Some(custom_close_paren) = opts.custom_close_paren {
+    if let Some(custom_close_paren) = (opts.custom_close_paren)(context) {
         items.extend(custom_close_paren);
     }
     else {
