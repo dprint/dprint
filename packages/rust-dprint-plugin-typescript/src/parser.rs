@@ -40,13 +40,17 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     // println!("Node kind: {:?}", node.kind());
     // println!("Text: {:?}", node.text(context));
 
-    #[cfg(debug_assertions)]
-    assert_parsed_in_order(&node, context);
-
     // store info
     let past_current_node = std::mem::replace(&mut context.current_node, node.clone());
     let parent_hi = past_current_node.span().hi();
     context.parent_stack.push(past_current_node);
+
+    // handle decorators (since their starts can come before their parent)
+    let mut items = handle_decorators_if_necessary(&node, context);
+
+    // now that decorators might have been parsed, assert the node order to ensure comments are parsed correctly
+    #[cfg(debug_assertions)]
+    assert_parsed_in_order(&node, context);
 
     // parse item
     let node_span = node.span();
@@ -55,7 +59,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     let leading_comments = context.comments.leading_comments_with_previous(node_lo);
     let has_ignore_comment = get_has_ignore_comment(&leading_comments, &node_lo, context);
 
-    let mut items = parse_comments_as_leading(&node_span, leading_comments, context);
+    items.extend(parse_comments_as_leading(&node_span, leading_comments, context));
 
     items.extend(if has_ignore_comment {
         parser_helpers::parse_raw_string(&node.text(context))
@@ -239,6 +243,24 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
         }
     }
 
+    #[inline]
+    fn handle_decorators_if_necessary<'a>(node: &Node<'a>, context: &mut Context<'a>) -> PrintItems {
+        let mut items = PrintItems::new();
+
+        // decorators in these cases will have starts before their parent so they need to be handled specially
+        if let Node::ExportDecl(decl) = node {
+            if let Decl::Class(class_decl) = &decl.decl {
+                items.extend(parse_decorators(&class_decl.class.decorators, false, context));
+            }
+        } else if let Node::ExportDefaultDecl(decl) = node {
+            if let DefaultDecl::Class(class_expr) = &decl.decl {
+                items.extend(parse_decorators(&class_expr.class.decorators, false, context));
+            }
+        }
+
+        return items;
+    }
+
     fn get_has_ignore_comment<'a>(leading_comments: &CommentsIterator<'a>, node_lo: &BytePos, context: &mut Context<'a>) -> bool {
         if let Some(last_comment) = get_last_comment(leading_comments, node_lo, context) {
             let searching_text = "dprint-ignore";
@@ -301,7 +323,6 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     fn assert_parsed_in_order(node: &Node, context: &mut Context) {
         let node_pos = node.lo().0;
         if context.last_parsed_node_pos > node_pos {
-            // todo: if this ever happens, spend time improving the error message
             //panic!("Nodes parsed out of order!") // todo: re-enable
         }
         context.last_parsed_node_pos = node_pos;
@@ -615,9 +636,7 @@ fn parse_class_decl_or_expr<'a>(node: ClassDeclOrExpr<'a>, context: &mut Context
 
 fn parse_export_decl<'a>(node: &'a ExportDecl, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    if let Decl::Class(class_decl) = &node.decl {
-        items.extend(parse_decorators(&class_decl.class.decorators, false, context));
-    }
+    // decorators are handled in parse_node because their starts come before the ExportDecl
     items.push_str("export ");
     items.extend(parse_node((&node.decl).into(), context));
     items
@@ -625,9 +644,7 @@ fn parse_export_decl<'a>(node: &'a ExportDecl, context: &mut Context<'a>) -> Pri
 
 fn parse_export_default_decl<'a>(node: &'a ExportDefaultDecl, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    if let DefaultDecl::Class(class_expr) = &node.decl {
-        items.extend(parse_decorators(&class_expr.class.decorators, false, context));
-    }
+    // decorators are handled in parse_node because their starts come before the ExportDefaultDecl
     items.push_str("export default ");
     items.extend(parse_node((&node.decl).into(), context));
     items
