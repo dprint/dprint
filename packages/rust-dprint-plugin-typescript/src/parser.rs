@@ -321,7 +321,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     fn assert_parsed_in_order(node: &Node, context: &mut Context) {
         let node_pos = node.lo().0;
         if context.last_parsed_node_pos > node_pos {
-            //panic!("Nodes parsed out of order!") // todo: re-enable
+            panic!("Nodes parsed out of order!");
         }
         context.last_parsed_node_pos = node_pos;
     }
