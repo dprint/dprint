@@ -76,3 +76,16 @@ for (; i < 5; i++) {
 [expect]
 for (; i < 5; i++) {
 }
+
+== should print when only has an empty statement ==
+for (;;);
+
+[expect]
+for (;;);
+
+== should print when only has an empty statement on next line ==
+for (;;)
+    ;
+
+[expect]
+for (;;);

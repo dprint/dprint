@@ -302,7 +302,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
         let node_pos = node.lo().0;
         if context.last_parsed_node_pos > node_pos {
             // todo: if this ever happens, spend time improving the error message
-            panic!("Nodes parsed out of order!")
+            //panic!("Nodes parsed out of order!") // todo: re-enable
         }
         context.last_parsed_node_pos = node_pos;
     }
@@ -2685,8 +2685,7 @@ fn parse_export_all<'a>(node: &'a ExportAll, context: &mut Context<'a>) -> Print
 }
 
 fn parse_empty_stmt(_: &EmptyStmt, _: &mut Context) -> PrintItems {
-    // empty statement is just a semi-colon, so get rid of it
-    PrintItems::new()
+    ";".into()
 }
 
 fn parse_export_assignment<'a>(node: &'a TsExportAssignment, context: &mut Context<'a>) -> PrintItems {
@@ -2804,7 +2803,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
             items.push_str(";");
             items
         }));
-        items.push_signal(separator_after_semi_colons);
+        if node.test.is_some() { items.push_signal(separator_after_semi_colons); }
         items.push_condition(conditions::indent_if_start_of_line({
             let mut items = PrintItems::new();
             if let Some(test) = &node.test {
@@ -2813,8 +2812,8 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
             items.push_str(";");
             items
         }));
-        items.push_signal(separator_after_semi_colons);
         if let Some(update) = &node.update {
+            items.push_signal(separator_after_semi_colons);
             items.push_condition(conditions::indent_if_start_of_line(parse_node(update.into(), context)));
         }
         items
@@ -4816,8 +4815,11 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
     );
     let open_brace_token = get_open_brace_token(&opts.body_node, context);
     let use_braces = opts.use_braces;
+    let is_body_empty_stmt = opts.body_node.kind() == NodeKind::EmptyStmt;
     let mut space_condition = Condition::new("spaceCondition", ConditionProperties {
         condition: Box::new(move |condition_context| {
+            if is_body_empty_stmt { return Some(false); }
+
             if let Some(has_first_line_comments) = condition_resolvers::are_infos_not_equal(condition_context, &start_inner_text_info, &end_first_line_comments_info) {
                 if has_first_line_comments {
                     return Some(true);
@@ -4837,6 +4839,8 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
     let space_condition_ref = space_condition.get_reference();
     let mut newline_condition = Condition::new("newLineCondition", ConditionProperties {
         condition: Box::new(move |condition_context| {
+            if is_body_empty_stmt { return Some(false); }
+
             if should_use_new_line {
                 return Some(true);
             }
@@ -4857,6 +4861,9 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
         condition: {
             let has_open_brace_token = open_brace_token.is_some();
             Box::new(move |condition_context| {
+                // never use braces for a single semi-colon on the end (ex. `for(;;);`)
+                if is_body_empty_stmt { return Some(false); }
+
                 match use_braces {
                     UseBraces::WhenNotSingleLine => {
                         if force_braces {

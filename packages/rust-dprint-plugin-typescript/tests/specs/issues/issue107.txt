@@ -1,5 +1,5 @@
 ~~ lineWidth: 120 ~~
-== should not move comment (only) ==
+== should not move comment ==
 declare module "ts-nameof" {
     interface Api {
         replaceInFiles(onFinished?: (err?: any /* NodeJS.ErrnoException */) => void): void;

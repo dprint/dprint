@@ -55,3 +55,16 @@ while (true) { /* 1 */ }
 
 [expect]
 while (true) { /* 1 */ }
+
+== should print when only has an empty statement ==
+while (true);
+
+[expect]
+while (true);
+
+== should print when only has an empty statement on next line ==
+while (true)
+    ;
+
+[expect]
+while (true);

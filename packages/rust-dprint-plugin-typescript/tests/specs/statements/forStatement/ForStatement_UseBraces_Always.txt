@@ -1,0 +1,15 @@
+~~ forStatement.useBraces: always, lineWidth: 40 ~~
+== should use braces when only one line ==
+for (let i = 0; i < 5; i++)
+    a;
+
+[expect]
+for (let i = 0; i < 5; i++) {
+    a;
+}
+
+== should not bother using braces when only has a semi-colon though ==
+for (;;);
+
+[expect]
+for (;;);

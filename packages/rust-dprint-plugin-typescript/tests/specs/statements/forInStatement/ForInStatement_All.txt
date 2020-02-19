@@ -59,3 +59,16 @@ for (const t in test) {
 [expect]
 for (const t in test) {
 }
+
+== should print when only has an empty statement ==
+for (const t in test);
+
+[expect]
+for (const t in test);
+
+== should print when only has an empty statement on next line ==
+for (const t in test)
+    ;
+
+[expect]
+for (const t in test);
