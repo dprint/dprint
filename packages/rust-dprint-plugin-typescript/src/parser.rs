@@ -10,8 +10,6 @@ use swc_ecma_parser::{token::{TokenAndSpan}};
 use super::*;
 use super::configuration::*;
 
-// todo: Remove putting functions on heap by using type parameters?
-
 pub fn parse(source_file: ParsedSourceFile, config: Configuration) -> PrintItems {
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
@@ -4076,7 +4074,7 @@ fn parse_statements<'a>(inner_span: Span, stmts: impl Iterator<Item=Node<'a>>, c
 struct ParseStatementsOrMembersOptions<'a, FShouldUseBlankLine> where FShouldUseBlankLine : Fn(&Node, &Node, &mut Context) -> bool {
     inner_span: Span,
     items: Vec<(Node<'a>, Option<PrintItems>)>,
-    should_use_space: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
+    should_use_space: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>, // todo: Remove putting functions on heap by using type parameters?
     should_use_new_line: Option<Box<dyn Fn(&Node, &Node, &mut Context) -> bool>>,
     should_use_blank_line: FShouldUseBlankLine,
     trailing_commas: Option<TrailingCommas>,
