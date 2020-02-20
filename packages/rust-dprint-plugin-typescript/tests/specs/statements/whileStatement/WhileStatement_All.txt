@@ -52,9 +52,14 @@ while (true) {
 
 == should print empty with inner comment on same line ==
 while (true) { /* 1 */ }
+while (true) {
+/* test */}
 
 [expect]
 while (true) { /* 1 */ }
+while (true) {
+    /* test */
+}
 
 == should print when only has an empty statement ==
 while (true);

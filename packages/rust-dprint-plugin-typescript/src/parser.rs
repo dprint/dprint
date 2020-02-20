@@ -733,7 +733,7 @@ fn parse_export_named_decl<'a>(node: &'a NamedExport, context: &mut Context<'a>)
         items.extend(parse_node(default_export.into(), context));
     } else if !named_exports.is_empty() {
         items.extend(parse_named_import_or_export_specifiers(
-            NamedImportOrExportDeclaration::Export(node),
+            &node.into(),
             named_exports.into_iter().map(|x| x.into()).collect(),
             context
         ));
@@ -863,11 +863,13 @@ fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> Pri
     if let Some(namespace_import) = namespace_import {
         items.extend(parse_node(namespace_import.into(), context));
     }
-    items.extend(parse_named_import_or_export_specifiers(
-        NamedImportOrExportDeclaration::Import(node),
-        named_imports.into_iter().map(|x| x.into()).collect(),
-        context
-    ));
+    if !named_imports.is_empty() {
+        items.extend(parse_named_import_or_export_specifiers(
+            &node.into(),
+            named_imports.into_iter().map(|x| x.into()).collect(),
+            context
+        ));
+    }
 
     if has_from { items.push_str(" from "); }
 
@@ -1007,53 +1009,28 @@ fn parse_type_alias<'a>(node: &'a TsTypeAliasDecl, context: &mut Context<'a>) ->
 
 /* exports */
 
-fn parse_named_import_or_export_specifiers<'a>(parent_decl: NamedImportOrExportDeclaration<'a>, specifiers: Vec<Node<'a>>, context: &mut Context<'a>) -> PrintItems {
-    let mut items = PrintItems::new();
-    if specifiers.is_empty() {
-        return items;
+fn parse_named_import_or_export_specifiers<'a>(parent: &Node<'a>, specifiers: Vec<Node<'a>>, context: &mut Context<'a>) -> PrintItems {
+    return parse_object_like_node(ParseObjectLikeNodeOptions {
+        node_span: parent.span(),
+        members: specifiers,
+        trailing_commas: Some(TrailingCommas::Never),
+        prefer_hanging: get_prefer_hanging(&parent, context),
+        surround_single_line_with_spaces: get_use_space(&parent, context),
+    }, context);
+
+    fn get_use_space(parent_decl: &Node, context: &mut Context) -> bool {
+        match parent_decl {
+            Node::NamedExport(_) => context.config.export_declaration_space_surrounding_named_exports,
+            Node::ImportDecl(_) => context.config.import_declaration_space_surrounding_named_imports,
+            _ => true, // not worth panicing over
+        }
     }
 
-    let use_space = get_use_space(&parent_decl, context);
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(
-        &context.token_finder.get_first_open_brace_token_within(&Node::from(parent_decl)),
-        &specifiers[0],
-        context
-    );
-    let brace_separator: PrintItems = if use_new_lines { Signal::NewLine.into() } else if use_space { " ".into() } else { "".into() };
-    let brace_separator = brace_separator.into_rc_path();
-
-    items.push_str("{");
-    items.extend(brace_separator.clone().into());
-
-    let specifiers = {
-        let mut items = PrintItems::new();
-        for (i, specifier) in specifiers.into_iter().enumerate() {
-            if i > 0 {
-                items.push_str(",");
-                items.push_signal(if use_new_lines { Signal::NewLine } else { Signal::SpaceOrNewLine });
-            }
-
-            let parsed_specifier = parse_node(specifier.into(), context);
-            if use_new_lines {
-                items.extend(parsed_specifier)
-            } else {
-                items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parsed_specifier)));
-            }
-        }
-        items
-    };
-
-    items.extend(if use_new_lines { parser_helpers::with_indent(specifiers) } else { specifiers });
-
-    items.extend(brace_separator.into());
-    items.push_str("}");
-
-    return items;
-
-    fn get_use_space(parent_decl: &NamedImportOrExportDeclaration, context: &mut Context) -> bool {
+    fn get_prefer_hanging(parent_decl: &Node, context: &mut Context) -> bool {
         match parent_decl {
-            NamedImportOrExportDeclaration::Export(_) => context.config.export_declaration_space_surrounding_named_exports,
-            NamedImportOrExportDeclaration::Import(_) => context.config.import_declaration_space_surrounding_named_imports,
+            Node::NamedExport(_) => context.config.export_declaration_prefer_hanging,
+            Node::ImportDecl(_) => context.config.import_declaration_prefer_hanging,
+            _ => true, // not worth panicing over
         }
     }
 }
@@ -1662,6 +1639,7 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Print
         members: node.props.iter().map(|x| x.into()).collect(),
         trailing_commas: Some(context.config.object_expression_trailing_commas),
         prefer_hanging: context.config.object_expression_prefer_hanging,
+        surround_single_line_with_spaces: true,
     }, context);
 }
 
@@ -2051,6 +2029,7 @@ fn parse_type_lit<'a>(node: &'a TsTypeLit, context: &mut Context<'a>) -> PrintIt
         members: node.members.iter().map(|m| m.into()).collect(),
         trailing_commas: None,
         prefer_hanging: context.config.type_literal_prefer_hanging,
+        surround_single_line_with_spaces: true,
     }, context);
 }
 
@@ -2413,6 +2392,7 @@ fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Print
         members: node.props.iter().map(|x| x.into()).collect(),
         trailing_commas: Some(TrailingCommas::Never),
         prefer_hanging: context.config.object_pattern_prefer_hanging,
+        surround_single_line_with_spaces: true,
     }, context));
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
     return items;
@@ -4326,13 +4306,14 @@ fn parse_separated_values<'a>(
         true_path: Some(surround_with_new_lines(with_indent(node_list.clone().into()))),
         false_path: Some({
             let mut items = PrintItems::new();
+            if opts.surround_single_line_with_spaces { items.push_str(" "); }
             if has_nodes {
+                // place this after the space so the first item will start on a newline when there is a newline here
                 items.push_condition(conditions::if_above_width(
-                    context.config.indent_width,
+                    context.config.indent_width + if opts.surround_single_line_with_spaces { 1 } else { 0 },
                     Signal::PossibleNewLine.into()
                 ));
             }
-            if opts.surround_single_line_with_spaces { items.push_str(" "); }
             items.extend(node_list.into());
             if opts.surround_single_line_with_spaces { items.push_str(" "); }
             items
@@ -4580,6 +4561,7 @@ struct ParseObjectLikeNodeOptions<'a> {
     members: Vec<Node<'a>>,
     trailing_commas: Option<TrailingCommas>,
     prefer_hanging: bool,
+    surround_single_line_with_spaces: bool,
 }
 
 fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mut Context<'a>) -> PrintItems {
@@ -4617,7 +4599,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
             prefer_hanging: opts.prefer_hanging,
             force_use_new_lines: false,
             trailing_commas: opts.trailing_commas,
-            surround_single_line_with_spaces: true,
+            surround_single_line_with_spaces: opts.surround_single_line_with_spaces,
         }, context));
     }
 

@@ -439,6 +439,14 @@ impl ConfigurationBuilder {
         self.insert("arrayPattern.preferHanging", value)
     }
 
+    pub fn export_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("exportDeclaration.preferHanging", value)
+    }
+
+    pub fn import_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("importDeclaration.preferHanging", value)
+    }
+
     pub fn object_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("objectExpression.preferHanging", value)
     }
@@ -1011,6 +1019,8 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         /* prefer hanging */
         array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        export_declaration_prefer_hanging: get_value(&mut config, "exportDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
+        import_declaration_prefer_hanging: get_value(&mut config, "importDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         object_expression_prefer_hanging: get_value(&mut config, "objectExpression.preferHanging", prefer_hanging, &mut diagnostics),
         object_pattern_prefer_hanging: get_value(&mut config, "objectPattern.preferHanging", prefer_hanging, &mut diagnostics),
         tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
@@ -1184,6 +1194,10 @@ pub struct Configuration {
     pub array_expression_prefer_hanging: bool,
     #[serde(rename = "arrayPattern.preferHanging")]
     pub array_pattern_prefer_hanging: bool,
+    #[serde(rename = "exportDeclaration.preferHanging")]
+    pub export_declaration_prefer_hanging: bool,
+    #[serde(rename = "importDeclaration.preferHanging")]
+    pub import_declaration_prefer_hanging: bool,
     #[serde(rename = "objectExpression.preferHanging")]
     pub object_expression_prefer_hanging: bool,
     #[serde(rename = "objectPattern.preferHanging")]

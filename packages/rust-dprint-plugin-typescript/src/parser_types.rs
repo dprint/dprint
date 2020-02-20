@@ -407,20 +407,6 @@ impl<'a> TypeParamNode<'a> {
     }
 }
 
-pub enum NamedImportOrExportDeclaration<'a> {
-    Import(&'a ImportDecl),
-    Export(&'a NamedExport),
-}
-
-impl<'a> From<NamedImportOrExportDeclaration<'a>> for Node<'a> {
-    fn from(node: NamedImportOrExportDeclaration<'a>) -> Node<'a> {
-        match node {
-            NamedImportOrExportDeclaration::Import(node) => node.into(),
-            NamedImportOrExportDeclaration::Export(node) => node.into(),
-        }
-    }
-}
-
 /* fully implemented From and NodeKinded implementations */
 
 macro_rules! generate_traits {
