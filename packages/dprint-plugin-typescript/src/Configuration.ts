@@ -20,11 +20,11 @@ export interface TypeScriptConfiguration {
      */
     useTabs?: boolean;
     /**
-     * Whether statements should use semi-colons.
+     * Whether semi-colons should be used.
      * @default "prefer"
      * @value "always" - Always uses semi-colons where applicable.
      * @value "prefer" - Prefers to use semi-colons, but doesn't add one in certain scenarios
-     * such as for the last member of a single-line type element.
+     * such as for the last member of a single-line type literal.
      * @value "asi" - Uses automatic semi-colon insertion. Only adds a semi-colon at the start
      * of some expression statements when necessary.
      */
@@ -295,8 +295,6 @@ export interface TypeScriptConfiguration {
      */
     "whileStatement.spaceAfterWhileKeyword"?: boolean;
 
-    "typeLiteral.semiColons"?: TypeScriptConfiguration["semiColons"];
-
     "forInStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forOfStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
@@ -375,9 +373,6 @@ export interface TypeScriptConfiguration {
 export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
     readonly quoteStyle: NonNullable<TypeScriptConfiguration["quoteStyle"]>;
     readonly semiColons: NonNullable<TypeScriptConfiguration["semiColons"]>;
-
-    // semi colons
-    readonly "typeLiteral.semiColons": NonNullable<TypeScriptConfiguration["semiColons"]>;
 
     // use braces
     readonly "forInStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;

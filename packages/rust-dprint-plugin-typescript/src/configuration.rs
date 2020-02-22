@@ -547,12 +547,6 @@ impl ConfigurationBuilder {
         self.insert("conditionalExpression.operatorPosition", value)
     }
 
-    /* semi-colons */
-
-    pub fn type_literal_semi_colons(&mut self, value: SemiColons) -> &mut Self {
-        self.insert("typeLiteral.semiColons", value)
-    }
-
     /* single body position */
     pub fn if_statement_single_body_position(&mut self, value: SingleBodyPosition) -> &mut Self {
         self.insert("ifStatement.singleBodyPosition", value)
@@ -660,7 +654,7 @@ pub enum SemiColons {
     /// Always uses semi-colons where applicable.
     Always,
     /// Prefers to use semi-colons, but doesn't add one in certain scenarios
-    /// such as for the last member of a single-line type element.
+    /// such as for the last member of a single-line type literal.
     Prefer,
     /// Uses automatic semi-colon insertion. Only adds a semi-colon at the start
     /// of some expression statements when necessary.
@@ -970,8 +964,6 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         /* operator position */
         binary_expression_operator_position: get_value(&mut config, "binaryExpression.operatorPosition", operator_position, &mut diagnostics),
         conditional_expression_operator_position: get_value(&mut config, "conditionalExpression.operatorPosition", operator_position, &mut diagnostics),
-        /* semi-colons */
-        type_literal_semi_colons: get_value(&mut config, "typeLiteral.semiColons", semi_colons, &mut diagnostics),
         /* single body position */
         if_statement_single_body_position: get_value(&mut config, "ifStatement.singleBodyPosition", single_body_position, &mut diagnostics),
         for_statement_single_body_position: get_value(&mut config, "forStatement.singleBodyPosition", single_body_position, &mut diagnostics),
@@ -1143,9 +1135,6 @@ pub struct Configuration {
     pub binary_expression_operator_position: OperatorPosition,
     #[serde(rename = "conditionalExpression.operatorPosition")]
     pub conditional_expression_operator_position: OperatorPosition,
-    /* semi-colons */
-    #[serde(rename = "typeLiteral.semiColons")]
-    pub type_literal_semi_colons: SemiColons,
     /* single body position */
     #[serde(rename = "ifStatement.singleBodyPosition")]
     pub if_statement_single_body_position: SingleBodyPosition,

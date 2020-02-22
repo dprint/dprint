@@ -2028,7 +2028,7 @@ fn parse_type_lit<'a>(node: &'a TsTypeLit, context: &mut Context<'a>) -> PrintIt
         node_span: node.span,
         members: node.members.iter().map(|m| m.into()).collect(),
         trailing_commas: None,
-        semi_colons: Some(context.config.type_literal_semi_colons),
+        semi_colons: Some(context.config.semi_colons),
         prefer_hanging: context.config.type_literal_prefer_hanging,
         surround_single_line_with_spaces: true,
     }, context);

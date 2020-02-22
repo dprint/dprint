@@ -78,8 +78,6 @@ fn check_all_values_set() {
         /* operator position */
         .binary_expression_operator_position(OperatorPosition::SameLine)
         .conditional_expression_operator_position(OperatorPosition::SameLine)
-        /* semi-colons */
-        .type_literal_semi_colons(SemiColons::Always)
         /* single body position */
         .if_statement_single_body_position(SingleBodyPosition::SameLine)
         .for_statement_single_body_position(SingleBodyPosition::SameLine)
@@ -123,7 +121,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 101);
+    assert_eq!(inner_config.len(), 100);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

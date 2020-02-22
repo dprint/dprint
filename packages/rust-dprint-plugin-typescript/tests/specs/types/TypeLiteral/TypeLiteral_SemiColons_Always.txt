@@ -1,4 +1,4 @@
-~~ lineWidth: 40, typeLiteral.semiColons: always ~~
+~~ lineWidth: 40, semiColons: always ~~
 == should have when a single line ==
 type Test = { p: string; u: number; };
 
