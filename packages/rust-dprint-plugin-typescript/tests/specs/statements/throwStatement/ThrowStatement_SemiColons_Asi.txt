@@ -1,4 +1,4 @@
-~~ throwStatement.semiColon: false ~~
+~~ semiColons: asi ~~
 == should remove the semi-colon ==
 throw "test";
 

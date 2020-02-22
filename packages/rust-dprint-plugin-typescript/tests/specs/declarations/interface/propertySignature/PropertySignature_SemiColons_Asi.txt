@@ -1,4 +1,4 @@
-~~ propertySignature.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format with no semi-colon ==
 type T = {
     p1   : string;
@@ -7,4 +7,4 @@ type T = {
 [expect]
 type T = {
     p1: string
-};
+}

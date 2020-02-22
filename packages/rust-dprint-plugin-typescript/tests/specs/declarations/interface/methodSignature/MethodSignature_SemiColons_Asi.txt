@@ -1,4 +1,4 @@
-~~ methodSignature.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format without a semi-colon ==
 type T = {
     method(): string;
@@ -7,4 +7,4 @@ type T = {
 [expect]
 type T = {
     method(): string
-};
+}

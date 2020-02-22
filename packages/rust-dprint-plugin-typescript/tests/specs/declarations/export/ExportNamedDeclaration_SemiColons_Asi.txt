@@ -1,4 +1,4 @@
-~~ lineWidth: 40, exportNamedDeclaration.semiColon: false ~~
+~~ lineWidth: 40, semiColons: asi ~~
 == should format without semi-colons ==
 export {};
 

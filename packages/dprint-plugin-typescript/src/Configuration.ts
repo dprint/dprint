@@ -21,9 +21,14 @@ export interface TypeScriptConfiguration {
     useTabs?: boolean;
     /**
      * Whether statements should use semi-colons.
-     * @default true
+     * @default "prefer"
+     * @value "always" - Always uses semi-colons where applicable.
+     * @value "prefer" - Prefers to use semi-colons, but doesn't add one in certain scenarios
+     * such as for the last member of a single-line type element.
+     * @value "asi" - Uses automatic semi-colon insertion. Only adds a semi-colon at the start
+     * of some expression statements when necessary.
      */
-    semiColons?: boolean;
+    semiColons?: "always" | "prefer" | "asi";
     /**
      * How to decide to use single or double quotes.
      * @default "preferDouble"
@@ -290,35 +295,7 @@ export interface TypeScriptConfiguration {
      */
     "whileStatement.spaceAfterWhileKeyword"?: boolean;
 
-    "breakStatement.semiColon"?: boolean;
-    "callSignature.semiColon"?: boolean;
-    "classProperty.semiColon"?: boolean;
-    "constructor.semiColon"?: boolean;
-    "constructSignature.semiColon"?: boolean;
-    "continueStatement.semiColon"?: boolean;
-    "debuggerStatement.semiColon"?: boolean;
-    "doWhileStatement.semiColon"?: boolean;
-    "exportAllDeclaration.semiColon"?: boolean;
-    "exportAssignment.semiColon"?: boolean;
-    "exportDefaultExpression.semiColon"?: boolean;
-    "exportNamedDeclaration.semiColon"?: boolean;
-    "expressionStatement.semiColon"?: boolean;
-    "functionDeclaration.semiColon"?: boolean;
-    "getAccessor.semiColon"?: boolean;
-    "importDeclaration.semiColon"?: boolean;
-    "importEqualsDeclaration.semiColon"?: boolean;
-    "indexSignature.semiColon"?: boolean;
-    "mappedType.semiColon"?: boolean;
-    "method.semiColon"?: boolean;
-    "methodSignature.semiColon"?: boolean;
-    "moduleDeclaration.semiColon"?: boolean;
-    "namespaceExportDeclaration.semiColon"?: boolean;
-    "propertySignature.semiColon"?: boolean;
-    "returnStatement.semiColon"?: boolean;
-    "setAccessor.semiColon"?: boolean;
-    "throwStatement.semiColon"?: boolean;
-    "typeAlias.semiColon"?: boolean;
-    "variableStatement.semiColon"?: boolean;
+    "typeLiteral.semiColons"?: TypeScriptConfiguration["semiColons"];
 
     "forInStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forOfStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
@@ -397,37 +374,10 @@ export interface TypeScriptConfiguration {
  */
 export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
     readonly quoteStyle: NonNullable<TypeScriptConfiguration["quoteStyle"]>;
+    readonly semiColons: NonNullable<TypeScriptConfiguration["semiColons"]>;
 
     // semi colons
-    readonly "breakStatement.semiColon": boolean;
-    readonly "callSignature.semiColon": boolean;
-    readonly "classProperty.semiColon": boolean;
-    readonly "constructor.semiColon": boolean;
-    readonly "constructSignature.semiColon": boolean;
-    readonly "continueStatement.semiColon": boolean;
-    readonly "debuggerStatement.semiColon": boolean;
-    readonly "doWhileStatement.semiColon": boolean;
-    readonly "exportAllDeclaration.semiColon": boolean;
-    readonly "exportAssignment.semiColon": boolean;
-    readonly "exportDefaultExpression.semiColon": boolean;
-    readonly "exportNamedDeclaration.semiColon": boolean;
-    readonly "expressionStatement.semiColon": boolean;
-    readonly "functionDeclaration.semiColon": boolean;
-    readonly "getAccessor.semiColon": boolean;
-    readonly "importDeclaration.semiColon": boolean;
-    readonly "importEqualsDeclaration.semiColon": boolean;
-    readonly "indexSignature.semiColon": boolean;
-    readonly "mappedType.semiColon": boolean;
-    readonly "method.semiColon": boolean;
-    readonly "methodSignature.semiColon": boolean;
-    readonly "moduleDeclaration.semiColon": boolean;
-    readonly "namespaceExportDeclaration.semiColon": boolean;
-    readonly "propertySignature.semiColon": boolean;
-    readonly "setAccessor.semiColon": boolean;
-    readonly "returnStatement.semiColon": boolean;
-    readonly "throwStatement.semiColon": boolean;
-    readonly "typeAlias.semiColon": boolean;
-    readonly "variableStatement.semiColon": boolean;
+    readonly "typeLiteral.semiColons": NonNullable<TypeScriptConfiguration["semiColons"]>;
 
     // use braces
     readonly "forInStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;

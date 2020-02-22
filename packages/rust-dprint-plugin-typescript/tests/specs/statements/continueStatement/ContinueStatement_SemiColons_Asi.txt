@@ -1,4 +1,4 @@
-~~ continueStatement.semiColon: false ~~
+~~ semiColons: asi ~~
 == should not inclue a semi-colon ==
 for (let i = 0; i < 5; i++)
     continue

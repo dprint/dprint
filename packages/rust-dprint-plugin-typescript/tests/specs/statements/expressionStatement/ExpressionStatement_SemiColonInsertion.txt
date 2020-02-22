@@ -1,4 +1,4 @@
-~~ expressionStatement.semiColon: false ~~
+~~ semiColons: asi ~~
 == should insert semi-colons at the start of lines beginning with a parenthesis ==
 (test);
 

@@ -1,4 +1,4 @@
-~~ namespaceExportDeclaration.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format without semi-colon ==
 export   as   namespace   A;
 

@@ -462,7 +462,7 @@ fn parse_class_prop_common<'a>(node: ParseClassPropCommon<'a>, context: &mut Con
         items.push_condition(conditions::indent_if_start_of_line(parse_node(value.into(), context)));
     }
 
-    if context.config.class_property_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -652,7 +652,7 @@ fn parse_export_default_expr<'a>(node: &'a ExportDefaultExpr, context: &mut Cont
     let mut items = PrintItems::new();
     items.push_str("export default ");
     items.extend(parse_node((&node.expr).into(), context));
-    if context.config.export_default_expression_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
     items
 }
 
@@ -748,7 +748,7 @@ fn parse_export_named_decl<'a>(node: &'a NamedExport, context: &mut Context<'a>)
         items.extend(parse_node(src.into(), context));
     }
 
-    if context.config.export_named_declaration_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -818,7 +818,7 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
 
         items.extend(parse_node(body.into(), context));
     } else {
-        if context.config.function_declaration_semi_colon {
+        if context.config.semi_colons.is_true() {
             items.push_str(";");
         }
     }
@@ -875,7 +875,7 @@ fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> Pri
 
     items.extend(parse_node((&node.src).into(), context));
 
-    if context.config.import_declaration_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -893,7 +893,7 @@ fn parse_import_equals_decl<'a>(node: &'a TsImportEqualsDecl, context: &mut Cont
     items.push_str(" = ");
     items.extend(parse_node((&node.module_ref).into(), context));
 
-    if context.config.import_equals_declaration_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
 
     return items;
 }
@@ -983,7 +983,7 @@ fn parse_module_or_namespace_decl<'a>(node: ModuleOrNamespaceDecl<'a>, context: 
                 }
             }
         }
-        else if context.config.module_declaration_semi_colon {
+        else if context.config.semi_colons.is_true() {
             items.push_str(";");
         }
 
@@ -1002,7 +1002,7 @@ fn parse_type_alias<'a>(node: &'a TsTypeAliasDecl, context: &mut Context<'a>) ->
     items.push_str(" = ");
     items.extend(parse_node((&node.type_ann).into(), context));
 
-    if context.config.type_alias_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
 
     return items;
 }
@@ -1907,7 +1907,7 @@ fn parse_call_signature_decl<'a>(node: &'a TsCallSignatureDecl, context: &mut Co
             type_node_separator: None,
         }, context)),
     }, context));
-    if context.config.call_signature_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
 
     return items;
 }
@@ -1929,7 +1929,7 @@ fn parse_construct_signature_decl<'a>(node: &'a TsConstructSignatureDecl, contex
             type_node_separator: None,
         }, context)),
     }, context));
-    if context.config.construct_signature_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
 
     return items;
 }
@@ -1944,7 +1944,7 @@ fn parse_index_signature<'a>(node: &'a TsIndexSignature, context: &mut Context<'
     items.extend(parse_node(node.params.iter().next().expect("Expected the index signature to have one parameter.").into(), context));
     items.push_str("]");
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
-    if context.config.index_signature_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
 
     return items;
 }
@@ -1994,7 +1994,7 @@ fn parse_method_signature<'a>(node: &'a TsMethodSignature, context: &mut Context
         }, context)),
     }, context));
 
-    if context.config.method_signature_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
 
     return items;
 }
@@ -2018,7 +2018,7 @@ fn parse_property_signature<'a>(node: &'a TsPropertySignature, context: &mut Con
         }));
     }
 
-    if context.config.property_signature_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
 
     return items;
 }
@@ -2500,7 +2500,7 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
             start_header_info: Some(start_header_info),
         }, context));
         items.extend(parse_node(body, context));
-    } else if get_use_semi_colon(&node.kind, context) {
+    } else if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -2530,15 +2530,6 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
             ClassOrObjectMethodKind::Getter => context.config.get_accessor_brace_position,
             ClassOrObjectMethodKind::Setter => context.config.set_accessor_brace_position,
             ClassOrObjectMethodKind::Method => context.config.method_brace_position,
-        }
-    }
-
-    fn get_use_semi_colon(kind: &ClassOrObjectMethodKind, context: &mut Context) -> bool {
-        match kind {
-            ClassOrObjectMethodKind::Constructor => context.config.constructor_semi_colon,
-            ClassOrObjectMethodKind::Getter => context.config.get_accessor_semi_colon,
-            ClassOrObjectMethodKind::Setter => context.config.set_accessor_semi_colon,
-            ClassOrObjectMethodKind::Method => context.config.method_semi_colon,
         }
     }
 }
@@ -2613,7 +2604,7 @@ fn parse_break_stmt<'a>(node: &'a BreakStmt, context: &mut Context<'a>) -> Print
         items.push_str(" ");
         items.extend(parse_node(label.into(), context));
     }
-    if context.config.break_statement_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -2628,7 +2619,7 @@ fn parse_continue_stmt<'a>(node: &'a ContinueStmt, context: &mut Context<'a>) ->
         items.push_str(" ");
         items.extend(parse_node(label.into(), context));
     }
-    if context.config.continue_statement_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -2639,7 +2630,7 @@ fn parse_debugger_stmt<'a>(_: &'a DebuggerStmt, context: &mut Context<'a>) -> Pr
     let mut items = PrintItems::new();
 
     items.push_str("debugger");
-    if context.config.debugger_statement_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -2661,7 +2652,7 @@ fn parse_do_while_stmt<'a>(node: &'a DoWhileStmt, context: &mut Context<'a>) -> 
         items.push_str(" ");
     }
     items.extend(parse_node_in_parens((&node.test).into(), |context| parse_node((&node.test).into(), context), context));
-    if context.config.do_while_statement_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
     return items;
@@ -2672,7 +2663,7 @@ fn parse_export_all<'a>(node: &'a ExportAll, context: &mut Context<'a>) -> Print
     items.push_str("export * from ");
     items.extend(parse_node((&node.src).into(), context));
 
-    if context.config.export_all_declaration_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -2688,7 +2679,7 @@ fn parse_export_assignment<'a>(node: &'a TsExportAssignment, context: &mut Conte
 
     items.push_str("export = ");
     items.extend(parse_node((&node.expr).into(), context));
-    if context.config.export_assignment_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -2700,7 +2691,7 @@ fn parse_namespace_export<'a>(node: &'a TsNamespaceExportDecl, context: &mut Con
     items.push_str("export as namespace ");
     items.extend(parse_node((&node.id).into(), context));
 
-    if context.config.namespace_export_declaration_semi_colon {
+    if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
 
@@ -2708,7 +2699,7 @@ fn parse_namespace_export<'a>(node: &'a TsNamespaceExportDecl, context: &mut Con
 }
 
 fn parse_expr_stmt<'a>(stmt: &'a ExprStmt, context: &mut Context<'a>) -> PrintItems {
-    if context.config.expression_statement_semi_colon {
+    if context.config.semi_colons.is_true() {
         return parse_inner(&stmt, context);
     } else {
         return parse_for_prefix_semi_colon_insertion(&stmt, context);
@@ -2717,7 +2708,7 @@ fn parse_expr_stmt<'a>(stmt: &'a ExprStmt, context: &mut Context<'a>) -> PrintIt
     fn parse_inner<'a>(stmt: &'a ExprStmt, context: &mut Context<'a>) -> PrintItems {
         let mut items = PrintItems::new();
         items.extend(parse_node((&stmt.expr).into(), context));
-        if context.config.expression_statement_semi_colon {
+        if context.config.semi_colons.is_true() {
             items.push_str(";");
         }
         return items;
@@ -3005,7 +2996,7 @@ fn parse_return_stmt<'a>(node: &'a ReturnStmt, context: &mut Context<'a>) -> Pri
         items.push_str(" ");
         items.extend(parse_node(arg.into(), context));
     }
-    if context.config.return_statement_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
     return items;
 }
 
@@ -3123,7 +3114,7 @@ fn parse_throw_stmt<'a>(node: &'a ThrowStmt, context: &mut Context<'a>) -> Print
     let mut items = PrintItems::new();
     items.push_str("throw ");
     items.extend(parse_node((&node.arg).into(), context));
-    if context.config.throw_statement_semi_colon { items.push_str(";"); }
+    if context.config.semi_colons.is_true() { items.push_str(";"); }
     return items;
 }
 
@@ -3221,7 +3212,7 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItem
             Node::ForInStmt(node) => var_decl_span.lo() >= node.body.span().lo(),
             Node::ForOfStmt(node) => var_decl_span.lo() >= node.body.span().lo(),
             Node::ForStmt(node) => var_decl_span.lo() >= node.body.span().lo(),
-            _ => context.config.variable_statement_semi_colon,
+            _ => context.config.semi_colons.is_true(),
         }
     }
 }
@@ -3458,7 +3449,7 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
             });
         }
         items.extend(parse_type_annotation_with_colon_if_exists_for_type(&node.type_ann, context));
-        if context.config.mapped_type_semi_colon {
+        if context.config.semi_colons.is_true() {
             items.push_str(";");
         }
         items
