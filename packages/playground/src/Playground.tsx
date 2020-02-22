@@ -36,7 +36,7 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
             lineWidth: initialConfig.lineWidth,
             indentWidth: initialConfig.indentWidth,
             useTabs: initialConfig.useTabs,
-            semiColons: initialConfig["breakStatement.semiColon"],
+            semiColons: initialConfig.semiColons,
             quoteStyle: initialConfig.quoteStyle,
             trailingCommas: initialConfig["tupleType.trailingCommas"],
             useBraces: initialConfig["ifStatement.useBraces"],
