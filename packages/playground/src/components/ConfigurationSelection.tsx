@@ -8,6 +8,8 @@ export interface ConfigurationSelectionProps {
     onUpdateConfig: (config: TypeScriptConfiguration) => void;
 }
 
+const semiColonsOptions = ["always", "prefer", "asi"] as const;
+type _assertSemiColons = AssertTrue<IsExact<typeof semiColonsOptions[number], NonNullable<TypeScriptConfiguration["semiColons"]>>>;
 const quoteStyleOptions = ["alwaysDouble", "alwaysSingle", "preferDouble", "preferSingle"] as const;
 type _assertQuoteStyleOptions = AssertTrue<IsExact<typeof quoteStyleOptions[number],
     NonNullable<TypeScriptConfiguration["quoteStyle"]>>>;
@@ -45,7 +47,7 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
                 {this.getBooleanConfig("useTabs")}
             </ConfigurationItem>
             <ConfigurationItem title="Semicolons">
-                {this.getBooleanConfig("semiColons")}
+                {this.getSelectForConfig("semiColons", semiColonsOptions)}
             </ConfigurationItem>
             <ConfigurationItem title="Quote style">
                 {this.getSelectForConfig("quoteStyle", quoteStyleOptions)}
