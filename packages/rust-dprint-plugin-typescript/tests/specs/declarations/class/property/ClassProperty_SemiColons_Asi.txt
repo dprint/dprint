@@ -1,4 +1,4 @@
-~~ classProperty.semiColon: false ~~
+~~ semiColons: asi ~~
 == should not use a semi-colon when false ==
 class Test {
     prop: string;

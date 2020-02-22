@@ -11,7 +11,7 @@ fn check_all_values_set() {
         .indent_width(4)
         /* common */
         .quote_style(QuoteStyle::AlwaysDouble)
-        .semi_colons(true)
+        .semi_colons(SemiColons::Prefer)
         .brace_position(BracePosition::NextLine)
         .next_control_flow_position(NextControlFlowPosition::SameLine)
         .operator_position(OperatorPosition::SameLine)
@@ -78,36 +78,6 @@ fn check_all_values_set() {
         /* operator position */
         .binary_expression_operator_position(OperatorPosition::SameLine)
         .conditional_expression_operator_position(OperatorPosition::SameLine)
-        /* semi-colon */
-        .break_statement_semi_colon(true)
-        .call_signature_semi_colon(true)
-        .class_property_semi_colon(true)
-        .construct_signature_semi_colon(true)
-        .constructor_semi_colon(true)
-        .continue_statement_semi_colon(true)
-        .debugger_statement_semi_colon(true)
-        .do_while_statement_semi_colon(true)
-        .export_all_declaration_semi_colon(true)
-        .export_assignment_semi_colon(true)
-        .export_default_expression_semi_colon(true)
-        .export_named_declaration_semi_colon(true)
-        .expression_statement_semi_colon(true)
-        .function_declaration_semi_colon(true)
-        .get_accessor_semi_colon(true)
-        .import_declaration_semi_colon(true)
-        .import_equals_declaration_semi_colon(true)
-        .index_signature_semi_colon(true)
-        .mapped_type_semi_colon(true)
-        .method_semi_colon(true)
-        .method_signature_semi_colon(true)
-        .module_declaration_semi_colon(true)
-        .namespace_export_declaration_semi_colon(true)
-        .property_signature_semi_colon(true)
-        .return_statement_semi_colon(true)
-        .set_accessor_semi_colon(true)
-        .throw_statement_semi_colon(true)
-        .type_alias_semi_colon(true)
-        .variable_statement_semi_colon(true)
         /* single body position */
         .if_statement_single_body_position(SingleBodyPosition::SameLine)
         .for_statement_single_body_position(SingleBodyPosition::SameLine)
@@ -151,7 +121,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 129);
+    assert_eq!(inner_config.len(), 100);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

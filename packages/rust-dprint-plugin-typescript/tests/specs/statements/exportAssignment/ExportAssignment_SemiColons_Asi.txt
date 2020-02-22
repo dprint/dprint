@@ -1,4 +1,4 @@
-~~ exportAssignment.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format without a semi colon ==
 export = 5;
 

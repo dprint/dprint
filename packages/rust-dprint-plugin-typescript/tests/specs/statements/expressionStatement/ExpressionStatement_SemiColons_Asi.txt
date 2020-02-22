@@ -1,4 +1,4 @@
-~~ expressionStatement.semiColon: false ~~
+~~ semiColons: asi ~~
 == should not output the semi colon ==
 testing.this();
 

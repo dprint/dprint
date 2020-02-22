@@ -1,4 +1,4 @@
-~~ indexSignature.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format without a semi-colon ==
 interface T {
     [index: number]: string;

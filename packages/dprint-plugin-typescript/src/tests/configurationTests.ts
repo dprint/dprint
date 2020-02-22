@@ -50,9 +50,9 @@ describe("configuration", () => {
         });
 
         it("should do a diagnostic when providing an incorrect boolean value", () => {
-            doTest({ semiColons: 5 as any as boolean }, {}, () => false, [{
-                message: "Error parsing configuration value for 'semiColons'. Message: provided string was not `true` or `false`",
-                propertyName: "semiColons"
+            doTest({ "setAccessor.spaceBeforeParentheses": 5 as any as boolean }, {}, () => false, [{
+                message: "Error parsing configuration value for 'setAccessor.spaceBeforeParentheses'. Message: provided string was not `true` or `false`",
+                propertyName: "setAccessor.spaceBeforeParentheses"
             }]);
         });
 
@@ -65,62 +65,22 @@ describe("configuration", () => {
     });
 
     describe(nameof<TypeScriptConfiguration>(c => c.semiColons), () => {
-        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("semiColon"));
+        function doSpecificTest(value: TypeScriptConfiguration["semiColons"] | undefined, expectedValue: ResolvedTypeScriptConfiguration["semiColons"]) {
+            doTest({ semiColons: value }, { semiColons: expectedValue }, prop => prop === "semiColons");
         }
 
-        it("should set all the semi-colon values using the default", () => {
-            doSpecificTest({}, getObject(true));
+        it("should set when not set", () => {
+            doSpecificTest(undefined, "prefer");
         });
 
-        it("should set all the semi-colon values when using the default", () => {
-            doSpecificTest({ semiColons: true }, getObject(true));
+        it("should use when set to the default", () => {
+            doSpecificTest("prefer", "prefer");
         });
 
-        it("should set all the semi-colon values when set to a non-default", () => {
-            doSpecificTest({ semiColons: false }, getObject(false));
+        it("should use when not set to the default", () => {
+            doSpecificTest("always", "always");
+            doSpecificTest("asi", "asi");
         });
-
-        it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(false);
-            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.semiColons = true;
-            doSpecificTest(config, expectedConfig);
-        });
-
-        function getObject(value: boolean): Partial<ResolvedTypeScriptConfiguration> {
-            return {
-                "breakStatement.semiColon": value,
-                "callSignature.semiColon": value,
-                "classProperty.semiColon": value,
-                "constructor.semiColon": value,
-                "constructSignature.semiColon": value,
-                "continueStatement.semiColon": value,
-                "debuggerStatement.semiColon": value,
-                "doWhileStatement.semiColon": value,
-                "exportAllDeclaration.semiColon": value,
-                "exportAssignment.semiColon": value,
-                "exportDefaultExpression.semiColon": value,
-                "exportNamedDeclaration.semiColon": value,
-                "expressionStatement.semiColon": value,
-                "functionDeclaration.semiColon": value,
-                "getAccessor.semiColon": value,
-                "importDeclaration.semiColon": value,
-                "importEqualsDeclaration.semiColon": value,
-                "indexSignature.semiColon": value,
-                "mappedType.semiColon": value,
-                "method.semiColon": value,
-                "methodSignature.semiColon": value,
-                "moduleDeclaration.semiColon": value,
-                "namespaceExportDeclaration.semiColon": value,
-                "propertySignature.semiColon": value,
-                "returnStatement.semiColon": value,
-                "setAccessor.semiColon": value,
-                "throwStatement.semiColon": value,
-                "typeAlias.semiColon": value,
-                "variableStatement.semiColon": value
-            };
-        }
     });
 
     describe(nameof<TypeScriptConfiguration>(c => c.quoteStyle), () => {

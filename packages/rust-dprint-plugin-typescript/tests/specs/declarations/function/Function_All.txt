@@ -71,7 +71,7 @@ function t({ a, b }: { a: string; b: number; }) {
 }
 
 [expect]
-function t({ a, b }: { a: string; b: number; }) {
+function t({ a, b }: { a: string; b: number }) {
 }
 
 == should force multi-line parameters when exceeding the line width ==

@@ -1,4 +1,4 @@
-~~ constructSignature.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format ==
 type Test = {
     new(): string;
@@ -7,4 +7,4 @@ type Test = {
 [expect]
 type Test = {
     new(): string
-};
+}

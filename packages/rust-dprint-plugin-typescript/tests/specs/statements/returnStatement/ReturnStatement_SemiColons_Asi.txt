@@ -1,4 +1,4 @@
-~~ returnStatement.semiColon: false ~~
+~~ semiColons: asi ~~
 == should remove the semi-colon when has argument ==
 function test() {
     return "test";

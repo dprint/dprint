@@ -1,4 +1,4 @@
-~~ functionDeclaration.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format without semi-colon ==
 declare function test(): string;
 

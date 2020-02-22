@@ -1,4 +1,4 @@
-~~ moduleDeclaration.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format without a semi-colon ==
 declare module "testing";
 

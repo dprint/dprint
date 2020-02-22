@@ -1,8 +1,8 @@
-~~ lineWidth: 40, exportDefaultExpression.semiColon: false ~~
+~~ lineWidth: 40, semiColons: asi ~~
 == should format without a semi-colon ==
 const test = 5;
 export    default   test;
 
 [expect]
-const test = 5;
+const test = 5
 export default test

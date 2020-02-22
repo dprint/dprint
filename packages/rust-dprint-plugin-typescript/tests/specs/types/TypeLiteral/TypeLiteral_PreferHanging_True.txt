@@ -3,7 +3,7 @@
 type Test = { p: string; u: number; };
 
 [expect]
-type Test = { p: string; u: number; };
+type Test = { p: string; u: number };
 
 == should format when multi-line ==
 type Test = {
@@ -22,7 +22,7 @@ type Test = { prop: string; other: number; };
 
 [expect]
 type Test = { prop: string;
-    other: number; };
+    other: number };
 
 == should respect multi-line ==
 type Test = {

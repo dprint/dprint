@@ -1,4 +1,4 @@
-~~ variableStatement.semiColon: false ~~
+~~ semiColons: asi ~~
 == should format without a semi-colon ==
 const a = 5;
 

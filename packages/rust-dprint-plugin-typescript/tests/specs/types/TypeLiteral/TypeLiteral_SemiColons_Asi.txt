@@ -1,0 +1,30 @@
+~~ lineWidth: 40, semiColons: asi ~~
+== should have when a single line except on the last element ==
+type Test = { p: string; u: number; };
+
+[expect]
+type Test = { p: string; u: number }
+
+== should not have when multi-line ==
+type Test = {
+    prop: string;
+    other: number;
+};
+
+[expect]
+type Test = {
+    prop: string
+    other: number
+}
+
+== should be able to parse without semi-colon ==
+type Test = {
+    prop: string
+    other: number
+};
+
+[expect]
+type Test = {
+    prop: string
+    other: number
+}

@@ -1,4 +1,4 @@
-~~ debuggerStatement.semiColon: false ~~
+~~ semiColons: asi ~~
 == should remove the semi-colon ==
 debugger;
 
