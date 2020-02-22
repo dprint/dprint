@@ -6,11 +6,11 @@ type Test = {
 [expect]
 type Test = {};
 
-== should format when a single line ==
+== should format when a single line and not include a semi-colon on the last element ==
 type Test = { p: string; u: number; };
 
 [expect]
-type Test = { p: string; u: number; };
+type Test = { p: string; u: number };
 
 == should format when multi-line ==
 type Test = {
@@ -25,7 +25,7 @@ type Test = {
 };
 
 == should make multiple lines go multi-line ==
-type Test = { prop: string; other: number; };
+type Test = { prop: string; other: number };
 
 [expect]
 type Test = {
