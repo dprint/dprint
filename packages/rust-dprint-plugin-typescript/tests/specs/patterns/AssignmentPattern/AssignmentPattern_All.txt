@@ -9,5 +9,5 @@
 [testingThisReallyReally = testingOtherThing] = 0;
 
 [expect]
-[testingThisReallyReally
-    = testingOtherThing] = 0;
+[testingThisReallyReally =
+    testingOtherThing] = 0;

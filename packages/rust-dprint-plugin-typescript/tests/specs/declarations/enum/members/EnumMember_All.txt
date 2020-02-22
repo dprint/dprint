@@ -23,8 +23,8 @@ enum Test {
 
 [expect]
 enum Test {
-    memberThatIsLong
-        = 52364363463463,
+    memberThatIsLong =
+        52364363463463,
     member2 = "some" + "test"
         + "withLotsOfThese"
 }

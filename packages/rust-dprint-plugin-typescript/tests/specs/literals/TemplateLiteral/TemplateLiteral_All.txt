@@ -63,3 +63,9 @@ myCustomTag `testing this out with an str`;
 [expect]
 myCustomTag
     `testing this out with an str`;
+
+== should not do newlines for a member expression ==
+`tttttttttttttest ${testing.this.out.testing}`;
+
+[expect]
+`tttttttttttttest ${testing.this.out.testing}`;

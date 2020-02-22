@@ -453,13 +453,7 @@ fn parse_class_prop_common<'a>(node: ParseClassPropCommon<'a>, context: &mut Con
     items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
 
     if let Some(value) = node.value {
-        items.push_str(" =");
-        items.push_condition(conditions::if_above_width_or(
-            context.config.indent_width,
-            Signal::SpaceOrNewLine.into(),
-            " ".into()
-        ));
-        items.push_condition(conditions::indent_if_start_of_line(parse_node(value.into(), context)));
+        items.extend(parse_assignment(value.into(), "=", context));
     }
 
     if context.config.semi_colons.is_true() {
@@ -695,17 +689,7 @@ fn parse_enum_member<'a>(node: &'a TsEnumMember, context: &mut Context<'a>) -> P
     items.extend(parse_node((&node.id).into(), context));
 
     if let Some(init) = &node.init {
-        match init.kind() {
-            NodeKind::Number | NodeKind::Str => items.push_signal(Signal::SpaceOrNewLine),
-            _ => items.push_str(" "),
-        };
-
-        items.push_condition(conditions::indent_if_start_of_line({
-            let mut items = PrintItems::new();
-            items.push_str("= ");
-            items.extend(parse_node(init.into(), context));
-            items
-        }));
+        items.extend(parse_assignment(init.into(), "=", context));
     }
 
     items
@@ -892,8 +876,7 @@ fn parse_import_equals_decl<'a>(node: &'a TsImportEqualsDecl, context: &mut Cont
 
     items.push_str("import ");
     items.extend(parse_node((&node.id).into(), context));
-    items.push_str(" = ");
-    items.extend(parse_node((&node.module_ref).into(), context));
+    items.extend(parse_assignment((&node.module_ref).into(), "=", context));
 
     if context.config.semi_colons.is_true() { items.push_str(";"); }
 
@@ -1002,8 +985,7 @@ fn parse_type_alias<'a>(node: &'a TsTypeAliasDecl, context: &mut Context<'a>) ->
     if let Some(type_params) = &node.type_params {
         items.extend(parse_node(type_params.into(), context));
     }
-    items.push_str(" = ");
-    items.extend(parse_node((&node.type_ann).into(), context));
+    items.extend(parse_assignment((&node.type_ann).into(), "=", context));
 
     if context.config.semi_colons.is_true() { items.push_str(";"); }
 
@@ -1151,18 +1133,7 @@ fn parse_const_assertion<'a>(node: &'a TsConstAssertion, context: &mut Context<'
 fn parse_assignment_expr<'a>(node: &'a AssignExpr, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.extend(parse_node((&node.left).into(), context));
-    items.push_str(&format!(" {}", node.op));
-    items.push_condition(conditions::with_indent_if_start_of_line_indented({
-        let mut items = PrintItems::new();
-        items.push_condition(conditions::if_above_width_or(
-            context.config.indent_width,
-            Signal::SpaceOrNewLine.into(),
-            " ".into()
-        ));
-        items.push_condition(conditions::indent_if_start_of_line(parse_node((&node.right).into(), context)));
-        items
-    }));
-
+    items.extend(parse_assignment((&node.right).into(), node.op.as_str(), context));
     items
 }
 
@@ -1740,7 +1711,9 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
         } else {
             items.push_str("${");
             items.push_signal(Signal::FinishIgnoringIndent);
-            items.extend(parse_node(node, context));
+            let keep_on_one_line = get_keep_on_one_line(&node);
+            let parsed_expr = parse_node(node, context);
+            items.extend(if keep_on_one_line { with_no_new_lines(parsed_expr)} else { parsed_expr });
             items.push_str("}");
             items.push_signal(Signal::StartIgnoringIndent);
         }
@@ -1784,6 +1757,15 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
         }
 
         return nodes;
+    }
+
+    // handle this on a case by case basis for now
+    fn get_keep_on_one_line(node: &Node) -> bool {
+        match node {
+            Node::Ident(_) => true,
+            Node::MemberExpr(expr) => get_keep_on_one_line(&(&expr.obj).into()) && get_keep_on_one_line(&(&expr.prop).into()),
+            _ => false,
+        }
     }
 }
 
@@ -1999,13 +1981,7 @@ fn parse_property_signature<'a>(node: &'a TsPropertySignature, context: &mut Con
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
 
     if let Some(init) = &node.init {
-        items.push_signal(Signal::SpaceOrNewLine);
-        items.push_condition(conditions::indent_if_start_of_line({
-            let mut items = PrintItems::new();
-            items.push_str("= ");
-            items.extend(parse_node(init.into(), context));
-            items
-        }));
+        items.extend(parse_assignment(init.into(), "=", context));
     }
 
     return items;
@@ -2363,13 +2339,7 @@ fn parse_assign_pat<'a>(node: &'a AssignPat, context: &mut Context<'a>) -> Print
     parser_helpers::new_line_group({
         let mut items = PrintItems::new();
         items.extend(parse_node((&node.left).into(), context));
-        items.push_signal(Signal::SpaceOrNewLine);
-        items.push_condition(conditions::indent_if_start_of_line({
-            let mut items = PrintItems::new();
-            items.push_str("= ");
-            items.extend(parse_node((&node.right).into(), context));
-            items
-        }));
+        items.extend(parse_assignment((&node.right).into(), "=", context));
         items
     })
 }
@@ -2379,13 +2349,7 @@ fn parse_assign_pat_prop<'a>(node: &'a AssignPatProp, context: &mut Context<'a>)
         let mut items = PrintItems::new();
         items.extend(parse_node((&node.key).into(), context));
         if let Some(value) = &node.value {
-            items.push_signal(Signal::SpaceOrNewLine);
-            items.push_condition(conditions::indent_if_start_of_line({
-                let mut items = PrintItems::new();
-                items.push_str("= ");
-                items.extend(parse_node(value.into(), context));
-                items
-            }));
+            items.extend(parse_assignment(value.into(), "=", context));
         }
         items
     });
@@ -2692,8 +2656,8 @@ fn parse_empty_stmt(_: &EmptyStmt, _: &mut Context) -> PrintItems {
 fn parse_export_assignment<'a>(node: &'a TsExportAssignment, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
 
-    items.push_str("export = ");
-    items.extend(parse_node((&node.expr).into(), context));
+    items.push_str("export");
+    items.extend(parse_assignment((&node.expr).into(), "=", context));
     if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
@@ -3240,9 +3204,7 @@ fn parse_var_declarator<'a>(node: &'a VarDeclarator, context: &mut Context<'a>) 
     items.extend(parse_node((&node.name).into(), context));
 
     if let Some(init) = &node.init {
-        items.push_str(" =");
-        items.extend(Signal::SpaceOrNewLine.into());
-        items.push_condition(conditions::indent_if_start_of_line(parse_node(init.into(), context)));
+        items.extend(parse_assignment(init.into(), "=", context));
     }
 
     items
@@ -3542,13 +3504,7 @@ fn parse_type_param<'a>(node: &'a TsTypeParam, context: &mut Context<'a>) -> Pri
     }
 
     if let Some(default) = &node.default {
-        items.push_signal(Signal::SpaceOrNewLine);
-        items.push_condition(conditions::indent_if_start_of_line({
-            let mut items = PrintItems::new();
-            items.push_str("= ");
-            items.extend(parse_node(default.into(), context));
-            items
-        }));
+        items.extend(parse_assignment(default.into(), "=", context));
     }
 
     return items;
@@ -4195,23 +4151,6 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     }
 
     return items;
-
-    fn is_arrow_function_with_expr_body<'a>(node: &'a Node) -> bool {
-        match node {
-            Node::ExprOrSpread(expr_or_spread) => {
-                match &*expr_or_spread.expr {
-                    Expr::Arrow(arrow) => {
-                        match &arrow.body {
-                            BlockStmtOrExpr::Expr(_) => true,
-                            _ => false,
-                        }
-                    },
-                    _ => false,
-                }
-            },
-            _ => false,
-        }
-    }
 
     fn get_use_new_lines(nodes: &Vec<Node>, context: &mut Context) -> bool {
         if nodes.is_empty() {
@@ -5327,12 +5266,54 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
     }
 }
 
+fn parse_assignment<'a>(expr: Node<'a>, op: &str, context: &mut Context<'a>) -> PrintItems {
+    let use_newline_group = get_use_newline_group(&expr);
+    let mut items = PrintItems::new();
+    items.push_str(&format!(" {}", op));
+    items.push_condition(conditions::with_indent_if_start_of_line_indented({
+        let mut items = PrintItems::new();
+        items.push_condition(conditions::if_above_width_or(
+            context.config.indent_width,
+            Signal::SpaceOrNewLine.into(),
+            " ".into()
+        ));
+        let assignment = conditions::indent_if_start_of_line(parse_node(expr, context)).into();
+        items.extend(if use_newline_group { new_line_group(assignment) } else { assignment });
+        items
+    }));
+    return items;
+
+    fn get_use_newline_group(expr: &Node) -> bool {
+        match expr {
+            Node::MemberExpr(_) => true,
+            _ => false,
+        }
+    }
+}
+
 /* is functions */
 
-fn is_expr_template(node: &Expr) -> bool { // todo: remove
+fn is_expr_template(node: &Expr) -> bool {
     match node {
         Expr::Tpl(_) => true,
         _ => false
+    }
+}
+
+fn is_arrow_function_with_expr_body<'a>(node: &'a Node) -> bool {
+    match node {
+        Node::ExprOrSpread(expr_or_spread) => {
+            match &*expr_or_spread.expr {
+                Expr::Arrow(arrow) => {
+                    match &arrow.body {
+                        BlockStmtOrExpr::Expr(_) => true,
+                        _ => false,
+                    }
+                },
+                _ => false,
+            }
+        },
+        _ => false,
     }
 }
 

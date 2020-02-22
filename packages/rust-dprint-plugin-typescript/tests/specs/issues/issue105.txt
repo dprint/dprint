@@ -27,3 +27,17 @@ let test = (testing, testing) => true && false && true && false && true && false
 [expect]
 let test = (testing, testing) =>
   true && false && true && false && true && false;
+
+== should have newline group on variable declaration assignment ==
+const gravesPos: Vector2 | null | undefined = globalState.gameData.level1.graves[0].position;
+
+[expect]
+const gravesPos: Vector2 | null | undefined =
+  globalState.gameData.level1.graves[0].position;
+
+== should not have for arrow func expr ==
+const gravesPos: Vector2 | null | undefined = (testing) => ttttttttttttttttttttttttttttt;
+
+[expect]
+const gravesPos: Vector2 | null | undefined = (testing) =>
+  ttttttttttttttttttttttttttttt;

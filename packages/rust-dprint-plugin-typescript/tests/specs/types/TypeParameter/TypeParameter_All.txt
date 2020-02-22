@@ -14,8 +14,8 @@ class Test<TestingThisOut = TestingThisOut> {
 }
 
 [expect]
-class Test<TestingThisOut
-    = TestingThisOut>
+class Test<TestingThisOut =
+    TestingThisOut>
 {
 }
 
