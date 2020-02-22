@@ -24,8 +24,8 @@ const t = () => {};
 const t = () => true || false || true || false || true || false;
 
 [expect]
-const t = () => true || false || true || false || true
-    || false;
+const t = () =>
+    true || false || true || false || true || false;
 
 == should allow arrow functions without parens ==
 const t = a => 5;

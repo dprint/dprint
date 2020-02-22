@@ -1,0 +1,29 @@
+~~ lineWidth: 80, indentWidth: 2 ~~
+== should keep nested arrow functions on separate lines ==
+entitiesGroupOne.forEach((entity, indexOne) =>
+  entitiesGroupTwo.forEach((entityTwo, indexTwo) => {
+    call();
+  })
+);
+
+[expect]
+entitiesGroupOne.forEach((entity, indexOne) =>
+  entitiesGroupTwo.forEach((entityTwo, indexTwo) => {
+    call();
+  })
+);
+
+== should move short non-multi-line body back up to same line ==
+entitiesGroupOne.forEach((entity, indexOne) =>
+    call()
+);
+
+[expect]
+entitiesGroupOne.forEach((entity, indexOne) => call());
+
+== should move arrow func body to newline when going over ==
+let test = (testing, testing) => true && false && true && false && true && false;
+
+[expect]
+let test = (testing, testing) =>
+  true && false && true && false && true && false;

@@ -1053,13 +1053,13 @@ fn parse_array_expr<'a>(node: &'a ArrayLit, context: &mut Context<'a>) -> PrintI
 fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     let header_start_info = Info::new("arrowFunctionExpressionHeaderStart");
-    let should_use_params = get_should_use_params(&node, context);
+    let should_use_parens = get_should_use_parens(&node, context);
 
     items.push_info(header_start_info);
     if node.is_async { items.push_str("async "); }
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
 
-    if should_use_params {
+    if should_use_parens {
         items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
             nodes: node.params.iter().map(|node| node.into()).collect(),
             prefer_hanging: context.config.arrow_function_expression_prefer_hanging_parameters,
@@ -1075,21 +1075,34 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
 
     items.push_str(" =>");
 
+    let parsed_body = new_line_group(parse_node((&node.body).into(), context)).into_rc_path();
     let open_brace_token = match &node.body {
         BlockStmtOrExpr::BlockStmt(stmt) => context.token_finder.get_first_open_brace_token_within(&stmt),
         _ => None,
     };
-    items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
-        brace_position: context.config.arrow_function_expression_brace_position,
-        open_brace_token: open_brace_token,
-        start_header_info: Some(header_start_info),
-    }, context));
 
-    items.extend(parse_node((&node.body).into(), context));
+    if open_brace_token.is_some() {
+        items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
+            brace_position: context.config.arrow_function_expression_brace_position,
+            open_brace_token: open_brace_token,
+            start_header_info: Some(header_start_info),
+        }, context));
+
+        items.extend(parsed_body.into());
+    } else {
+        let start_body_info = Info::new("startBody");
+        let end_body_info = Info::new("endBody");
+        items.push_info(start_body_info);
+        items.push_condition(if_true_or("newlineOrSpace", move |context| {
+            condition_resolvers::is_multiple_lines(context, &start_body_info, &end_body_info)
+        }, Signal::NewLine.into(), Signal::SpaceOrNewLine.into()));
+        items.push_condition(conditions::indent_if_start_of_line(parsed_body.into()));
+        items.push_info(end_body_info);
+    }
 
     return items;
 
-    fn get_should_use_params(node: &ArrowExpr, context: &mut Context) -> bool {
+    fn get_should_use_parens(node: &ArrowExpr, context: &mut Context) -> bool {
         let requires_parens = node.params.len() != 1 || node.return_type.is_some() || is_first_param_not_identifier_or_has_type_annotation(&node.params);
 
         return if requires_parens {
@@ -3931,7 +3944,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
     let mut items = PrintItems::new();
 
     items.push_str("[");
-    // todo: hanlde inner comments inside parse_comma_separated_values?
+    // todo: handle inner comments inside parse_comma_separated_values?
     items.extend(parse_separated_values(ParseSeparatedValuesOptions {
         nodes: nodes,
         prefer_hanging: opts.prefer_hanging,
@@ -4151,14 +4164,28 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     let mut items = PrintItems::new();
     items.push_str("(");
 
-    items.extend(parse_separated_values(ParseSeparatedValuesOptions {
-        nodes: opts.nodes.into_iter().map(|x| Some(x)).collect(),
-        prefer_hanging: opts.prefer_hanging,
-        force_use_new_lines,
-        trailing_commas: Some(TrailingCommas::Never),
-        semi_colons: None,
-        surround_single_line_with_spaces: false,
-    }, context));
+    if opts.nodes.len() == 1 && is_arrow_function_with_expr_body(&opts.nodes[0]) {
+        let start_info = Info::new("startArrow");
+        let parsed_node = parse_node(opts.nodes.into_iter().next().unwrap(), context);
+
+        items.push_info(start_info);
+        items.push_signal(Signal::PossibleNewLine);
+        items.push_condition(conditions::indent_if_start_of_line(parsed_node));
+        items.push_condition(if_true(
+            "isDifferentLine",
+            move |context| condition_resolvers::is_on_different_line(context, &start_info),
+            Signal::NewLine.into()
+        ));
+    } else {
+        items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+            nodes: opts.nodes.into_iter().map(|x| Some(x)).collect(),
+            prefer_hanging: opts.prefer_hanging,
+            force_use_new_lines,
+            trailing_commas: Some(TrailingCommas::Never),
+            semi_colons: None,
+            surround_single_line_with_spaces: false,
+        }, context));
+    }
 
     if let Some(custom_close_paren) = (opts.custom_close_paren)(context) {
         items.extend(custom_close_paren);
@@ -4168,6 +4195,23 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     }
 
     return items;
+
+    fn is_arrow_function_with_expr_body<'a>(node: &'a Node) -> bool {
+        match node {
+            Node::ExprOrSpread(expr_or_spread) => {
+                match &*expr_or_spread.expr {
+                    Expr::Arrow(arrow) => {
+                        match &arrow.body {
+                            BlockStmtOrExpr::Expr(_) => true,
+                            _ => false,
+                        }
+                    },
+                    _ => false,
+                }
+            },
+            _ => false,
+        }
+    }
 
     fn get_use_new_lines(nodes: &Vec<Node>, context: &mut Context) -> bool {
         if nodes.is_empty() {
