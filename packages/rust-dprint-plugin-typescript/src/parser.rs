@@ -1093,14 +1093,41 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
         let start_body_info = Info::new("startBody");
         let end_body_info = Info::new("endBody");
         items.push_info(start_body_info);
-        items.push_condition(if_true_or("newlineOrSpace", move |context| {
-            condition_resolvers::is_multiple_lines(context, &start_body_info, &end_body_info)
-        }, Signal::NewLine.into(), Signal::SpaceOrNewLine.into()));
+
+        if should_not_newline_after_arrow(&node.body) {
+            items.push_str(" ");
+        } else {
+            items.push_condition(conditions::if_above_width_or(
+                context.config.indent_width,
+                if_true_or("newlineOrSpace", move |context| {
+                    condition_resolvers::is_multiple_lines(context, &start_body_info, &end_body_info)
+                }, Signal::NewLine.into(), Signal::SpaceOrNewLine.into()).into(),
+                " ".into()
+            ));
+        }
+
         items.push_condition(conditions::indent_if_start_of_line(parsed_body.into()));
         items.push_info(end_body_info);
     }
 
     return items;
+
+    fn should_not_newline_after_arrow(body: &BlockStmtOrExpr) -> bool {
+        match body {
+            BlockStmtOrExpr::BlockStmt(_) => true,
+            BlockStmtOrExpr::Expr(expr) => {
+                match &**expr {
+                    Expr::Paren(paren) => {
+                        match &*paren.expr {
+                            Expr::Object(_) => true,
+                            _ => false,
+                        }
+                    },
+                    _ => false,
+                }
+            }
+        }
+    }
 
     fn get_should_use_parens(node: &ArrowExpr, context: &mut Context) -> bool {
         let requires_parens = node.params.len() != 1 || node.return_type.is_some() || is_first_param_not_identifier_or_has_type_annotation(&node.params);

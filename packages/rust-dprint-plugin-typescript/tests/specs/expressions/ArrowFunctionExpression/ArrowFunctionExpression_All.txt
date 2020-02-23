@@ -93,3 +93,32 @@ const testing = (
     | testingThisOut | testingThisOut =>
 {
 };
+
+== should format arrow function containing an object expression ==
+const test = (testing, thisOut) => ({
+    test: 5,
+    other: 10
+});
+
+[expect]
+const test = (testing, thisOut) => ({
+    test: 5,
+    other: 10
+});
+
+== should not newline when the arrow is on a separate line -- previously would newline before sum, which was useless ==
+const test = (testing, thisOut, with, somethingThatWillGo, multiLine) => sum(testing, thisOut, againWithSomethingThisisLong, testing);
+
+[expect]
+const test = (
+    testing,
+    thisOut,
+    with,
+    somethingThatWillGo,
+    multiLine
+) => sum(
+    testing,
+    thisOut,
+    againWithSomethingThisisLong,
+    testing
+);
