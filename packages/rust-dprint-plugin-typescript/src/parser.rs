@@ -1508,8 +1508,10 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
             move |mut items| {
                 if operator_position == OperatorPosition::SameLine {
                     items.push_str(" :");
+                    items
+                } else {
+                    conditions::indent_if_start_of_line(items).into()
                 }
-                items
             }
         })));
         items
@@ -1527,7 +1529,13 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
             items.push_str(": ");
         }
         items.push_info(before_alternate_info);
-        items.extend(parser_helpers::new_line_group(parse_node((&node.alt).into(), context)));
+        items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.alt).into(), context, |items| {
+            if operator_position == OperatorPosition::NextLine {
+                conditions::indent_if_start_of_line(items).into()
+            } else {
+                items
+            }
+        })));
         items.push_info(end_info);
         items
     }));
