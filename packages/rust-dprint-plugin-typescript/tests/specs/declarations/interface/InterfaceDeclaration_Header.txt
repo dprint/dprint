@@ -53,7 +53,13 @@ export interface Test extends Other, Other2, Other3, Other4, Other5, Other6, Oth
 
 [expect]
 export interface Test
-    extends Other, Other2, Other3, Other4, Other5, Other6,
+    extends
+        Other,
+        Other2,
+        Other3,
+        Other4,
+        Other5,
+        Other6,
         Other7
 {
 }

@@ -109,7 +109,8 @@ export class Test implements Testing, ThisOutABitHere<Tes, This, Out, With, A, L
 
 [expect]
 export class Test
-    implements Testing,
+    implements
+        Testing,
         ThisOutABitHere<Tes, This, Out, With, A, Long>
 {
 }
@@ -120,8 +121,14 @@ export class Test implements Other, Other2, Other3, Other4, Other5, Other6, Othe
 
 [expect]
 export class Test
-    implements Other, Other2, Other3, Other4, Other5,
-        Other6, Other7
+    implements
+        Other,
+        Other2,
+        Other3,
+        Other4,
+        Other5,
+        Other6,
+        Other7
 {
 }
 

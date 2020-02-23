@@ -24,12 +24,12 @@ interface Test<
 }
 
 == should use the next line for the brace position when hanging ==
-interface Test extends SomethingReallyReallyReallyLong
+interface Test extends SomethingReallyReallyLong
 {
 }
 
 [expect]
 interface Test
-    extends SomethingReallyReallyReallyLong
+    extends SomethingReallyReallyLong
 {
 }

@@ -443,6 +443,14 @@ impl ConfigurationBuilder {
         self.insert("exportDeclaration.preferHanging", value)
     }
 
+    pub fn extends_clause_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("extendsClause.preferHanging", value)
+    }
+
+    pub fn implements_clause_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("implementsClause.preferHanging", value)
+    }
+
     pub fn import_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("importDeclaration.preferHanging", value)
     }
@@ -939,6 +947,8 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
         export_declaration_prefer_hanging: get_value(&mut config, "exportDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
+        extends_clause_prefer_hanging: get_value(&mut config, "extendsClause.preferHanging", prefer_hanging, &mut diagnostics),
+        implements_clause_prefer_hanging: get_value(&mut config, "implementsClause.preferHanging", prefer_hanging, &mut diagnostics),
         import_declaration_prefer_hanging: get_value(&mut config, "importDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         object_expression_prefer_hanging: get_value(&mut config, "objectExpression.preferHanging", prefer_hanging, &mut diagnostics),
         object_pattern_prefer_hanging: get_value(&mut config, "objectPattern.preferHanging", prefer_hanging, &mut diagnostics),
@@ -1087,6 +1097,10 @@ pub struct Configuration {
     pub array_pattern_prefer_hanging: bool,
     #[serde(rename = "exportDeclaration.preferHanging")]
     pub export_declaration_prefer_hanging: bool,
+    #[serde(rename = "extendsClause.preferHanging")]
+    pub extends_clause_prefer_hanging: bool,
+    #[serde(rename = "implementsClause.preferHanging")]
+    pub implements_clause_prefer_hanging: bool,
     #[serde(rename = "importDeclaration.preferHanging")]
     pub import_declaration_prefer_hanging: bool,
     #[serde(rename = "objectExpression.preferHanging")]

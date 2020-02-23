@@ -57,3 +57,25 @@ export class Test<
     TypeParameterList
 > extends Test {
 }
+
+== should not split up within an implements ==
+export class Test implements Testing, ThisOutABitHere<Tes, This, Out, With, A, Long> {
+}
+
+[expect]
+export class Test
+    implements Testing,
+        ThisOutABitHere<Tes, This, Out, With, A, Long>
+{
+}
+
+== should print multiple implements that go over the line width twice ==
+export class Test implements Other, Other2, Other3, Other4, Other5, Other6, Other7 {
+}
+
+[expect]
+export class Test
+    implements Other, Other2, Other3, Other4, Other5,
+        Other6, Other7
+{
+}

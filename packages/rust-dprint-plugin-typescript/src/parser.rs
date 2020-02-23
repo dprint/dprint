@@ -609,7 +609,12 @@ fn parse_class_decl_or_expr<'a>(node: ClassDeclOrExpr<'a>, context: &mut Context
                 items
             }));
         }
-        items.extend(parse_extends_or_implements("implements", node.implements, start_header_info, context));
+        items.extend(parse_extends_or_implements(ParseExtendsOrImplementsOptions {
+            text: "implements",
+            type_items: node.implements,
+            start_header_info,
+            prefer_hanging: context.config.implements_clause_prefer_hanging,
+        }, context));
         items
     };
 
@@ -901,7 +906,12 @@ fn parse_interface_decl<'a>(node: &'a TsInterfaceDecl, context: &mut Context<'a>
     items.push_str("interface ");
     items.extend(parse_node((&node.id).into(), context));
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
-    items.extend(parse_extends_or_implements("extends", node.extends.iter().map(|x| x.into()).collect(), start_header_info, context));
+    items.extend(parse_extends_or_implements(ParseExtendsOrImplementsOptions {
+        text: "extends",
+        type_items: node.extends.iter().map(|x| x.into()).collect(),
+        start_header_info,
+        prefer_hanging: context.config.extends_clause_prefer_hanging,
+    }, context));
     items.extend(parse_node((&node.body).into(), context));
 
     return items;
@@ -1657,7 +1667,8 @@ fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> Prin
         force_use_new_lines: false,
         trailing_commas: Some(TrailingCommas::Never),
         semi_colons: None,
-        surround_single_line_with_spaces: false,
+        single_line_space_at_start: false,
+        single_line_space_at_end: false,
     }, context)
 }
 
@@ -3530,7 +3541,8 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
         force_use_new_lines: use_new_lines,
         trailing_commas: Some(TrailingCommas::Never),
         semi_colons: None,
-        surround_single_line_with_spaces: false,
+        single_line_space_at_start: false,
+        single_line_space_at_end: false,
     }, context));
     items.push_str(">");
 
@@ -3896,7 +3908,8 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
         force_use_new_lines,
         trailing_commas: Some(opts.trailing_commas),
         semi_colons: None,
-        surround_single_line_with_spaces: false,
+        single_line_space_at_start: false,
+        single_line_space_at_end: false,
     }, context));
     items.push_str("]");
 
@@ -4128,7 +4141,8 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
             force_use_new_lines,
             trailing_commas: Some(TrailingCommas::Never),
             semi_colons: None,
-            surround_single_line_with_spaces: false,
+            single_line_space_at_start: false,
+            single_line_space_at_end: false,
         }, context));
     }
 
@@ -4220,7 +4234,8 @@ struct ParseSeparatedValuesOptions<'a> {
     force_use_new_lines: bool,
     trailing_commas: Option<TrailingCommas>,
     semi_colons: Option<SemiColons>,
-    surround_single_line_with_spaces: bool,
+    single_line_space_at_start: bool,
+    single_line_space_at_end: bool,
 }
 
 fn parse_separated_values<'a>(
@@ -4284,16 +4299,16 @@ fn parse_separated_values<'a>(
         true_path: Some(surround_with_new_lines(with_indent(node_list.clone().into()))),
         false_path: Some({
             let mut items = PrintItems::new();
-            if opts.surround_single_line_with_spaces { items.push_str(" "); }
+            if opts.single_line_space_at_start { items.push_str(" "); }
             if has_nodes {
                 // place this after the space so the first item will start on a newline when there is a newline here
                 items.push_condition(conditions::if_above_width(
-                    context.config.indent_width + if opts.surround_single_line_with_spaces { 1 } else { 0 },
+                    context.config.indent_width + if opts.single_line_space_at_start { 1 } else { 0 },
                     Signal::PossibleNewLine.into()
                 ));
             }
             items.extend(node_list.into());
-            if opts.surround_single_line_with_spaces { items.push_str(" "); }
+            if opts.single_line_space_at_end { items.push_str(" "); }
             items
         }),
     }));
@@ -4460,20 +4475,20 @@ struct ParseBraceSeparatorOptions<'a> {
 }
 
 fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut Context) -> PrintItems {
-    match opts.brace_position {
+    return match opts.brace_position {
         BracePosition::NextLineIfHanging => {
             if let Some(start_header_info) = opts.start_header_info {
                 conditions::new_line_if_hanging_space_otherwise(conditions::NewLineIfHangingSpaceOtherwiseOptions {
                     start_info: start_header_info,
                     end_info: None,
-                    space_char: None,
+                    space_char: Some(space_if_not_start_line()),
                 }).into()
             } else {
-                " ".into()
+                space_if_not_start_line()
             }
         },
         BracePosition::SameLine => {
-            " ".into()
+            space_if_not_start_line()
         },
         BracePosition::NextLine => {
             Signal::NewLine.into()
@@ -4483,12 +4498,20 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
                 if node_helpers::is_first_node_on_line(open_brace_token, context) {
                     Signal::NewLine.into()
                 } else {
-                    " ".into()
+                    space_if_not_start_line()
                 }
             } else {
-                " ".into()
+                space_if_not_start_line()
             }
         },
+    };
+
+    fn space_if_not_start_line() -> PrintItems {
+        if_true(
+            "spaceIfNotStartLine",
+            |context| Some(!condition_resolvers::is_start_of_new_line(context)),
+            " ".into()
+        ).into()
     }
 }
 
@@ -4525,30 +4548,38 @@ fn wrap_in_parens(parsed_node: PrintItems, use_new_lines: bool) -> PrintItems {
     items
 }
 
-fn parse_extends_or_implements<'a>(text: &'a str, type_items: Vec<Node<'a>>, start_header_info: Info, context: &mut Context<'a>) -> PrintItems {
+struct ParseExtendsOrImplementsOptions<'a> {
+    text: &'a str,
+    type_items: Vec<Node<'a>>,
+    start_header_info: Info,
+    prefer_hanging: bool,
+}
+
+fn parse_extends_or_implements<'a>(opts: ParseExtendsOrImplementsOptions<'a>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
 
-    if type_items.is_empty() {
+    if opts.type_items.is_empty() {
         return items;
     }
 
     items.push_condition(conditions::new_line_if_hanging_space_otherwise(conditions::NewLineIfHangingSpaceOtherwiseOptions {
-        start_info: start_header_info,
+        start_info: opts.start_header_info,
         end_info: None,
         space_char: Some(conditions::if_above_width_or(context.config.indent_width, Signal::SpaceOrNewLine.into(), " ".into()).into()),
     }));
     // the newline group will force it to put the extends or implements on a new line
     items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group({
         let mut items = PrintItems::new();
-        items.push_str(&format!("{} ", text));
-        for (i, type_item) in type_items.into_iter().enumerate() {
-            if i > 0 {
-                items.push_str(",");
-                items.push_signal(Signal::SpaceOrNewLine);
-            }
-
-            items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node(type_item, context))));
-        }
+        items.push_str(opts.text);
+        items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+            nodes: opts.type_items.into_iter().map(|x| Some(x)).collect(),
+            prefer_hanging: opts.prefer_hanging,
+            force_use_new_lines: false,
+            trailing_commas: Some(TrailingCommas::Never),
+            semi_colons: None,
+            single_line_space_at_start: true,
+            single_line_space_at_end: false
+        }, context));
         items
     })));
 
@@ -4601,7 +4632,8 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
             force_use_new_lines: false,
             trailing_commas: opts.trailing_commas,
             semi_colons: opts.semi_colons,
-            surround_single_line_with_spaces: opts.surround_single_line_with_spaces,
+            single_line_space_at_start: opts.surround_single_line_with_spaces,
+            single_line_space_at_end: opts.surround_single_line_with_spaces,
         }, context));
     }
 
