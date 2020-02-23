@@ -34,11 +34,24 @@ function initCodeHighlightExtension() {
                 const replacement = (wholeMatch, match, left, right) => {
                     // unescape match to prevent double escaping
                     match = htmlunencode(match);
-                    return left + hljs.highlightAuto(match).value + right;
+                    return left + hljs.highlight(getLanguage(left), match).value + right;
                 };
                 return showdown.helper.replaceRecursiveRegExp(text, replacement, left, right, flags);
             }
         }];
+
+        function getLanguage(left) {
+            if (left.indexOf("-json") !== -1)
+                return "json";
+            if (left.indexOf("-js") !== -1 || left.indexOf("-javascript") !== -1)
+                return "javascript";
+            if (left.indexOf("-ts") !== -1 || left.indexOf("-typescript") !== -1)
+                return "typescript";
+            if (left.indexOf("-bash") !== -1)
+                return "bash";
+
+            throw new Error("Unknown language: " + left);
+        }
 
         function htmlunencode(text) {
             return (text.replace(/&amp;/g, "&")

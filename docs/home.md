@@ -60,7 +60,7 @@ Add a format script to your *package.json*'s "scripts" section (see `npx dprint 
 
 Format:
 
-```
+```bash
 yarn format
 # or
 npm run format
