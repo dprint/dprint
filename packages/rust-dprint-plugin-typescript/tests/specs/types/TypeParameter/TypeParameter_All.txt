@@ -1,12 +1,13 @@
 ~~ lineWidth: 40 ~~
-== should not break up the middle of a type parameter ==
+== should put type parameters on multiple lines when they extend beyond the line width ==
 class Test<T, TestingThisOut extends number> {
 }
 
 [expect]
-class Test<T,
-    TestingThisOut extends number>
-{
+class Test<
+    T,
+    TestingThisOut extends number
+> {
 }
 
 == should break up for an initializer ==
@@ -14,17 +15,17 @@ class Test<TestingThisOut = TestingThisOut> {
 }
 
 [expect]
-class Test<TestingThisOut =
-    TestingThisOut>
-{
+class Test<
+    TestingThisOut = TestingThisOut
+> {
 }
 
 == should break up for an extends ==
-class Test<TestingThisOut extends TestingThisOut> {
+class Test<TestingThisOut extends Testing> {
 }
 
 [expect]
-class Test<TestingThisOut
-    extends TestingThisOut>
-{
+class Test<
+    TestingThisOut extends Testing
+> {
 }

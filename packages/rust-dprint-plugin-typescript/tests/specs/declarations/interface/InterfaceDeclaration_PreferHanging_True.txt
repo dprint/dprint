@@ -1,42 +1,4 @@
-~~ lineWidth: 60 ~~
-== should print with no members ==
-interface Test {
-}
-
-[expect]
-interface Test {
-}
-
-== should print with no members and when on same line ==
-interface Test {}
-
-[expect]
-interface Test {}
-
-== should print declare ==
-declare interface Test {
-}
-
-[expect]
-declare interface Test {
-}
-
-== should print an extends clause ==
-export interface Test extends Other {
-}
-
-[expect]
-export interface Test extends Other {
-}
-
-== should print multiple extends ==
-export interface Test extends Other, Other2 {
-}
-
-[expect]
-export interface Test extends Other, Other2 {
-}
-
+~~ lineWidth: 60, preferHanging: true ~~
 == should print multiple extends that go over the line width ==
 export interface Test extends Other, Other2, Other3, Other4, Other5 {
 }
@@ -66,28 +28,25 @@ export interface Test< T  > {
 export interface Test<T> {
 }
 
-== should print with type parameters on multiple lines when they go over the limit ==
+== should print with type parameters hanging when they go over the limit ==
 export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 }
 
 [expect]
-export interface Test<
-    TestingThisOut,
-    WithVeryLong,
-    TypeParameterList
-> {
+export interface Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+{
 }
 
-== should print with type parameters on multiple lines and extends when they go over the limit ==
+== should print with type parameters hanging and extends when they go over the limit ==
 export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
 }
 
 [expect]
-export interface Test<
-    TestingThisOut,
-    WithVeryLong,
-    TypeParameterList
-> extends Test {
+export interface Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+    extends Test
+{
 }
 
 == should print with type parameters on multiple lines ==

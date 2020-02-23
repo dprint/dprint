@@ -339,6 +339,7 @@ export interface TypeScriptConfiguration {
     "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeParameterDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "arrowFunctionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
@@ -409,6 +410,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeParameterDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "arrowFunctionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;

@@ -144,25 +144,28 @@ export class Test< T  > {
 export class Test<T> {
 }
 
-== should print with type parameters hanging when they go over the limit ==
+== should print type parameters when they go over the limit ==
 export class Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 }
 
 [expect]
-export class Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-{
+export class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> {
 }
 
-== should print with type parameters hanging and extends when they go over the limit ==
+== should print with type parameters and extends when they go over the limit ==
 export class Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
 }
 
 [expect]
-export class Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-    extends Test
-{
+export class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> extends Test {
 }
 
 == should print with type parameters on multiple lines ==
@@ -188,9 +191,7 @@ export class Test<
     TestingThisOut,
     WithVeryLong,
     TypeParameterList
->
-    extends Test
-{
+> extends Test {
 }
 
 == should print a super's type argument ==

@@ -85,25 +85,28 @@ const t =  class Test< T  > {
 const t = class Test<T> {
 };
 
-== should print with type parameters hanging when they go over the limit ==
+== should print with type parameters on new lines when they go over the limit ==
 const t = class Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 };
 
 [expect]
-const t = class Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-{
+const t = class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> {
 };
 
-== should print with type parameters hanging and extends when they go over the limit ==
+== should print with type parameters on new lines and extends when they go over the limit ==
 const t = class Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
 };
 
 [expect]
-const t = class Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-    extends Test
-{
+const t = class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> extends Test {
 };
 
 == should print with type parameters on multiple lines ==
@@ -129,9 +132,7 @@ const t = class Test<
     TestingThisOut,
     WithVeryLong,
     TypeParameterList
->
-    extends Test
-{
+> extends Test {
 };
 
 == should print a super's type argument ==

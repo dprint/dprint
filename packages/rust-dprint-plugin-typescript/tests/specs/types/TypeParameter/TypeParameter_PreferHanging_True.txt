@@ -1,0 +1,28 @@
+~~ lineWidth: 40, preferHanging: true ~~
+== should not break up the middle of a type parameter ==
+class Test<T, TestingThisOut extends number> {
+}
+
+[expect]
+class Test<T,
+    TestingThisOut extends number>
+{
+}
+
+== should not break up within ==
+class Test<TestingThisOut extends Testing> {
+}
+
+class Test<TestingThisOut = TestingThisOut> {
+}
+
+[expect]
+class Test<
+    TestingThisOut extends Testing
+> {
+}
+
+class Test<
+    TestingThisOut = TestingThisOut
+> {
+}

@@ -590,14 +590,22 @@ fn parse_class_decl_or_expr<'a>(node: ClassDeclOrExpr<'a>, context: &mut Context
             items.extend(parse_node(type_params, context));
         }
         if let Some(super_class) = node.super_class {
-            items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_header_info, None));
+            items.push_condition(conditions::new_line_if_hanging_space_otherwise(conditions::NewLineIfHangingSpaceOtherwiseOptions {
+                start_info: start_header_info,
+                end_info: None,
+                space_char: Some(conditions::if_above_width_or(context.config.indent_width, Signal::SpaceOrNewLine.into(), " ".into()).into()),
+            }));
             items.push_condition(conditions::indent_if_start_of_line({
                 let mut items = PrintItems::new();
                 items.push_str("extends ");
-                items.extend(parse_node(super_class, context));
-                if let Some(super_type_params) = node.super_type_params {
-                    items.extend(parse_node(super_type_params, context));
-                }
+                items.extend(new_line_group({
+                    let mut items = PrintItems::new();
+                    items.extend(parse_node(super_class, context));
+                    if let Some(super_type_params) = node.super_type_params {
+                        items.extend(parse_node(super_type_params, context));
+                    }
+                    items
+                }));
                 items
             }));
         }
@@ -3511,41 +3519,22 @@ fn parse_type_param<'a>(node: &'a TsTypeParam, context: &mut Context<'a>) -> Pri
 }
 
 fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Context<'a>) -> PrintItems {
-    let parent_span = node.span();
     let params = node.params();
-    let use_new_lines = get_use_new_lines(&parent_span, &params, context);
-    let parsed_params = parse_parameter_list(params, use_new_lines, context);
+    let use_new_lines = get_use_new_lines(&node.span(), &params, context);
     let mut items = PrintItems::new();
 
     items.push_str("<");
-    items.extend(if use_new_lines {
-        parser_helpers::surround_with_new_lines(parsed_params)
-    } else {
-        parsed_params
-    });
+    items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+        nodes: params.into_iter().map(|p| Some(p)).collect(),
+        prefer_hanging: context.config.type_parameter_declaration_prefer_hanging,
+        force_use_new_lines: use_new_lines,
+        trailing_commas: Some(TrailingCommas::Never),
+        semi_colons: None,
+        surround_single_line_with_spaces: false,
+    }, context));
     items.push_str(">");
 
     return items;
-
-    fn parse_parameter_list<'a>(params: Vec<Node<'a>>, use_new_lines: bool, context: &mut Context<'a>) -> PrintItems {
-        let mut items = PrintItems::new();
-        let params_count = params.len();
-
-        for (i, param) in params.into_iter().enumerate() {
-            if i > 0 {
-                items.push_signal(if use_new_lines { Signal::NewLine } else { Signal::SpaceOrNewLine });
-            }
-
-            items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node_with_inner_parse(param, context, move |mut items| {
-                if i < params_count - 1 {
-                    items.push_str(",");
-                }
-                items
-            }))));
-        }
-
-        items
-    }
 
     fn get_use_new_lines(parent_span: &Span, params: &Vec<Node>, context: &mut Context) -> bool {
         if params.is_empty() {
@@ -4543,7 +4532,11 @@ fn parse_extends_or_implements<'a>(text: &'a str, type_items: Vec<Node<'a>>, sta
         return items;
     }
 
-    items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_header_info, None));
+    items.push_condition(conditions::new_line_if_hanging_space_otherwise(conditions::NewLineIfHangingSpaceOtherwiseOptions {
+        start_info: start_header_info,
+        end_info: None,
+        space_char: Some(conditions::if_above_width_or(context.config.indent_width, Signal::SpaceOrNewLine.into(), " ".into()).into()),
+    }));
     // the newline group will force it to put the extends or implements on a new line
     items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group({
         let mut items = PrintItems::new();
