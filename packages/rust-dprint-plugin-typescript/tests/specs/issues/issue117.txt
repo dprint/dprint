@@ -1,0 +1,5 @@
+== should not debug panic due to bug where the assignment pattern's width was incorrectly `: ConsoleOptions = {}` ==
+const t = (options: Options = {}) => {};
+
+[expect]
+const t = (options: Options = {}) => {};

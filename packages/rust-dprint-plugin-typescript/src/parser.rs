@@ -321,7 +321,22 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     fn assert_parsed_in_order(node: &Node, context: &mut Context) {
         let node_pos = node.lo().0;
         if context.last_parsed_node_pos > node_pos {
-            panic!("Nodes parsed out of order!");
+            // When this panic happens it means that a node with a start further
+            // along in the file has been "parsed" before this current node. When
+            // that occurs, comments that this node "owns" might have been shifted
+            // over to the further along node since "forgotten" comments get
+            // prepended when a node is being parsed.
+            //
+            // Do the following steps to solve:
+            //
+            // 1. Uncomment the lines in `parse_node_with_inner_parse` in order to
+            //    display the node kinds.
+            // 2. Add a test that reproduces the issue then run the tests and see
+            //    where it panics and how that node looks. Ensure the node widths
+            //    are correct. If not, that's a bug in swc, so go fix it in swc.
+            // 3. If it's not a bug in swc, then check the parsing code to ensure
+            //    the nodes are being parsed in order.
+            panic!("Debug panic: Node comments retrieved out of order!");
         }
         context.last_parsed_node_pos = node_pos;
     }
