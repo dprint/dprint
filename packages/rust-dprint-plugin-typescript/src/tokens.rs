@@ -52,10 +52,6 @@ impl<'a> TokenFinder<'a> {
         self.get_first_token_after(node, |_| true)
     }
 
-    pub fn get_first_open_paren_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
-        self.get_first_token_within(node, |token| token.token == Token::LParen)
-    }
-
     pub fn get_first_open_brace_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::LBrace)
     }

@@ -1699,11 +1699,11 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Print
 
 fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> PrintItems {
     return conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(
-        parse_node_in_parens(
-            (&node.expr).into(),
-            |context| parse_node((&node.expr).into(), context),
-            context
-        )
+        parse_node_in_parens(ParseNodeInParensOptions {
+            first_inner_node: (&node.expr).into(),
+            inner_parse_node: |context| parse_node((&node.expr).into(), context),
+            prefer_hanging: true,
+        }, context)
     )).into();
 }
 
@@ -1953,8 +1953,11 @@ fn parse_import_namespace_specifier<'a>(node: &'a ImportStarAs, context: &mut Co
 fn parse_external_module_ref<'a>(node: &'a TsExternalModuleRef, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str("require");
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&context.token_finder.get_first_open_paren_token_within(&node.span), &node.expr, context);
-    items.extend(wrap_in_parens(parse_node((&node.expr).into(), context), use_new_lines));
+    items.extend(parse_node_in_parens(ParseNodeInParensOptions {
+        first_inner_node: (&node.expr).into(),
+        inner_parse_node: |context| parse_node((&node.expr).into(), context),
+        prefer_hanging: true,
+    }, context));
     return items;
 }
 
@@ -2697,7 +2700,11 @@ fn parse_do_while_stmt<'a>(node: &'a DoWhileStmt, context: &mut Context<'a>) -> 
     if context.config.do_while_statement_space_after_while_keyword {
         items.push_str(" ");
     }
-    items.extend(parse_node_in_parens((&node.test).into(), |context| parse_node((&node.test).into(), context), context));
+    items.extend(parse_node_in_parens(ParseNodeInParensOptions {
+        first_inner_node: (&node.test).into(),
+        inner_parse_node: |context| parse_node((&node.test).into(), context),
+        prefer_hanging: true,
+    }, context));
     if context.config.semi_colons.is_true() {
         items.push_str(";");
     }
@@ -2892,17 +2899,21 @@ fn parse_for_in_stmt<'a>(node: &'a ForInStmt, context: &mut Context<'a>) -> Prin
     if context.config.for_in_statement_space_after_for_keyword {
         items.push_str(" ");
     }
-    items.extend(parse_node_in_parens((&node.left).into(), |context| {
-        let mut items = PrintItems::new();
-        items.extend(parse_node((&node.left).into(), context));
-        items.push_signal(Signal::SpaceOrNewLine);
-        items.push_condition(conditions::indent_if_start_of_line({
+    items.extend(parse_node_in_parens(ParseNodeInParensOptions {
+        first_inner_node: (&node.left).into(),
+        inner_parse_node: |context| {
             let mut items = PrintItems::new();
-            items.push_str("in ");
-            items.extend(parse_node((&node.right).into(), context));
+            items.extend(parse_node((&node.left).into(), context));
+            items.push_signal(Signal::SpaceOrNewLine);
+            items.push_condition(conditions::indent_if_start_of_line({
+                let mut items = PrintItems::new();
+                items.push_str("in ");
+                items.extend(parse_node((&node.right).into(), context));
+                items
+            }));
             items
-        }));
-        items
+        },
+        prefer_hanging: true,
     }, context));
     items.push_info(end_header_info);
 
@@ -2934,17 +2945,21 @@ fn parse_for_of_stmt<'a>(node: &'a ForOfStmt, context: &mut Context<'a>) -> Prin
         items.extend(parse_node(await_token.into(), context));
         items.push_str(" ");
     }
-    items.extend(parse_node_in_parens((&node.left).into(), |context| {
-        let mut items = PrintItems::new();
-        items.extend(parse_node((&node.left).into(), context));
-        items.push_signal(Signal::SpaceOrNewLine);
-        items.push_condition(conditions::indent_if_start_of_line({
+    items.extend(parse_node_in_parens(ParseNodeInParensOptions {
+        first_inner_node: (&node.left).into(),
+        inner_parse_node: |context| {
             let mut items = PrintItems::new();
-            items.push_str("of ");
-            items.extend(parse_node((&node.right).into(), context));
+            items.extend(parse_node((&node.left).into(), context));
+            items.push_signal(Signal::SpaceOrNewLine);
+            items.push_condition(conditions::indent_if_start_of_line({
+                let mut items = PrintItems::new();
+                items.push_str("of ");
+                items.extend(parse_node((&node.right).into(), context));
+                items
+            }));
             items
-        }));
-        items
+        },
+        prefer_hanging: true,
     }, context));
     items.push_info(end_header_info);
 
@@ -2975,7 +2990,11 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> PrintItems 
             items.push_str("if");
             if context.config.if_statement_space_after_if_keyword { items.push_str(" "); }
             let test = &*node.test;
-            items.extend(parse_node_in_parens(test.into(), |context| parse_node(test.into(), context), context));
+            items.extend(parse_node_in_parens(ParseNodeInParensOptions {
+                first_inner_node: test.into(),
+                inner_parse_node: |context| parse_node(test.into(), context),
+                prefer_hanging: context.config.if_statement_prefer_hanging,
+            }, context));
             items
         },
         use_braces: context.config.if_statement_use_braces,
@@ -3067,7 +3086,11 @@ fn parse_switch_stmt<'a>(node: &'a SwitchStmt, context: &mut Context<'a>) -> Pri
     let mut items = PrintItems::new();
     items.push_info(start_header_info);
     items.push_str("switch ");
-    items.extend(parse_node_in_parens((&node.discriminant).into(), |context| parse_node((&node.discriminant).into(), context), context));
+    items.extend(parse_node_in_parens(ParseNodeInParensOptions {
+        first_inner_node: (&node.discriminant).into(),
+        inner_parse_node: |context| parse_node((&node.discriminant).into(), context),
+        prefer_hanging: true,
+    }, context));
     items.extend(parse_membered_body(ParseMemberedBodyOptions {
         span: node.span,
         members: node.cases.iter().map(|x| x.into()).collect(),
@@ -3302,7 +3325,11 @@ fn parse_while_stmt<'a>(node: &'a WhileStmt, context: &mut Context<'a>) -> Print
     if context.config.while_statement_space_after_while_keyword {
         items.push_str(" ");
     }
-    items.extend(parse_node_in_parens((&node.test).into(), |context| parse_node((&node.test).into(), context), context));
+    items.extend(parse_node_in_parens(ParseNodeInParensOptions {
+        first_inner_node: (&node.test).into(),
+        inner_parse_node: |context| parse_node((&node.test).into(), context),
+        prefer_hanging: true,
+    }, context));
     items.push_info(end_header_info);
     items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {
         parent: &node.span,
@@ -3538,13 +3565,11 @@ fn parse_qualified_name<'a>(node: &'a TsQualifiedName, context: &mut Context<'a>
 }
 
 fn parse_parenthesized_type<'a>(node: &'a TsParenthesizedType, context: &mut Context<'a>) -> PrintItems {
-    conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(
-        parse_node_in_parens(
-            (&node.type_ann).into(),
-            |context| parse_node((&node.type_ann).into(), context),
-            context
-        )
-    )).into()
+    conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(parse_node_in_parens(ParseNodeInParensOptions {
+        first_inner_node: (&node.type_ann).into(),
+        inner_parse_node: |context| parse_node((&node.type_ann).into(), context),
+        prefer_hanging: true,
+    }, context))).into()
 }
 
 fn parse_rest_type<'a>(node: &'a TsRestType, context: &mut Context<'a>) -> PrintItems {
@@ -4471,16 +4496,25 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
     }
 }
 
-fn parse_node_in_parens<'a, F>(first_inner_node: Node<'a>, inner_parse_node: F, context: &mut Context<'a>) -> PrintItems where F : Fn(&mut Context<'a>) -> PrintItems {
-    let use_new_lines = use_new_lines_for_node_in_parens(&first_inner_node, context);
+struct ParseNodeInParensOptions<'a, F> where F : Fn(&mut Context<'a>) -> PrintItems {
+    first_inner_node: Node<'a>,
+    inner_parse_node: F,
+    prefer_hanging: bool,
+}
+
+fn parse_node_in_parens<'a, F>(opts: ParseNodeInParensOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : Fn(&mut Context<'a>) -> PrintItems {
+    let use_new_lines = use_new_lines_for_node_in_parens(&opts.first_inner_node, context);
 
     // disable hanging indent on the next binary expression if necessary
-    if use_new_lines && first_inner_node.kind() == NodeKind::BinExpr {
+    if use_new_lines && opts.first_inner_node.kind() == NodeKind::BinExpr {
         context.mark_disable_indent_for_next_bin_expr();
     }
 
     // the inner parse needs to be done after potentially disabling hanging indent
-    return wrap_in_parens(inner_parse_node(context), use_new_lines);
+    return wrap_in_parens((opts.inner_parse_node)(context), WrapInParensOptions {
+        use_new_lines,
+        prefer_hanging: opts.prefer_hanging,
+    }, context);
 }
 
 fn use_new_lines_for_node_in_parens<'a>(node: &Node<'a>, context: &mut Context<'a>) -> bool {
@@ -4492,15 +4526,33 @@ fn use_new_lines_for_node_in_parens<'a>(node: &Node<'a>, context: &mut Context<'
     }
 }
 
-fn wrap_in_parens(parsed_node: PrintItems, use_new_lines: bool) -> PrintItems {
+struct WrapInParensOptions {
+    use_new_lines: bool,
+    prefer_hanging: bool,
+}
+
+fn wrap_in_parens(parsed_node: PrintItems, opts: WrapInParensOptions, context: &mut Context) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str("(");
-    if use_new_lines {
-        items.push_signal(Signal::NewLine);
-        items.extend(parser_helpers::with_indent(parsed_node));
-        items.push_signal(Signal::NewLine);
-    } else {
+    if opts.use_new_lines {
+        items.extend(surround_with_new_lines(with_indent(parsed_node)));
+    } else if opts.prefer_hanging {
         items.extend(parsed_node);
+    } else {
+        let start_info = Info::new("startOpenParens");
+        let end_info = Info::new("startOpenParens");
+        let parsed_node = parsed_node.into_rc_path();
+        items.push_info(start_info);
+        items.push_condition(conditions::if_above_width(
+            context.config.indent_width,
+            Signal::PossibleNewLine.into()
+        ));
+        items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
+            condition: Box::new(move |context| condition_resolvers::is_multiple_lines(context, &start_info, &end_info)),
+            true_path: Some(surround_with_new_lines(with_indent(parsed_node.clone().into()))),
+            false_path: Some(parsed_node.into()),
+        }));
+        items.push_info(end_info);
     }
     items.push_str(")");
     items

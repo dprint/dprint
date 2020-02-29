@@ -360,6 +360,7 @@ describe("configuration", () => {
                 "implementsClause.preferHanging": value,
                 "forStatement.preferHanging": value,
                 "exportDeclaration.preferHanging": value,
+                "ifStatement.preferHanging": value,
                 "importDeclaration.preferHanging": value,
                 "objectExpression.preferHanging": value,
                 "objectPattern.preferHanging": value,
