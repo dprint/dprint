@@ -1,0 +1,40 @@
+~~ lineWidth: 40, forStatement.preferHanging: true ~~
+== should put brace on newline when on multiple lines ==
+for (let testingThisOut = 0; testingThisOut < 5; i++) {
+    a;
+    b;
+}
+
+[expect]
+for (let testingThisOut = 0;
+    testingThisOut < 5; i++)
+{
+    a;
+    b;
+}
+
+== should print the inner header on next line when the open paren is on a different line ==
+for (
+i = 0; i < 5; i++) {
+}
+
+[expect]
+for (
+    i = 0;
+    i < 5;
+    i++
+) {
+}
+
+== should print the inner header on next line when the open paren is on a different line and there is no init ==
+for (
+; i < 5; i++) {
+}
+
+[expect]
+for (
+    ;
+    i < 5;
+    i++
+) {
+}

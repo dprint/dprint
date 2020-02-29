@@ -11,16 +11,18 @@ for (let i = 0; i < 5; i++) {
     b;
 }
 
-== should put brace on newline when on multiple lines ==
+== should handle when going over the line width ==
 for (let testingThisOut = 0; testingThisOut < 5; i++) {
     a;
     b;
 }
 
 [expect]
-for (let testingThisOut = 0;
-    testingThisOut < 5; i++)
-{
+for (
+    let testingThisOut = 0;
+    testingThisOut < 5;
+    i++
+) {
     a;
     b;
 }
@@ -48,7 +50,9 @@ i = 0; i < 5; i++) {
 
 [expect]
 for (
-    i = 0; i < 5; i++
+    i = 0;
+    i < 5;
+    i++
 ) {
 }
 
@@ -59,7 +63,9 @@ for (
 
 [expect]
 for (
-    ; i < 5; i++
+    ;
+    i < 5;
+    i++
 ) {
 }
 

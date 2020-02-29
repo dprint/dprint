@@ -1,4 +1,4 @@
-~~ forStatement.bracePosition: maintain, lineWidth: 40 ~~
+~~ forStatement.bracePosition: maintain, lineWidth: 40, preferHanging: true ~~
 == should maintain the position for the brace position when on same line ==
 for (let i = 0; i < 5; i++) {
 }

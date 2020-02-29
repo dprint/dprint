@@ -1,4 +1,4 @@
-~~ forStatement.useBraces: preferNone, lineWidth: 40 ~~
+~~ forStatement.useBraces: preferNone, lineWidth: 40, preferHanging: true ~~
 == should not use braces when only one line ==
 for (let i = 0; i < 5; i++) {
     a;
