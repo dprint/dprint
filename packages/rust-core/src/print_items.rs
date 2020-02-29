@@ -622,7 +622,7 @@ impl<TString> StringContainer<TString> where TString : StringTrait {
 }
 
 /// Information about a certain location being printed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WriterInfo {
     pub line_number: u32,
     pub column_number: u32,

@@ -1218,9 +1218,9 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         let node_op = node.op;
         let use_space_surrounding_operator = get_use_space_surrounding_operator(&node_op, context);
         let is_top_most = top_most_expr_start == node.lo();
+        let is_top_most_in_parens = get_is_top_most_in_parens(node, context);
         let use_new_lines = node_helpers::get_use_new_lines_for_nodes(node_left, node_right, context);
         let top_most_info = get_or_set_top_most_info(top_most_expr_start, is_top_most, context);
-        let indent_disabled = context.get_disable_indent_for_next_bin_expr();
         let mut items = PrintItems::new();
 
         if is_top_most {
@@ -1228,11 +1228,8 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         }
 
         let node_left_node = Node::from(node_left);
-        if indent_disabled && node_left_node.kind() == NodeKind::BinExpr {
-            context.mark_disable_indent_for_next_bin_expr();
-        }
 
-        items.extend(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info, indent_disabled, {
+        items.extend(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info, is_top_most_in_parens, {
             new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items| {
                 if operator_position == OperatorPosition::SameLine {
                     if use_space_surrounding_operator {
@@ -1254,12 +1251,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             Signal::PossibleNewLine
         });
 
-        let node_right_node = Node::from(node_right);
-        if indent_disabled && node_right_node.kind() == NodeKind::BinExpr {
-            context.mark_disable_indent_for_next_bin_expr();
-        }
-
-        items.extend(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, indent_disabled, {
+        items.extend(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, is_top_most_in_parens, {
             let mut items = PrintItems::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
             items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context), context));
@@ -1284,15 +1276,16 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         current_node_start: BytePos,
         top_most_expr_start: BytePos,
         top_most_info: Info,
-        indent_disabled: bool,
+        is_top_most_in_parens: bool,
         items: PrintItems
     ) -> PrintItems {
         let is_left_most_node = top_most_expr_start == current_node_start;
         let items = items.into_rc_path();
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
-                if indent_disabled || is_left_most_node { return Some(false); }
+                if is_left_most_node { return Some(false); }
                 let top_most_info = condition_context.get_resolved_info(&top_most_info)?;
+                if is_top_most_in_parens && top_most_info.column_number == top_most_info.line_start_column_number { return Some(false); }
                 let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
                 return Some(is_same_indent && condition_resolvers::is_start_of_new_line(condition_context));
             }),
@@ -1341,6 +1334,27 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         }
 
         return top_most.lo();
+    }
+
+    fn get_is_top_most_in_parens(node: &BinExpr, context: &mut Context) -> bool {
+        // todo: consolidate with get_top_most_binary_expr_pos somehow
+        if is_expression_breakable(&node.op) {
+            for ancestor in context.parent_stack.iter() {
+                if let Node::BinExpr(ancestor) = ancestor {
+                    if !is_expression_breakable(&ancestor.op) {
+                        return false;
+                    }
+                } else {
+                    return match ancestor {
+                        Node::ParenExpr(_) | Node::TsParenthesizedType(_) | Node::IfStmt(_) | Node::WhileStmt(_) | Node::DoWhileStmt(_)
+                            | Node::ForStmt(_) | Node::ForOfStmt(_) | Node::ForInStmt(_) => true,
+                        _ => false,
+                    };
+                }
+            }
+        }
+
+        return false;
     }
 
     fn is_expression_breakable(op: &BinaryOp) -> bool {
@@ -4498,21 +4512,13 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
 
 struct ParseNodeInParensOptions<'a, F> where F : Fn(&mut Context<'a>) -> PrintItems {
     first_inner_node: Node<'a>,
-    inner_parse_node: F,
+    inner_parse_node: F, // todo: change this to not be a function and instead pass in the print items
     prefer_hanging: bool,
 }
 
 fn parse_node_in_parens<'a, F>(opts: ParseNodeInParensOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : Fn(&mut Context<'a>) -> PrintItems {
-    let use_new_lines = use_new_lines_for_node_in_parens(&opts.first_inner_node, context);
-
-    // disable hanging indent on the next binary expression if necessary
-    if use_new_lines && opts.first_inner_node.kind() == NodeKind::BinExpr {
-        context.mark_disable_indent_for_next_bin_expr();
-    }
-
-    // the inner parse needs to be done after potentially disabling hanging indent
     return wrap_in_parens((opts.inner_parse_node)(context), WrapInParensOptions {
-        use_new_lines,
+        use_new_lines: use_new_lines_for_node_in_parens(&opts.first_inner_node, context),
         prefer_hanging: opts.prefer_hanging,
     }, context);
 }
@@ -4539,19 +4545,19 @@ fn wrap_in_parens(parsed_node: PrintItems, opts: WrapInParensOptions, context: &
     } else if opts.prefer_hanging {
         items.extend(parsed_node);
     } else {
-        let start_info = Info::new("startOpenParens");
-        let end_info = Info::new("startOpenParens");
+        let start_info = Info::new("startParens");
+        let end_info = Info::new("endParens");
         let parsed_node = parsed_node.into_rc_path();
         items.push_info(start_info);
         items.push_condition(conditions::if_above_width(
             context.config.indent_width,
             Signal::PossibleNewLine.into()
         ));
-        items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
+        items.push_condition(Condition::new_with_dependent_infos("multiLineOrHanging", ConditionProperties {
             condition: Box::new(move |context| condition_resolvers::is_multiple_lines(context, &start_info, &end_info)),
             true_path: Some(surround_with_new_lines(with_indent(parsed_node.clone().into()))),
             false_path: Some(parsed_node.into()),
-        }));
+        }, vec![end_info]));
         items.push_info(end_info);
     }
     items.push_str(")");

@@ -20,7 +20,6 @@ pub struct Context<'a> {
     pub info: Rc<SourceFile>,
     stored_infos: HashMap<BytePos, Info>,
     pub end_statement_or_member_infos: Stack<Info>,
-    disable_indent_for_next_bin_expr: bool,
     if_stmt_last_brace_condition_ref: Option<ConditionReference>,
     /// Used for ensuring nodes are parsed in order.
     #[cfg(debug_assertions)]
@@ -48,7 +47,6 @@ impl<'a> Context<'a> {
             info: Rc::new(info),
             stored_infos: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),
-            disable_indent_for_next_bin_expr: false,
             if_stmt_last_brace_condition_ref: None,
             #[cfg(debug_assertions)]
             last_parsed_node_pos: 0,
@@ -78,16 +76,6 @@ impl<'a> Context<'a> {
 
     pub fn get_info_for_node(&self, node: &dyn Ranged) -> Option<Info> {
         self.stored_infos.get(&node.lo()).map(|x| x.to_owned())
-    }
-
-    pub fn mark_disable_indent_for_next_bin_expr(&mut self) {
-        self.disable_indent_for_next_bin_expr = true;
-    }
-
-    pub fn get_disable_indent_for_next_bin_expr(&mut self) -> bool {
-        let value = self.disable_indent_for_next_bin_expr;
-        self.disable_indent_for_next_bin_expr = false;
-        return value;
     }
 
     pub fn store_if_stmt_last_brace_condition_ref(&mut self, condition_reference: ConditionReference) {
