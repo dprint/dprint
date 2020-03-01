@@ -356,6 +356,7 @@ describe("configuration", () => {
             return {
                 "arrayExpression.preferHanging": value,
                 "arrayPattern.preferHanging": value,
+                "doWhileStatement.preferHanging": value,
                 "extendsClause.preferHanging": value,
                 "implementsClause.preferHanging": value,
                 "exportDeclaration.preferHanging": value,

@@ -343,6 +343,7 @@ export interface TypeScriptConfiguration {
 
     "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "doWhileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "exportDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "extendsClause.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "forInStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
@@ -437,6 +438,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     // prefer hanging
     readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "doWhileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "exportDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "extendsClause.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "forInStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;

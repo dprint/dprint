@@ -439,6 +439,10 @@ impl ConfigurationBuilder {
         self.insert("arrayPattern.preferHanging", value)
     }
 
+    pub fn do_while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("doWhileStatement.preferHanging", value)
+    }
+
     pub fn export_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("exportDeclaration.preferHanging", value)
     }
@@ -966,6 +970,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         /* prefer hanging */
         array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        do_while_statement_prefer_hanging: get_value(&mut config, "doWhileStatement.preferHanging", prefer_hanging, &mut diagnostics),
         export_declaration_prefer_hanging: get_value(&mut config, "exportDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         extends_clause_prefer_hanging: get_value(&mut config, "extendsClause.preferHanging", prefer_hanging, &mut diagnostics),
         for_in_statement_prefer_hanging: get_value(&mut config, "forInStatement.preferHanging", prefer_hanging, &mut diagnostics),
@@ -1120,6 +1125,8 @@ pub struct Configuration {
     pub array_expression_prefer_hanging: bool,
     #[serde(rename = "arrayPattern.preferHanging")]
     pub array_pattern_prefer_hanging: bool,
+    #[serde(rename = "doWhileStatement.preferHanging")]
+    pub do_while_statement_prefer_hanging: bool,
     #[serde(rename = "exportDeclaration.preferHanging")]
     pub export_declaration_prefer_hanging: bool,
     #[serde(rename = "extendsClause.preferHanging")]

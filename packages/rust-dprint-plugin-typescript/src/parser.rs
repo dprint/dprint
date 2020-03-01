@@ -2717,7 +2717,7 @@ fn parse_do_while_stmt<'a>(node: &'a DoWhileStmt, context: &mut Context<'a>) -> 
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.test).into(),
         parsed_node: parse_node((&node.test).into(), context),
-        prefer_hanging: true,
+        prefer_hanging: context.config.do_while_statement_prefer_hanging,
     }, context));
     if context.config.semi_colons.is_true() {
         items.push_str(";");
