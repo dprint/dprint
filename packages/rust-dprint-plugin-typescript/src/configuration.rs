@@ -483,6 +483,10 @@ impl ConfigurationBuilder {
         self.insert("objectPattern.preferHanging", value)
     }
 
+    pub fn sequence_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("sequenceExpression.preferHanging", value)
+    }
+
     pub fn switch_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("switchStatement.preferHanging", value)
     }
@@ -985,6 +989,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         import_declaration_prefer_hanging: get_value(&mut config, "importDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         object_expression_prefer_hanging: get_value(&mut config, "objectExpression.preferHanging", prefer_hanging, &mut diagnostics),
         object_pattern_prefer_hanging: get_value(&mut config, "objectPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        sequence_expression_prefer_hanging: get_value(&mut config, "sequenceExpression.preferHanging", prefer_hanging, &mut diagnostics),
         switch_statement_prefer_hanging: get_value(&mut config, "switchStatement.preferHanging", prefer_hanging, &mut diagnostics),
         tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
         type_literal_prefer_hanging: get_value(&mut config, "typeLiteral.preferHanging", prefer_hanging, &mut diagnostics),
@@ -1152,6 +1157,8 @@ pub struct Configuration {
     pub object_expression_prefer_hanging: bool,
     #[serde(rename = "objectPattern.preferHanging")]
     pub object_pattern_prefer_hanging: bool,
+    #[serde(rename = "sequenceExpression.preferHanging")]
+    pub sequence_expression_prefer_hanging: bool,
     #[serde(rename = "switchStatement.preferHanging")]
     pub switch_statement_prefer_hanging: bool,
     #[serde(rename = "tupleType.preferHanging")]

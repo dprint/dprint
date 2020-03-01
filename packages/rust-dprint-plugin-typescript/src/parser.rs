@@ -1285,9 +1285,9 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             condition: Box::new(move |condition_context| {
                 if is_left_most_node { return Some(false); }
                 let top_most_info = condition_context.get_resolved_info(&top_most_info)?;
-                if is_top_most_in_parens && top_most_info.column_number == top_most_info.line_start_column_number { return Some(false); }
+                if is_top_most_in_parens && top_most_info.is_start_of_line() { return Some(false); }
                 let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
-                return Some(is_same_indent && condition_resolvers::is_start_of_new_line(condition_context));
+                return Some(is_same_indent && condition_resolvers::is_start_of_line(condition_context));
             }),
             true_path: Some(parser_helpers::with_indent(items.clone().into())),
             false_path: Some(items.into())
@@ -1724,13 +1724,14 @@ fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Print
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> PrintItems {
     parse_separated_values(ParseSeparatedValuesOptions {
         nodes: node.exprs.iter().map(|x| Some(x.into())).collect(),
-        prefer_hanging: true, // todo: config
+        prefer_hanging: context.config.sequence_expression_prefer_hanging,
         force_use_new_lines: false,
         trailing_commas: Some(TrailingCommas::Never),
         semi_colons: None,
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         custom_single_line_separator: None,
+        multi_line_style: helpers::MultiLineStyle::SameLineHangingIndented,
     }, context)
 }
 
@@ -1970,7 +1971,7 @@ fn parse_external_module_ref<'a>(node: &'a TsExternalModuleRef, context: &mut Co
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.expr).into(),
         parsed_node: parse_node((&node.expr).into(), context),
-        prefer_hanging: true,
+        prefer_hanging: context.config.call_expression_prefer_hanging_arguments, // not worth having specific config for this
     }, context));
     return items;
 }
@@ -2885,6 +2886,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
         single_line_space_at_end: false,
         single_line_separator: separator_after_semi_colons.into(),
         indent_width: context.config.indent_width,
+        multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
     }));
     items.push_str(")");
     items.push_info(end_header_info);
@@ -3440,7 +3442,7 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Pri
     let mut items = PrintItems::new();
     let mut indent_after_arrow_condition = parser_helpers::if_true(
         "indentIfIsStartOfLineAfterArrow",
-        |context| Some(condition_resolvers::is_start_of_new_line(&context)),
+        |context| Some(condition_resolvers::is_start_of_line(&context)),
         Signal::StartIndent.into()
     );
     let indent_after_arrow_condition_ref = indent_after_arrow_condition.get_reference();
@@ -3647,6 +3649,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         custom_single_line_separator: None,
+        multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
     }, context));
     items.push_str(">");
 
@@ -4015,6 +4018,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         custom_single_line_separator: None,
+        multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
     }, context));
     items.push_str("]");
 
@@ -4249,6 +4253,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
             single_line_space_at_start: false,
             single_line_space_at_end: false,
             custom_single_line_separator: None,
+            multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
         }, context));
     }
 
@@ -4343,6 +4348,7 @@ struct ParseSeparatedValuesOptions<'a> {
     single_line_space_at_start: bool,
     single_line_space_at_end: bool,
     custom_single_line_separator: Option<PrintItems>,
+    multi_line_style: helpers::MultiLineStyle,
 }
 
 fn parse_separated_values<'a>(
@@ -4382,6 +4388,7 @@ fn parse_separated_values<'a>(
         single_line_space_at_end: opts.single_line_space_at_end,
         single_line_separator: opts.custom_single_line_separator.unwrap_or(Signal::SpaceOrNewLine.into()),
         indent_width,
+        multi_line_style: opts.multi_line_style,
     })
 }
 
@@ -4504,7 +4511,7 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
     fn space_if_not_start_line() -> PrintItems {
         if_true(
             "spaceIfNotStartLine",
-            |context| Some(!condition_resolvers::is_start_of_new_line(context)),
+            |context| Some(!condition_resolvers::is_start_of_line(context)),
             " ".into()
         ).into()
     }
@@ -4596,6 +4603,7 @@ fn parse_extends_or_implements<'a>(opts: ParseExtendsOrImplementsOptions<'a>, co
             single_line_space_at_start: true,
             single_line_space_at_end: false,
             custom_single_line_separator: None,
+            multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
         }, context));
         items
     })));
@@ -4652,6 +4660,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
             single_line_space_at_start: opts.surround_single_line_with_spaces,
             single_line_space_at_end: opts.surround_single_line_with_spaces,
             custom_single_line_separator: None,
+            multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
         }, context));
     }
 

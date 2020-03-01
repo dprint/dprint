@@ -4,7 +4,7 @@ use super::*;
 pub fn indent_if_start_of_line(items: PrintItems) -> Condition {
     let rc_path = items.into_rc_path();
     Condition::new("indentIfStartOfLine", ConditionProperties {
-        condition: Box::new(|context| Some(condition_resolvers::is_start_of_new_line(&context))),
+        condition: Box::new(|context| Some(condition_resolvers::is_start_of_line(&context))),
         true_path: Some(parser_helpers::with_indent(rc_path.clone().into())),
         false_path: Some(rc_path.into()),
     })
@@ -83,7 +83,7 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, 
 
 pub fn single_indent_if_start_of_line() -> Condition {
     Condition::new("singleIndentIfStartOfLine", ConditionProperties {
-        condition: Box::new(|context| Some(condition_resolvers::is_start_of_new_line(context))),
+        condition: Box::new(|context| Some(condition_resolvers::is_start_of_line(context))),
         true_path: Some(Signal::SingleIndent.into()),
         false_path: None
     })
