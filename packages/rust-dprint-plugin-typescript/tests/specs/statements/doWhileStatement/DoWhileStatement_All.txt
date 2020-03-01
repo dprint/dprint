@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should print ==
 do
 {
@@ -21,6 +22,27 @@ true);
 do {
 } while (
     true
+);
+
+== should format hanging when condition spans multiple lines ==
+do {
+} while(true && testingThisOut && whith);
+
+[expect]
+do {
+} while (
+    true && testingThisOut && whith
+);
+
+== should format hanging when condition spans multiple lines twice ==
+do {
+} while(true && testingThisOut && whithSomeText);
+
+[expect]
+do {
+} while (
+    true && testingThisOut
+    && whithSomeText
 );
 
 == should format when empty and on the same line ==

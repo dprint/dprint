@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should format on multi-lines when the condition is on a different line from the open paren ==
 if (
     true) {
@@ -13,4 +14,29 @@ if (
 } else if (
     false
 ) {
+}
+
+== should be multi-line when exceeding the width ==
+if (someCondition && otherConditionThatTakesItOver) {
+    test;
+}
+else if (someCondition && below40Cols) {
+    test;
+}
+else {
+    test;
+}
+
+[expect]
+if (
+    someCondition
+    && otherConditionThatTakesItOver
+) {
+    test;
+} else if (
+    someCondition && below40Cols
+) {
+    test;
+} else {
+    test;
 }

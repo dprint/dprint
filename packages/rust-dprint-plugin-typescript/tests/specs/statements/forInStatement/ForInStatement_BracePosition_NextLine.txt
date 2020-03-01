@@ -1,4 +1,4 @@
-~~ forInStatement.bracePosition: nextLine, lineWidth: 40 ~~
+~~ forInStatement.bracePosition: nextLine, lineWidth: 40, forInStatement.preferHanging: true ~~
 == should use the next line for the brace position ==
 for (const t in test) {
 }

@@ -1,4 +1,4 @@
-~~ switchStatement.bracePosition: maintain, lineWidth: 40 ~~
+~~ switchStatement.bracePosition: maintain, lineWidth: 40, switchStatement.preferHanging: true ~~
 == should maintain the position for the brace position when on same line ==
 switch (expr) {
 }

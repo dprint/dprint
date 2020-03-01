@@ -439,6 +439,10 @@ impl ConfigurationBuilder {
         self.insert("arrayPattern.preferHanging", value)
     }
 
+    pub fn do_while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("doWhileStatement.preferHanging", value)
+    }
+
     pub fn export_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("exportDeclaration.preferHanging", value)
     }
@@ -447,8 +451,20 @@ impl ConfigurationBuilder {
         self.insert("extendsClause.preferHanging", value)
     }
 
+    pub fn for_in_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("forInStatement.preferHanging", value)
+    }
+
+    pub fn for_of_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("forOfStatement.preferHanging", value)
+    }
+
     pub fn for_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("forStatement.preferHanging", value)
+    }
+
+    pub fn if_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("ifStatement.preferHanging", value)
     }
 
     pub fn implements_clause_prefer_hanging(&mut self, value: bool) -> &mut Self {
@@ -467,6 +483,14 @@ impl ConfigurationBuilder {
         self.insert("objectPattern.preferHanging", value)
     }
 
+    pub fn sequence_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("sequenceExpression.preferHanging", value)
+    }
+
+    pub fn switch_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("switchStatement.preferHanging", value)
+    }
+
     pub fn tuple_type_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("tupleType.preferHanging", value)
     }
@@ -477,6 +501,10 @@ impl ConfigurationBuilder {
 
     pub fn type_parameter_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("typeParameterDeclaration.preferHanging", value)
+    }
+
+    pub fn while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("whileStatement.preferHanging", value)
     }
 
     /* prefer hanging arguments */
@@ -950,16 +978,23 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         /* prefer hanging */
         array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        do_while_statement_prefer_hanging: get_value(&mut config, "doWhileStatement.preferHanging", prefer_hanging, &mut diagnostics),
         export_declaration_prefer_hanging: get_value(&mut config, "exportDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         extends_clause_prefer_hanging: get_value(&mut config, "extendsClause.preferHanging", prefer_hanging, &mut diagnostics),
+        for_in_statement_prefer_hanging: get_value(&mut config, "forInStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        for_of_statement_prefer_hanging: get_value(&mut config, "forOfStatement.preferHanging", prefer_hanging, &mut diagnostics),
         for_statement_prefer_hanging: get_value(&mut config, "forStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        if_statement_prefer_hanging: get_value(&mut config, "ifStatement.preferHanging", prefer_hanging, &mut diagnostics),
         implements_clause_prefer_hanging: get_value(&mut config, "implementsClause.preferHanging", prefer_hanging, &mut diagnostics),
         import_declaration_prefer_hanging: get_value(&mut config, "importDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         object_expression_prefer_hanging: get_value(&mut config, "objectExpression.preferHanging", prefer_hanging, &mut diagnostics),
         object_pattern_prefer_hanging: get_value(&mut config, "objectPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        sequence_expression_prefer_hanging: get_value(&mut config, "sequenceExpression.preferHanging", prefer_hanging, &mut diagnostics),
+        switch_statement_prefer_hanging: get_value(&mut config, "switchStatement.preferHanging", prefer_hanging, &mut diagnostics),
         tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
         type_literal_prefer_hanging: get_value(&mut config, "typeLiteral.preferHanging", prefer_hanging, &mut diagnostics),
         type_parameter_declaration_prefer_hanging: get_value(&mut config, "typeParameterDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
+        while_statement_prefer_hanging: get_value(&mut config, "whileStatement.preferHanging", prefer_hanging, &mut diagnostics),
         /* prefer hanging arguments */
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
         new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
@@ -1100,12 +1135,20 @@ pub struct Configuration {
     pub array_expression_prefer_hanging: bool,
     #[serde(rename = "arrayPattern.preferHanging")]
     pub array_pattern_prefer_hanging: bool,
+    #[serde(rename = "doWhileStatement.preferHanging")]
+    pub do_while_statement_prefer_hanging: bool,
     #[serde(rename = "exportDeclaration.preferHanging")]
     pub export_declaration_prefer_hanging: bool,
     #[serde(rename = "extendsClause.preferHanging")]
     pub extends_clause_prefer_hanging: bool,
     #[serde(rename = "forStatement.preferHanging")]
     pub for_statement_prefer_hanging: bool,
+    #[serde(rename = "forInStatement.preferHanging")]
+    pub for_in_statement_prefer_hanging: bool,
+    #[serde(rename = "forOfStatement.preferHanging")]
+    pub for_of_statement_prefer_hanging: bool,
+    #[serde(rename = "ifStatement.preferHanging")]
+    pub if_statement_prefer_hanging: bool,
     #[serde(rename = "implementsClause.preferHanging")]
     pub implements_clause_prefer_hanging: bool,
     #[serde(rename = "importDeclaration.preferHanging")]
@@ -1114,12 +1157,18 @@ pub struct Configuration {
     pub object_expression_prefer_hanging: bool,
     #[serde(rename = "objectPattern.preferHanging")]
     pub object_pattern_prefer_hanging: bool,
+    #[serde(rename = "sequenceExpression.preferHanging")]
+    pub sequence_expression_prefer_hanging: bool,
+    #[serde(rename = "switchStatement.preferHanging")]
+    pub switch_statement_prefer_hanging: bool,
     #[serde(rename = "tupleType.preferHanging")]
     pub tuple_type_prefer_hanging: bool,
     #[serde(rename = "typeLiteral.preferHanging")]
     pub type_literal_prefer_hanging: bool,
     #[serde(rename = "typeParameterDeclaration.preferHanging")]
     pub type_parameter_declaration_prefer_hanging: bool,
+    #[serde(rename = "whileStatement.preferHanging")]
+    pub while_statement_prefer_hanging: bool,
     /* prefer hanging arguments */
     #[serde(rename = "callExpression.preferHangingArguments")]
     pub call_expression_prefer_hanging_arguments: bool,

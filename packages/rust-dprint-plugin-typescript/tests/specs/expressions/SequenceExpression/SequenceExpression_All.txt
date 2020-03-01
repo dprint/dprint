@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should format ==
 const x = (2,3,4);
 
@@ -9,3 +10,11 @@ member[1,2];
 
 [expect]
 member[1, 2];
+
+== should format multi-line with a hanging indent ==
+testttttttttting, thhhhisssouttttaaaabbitt, testing
+
+[expect]
+testttttttttting,
+    thhhhisssouttttaaaabbitt,
+    testing;

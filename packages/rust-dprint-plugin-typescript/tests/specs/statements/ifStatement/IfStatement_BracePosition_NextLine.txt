@@ -1,4 +1,4 @@
-~~ ifStatement.bracePosition: nextLine, ifStatement.nextControlFlowPosition: nextLine, lineWidth: 40 ~~
+~~ ifStatement.bracePosition: nextLine, ifStatement.nextControlFlowPosition: nextLine, lineWidth: 40, ifStatement.preferHanging: true ~~
 == should use the next line for the brace position ==
 if (true) {
 }

@@ -480,6 +480,22 @@ impl<TString, TInfo> Condition<TString, TInfo> where TString : StringTrait, TInf
         Condition::new_internal(name, properties, None)
     }
 
+    pub fn new_true() -> Condition<TString, TInfo> {
+        Condition::new_internal("trueCondition", ConditionProperties {
+            condition: Box::new(|_| Some(true)),
+            true_path: None,
+            false_path: None,
+        }, None)
+    }
+
+    pub fn new_false() -> Condition<TString, TInfo> {
+        Condition::new_internal("falseCondition", ConditionProperties {
+            condition: Box::new(|_| Some(false)),
+            true_path: None,
+            false_path: None,
+        }, None)
+    }
+
     pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties<TString, TInfo>, dependent_infos: Vec<TInfo>) -> Condition<TString, TInfo> {
         Condition::new_internal(name, properties, Some(dependent_infos))
     }
@@ -622,11 +638,18 @@ impl<TString> StringContainer<TString> where TString : StringTrait {
 }
 
 /// Information about a certain location being printed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WriterInfo {
     pub line_number: u32,
     pub column_number: u32,
     pub indent_level: u8,
     pub line_start_indent_level: u8,
     pub line_start_column_number: u32,
+}
+
+impl WriterInfo {
+    /// Gets if the current column number equals the line start column number.
+    pub fn is_start_of_line(&self) -> bool {
+        self.column_number == self.line_start_column_number
+    }
 }
