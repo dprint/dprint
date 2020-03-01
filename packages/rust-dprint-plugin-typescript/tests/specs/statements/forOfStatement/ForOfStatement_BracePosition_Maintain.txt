@@ -1,4 +1,4 @@
-~~ forOfStatement.bracePosition: maintain, lineWidth: 40 ~~
+~~ forOfStatement.bracePosition: maintain, lineWidth: 40, forOfStatement.preferHanging: true ~~
 == should maintain the position for the brace position when on same line ==
 for ( const t of  test) {
 }

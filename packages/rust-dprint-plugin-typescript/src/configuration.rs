@@ -447,6 +447,14 @@ impl ConfigurationBuilder {
         self.insert("extendsClause.preferHanging", value)
     }
 
+    pub fn for_in_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("forInStatement.preferHanging", value)
+    }
+
+    pub fn for_of_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("forOfStatement.preferHanging", value)
+    }
+
     pub fn for_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("forStatement.preferHanging", value)
     }
@@ -956,6 +964,8 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
         export_declaration_prefer_hanging: get_value(&mut config, "exportDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         extends_clause_prefer_hanging: get_value(&mut config, "extendsClause.preferHanging", prefer_hanging, &mut diagnostics),
+        for_in_statement_prefer_hanging: get_value(&mut config, "forInStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        for_of_statement_prefer_hanging: get_value(&mut config, "forOfStatement.preferHanging", prefer_hanging, &mut diagnostics),
         for_statement_prefer_hanging: get_value(&mut config, "forStatement.preferHanging", prefer_hanging, &mut diagnostics),
         if_statement_prefer_hanging: get_value(&mut config, "ifStatement.preferHanging", prefer_hanging, &mut diagnostics),
         implements_clause_prefer_hanging: get_value(&mut config, "implementsClause.preferHanging", prefer_hanging, &mut diagnostics),
@@ -1111,6 +1121,10 @@ pub struct Configuration {
     pub extends_clause_prefer_hanging: bool,
     #[serde(rename = "forStatement.preferHanging")]
     pub for_statement_prefer_hanging: bool,
+    #[serde(rename = "forInStatement.preferHanging")]
+    pub for_in_statement_prefer_hanging: bool,
+    #[serde(rename = "forOfStatement.preferHanging")]
+    pub for_of_statement_prefer_hanging: bool,
     #[serde(rename = "ifStatement.preferHanging")]
     pub if_statement_prefer_hanging: bool,
     #[serde(rename = "implementsClause.preferHanging")]

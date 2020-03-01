@@ -2927,7 +2927,7 @@ fn parse_for_in_stmt<'a>(node: &'a ForInStmt, context: &mut Context<'a>) -> Prin
             }));
             items
         },
-        prefer_hanging: true,
+        prefer_hanging: context.config.for_in_statement_prefer_hanging,
     }, context));
     items.push_info(end_header_info);
 
@@ -2973,7 +2973,7 @@ fn parse_for_of_stmt<'a>(node: &'a ForOfStmt, context: &mut Context<'a>) -> Prin
             }));
             items
         },
-        prefer_hanging: true,
+        prefer_hanging: context.config.for_of_statement_prefer_hanging,
     }, context));
     items.push_info(end_header_info);
 
