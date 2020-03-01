@@ -1715,7 +1715,7 @@ fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> Print
     return conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(
         parse_node_in_parens(ParseNodeInParensOptions {
             first_inner_node: (&node.expr).into(),
-            inner_parse_node: |context| parse_node((&node.expr).into(), context),
+            parsed_node: parse_node((&node.expr).into(), context),
             prefer_hanging: true,
         }, context)
     )).into();
@@ -1969,7 +1969,7 @@ fn parse_external_module_ref<'a>(node: &'a TsExternalModuleRef, context: &mut Co
     items.push_str("require");
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.expr).into(),
-        inner_parse_node: |context| parse_node((&node.expr).into(), context),
+        parsed_node: parse_node((&node.expr).into(), context),
         prefer_hanging: true,
     }, context));
     return items;
@@ -2716,7 +2716,7 @@ fn parse_do_while_stmt<'a>(node: &'a DoWhileStmt, context: &mut Context<'a>) -> 
     }
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.test).into(),
-        inner_parse_node: |context| parse_node((&node.test).into(), context),
+        parsed_node: parse_node((&node.test).into(), context),
         prefer_hanging: true,
     }, context));
     if context.config.semi_colons.is_true() {
@@ -2915,7 +2915,7 @@ fn parse_for_in_stmt<'a>(node: &'a ForInStmt, context: &mut Context<'a>) -> Prin
     }
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.left).into(),
-        inner_parse_node: |context| {
+        parsed_node: {
             let mut items = PrintItems::new();
             items.extend(parse_node((&node.left).into(), context));
             items.push_signal(Signal::SpaceOrNewLine);
@@ -2961,7 +2961,7 @@ fn parse_for_of_stmt<'a>(node: &'a ForOfStmt, context: &mut Context<'a>) -> Prin
     }
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.left).into(),
-        inner_parse_node: |context| {
+        parsed_node: {
             let mut items = PrintItems::new();
             items.extend(parse_node((&node.left).into(), context));
             items.push_signal(Signal::SpaceOrNewLine);
@@ -3006,7 +3006,7 @@ fn parse_if_stmt<'a>(node: &'a IfStmt, context: &mut Context<'a>) -> PrintItems 
             let test = &*node.test;
             items.extend(parse_node_in_parens(ParseNodeInParensOptions {
                 first_inner_node: test.into(),
-                inner_parse_node: |context| parse_node(test.into(), context),
+                parsed_node: parse_node(test.into(), context),
                 prefer_hanging: context.config.if_statement_prefer_hanging,
             }, context));
             items
@@ -3102,7 +3102,7 @@ fn parse_switch_stmt<'a>(node: &'a SwitchStmt, context: &mut Context<'a>) -> Pri
     items.push_str("switch ");
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.discriminant).into(),
-        inner_parse_node: |context| parse_node((&node.discriminant).into(), context),
+        parsed_node: parse_node((&node.discriminant).into(), context),
         prefer_hanging: true,
     }, context));
     items.extend(parse_membered_body(ParseMemberedBodyOptions {
@@ -3341,7 +3341,7 @@ fn parse_while_stmt<'a>(node: &'a WhileStmt, context: &mut Context<'a>) -> Print
     }
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.test).into(),
-        inner_parse_node: |context| parse_node((&node.test).into(), context),
+        parsed_node: parse_node((&node.test).into(), context),
         prefer_hanging: true,
     }, context));
     items.push_info(end_header_info);
@@ -3581,7 +3581,7 @@ fn parse_qualified_name<'a>(node: &'a TsQualifiedName, context: &mut Context<'a>
 fn parse_parenthesized_type<'a>(node: &'a TsParenthesizedType, context: &mut Context<'a>) -> PrintItems {
     conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.type_ann).into(),
-        inner_parse_node: |context| parse_node((&node.type_ann).into(), context),
+        parsed_node: parse_node((&node.type_ann).into(), context),
         prefer_hanging: true,
     }, context))).into()
 }
@@ -4005,7 +4005,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
     let mut items = PrintItems::new();
 
     items.push_str("[");
-    // todo: handle inner comments inside parse_comma_separated_values?
+    // todo: handle inner comments inside parse_separated_values?
     items.extend(parse_separated_values(ParseSeparatedValuesOptions {
         nodes: nodes,
         prefer_hanging: opts.prefer_hanging,
@@ -4510,14 +4510,14 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
     }
 }
 
-struct ParseNodeInParensOptions<'a, F> where F : Fn(&mut Context<'a>) -> PrintItems {
+struct ParseNodeInParensOptions<'a> {
     first_inner_node: Node<'a>,
-    inner_parse_node: F, // todo: change this to not be a function and instead pass in the print items
+    parsed_node: PrintItems,
     prefer_hanging: bool,
 }
 
-fn parse_node_in_parens<'a, F>(opts: ParseNodeInParensOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : Fn(&mut Context<'a>) -> PrintItems {
-    return wrap_in_parens((opts.inner_parse_node)(context), WrapInParensOptions {
+fn parse_node_in_parens<'a>(opts: ParseNodeInParensOptions<'a>, context: &mut Context<'a>) -> PrintItems {
+    return wrap_in_parens(opts.parsed_node, WrapInParensOptions {
         use_new_lines: use_new_lines_for_node_in_parens(&opts.first_inner_node, context),
         prefer_hanging: opts.prefer_hanging,
     }, context);
