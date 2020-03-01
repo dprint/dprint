@@ -1,4 +1,4 @@
-~~ whileStatement.bracePosition: sameLine, lineWidth: 40 ~~
+~~ whileStatement.bracePosition: sameLine, lineWidth: 40, whileStatement.preferHanging: true ~~
 == should use the same line for the brace position ==
 while (true)
 {

@@ -3342,7 +3342,7 @@ fn parse_while_stmt<'a>(node: &'a WhileStmt, context: &mut Context<'a>) -> Print
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.test).into(),
         parsed_node: parse_node((&node.test).into(), context),
-        prefer_hanging: true,
+        prefer_hanging: context.config.while_statement_prefer_hanging,
     }, context));
     items.push_info(end_header_info);
     items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {

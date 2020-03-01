@@ -491,6 +491,10 @@ impl ConfigurationBuilder {
         self.insert("typeParameterDeclaration.preferHanging", value)
     }
 
+    pub fn while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("whileStatement.preferHanging", value)
+    }
+
     /* prefer hanging arguments */
     pub fn call_expression_prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
         self.insert("callExpression.preferHangingArguments", value)
@@ -975,6 +979,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
         type_literal_prefer_hanging: get_value(&mut config, "typeLiteral.preferHanging", prefer_hanging, &mut diagnostics),
         type_parameter_declaration_prefer_hanging: get_value(&mut config, "typeParameterDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
+        while_statement_prefer_hanging: get_value(&mut config, "whileStatement.preferHanging", prefer_hanging, &mut diagnostics),
         /* prefer hanging arguments */
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
         new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
@@ -1141,6 +1146,8 @@ pub struct Configuration {
     pub type_literal_prefer_hanging: bool,
     #[serde(rename = "typeParameterDeclaration.preferHanging")]
     pub type_parameter_declaration_prefer_hanging: bool,
+    #[serde(rename = "whileStatement.preferHanging")]
+    pub while_statement_prefer_hanging: bool,
     /* prefer hanging arguments */
     #[serde(rename = "callExpression.preferHangingArguments")]
     pub call_expression_prefer_hanging_arguments: bool,
