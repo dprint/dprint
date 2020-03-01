@@ -518,6 +518,7 @@ describe("configuration", () => {
         it("should set the space settings", () => {
             const keys: (keyof TypeScriptConfiguration)[] = [
                 "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator",
+                "commentLine.forceSpaceAfterDoubleSlash",
                 "constructor.spaceBeforeParentheses",
                 "constructorType.spaceAfterNewKeyword",
                 "constructSignature.spaceAfterNewKeyword",

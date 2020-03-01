@@ -3891,7 +3891,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
     context.mark_comment_handled(comment);
     return Some(match comment.kind {
         CommentKind::Block => parse_comment_block(comment),
-        CommentKind::Line => parse_comment_line(comment),
+        CommentKind::Line => parse_comment_line(comment, context),
     });
 
     fn parse_comment_block(comment: &Comment) -> PrintItems {
@@ -3902,15 +3902,16 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
         items
     }
 
-    fn parse_comment_line(comment: &Comment) -> PrintItems {
+    fn parse_comment_line(comment: &Comment, context: &mut Context) -> PrintItems {
         let mut items = PrintItems::new();
-        items.push_str(&get_comment_text(&comment.text));
+        items.push_str(&get_comment_text(&comment.text, context));
         items.push_signal(Signal::ExpectNewLine);
         return parser_helpers::with_no_new_lines(items);
 
-        fn get_comment_text(original_text: &String) -> String {
+        fn get_comment_text(original_text: &String, context: &mut Context) -> String {
             let non_slash_index = get_first_non_slash_index(&original_text);
-            let start_text_index = if original_text.chars().skip(non_slash_index).next() == Some(' ') { non_slash_index + 1 } else { non_slash_index };
+            let skip_space = context.config.comment_line_force_space_after_double_slash && original_text.chars().skip(non_slash_index).next() == Some(' ');
+            let start_text_index = if skip_space { non_slash_index + 1 } else { non_slash_index };
             let comment_text_original = original_text.chars().skip(start_text_index).collect::<String>();
             let comment_text = comment_text_original.trim_end();
             let prefix = format!("//{}", original_text.chars().take(non_slash_index).collect::<String>());
@@ -3918,7 +3919,12 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
             return if comment_text.is_empty() {
                 prefix
             } else {
-                format!("{} {}", prefix, comment_text)
+                format!(
+                    "{}{}{}",
+                    prefix,
+                    if context.config.comment_line_force_space_after_double_slash { " " } else { "" },
+                    comment_text
+                )
             };
 
             fn get_first_non_slash_index(text: &String) -> usize {

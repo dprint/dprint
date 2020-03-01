@@ -145,6 +145,14 @@ export interface TypeScriptConfiguration {
      */
     "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"?: boolean;
     /**
+     * Forces a space after the double slash in a comment line.
+     *
+     * @default true
+     * @value true - Ex. `//test` -> `// test`
+     * @value false - Ex. `//test` -> `//test`
+     */
+    "commentLine.forceSpaceAfterDoubleSlash"?: boolean;
+    /**
      * Whether to add a space before the parentheses of a constructor.
      * @default false
      * @value true - Ex. `constructor ()`
@@ -448,6 +456,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;
+    readonly "commentLine.forceSpaceAfterDoubleSlash": boolean;
     readonly "constructor.spaceBeforeParentheses": boolean;
     readonly "constructorType.spaceAfterNewKeyword": boolean;
     readonly "constructSignature.spaceAfterNewKeyword": boolean;
