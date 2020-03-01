@@ -4524,37 +4524,17 @@ struct ParseNodeInParensOptions<'a> {
 }
 
 fn parse_node_in_parens<'a>(opts: ParseNodeInParensOptions<'a>, context: &mut Context<'a>) -> PrintItems {
-    return wrap_in_parens(opts.parsed_node, WrapInParensOptions {
-        use_new_lines: use_new_lines_for_node_in_parens(&opts.first_inner_node, context),
-        prefer_hanging: opts.prefer_hanging,
-    }, context);
-}
-
-fn use_new_lines_for_node_in_parens<'a>(node: &Node<'a>, context: &mut Context<'a>) -> bool {
-    let open_paren_token = context.token_finder.get_previous_token_if_open_paren(node);
-    if let Some(open_paren_token) = &open_paren_token {
-        node_helpers::get_use_new_lines_for_nodes(open_paren_token, &node, context)
-    } else {
-        false
-    }
-}
-
-struct WrapInParensOptions {
-    use_new_lines: bool,
-    prefer_hanging: bool,
-}
-
-fn wrap_in_parens(parsed_node: PrintItems, opts: WrapInParensOptions, context: &mut Context) -> PrintItems {
+    let use_new_lines = use_new_lines_for_node_in_parens(&opts.first_inner_node, context);
     let mut items = PrintItems::new();
     items.push_str("(");
-    if opts.use_new_lines {
-        items.extend(surround_with_new_lines(with_indent(parsed_node)));
+    if use_new_lines {
+        items.extend(surround_with_new_lines(with_indent(opts.parsed_node)));
     } else if opts.prefer_hanging {
-        items.extend(parsed_node);
+        items.extend(opts.parsed_node);
     } else {
         let start_info = Info::new("startParens");
         let end_info = Info::new("endParens");
-        let parsed_node = parsed_node.into_rc_path();
+        let parsed_node = opts.parsed_node.into_rc_path();
         items.push_info(start_info);
         items.push_condition(conditions::if_above_width(
             context.config.indent_width,
@@ -4569,6 +4549,15 @@ fn wrap_in_parens(parsed_node: PrintItems, opts: WrapInParensOptions, context: &
     }
     items.push_str(")");
     items
+}
+
+fn use_new_lines_for_node_in_parens<'a>(node: &Node<'a>, context: &mut Context<'a>) -> bool {
+    let open_paren_token = context.token_finder.get_previous_token_if_open_paren(node);
+    if let Some(open_paren_token) = &open_paren_token {
+        node_helpers::get_use_new_lines_for_nodes(open_paren_token, &node, context)
+    } else {
+        false
+    }
 }
 
 struct ParseExtendsOrImplementsOptions<'a> {
