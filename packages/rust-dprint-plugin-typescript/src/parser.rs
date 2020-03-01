@@ -1347,7 +1347,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
                 } else {
                     return match ancestor {
                         Node::ParenExpr(_) | Node::TsParenthesizedType(_) | Node::IfStmt(_) | Node::WhileStmt(_) | Node::DoWhileStmt(_)
-                            | Node::ForStmt(_) | Node::ForOfStmt(_) | Node::ForInStmt(_) => true,
+                            | Node::ForStmt(_) | Node::ForOfStmt(_) | Node::ForInStmt(_) | Node::SwitchStmt(_) => true,
                         _ => false,
                     };
                 }
@@ -3103,7 +3103,7 @@ fn parse_switch_stmt<'a>(node: &'a SwitchStmt, context: &mut Context<'a>) -> Pri
     items.extend(parse_node_in_parens(ParseNodeInParensOptions {
         first_inner_node: (&node.discriminant).into(),
         parsed_node: parse_node((&node.discriminant).into(), context),
-        prefer_hanging: true,
+        prefer_hanging: context.config.switch_statement_prefer_hanging,
     }, context));
     items.extend(parse_membered_body(ParseMemberedBodyOptions {
         span: node.span,

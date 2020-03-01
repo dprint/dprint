@@ -367,6 +367,7 @@ describe("configuration", () => {
                 "importDeclaration.preferHanging": value,
                 "objectExpression.preferHanging": value,
                 "objectPattern.preferHanging": value,
+                "switchStatement.preferHanging": value,
                 "tupleType.preferHanging": value,
                 "typeLiteral.preferHanging": value,
                 "typeParameterDeclaration.preferHanging": value,
