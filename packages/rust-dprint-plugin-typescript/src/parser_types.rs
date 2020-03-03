@@ -85,6 +85,14 @@ impl<'a> Context<'a> {
     pub fn take_if_stmt_last_brace_condition_ref(&mut self) -> Option<ConditionReference> {
         self.if_stmt_last_brace_condition_ref.take()
     }
+
+    #[cfg(debug_assertions)]
+    pub fn assert_text(&self, start_pos: BytePos, end_pos: BytePos, expected_text: &'static str) {
+        let actual_text = Span::new(start_pos, end_pos, Default::default()).text(self);
+        if actual_text != expected_text {
+            panic!("Expected text `{}`, but found `{}`", expected_text, actual_text)
+        }
+    }
 }
 
 pub trait NodeKinded {

@@ -2610,54 +2610,52 @@ fn accessibility_to_str(accessibility: &Accessibility) -> &str {
 
 fn parse_block_stmt<'a>(node: &'a BlockStmt, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    let start_statements_info = Info::new("startStatementsInfo");
-    let end_statements_info = Info::new("endStatementsInfo");
-    let open_brace_token = context.token_finder.get_first_open_brace_token_within(&node);
-
-    items.push_str("{");
-    let after_open_brace_info = Info::new("after_open_brace_info");
-    items.push_info(after_open_brace_info);
-    let open_brace_trailing_comments = open_brace_token.trailing_comments(context);
-    let open_brace_trailing_comments_ends_with_comment_block = open_brace_trailing_comments.get_last_comment().map(|x| x.kind == CommentKind::Block).unwrap_or(false);
-    let is_braces_same_line_and_empty = node.start_line(context) == node.end_line(context) && node.stmts.is_empty();
-    items.extend(parse_comments_as_trailing(&open_brace_token, open_brace_trailing_comments, context));
-    items.extend(parse_first_line_trailing_comments(&node, node.stmts.get(0).map(|x| x as &dyn Spanned), context));
-
-    if !is_braces_same_line_and_empty {
-        items.push_signal(Signal::NewLine);
-    }
-    items.push_info(start_statements_info);
-    items.extend(parser_helpers::with_indent(
-        parse_statements(node.get_inner_span(context), node.stmts.iter().map(|stmt| stmt.into()), context)
-    ));
-    items.push_info(end_statements_info);
-
-    if is_braces_same_line_and_empty {
-        items.push_condition(if_true_or(
-            "newLineIfDifferentLine",
-            move |context| condition_resolvers::is_on_different_line(context, &after_open_brace_info),
-            Signal::NewLine.into(),
-            {
-                if open_brace_trailing_comments_ends_with_comment_block {
-                    Signal::SpaceOrNewLine.into()
-                } else {
-                    PrintItems::new()
-                }
-            }
+    let before_open_token_info = Info::new("after_open_token_info");
+    items.push_info(before_open_token_info);
+    items.extend(parse_surrounded_by_tokens(|context| {
+        let mut items = PrintItems::new();
+        let start_inner_info = Info::new("startStatementsInfo");
+        let end_inner_info = Info::new("endStatementsInfo");
+        let is_tokens_same_line_and_empty = node.start_line(context) == node.end_line(context) && node.stmts.is_empty();
+        if !is_tokens_same_line_and_empty {
+            items.push_signal(Signal::NewLine);
+        }
+        items.push_info(start_inner_info);
+        items.extend(parser_helpers::with_indent(
+            parse_statements(node.get_inner_span(context), node.stmts.iter().map(|stmt| stmt.into()), context)
         ));
-    } else {
-        items.push_condition(Condition::new("endStatementsNewLine", ConditionProperties {
-            condition: Box::new(move |context| {
-                condition_resolvers::are_infos_equal(context, &start_statements_info, &end_statements_info)
-            }),
-            true_path: None,
-            false_path: Some(Signal::NewLine.into()),
-        }));
-    }
+        items.push_info(end_inner_info);
 
-    items.push_str("}");
-
-    return items;
+        if is_tokens_same_line_and_empty {
+            items.push_condition(if_true(
+                "newLineIfDifferentLine",
+                move |context| condition_resolvers::is_on_different_line(context, &before_open_token_info),
+                Signal::NewLine.into()/*,
+                {
+                    if open_token_trailing_comments_ends_with_comment_block {
+                        Signal::SpaceOrNewLine.into()
+                    } else {
+                        PrintItems::new()
+                    }
+                }*/
+            ));
+        } else {
+            items.push_condition(Condition::new("endNewline", ConditionProperties {
+                condition: Box::new(move |context| {
+                    condition_resolvers::are_infos_equal(context, &start_inner_info, &end_inner_info)
+                }),
+                true_path: None,
+                false_path: Some(Signal::NewLine.into()),
+            }));
+        }
+        items
+    }, ParseSurroundedByTokensOptions {
+        open_token: "{",
+        close_token: "}",
+        span: node.span(),
+        first_member: node.stmts.get(0).map(|x| x.span()),
+    }, context));
+    items
 }
 
 fn parse_break_stmt<'a>(node: &'a BreakStmt, context: &mut Context<'a>) -> PrintItems {
@@ -3147,7 +3145,7 @@ fn parse_switch_case<'a>(node: &'a SwitchCase, context: &mut Context<'a>) -> Pri
         items.push_str("default:");
     }
 
-    items.extend(parse_first_line_trailing_comments(&node.span, node.cons.get(0).map(|x| x as &dyn Spanned), context));
+    items.extend(parse_first_line_trailing_comments(&node.span, node.cons.get(0).map(|x| x.span()), context));
     let parsed_trailing_comments = parse_trailing_comments_for_case(node.span, &block_stmt_body, context);
     if !node.cons.is_empty() {
         if let Some(block_stmt_body) = block_stmt_body {
@@ -3942,7 +3940,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
     }
 }
 
-fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Option<&dyn Spanned>, context: &mut Context<'a>) -> PrintItems {
+fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Option<Span>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     let node_start_line = node.start_line(context);
 
@@ -3959,7 +3957,7 @@ fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Opti
 
     return items;
 
-    fn get_comments<'a>(node: &dyn Spanned, first_member: &Option<&dyn Spanned>, context: &mut Context<'a>) -> Vec<&'a Comment> {
+    fn get_comments<'a>(node: &dyn Spanned, first_member: &Option<Span>, context: &mut Context<'a>) -> Vec<&'a Comment> {
         let mut comments = Vec::new();
         // todo: inner comments?
         if let Some(first_member) = first_member {
@@ -3979,7 +3977,9 @@ fn parse_trailing_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) ->
 fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: CommentsIterator<'a>, context: &mut Context<'a>) -> PrintItems {
     // use the roslyn definition of trailing comments
     let node_end_line = node.end_line(context);
-    let trailing_comments_on_same_line = trailing_comments.into_iter().filter(|c| c.start_line(context) == node_end_line).collect::<Vec<&'a Comment>>();
+    let trailing_comments_on_same_line = trailing_comments.into_iter()
+        .filter(|c|c.start_line(context) <= node_end_line) // less than or equal instead of just equal in order to include "forgotten" comments
+        .collect::<Vec<&'a Comment>>();
     let first_unhandled_comment = trailing_comments_on_same_line.iter().filter(|c| !context.has_handled_comment(&c)).next();
     let mut items = PrintItems::new();
 
@@ -4010,23 +4010,36 @@ struct ParseArrayLikeNodesOptions<'a> {
 fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mut Context<'a>) -> PrintItems {
     let parent_span = opts.parent_span;
     let nodes = opts.nodes;
+    let trailing_commas = opts.trailing_commas;
+    let prefer_hanging = opts.prefer_hanging;
     let force_use_new_lines = get_force_use_new_lines(&parent_span, &nodes, context);
     let mut items = PrintItems::new();
+    let mut first_member = nodes.get(0).map(|x| x.as_ref().map(|y| y.span())).flatten();
 
-    items.push_str("[");
-    // todo: handle inner comments inside parse_separated_values?
-    items.extend(parse_separated_values(ParseSeparatedValuesOptions {
-        nodes: nodes,
-        prefer_hanging: opts.prefer_hanging,
-        force_use_new_lines,
-        trailing_commas: Some(opts.trailing_commas),
-        semi_colons: None,
-        single_line_space_at_start: false,
-        single_line_space_at_end: false,
-        custom_single_line_separator: None,
-        multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+    if first_member.is_none() {
+        if let Some(comma_token) = context.token_finder.get_first_comma_within(&parent_span) {
+            first_member.replace(comma_token.span());
+        }
+    }
+
+    items.extend(parse_surrounded_by_tokens(|context| {
+        parse_separated_values(ParseSeparatedValuesOptions {
+            nodes: nodes,
+            prefer_hanging,
+            force_use_new_lines,
+            trailing_commas: Some(trailing_commas),
+            semi_colons: None,
+            single_line_space_at_start: false,
+            single_line_space_at_end: false,
+            custom_single_line_separator: None,
+            multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+        }, context)
+    }, ParseSurroundedByTokensOptions {
+        open_token: "[",
+        close_token: "]",
+        span: parent_span,
+        first_member,
     }, context));
-    items.push_str("]");
 
     return items;
 
@@ -5336,6 +5349,67 @@ fn parse_assignment<'a>(expr: Node<'a>, op: &str, context: &mut Context<'a>) -> 
             _ => false,
         }
     }
+}
+
+
+struct ParseSurroundedByTokensOptions {
+    open_token: &'static str,
+    close_token: &'static str,
+    span: Span,
+    first_member: Option<Span>,
+}
+
+fn parse_surrounded_by_tokens<'a>(
+    parse_inner: impl FnOnce(&mut Context<'a>) -> PrintItems,
+    opts: ParseSurroundedByTokensOptions,
+    context: &mut Context<'a>
+) -> PrintItems {
+    let open_token_end = BytePos(opts.span.lo().0 + (opts.open_token.len() as u32));
+    let close_token_start = BytePos(opts.span.hi().0 - (opts.close_token.len() as u32));
+
+    // assert the tokens are in the place the caller says they are
+    #[cfg(debug_assertions)]
+    context.assert_text(opts.span.lo(), open_token_end.lo(), opts.open_token);
+    #[cfg(debug_assertions)]
+    context.assert_text(close_token_start.lo(), opts.span.hi(), opts.close_token);
+
+    // parse
+    let mut items = PrintItems::new();
+    let after_first_line_comments_info = Info::new("afterFirstLineComments");
+
+    items.push_str(opts.open_token);
+    let should_parse_trailing_comments = {
+        if let Some(first_member) = opts.first_member {
+            let open_token_start_line = open_token_end.start_line(context);
+            let first_member_start_line = first_member.start_line(context);
+            open_token_start_line < first_member_start_line
+        } else {
+            true
+        }
+    };
+    if should_parse_trailing_comments {
+        let open_token_trailing_comments = open_token_end.trailing_comments(context);
+        items.extend(parse_comments_as_trailing(&open_token_end, open_token_trailing_comments, context));
+    }
+    items.push_info(after_first_line_comments_info);
+
+    items.extend(parse_inner(context));
+
+    let before_trailing_comments_info = Info::new("beforeTrailingComments");
+    items.push_info(before_trailing_comments_info);
+    items.extend(with_indent(parse_trailing_comments_as_statements(&open_token_end, context)));
+    items.extend(with_indent(parse_comment_collection(close_token_start.leading_comments(context), None, context)));
+    items.push_condition(if_true(
+        "newLineIfHasCommentsAndNotStartOfNewLine",
+        move |context| {
+            let had_comments = !condition_resolvers::is_at_same_position(context, &before_trailing_comments_info)?;
+            return Some(had_comments && !context.writer_info.is_start_of_line())
+        },
+        Signal::NewLine.into()
+    ));
+    items.push_str(opts.close_token);
+
+    return items;
 }
 
 /* is functions */
