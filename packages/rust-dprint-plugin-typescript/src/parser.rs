@@ -2151,7 +2151,7 @@ fn parse_jsx_element<'a>(node: &'a JSXElement, context: &mut Context<'a>) -> Pri
 }
 
 fn parse_jsx_empty_expr<'a>(node: &'a JSXEmptyExpr, context: &mut Context<'a>) -> PrintItems {
-    parse_comment_collection(get_jsx_empty_expr_comments(node, context), None, context)
+    parse_comment_collection(get_jsx_empty_expr_comments(node, context), None, None, context)
 }
 
 fn parse_jsx_expr_container<'a>(node: &'a JSXExprContainer, context: &mut Context<'a>) -> PrintItems {
@@ -3763,7 +3763,7 @@ fn parse_comments_as_leading<'a>(node: &dyn Spanned, comments: CommentsIterator<
     if let Some(last_comment) = comments.get_last_comment() {
         let last_comment_previously_handled = context.has_handled_comment(&last_comment);
 
-        items.extend(parse_comment_collection(comments, None, context));
+        items.extend(parse_comment_collection(comments, None, Some(node), context));
 
         // todo: this doesn't seem exactly right...
         if !last_comment_previously_handled {
@@ -3815,13 +3815,18 @@ fn parse_comments_as_statements<'a>(comments: impl Iterator<Item=&'a Comment>, l
     items
 }
 
-fn parse_comment_collection<'a>(comments: impl Iterator<Item=&'a Comment>, last_node: Option<&dyn Spanned>, context: &mut Context<'a>) -> PrintItems {
+fn parse_comment_collection<'a>(comments: impl Iterator<Item=&'a Comment>, last_node: Option<&dyn Spanned>, next_node: Option<&dyn Spanned>, context: &mut Context<'a>) -> PrintItems {
     let mut last_node = last_node;
     let mut items = PrintItems::new();
+    let next_node_start_line = next_node.map(|n| n.start_line(context));
     for comment in comments {
         if !context.has_handled_comment(comment) {
             items.extend(parse_comment_based_on_last_node(comment, &last_node, ParseCommentBasedOnLastNodeOptions {
-                separate_with_newlines: false
+                separate_with_newlines: if let Some(next_node_start_line) = next_node_start_line {
+                    comment.start_line(context) != next_node_start_line
+                } else {
+                    false
+                }
             }, context));
             last_node = Some(comment);
         }
@@ -3956,7 +3961,6 @@ fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Opti
 }
 
 fn parse_trailing_comments<'a>(node: &dyn Spanned, context: &mut Context<'a>) -> PrintItems {
-    // todo: handle comments for object expr, arrayexpr, and tstupletype?
     let trailing_comments = node.trailing_comments(context);
     parse_comments_as_trailing(node, trailing_comments, context)
 }
@@ -3976,7 +3980,7 @@ fn parse_comments_as_trailing<'a>(node: &dyn Spanned, trailing_comments: Comment
         }
     }
 
-    items.extend(parse_comment_collection(trailing_comments_on_same_line.into_iter(), Some(node), context));
+    items.extend(parse_comment_collection(trailing_comments_on_same_line.into_iter(), Some(node), None, context));
 
     items
 }
@@ -4168,8 +4172,8 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
 
             last_node = Some(node);
         } else {
-            items.extend(parse_comment_collection(node.leading_comments(context), None, context));
-            items.extend(parse_comment_collection(node.trailing_comments(context), None, context));
+            items.extend(parse_comments_as_statements(node.leading_comments(context), None, context));
+            items.extend(parse_comments_as_statements(node.trailing_comments(context), None, context));
 
             // ensure if this is last that it parses the trailing comment statements
             if i == children_len - 1 {
@@ -4183,7 +4187,7 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
     }
 
     if children_len == 0 {
-        items.extend(parse_comment_collection(opts.inner_span.hi().leading_comments(context), None, context));
+        items.extend(parse_comments_as_statements(opts.inner_span.hi().leading_comments(context), None, context));
     }
 
     return items;
@@ -4964,7 +4968,7 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
     items.push_condition(open_brace_condition);
     items.push_condition(space_condition);
     items.push_info(start_inner_text_info);
-    let parsed_comments = parse_comment_collection(header_trailing_comments.into_iter(), None, context);
+    let parsed_comments = parse_comment_collection(header_trailing_comments.into_iter(), None, None, context);
     if !parsed_comments.is_empty() {
         items.push_condition(conditions::indent_if_start_of_line(parsed_comments));
     }
@@ -5124,12 +5128,12 @@ fn parse_conditional_brace_body<'a>(opts: ParseConditionalBraceBodyOptions<'a>, 
 
             let open_brace_token = context.token_finder.get_first_open_brace_token_within(&block_stmt);
             let body_node_start_line = body_node.start_line(context);
-            comments.extend(open_brace_token.trailing_comments(context).filter(|c| c.start_line(context) == body_node_start_line));
+            comments.extend(open_brace_token.trailing_comments(context).take_while(|c| c.start_line(context) == body_node_start_line && c.kind == CommentKind::Line));
         } else {
             let leading_comments = body_node.leading_comments(context);
             let last_header_token_end = context.token_finder.get_previous_token_end_before(body_node);
             let last_header_token_end_line = last_header_token_end.end_line(context);
-            comments.extend(leading_comments.filter(|c| c.start_line(context) <= last_header_token_end_line));
+            comments.extend(leading_comments.take_while(|c| c.start_line(context) <= last_header_token_end_line && c.kind == CommentKind::Line));
         }
 
         return comments;

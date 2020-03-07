@@ -43,3 +43,41 @@ function test() {
 
     // commentedCode();
 }
+
+== should print comments mixed with statements ==
+{
+
+    // 1
+    testing;
+
+
+    /*a*/ // 2
+
+    // 3
+
+    testing;
+
+    // 4
+    test;
+    // 5
+    test;
+
+}
+
+[expect]
+{
+    // 1
+    testing;
+
+    /*a*/
+    // 2
+
+    // 3
+
+    testing;
+
+    // 4
+    test;
+    // 5
+    test;
+}
