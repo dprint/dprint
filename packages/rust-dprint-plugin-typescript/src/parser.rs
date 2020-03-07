@@ -3947,7 +3947,6 @@ fn parse_first_line_trailing_comments<'a>(node: &dyn Spanned, first_member: Opti
 
     fn get_comments<'a>(node: &dyn Spanned, first_member: &Option<Span>, context: &mut Context<'a>) -> Vec<&'a Comment> {
         let mut comments = Vec::new();
-        // todo: inner comments?
         if let Some(first_member) = first_member {
             comments.extend(first_member.leading_comments(context));
         }
