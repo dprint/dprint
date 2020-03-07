@@ -4027,6 +4027,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
         close_token: "]",
         span: parent_span,
         first_member,
+        prefer_single_line_when_empty: true,
     }, context));
 
     return items;
@@ -4593,50 +4594,58 @@ struct ParseObjectLikeNodeOptions<'a> {
 fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
 
-    if opts.members.is_empty() {
-        items.push_str("{}"); // todo: comments?
-        return items;
-    }
-
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(&opts.node_span).expect("Expected to find an open brace token.");
-    let close_brace_token = BytePos(opts.node_span.hi().0 - 1);
-    let multi_line = node_helpers::get_use_new_lines_for_nodes(
-        &open_brace_token,
-        &opts.members[0],
-        context
-    );
-
-    items.push_str("{");
-
-    if multi_line {
-        items.push_signal(Signal::NewLine);
-        items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
-            inner_span: Span::new(open_brace_token.hi(), close_brace_token.lo(), Default::default()),
-            items: opts.members.into_iter().map(|member| (member.into(), None)).collect(),
-            should_use_space: None,
-            should_use_new_line: None,
-            should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
-            trailing_commas: opts.trailing_commas,
-            semi_colons: opts.semi_colons,
-        }, context)));
-        items.push_signal(Signal::NewLine);
+    let close_brace_token = context.token_finder.get_last_close_brace_token_within(&opts.node_span).expect("Expected to find a close brace token.");
+    let multi_line = if opts.members.is_empty() {
+        false
     } else {
-        items.extend(parse_separated_values(ParseSeparatedValuesOptions {
-            nodes: opts.members.into_iter().map(|x| Some(x)).collect(),
-            prefer_hanging: opts.prefer_hanging,
-            force_use_new_lines: false,
-            trailing_commas: opts.trailing_commas,
-            semi_colons: opts.semi_colons,
-            single_line_space_at_start: opts.surround_single_line_with_spaces,
-            single_line_space_at_end: opts.surround_single_line_with_spaces,
-            custom_single_line_separator: None,
-            multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
-        }, context));
-    }
+        node_helpers::get_use_new_lines_for_nodes(
+            &open_brace_token,
+            &opts.members[0],
+            context
+        )
+    };
 
-    items.push_str("}");
+    let first_member_span = opts.members.get(0).map(|x| x.span());
+    let obj_span = Span::new(open_brace_token.lo(), close_brace_token.hi(), Default::default());
 
-    return items;
+    items.extend(parse_surrounded_by_tokens(|context| {
+        let mut items = PrintItems::new();
+        if multi_line {
+            items.push_signal(Signal::NewLine);
+            items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
+                inner_span: Span::new(open_brace_token.hi(), close_brace_token.lo(), Default::default()),
+                items: opts.members.into_iter().map(|member| (member.into(), None)).collect(),
+                should_use_space: None,
+                should_use_new_line: None,
+                should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
+                trailing_commas: opts.trailing_commas,
+                semi_colons: opts.semi_colons,
+            }, context)));
+            items.push_signal(Signal::NewLine);
+        } else if !opts.members.is_empty() {
+            items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+                nodes: opts.members.into_iter().map(|x| Some(x)).collect(),
+                prefer_hanging: opts.prefer_hanging,
+                force_use_new_lines: false,
+                trailing_commas: opts.trailing_commas,
+                semi_colons: opts.semi_colons,
+                single_line_space_at_start: opts.surround_single_line_with_spaces,
+                single_line_space_at_end: opts.surround_single_line_with_spaces,
+                custom_single_line_separator: None,
+                multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+            }, context));
+        }
+        items
+    }, ParseSurroundedByTokensOptions {
+        open_token: "{",
+        close_token: "}",
+        span: obj_span,
+        first_member: first_member_span,
+        prefer_single_line_when_empty: true
+    }, context));
+
+    items
 }
 
 struct MemberLikeExpr<'a> {
@@ -5361,6 +5370,7 @@ fn parse_block<'a>(
         close_token: "}",
         span,
         first_member: first_member_span,
+        prefer_single_line_when_empty: false,
     }, context));
     items
 }
@@ -5370,6 +5380,7 @@ struct ParseSurroundedByTokensOptions {
     close_token: &'static str,
     span: Span,
     first_member: Option<Span>,
+    prefer_single_line_when_empty: bool,
 }
 
 fn parse_surrounded_by_tokens<'a>(
@@ -5465,7 +5476,7 @@ fn parse_surrounded_by_tokens<'a>(
                 }
             }
         } else {
-            if !is_single_line {
+            if !is_single_line && !opts.prefer_single_line_when_empty {
                 items.push_signal(Signal::NewLine);
             }
         }

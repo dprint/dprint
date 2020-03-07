@@ -28,3 +28,10 @@ const t = [
     otherTest,
     other
 ];
+
+== should become single line when empty ==
+const t = [
+];
+
+[expect]
+const t = [];
