@@ -41,17 +41,3 @@ function test() {
 
     e;
 }
-
-== should format when there is a comment at the end with a blank line separating ==
-function test() {
-    testing();
-
-    // commentedCode();
-}
-
-[expect]
-function test() {
-    testing();
-
-    // commentedCode();
-}

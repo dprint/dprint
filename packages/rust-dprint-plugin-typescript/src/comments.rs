@@ -126,6 +126,7 @@ impl<'a> CommentCollection<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct CommentsIterator<'a> {
     comment_vecs: Vec<&'a Vec<Comment>>,
     outer_index: usize,
@@ -141,12 +142,34 @@ impl<'a> CommentsIterator<'a> {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        for comments in self.comment_vecs.iter() {
+            if !comments.is_empty() {
+                return false;
+            }
+        }
+
+        true
+    }
+
     pub fn get_last_comment(&self) -> Option<&'a Comment> {
         if let Some(comments) = self.comment_vecs.last() {
             comments.last()
         } else {
             None
         }
+    }
+
+    pub fn has_unhandled_comment(&self, context: &mut Context) -> bool {
+        for comments in self.comment_vecs.iter() {
+            for comment in comments.iter() {
+                if !context.has_handled_comment(comment) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 

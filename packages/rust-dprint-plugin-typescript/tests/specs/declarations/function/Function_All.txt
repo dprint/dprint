@@ -64,7 +64,7 @@ function test() {}
 function test() { /* test */ }
 
 [expect]
-function test() { /* test */ }
+function test() {/* test */}
 
 == should support object destructuring in parameter with type ==
 function t({ a, b }: { a: string; b: number; }) {

@@ -11,12 +11,6 @@ export default class {}
 [expect]
 export default class {}
 
-== should print on single line with comment ==
-class Test { /* comment */ }
-
-[expect]
-class Test { /* comment */ }
-
 == should not print on single line with member ==
 class Test { prop; }
 

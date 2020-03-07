@@ -15,6 +15,14 @@ const t = [/*1*/];
 [expect]
 const t = [/*1*/];
 
+== should format multi-line when the comment extends past the line width ==
+const t = [/*testing this out with a long comment*/];
+
+[expect]
+const t = [
+    /*testing this out with a long comment*/
+];
+
 == should format comments inside when multi-line ==
 const u = [ // 0
 /*1*/
@@ -30,6 +38,18 @@ const u = [ // 0
     /*3*/
     // 4
     /*5*/
+];
+
+== should not parse first comment as trailing when it's a comment block ==
+const u = [ /* 1 */
+/* 2 */ // 3
+];
+
+[expect]
+const u = [
+    /* 1 */
+    /* 2 */
+    // 3
 ];
 
 == should format trailing comments of the last member ==
