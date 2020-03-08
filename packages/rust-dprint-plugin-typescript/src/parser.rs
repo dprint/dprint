@@ -1075,6 +1075,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
 
     if should_use_parens {
+        // need to check if there are parens because parse_parameters_or_arguments depends on the parens existing
         if has_parens(node, context) {
             items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
                 span: node.get_parameters_span(context),
@@ -1087,12 +1088,13 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
                 }, context)),
             }, context));
         } else {
+            // there will only be one param in this case
             items.push_str("(");
-            items.extend(parse_node(node.params.iter().next().unwrap().into(), context));
+            items.extend(parse_node(node.params.first().unwrap().into(), context));
             items.push_str(")");
         }
     } else {
-        items.extend(parse_node(node.params.iter().next().unwrap().into(), context));
+        items.extend(parse_node(node.params.first().unwrap().into(), context));
     }
 
     items.push_str(" =>");
@@ -1177,7 +1179,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
         if node.params.len() != 1 {
             true
         } else {
-            // don't use open_paren because of this scenario: `call(a => {})`
+            // checking for a close paren is more reliable because of this scenario: `call(a => {})`
             context.token_finder.get_next_token_if_close_paren(node.params.first().unwrap()).is_some()
         }
     }
