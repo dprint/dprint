@@ -120,7 +120,7 @@ fn parse_event(event: Event, iterator: &mut EventIterator) -> Result<Node, Parse
         Event::Html(html) => parse_html(html, iterator).map(|x| x.into()),
         Event::FootnoteReference(reference) => parse_footnote_reference(reference, iterator).map(|x| x.into()),
         Event::SoftBreak => Ok(SoftBreak { range: iterator.get_last_range() }.into()),
-        Event::HardBreak => Ok(SoftBreak { range: iterator.get_last_range() }.into()),
+        Event::HardBreak => Ok(HardBreak { range: iterator.get_last_range() }.into()),
         Event::Rule => Ok(iterator.get_not_implemented()),
         Event::TaskListMarker(is_checked) => Ok(iterator.get_not_implemented()),
     }
@@ -132,8 +132,6 @@ fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, Par
         Tag::Paragraph => parse_paragraph(iterator).map(|x| x.into()),
         Tag::BlockQuote => parse_block_quote(iterator).map(|x| x.into()),
         Tag::CodeBlock(tag) => parse_code_block(tag, iterator).map(|x| x.into()),
-        Tag::List(first_item_number) => Ok(iterator.get_not_implemented()),
-        Tag::Item => Ok(iterator.get_not_implemented()),
         Tag::FootnoteDefinition(label) => parse_footnote_definition(label, iterator).map(|x| x.into()),
         Tag::Table(text_alignment) => Ok(iterator.get_not_implemented()),
         Tag::TableHead => Ok(iterator.get_not_implemented()),
@@ -144,6 +142,8 @@ fn parse_start(start_tag: Tag, iterator: &mut EventIterator) -> Result<Node, Par
         Tag::Strikethrough => parse_text_decoration(TextDecorationKind::Strikethrough, iterator).map(|x| x.into()),
         Tag::Link(link_type, _, _) => parse_link(link_type, iterator),
         Tag::Image(link_type, _, _) => parse_image(link_type, iterator),
+        Tag::List(first_item_number) => parse_list(first_item_number, iterator).map(|x| x.into()),
+        Tag::Item => parse_item(iterator).map(|x| x.into()),
     }
 }
 
@@ -324,4 +324,39 @@ fn parse_image(link_type: LinkType, iterator: &mut EventIterator) -> Result<Node
     }
 
     parse_image_from_text(start, &iterator.file_text[start..], link_type)
+}
+
+fn parse_list(start_index: Option<u64>, iterator: &mut EventIterator) -> Result<List, ParseError> {
+    let start = iterator.start();
+    let mut children = Vec::new();
+
+    while let Some(event) = iterator.next() {
+        match event {
+            Event::End(Tag::List(_)) => break,
+            _ => children.push(parse_event(event, iterator)?),
+        }
+    }
+
+    Ok(List {
+        range: iterator.get_range_for_start(start),
+        start_index,
+        children,
+    })
+}
+
+fn parse_item(iterator: &mut EventIterator) -> Result<Item, ParseError> {
+    let start = iterator.start();
+    let mut children = Vec::new();
+
+    while let Some(event) = iterator.next() {
+        match event {
+            Event::End(Tag::Item) => break,
+            _ => children.push(parse_event(event, iterator)?),
+        }
+    }
+
+    Ok(Item {
+        range: iterator.get_range_for_start(start),
+        children,
+    })
 }

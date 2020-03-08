@@ -122,6 +122,17 @@ pub struct HardBreak {
     pub range: Range,
 }
 
+pub struct List {
+    pub range: Range,
+    pub start_index: Option<u64>,
+    pub children: Vec<Node>,
+}
+
+pub struct Item {
+    pub range: Range,
+    pub children: Vec<Node>,
+}
+
 /// Inline code.
 pub struct Code {
     pub range: Range,
@@ -196,6 +207,8 @@ generate_node![
     LinkReference,
     InlineImage,
     ReferenceImage,
+    List,
+    Item,
     SoftBreak,
     HardBreak,
     Code,

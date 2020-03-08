@@ -38,6 +38,8 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::LinkReference(node) => parse_link_reference(node, context),
         Node::InlineImage(node) => parse_inline_image(node, context),
         Node::ReferenceImage(node) => parse_reference_image(node, context),
+        Node::List(node) => parse_list(node, context),
+        Node::Item(node) => parse_item(node, context),
         Node::SoftBreak(_) => PrintItems::new(),
         Node::HardBreak(_) => Signal::NewLine.into(),
         Node::NotImplemented(_) => parse_raw_string(node.text(context)),
@@ -130,7 +132,7 @@ fn parse_block_quote(block_quote: &BlockQuote, context: &mut Context) -> PrintIt
         match print_item {
             PrintItem::String(text) => {
                 items.push_condition(Condition::new("isStartOfLine", ConditionProperties {
-                    condition: Box::new(|context| Some(condition_resolvers::is_start_of_new_line(context))),
+                    condition: Box::new(|context| Some(context.writer_info.is_start_of_line())),
                     true_path: Some({
                         let mut items = PrintItems::new();
                         items.push_str("> ");
@@ -337,4 +339,30 @@ fn parse_reference_image(image: &ReferenceImage, _: &mut Context) -> PrintItems 
     items.push_str(&format!("![{}]", image.text.trim()));
     items.push_str(&format!("[{}]", image.reference.trim()));
     items
+}
+
+fn parse_list(list: &List, context: &mut Context) -> PrintItems {
+    let mut items = PrintItems::new();
+    for (index, child) in list.children.iter().enumerate() {
+        if index > 0 { items.push_signal(Signal::NewLine); }
+        let prefix_text = if let Some(start_index) = list.start_index {
+            format!("{}.", start_index + index as u64)
+        } else {
+            String::from("-")
+        };
+        items.push_str(&prefix_text);
+        let after_child = Info::new("afterChild");
+        items.push_condition(if_true(
+            "spaceIfHasChild",
+            move |context| Some(!condition_resolvers::is_at_same_position(context, &after_child)?),
+            " ".into()
+        ));
+        items.extend(with_indent(parse_node(child, context)));
+        items.push_info(after_child);
+    }
+    items
+}
+
+fn parse_item(item: &Item, context: &mut Context) -> PrintItems {
+    parse_nodes(&item.children, context)
 }

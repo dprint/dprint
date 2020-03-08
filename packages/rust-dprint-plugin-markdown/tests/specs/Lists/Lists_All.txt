@@ -1,0 +1,72 @@
+~~ lineWidth: 40 ~~
+!! should format an ordered list !!
+1. A
+2. B
+3.   C
+
+[expect]
+1. A
+2. B
+3. C
+
+!! should format an ordered list with an empty item !!
+1. A
+2.
+3. C
+
+[expect]
+1. A
+2.
+3. C
+
+!! should format an unordered list with asterisks !!
+* A
+* B
+*   C
+
+[expect]
+- A
+- B
+- C
+
+!! should format an unordered list with plus signs !!
++ A
++ B
++   C
+
+[expect]
+- A
+- B
+- C
+
+!! should format an unordered list with minus signs !!
+- A
+- B
+-   C
+
+[expect]
+- A
+- B
+- C
+
+!! should format an unordered list with nested items !!
+- Testing
+
+    Testing
+
+[expect]
+- Testing
+
+    Testing
+
+!! should format an ordered list with nested ordered list !!
+2. Testing
+    6. Test
+    7. Test
+3. Test
+
+[expect]
+2. Testing
+    6. Test
+    7. Test
+3. Test
