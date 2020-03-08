@@ -14,7 +14,7 @@ call( // testing
     testing
 );
 
-== should move a trailing comment block on the header line to the next line (only) ==
+== should move a trailing comment block on the header line to the next line ==
 call( /*0*/
     testing
 );
