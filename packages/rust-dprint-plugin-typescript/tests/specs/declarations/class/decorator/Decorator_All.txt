@@ -33,3 +33,35 @@ class T {
 )
 class T {
 }
+
+== should print decorator with comments surrounding for an export declaration ==
+@dec // test
+@dec2 // other
+/* comment here */
+@dec3
+export class Test {
+}
+
+[expect]
+@dec // test
+@dec2 // other
+/* comment here */
+@dec3
+export class Test {
+}
+
+== should print decorator with comments surrounding for an export default declaration ==
+@dec // test
+@dec2 // other
+/* comment here */
+@dec3
+export default class Test {
+}
+
+[expect]
+@dec // test
+@dec2 // other
+/* comment here */
+@dec3
+export default class Test {
+}

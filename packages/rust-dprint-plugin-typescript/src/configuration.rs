@@ -86,8 +86,8 @@ impl ConfigurationBuilder {
 
     /// Whether statements should end in a semi-colon.
     ///
-    /// Default: `true`
-    pub fn semi_colons(&mut self, value: bool) -> &mut Self {
+    /// Default: `SemiColons::Prefer`
+    pub fn semi_colons(&mut self, value: SemiColons) -> &mut Self {
         self.insert("semiColons", value)
     }
 
@@ -170,6 +170,14 @@ impl ConfigurationBuilder {
     /// * `false` - Ex. `1+2`
     pub fn binary_expression_space_surrounding_bitwise_and_arithmetic_operator(&mut self, value: bool) -> &mut Self {
         self.insert("binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", value)
+    }
+
+    /// Forces a space after the double slash in a comment line.
+    ///
+    /// `true` (default) - Ex. `//test` -> `// test`
+    /// `false` - Ex. `//test` -> `//test`
+    pub fn comment_line_force_space_after_slashes(&mut self, value: bool) -> &mut Self {
+        self.insert("commentLine.forceSpaceAfterSlashes", value)
     }
 
     /// Whether to add a space after the `new` keyword in a construct signature.
@@ -439,6 +447,42 @@ impl ConfigurationBuilder {
         self.insert("arrayPattern.preferHanging", value)
     }
 
+    pub fn do_while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("doWhileStatement.preferHanging", value)
+    }
+
+    pub fn export_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("exportDeclaration.preferHanging", value)
+    }
+
+    pub fn extends_clause_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("extendsClause.preferHanging", value)
+    }
+
+    pub fn for_in_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("forInStatement.preferHanging", value)
+    }
+
+    pub fn for_of_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("forOfStatement.preferHanging", value)
+    }
+
+    pub fn for_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("forStatement.preferHanging", value)
+    }
+
+    pub fn if_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("ifStatement.preferHanging", value)
+    }
+
+    pub fn implements_clause_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("implementsClause.preferHanging", value)
+    }
+
+    pub fn import_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("importDeclaration.preferHanging", value)
+    }
+
     pub fn object_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("objectExpression.preferHanging", value)
     }
@@ -447,12 +491,28 @@ impl ConfigurationBuilder {
         self.insert("objectPattern.preferHanging", value)
     }
 
+    pub fn sequence_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("sequenceExpression.preferHanging", value)
+    }
+
+    pub fn switch_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("switchStatement.preferHanging", value)
+    }
+
     pub fn tuple_type_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("tupleType.preferHanging", value)
     }
 
     pub fn type_literal_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("typeLiteral.preferHanging", value)
+    }
+
+    pub fn type_parameter_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("typeParameterDeclaration.preferHanging", value)
+    }
+
+    pub fn while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("whileStatement.preferHanging", value)
     }
 
     /* prefer hanging arguments */
@@ -537,124 +597,6 @@ impl ConfigurationBuilder {
 
     pub fn conditional_expression_operator_position(&mut self, value: OperatorPosition) -> &mut Self {
         self.insert("conditionalExpression.operatorPosition", value)
-    }
-
-    /* semi-colon */
-
-    pub fn break_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("breakStatement.semiColon", value)
-    }
-
-    pub fn call_signature_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("callSignature.semiColon", value)
-    }
-
-    pub fn class_property_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("classProperty.semiColon", value)
-    }
-
-    pub fn construct_signature_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("constructSignature.semiColon", value)
-    }
-
-    pub fn constructor_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("constructor.semiColon", value)
-    }
-
-    pub fn continue_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("continueStatement.semiColon", value)
-    }
-
-    pub fn debugger_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("debuggerStatement.semiColon", value)
-    }
-
-    pub fn do_while_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("doWhileStatement.semiColon", value)
-    }
-
-    pub fn export_all_declaration_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("exportAllDeclaration.semiColon", value)
-    }
-
-    pub fn export_assignment_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("exportAssignment.semiColon", value)
-    }
-
-    pub fn export_default_expression_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("exportDefaultExpression.semiColon", value)
-    }
-
-    pub fn export_named_declaration_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("exportNamedDeclaration.semiColon", value)
-    }
-
-    pub fn expression_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("expressionStatement.semiColon", value)
-    }
-
-    pub fn function_declaration_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("functionDeclaration.semiColon", value)
-    }
-
-    pub fn get_accessor_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("getAccessor.semiColon", value)
-    }
-
-    pub fn import_declaration_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("importDeclaration.semiColon", value)
-    }
-
-    pub fn import_equals_declaration_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("importEqualsDeclaration.semiColon", value)
-    }
-
-    pub fn index_signature_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("indexSignature.semiColon", value)
-    }
-
-    pub fn mapped_type_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("mappedType.semiColon", value)
-    }
-
-    pub fn method_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("method.semiColon", value)
-    }
-
-    pub fn method_signature_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("methodSignature.semiColon", value)
-    }
-
-    pub fn module_declaration_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("moduleDeclaration.semiColon", value)
-    }
-
-    pub fn namespace_export_declaration_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("namespaceExportDeclaration.semiColon", value)
-    }
-
-    pub fn property_signature_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("propertySignature.semiColon", value)
-    }
-
-    pub fn return_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("returnStatement.semiColon", value)
-    }
-
-    pub fn set_accessor_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("setAccessor.semiColon", value)
-    }
-
-    pub fn throw_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("throwStatement.semiColon", value)
-    }
-
-    pub fn type_alias_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("typeAlias.semiColon", value)
-    }
-
-    pub fn variable_statement_semi_colon(&mut self, value: bool) -> &mut Self {
-        self.insert("variableStatement.semiColon", value)
     }
 
     /* single body position */
@@ -755,6 +697,38 @@ macro_rules! generate_str_to_from {
         }
     };
 }
+
+
+/// Semi colon possibilities.
+#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SemiColons {
+    /// Always uses semi-colons where applicable.
+    Always,
+    /// Prefers to use semi-colons, but doesn't add one in certain scenarios
+    /// such as for the last member of a single-line type literal.
+    Prefer,
+    /// Uses automatic semi-colon insertion. Only adds a semi-colon at the start
+    /// of some expression statements when necessary.
+    Asi,
+}
+
+impl SemiColons {
+    /// Gets if this option is "Always" or "Prefer".
+    pub(super) fn is_true(&self) -> bool {
+        match self {
+            SemiColons::Always | SemiColons::Prefer => true,
+            SemiColons::Asi => false,
+        }
+    }
+}
+
+generate_str_to_from![
+    SemiColons,
+    [Always, "always"],
+    [Prefer, "prefer"],
+    [Asi, "asi"]
+];
 
 /// Trailing comma possibilities.
 #[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
@@ -966,7 +940,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let mut diagnostics = Vec::new();
     let mut config = config.clone();
 
-    let semi_colons = get_value(&mut config, "semiColons", true, &mut diagnostics);
+    let semi_colons = get_value(&mut config, "semiColons", SemiColons::Prefer, &mut diagnostics);
     let brace_position = get_value(&mut config, "bracePosition", BracePosition::NextLineIfHanging, &mut diagnostics);
     let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::SameLine, &mut diagnostics);
     let operator_position = get_value(&mut config, "operatorPosition", OperatorPosition::NextLine, &mut diagnostics);
@@ -984,6 +958,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         indent_width: get_value(&mut config, "indentWidth", global_config.indent_width.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.indent_width), &mut diagnostics),
         new_line_kind: get_value(&mut config, "newLineKind", global_config.new_line_kind.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.new_line_kind), &mut diagnostics),
         quote_style: get_value(&mut config, "quoteStyle", QuoteStyle::PreferDouble, &mut diagnostics),
+        semi_colons,
         /* use parentheses */
         arrow_function_expression_use_parentheses: get_value(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain, &mut diagnostics),
         /* brace position */
@@ -1011,10 +986,23 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         /* prefer hanging */
         array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        do_while_statement_prefer_hanging: get_value(&mut config, "doWhileStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        export_declaration_prefer_hanging: get_value(&mut config, "exportDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
+        extends_clause_prefer_hanging: get_value(&mut config, "extendsClause.preferHanging", prefer_hanging, &mut diagnostics),
+        for_in_statement_prefer_hanging: get_value(&mut config, "forInStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        for_of_statement_prefer_hanging: get_value(&mut config, "forOfStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        for_statement_prefer_hanging: get_value(&mut config, "forStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        if_statement_prefer_hanging: get_value(&mut config, "ifStatement.preferHanging", prefer_hanging, &mut diagnostics),
+        implements_clause_prefer_hanging: get_value(&mut config, "implementsClause.preferHanging", prefer_hanging, &mut diagnostics),
+        import_declaration_prefer_hanging: get_value(&mut config, "importDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         object_expression_prefer_hanging: get_value(&mut config, "objectExpression.preferHanging", prefer_hanging, &mut diagnostics),
         object_pattern_prefer_hanging: get_value(&mut config, "objectPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        sequence_expression_prefer_hanging: get_value(&mut config, "sequenceExpression.preferHanging", prefer_hanging, &mut diagnostics),
+        switch_statement_prefer_hanging: get_value(&mut config, "switchStatement.preferHanging", prefer_hanging, &mut diagnostics),
         tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
         type_literal_prefer_hanging: get_value(&mut config, "typeLiteral.preferHanging", prefer_hanging, &mut diagnostics),
+        type_parameter_declaration_prefer_hanging: get_value(&mut config, "typeParameterDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
+        while_statement_prefer_hanging: get_value(&mut config, "whileStatement.preferHanging", prefer_hanging, &mut diagnostics),
         /* prefer hanging arguments */
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
         new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
@@ -1039,36 +1027,6 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         /* operator position */
         binary_expression_operator_position: get_value(&mut config, "binaryExpression.operatorPosition", operator_position, &mut diagnostics),
         conditional_expression_operator_position: get_value(&mut config, "conditionalExpression.operatorPosition", operator_position, &mut diagnostics),
-        /* semi-colon */
-        break_statement_semi_colon: get_value(&mut config, "breakStatement.semiColon", semi_colons, &mut diagnostics),
-        call_signature_semi_colon: get_value(&mut config, "callSignature.semiColon", semi_colons, &mut diagnostics),
-        class_property_semi_colon: get_value(&mut config, "classProperty.semiColon", semi_colons, &mut diagnostics),
-        construct_signature_semi_colon: get_value(&mut config, "constructSignature.semiColon", semi_colons, &mut diagnostics),
-        constructor_semi_colon: get_value(&mut config, "constructor.semiColon", semi_colons, &mut diagnostics),
-        continue_statement_semi_colon: get_value(&mut config, "continueStatement.semiColon", semi_colons, &mut diagnostics),
-        debugger_statement_semi_colon: get_value(&mut config, "debuggerStatement.semiColon", semi_colons, &mut diagnostics),
-        do_while_statement_semi_colon: get_value(&mut config, "doWhileStatement.semiColon", semi_colons, &mut diagnostics),
-        export_all_declaration_semi_colon: get_value(&mut config, "exportAllDeclaration.semiColon", semi_colons, &mut diagnostics),
-        export_assignment_semi_colon: get_value(&mut config, "exportAssignment.semiColon", semi_colons, &mut diagnostics),
-        export_default_expression_semi_colon: get_value(&mut config, "exportDefaultExpression.semiColon", semi_colons, &mut diagnostics),
-        export_named_declaration_semi_colon: get_value(&mut config, "exportNamedDeclaration.semiColon", semi_colons, &mut diagnostics),
-        expression_statement_semi_colon: get_value(&mut config, "expressionStatement.semiColon", semi_colons, &mut diagnostics),
-        function_declaration_semi_colon: get_value(&mut config, "functionDeclaration.semiColon", semi_colons, &mut diagnostics),
-        get_accessor_semi_colon: get_value(&mut config, "getAccessor.semiColon", semi_colons, &mut diagnostics),
-        import_declaration_semi_colon: get_value(&mut config, "importDeclaration.semiColon", semi_colons, &mut diagnostics),
-        import_equals_declaration_semi_colon: get_value(&mut config, "importEqualsDeclaration.semiColon", semi_colons, &mut diagnostics),
-        index_signature_semi_colon: get_value(&mut config, "indexSignature.semiColon", semi_colons, &mut diagnostics),
-        mapped_type_semi_colon: get_value(&mut config, "mappedType.semiColon", semi_colons, &mut diagnostics),
-        method_semi_colon: get_value(&mut config, "method.semiColon", semi_colons, &mut diagnostics),
-        method_signature_semi_colon: get_value(&mut config, "methodSignature.semiColon", semi_colons, &mut diagnostics),
-        module_declaration_semi_colon: get_value(&mut config, "moduleDeclaration.semiColon", semi_colons, &mut diagnostics),
-        namespace_export_declaration_semi_colon: get_value(&mut config, "namespaceExportDeclaration.semiColon", semi_colons, &mut diagnostics),
-        property_signature_semi_colon: get_value(&mut config, "propertySignature.semiColon", semi_colons, &mut diagnostics),
-        return_statement_semi_colon: get_value(&mut config, "returnStatement.semiColon", semi_colons, &mut diagnostics),
-        set_accessor_semi_colon: get_value(&mut config, "setAccessor.semiColon", semi_colons, &mut diagnostics),
-        throw_statement_semi_colon: get_value(&mut config, "throwStatement.semiColon", semi_colons, &mut diagnostics),
-        type_alias_semi_colon: get_value(&mut config, "typeAlias.semiColon", semi_colons, &mut diagnostics),
-        variable_statement_semi_colon: get_value(&mut config, "variableStatement.semiColon", semi_colons, &mut diagnostics),
         /* single body position */
         if_statement_single_body_position: get_value(&mut config, "ifStatement.singleBodyPosition", single_body_position, &mut diagnostics),
         for_statement_single_body_position: get_value(&mut config, "forStatement.singleBodyPosition", single_body_position, &mut diagnostics),
@@ -1089,6 +1047,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         while_statement_use_braces: get_value(&mut config, "whileStatement.useBraces", use_braces, &mut diagnostics),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true, &mut diagnostics),
+        comment_line_force_space_after_slashes: get_value(&mut config, "commentLine.forceSpaceAfterSlashes", true, &mut diagnostics),
         construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false, &mut diagnostics),
         constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false, &mut diagnostics),
         constructor_type_space_after_new_keyword: get_value(&mut config, "constructorType.spaceAfterNewKeyword", false, &mut diagnostics),
@@ -1133,6 +1092,7 @@ pub struct Configuration {
     pub use_tabs: bool,
     pub new_line_kind: NewLineKind,
     pub quote_style: QuoteStyle,
+    pub semi_colons: SemiColons,
     /* use parentheses */
     #[serde(rename = "arrowFunctionExpression.useParentheses")]
     pub arrow_function_expression_use_parentheses: UseParentheses,
@@ -1184,14 +1144,40 @@ pub struct Configuration {
     pub array_expression_prefer_hanging: bool,
     #[serde(rename = "arrayPattern.preferHanging")]
     pub array_pattern_prefer_hanging: bool,
+    #[serde(rename = "doWhileStatement.preferHanging")]
+    pub do_while_statement_prefer_hanging: bool,
+    #[serde(rename = "exportDeclaration.preferHanging")]
+    pub export_declaration_prefer_hanging: bool,
+    #[serde(rename = "extendsClause.preferHanging")]
+    pub extends_clause_prefer_hanging: bool,
+    #[serde(rename = "forStatement.preferHanging")]
+    pub for_statement_prefer_hanging: bool,
+    #[serde(rename = "forInStatement.preferHanging")]
+    pub for_in_statement_prefer_hanging: bool,
+    #[serde(rename = "forOfStatement.preferHanging")]
+    pub for_of_statement_prefer_hanging: bool,
+    #[serde(rename = "ifStatement.preferHanging")]
+    pub if_statement_prefer_hanging: bool,
+    #[serde(rename = "implementsClause.preferHanging")]
+    pub implements_clause_prefer_hanging: bool,
+    #[serde(rename = "importDeclaration.preferHanging")]
+    pub import_declaration_prefer_hanging: bool,
     #[serde(rename = "objectExpression.preferHanging")]
     pub object_expression_prefer_hanging: bool,
     #[serde(rename = "objectPattern.preferHanging")]
     pub object_pattern_prefer_hanging: bool,
+    #[serde(rename = "sequenceExpression.preferHanging")]
+    pub sequence_expression_prefer_hanging: bool,
+    #[serde(rename = "switchStatement.preferHanging")]
+    pub switch_statement_prefer_hanging: bool,
     #[serde(rename = "tupleType.preferHanging")]
     pub tuple_type_prefer_hanging: bool,
     #[serde(rename = "typeLiteral.preferHanging")]
     pub type_literal_prefer_hanging: bool,
+    #[serde(rename = "typeParameterDeclaration.preferHanging")]
+    pub type_parameter_declaration_prefer_hanging: bool,
+    #[serde(rename = "whileStatement.preferHanging")]
+    pub while_statement_prefer_hanging: bool,
     /* prefer hanging arguments */
     #[serde(rename = "callExpression.preferHangingArguments")]
     pub call_expression_prefer_hanging_arguments: bool,
@@ -1235,65 +1221,6 @@ pub struct Configuration {
     pub binary_expression_operator_position: OperatorPosition,
     #[serde(rename = "conditionalExpression.operatorPosition")]
     pub conditional_expression_operator_position: OperatorPosition,
-    /* semi-colon */
-    #[serde(rename = "breakStatement.semiColon")]
-    pub break_statement_semi_colon: bool,
-    #[serde(rename = "callSignature.semiColon")]
-    pub call_signature_semi_colon: bool,
-    #[serde(rename = "classProperty.semiColon")]
-    pub class_property_semi_colon: bool,
-    #[serde(rename = "constructSignature.semiColon")]
-    pub construct_signature_semi_colon: bool,
-    #[serde(rename = "constructor.semiColon")]
-    pub constructor_semi_colon: bool,
-    #[serde(rename = "continueStatement.semiColon")]
-    pub continue_statement_semi_colon: bool,
-    #[serde(rename = "debuggerStatement.semiColon")]
-    pub debugger_statement_semi_colon: bool,
-    #[serde(rename = "doWhileStatement.semiColon")]
-    pub do_while_statement_semi_colon: bool,
-    #[serde(rename = "exportAllDeclaration.semiColon")]
-    pub export_all_declaration_semi_colon: bool,
-    #[serde(rename = "exportAssignment.semiColon")]
-    pub export_assignment_semi_colon: bool,
-    #[serde(rename = "exportDefaultExpression.semiColon")]
-    pub export_default_expression_semi_colon: bool,
-    #[serde(rename = "exportNamedDeclaration.semiColon")]
-    pub export_named_declaration_semi_colon: bool,
-    #[serde(rename = "expressionStatement.semiColon")]
-    pub expression_statement_semi_colon: bool,
-    #[serde(rename = "functionDeclaration.semiColon")]
-    pub function_declaration_semi_colon: bool,
-    #[serde(rename = "getAccessor.semiColon")]
-    pub get_accessor_semi_colon: bool,
-    #[serde(rename = "importDeclaration.semiColon")]
-    pub import_declaration_semi_colon: bool,
-    #[serde(rename = "importEqualsDeclaration.semiColon")]
-    pub import_equals_declaration_semi_colon: bool,
-    #[serde(rename = "indexSignature.semiColon")]
-    pub index_signature_semi_colon: bool,
-    #[serde(rename = "mappedType.semiColon")]
-    pub mapped_type_semi_colon: bool,
-    #[serde(rename = "method.semiColon")]
-    pub method_semi_colon: bool,
-    #[serde(rename = "methodSignature.semiColon")]
-    pub method_signature_semi_colon: bool,
-    #[serde(rename = "moduleDeclaration.semiColon")]
-    pub module_declaration_semi_colon: bool,
-    #[serde(rename = "namespaceExportDeclaration.semiColon")]
-    pub namespace_export_declaration_semi_colon: bool,
-    #[serde(rename = "propertySignature.semiColon")]
-    pub property_signature_semi_colon: bool,
-    #[serde(rename = "returnStatement.semiColon")]
-    pub return_statement_semi_colon: bool,
-    #[serde(rename = "setAccessor.semiColon")]
-    pub set_accessor_semi_colon: bool,
-    #[serde(rename = "throwStatement.semiColon")]
-    pub throw_statement_semi_colon: bool,
-    #[serde(rename = "typeAlias.semiColon")]
-    pub type_alias_semi_colon: bool,
-    #[serde(rename = "variableStatement.semiColon")]
-    pub variable_statement_semi_colon: bool,
     /* single body position */
     #[serde(rename = "ifStatement.singleBodyPosition")]
     pub if_statement_single_body_position: SingleBodyPosition,
@@ -1332,6 +1259,8 @@ pub struct Configuration {
 
     #[serde(rename = "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator")]
     pub binary_expression_space_surrounding_bitwise_and_arithmetic_operator: bool,
+    #[serde(rename = "commentLine.forceSpaceAfterSlashes")]
+    pub comment_line_force_space_after_slashes: bool,
     #[serde(rename = "constructSignature.spaceAfterNewKeyword")]
     pub construct_signature_space_after_new_keyword: bool,
     #[serde(rename = "constructor.spaceBeforeParentheses")]

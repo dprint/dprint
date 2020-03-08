@@ -1,0 +1,34 @@
+~~ lineWidth: 40, importDeclaration.preferHanging: true ~~
+== should format on a single line when hanging and short enough ==
+import { n1, n2,
+    n3 } from "test";
+
+[expect]
+import { n1, n2, n3 } from "test";
+
+== should format hanging when long enough ==
+import { testing, thisOut, aBit as something } from "test";
+
+[expect]
+import { testing, thisOut,
+    aBit as something } from "test";
+
+== should break up on `as` when really long on the same line ==
+import { loooooooooooooooooooooooooooooooooooong as alias } from "test";
+
+[expect]
+import {
+    loooooooooooooooooooooooooooooooooooong
+        as alias
+} from "test";
+
+== should break up on `as` when really long on a different line ==
+import {
+    loooooooooooooooooooooooooooooooooooong as alias
+} from "test";
+
+[expect]
+import {
+    loooooooooooooooooooooooooooooooooooong
+        as alias
+} from "test";

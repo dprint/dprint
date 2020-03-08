@@ -1,6 +1,0 @@
-~~ variableStatement.semiColon: false ~~
-== should format without a semi-colon ==
-const a = 5;
-
-[expect]
-const a = 5

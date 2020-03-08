@@ -11,6 +11,7 @@ mod format_text;
 mod parse_swc_ast;
 mod parser;
 mod tokens;
+mod helpers;
 mod utils;
 
 use comments::*;

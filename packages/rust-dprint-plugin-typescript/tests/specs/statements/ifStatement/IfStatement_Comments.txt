@@ -1,0 +1,22 @@
+~~ lineWidth: 40 ~~
+== should print comments inside ==
+if (true) { // 0
+    // 1
+    /*2*/ // 3
+}
+
+[expect]
+if (true) { // 0
+    // 1
+    /*2*/
+    // 3
+}
+
+== should move comment block to the next line ==
+if (true) { /*0*/
+}
+
+[expect]
+if (true) {
+    /*0*/
+}

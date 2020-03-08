@@ -54,13 +54,14 @@ if (testingThisOut && otherTestTestt) {
 }
 
 == should break expression when going over the line width on the first space ==
-if (testingThisOut && otherTestTestttt) { // testing this out
+if (testingThisOut && otherTestTesttttttt) { // testing this out
     logger;
 }
 
 [expect]
-if (testingThisOut
-    && otherTestTestttt)
-{ // testing this out
+if (
+    testingThisOut
+    && otherTestTesttttttt
+) { // testing this out
     logger;
 }

@@ -1,0 +1,26 @@
+~~ lineWidth: 40, forInStatement.preferHanging: true ~~
+== should print ==
+for (const t    in   test) {
+    a;
+    b;
+}
+
+[expect]
+for (const t in test) {
+    a;
+    b;
+}
+
+== should be hanging when multiple lines ==
+for (const testingThis in outALittleBit) {
+    a;
+    b;
+}
+
+[expect]
+for (const testingThis
+    in outALittleBit)
+{
+    a;
+    b;
+}

@@ -1,0 +1,20 @@
+~~ semiColons: asi ~~
+== should remove the semi-colon when has argument ==
+function test() {
+    return "test";
+}
+
+[expect]
+function test() {
+    return "test"
+}
+
+== should remove the semi-colon when has no argument ==
+function test() {
+    return;
+}
+
+[expect]
+function test() {
+    return
+}

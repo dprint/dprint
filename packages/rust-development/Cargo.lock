@@ -2,7 +2,7 @@
 # It is not intended for manual editing.
 [[package]]
 name = "dprint-core"
-version = "0.8.0"
+version = "0.10.0"
 dependencies = [
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -11,7 +11,7 @@ dependencies = [
 name = "dprint-development"
 version = "0.1.0"
 dependencies = [
- "dprint-core 0.8.0",
+ "dprint-core 0.10.0",
 ]
 
 [[package]]

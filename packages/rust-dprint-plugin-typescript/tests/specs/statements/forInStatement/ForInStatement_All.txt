@@ -11,16 +11,31 @@ for (const t in test) {
     b;
 }
 
-== should put brace on newline when on multiple lines ==
+== should become multi-line when exceeding width ==
 for (const testingThis in outALittleBit) {
     a;
     b;
 }
 
 [expect]
-for (const testingThis
-    in outALittleBit)
-{
+for (
+    const testingThis in outALittleBit
+) {
+    a;
+    b;
+}
+
+== should become multi-line when exceeding width twice ==
+for (const testingThis in outALittleBittttt) {
+    a;
+    b;
+}
+
+[expect]
+for (
+    const testingThis
+        in outALittleBittttt
+) {
     a;
     b;
 }
@@ -59,3 +74,16 @@ for (const t in test) {
 [expect]
 for (const t in test) {
 }
+
+== should print when only has an empty statement ==
+for (const t in test);
+
+[expect]
+for (const t in test);
+
+== should print when only has an empty statement on next line ==
+for (const t in test)
+    ;
+
+[expect]
+for (const t in test);

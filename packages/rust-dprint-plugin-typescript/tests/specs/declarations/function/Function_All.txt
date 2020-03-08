@@ -64,14 +64,14 @@ function test() {}
 function test() { /* test */ }
 
 [expect]
-function test() { /* test */ }
+function test() {/* test */}
 
 == should support object destructuring in parameter with type ==
 function t({ a, b }: { a: string; b: number; }) {
 }
 
 [expect]
-function t({ a, b }: { a: string; b: number; }) {
+function t({ a, b }: { a: string; b: number }) {
 }
 
 == should force multi-line parameters when exceeding the line width ==

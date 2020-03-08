@@ -1,0 +1,10 @@
+~~ commentLine.forceSpaceAfterSlashes: false ~~
+== should not force a space after a double slash ==
+//test
+// test
+//  test
+
+[expect]
+//test
+// test
+//  test

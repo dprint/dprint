@@ -7,14 +7,36 @@ switch (expr) {
 switch (expr) {
 }
 
-== should put brace on newline when on multiple lines ==
+== should go multi-line when exceeding line width once ==
+switch (expr.testing.testing.testing.test) {
+}
+
+[expect]
+switch (
+    expr.testing.testing.testing.test
+) {
+}
+
+== should handle exceeding line width twice ==
 switch (expr.testing.testing.testing.testing) {
 }
 
 [expect]
-switch (expr.testing.testing.testing
-    .testing)
-{
+switch (
+    expr.testing.testing.testing
+        .testing
+) {
+}
+
+== should handle exceeding line width twice with a binary expression ==
+switch (testing && testing && testing && testing && testing) {
+}
+
+[expect]
+switch (
+    testing && testing && testing
+    && testing && testing
+) {
 }
 
 == should move the discriminant to a new line if the paren is on a different line ==

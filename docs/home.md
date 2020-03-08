@@ -60,7 +60,7 @@ Add a format script to your *package.json*'s "scripts" section (see `npx dprint 
 
 Format:
 
-```
+```bash
 yarn format
 # or
 npm run format
@@ -151,11 +151,11 @@ Links:
 
 ### `semiColons`
 
-Whether to use semi-colons are not.
+Whether to use semi-colons.
 
-Note that when `semiColons` is `false` (or more specifically, when `"expressionStatement.semiColon"` is `false`), it will insert semi-colons at the beginning of some statements. Read why this is done here: https://standardjs.com/rules.html#semicolons
-
-Defaults to `true`.
+* `"always"` - Always uses semi-colons where applicable.
+* `"prefer"` - Prefers to use semi-colons, but doesn't add one in certain scenarios such as for the last member of a single-line type literal (default).
+* `"asi"` - Uses automatic semi-colon insertion. Only adds a semi-colon at the start of some expression statements when necessary. Read more: https://standardjs.com/rules.html#semicolons
 
 ### `quoteStyle`
 

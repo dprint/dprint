@@ -11,12 +11,6 @@ export default class {}
 [expect]
 export default class {}
 
-== should print on single line with comment ==
-class Test { /* comment */ }
-
-[expect]
-class Test { /* comment */ }
-
 == should not print on single line with member ==
 class Test { prop; }
 
@@ -109,7 +103,8 @@ export class Test implements Testing, ThisOutABitHere<Tes, This, Out, With, A, L
 
 [expect]
 export class Test
-    implements Testing,
+    implements
+        Testing,
         ThisOutABitHere<Tes, This, Out, With, A, Long>
 {
 }
@@ -120,8 +115,14 @@ export class Test implements Other, Other2, Other3, Other4, Other5, Other6, Othe
 
 [expect]
 export class Test
-    implements Other, Other2, Other3, Other4, Other5,
-        Other6, Other7
+    implements
+        Other,
+        Other2,
+        Other3,
+        Other4,
+        Other5,
+        Other6,
+        Other7
 {
 }
 
@@ -144,25 +145,28 @@ export class Test< T  > {
 export class Test<T> {
 }
 
-== should print with type parameters hanging when they go over the limit ==
+== should print type parameters when they go over the limit ==
 export class Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 }
 
 [expect]
-export class Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-{
+export class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> {
 }
 
-== should print with type parameters hanging and extends when they go over the limit ==
+== should print with type parameters and extends when they go over the limit ==
 export class Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
 }
 
 [expect]
-export class Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-    extends Test
-{
+export class Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> extends Test {
 }
 
 == should print with type parameters on multiple lines ==
@@ -188,9 +192,7 @@ export class Test<
     TestingThisOut,
     WithVeryLong,
     TypeParameterList
->
-    extends Test
-{
+> extends Test {
 }
 
 == should print a super's type argument ==

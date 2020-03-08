@@ -1,0 +1,7 @@
+~~ lineWidth: 40, sequenceExpression.preferHanging: true ~~
+== should format multi-line with a hanging indent ==
+testttttttttting, thhhhisssouttttaaaabbitt, testing
+
+[expect]
+testttttttttting,
+    thhhhisssouttttaaaabbitt, testing;

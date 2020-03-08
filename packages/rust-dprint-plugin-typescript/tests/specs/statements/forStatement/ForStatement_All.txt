@@ -11,18 +11,34 @@ for (let i = 0; i < 5; i++) {
     b;
 }
 
-== should put brace on newline when on multiple lines ==
+== should handle when going over the line width ==
 for (let testingThisOut = 0; testingThisOut < 5; i++) {
     a;
     b;
 }
 
 [expect]
-for (let testingThisOut = 0;
-    testingThisOut < 5; i++)
-{
+for (
+    let testingThisOut = 0;
+    testingThisOut < 5;
+    i++
+) {
     a;
     b;
+}
+
+== should handle multiple sequence expressions going over the line width ==
+for (var i = 0; i < 50000000000000, i < 10000000000000; ittttttttttttttttttttttttttttttt++, i++) {
+}
+
+[expect]
+for (
+    var i = 0;
+    i < 50000000000000,
+        i < 10000000000000;
+    ittttttttttttttttttttttttttttttt++,
+        i++
+) {
 }
 
 == should print when there is no init ==
@@ -48,7 +64,9 @@ i = 0; i < 5; i++) {
 
 [expect]
 for (
-    i = 0; i < 5; i++
+    i = 0;
+    i < 5;
+    i++
 ) {
 }
 
@@ -59,7 +77,9 @@ for (
 
 [expect]
 for (
-    ; i < 5; i++
+    ;
+    i < 5;
+    i++
 ) {
 }
 
@@ -76,3 +96,16 @@ for (; i < 5; i++) {
 [expect]
 for (; i < 5; i++) {
 }
+
+== should print when only has an empty statement ==
+for (;;);
+
+[expect]
+for (;;);
+
+== should print when only has an empty statement on next line ==
+for (;;)
+    ;
+
+[expect]
+for (;;);

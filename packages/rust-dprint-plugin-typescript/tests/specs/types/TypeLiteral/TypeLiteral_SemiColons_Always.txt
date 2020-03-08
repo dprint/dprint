@@ -1,0 +1,18 @@
+~~ lineWidth: 40, semiColons: always ~~
+== should have when a single line ==
+type Test = { p: string; u: number; };
+
+[expect]
+type Test = { p: string; u: number; };
+
+== should have when multi-line ==
+type Test = {
+    prop: string;
+    other: number;
+};
+
+[expect]
+type Test = {
+    prop: string;
+    other: number;
+};

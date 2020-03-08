@@ -53,7 +53,13 @@ export interface Test extends Other, Other2, Other3, Other4, Other5, Other6, Oth
 
 [expect]
 export interface Test
-    extends Other, Other2, Other3, Other4, Other5, Other6,
+    extends
+        Other,
+        Other2,
+        Other3,
+        Other4,
+        Other5,
+        Other6,
         Other7
 {
 }
@@ -66,25 +72,28 @@ export interface Test< T  > {
 export interface Test<T> {
 }
 
-== should print with type parameters hanging when they go over the limit ==
+== should print with type parameters on multiple lines when they go over the limit ==
 export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 }
 
 [expect]
-export interface Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-{
+export interface Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> {
 }
 
-== should print with type parameters hanging and extends when they go over the limit ==
+== should print with type parameters on multiple lines and extends when they go over the limit ==
 export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
 }
 
 [expect]
-export interface Test<TestingThisOut, WithVeryLong,
-    TypeParameterList>
-    extends Test
-{
+export interface Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> extends Test {
 }
 
 == should print with type parameters on multiple lines ==
@@ -110,7 +119,5 @@ export interface Test<
     TestingThisOut,
     WithVeryLong,
     TypeParameterList
->
-    extends Test
-{
+> extends Test {
 }

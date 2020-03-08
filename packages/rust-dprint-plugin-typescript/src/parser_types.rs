@@ -20,8 +20,10 @@ pub struct Context<'a> {
     pub info: Rc<SourceFile>,
     stored_infos: HashMap<BytePos, Info>,
     pub end_statement_or_member_infos: Stack<Info>,
-    disable_indent_for_next_bin_expr: bool,
     if_stmt_last_brace_condition_ref: Option<ConditionReference>,
+    /// Used for ensuring nodes are parsed in order.
+    #[cfg(debug_assertions)]
+    pub last_parsed_node_pos: u32,
 }
 
 impl<'a> Context<'a> {
@@ -45,8 +47,9 @@ impl<'a> Context<'a> {
             info: Rc::new(info),
             stored_infos: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),
-            disable_indent_for_next_bin_expr: false,
             if_stmt_last_brace_condition_ref: None,
+            #[cfg(debug_assertions)]
+            last_parsed_node_pos: 0,
         }
     }
 
@@ -75,22 +78,20 @@ impl<'a> Context<'a> {
         self.stored_infos.get(&node.lo()).map(|x| x.to_owned())
     }
 
-    pub fn mark_disable_indent_for_next_bin_expr(&mut self) {
-        self.disable_indent_for_next_bin_expr = true;
-    }
-
-    pub fn get_disable_indent_for_next_bin_expr(&mut self) -> bool {
-        let value = self.disable_indent_for_next_bin_expr;
-        self.disable_indent_for_next_bin_expr = false;
-        return value;
-    }
-
     pub fn store_if_stmt_last_brace_condition_ref(&mut self, condition_reference: ConditionReference) {
         self.if_stmt_last_brace_condition_ref = Some(condition_reference);
     }
 
     pub fn take_if_stmt_last_brace_condition_ref(&mut self) -> Option<ConditionReference> {
         self.if_stmt_last_brace_condition_ref.take()
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn assert_text(&self, start_pos: BytePos, end_pos: BytePos, expected_text: &'static str) {
+        let actual_text = Span::new(start_pos, end_pos, Default::default()).text(self);
+        if actual_text != expected_text {
+            panic!("Expected text `{}`, but found `{}`", expected_text, actual_text)
+        }
     }
 }
 
@@ -402,20 +403,6 @@ impl<'a> TypeParamNode<'a> {
     }
 }
 
-pub enum NamedImportOrExportDeclaration<'a> {
-    Import(&'a ImportDecl),
-    Export(&'a NamedExport),
-}
-
-impl<'a> From<NamedImportOrExportDeclaration<'a>> for Node<'a> {
-    fn from(node: NamedImportOrExportDeclaration<'a>) -> Node<'a> {
-        match node {
-            NamedImportOrExportDeclaration::Import(node) => node.into(),
-            NamedImportOrExportDeclaration::Export(node) => node.into(),
-        }
-    }
-}
-
 /* fully implemented From and NodeKinded implementations */
 
 macro_rules! generate_traits {
@@ -492,6 +479,8 @@ generate_traits![JSXAttrValue, Lit, JSXExprContainer, JSXElement, JSXFragment];
 generate_traits![JSXExpr, JSXEmptyExpr, Expr];
 generate_traits![JSXObject, JSXMemberExpr, Ident];
 
+/* InnerSpanned */
+
 pub trait InnerSpanned {
     fn get_inner_span(&self, context: &mut Context) -> Span;
 }
@@ -521,4 +510,166 @@ fn get_inner_span_for_object_like(span: &Span) -> Span {
         BytePos(span_data.hi.0 - 1),
         Default::default()
     );
+}
+
+/* ParametersSpanned */
+
+pub trait ParametersSpanned {
+    fn get_parameters_span(&self, context: &mut Context) -> Span;
+}
+
+impl ParametersSpanned for Function {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.return_type.as_ref().map(|t| t.lo())
+                .or(self.body.as_ref().map(|b| b.lo()))
+                .unwrap_or(self.span.hi()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for ClassMethod {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        self.function.get_parameters_span(context)
+    }
+}
+
+impl ParametersSpanned for Constructor {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.body.as_ref().map(|t| t.lo())
+                .unwrap_or(self.span.hi()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for MethodProp {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        self.function.get_parameters_span(context)
+    }
+}
+
+impl ParametersSpanned for GetterProp {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            vec![],
+            self.type_ann.as_ref().map(|t| t.lo())
+                .or(self.body.as_ref().map(|t| t.lo()))
+                .unwrap_or(self.hi()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for SetterProp {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            vec![self.param.span()],
+            self.body.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for ArrowExpr {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.return_type.as_ref().map(|t| t.lo()).unwrap_or(self.body.lo()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for CallExpr {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.args.iter().map(|a| a.span()).collect(),
+            self.hi(),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for NewExpr {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.args.as_ref().map(|args| args.iter().map(|a| a.span()).collect()).unwrap_or_default(),
+            self.hi(),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for TsCallSignatureDecl {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for TsConstructSignatureDecl {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for TsMethodSignature {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for TsConstructorType {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.type_ann.lo(),
+            context
+        )
+    }
+}
+
+impl ParametersSpanned for TsFnType {
+    fn get_parameters_span(&self, context: &mut Context) -> Span {
+        get_params_or_args_span(
+            self.params.iter().map(|x| x.span()).collect(),
+            self.type_ann.lo(),
+            context
+        )
+    }
+}
+
+fn get_params_or_args_span(params: Vec<Span>, following_pos: BytePos, context: &mut Context) -> Span {
+    let close_token_end = {
+        if let Some(last_param) = params.last() {
+            context.token_finder.get_first_close_paren_after(last_param)
+        } else {
+            context.token_finder.get_first_close_paren_before(&following_pos)
+        }.expect("Expected to find a close paren token.").hi()
+    };
+    Span::new({
+        context.token_finder.get_first_open_paren_before(&{
+            if let Some(first_param) = params.first() {
+                first_param.lo()
+            } else {
+                close_token_end
+            }
+        }).expect("Expected to find an close paren token.").lo()
+    }, close_token_end, Default::default())
 }

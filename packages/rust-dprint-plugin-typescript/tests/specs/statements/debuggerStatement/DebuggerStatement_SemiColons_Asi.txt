@@ -1,0 +1,6 @@
+~~ semiColons: asi ~~
+== should remove the semi-colon ==
+debugger;
+
+[expect]
+debugger

@@ -11,16 +11,31 @@ while (true) {
     b;
 }
 
-== should put brace on newline when on multiple lines ==
-while (thisIsA && veryLongHeader && thatWill) {
+== should print multi-line ==
+while (thisIsA && veryLongHeader && that) {
     a;
     b;
 }
 
 [expect]
-while (thisIsA && veryLongHeader
-    && thatWill)
-{
+while (
+    thisIsA && veryLongHeader && that
+) {
+    a;
+    b;
+}
+
+== should print multi-line when exceeding width twice ==
+while (thisIsA && veryLongHeader && thatWillExceedTwice) {
+    a;
+    b;
+}
+
+[expect]
+while (
+    thisIsA && veryLongHeader
+    && thatWillExceedTwice
+) {
     a;
     b;
 }
@@ -52,6 +67,24 @@ while (true) {
 
 == should print empty with inner comment on same line ==
 while (true) { /* 1 */ }
+while (true) {
+/* test */}
 
 [expect]
 while (true) { /* 1 */ }
+while (true) {
+    /* test */
+}
+
+== should print when only has an empty statement ==
+while (true);
+
+[expect]
+while (true);
+
+== should print when only has an empty statement on next line ==
+while (true)
+    ;
+
+[expect]
+while (true);

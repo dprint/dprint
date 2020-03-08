@@ -1,0 +1,35 @@
+~~ ifStatement.preferHanging: true, lineWidth: 40 ~~
+== should format on the same line ==
+if (true) {
+}
+else {
+}
+
+[expect]
+if (true) {
+} else {
+}
+
+== should hang when exceeding the width ==
+if (someCondition && otherConditionThatTakesItOver) {
+    test;
+}
+else if (someCondition && otherConditionLong) {
+    test;
+}
+else {
+    test;
+}
+
+[expect]
+if (someCondition
+    && otherConditionThatTakesItOver)
+{
+    test;
+} else if (someCondition
+    && otherConditionLong)
+{
+    test;
+} else {
+    test;
+}

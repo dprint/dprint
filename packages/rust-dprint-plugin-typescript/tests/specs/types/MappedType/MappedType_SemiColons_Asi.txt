@@ -1,0 +1,6 @@
+~~ semiColons: asi ~~
+== should format without a semi colon when configured to ==
+type Partial<T> = { [P in keyof T]?: T[P]; };
+
+[expect]
+type Partial<T> = { [P in keyof T]?: T[P] }

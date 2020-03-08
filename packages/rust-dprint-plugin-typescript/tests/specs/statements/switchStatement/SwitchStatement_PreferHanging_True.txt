@@ -1,0 +1,29 @@
+~~ lineWidth: 40, switchStatement.preferHanging: true ~~
+== should print ==
+switch (expr) {
+}
+
+[expect]
+switch (expr) {
+}
+
+== should hang when exceeding the line width ==
+switch (expr.testing.testing.testing.testing) {
+}
+
+[expect]
+switch (expr.testing.testing.testing
+    .testing)
+{
+}
+
+== should move the discriminant to a new line if the paren is on a different line ==
+switch (
+something.something) {
+}
+
+[expect]
+switch (
+    something.something
+) {
+}

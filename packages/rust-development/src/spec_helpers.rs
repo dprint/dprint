@@ -20,6 +20,9 @@ pub fn run_specs(
     let mut failed_tests = Vec::new();
 
     for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
+        #[cfg(not(debug_assertions))]
+        assert_spec_not_only(&spec);
+
         let result = format_text(&spec.file_name, &spec.file_text, &spec.config)
             .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
         let result = if let Some(result) = result { result } else { spec.file_text.clone() };
@@ -41,5 +44,12 @@ pub fn run_specs(
     if !failed_tests.is_empty() {
         println!("---");
         panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn assert_spec_not_only(spec: &Spec) {
+        if spec.is_only {
+            panic!("Cannot run 'only' spec in release mode: {}", spec.message);
+        }
     }
 }

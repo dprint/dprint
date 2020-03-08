@@ -37,3 +37,25 @@
 // function test() {
 //     test;
 // }
+
+== should force a space after a double slash by default ==
+//test
+// test
+//  test
+
+[expect]
+// test
+// test
+//  test
+
+== should allow as many spaces after the slash except for no space ==
+// Testing
+//    1. Testing
+//    2. Testing
+//Testing
+
+[expect]
+// Testing
+//    1. Testing
+//    2. Testing
+// Testing

@@ -1,0 +1,43 @@
+~~ lineWidth: 80, indentWidth: 2 ~~
+== should keep nested arrow functions on separate lines ==
+entitiesGroupOne.forEach((entity, indexOne) =>
+  entitiesGroupTwo.forEach((entityTwo, indexTwo) => {
+    call();
+  })
+);
+
+[expect]
+entitiesGroupOne.forEach((entity, indexOne) =>
+  entitiesGroupTwo.forEach((entityTwo, indexTwo) => {
+    call();
+  })
+);
+
+== should move short non-multi-line body back up to same line ==
+entitiesGroupOne.forEach((entity, indexOne) =>
+    call()
+);
+
+[expect]
+entitiesGroupOne.forEach((entity, indexOne) => call());
+
+== should move arrow func body to newline when going over ==
+let test = (testing, testing) => true && false && true && false && true && false;
+
+[expect]
+let test = (testing, testing) =>
+  true && false && true && false && true && false;
+
+== should have newline group on variable declaration assignment ==
+const gravesPos: Vector2 | null | undefined = globalState.gameData.level1.graves[0].position;
+
+[expect]
+const gravesPos: Vector2 | null | undefined =
+  globalState.gameData.level1.graves[0].position;
+
+== should not have for arrow func expr ==
+const gravesPos: Vector2 | null | undefined = (testing) => ttttttttttttttttttttttttttttt;
+
+[expect]
+const gravesPos: Vector2 | null | undefined = (testing) =>
+  ttttttttttttttttttttttttttttt;

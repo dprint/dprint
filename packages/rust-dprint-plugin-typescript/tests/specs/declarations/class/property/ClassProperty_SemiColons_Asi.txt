@@ -1,0 +1,10 @@
+~~ semiColons: asi ~~
+== should not use a semi-colon when false ==
+class Test {
+    prop: string;
+}
+
+[expect]
+class Test {
+    prop: string
+}

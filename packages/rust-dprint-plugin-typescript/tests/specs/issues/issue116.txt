@@ -1,0 +1,24 @@
+~~ lineWidth: 60 ~~
+== should format as-is when multi-line ==
+for (
+    let c = s.charAt(position);
+    position < s.length && !(c == "\r" || c == "\n");
+    c = s.charAt(++position)
+);
+
+[expect]
+for (
+    let c = s.charAt(position);
+    position < s.length && !(c == "\r" || c == "\n");
+    c = s.charAt(++position)
+);
+
+== should breakup to multi-line based on the expressions ==
+for (let c = s.charAt(position); position < s.length && !(c == "\r" || c == "\n"); c = s.charAt(++position));
+
+[expect]
+for (
+    let c = s.charAt(position);
+    position < s.length && !(c == "\r" || c == "\n");
+    c = s.charAt(++position)
+);

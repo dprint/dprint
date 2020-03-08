@@ -1,0 +1,83 @@
+~~ lineWidth: 40 ~~
+== should format comments within ==
+{
+    // 0
+    /* 1 */ /* 2 */ //3
+/*4*/}
+
+[expect]
+{
+    // 0
+    /* 1 */
+    /* 2 */
+    // 3
+    /*4*/
+}
+
+== should format a line comment on the first line as trailing ==
+{ // 0
+//1
+}
+
+[expect]
+{ // 0
+    // 1
+}
+
+== should format single line ==
+{/* testing this out */}
+
+[expect]
+{/* testing this out */}
+
+== should format when there is a comment at the end with a blank line separating ==
+function test() {
+    testing();
+
+    // commentedCode();
+}
+
+[expect]
+function test() {
+    testing();
+
+    // commentedCode();
+}
+
+== should print comments mixed with statements ==
+{
+
+    // 1
+    testing;
+
+
+    /*a*/ // 2
+
+    // 3
+
+    testing;
+
+    // 4
+    test;
+    // 5
+    test;
+
+}
+
+[expect]
+{
+    // 1
+    testing;
+
+    /*a*/
+    // 2
+
+    // 3
+
+    testing;
+
+    // 4
+    test;
+    // 5
+    test;
+}

@@ -1,6 +1,6 @@
 {
   "name": "@dprint/core",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Core functionality for dprint.",
   "main": "dist/dprint-core.js",
   "types": "lib/dprint-core.d.ts",

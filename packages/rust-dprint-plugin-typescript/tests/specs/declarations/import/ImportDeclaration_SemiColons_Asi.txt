@@ -1,0 +1,6 @@
+~~ semiColons: asi ~~
+== should format without a semi colon ==
+import Test from "test";
+
+[expect]
+import Test from "test"

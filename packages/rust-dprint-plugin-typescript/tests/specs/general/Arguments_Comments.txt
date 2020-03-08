@@ -1,0 +1,41 @@
+== should format comments inside args when single line ==
+call(/*1*/);
+
+[expect]
+call(/*1*/);
+
+== should format a trailing single line comment on the header line ==
+call( // testing
+    testing
+);
+
+[expect]
+call( // testing
+    testing
+);
+
+== should move a trailing comment block on the header line to the next line ==
+call( /*0*/
+    testing
+);
+
+[expect]
+call(
+    /*0*/
+    testing
+);
+
+== should format multiple comments ==
+call(
+    /*0*/
+    /*1*/// 2
+    // 3
+);
+
+[expect]
+call(
+    /*0*/
+    /*1*/
+    // 2
+    // 3
+);

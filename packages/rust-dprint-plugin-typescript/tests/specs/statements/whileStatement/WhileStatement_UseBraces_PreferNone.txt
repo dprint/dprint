@@ -1,4 +1,4 @@
-~~ whileStatement.useBraces: preferNone, lineWidth: 40 ~~
+~~ whileStatement.useBraces: preferNone, lineWidth: 40, whileStatement.preferHanging: true ~~
 == should not use braces when only one line ==
 while (true) {
     a;
@@ -8,7 +8,7 @@ while (true) {
 while (true)
     a;
 
-== should use braces when condition is hanging ==
+== should use braces when condition is multiple lines ==
 while (true && false && true && false && true)
     a;
 

@@ -20,10 +20,15 @@ export interface TypeScriptConfiguration {
      */
     useTabs?: boolean;
     /**
-     * Whether statements should use semi-colons.
-     * @default true
+     * Whether semi-colons should be used.
+     * @default "prefer"
+     * @value "always" - Always uses semi-colons where applicable.
+     * @value "prefer" - Prefers to use semi-colons, but doesn't add one in certain scenarios
+     * such as for the last member of a single-line type literal.
+     * @value "asi" - Uses automatic semi-colon insertion. Only adds a semi-colon at the start
+     * of some expression statements when necessary.
      */
-    semiColons?: boolean;
+    semiColons?: "always" | "prefer" | "asi";
     /**
      * How to decide to use single or double quotes.
      * @default "preferDouble"
@@ -139,6 +144,14 @@ export interface TypeScriptConfiguration {
      * @value false - Ex. `1+2`
      */
     "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"?: boolean;
+    /**
+     * Forces a space after the double slash in a comment line.
+     *
+     * @default true
+     * @value true - Ex. `//test` -> `// test`
+     * @value false - Ex. `//test` -> `//test`
+     */
+    "commentLine.forceSpaceAfterSlashes"?: boolean;
     /**
      * Whether to add a space before the parentheses of a constructor.
      * @default false
@@ -286,35 +299,6 @@ export interface TypeScriptConfiguration {
      * @value false - Ex. `while(true)`
      */
     "whileStatement.spaceAfterWhileKeyword"?: boolean;
-    "breakStatement.semiColon"?: boolean;
-    "callSignature.semiColon"?: boolean;
-    "classProperty.semiColon"?: boolean;
-    "constructor.semiColon"?: boolean;
-    "constructSignature.semiColon"?: boolean;
-    "continueStatement.semiColon"?: boolean;
-    "debuggerStatement.semiColon"?: boolean;
-    "doWhileStatement.semiColon"?: boolean;
-    "exportAllDeclaration.semiColon"?: boolean;
-    "exportAssignment.semiColon"?: boolean;
-    "exportDefaultExpression.semiColon"?: boolean;
-    "exportNamedDeclaration.semiColon"?: boolean;
-    "expressionStatement.semiColon"?: boolean;
-    "functionDeclaration.semiColon"?: boolean;
-    "getAccessor.semiColon"?: boolean;
-    "importDeclaration.semiColon"?: boolean;
-    "importEqualsDeclaration.semiColon"?: boolean;
-    "indexSignature.semiColon"?: boolean;
-    "mappedType.semiColon"?: boolean;
-    "method.semiColon"?: boolean;
-    "methodSignature.semiColon"?: boolean;
-    "moduleDeclaration.semiColon"?: boolean;
-    "namespaceExportDeclaration.semiColon"?: boolean;
-    "propertySignature.semiColon"?: boolean;
-    "returnStatement.semiColon"?: boolean;
-    "setAccessor.semiColon"?: boolean;
-    "throwStatement.semiColon"?: boolean;
-    "typeAlias.semiColon"?: boolean;
-    "variableStatement.semiColon"?: boolean;
     "forInStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forOfStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
@@ -357,10 +341,23 @@ export interface TypeScriptConfiguration {
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "doWhileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "exportDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "extendsClause.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "forInStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "forOfStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "forStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "ifStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "implementsClause.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "importDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "sequenceExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "switchStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeParameterDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "arrowFunctionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
@@ -382,35 +379,7 @@ export interface TypeScriptConfiguration {
  */
 export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfiguration {
     readonly quoteStyle: NonNullable<TypeScriptConfiguration["quoteStyle"]>;
-    readonly "breakStatement.semiColon": boolean;
-    readonly "callSignature.semiColon": boolean;
-    readonly "classProperty.semiColon": boolean;
-    readonly "constructor.semiColon": boolean;
-    readonly "constructSignature.semiColon": boolean;
-    readonly "continueStatement.semiColon": boolean;
-    readonly "debuggerStatement.semiColon": boolean;
-    readonly "doWhileStatement.semiColon": boolean;
-    readonly "exportAllDeclaration.semiColon": boolean;
-    readonly "exportAssignment.semiColon": boolean;
-    readonly "exportDefaultExpression.semiColon": boolean;
-    readonly "exportNamedDeclaration.semiColon": boolean;
-    readonly "expressionStatement.semiColon": boolean;
-    readonly "functionDeclaration.semiColon": boolean;
-    readonly "getAccessor.semiColon": boolean;
-    readonly "importDeclaration.semiColon": boolean;
-    readonly "importEqualsDeclaration.semiColon": boolean;
-    readonly "indexSignature.semiColon": boolean;
-    readonly "mappedType.semiColon": boolean;
-    readonly "method.semiColon": boolean;
-    readonly "methodSignature.semiColon": boolean;
-    readonly "moduleDeclaration.semiColon": boolean;
-    readonly "namespaceExportDeclaration.semiColon": boolean;
-    readonly "propertySignature.semiColon": boolean;
-    readonly "setAccessor.semiColon": boolean;
-    readonly "returnStatement.semiColon": boolean;
-    readonly "throwStatement.semiColon": boolean;
-    readonly "typeAlias.semiColon": boolean;
-    readonly "variableStatement.semiColon": boolean;
+    readonly semiColons: NonNullable<TypeScriptConfiguration["semiColons"]>;
     readonly "forInStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;
     readonly "forOfStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;
     readonly "forStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;
@@ -453,10 +422,23 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "doWhileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "exportDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "extendsClause.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "forInStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "forOfStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "forStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "ifStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "implementsClause.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "importDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "sequenceExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "switchStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeParameterDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "arrowFunctionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
@@ -474,6 +456,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;
+    readonly "commentLine.forceSpaceAfterSlashes": boolean;
     readonly "constructor.spaceBeforeParentheses": boolean;
     readonly "constructorType.spaceAfterNewKeyword": boolean;
     readonly "constructSignature.spaceAfterNewKeyword": boolean;

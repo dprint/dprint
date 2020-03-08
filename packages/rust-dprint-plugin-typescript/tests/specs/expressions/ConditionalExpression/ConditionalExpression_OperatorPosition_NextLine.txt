@@ -14,3 +14,17 @@ test
 test
     ? 1
     : 2;
+
+== should indent if the first line is a comment ==
+test
+    ? // comment
+        test
+    : // comment
+        test
+
+[expect]
+test
+    ? // comment
+        test
+    : // comment
+        test;

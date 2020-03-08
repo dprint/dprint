@@ -1,0 +1,54 @@
+~~ lineWidth: 40, exportDeclaration.preferHanging: true ~~
+== should format when using many named exports ==
+export {n1,n2,n3} from    "test"  ;
+
+[expect]
+export { n1, n2, n3 } from "test";
+
+== should format when using many named exports that go over the line width ==
+export { n1, n2,   n3,   n4  , n5, n6} from   "test";
+
+[expect]
+export { n1, n2, n3, n4, n5,
+    n6 } from "test";
+
+== should format with newlines if the first is on a different line ==
+export {
+    n1, n2,   n3,   n4  , n5, n6} from   "test";
+
+[expect]
+export {
+    n1,
+    n2,
+    n3,
+    n4,
+    n5,
+    n6
+} from "test";
+
+== should always do a newline as a unit ==
+export { testing, thisOut, here as alias } from "test";
+
+[expect]
+export { testing, thisOut,
+    here as alias } from "test";
+
+== should break up on `as` when really long on the same line ==
+export { loooooooooooooonnnnnnngggggggg as alias } from "test";
+
+[expect]
+export {
+    loooooooooooooonnnnnnngggggggg
+        as alias
+} from "test";
+
+== should break up on `as` when really long on a different line ==
+export {
+    loooooooooooooonnnnnnngggggggg as alias
+} from "test";
+
+[expect]
+export {
+    loooooooooooooonnnnnnngggggggg
+        as alias
+} from "test";

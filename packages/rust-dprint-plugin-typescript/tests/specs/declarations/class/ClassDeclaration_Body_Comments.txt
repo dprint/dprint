@@ -1,0 +1,31 @@
+~~ lineWidth: 40 ~~
+== should inner comments ==
+class Test {
+    // testing
+
+    /* testing */ // 1
+    // test
+}
+
+[expect]
+class Test {
+    // testing
+
+    /* testing */
+    // 1
+    // test
+}
+
+== should print on single line with comment ==
+class Test { /* comment */ }
+
+[expect]
+class Test {/* comment */}
+
+== should go multi-line when the comment is long ==
+class Test {/* testing this out to go above 40 */}
+
+[expect]
+class Test {
+    /* testing this out to go above 40 */
+}

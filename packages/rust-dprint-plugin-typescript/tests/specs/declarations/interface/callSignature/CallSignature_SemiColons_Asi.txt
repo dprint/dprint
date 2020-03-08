@@ -1,0 +1,10 @@
+~~ semiColons: asi ~~
+== should format without a semi-colon ==
+interface T {
+    (): string;
+}
+
+[expect]
+interface T {
+    (): string
+}

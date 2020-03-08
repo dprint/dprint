@@ -88,13 +88,7 @@ pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFil
         // It is much more performant to look into HashMaps instead of CHashMaps
         // because then locking on each comment lookup is not necessary. We don't
         // need to support multi-threading so convert to HashMap.
-
-        // todo: the cloning needs to be removed here!!
-        return comments.iter_mut().map(|x| {
-            let key = x.key().to_owned();
-            let value = x.value().to_owned();
-            (key, value)
-        }).collect();
+        comments.into_iter().collect()
     }
 }
 

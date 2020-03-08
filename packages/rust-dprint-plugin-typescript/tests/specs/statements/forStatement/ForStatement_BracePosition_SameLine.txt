@@ -1,4 +1,4 @@
-~~ forStatement.bracePosition: sameLine, lineWidth: 40 ~~
+~~ forStatement.bracePosition: sameLine, lineWidth: 40, preferHanging: true ~~
 == should use the same line for the brace position ==
 for (let i = 0; i < 5; i++)
 {

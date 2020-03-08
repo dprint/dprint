@@ -1,0 +1,76 @@
+~~ lineWidth: 60, preferHanging: true ~~
+== should print multiple extends that go over the line width ==
+export interface Test extends Other, Other2, Other3, Other4, Other5 {
+}
+
+[expect]
+export interface Test
+    extends Other, Other2, Other3, Other4, Other5
+{
+}
+
+== should print multiple extends that go over the line width twice ==
+export interface Test extends Other, Other2, Other3, Other4, Other5, Other6, Other7 {
+}
+
+[expect]
+export interface Test
+    extends Other, Other2, Other3, Other4, Other5, Other6,
+        Other7
+{
+}
+
+== should print with type parameters ==
+export interface Test< T  > {
+}
+
+[expect]
+export interface Test<T> {
+}
+
+== should print with type parameters hanging when they go over the limit ==
+export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> {
+}
+
+[expect]
+export interface Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+{
+}
+
+== should print with type parameters hanging and extends when they go over the limit ==
+export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
+}
+
+[expect]
+export interface Test<TestingThisOut, WithVeryLong,
+    TypeParameterList>
+    extends Test
+{
+}
+
+== should print with type parameters on multiple lines ==
+export interface Test<
+    TestingThisOut, WithVeryLong, TypeParameterList> {
+}
+
+[expect]
+export interface Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> {
+}
+
+== should print with type parameters on multiple lines and extends ==
+export interface Test<
+    TestingThisOut, WithVeryLong, TypeParameterList> extends Test {
+}
+
+[expect]
+export interface Test<
+    TestingThisOut,
+    WithVeryLong,
+    TypeParameterList
+> extends Test {
+}

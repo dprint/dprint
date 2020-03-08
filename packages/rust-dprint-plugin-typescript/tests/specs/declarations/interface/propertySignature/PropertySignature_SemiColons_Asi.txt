@@ -1,0 +1,10 @@
+~~ semiColons: asi ~~
+== should format with no semi-colon ==
+type T = {
+    p1   : string;
+};
+
+[expect]
+type T = {
+    p1: string
+}

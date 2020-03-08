@@ -1,17 +1,20 @@
 ~~ forStatement.spaceAfterSemiColons: false, lineWidth: 40 ~~
-== should print ==
+== should print without spaces ==
 for (let i = 0; i < 5; i++) {
-}
-
-for (let testingThisOutttttt = 0; testingThisOutttttttttttttttt < 5; i++) {
 }
 
 [expect]
 for (let i = 0;i < 5;i++) {
 }
 
-for (let testingThisOutttttt = 0;
+== should print with newlines when multi-line ==
+for (let testingThisOutttttt = 0; testingThisOutttttttttttttttt < 5; i++) {
+}
+
+[expect]
+for (
+    let testingThisOutttttt = 0;
     testingThisOutttttttttttttttt < 5;
-    i++)
-{
+    i++
+) {
 }
