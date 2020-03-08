@@ -26,6 +26,10 @@ impl<'a> TokenFinder<'a> {
         self.get_previous_token_if(node, |token| token.token == Token::LParen)
     }
 
+    pub fn get_next_token_if_close_paren(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_next_token_if(node, |token| token.token == Token::RParen)
+    }
+
     pub fn get_previous_token_if_open_brace(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_previous_token_if(node, |token| token.token == Token::LBrace)
     }
@@ -54,6 +58,10 @@ impl<'a> TokenFinder<'a> {
 
     pub fn get_first_open_brace_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_within(node, |token| token.token == Token::LBrace)
+    }
+
+    pub fn get_last_close_brace_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_last_token_within(node, |token| token.token == Token::RBrace)
     }
 
     pub fn get_first_open_bracket_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
@@ -92,6 +100,18 @@ impl<'a> TokenFinder<'a> {
 
     pub fn get_first_open_brace_token_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_before(node, |token| token.token == Token::LBrace)
+    }
+
+    pub fn get_first_open_paren_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_before(node, |token| token.token == Token::LParen)
+    }
+
+    pub fn get_first_close_paren_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_before(node, |token| token.token == Token::RParen)
+    }
+
+    pub fn get_first_close_paren_after(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_after(node, |token| token.token == Token::RParen)
     }
 
     pub fn get_previous_token_end_before(&mut self, node: &dyn Ranged) -> BytePos {
@@ -166,6 +186,30 @@ impl<'a> TokenFinder<'a> {
             }
 
             if !self.try_increment_index() {
+                break;
+            }
+        }
+
+        None
+    }
+
+    fn get_last_token_within<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&'a TokenAndSpan) -> bool {
+        let node_span_data = node.span().data();
+        let end = node_span_data.hi;
+        if self.tokens.is_empty() { return None; }
+
+        self.move_to_node_end(end);
+
+        loop {
+            let current_token = &self.tokens[self.token_index];
+            let token_pos = current_token.span.data().lo;
+            if token_pos >= end {
+                break;
+            } else if is_match(current_token) {
+                return Some(current_token);
+            }
+
+            if !self.try_decrement_index() {
                 break;
             }
         }

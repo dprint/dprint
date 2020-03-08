@@ -34,6 +34,7 @@ interface Test {
 interface Test {
     // testing
 
-    /* testing */ // 1
+    /* testing */
+    // 1
     // test
 }

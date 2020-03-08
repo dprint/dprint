@@ -1,0 +1,56 @@
+~~ lineWidth: 40 ~~
+== should support comments on the same line ==
+const obj = {/*testing*/};
+
+[expect]
+const obj = {/*testing*/};
+
+== should become multi-line when the inner comment is long ==
+const obj = {/*testing this out to go over*/};
+
+[expect]
+const obj = {
+    /*testing this out to go over*/
+};
+
+== should support inner comments ==
+const obj = { // 0
+    // 1
+    /*2*/ /*3*/ // 4
+/*5*/}
+
+[expect]
+const obj = { // 0
+    // 1
+    /*2*/
+    /*3*/
+    // 4
+    /*5*/
+};
+
+== should move a block comment to the next line when it is trailing the first ==
+const obj = { /*0*/
+//1
+};
+
+[expect]
+const obj = {
+    /*0*/
+    // 1
+};
+
+== should support blanklines between comments ==
+const obj = {
+
+    // 0
+
+//1
+
+};
+
+[expect]
+const obj = {
+    // 0
+
+    // 1
+};

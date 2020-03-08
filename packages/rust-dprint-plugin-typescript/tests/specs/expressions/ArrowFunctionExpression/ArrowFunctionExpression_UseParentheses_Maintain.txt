@@ -16,3 +16,11 @@ const t = (a: string) => 5;
 
 [expect]
 const t = (a: string) => 5;
+
+== should maintain when has an async keyword ==
+const t = async (a) => 5;
+const u = async a => 5;
+
+[expect]
+const t = async (a) => 5;
+const u = async a => 5;

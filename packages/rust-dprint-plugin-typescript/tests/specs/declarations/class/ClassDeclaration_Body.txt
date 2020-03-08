@@ -24,22 +24,6 @@ class Test {
     // other
 }
 
-== should inner comments ==
-class Test {
-    // testing
-
-    /* testing */ // 1
-    // test
-}
-
-[expect]
-class Test {
-    // testing
-
-    /* testing */ // 1
-    // test
-}
-
 == should leave an empty class declaration block on the same line ==
 class Test {}
 

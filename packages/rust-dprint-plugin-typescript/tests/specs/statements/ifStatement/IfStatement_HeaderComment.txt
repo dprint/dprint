@@ -58,14 +58,15 @@ if (true) { // 1
     false;
 }
 
-== handle a comment block after the header ==
+== handle move comment block after the header to the next line ==
 if (true) { /* 1 */
     true;
     true;
 }
 
 [expect]
-if (true) { /* 1 */
+if (true) {
+    /* 1 */
     true;
     true;
 }
@@ -77,7 +78,9 @@ if (true) { /* 1 */ // 2
 }
 
 [expect]
-if (true) { /* 1 */ // 2
+if (true) {
+    /* 1 */
+    // 2
     true;
     true;
 }
