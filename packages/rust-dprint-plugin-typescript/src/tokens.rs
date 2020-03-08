@@ -26,6 +26,10 @@ impl<'a> TokenFinder<'a> {
         self.get_previous_token_if(node, |token| token.token == Token::LParen)
     }
 
+    pub fn get_next_token_if_close_paren(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_next_token_if(node, |token| token.token == Token::RParen)
+    }
+
     pub fn get_previous_token_if_open_brace(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_previous_token_if(node, |token| token.token == Token::LBrace)
     }
@@ -96,6 +100,18 @@ impl<'a> TokenFinder<'a> {
 
     pub fn get_first_open_brace_token_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_before(node, |token| token.token == Token::LBrace)
+    }
+
+    pub fn get_first_open_paren_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_before(node, |token| token.token == Token::LParen)
+    }
+
+    pub fn get_first_close_paren_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_before(node, |token| token.token == Token::RParen)
+    }
+
+    pub fn get_first_close_paren_after(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_after(node, |token| token.token == Token::RParen)
     }
 
     pub fn get_previous_token_end_before(&mut self, node: &dyn Ranged) -> BytePos {
