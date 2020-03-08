@@ -1,4 +1,4 @@
-~~ commentLine.forceSpaceAfterDoubleSlash: false ~~
+~~ commentLine.forceSpaceAfterSlashes: false ~~
 == should not force a space after a double slash ==
 //test
 // test

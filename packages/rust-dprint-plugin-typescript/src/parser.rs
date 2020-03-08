@@ -3926,7 +3926,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
 
         fn get_comment_text(original_text: &String, context: &mut Context) -> String {
             let non_slash_index = get_first_non_slash_index(&original_text);
-            let skip_space = context.config.comment_line_force_space_after_double_slash && original_text.chars().skip(non_slash_index).next() == Some(' ');
+            let skip_space = context.config.comment_line_force_space_after_slashes && original_text.chars().skip(non_slash_index).next() == Some(' ');
             let start_text_index = if skip_space { non_slash_index + 1 } else { non_slash_index };
             let comment_text_original = original_text.chars().skip(start_text_index).collect::<String>();
             let comment_text = comment_text_original.trim_end();
@@ -3938,7 +3938,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
                 format!(
                     "{}{}{}",
                     prefix,
-                    if context.config.comment_line_force_space_after_double_slash { " " } else { "" },
+                    if context.config.comment_line_force_space_after_slashes { " " } else { "" },
                     comment_text
                 )
             };

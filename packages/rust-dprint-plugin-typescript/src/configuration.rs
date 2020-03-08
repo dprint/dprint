@@ -176,8 +176,8 @@ impl ConfigurationBuilder {
     ///
     /// `true` (default) - Ex. `//test` -> `// test`
     /// `false` - Ex. `//test` -> `//test`
-    pub fn comment_line_force_space_after_double_slash(&mut self, value: bool) -> &mut Self {
-        self.insert("commentLine.forceSpaceAfterDoubleSlash", value)
+    pub fn comment_line_force_space_after_slashes(&mut self, value: bool) -> &mut Self {
+        self.insert("commentLine.forceSpaceAfterSlashes", value)
     }
 
     /// Whether to add a space after the `new` keyword in a construct signature.
@@ -1047,7 +1047,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         while_statement_use_braces: get_value(&mut config, "whileStatement.useBraces", use_braces, &mut diagnostics),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true, &mut diagnostics),
-        comment_line_force_space_after_double_slash: get_value(&mut config, "commentLine.forceSpaceAfterDoubleSlash", true, &mut diagnostics),
+        comment_line_force_space_after_slashes: get_value(&mut config, "commentLine.forceSpaceAfterSlashes", true, &mut diagnostics),
         construct_signature_space_after_new_keyword: get_value(&mut config, "constructSignature.spaceAfterNewKeyword", false, &mut diagnostics),
         constructor_space_before_parentheses: get_value(&mut config, "constructor.spaceBeforeParentheses", false, &mut diagnostics),
         constructor_type_space_after_new_keyword: get_value(&mut config, "constructorType.spaceAfterNewKeyword", false, &mut diagnostics),
@@ -1259,8 +1259,8 @@ pub struct Configuration {
 
     #[serde(rename = "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator")]
     pub binary_expression_space_surrounding_bitwise_and_arithmetic_operator: bool,
-    #[serde(rename = "commentLine.forceSpaceAfterDoubleSlash")]
-    pub comment_line_force_space_after_double_slash: bool,
+    #[serde(rename = "commentLine.forceSpaceAfterSlashes")]
+    pub comment_line_force_space_after_slashes: bool,
     #[serde(rename = "constructSignature.spaceAfterNewKeyword")]
     pub construct_signature_space_after_new_keyword: bool,
     #[serde(rename = "constructor.spaceBeforeParentheses")]

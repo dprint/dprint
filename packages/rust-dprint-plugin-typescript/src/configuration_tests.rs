@@ -109,7 +109,7 @@ fn check_all_values_set() {
         .while_statement_use_braces(UseBraces::Always)
         /* space settings */
         .binary_expression_space_surrounding_bitwise_and_arithmetic_operator(true)
-        .comment_line_force_space_after_double_slash(false)
+        .comment_line_force_space_after_slashes(false)
         .construct_signature_space_after_new_keyword(true)
         .constructor_space_before_parentheses(true)
         .constructor_type_space_after_new_keyword(true)
