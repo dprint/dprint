@@ -12,6 +12,7 @@ module.exports.config = {
             singleBodyPosition: "nextLine",
             preferHanging: true,
             nextControlFlowPosition: "nextLine",
+            semiColons: "always",
             "arrowFunctionExpression.useParentheses": "preferNone",
             "tryStatement.nextControlFlowPosition": "sameLine"
         }),
