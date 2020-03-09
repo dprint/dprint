@@ -1,0 +1,5 @@
+== should not debug panic for a tab inside a single line comment ==
+// test tab:	tab before this
+
+[expect]
+// test tab:	tab before this

@@ -351,12 +351,13 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
 
     #[cfg(debug_assertions)]
     fn validate_string(&self, text: &TString) {
+        // The parser_helpers::parse_raw_string(...) helper function might be useful if you get either of these panics.
         let text_as_string = text.get_text();
         if text_as_string.contains("\t") {
-            panic!("Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}", text_as_string);
+            panic!("Debug panic! Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}", text_as_string);
         }
         if text_as_string.contains("\n") {
-            panic!("Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}", text_as_string);
+            panic!("Debug panic! Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}", text_as_string);
         }
     }
 
@@ -379,7 +380,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     fn panic_for_save_point_existing(&self, save_point: &SavePoint<TString, TInfo, TCondition>) {
         panic!(
             concat!(
-                "'{}' was never added to the print items in this scenario. This can ",
+                "Debug panic! '{}' was never added to the print items in this scenario. This can ",
                 "have slight performance implications in large files."
             ),
             save_point.name
@@ -389,16 +390,16 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     #[cfg(debug_assertions)]
     fn ensure_counts_zero(&self) {
         if self.new_line_group_depth != 0 {
-            panic!("The new line group depth was not zero after printing. {0}", self.new_line_group_depth);
+            panic!("Debug panic! The new line group depth was not zero after printing. {0}", self.new_line_group_depth);
         }
         if self.force_no_newlines_depth != 0 {
-            panic!("The force no newlines depth was not zero after printing. {0}", self.force_no_newlines_depth);
+            panic!("Debug panic! The force no newlines depth was not zero after printing. {0}", self.force_no_newlines_depth);
         }
         if self.writer.get_indentation_level() != 0 {
-            panic!("The writer indentation level was not zero after printing. {0}", self.writer.get_indentation_level());
+            panic!("Debug panic! The writer indentation level was not zero after printing. {0}", self.writer.get_indentation_level());
         }
         if self.writer.get_ignore_indent_count() != 0 {
-            panic!("The writer ignore indent count was not zero after printing. {0}", self.writer.get_ignore_indent_count());
+            panic!("Debug panic! The writer ignore indent count was not zero after printing. {0}", self.writer.get_ignore_indent_count());
         }
     }
 }

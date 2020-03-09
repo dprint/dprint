@@ -333,7 +333,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             //    are correct. If not, that's a bug in swc, so go fix it in swc.
             // 3. If it's not a bug in swc, then check the parsing code to ensure
             //    the nodes are being parsed in order.
-            panic!("Debug panic: Node comments retrieved out of order!");
+            panic!("Debug panic! Node comments retrieved out of order!");
         }
         context.last_parsed_node_pos = node_pos;
     }
@@ -3924,7 +3924,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
 
     fn parse_comment_line(comment: &Comment, context: &mut Context) -> PrintItems {
         let mut items = PrintItems::new();
-        items.push_str(&get_comment_text(&comment.text, context));
+        items.extend(parse_raw_string(&get_comment_text(&comment.text, context)));
         items.push_signal(Signal::ExpectNewLine);
         return parser_helpers::with_no_new_lines(items);
 
