@@ -3506,7 +3506,11 @@ fn parse_intersection_type<'a>(node: &'a TsIntersectionType, context: &mut Conte
 }
 
 fn parse_lit_type<'a>(node: &'a TsLitType, context: &mut Context<'a>) -> PrintItems {
-    parse_node((&node.lit).into(), context)
+    match &node.lit {
+        // need to do this in order to support negative numbers
+        TsLit::Number(_) => node.text(context).into(),
+        _ => parse_node((&node.lit).into(), context)
+    }
 }
 
 fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> PrintItems {
