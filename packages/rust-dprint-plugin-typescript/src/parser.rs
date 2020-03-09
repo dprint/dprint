@@ -1494,7 +1494,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
             let ident_text = get_identifier_text(&callee);
             if let Some(ident_text) = ident_text {
                 return match ident_text {
-                    "it" | "describe" => true,
+                    "it" | "describe" | "test" => true,
                     _ => false,
                 };
             }

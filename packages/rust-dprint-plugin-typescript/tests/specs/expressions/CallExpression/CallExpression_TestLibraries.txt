@@ -1,5 +1,5 @@
 ~~ lineWidth: 40 ~~
-== should not hanging indent when going above line width for a describe ==
+== should not go multiline when going above line width for a describe ==
 describe("testing this out with a long string", () => {
     // etc...
 });
@@ -9,7 +9,7 @@ describe("testing this out with a long string", () => {
     // etc...
 });
 
-== should not hanging indent when it has a property ==
+== should not go multiline when it has a property ==
 describe.only("testing this out with a long string", () => {
     // etc...
 });
@@ -19,7 +19,7 @@ describe.only("testing this out with a long string", () => {
     // etc...
 });
 
-== should not hanging indent for an it ==
+== should not go multiline for an it ==
 it("testing this out with a long string", () => {
     // etc...
 });
@@ -50,3 +50,13 @@ it(
         // etc...
     }
 );
+
+== should not go multiline when going above line width for a test call expression ==
+test("testing this out with a long string", () => {
+    // etc...
+});
+
+[expect]
+test("testing this out with a long string", () => {
+    // etc...
+});
