@@ -4720,14 +4720,19 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
 
     items.push_condition(conditions::indent_if_start_of_line({
         let mut items = PrintItems::new();
+        let is_computed = node.is_computed;
 
-        if is_optional {
-            items.push_str("?");
-            if node.is_computed { items.push_str("."); }
-        }
-        items.push_str(if node.is_computed { "[" } else { "." });
-        items.extend(parse_node(node.right_node, context));
-        if node.is_computed { items.push_str("]"); }
+        items.extend(parse_node_with_inner_parse(node.right_node, context, |node_items| {
+            let mut items = PrintItems::new();
+            if is_optional {
+                items.push_str("?");
+                if is_computed { items.push_str("."); }
+            }
+            items.push_str(if is_computed { "[" } else { "." });
+            items.extend(node_items);
+            if is_computed { items.push_str("]"); }
+            items
+        }));
 
         items
     }));
