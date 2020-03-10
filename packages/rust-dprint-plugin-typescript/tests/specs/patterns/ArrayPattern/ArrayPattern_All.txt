@@ -36,3 +36,13 @@ function t(
     ]
 ) {
 }
+
+== should format when optional ==
+export declare class EventInit {
+    constructor([t]?: string[]);
+}
+
+[expect]
+export declare class EventInit {
+    constructor([t]?: string[]);
+}

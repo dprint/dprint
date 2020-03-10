@@ -90,12 +90,12 @@ impl<'a> TokenFinder<'a> {
 
     fn get_first_token_after_with_text(&mut self, node: &dyn Ranged, text: &str) -> Option<&'a TokenAndSpan> {
         let file_bytes = self.file_bytes;
-        self.get_first_token_after(node, |token| get_text(file_bytes, &token.span.data()) == text)
+        self.get_first_token_after(node, |token| get_text(file_bytes, &token.span) == text)
     }
 
     pub fn get_first_else_keyword_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         let file_bytes = self.file_bytes;
-        self.get_first_token_within(node, |token| get_text(file_bytes, &token.span.data()) == "else")
+        self.get_first_token_within(node, |token| get_text(file_bytes, &token.span) == "else")
     }
 
     pub fn get_first_open_brace_token_before(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
@@ -170,7 +170,7 @@ impl<'a> TokenFinder<'a> {
     }
 
     fn get_first_token_within<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&'a TokenAndSpan) -> bool {
-        let node_span_data = node.span().data();
+        let node_span_data = node.span_data();
         let pos = node_span_data.lo;
         let end = node_span_data.hi;
         if self.tokens.is_empty() { return None; }
@@ -178,7 +178,7 @@ impl<'a> TokenFinder<'a> {
 
         loop {
             let current_token = &self.tokens[self.token_index];
-            let token_pos = current_token.span.data().lo;
+            let token_pos = current_token.span.lo;
             if token_pos >= end {
                 break;
             } else if is_match(current_token) {
@@ -194,7 +194,7 @@ impl<'a> TokenFinder<'a> {
     }
 
     fn get_last_token_within<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&'a TokenAndSpan) -> bool {
-        let node_span_data = node.span().data();
+        let node_span_data = node.span_data();
         let end = node_span_data.hi;
         if self.tokens.is_empty() { return None; }
 
@@ -202,7 +202,7 @@ impl<'a> TokenFinder<'a> {
 
         loop {
             let current_token = &self.tokens[self.token_index];
-            let token_pos = current_token.span.data().lo;
+            let token_pos = current_token.span_data().lo;
             if token_pos >= end {
                 break;
             } else if is_match(current_token) {
