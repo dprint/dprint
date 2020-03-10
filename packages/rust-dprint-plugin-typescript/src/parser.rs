@@ -2436,6 +2436,7 @@ fn parse_array_pat<'a>(node: &'a ArrayPat, context: &mut Context<'a>) -> PrintIt
         prefer_hanging: context.config.array_pattern_prefer_hanging,
         trailing_commas: context.config.array_pattern_trailing_commas,
     }, context));
+    if node.optional { items.push_str("?"); }
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
     items
 }
@@ -2478,6 +2479,7 @@ fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Print
         prefer_hanging: context.config.object_pattern_prefer_hanging,
         surround_single_line_with_spaces: true,
     }, context));
+    if node.optional { items.push_str("?"); }
     items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
     return items;
 }

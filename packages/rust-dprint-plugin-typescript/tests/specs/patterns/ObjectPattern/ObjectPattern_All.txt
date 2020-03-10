@@ -25,3 +25,13 @@ const {
     testingThisOut,
     withAVeryLongNameeeeeeee
 } = obj;
+
+== should format when optional ==
+export declare class EventInit {
+    constructor({ t }?: { t?: any });
+}
+
+[expect]
+export declare class EventInit {
+    constructor({ t }?: { t?: any });
+}
