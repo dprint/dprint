@@ -3522,13 +3522,21 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
     let end_info = Info::new("endMappedType");
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(node).expect("Expected to find an open brace token in the mapped type.");
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(open_brace_token, &node.type_param, context);
+    let mut is_multiple_lines_condition = Condition::new("mappedTypeNewLine", ConditionProperties {
+        condition: Box::new(move |context| {
+            if use_new_lines {
+                Some(true)
+            } else {
+                condition_resolvers::is_multiple_lines(context, &start_info, &end_info)
+            }
+        }),
+        true_path: Some(Signal::NewLine.into()),
+        false_path: Some(Signal::SpaceOrNewLine.into()),
+    });
+    let is_multiple_lines = is_multiple_lines_condition.get_reference().create_resolver();
     items.push_info(start_info);
     items.push_str("{");
-    if use_new_lines {
-        items.push_signal(Signal::NewLine);
-    } else {
-        items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info, Some(end_info)));
-    }
+    items.push_condition(is_multiple_lines_condition.clone());
     items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group({
         let mut items = PrintItems::new();
         if let Some(readonly) = node.readonly {
@@ -3549,12 +3557,10 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
             });
         }
         items.extend(parse_type_annotation_with_colon_if_exists_for_type(&node.type_ann, context));
-        if context.config.semi_colons.is_true() {
-            items.push_str(";");
-        }
+        items.extend(get_parsed_semi_colon(context.config.semi_colons, true, &is_multiple_lines));
         items
     })));
-    items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info, Some(end_info)));
+    items.push_condition(is_multiple_lines_condition);
     items.push_str("}");
     items.push_info(end_info);
     return items;
