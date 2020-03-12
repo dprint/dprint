@@ -49,6 +49,21 @@ impl ConfigurationBuilder {
         self
     }
 
+    /// Helper method to more align Dprint with Prettier's defaults.
+    ///
+    /// Note: This is just an alias for having the configuration to be more
+    /// like Prettier's. It does not mean the code will format exactly like
+    /// Prettier in all scenarios.
+    pub fn prettier(&mut self) -> &mut Self {
+        self.line_width(80)
+            .indent_width(2)
+            .next_control_flow_position(NextControlFlowPosition::SameLine)
+            .binary_expression_operator_position(OperatorPosition::SameLine)
+            .brace_position(BracePosition::SameLine)
+            .comment_line_force_space_after_slashes(false)
+            .construct_signature_space_after_new_keyword(true)
+    }
+
     /// The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
     ///
     /// Default: `120`
