@@ -1,3 +1,4 @@
+~~ lineWidth: 50 ~~
 == should format when only having a module specifier ==
 import    "test"  ;
 
@@ -46,3 +47,42 @@ import   type   { n1 } from "test";
 
 [expect]
 import type { n1 } from "test";
+
+== should format when has zero named imports ==
+import {} from "test";
+
+[expect]
+import {} from "test";
+
+== should format when has zero named imports and is type-only import ==
+import type {} from "test";
+
+[expect]
+import type {} from "test";
+
+== should remain single line when has no named imports and exceeding the line width ==
+import {} from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+import {} from "testingtttttttttttttttttttttttttttttt";
+
+== should remain single line when has one named import and exceeding the line width ==
+import { testingThisOut } from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+import { testingThisOut } from "testingtttttttttttttttttttttttttttttt";
+
+== should remain single line when has one named import with alias and exceeding the line width ==
+import { testingThisOut as alias } from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+import { testingThisOut as alias } from "testingtttttttttttttttttttttttttttttt";
+
+== should not be single line when has two named imports and exceeding the line width ==
+import { testingThisOut, test } from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+import {
+    testingThisOut,
+    test
+} from "testingtttttttttttttttttttttttttttttt";

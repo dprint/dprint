@@ -24,3 +24,42 @@ export   type    { test };
 
 [expect]
 export type { test };
+
+== should format when has zero named exports ==
+export {} from "test";
+
+[expect]
+export {} from "test";
+
+== should format when has zero named exports and is type-only export ==
+export type {} from "test";
+
+[expect]
+export type {} from "test";
+
+== should remain single line when has no named exports and exceeding the line width ==
+export {} from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+export {} from "testingtttttttttttttttttttttttttttttt";
+
+== should remain single line when has one named export and exceeding the line width ==
+export { testingThisOut } from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+export { testingThisOut } from "testingtttttttttttttttttttttttttttttt";
+
+== should remain single line when has one named export with alias and exceeding the line width ==
+export { testingThisOut as alias } from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+export { testingThisOut as alias } from "testingtttttttttttttttttttttttttttttt";
+
+== should not be single line when has two named exports and exceeding the line width ==
+export { testingThisOut, test } from "testingtttttttttttttttttttttttttttttt";
+
+[expect]
+export {
+    testingThisOut,
+    test
+} from "testingtttttttttttttttttttttttttttttt";

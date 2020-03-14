@@ -34,7 +34,16 @@ impl<'a> TokenFinder<'a> {
         self.get_previous_token_if(node, |token| token.token == Token::LBrace)
     }
 
-    fn get_previous_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+    pub fn get_previous_token_if_close_brace(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_previous_token_if(node, |token| token.token == Token::RBrace)
+    }
+
+    pub fn get_previous_token_if_from_keyword(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        let file_bytes = self.file_bytes;
+        self.get_previous_token_if(node, |token| get_text(file_bytes, &token.span) == "from")
+    }
+
+    fn get_previous_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : FnOnce(&TokenAndSpan) -> bool {
         let previous_token = self.get_previous_token(node)?;
         return if is_match(&previous_token) { Some(previous_token) } else { None };
     }
@@ -47,7 +56,7 @@ impl<'a> TokenFinder<'a> {
         self.get_next_token_if(node, |token| token.token == Token::Comma)
     }
 
-    fn get_next_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : Fn(&TokenAndSpan) -> bool {
+    fn get_next_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : FnOnce(&TokenAndSpan) -> bool {
         let next_token = self.get_next_token(node)?;
         return if is_match(&next_token) { Some(next_token) } else { None };
     }

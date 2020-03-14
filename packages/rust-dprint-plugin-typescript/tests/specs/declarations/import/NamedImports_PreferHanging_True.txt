@@ -14,21 +14,24 @@ import { testing, thisOut,
     aBit as something } from "test";
 
 == should break up on `as` when really long on the same line ==
-import { loooooooooooooooooooooooooooooooooooong as alias } from "test";
+import { loooooooooooooooooooooooooooooooooooong as alias, test } from "test";
 
 [expect]
 import {
     loooooooooooooooooooooooooooooooooooong
-        as alias
+        as alias,
+    test
 } from "test";
 
 == should break up on `as` when really long on a different line ==
 import {
-    loooooooooooooooooooooooooooooooooooong as alias
+    loooooooooooooooooooooooooooooooooooong as alias,
+    test
 } from "test";
 
 [expect]
 import {
     loooooooooooooooooooooooooooooooooooong
-        as alias
+        as alias,
+    test
 } from "test";

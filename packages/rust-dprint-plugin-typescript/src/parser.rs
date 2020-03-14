@@ -736,6 +736,10 @@ fn parse_export_named_decl<'a>(node: &'a NamedExport, context: &mut Context<'a>)
         }
     }
 
+    let should_single_line = default_export.is_none() && namespace_export.is_none()
+        && named_exports.len() <= 1
+        && node.start_line(context) == node.end_line(context);
+
     // parse
     let mut items = PrintItems::new();
 
@@ -765,7 +769,11 @@ fn parse_export_named_decl<'a>(node: &'a NamedExport, context: &mut Context<'a>)
         items.push_str(";");
     }
 
-    items
+    if should_single_line {
+        with_no_new_lines(items)
+    } else {
+        items
+    }
 }
 
 fn parse_function_decl<'a>(node: &'a FnDecl, context: &mut Context<'a>) -> PrintItems {
@@ -862,8 +870,19 @@ fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> Pri
         }
     }
 
+    let should_single_line = default_import.is_none() && namespace_import.is_none()
+        && named_imports.len() <= 1
+        && node.start_line(context) == node.end_line(context);
+    let has_named_imports = !named_imports.is_empty() || {
+        let from_keyword = context.token_finder.get_previous_token_if_from_keyword(&node.src);
+        if let Some(from_keyword) = from_keyword {
+            context.token_finder.get_previous_token_if_close_brace(from_keyword).is_some()
+        } else {
+            false
+        }
+    };
+    let has_from = default_import.is_some() || namespace_import.is_some() || has_named_imports;
     let mut items = PrintItems::new();
-    let has_from = default_import.is_some() || namespace_import.is_some() || !named_imports.is_empty();
 
     items.push_str("import ");
     if node.type_only { items.push_str("type "); }
@@ -877,7 +896,8 @@ fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> Pri
     if let Some(namespace_import) = namespace_import {
         items.extend(parse_node(namespace_import.into(), context));
     }
-    if !named_imports.is_empty() {
+
+    if has_named_imports {
         items.extend(parse_named_import_or_export_specifiers(
             &node.into(),
             named_imports.into_iter().map(|x| x.into()).collect(),
@@ -893,7 +913,11 @@ fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> Pri
         items.push_str(";");
     }
 
-    return items;
+    if should_single_line {
+        with_no_new_lines(items)
+    } else {
+        items
+    }
 }
 
 fn parse_import_equals_decl<'a>(node: &'a TsImportEqualsDecl, context: &mut Context<'a>) -> PrintItems {

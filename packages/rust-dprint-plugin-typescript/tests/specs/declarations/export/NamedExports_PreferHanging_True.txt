@@ -34,21 +34,24 @@ export { testing, thisOut,
     here as alias } from "test";
 
 == should break up on `as` when really long on the same line ==
-export { loooooooooooooonnnnnnngggggggg as alias } from "test";
+export { loooooooooooooonnnnnnngggggggg as alias, t } from "test";
 
 [expect]
 export {
     loooooooooooooonnnnnnngggggggg
-        as alias
+        as alias,
+    t
 } from "test";
 
 == should break up on `as` when really long on a different line ==
 export {
-    loooooooooooooonnnnnnngggggggg as alias
+    loooooooooooooonnnnnnngggggggg as alias,
+    t
 } from "test";
 
 [expect]
 export {
     loooooooooooooonnnnnnngggggggg
-        as alias
+        as alias,
+    t
 } from "test";
