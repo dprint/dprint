@@ -464,7 +464,7 @@ fn parse_class_prop_common<'a>(node: ParseClassPropCommon<'a>, context: &mut Con
     if node.computed { items.push_str("]"); }
     if node.is_optional { items.push_str("?"); }
     if node.definite { items.push_str("!"); }
-    items.extend(parse_type_annotation_with_colon_if_exists(node.type_ann, context));
+    items.extend(parse_type_ann_with_colon_if_exists(node.type_ann, context));
 
     if let Some(value) = node.value {
         items.extend(parse_assignment(value.into(), "=", context));
@@ -540,7 +540,7 @@ fn parse_identifier<'a>(node: &'a Ident, context: &mut Context<'a>) -> PrintItem
         }
     }
 
-    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
+    items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
 
     return items;
 }
@@ -1695,7 +1695,7 @@ fn parse_getter_prop<'a>(node: &'a GetterProp, context: &mut Context<'a>) -> Pri
 fn parse_key_value_prop<'a>(node: &'a KeyValueProp, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.extend(parse_node((&node.key).into(), context));
-    items.extend(parse_node_with_preceeding_colon(Some((&node.value).into()), context));
+    items.extend(parse_assignment((&node.value).into(), ":", context));
     return items;
 }
 
@@ -2070,7 +2070,7 @@ fn parse_index_signature<'a>(node: &'a TsIndexSignature, context: &mut Context<'
     items.push_str("[");
     items.extend(parse_node(node.params.iter().next().expect("Expected the index signature to have one parameter.").into(), context));
     items.push_str("]");
-    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
+    items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
 
     return items;
 }
@@ -2107,7 +2107,7 @@ fn parse_property_signature<'a>(node: &'a TsPropertySignature, context: &mut Con
     items.extend(parse_node((&node.key).into(), context));
     if node.computed { items.push_str("]"); }
     if node.optional { items.push_str("?"); }
-    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
+    items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
 
     if let Some(init) = &node.init {
         items.extend(parse_assignment(init.into(), "=", context));
@@ -2461,7 +2461,7 @@ fn parse_array_pat<'a>(node: &'a ArrayPat, context: &mut Context<'a>) -> PrintIt
         trailing_commas: context.config.array_pattern_trailing_commas,
     }, context));
     if node.optional { items.push_str("?"); }
-    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
+    items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
     items
 }
 
@@ -2489,7 +2489,7 @@ fn parse_rest_pat<'a>(node: &'a RestPat, context: &mut Context<'a>) -> PrintItem
     let mut items = PrintItems::new();
     items.push_str("...");
     items.extend(parse_node((&node.arg).into(), context));
-    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
+    items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
     items
 }
 
@@ -2504,7 +2504,7 @@ fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Print
         surround_single_line_with_spaces: true,
     }, context));
     if node.optional { items.push_str("?"); }
-    items.extend(parse_type_annotation_with_colon_if_exists(&node.type_ann, context));
+    items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
     return items;
 }
 
@@ -3580,7 +3580,7 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
                 TruePlusMinus::Minus => "-?",
             });
         }
-        items.extend(parse_type_annotation_with_colon_if_exists_for_type(&node.type_ann, context));
+        items.extend(parse_type_ann_with_colon_if_exists_for_type(&node.type_ann, context));
         items.extend(get_parsed_semi_colon(context.config.semi_colons, true, &is_multiple_lines));
         items
     })));
@@ -4493,36 +4493,36 @@ fn parse_node_with_semi_colon<'a>(value: Option<Node<'a>>, parsed_semi_colon: Pr
 }
 
 /// For some reason, some nodes don't have a TsTypeAnn, but instead of a Box<TsType>
-fn parse_type_annotation_with_colon_if_exists_for_type<'a>(type_ann: &'a Option<Box<TsType>>, context: &mut Context<'a>) -> PrintItems {
+fn parse_type_ann_with_colon_if_exists_for_type<'a>(type_ann: &'a Option<Box<TsType>>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     if let Some(type_ann) = type_ann {
         if context.config.type_annotation_space_before_colon {
             items.push_str(" ");
         }
-        items.extend(parse_node_with_preceeding_colon(Some(type_ann.into()), context));
+        let colon_token = context.token_finder.get_previous_token_if_colon(&**type_ann);
+        #[cfg(debug_assertions)]
+        assert_has_op(":", colon_token, context);
+        items.extend(parse_type_ann_with_colon(type_ann.into(), colon_token, context));
     }
     items
 }
 
-fn parse_type_annotation_with_colon_if_exists<'a>(type_ann: &'a Option<TsTypeAnn>, context: &mut Context<'a>) -> PrintItems {
+fn parse_type_ann_with_colon_if_exists<'a>(type_ann: &'a Option<TsTypeAnn>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     if let Some(type_ann) = type_ann {
         if context.config.type_annotation_space_before_colon {
             items.push_str(" ");
         }
-        items.extend(parse_node_with_preceeding_colon(Some(type_ann.into()), context));
+        let colon_token = context.token_finder.get_first_colon_token_within(type_ann);
+        #[cfg(debug_assertions)]
+        assert_has_op(":", colon_token, context);
+        items.extend(parse_type_ann_with_colon(type_ann.into(), colon_token, context));
     }
     items
 }
 
-fn parse_node_with_preceeding_colon<'a>(node: Option<Node<'a>>, context: &mut Context<'a>) -> PrintItems {
-    let mut items = PrintItems::new();
-    if let Some(node) = node {
-        items.push_str(":");
-        items.push_signal(Signal::SpaceOrNewLine);
-        items.push_condition(conditions::indent_if_start_of_line(parse_node(node, context)));
-    }
-    items
+fn parse_type_ann_with_colon<'a>(type_ann: Node<'a>, colon_token: Option<&TokenAndSpan>, context: &mut Context<'a>) -> PrintItems {
+    parse_assignment_like_with_token(type_ann, ":", colon_token, context)
 }
 
 struct ParseBraceSeparatorOptions<'a> {
@@ -5376,20 +5376,53 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
 }
 
 fn parse_assignment<'a>(expr: Node<'a>, op: &str, context: &mut Context<'a>) -> PrintItems {
+    let op_token = context.token_finder.get_previous_token(&expr);
+    #[cfg(debug_assertions)]
+    assert_has_op(op, op_token, context);
+
+    parse_assignment_like_with_token(expr, op, op_token, context)
+}
+
+fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Option<&TokenAndSpan>, context: &mut Context<'a>) -> PrintItems {
     let use_newline_group = get_use_newline_group(&expr);
     let mut items = PrintItems::new();
-    items.push_str(&format!(" {}", op));
-    items.push_condition(conditions::with_indent_if_start_of_line_indented({
+
+    if op == ":" { items.push_str(op) } else { items.push_str(&format!(" {}", op)) }; // good enough for now...
+    let had_trailing_line_comment = {
+        // ideally this should not be null and the caller should panic in debug if so
+        if let Some(op_token) = op_token {
+            let parsed_comment = parse_op_token_trailing_line_comment(op_token, context);
+            let had_trailing_line_comment = !parsed_comment.is_empty();
+            items.extend(parsed_comment);
+            had_trailing_line_comment
+        } else {
+            false
+        }
+    };
+
+    let parsed_assignment = {
         let mut items = PrintItems::new();
-        items.push_condition(conditions::if_above_width_or(
-            context.config.indent_width,
-            Signal::SpaceOrNewLine.into(),
-            " ".into()
-        ));
-        let assignment = conditions::indent_if_start_of_line(parse_node(expr, context)).into();
-        items.extend(if use_newline_group { new_line_group(assignment) } else { assignment });
+        if !had_trailing_line_comment {
+            items.push_condition(conditions::if_above_width_or(
+                context.config.indent_width,
+                Signal::SpaceOrNewLine.into(),
+                " ".into()
+            ).into());
+        }
+        let assignment = parse_node_with_inner_parse(expr, context, |items| conditions::indent_if_start_of_line(items).into());
+        let assignment = if use_newline_group { new_line_group(assignment) } else { assignment };
+        items.extend(assignment);
         items
-    }));
+
+    }.into_rc_path();
+
+    items.push_condition(if_true_or(
+        "indentIfStartOfLineIndentedOrTokenHadTrailingLineComment",
+        move |context| Some(had_trailing_line_comment || condition_resolvers::is_start_of_line_indented(context)),
+        with_indent(parsed_assignment.clone().into()),
+        parsed_assignment.into()
+    ));
+
     return items;
 
     fn get_use_newline_group(expr: &Node) -> bool {
@@ -5397,6 +5430,32 @@ fn parse_assignment<'a>(expr: Node<'a>, op: &str, context: &mut Context<'a>) -> 
             Node::MemberExpr(_) => true,
             _ => false,
         }
+    }
+
+    fn parse_op_token_trailing_line_comment<'a>(op_token: &TokenAndSpan, context: &mut Context<'a>) -> PrintItems {
+        let mut items = PrintItems::new();
+
+        let first_comment = op_token.trailing_comments(context).into_iter().next();
+        if let Some(first_comment) = first_comment {
+            if first_comment.kind == CommentKind::Line {
+                if let Some(parsed_comment) = parse_comment(&first_comment, context) {
+                    let is_same_line = first_comment.start_line(context) == op_token.start_line(context);
+                    if is_same_line {
+                        items.push_signal(Signal::StartForceNoNewLines);
+                        items.push_str(" ");
+                    } else {
+                        items.push_signal(Signal::NewLine);
+                        items.push_signal(Signal::StartIndent);
+                        items.push_signal(Signal::StartForceNoNewLines);
+                    }
+                    items.extend(parsed_comment);
+                    items.push_signal(Signal::FinishForceNoNewLines);
+                    if !is_same_line { items.push_signal(Signal::FinishIndent); }
+                }
+            }
+        }
+
+        items
     }
 }
 
@@ -5565,6 +5624,15 @@ fn parse_surrounded_by_tokens<'a>(
             }
         }
         items
+    }
+}
+
+#[cfg(debug_assertions)]
+fn assert_has_op<'a>(op: &str, op_token: Option<&TokenAndSpan>, context: &mut Context<'a>) {
+    if let Some(op_token) = op_token {
+        context.assert_text(op_token.lo(), op_token.hi(), op);
+    } else {
+        panic!("Debug panic! Expected to have op token: {}", op);
     }
 }
 

@@ -43,6 +43,10 @@ impl<'a> TokenFinder<'a> {
         self.get_previous_token_if(node, |token| get_text(file_bytes, &token.span) == "from")
     }
 
+    pub fn get_previous_token_if_colon(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_previous_token_if(node, |token| token.token == Token::Colon)
+    }
+
     fn get_previous_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : FnOnce(&TokenAndSpan) -> bool {
         let previous_token = self.get_previous_token(node)?;
         return if is_match(&previous_token) { Some(previous_token) } else { None };
@@ -87,6 +91,10 @@ impl<'a> TokenFinder<'a> {
 
     pub fn get_first_colon_token_after(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_after(node, |token| token.token == Token::Colon)
+    }
+
+    pub fn get_first_colon_token_within(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_within(node, |token| token.token == Token::Colon)
     }
 
     pub fn get_first_operator_after(&mut self, node: &dyn Ranged, operator_text: &str) -> Option<&'a TokenAndSpan> {
