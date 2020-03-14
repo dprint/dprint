@@ -28,11 +28,11 @@
   },
   "devDependencies": {
     "@types/ts-nameof": "^4.2.1",
-    "rimraf": "^3.0.0",
-    "rollup": "^1.29.0",
-    "rollup-plugin-typescript2": "^0.25.3",
-    "ts-morph": "^6.0.2",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.0.6",
+    "rollup-plugin-typescript2": "^0.26.0",
+    "ts-morph": "^7.0.0",
     "ts-node": "^8.6.2",
-    "typescript": "^3.7.5"
+    "typescript": "^3.8.3"
   }
 }
