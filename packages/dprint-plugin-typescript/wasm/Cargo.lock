@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -173,7 +173,7 @@ dependencies = [
 name = "dprint-plugin-typescript"
 version = "0.8.1"
 dependencies = [
- "dprint-core 0.11.0",
+ "dprint-core 0.11.1",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "swc_common 0.5.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "swc_ecma_ast 0.18.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -898,7 +898,7 @@ name = "ts-dprint-plugin-typescript"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "dprint-core 0.11.0",
+ "dprint-core 0.11.1",
  "dprint-plugin-typescript 0.8.1",
  "js-sys 0.3.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",

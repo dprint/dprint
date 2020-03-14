@@ -1,10 +1,10 @@
 ~~ arrowFunctionExpression.preferHangingParameters: true, lineWidth: 80 ~~
 == should format params with a hanging indent by default ==
-const t = (here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) => {
+const t = (here, are, some, parens, that, will, go, over, the, limit, off, width, source, file) => {
 }
 
 [expect]
-const t = (here, are, some, parens, that, will, go, over, the, limit, of,
+const t = (here, are, some, parens, that, will, go, over, the, limit, off,
     width, source, file) =>
 {
 };

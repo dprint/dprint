@@ -1,23 +1,13 @@
 ~~ lineWidth: 80, functionDeclaration.preferHangingParameters: true ~~
 == Brace at 79 ==
-export function test(some, very, long, list, of, params, to, put, brace, ove) {
-}
-
-[expect]
-export function test(some, very, long, list, of, params, to, put, brace, ove) {
-}
-
-== Brace at 80 ==
 export function test(some, very, long, list, of, params, to, put, brace, over) {
 }
 
 [expect]
-export function test(some, very, long, list, of, params, to, put, brace,
-    over)
-{
+export function test(some, very, long, list, of, params, to, put, brace, over) {
 }
 
-== Brace at 81 ==
+== Brace at 80 ==
 export function test(some, very, long, list, of, params, to, put, brace, overr) {
 }
 
@@ -27,13 +17,23 @@ export function test(some, very, long, list, of, params, to, put, brace,
 {
 }
 
-== Brace at 82 ==
+== Brace at 81 ==
 export function test(some, very, long, list, of, params, to, put, brace, overrr) {
 }
 
 [expect]
 export function test(some, very, long, list, of, params, to, put, brace,
     overrr)
+{
+}
+
+== Brace at 82 ==
+export function test(some, very, long, list, of, params, to, put, brace, overrrr) {
+}
+
+[expect]
+export function test(some, very, long, list, of, params, to, put, brace,
+    overrrr)
 {
 }
 

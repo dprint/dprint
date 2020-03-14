@@ -74,9 +74,9 @@ test
         : 4;
 
 == should handle when the semi-colon falls exactly on the line width ==
-test ? testingThis : outABit1;
+test ? testingThis : outABittt;
 
 [expect]
 test
     ? testingThis
-    : outABit1;
+    : outABittt;

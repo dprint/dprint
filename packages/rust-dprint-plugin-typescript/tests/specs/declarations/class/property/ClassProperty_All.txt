@@ -10,7 +10,7 @@ abstract class Test {
     7 : number;
     ["8"] : number;
     prop9   :   number  =   5;
-    someVeryLongProperty: string | number | string | number;
+    someVeryLongProperty: string | number | stringg | number;
     @dec
     readonly propReadonly = 3;
 }
@@ -27,7 +27,7 @@ abstract class Test {
     ["8"]: number;
     prop9: number = 5;
     someVeryLongProperty: string | number
-        | string | number;
+        | stringg | number;
     @dec
     readonly propReadonly = 3;
 }

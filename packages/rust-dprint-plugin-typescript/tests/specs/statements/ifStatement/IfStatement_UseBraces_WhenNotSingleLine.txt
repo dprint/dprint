@@ -25,11 +25,11 @@ else if (false) other;
 else asdf;
 
 == should add braces when the single line body goes over the line width ==
-if (testingThisOut && otherTest) logger;
+if (testingThisOut && otherTest) loggerr;
 
 [expect]
 if (testingThisOut && otherTest) {
-    logger;
+    loggerr;
 }
 
 == should leave the first line trailing comments as-is when going over the line width within the comment ==
@@ -43,12 +43,12 @@ if (testingThisOut && otherTest) { // testing this out
 }
 
 == for now, it does this when going over the line width on the second space ==
-if (testingThisOut && otherTestTestt) { // testing this out
+if (testingThisOut && otherTestTesttt) { // testing this out
     logger;
 }
 
 [expect]
-if (testingThisOut && otherTestTestt) {
+if (testingThisOut && otherTestTesttt) {
     // testing this out
     logger;
 }
