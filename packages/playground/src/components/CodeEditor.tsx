@@ -89,7 +89,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                     readOnly: this.props.readonly || false,
                     minimap: { enabled: false },
                     quickSuggestions: false,
-                    rulers: [this.props.lineWidth - 1]
+                    rulers: [this.props.lineWidth]
                 }}
             />
         );

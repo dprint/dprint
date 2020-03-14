@@ -172,7 +172,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
     }
 
     fn is_above_max_width(&self, offset: u32) -> bool {
-        self.writer.get_line_column() + 1 + offset > self.max_width
+        self.writer.get_line_column() + offset > self.max_width
     }
 
     fn update_state_to_save_point(&mut self, save_point: Rc<SavePoint<TString, TInfo, TCondition>>, is_for_new_line: bool) {
