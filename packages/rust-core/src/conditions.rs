@@ -13,7 +13,7 @@ pub fn indent_if_start_of_line(items: PrintItems) -> Condition {
 pub fn with_indent_if_start_of_line_indented(items: PrintItems) -> Condition {
     let rc_path = items.into_rc_path();
     Condition::new("withIndentIfStartOfLineIndented", ConditionProperties {
-        condition: Box::new(|context| Some(context.writer_info.line_start_indent_level > context.writer_info.indent_level)),
+        condition: Box::new(|context| Some(condition_resolvers::is_start_of_line_indented(context))),
         true_path: Some(parser_helpers::with_indent(rc_path.clone().into())),
         false_path: Some(rc_path.into()),
     })

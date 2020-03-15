@@ -87,7 +87,7 @@ impl<'a> Context<'a> {
     }
 
     #[cfg(debug_assertions)]
-    pub fn assert_text(&self, start_pos: BytePos, end_pos: BytePos, expected_text: &'static str) {
+    pub fn assert_text(&self, start_pos: BytePos, end_pos: BytePos, expected_text: &str) {
         let actual_text = self.get_text(start_pos, end_pos);
         if actual_text != expected_text {
             panic!("Expected text `{}`, but found `{}`", expected_text, actual_text)
