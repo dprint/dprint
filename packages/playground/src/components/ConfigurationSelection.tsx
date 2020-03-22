@@ -29,7 +29,7 @@ const trailingCommaOptions = ["never", "always", "onlyMultiLine"] as const;
 type _assertTrailingCommas = AssertTrue<IsExact<typeof trailingCommaOptions[number], NonNullable<TypeScriptConfiguration["trailingCommas"]>>>;
 const arrowFunctionUseParenthesesOptions = ["force", "maintain", "preferNone"] as const;
 type _assertArrowFunctionUseParentheses = AssertTrue<IsExact<typeof arrowFunctionUseParenthesesOptions[number],
-    NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>>>;
+    NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>>>;
 const enumMemberSpacingOptions = ["newline", "blankline", "maintain"] as const;
 type _assertEnumMemberSpacing = AssertTrue<IsExact<typeof enumMemberSpacingOptions[number],
     NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>>>;
@@ -74,7 +74,7 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
                 {this.getBooleanConfig("preferHanging")}
             </ConfigurationItem>
             <ConfigurationItem title="Arrow Function - Use parentheses">
-                {this.getSelectForConfig("arrowFunctionExpression.useParentheses", arrowFunctionUseParenthesesOptions)}
+                {this.getSelectForConfig("arrowFunction.useParentheses", arrowFunctionUseParenthesesOptions)}
             </ConfigurationItem>
             <ConfigurationItem title="Enum member spacing">
                 {this.getSelectForConfig("enumDeclaration.memberSpacing", enumMemberSpacingOptions)}

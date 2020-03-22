@@ -40,13 +40,13 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
             quoteStyle: initialConfig.quoteStyle,
             trailingCommas: initialConfig["tupleType.trailingCommas"],
             useBraces: initialConfig["ifStatement.useBraces"],
-            bracePosition: initialConfig["arrowFunctionExpression.bracePosition"],
+            bracePosition: initialConfig["arrowFunction.bracePosition"],
             singleBodyPosition: initialConfig["ifStatement.singleBodyPosition"],
             nextControlFlowPosition: initialConfig["ifStatement.nextControlFlowPosition"],
             operatorPosition: initialConfig["binaryExpression.operatorPosition"],
             preferHanging: initialConfig["arrayExpression.preferHanging"],
             "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
-            "arrowFunctionExpression.useParentheses": initialConfig["arrowFunctionExpression.useParentheses"]
+            "arrowFunction.useParentheses": initialConfig["arrowFunction.useParentheses"]
         };
 
         this.state = {
