@@ -189,7 +189,7 @@ dependencies = [
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "swc_common 0.5.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "swc_ecma_ast 0.18.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "swc_ecma_parser 0.21.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "swc_ecma_parser 0.21.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -838,7 +838,7 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.21.5"
+version = "0.21.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "either 1.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1121,7 +1121,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum swc_atoms 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "46682d5a27e12d8b86168ea2fcb3aae2e0625f24bf109dee4bca24b2b51e03ce"
 "checksum swc_common 0.5.9 (registry+https://github.com/rust-lang/crates.io-index)" = "8f17c61920fa7307f5ea35ecf5f05d455a2610cdb2582dbcf81dbeaa361a3788"
 "checksum swc_ecma_ast 0.18.1 (registry+https://github.com/rust-lang/crates.io-index)" = "31fb43e08500984ecb795ac12cc41a7dac3e55cc649a5e576fd808917a35a525"
-"checksum swc_ecma_parser 0.21.5 (registry+https://github.com/rust-lang/crates.io-index)" = "9519ab89ac37f65eb7d58f892f89aaa4dc64979b660a029025dbb9ee2a2b2903"
+"checksum swc_ecma_parser 0.21.6 (registry+https://github.com/rust-lang/crates.io-index)" = "701e681b7783c5b9d3df9e18592494ca3cba7a2fa8fc98d4d4f423ae993df155"
 "checksum swc_ecma_parser_macros 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8798810e2c79b884cf238bcb72b4bd12375121ee91724f1ceeb54b6e38a138e7"
 "checksum swc_macros_common 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "18a9f27d290938370597d363df9a77ba4be8e2bc99f32f69eb5245cdeed3c512"
 "checksum syn 1.0.16 (registry+https://github.com/rust-lang/crates.io-index)" = "123bd9499cfb380418d509322d7a6d52e5315f064fe4b3ad18a53d6b92c07859"
