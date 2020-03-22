@@ -47,3 +47,11 @@ obj.other
 obj?.["test"];
 obj.other
     ?.["test"];
+
+== should support non-null assertion ==
+test![0];
+test!.test;
+
+[expect]
+test![0];
+test!.test;
