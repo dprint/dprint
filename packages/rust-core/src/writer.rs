@@ -10,6 +10,7 @@ pub struct WriterState<T> where T : StringTrait {
     last_line_indent_level: u8,
     indent_level: u8,
     expect_newline_next: bool,
+    last_was_not_trailing_space: bool,
     ignore_indent_count: u8,
     items: Option<Rc<GraphNode<WriteItem<T>>>>,
 }
@@ -22,6 +23,7 @@ impl<T> Clone for WriterState<T> where T : StringTrait {
             last_line_indent_level: self.last_line_indent_level,
             indent_level: self.indent_level,
             expect_newline_next: self.expect_newline_next,
+            last_was_not_trailing_space: self.last_was_not_trailing_space,
             ignore_indent_count: self.ignore_indent_count,
             items: self.items.clone(),
         }
@@ -47,6 +49,7 @@ impl<T> Writer<T> where T : StringTrait {
                 last_line_indent_level: 0,
                 indent_level: 0,
                 expect_newline_next: false,
+                last_was_not_trailing_space: false,
                 ignore_indent_count: 0,
                 items: None,
             },
@@ -95,6 +98,13 @@ impl<T> Writer<T> where T : StringTrait {
         self.state.expect_newline_next = true;
     }
 
+    pub fn space_if_not_trailing(&mut self) {
+        if !self.state.expect_newline_next {
+            self.space();
+            self.state.last_was_not_trailing_space = true;
+        }
+    }
+
     pub fn get_line_start_indent_level(&self) -> u8 {
         self.state.last_line_indent_level
     }
@@ -125,6 +135,11 @@ impl<T> Writer<T> where T : StringTrait {
     }
 
     pub fn new_line(&mut self) {
+        if self.state.last_was_not_trailing_space {
+            self.pop_item();
+            self.state.last_was_not_trailing_space = false;
+        }
+
         self.state.current_line_column = 0;
         self.state.current_line_number += 1;
         self.state.last_line_indent_level = self.state.indent_level;
@@ -161,6 +176,8 @@ impl<T> Writer<T> where T : StringTrait {
             self.new_line();
         }
 
+        self.state.last_was_not_trailing_space = false;
+
         // add the indentation if necessary
         if self.state.current_line_column == 0 && self.state.indent_level > 0 && self.state.ignore_indent_count == 0 {
             // update the indent level again since on the first column
@@ -179,10 +196,39 @@ impl<T> Writer<T> where T : StringTrait {
         self.state.items = Some(Rc::new(GraphNode::new(item, previous)));
     }
 
+    fn pop_item(&mut self) {
+        if let Some(previous) = &self.state.items {
+            self.state.items = previous.borrow_previous().clone();
+        }
+    }
+
     pub fn get_items(self) -> impl Iterator<Item = WriteItem<T>> {
         match self.state.items {
             Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
             None => GraphNodeIterator::empty().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
         }
+    }
+
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    pub fn to_string_for_debugging(&self) -> String {
+        let write_items = self.get_items_cloned();
+        super::print_write_items(write_items.into_iter(), super::PrintWriteItemsOptions {
+            use_tabs: false,
+            new_line_text: "\n",
+            indent_width: 4,
+        })
+    }
+
+    #[cfg(debug_assertions)]
+    fn get_items_cloned(&self) -> Vec<WriteItem<T>> {
+        let mut items = Vec::new();
+        let mut current_item = self.state.items.clone();
+        while let Some(item) = current_item {
+            // insert at the start since items are stored last to first
+            items.insert(0, item.borrow_item().clone());
+            current_item = item.borrow_previous().clone();
+        }
+        items
     }
 }

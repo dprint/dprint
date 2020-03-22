@@ -76,6 +76,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             let current_node = unsafe { &*current_node.get_node() }; // ok because values won't be mutated while printing
             self.handle_print_node(current_node);
 
+            // println!("{}", self.writer.to_string_for_debugging());
+
             if self.skip_moving_next {
                 self.skip_moving_next = false;
             } else if let Some(current_node) = self.current_node {
@@ -115,6 +117,10 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
         }
 
         resolved_info
+    }
+
+    pub fn clear_info(&mut self, info: &TInfo) {
+        self.resolved_infos.remove(&info.get_unique_id());
     }
 
     pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
@@ -246,6 +252,7 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
             Signal::FinishIgnoringIndent => self.writer.finish_ignoring_indent(),
             Signal::StartForceNoNewLines => self.force_no_newlines_depth += 1,
             Signal::FinishForceNoNewLines => self.force_no_newlines_depth -= 1,
+            Signal::SpaceIfNotTrailing => self.writer.space_if_not_trailing(),
         }
     }
 
@@ -272,6 +279,8 @@ impl<'a, TString, TInfo, TCondition> Printer<TString, TInfo, TCondition> where T
                             self.update_state_to_save_point(save_point.clone(), false);
                             return;
                         }
+                    } else {
+                        self.resolved_conditions.remove(&condition_id);
                     }
                 }
             }

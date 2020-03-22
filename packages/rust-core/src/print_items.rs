@@ -402,6 +402,8 @@ pub enum Signal {
     StartForceNoNewLines,
     /// Signal to the printer that it should finish not printing any new lines.
     FinishForceNoNewLines,
+    /// Signal that a space should occur if not trailing.
+    SpaceIfNotTrailing,
 }
 
 /// Can be used to get information at a certain location being printed. These
@@ -614,6 +616,11 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
     pub fn get_resolved_info(&self, info: &TInfo) -> Option<&WriterInfo> {
         self.printer.get_resolved_info(info)
     }
+
+    /// Clears the info result from being stored.
+    pub fn clear_info(&mut self, info: &TInfo) {
+        self.printer.clear_info(info)
+    }
 }
 
 /// A container that holds the string's value and character count.
@@ -651,5 +658,10 @@ impl WriterInfo {
     /// Gets if the current column number equals the line start column number.
     pub fn is_start_of_line(&self) -> bool {
         self.column_number == self.line_start_column_number
+    }
+
+    /// Gets the line and column number.
+    pub fn get_line_and_column(&self) -> (u32, u32) {
+        (self.line_number, self.column_number)
     }
 }

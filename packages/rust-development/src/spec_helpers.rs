@@ -7,6 +7,7 @@ struct FailedTestResult {
     file_path: String,
     expected: String,
     actual: String,
+    actual_second: Option<String>,
     message: String,
 }
 
@@ -31,14 +32,50 @@ pub fn run_specs(
                 file_path: file_path.clone(),
                 expected: spec.expected_text.clone(),
                 actual: result,
+                actual_second: None,
                 message: spec.message.clone()
             });
+        } else {
+            // todo: re-enable
+            /*
+            // ensure no changes when formatting twice
+            let twice_result = format_text(&spec.file_name, &result, &spec.config)
+                .expect(format!(
+                    "Could not parse when formatting twice '{}' in {} for text {}",
+                    spec.message,
+                    file_path,
+                    result
+                ).as_str());
+            let twice_result = if let Some(twice_result) = twice_result { twice_result } else { spec.file_text.clone() };
+            if twice_result != spec.expected_text {
+                failed_tests.push(FailedTestResult {
+                    file_path: file_path.clone(),
+                    expected: spec.expected_text.clone(),
+                    actual: result,
+                    actual_second: Some(twice_result),
+                    message: spec.message.clone()
+                });
+            }
+            */
         }
     }
 
     for failed_test in &failed_tests {
         println!("---");
-        println!("Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`", failed_test.message, failed_test.file_path, failed_test.expected, failed_test.actual);
+        let mut failed_message = format!(
+            "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`",
+            failed_test.message,
+            failed_test.file_path,
+            failed_test.expected,
+            failed_test.actual,
+        );
+        if let Some(actual_second) = &failed_test.actual_second {
+            failed_message.push_str(&format!(
+                "\nTwice:    `{:?}`",
+                actual_second
+            ));
+        }
+        println!("{}", failed_message);
     }
 
     if !failed_tests.is_empty() {
