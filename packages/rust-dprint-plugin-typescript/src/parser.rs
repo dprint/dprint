@@ -4804,18 +4804,21 @@ struct MemberLikeExpr<'a> {
 }
 
 fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Context<'a>) -> PrintItems {
-    let use_new_line = node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
     let mut items = PrintItems::new();
+    let use_new_line = node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
     let is_optional = context.parent().kind() == NodeKind::OptChainExpr;
 
     items.extend(parse_node(node.left_node, context));
-    if use_new_line {
-        items.push_signal(Signal::NewLine);
-    } else {
-        items.push_condition(conditions::if_above_width(
-            context.config.indent_width,
-            Signal::PossibleNewLine.into()
-        ));
+
+    if is_optional || !node.is_computed {
+        if use_new_line {
+            items.push_signal(Signal::NewLine);
+        } else {
+            items.push_condition(conditions::if_above_width(
+                context.config.indent_width,
+                Signal::PossibleNewLine.into()
+            ));
+        }
     }
 
     items.push_condition(conditions::indent_if_start_of_line({
