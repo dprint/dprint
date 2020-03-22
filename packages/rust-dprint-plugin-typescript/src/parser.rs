@@ -796,18 +796,28 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
     let mut items = PrintItems::new();
     let start_header_info = Info::new("functionHeaderStart");
     let func = node.func;
+    let space_after_function_keyword = !node.is_func_decl && context.config.function_expression_space_after_function_keyword;
 
     items.push_info(start_header_info);
     if node.declare { items.push_str("declare "); }
     if func.is_async { items.push_str("async "); }
     items.push_str("function");
     if func.is_generator { items.push_str("*"); }
+    if space_after_function_keyword {
+        items.push_str(" ")
+    }
     if let Some(ident) = node.ident {
-        items.push_str(" ");
+        if !space_after_function_keyword {
+            items.push_str(" ");
+        }
         items.extend(parse_node(ident.into(), context));
     }
     if let Some(type_params) = &func.type_params { items.extend(parse_node(type_params.into(), context)); }
-    if get_use_space_before_parens(node.is_func_decl, context) { items.push_str(" "); }
+    if get_use_space_before_parens(node.is_func_decl, context) {
+        if node.ident.is_some() || func.type_params.is_some() || !space_after_function_keyword {
+            items.push_str(" ");
+        }
+    }
 
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: func.params.iter().map(|node| node.into()).collect(),

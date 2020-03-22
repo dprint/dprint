@@ -125,6 +125,7 @@ fn check_all_values_set() {
         .for_of_statement_space_after_for_keyword(true)
         .function_declaration_space_before_parentheses(true)
         .function_expression_space_before_parentheses(true)
+        .function_expression_space_after_function_keyword(true)
         .get_accessor_space_before_parentheses(true)
         .if_statement_space_after_if_keyword(true)
         .import_declaration_space_surrounding_named_imports(true)
@@ -137,7 +138,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 116);
+    assert_eq!(inner_config.len(), 117);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

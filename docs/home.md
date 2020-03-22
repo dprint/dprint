@@ -272,7 +272,7 @@ type CtorOf<T> = new (...args) => T;
 
 See the `TypeScriptConfiguration` interface in the [type declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts) and search for options that begin with the word "space" to see all the possibilities.
 
-### `"arrowFunctionExpression​.useParentheses"`
+### `"arrowFunction.useParentheses"`
 
 Whether to use parentheses around a single parameter in an arrow function.
 

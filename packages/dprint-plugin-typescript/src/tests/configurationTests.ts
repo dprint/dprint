@@ -534,6 +534,7 @@ describe("configuration", () => {
                 "forStatement.spaceAfterSemiColons",
                 "functionDeclaration.spaceBeforeParentheses",
                 "functionExpression.spaceBeforeParentheses",
+                "functionExpression.spaceAfterFunctionKeyword",
                 "getAccessor.spaceBeforeParentheses",
                 "ifStatement.spaceAfterIfKeyword",
                 "importDeclaration.spaceSurroundingNamedImports",

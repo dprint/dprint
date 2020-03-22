@@ -1,4 +1,4 @@
-~~ functionExpression.spaceBeforeParentheses: true ~~
+~~ functionExpression.spaceAfterFunctionKeyword: true ~~
 == should format with a space before the parens ==
 const t = function(p, u) {};
 const u = function<T>(p, u) {};
@@ -6,17 +6,17 @@ const v = function test<T>(p, u) {};
 const w = function test<T>(
     p, u) {
 };
-const x = function*() {};
+const x = function*() {}; // prettier does this
 const y = function ident() {};
 
 [expect]
 const t = function (p, u) {};
-const u = function<T> (p, u) {};
-const v = function test<T> (p, u) {};
-const w = function test<T> (
+const u = function <T>(p, u) {};
+const v = function test<T>(p, u) {};
+const w = function test<T>(
     p,
     u,
 ) {
 };
-const x = function* () {};
-const y = function ident () {};
+const x = function* () {}; // prettier does this
+const y = function ident() {};

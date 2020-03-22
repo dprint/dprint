@@ -62,6 +62,9 @@ impl ConfigurationBuilder {
             .brace_position(BracePosition::SameLine)
             .comment_line_force_space_after_slashes(false)
             .construct_signature_space_after_new_keyword(true)
+            .arrow_function_use_parentheses(UseParentheses::Force)
+            .new_line_kind(NewLineKind::LineFeed)
+            .function_expression_space_after_function_keyword(true)
     }
 
     /// The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
@@ -277,10 +280,18 @@ impl ConfigurationBuilder {
 
     /// Whether to add a space before the parentheses of a function expression.
     ///
-    /// `true` - Ex. `function ()`
-    /// `false` (default) - Ex. `function()`
+    /// `true` - Ex. `function<T> ()`
+    /// `false` (default) - Ex. `function<T> ()`
     pub fn function_expression_space_before_parentheses(&mut self, value: bool) -> &mut Self {
         self.insert("functionExpression.spaceBeforeParentheses", value)
+    }
+
+    /// Whether to add a space after the function keyword of a function expression.
+    ///
+    /// `true` - Ex. `function <T>()`.
+    /// `false` (default) - Ex. `function<T>()`
+    pub fn function_expression_space_after_function_keyword(&mut self, value: bool) -> &mut Self {
+        self.insert("functionExpression.spaceAfterFunctionKeyword", value)
     }
 
     /// Whether to add a space before the parentheses of a get accessor.
@@ -1094,6 +1105,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         for_of_statement_space_after_for_keyword: get_value(&mut config, "forOfStatement.spaceAfterForKeyword", true, &mut diagnostics),
         function_declaration_space_before_parentheses: get_value(&mut config, "functionDeclaration.spaceBeforeParentheses", false, &mut diagnostics),
         function_expression_space_before_parentheses: get_value(&mut config, "functionExpression.spaceBeforeParentheses", false, &mut diagnostics),
+        function_expression_space_after_function_keyword: get_value(&mut config, "functionExpression.spaceAfterFunctionKeyword", false, &mut diagnostics),
         get_accessor_space_before_parentheses: get_value(&mut config, "getAccessor.spaceBeforeParentheses", false, &mut diagnostics),
         if_statement_space_after_if_keyword: get_value(&mut config, "ifStatement.spaceAfterIfKeyword", true, &mut diagnostics),
         import_declaration_space_surrounding_named_imports: get_value(&mut config, "importDeclaration.spaceSurroundingNamedImports", true, &mut diagnostics),
@@ -1326,6 +1338,8 @@ pub struct Configuration {
     pub function_declaration_space_before_parentheses: bool,
     #[serde(rename = "functionExpression.spaceBeforeParentheses")]
     pub function_expression_space_before_parentheses: bool,
+    #[serde(rename = "functionExpression.spaceAfterFunctionKeyword")]
+    pub function_expression_space_after_function_keyword: bool,
     #[serde(rename = "getAccessor.spaceBeforeParentheses")]
     pub get_accessor_space_before_parentheses: bool,
     #[serde(rename = "ifStatement.spaceAfterIfKeyword")]

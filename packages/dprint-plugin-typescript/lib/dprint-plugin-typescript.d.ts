@@ -225,10 +225,17 @@ export interface TypeScriptConfiguration {
     /**
      * Whether to add a space before the parentheses of a function expression.
      * @default false
-     * @value true - Ex. `function ()`
-     * @value false - Ex. `function()`
+     * @value true - Ex. `function<T> ()`
+     * @value false - Ex. `function<T>()`
      */
     "functionExpression.spaceBeforeParentheses"?: boolean;
+    /**
+     * Whether to add a space after the function keyword of a function expression.
+     * @default false
+     * @value true - Ex. `function <T>()`
+     * @value false - Ex. `function<T>()`
+     */
+    "functionExpression.spaceAfterFunctionKeyword"?: boolean;
     /**
      * Whether to add a space before the parentheses of a get accessor.
      * @default false
