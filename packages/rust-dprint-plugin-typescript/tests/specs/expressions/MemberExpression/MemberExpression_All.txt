@@ -23,13 +23,13 @@ testing.this.out.for.when.it.passes
 == should not indent for other nodes ==
 call({
     prop: 5,
-    prop: 7
+    prop: 7,
 }).member;
 
 [expect]
 call({
     prop: 5,
-    prop: 7
+    prop: 7,
 }).member;
 
 == should support optional chaining ==

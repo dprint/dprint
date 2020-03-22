@@ -23,9 +23,9 @@ fn check_all_values_set() {
         .prefer_hanging_arguments(false)
         .prefer_hanging_parameters(false)
         /* use parentheses */
-        .arrow_function_expression_use_parentheses(UseParentheses::Force)
+        .arrow_function_use_parentheses(UseParentheses::Maintain)
         /* brace position*/
-        .arrow_function_expression_brace_position(BracePosition::NextLine)
+        .arrow_function_brace_position(BracePosition::NextLine)
         .class_declaration_brace_position(BracePosition::NextLine)
         .class_expression_brace_position(BracePosition::NextLine)
         .constructor_brace_position(BracePosition::NextLine)
@@ -70,7 +70,7 @@ fn check_all_values_set() {
         .call_expression_prefer_hanging_arguments(true)
         .new_expression_prefer_hanging_arguments(true)
         /* prefer hanging parameters */
-        .arrow_function_expression_prefer_hanging_parameters(true)
+        .arrow_function_prefer_hanging_parameters(true)
         .call_signature_prefer_hanging_parameters(true)
         .construct_signature_prefer_hanging_parameters(true)
         .constructor_prefer_hanging_parameters(true)
@@ -97,10 +97,13 @@ fn check_all_values_set() {
         .for_of_statement_single_body_position(SingleBodyPosition::SameLine)
         .while_statement_single_body_position(SingleBodyPosition::SameLine)
         /* trailing commas */
+        .arguments_trailing_commas(TrailingCommas::Never)
+        .parameters_trailing_commas(TrailingCommas::Never)
         .array_expression_trailing_commas(TrailingCommas::Never)
         .array_pattern_trailing_commas(TrailingCommas::Never)
         .enum_declaration_trailing_commas(TrailingCommas::Never)
         .object_expression_trailing_commas(TrailingCommas::Never)
+        .type_parameter_declaration_trailing_commas(TrailingCommas::Never)
         .tuple_type_trailing_commas(TrailingCommas::Never)
         /* use braces */
         .if_statement_use_braces(UseBraces::Always)
@@ -134,7 +137,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 113);
+    assert_eq!(inner_config.len(), 116);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

@@ -1,4 +1,4 @@
-~~ arrowFunctionExpression.useParentheses: force ~~
+~~ arrowFunction.useParentheses: force ~~
 == should force using parentheses ==
 const obj1 = (a) => {};
 const obj2 = a => 5;

@@ -32,8 +32,8 @@ function t(
     [
         testing,
         thisOutWhere,
-        itGoesOverTheLineWidth
-    ]
+        itGoesOverTheLineWidth,
+    ],
 ) {
 }
 

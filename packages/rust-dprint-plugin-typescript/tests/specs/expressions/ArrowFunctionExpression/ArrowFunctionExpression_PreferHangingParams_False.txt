@@ -1,4 +1,4 @@
-~~ arrowFunctionExpression.preferHangingParameters: false, lineWidth: 40 ~~
+~~ arrowFunction.preferHangingParameters: false, lineWidth: 40 ~~
 == should force multi-line parameters when exceeding the line width ==
 const t = (testing, thisOut, byExceeding, theLineWidth) => "";
 
@@ -7,7 +7,7 @@ const t = (
     testing,
     thisOut,
     byExceeding,
-    theLineWidth
+    theLineWidth,
 ) => "";
 
 == should not be multi-line when not exceeding the line width ==

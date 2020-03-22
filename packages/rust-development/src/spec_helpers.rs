@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::fs::{self};
 
 use super::*;
 
@@ -11,11 +12,20 @@ struct FailedTestResult {
     message: String,
 }
 
+pub struct RunSpecsOptions {
+    /// Set to true to overwrite the failing tests with the actual result.
+    pub fix_failures: bool,
+}
+
 pub fn run_specs(
     directory_path: &Path,
     parse_spec_options: &ParseSpecOptions,
+    run_spec_options: &RunSpecsOptions,
     format_text: impl Fn(&str, &str, &HashMap<String, String>) -> Result<Option<String>, String>
 ) {
+    #[cfg(not(debug_assertions))]
+    assert_not_quick_fix(run_spec_options);
+
     let specs = get_specs_in_dir(&directory_path, &parse_spec_options);
     let test_count = specs.len();
     let mut failed_tests = Vec::new();
@@ -28,13 +38,21 @@ pub fn run_specs(
             .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
         let result = if let Some(result) = result { result } else { spec.file_text.clone() };
         if result != spec.expected_text {
-            failed_tests.push(FailedTestResult {
-                file_path: file_path.clone(),
-                expected: spec.expected_text.clone(),
-                actual: result,
-                actual_second: None,
-                message: spec.message.clone()
-            });
+            if run_spec_options.fix_failures {
+                // very rough, but good enough
+                let file_path = Path::new(file_path);
+                let file_text = fs::read_to_string(file_path).expect("Expected to read the file.");
+                let file_text = file_text.replace(&spec.expected_text.replace("\n", "\r\n"), &result.replace("\n", "\r\n"));
+                fs::write(file_path, file_text).expect("Expected to write to file.");
+            } else {
+                failed_tests.push(FailedTestResult {
+                    file_path: file_path.clone(),
+                    expected: spec.expected_text.clone(),
+                    actual: result,
+                    actual_second: None,
+                    message: spec.message.clone()
+                });
+            }
         } else {
             // todo: re-enable
             /*
@@ -87,6 +105,13 @@ pub fn run_specs(
     fn assert_spec_not_only(spec: &Spec) {
         if spec.is_only {
             panic!("Cannot run 'only' spec in release mode: {}", spec.message);
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn assert_not_quick_fix(run_spec_options: &RunSpecsOptions) {
+        if run_spec_options.quick_fix {
+            panic!("Cannot have 'quick_fix' as `true` in release mode.");
         }
     }
 }

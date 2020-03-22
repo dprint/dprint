@@ -13,7 +13,7 @@ type Test = {
     new<T>(param: string): string;
     new(
         param: string,
-        otherParam: number
+        otherParam: number,
     ): string;
     new();
 };
@@ -26,7 +26,7 @@ interface T {
 [expect]
 interface T {
     new(
-        param: string
+        param: string,
     ): testing | number;
 }
 
@@ -39,7 +39,7 @@ interface T {
 interface T {
     new(
         param: string,
-        p2
+        p2,
     ): testing | number;
 }
 
@@ -54,7 +54,7 @@ interface T {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ): void;
 }
 

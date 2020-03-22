@@ -23,7 +23,7 @@ const obj = {
 [expect]
 const obj = {
     "testing": call(asdfasdfkjasdfasdfasdf,
-        asdfasdfasdfasdfasdfasdfasdfasdfsadfas)
+        asdfasdfasdfasdfasdfasdfasdfasdfsadfas),
 };
 
 == should not indent within object literal ==
@@ -36,7 +36,7 @@ export function test() {
 [expect]
 export function test() {
     const obj = new Test({
-        prop: ""
+        prop: "",
     });
 }
 

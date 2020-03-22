@@ -85,7 +85,7 @@ export interface TypeScriptConfiguration {
     nextControlFlowPosition?: "maintain" | "sameLine" | "nextLine";
     /**
      * If trailing commas should be used.
-     * @default "never"
+     * @default "onlyMultiLine"
      * @value "never" - Trailing commas should not be used.
      * @value "always" - Trailing commas should always be used.
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
@@ -129,7 +129,7 @@ export interface TypeScriptConfiguration {
      * @value "maintain" - Maintains the current state of the parentheses.
      * @value "preferNone" - Prefers not using parentheses when possible.
      */
-    "arrowFunctionExpression.useParentheses"?: "force" | "maintain" | "preferNone";
+    "arrowFunction.useParentheses"?: "force" | "maintain" | "preferNone";
 
     /**
      * How to space the members of an enum.
@@ -309,7 +309,7 @@ export interface TypeScriptConfiguration {
     "ifStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "whileStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
 
-    "arrowFunctionExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "arrowFunction.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "classDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "classExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "constructor.bracePosition"?: TypeScriptConfiguration["bracePosition"];
@@ -340,11 +340,14 @@ export interface TypeScriptConfiguration {
     "ifStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
     "tryStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
 
+    "arguments.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "parameters.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "arrayExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "arrayPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "enumDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "typeParameterDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
 
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
@@ -373,7 +376,7 @@ export interface TypeScriptConfiguration {
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
 
-    "arrowFunctionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "arrowFunction.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "callSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "constructor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "constructorType.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
@@ -402,7 +405,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "whileStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;
 
     // brace position
-    readonly "arrowFunctionExpression.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "arrowFunction.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "classDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "classExpression.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "constructor.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
@@ -436,10 +439,13 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tryStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
 
     // trailing commas
+    readonly "arguments.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "parameters.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "arrayExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "arrayPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "enumDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "typeParameterDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
 
     // operator position
@@ -473,7 +479,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
 
     // prefer hanging parameters
-    readonly "arrowFunctionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "arrowFunction.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "callSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "constructor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "constructorType.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
@@ -487,7 +493,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "setAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
 
     // declaration specific
-    readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
+    readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
 
     // use space separator

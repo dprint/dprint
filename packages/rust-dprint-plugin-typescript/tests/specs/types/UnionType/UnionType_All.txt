@@ -130,5 +130,5 @@ class Test<
         | string
         | number
         | test
-        | test
+        | test,
 > {}

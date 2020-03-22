@@ -42,6 +42,6 @@ function* test() {
 function* test() {
     yield {
         prop: 5,
-        prop2: 7
+        prop2: 7,
     };
 }

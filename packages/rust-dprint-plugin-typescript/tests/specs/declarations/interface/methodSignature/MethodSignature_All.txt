@@ -23,7 +23,7 @@ interface T {
 [expect]
 interface T {
     method(
-        param: string
+        param: string,
     ): test | number;
 }
 
@@ -38,7 +38,7 @@ interface T {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ): void;
 }
 

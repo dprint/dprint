@@ -11,7 +11,7 @@ const test =
     // test
     [
         test,
-        test2
+        test2,
     ];
 
 == should allow comment on same line as assignment ==
@@ -25,7 +25,7 @@ const test = // test
 const test = // test
     [
         test,
-        test2
+        test2,
     ];
 
 == should handle comment on line after property assignment token ==
@@ -42,6 +42,6 @@ const test = {
     test:
         // testing
         [
-            testing
-        ]
+            testing,
+        ],
 };

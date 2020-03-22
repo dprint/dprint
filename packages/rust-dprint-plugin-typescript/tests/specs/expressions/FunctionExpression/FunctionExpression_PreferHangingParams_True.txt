@@ -29,7 +29,7 @@ const t = function test(
 [expect]
 const t = function test(
     p1,
-    p2
+    p2,
 ) {
 };
 
@@ -43,6 +43,6 @@ const t = function test(
 const t = function test(
     p1,
     p2,
-    p3
+    p3,
 ) {
 };

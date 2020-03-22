@@ -7,6 +7,6 @@ export function test(param1: string, param2: number, t: string) {
 export function test(
     param1: string,
     param2: number,
-    t: string
+    t: string,
 ) {
 }

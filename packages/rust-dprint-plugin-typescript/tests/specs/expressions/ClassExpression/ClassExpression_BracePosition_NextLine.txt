@@ -19,7 +19,7 @@ V> {
 const t = class<
     T,
     U,
-    V
+    V,
 >
 {
 };

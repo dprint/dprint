@@ -45,10 +45,15 @@ fn test_specs() {
     //debug_here!();
     let global_config = resolve_global_config(&HashMap::new()).config;
 
-    run_specs(&Path::new("./tests/specs"), &ParseSpecOptions { default_file_name: "file.ts" }, move |file_name, file_text, spec_config| {
-        let config_result = resolve_config(&spec_config, &global_config);
-        ensure_no_diagnostics(&config_result.diagnostics);
+    run_specs(
+        &Path::new("./tests/specs"),
+        &ParseSpecOptions { default_file_name: "file.ts" },
+        &RunSpecsOptions { fix_failures: false },
+        move |file_name, file_text, spec_config| {
+            let config_result = resolve_config(&spec_config, &global_config);
+            ensure_no_diagnostics(&config_result.diagnostics);
 
-        format_text(&file_name, &file_text, &config_result.config)
-    })
+            format_text(&file_name, &file_text, &config_result.config)
+        }
+    )
 }

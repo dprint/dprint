@@ -11,7 +11,7 @@ const obj = {
         return "";
     },
     set test (value: string) {
-    }
+    },
 };
 
 [expect]
@@ -26,7 +26,7 @@ const obj = {
         return "";
     },
     set test(value: string) {
-    }
+    },
 };
 
 == should force multi-line parameters when exceeding the line width ==
@@ -41,9 +41,9 @@ const o = {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ) {
-    }
+    },
 };
 
 == should not be multi-line when not exceeding the line width ==
@@ -55,7 +55,7 @@ const o = {
 [expect]
 const o = {
     test(testing, this) {
-    }
+    },
 };
 
 == should format the params as multi-line when the return type exceeds the line width ==
@@ -67,7 +67,7 @@ const obj = {
 [expect]
 const obj = {
     method(
-        param: string
+        param: string,
     ): test | otherr | number {
-    }
+    },
 };

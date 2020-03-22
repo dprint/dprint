@@ -19,10 +19,10 @@ interface T {
     (a: string, b: number): string;
     (
         param: string,
-        otherParameter: number
+        otherParameter: number,
     ): str;
     (
-        param: string
+        param: string,
     ): number;
 }
 
@@ -35,7 +35,7 @@ interface T {
 interface T {
     (
         param: string,
-        p2: 5
+        p2: 5,
     ): testing | number;
 }
 
@@ -50,7 +50,7 @@ interface T {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ): void;
 }
 

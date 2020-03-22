@@ -35,7 +35,7 @@ call(5, 6, 7,
 [
     5,
     6,
-    7
+    7,
 ];
 
 == should ignore when there is a colon after (or some other non word character) ==
@@ -62,5 +62,5 @@ call(5, 6, 7,
 // test
 [
     5,
-    6
+    6,
 ];

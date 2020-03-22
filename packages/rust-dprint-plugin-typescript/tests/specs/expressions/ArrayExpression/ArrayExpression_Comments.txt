@@ -6,7 +6,7 @@ const u = [ // testing
 
 [expect]
 const u = [ // testing
-    test
+    test,
 ];
 
 == should format any comments inside when single line ==
@@ -54,13 +54,13 @@ const u = [
 
 == should format trailing comments of the last member ==
 const u = [
-    test
+    test,
 // 5
 /*test*/]
 
 [expect]
 const u = [
-    test
+    test,
     // 5
     /*test*/
 ];

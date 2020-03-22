@@ -7,7 +7,7 @@ call(
     testing,
     thisOut,
     byExceeding,
-    theLineWidth
+    theLineWidth,
 );
 
 == should not be multi-line when not exceeding the line width ==
@@ -46,8 +46,8 @@ calltttttt(tttttttttttttttttttttttttttttttttttttttt);
 
 [expect]
 call(
-    tttttttttttttttttttttttttttttttttttttttt
+    tttttttttttttttttttttttttttttttttttttttt,
 );
 calltttttt(
-    tttttttttttttttttttttttttttttttttttttttt
+    tttttttttttttttttttttttttttttttttttttttt,
 );

@@ -12,7 +12,7 @@ export class Testing {
     constructor() {
         asdfasdfasdfasdf.getProxyByNameAsync<IViewModel>(
             'asdfasdfasdfasdf',
-            $scope
+            $scope,
         ).then((data) => {
         });
     }

@@ -5,5 +5,5 @@ const defaultValues = {
 
 [expect]
 const defaultValues = {
-    lineWidth: 120
+    lineWidth: 120,
 } as const;

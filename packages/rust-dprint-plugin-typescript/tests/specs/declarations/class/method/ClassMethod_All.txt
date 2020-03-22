@@ -96,7 +96,7 @@ class Test {
 [expect]
 class Test {
     method(
-        param: string
+        param: string,
     ): testt | other | number {
     }
 }
@@ -113,7 +113,7 @@ class Test {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ) {
     }
 }

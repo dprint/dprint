@@ -14,7 +14,7 @@ const t = [
 const t = [
     5, // testing
     6,
-    7
+    7,
 ];
 
 == should print on multiple lines when exceeding line width ==
@@ -26,7 +26,7 @@ const t = [
     other,
     other,
     otherTest,
-    other
+    other,
 ];
 
 == should become single line when empty ==

@@ -50,7 +50,7 @@ function testing(param: string, other: number): testing | this {
 [expect]
 function testing(
     param: string,
-    other: number
+    other: number,
 ): testing | this {
 }
 
@@ -60,7 +60,7 @@ function testing(param: string): testing | this | out | aLittleBitToExceedTheWid
 
 [expect]
 function testing(
-    param: string
+    param: string,
 ): testing | this | out | aLittleBitToExceedTheWidth {
 }
 
@@ -94,7 +94,7 @@ function test(
     thisOut,
     byExceeding,
     theLineWidth,
-    testing
+    testing,
 ) {
 }
 

@@ -13,6 +13,6 @@ const u = function<T> (p, u) {};
 const v = function test<T> (p, u) {};
 const w = function test<T> (
     p,
-    u
+    u,
 ) {
 };

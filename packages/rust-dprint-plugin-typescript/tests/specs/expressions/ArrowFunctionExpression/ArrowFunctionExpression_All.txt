@@ -65,7 +65,7 @@ const t = (test: s, other): testing | thisOutMore => {
 [expect]
 const t = (
     test: s,
-    other
+    other,
 ): testing | thisOutMore => {
 };
 
@@ -76,7 +76,7 @@ const testing = (param: string, other: number): testing | this => {
 [expect]
 const testing = (
     param: string,
-    other: number
+    other: number,
 ): testing | this => {
 };
 
@@ -87,7 +87,7 @@ const testing = (param: string, other: number): testing | other | other | test |
 [expect]
 const testing = (
     param: string,
-    other: number
+    other: number,
 ):
     | testing
     | other
@@ -106,7 +106,7 @@ const test = (testing, thisOut) => ({
 [expect]
 const test = (testing, thisOut) => ({
     test: 5,
-    other: 10
+    other: 10,
 });
 
 == should not newline when the arrow is on a separate line -- previously would newline before sum, which was useless ==
@@ -116,9 +116,9 @@ const test = (testing, thisOut, somethingThatWillGo) => sum(testing, thisOut, ag
 const test = (
     testing,
     thisOut,
-    somethingThatWillGo
+    somethingThatWillGo,
 ) => sum(
     testing,
     thisOut,
-    againWithSomethingThisisLong
+    againWithSomethingThisisLong,
 );

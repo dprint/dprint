@@ -12,7 +12,7 @@ enum Test {
     member,
     member2 = 5,
     "member3",
-    "member4" = "str"
+    "member4" = "str",
 }
 
 == should format with initializer on next line if it goes over ==
@@ -26,5 +26,5 @@ enum Test {
     memberThatIsLong =
         52364363463463,
     member2 = "some" + "test"
-        + "withLotsOfThese"
+        + "withLotsOfThese",
 }

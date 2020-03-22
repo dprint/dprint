@@ -4,7 +4,7 @@ type Test = new (param: string) => str | number;
 
 [expect]
 type Test = new(
-    param: string
+    param: string,
 ) => str | number;
 
 == should format the return type on the same line when the rest of the header is hanging ==

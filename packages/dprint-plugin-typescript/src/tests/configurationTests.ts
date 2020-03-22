@@ -164,7 +164,7 @@ describe("configuration", () => {
 
         function getObject(value: NonNullable<TypeScriptConfiguration["bracePosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "arrowFunctionExpression.bracePosition": value,
+                "arrowFunction.bracePosition": value,
                 "classDeclaration.bracePosition": value,
                 "classExpression.bracePosition": value,
                 "constructor.bracePosition": value,
@@ -297,11 +297,11 @@ describe("configuration", () => {
         }
 
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject("never"));
+            doSpecificTest({}, getObject("onlyMultiLine"));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ trailingCommas: "never" }, getObject("never"));
+            doSpecificTest({ trailingCommas: "onlyMultiLine" }, getObject("onlyMultiLine"));
         });
 
         it("should set all the values when set to a non-default", () => {
@@ -311,16 +311,19 @@ describe("configuration", () => {
         it("should allow setting specific values when not the default", () => {
             const expectedConfig = getObject("always");
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.trailingCommas = "never";
+            config.trailingCommas = "onlyMultiLine";
             doSpecificTest(config, expectedConfig);
         });
 
         function getObject(value: NonNullable<TypeScriptConfiguration["trailingCommas"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
+                "arguments.trailingCommas": value,
+                "parameters.trailingCommas": value,
                 "arrayExpression.trailingCommas": value,
                 "arrayPattern.trailingCommas": value,
                 "enumDeclaration.trailingCommas": value,
                 "objectExpression.trailingCommas": value,
+                "typeParameterDeclaration.trailingCommas": value,
                 "tupleType.trailingCommas": value
             };
         }
@@ -376,7 +379,7 @@ describe("configuration", () => {
                 "whileStatement.preferHanging": value,
                 "callExpression.preferHangingArguments": value,
                 "newExpression.preferHangingArguments": value,
-                "arrowFunctionExpression.preferHangingParameters": value,
+                "arrowFunction.preferHangingParameters": value,
                 "callSignature.preferHangingParameters": value,
                 "constructor.preferHangingParameters": value,
                 "constructSignature.preferHangingParameters": value,
@@ -454,7 +457,7 @@ describe("configuration", () => {
 
         function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingParameters"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "arrowFunctionExpression.preferHangingParameters": value,
+                "arrowFunction.preferHangingParameters": value,
                 "callSignature.preferHangingParameters": value,
                 "constructor.preferHangingParameters": value,
                 "constructSignature.preferHangingParameters": value,
@@ -487,19 +490,19 @@ describe("configuration", () => {
         });
     });
 
-    describe("arrowFunctionExpression.useParentheses", () => {
+    describe("arrowFunction.useParentheses", () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop === "arrowFunctionExpression.useParentheses");
+            doTest(config, expectedConfig, prop => prop === "arrowFunction.useParentheses");
         }
 
         it("should get the default property", () => {
-            doSpecificTest({}, { "arrowFunctionExpression.useParentheses": "maintain" });
+            doSpecificTest({}, { "arrowFunction.useParentheses": "maintain" });
         });
 
         it("should get the property when set", () => {
             doSpecificTest(
-                { "arrowFunctionExpression.useParentheses": "preferNone" },
-                { "arrowFunctionExpression.useParentheses": "preferNone" }
+                { "arrowFunction.useParentheses": "preferNone" },
+                { "arrowFunction.useParentheses": "preferNone" }
             );
         });
     });

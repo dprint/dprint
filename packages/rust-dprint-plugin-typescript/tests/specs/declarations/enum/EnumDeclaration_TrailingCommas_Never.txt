@@ -1,0 +1,13 @@
+~~ enumDeclaration.trailingCommas: never ~~
+== should not format with trailing commas ==
+declare enum Test
+{
+    member1    ,
+    member2
+}
+
+[expect]
+declare enum Test {
+    member1,
+    member2
+}

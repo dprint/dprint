@@ -15,7 +15,7 @@ type Test = new(
     testing,
     thisOut,
     byExceeding,
-    theLineWidth
+    theLineWidth,
 ) => Date;
 
 == should not be multi-line when not exceeding the line width ==

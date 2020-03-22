@@ -1107,7 +1107,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
             items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
                 span_data: node.get_parameters_span_data(context),
                 nodes: node.params.iter().map(|node| node.into()).collect(),
-                prefer_hanging: context.config.arrow_function_expression_prefer_hanging_parameters,
+                prefer_hanging: context.config.arrow_function_prefer_hanging_parameters,
                 custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
                     start_info: header_start_info,
                     type_node: node.return_type.as_ref().map(|x| x.into()),
@@ -1136,7 +1136,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
 
     if open_brace_token.is_some() {
         items.extend(parse_brace_separator(ParseBraceSeparatorOptions {
-            brace_position: context.config.arrow_function_expression_brace_position,
+            brace_position: context.config.arrow_function_brace_position,
             open_brace_token: open_brace_token,
             start_header_info: Some(header_start_info),
         }, context));
@@ -1188,7 +1188,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
         return if requires_parens {
             true
         } else {
-            match context.config.arrow_function_expression_use_parentheses {
+            match context.config.arrow_function_use_parentheses {
                 UseParentheses::Force => true,
                 UseParentheses::PreferNone => false,
                 UseParentheses::Maintain => has_parens(&node, context),
@@ -3695,7 +3695,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
         nodes: params.into_iter().map(|p| Some(p)).collect(),
         prefer_hanging: context.config.type_parameter_declaration_prefer_hanging,
         force_use_new_lines: use_new_lines,
-        trailing_commas: Some(TrailingCommas::Never),
+        trailing_commas: Some(context.config.type_parameter_declaration_trailing_commas),
         semi_colons: None,
         single_line_space_at_start: false,
         single_line_space_at_end: false,
@@ -4331,6 +4331,11 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     let nodes = opts.nodes;
     let prefer_hanging = opts.prefer_hanging;
     let is_parameters = opts.is_parameters;
+    let trailing_commas = if is_parameters {
+        context.config.parameters_trailing_commas
+    } else {
+        context.config.arguments_trailing_commas
+    };
 
     return parse_surrounded_by_tokens(|context| {
         let mut items = PrintItems::new();
@@ -4350,9 +4355,9 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
         } else {
             items.extend(parse_separated_values(ParseSeparatedValuesOptions {
                 nodes: nodes.into_iter().map(|x| Some(x)).collect(),
-                prefer_hanging: prefer_hanging,
+                prefer_hanging,
                 force_use_new_lines,
-                trailing_commas: Some(TrailingCommas::Never),
+                trailing_commas: Some(trailing_commas),
                 semi_colons: None,
                 single_line_space_at_start: false,
                 single_line_space_at_end: false,

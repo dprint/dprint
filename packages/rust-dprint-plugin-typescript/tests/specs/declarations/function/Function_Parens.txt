@@ -10,7 +10,7 @@ function test(
 [expect]
 function test(
     p1,
-    p2
+    p2,
 ) {
 }
 
@@ -24,6 +24,6 @@ function test(
 function test(
     p1,
     p2,
-    p3
+    p3,
 ) {
 }

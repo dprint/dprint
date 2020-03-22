@@ -165,7 +165,7 @@ impl ConfigurationBuilder {
 
     /// If trailing commas should be used.
     ///
-    /// Default: `TrailingCommas::Never`
+    /// Default: `TrailingCommas::OnlyMultiLine`
     pub fn trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
         self.insert("trailingCommas", value)
     }
@@ -364,13 +364,13 @@ impl ConfigurationBuilder {
     }
 
     /* use parentheses */
-    pub fn arrow_function_expression_use_parentheses(&mut self, value: UseParentheses) -> &mut Self {
-        self.insert("arrowFunctionExpression.useParentheses", value)
+    pub fn arrow_function_use_parentheses(&mut self, value: UseParentheses) -> &mut Self {
+        self.insert("arrowFunction.useParentheses", value)
     }
 
     /* brace position */
-    pub fn arrow_function_expression_brace_position(&mut self, value: BracePosition) -> &mut Self {
-        self.insert("arrowFunctionExpression.bracePosition", value)
+    pub fn arrow_function_brace_position(&mut self, value: BracePosition) -> &mut Self {
+        self.insert("arrowFunction.bracePosition", value)
     }
 
     pub fn class_declaration_brace_position(&mut self, value: BracePosition) -> &mut Self {
@@ -544,8 +544,8 @@ impl ConfigurationBuilder {
     }
 
     /* prefer hanging parameters */
-    pub fn arrow_function_expression_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("arrowFunctionExpression.preferHangingParameters", value)
+    pub fn arrow_function_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
+        self.insert("arrowFunction.preferHangingParameters", value)
     }
 
     pub fn call_signature_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
@@ -641,6 +641,14 @@ impl ConfigurationBuilder {
 
     /* trailing commas */
 
+    pub fn arguments_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
+        self.insert("arguments.trailingCommas", value)
+    }
+
+    pub fn parameters_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
+        self.insert("parameters.trailingCommas", value)
+    }
+
     pub fn array_expression_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
         self.insert("arrayExpression.trailingCommas", value)
     }
@@ -659,6 +667,10 @@ impl ConfigurationBuilder {
 
     pub fn tuple_type_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
         self.insert("tupleType.trailingCommas", value)
+    }
+
+    pub fn type_parameter_declaration_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
+        self.insert("typeParameterDeclaration.trailingCommas", value)
     }
 
     /* use braces */
@@ -964,7 +976,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::SameLine, &mut diagnostics);
     let operator_position = get_value(&mut config, "operatorPosition", OperatorPosition::NextLine, &mut diagnostics);
     let single_body_position = get_value(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain, &mut diagnostics);
-    let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::Never, &mut diagnostics);
+    let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::OnlyMultiLine, &mut diagnostics);
     let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, &mut diagnostics);
     // prefer hanging config
     let prefer_hanging = get_value(&mut config, "preferHanging", false, &mut diagnostics);
@@ -979,9 +991,9 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         quote_style: get_value(&mut config, "quoteStyle", QuoteStyle::PreferDouble, &mut diagnostics),
         semi_colons,
         /* situational */
-        arrow_function_expression_use_parentheses: get_value(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain, &mut diagnostics),
+        arrow_function_use_parentheses: get_value(&mut config, "arrowFunction.useParentheses", UseParentheses::Maintain, &mut diagnostics),
         /* brace position */
-        arrow_function_expression_brace_position: get_value(&mut config, "arrowFunctionExpression.bracePosition", brace_position, &mut diagnostics),
+        arrow_function_brace_position: get_value(&mut config, "arrowFunction.bracePosition", brace_position, &mut diagnostics),
         class_declaration_brace_position: get_value(&mut config, "classDeclaration.bracePosition", brace_position, &mut diagnostics),
         class_expression_brace_position: get_value(&mut config, "classExpression.bracePosition", brace_position, &mut diagnostics),
         constructor_brace_position: get_value(&mut config, "constructor.bracePosition", brace_position, &mut diagnostics),
@@ -1027,7 +1039,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
         new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
         /* prefer hanging parameters */
-        arrow_function_expression_prefer_hanging_parameters: get_value(&mut config, "arrowFunctionExpression.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
+        arrow_function_prefer_hanging_parameters: get_value(&mut config, "arrowFunction.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
         call_signature_prefer_hanging_parameters: get_value(&mut config, "callSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
         construct_signature_prefer_hanging_parameters: get_value(&mut config, "constructSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
         constructor_prefer_hanging_parameters: get_value(&mut config, "constructor.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
@@ -1054,11 +1066,14 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         for_of_statement_single_body_position: get_value(&mut config, "forOfStatement.singleBodyPosition", single_body_position, &mut diagnostics),
         while_statement_single_body_position: get_value(&mut config, "whileStatement.singleBodyPosition", single_body_position, &mut diagnostics),
         /* trailing commas */
+        arguments_trailing_commas: get_value(&mut config, "arguments.trailingCommas", trailing_commas, &mut diagnostics),
+        parameters_trailing_commas: get_value(&mut config, "parameters.trailingCommas", trailing_commas, &mut diagnostics),
         array_expression_trailing_commas: get_value(&mut config, "arrayExpression.trailingCommas", trailing_commas, &mut diagnostics),
         array_pattern_trailing_commas: get_value(&mut config, "arrayPattern.trailingCommas", trailing_commas, &mut diagnostics),
         enum_declaration_trailing_commas: get_value(&mut config, "enumDeclaration.trailingCommas", trailing_commas, &mut diagnostics),
         object_expression_trailing_commas: get_value(&mut config, "objectExpression.trailingCommas", trailing_commas, &mut diagnostics),
         tuple_type_trailing_commas: get_value(&mut config, "tupleType.trailingCommas", trailing_commas, &mut diagnostics),
+        type_parameter_declaration_trailing_commas: get_value(&mut config, "typeParameterDeclaration.trailingCommas", trailing_commas, &mut diagnostics),
         /* use braces */
         if_statement_use_braces: get_value(&mut config, "ifStatement.useBraces", use_braces, &mut diagnostics),
         for_statement_use_braces: get_value(&mut config, "forStatement.useBraces", use_braces, &mut diagnostics),
@@ -1114,11 +1129,11 @@ pub struct Configuration {
     pub quote_style: QuoteStyle,
     pub semi_colons: SemiColons,
     /* use parentheses */
-    #[serde(rename = "arrowFunctionExpression.useParentheses")]
-    pub arrow_function_expression_use_parentheses: UseParentheses,
+    #[serde(rename = "arrowFunction.useParentheses")]
+    pub arrow_function_use_parentheses: UseParentheses,
     /* brace position */
-    #[serde(rename = "arrowFunctionExpression.bracePosition")]
-    pub arrow_function_expression_brace_position: BracePosition,
+    #[serde(rename = "arrowFunction.bracePosition")]
+    pub arrow_function_brace_position: BracePosition,
     #[serde(rename = "classDeclaration.bracePosition")]
     pub class_declaration_brace_position: BracePosition,
     #[serde(rename = "classExpression.bracePosition")]
@@ -1206,8 +1221,8 @@ pub struct Configuration {
     #[serde(rename = "newExpression.preferHangingArguments")]
     pub new_expression_prefer_hanging_arguments: bool,
     /* prefer hanging parameters */
-    #[serde(rename = "arrowFunctionExpression.preferHangingParameters")]
-    pub arrow_function_expression_prefer_hanging_parameters: bool,
+    #[serde(rename = "arrowFunction.preferHangingParameters")]
+    pub arrow_function_prefer_hanging_parameters: bool,
     #[serde(rename = "callSignature.preferHangingParameters")]
     pub call_signature_prefer_hanging_parameters: bool,
     #[serde(rename = "constructSignature.preferHangingParameters")]
@@ -1255,6 +1270,10 @@ pub struct Configuration {
     #[serde(rename = "whileStatement.singleBodyPosition")]
     pub while_statement_single_body_position: SingleBodyPosition,
     /* trailing commas */
+    #[serde(rename = "arguments.trailingCommas")]
+    pub arguments_trailing_commas: TrailingCommas,
+    #[serde(rename = "parameters.trailingCommas")]
+    pub parameters_trailing_commas: TrailingCommas,
     #[serde(rename = "arrayExpression.trailingCommas")]
     pub array_expression_trailing_commas: TrailingCommas,
     #[serde(rename = "arrayPattern.trailingCommas")]
@@ -1265,6 +1284,8 @@ pub struct Configuration {
     pub object_expression_trailing_commas: TrailingCommas,
     #[serde(rename = "tupleType.trailingCommas")]
     pub tuple_type_trailing_commas: TrailingCommas,
+    #[serde(rename = "typeParameterDeclaration.trailingCommas")]
+    pub type_parameter_declaration_trailing_commas: TrailingCommas,
     /* use braces */
     #[serde(rename = "ifStatement.useBraces")]
     pub if_statement_use_braces: UseBraces,

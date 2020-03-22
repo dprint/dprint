@@ -1,0 +1,18 @@
+~~ objectExpression.trailingCommas: never ~~
+== should not format with trailing commas when multiple lines ==
+const obj = {
+    member1    ,
+    member2
+}
+
+[expect]
+const obj = {
+    member1,
+    member2
+};
+
+== should not format with trailing commas when single line ==
+const obj = { member1, member2, };
+
+[expect]
+const obj = { member1, member2 };

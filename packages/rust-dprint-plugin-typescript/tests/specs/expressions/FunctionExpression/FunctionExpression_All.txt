@@ -31,7 +31,7 @@ const t = function(param: string): testing | this {
 
 [expect]
 const t = function(
-    param: string
+    param: string,
 ): testing | this {
 };
 
@@ -42,7 +42,7 @@ const testing = function(param: string, other: number): testing | this {
 [expect]
 const testing = function(
     param: string,
-    other: number
+    other: number,
 ): testing | this {
 };
 
@@ -53,7 +53,7 @@ const testing = function(param: string, other: number): testing | other | other 
 [expect]
 const testing = function(
     param: string,
-    other: number
+    other: number,
 ):
     | testing
     | other

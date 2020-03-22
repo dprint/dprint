@@ -18,11 +18,11 @@ class Test<TestingThisOut = TestingThisOut> {
 
 [expect]
 class Test<
-    TestingThisOut extends Testing
+    TestingThisOut extends Testing,
 > {
 }
 
 class Test<
-    TestingThisOut = TestingThisOut
+    TestingThisOut = TestingThisOut,
 > {
 }

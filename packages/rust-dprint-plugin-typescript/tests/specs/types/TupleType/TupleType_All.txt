@@ -14,7 +14,7 @@ type T = [
 type T = [
     string, // test
     number,
-    other
+    other,
 ];
 
 == should go multi-line when exceeding line width ==
@@ -26,7 +26,7 @@ type T = [
     number,
     other,
     otherTest,
-    other
+    other,
 ];
 
 == should not split up a tuple type midway through ==
@@ -36,5 +36,5 @@ type T = [string, number, string | number | other];
 type T = [
     string,
     number,
-    string | number | other
+    string | number | other,
 ];

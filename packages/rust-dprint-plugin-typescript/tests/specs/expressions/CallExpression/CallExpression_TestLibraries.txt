@@ -48,7 +48,7 @@ it(
     "testing this out with a long string",
     () => {
         // etc...
-    }
+    },
 );
 
 == should not go multiline when going above line width for a test call expression ==

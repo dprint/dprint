@@ -25,7 +25,7 @@ const obj = {
     prop: 5,
     other: 7,
 
-    testing: 5
+    testing: 5,
 
 };
 
@@ -34,5 +34,5 @@ const obj = {
     prop: 5,
     other: 7,
 
-    testing: 5
+    testing: 5,
 };

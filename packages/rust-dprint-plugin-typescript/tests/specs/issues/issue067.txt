@@ -6,29 +6,29 @@ f("testing", {
 
 [expect]
 f("testing", {
-    a: 1
+    a: 1,
 });
 
 == string after and not at start of line ==
 call({
-    prop
+    prop,
 }, "testing");
 
 [expect]
 call({
-    prop
+    prop,
 }, "testing");
 
 == several object expressions ==
 call({
-    prop
+    prop,
 }, {
-    prop
+    prop,
 });
 
 [expect]
 call({
-    prop
+    prop,
 }, {
-    prop
+    prop,
 });

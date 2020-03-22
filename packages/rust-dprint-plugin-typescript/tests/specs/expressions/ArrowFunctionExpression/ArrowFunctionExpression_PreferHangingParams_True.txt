@@ -1,4 +1,4 @@
-~~ arrowFunctionExpression.preferHangingParameters: true, lineWidth: 80 ~~
+~~ arrowFunction.preferHangingParameters: true, lineWidth: 80 ~~
 == should format params with a hanging indent by default ==
 const t = (here, are, some, parens, that, will, go, over, the, limit, off, width, source, file) => {
 }
@@ -29,7 +29,7 @@ const t = (
 [expect]
 const t = (
     p1,
-    p2
+    p2,
 ) => {
 };
 
@@ -44,6 +44,6 @@ const t = (
 const t = (
     p1,
     p2,
-    p3
+    p3,
 ) => {
 };

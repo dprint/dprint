@@ -17,7 +17,7 @@ T, U, V> {
 class Test<
     T,
     U,
-    V
+    V,
 >
 {
 }
