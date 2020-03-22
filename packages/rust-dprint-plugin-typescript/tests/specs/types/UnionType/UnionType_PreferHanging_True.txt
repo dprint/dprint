@@ -1,0 +1,37 @@
+~~ lineWidth: 40, unionAndIntersectionType.preferHanging: true ~~
+== should format ==
+export type T = string|number;
+
+[expect]
+export type T = string | number;
+
+== should use hanging indentation by default when a type goes on multiple lines ==
+export type T = string | number | string | number;
+
+[expect]
+export type T = string | number | string
+    | number;
+
+== should change to being a single line when too short ==
+export type T = string | test
+    | other;
+
+[expect]
+export type T = string | test | other;
+
+== should change to be on multiple lines when the first and second are on different lines ==
+export type T = string
+    | test | other;
+
+[expect]
+export type T =
+    | string
+    | test
+    | other;
+
+== should parse union has hanging in assertion ==
+<string | number | other | other | other>5;
+
+[expect]
+<string | number | other | other
+    | other> 5;

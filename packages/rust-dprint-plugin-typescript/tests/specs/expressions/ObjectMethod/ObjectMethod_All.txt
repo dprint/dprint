@@ -58,7 +58,7 @@ const o = {
     }
 };
 
-== should format the return type as hanging when it's hanging ==
+== should format the params as multi-line when the return type exceeds the line width ==
 const obj = {
     method(param: string): test | otherr | number {
     }
@@ -66,8 +66,8 @@ const obj = {
 
 [expect]
 const obj = {
-    method(param: string): test | otherr
-        | number
-    {
+    method(
+        param: string
+    ): test | otherr | number {
     }
 };

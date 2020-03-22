@@ -821,7 +821,9 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
             start_info: start_header_info,
             type_node: func.return_type.as_ref().map(|x| x.into()),
             type_node_separator: None,
+            param_count: func.params.len(),
         }, context)),
+        is_parameters: true,
     }, context));
 
     if let Some(body) = &func.body {
@@ -1042,6 +1044,7 @@ fn parse_type_alias<'a>(node: &'a TsTypeAliasDecl, context: &mut Context<'a>) ->
     if let Some(type_params) = &node.type_params {
         items.extend(parse_node(type_params.into(), context));
     }
+
     items.extend(parse_assignment((&node.type_ann).into(), "=", context));
 
     if context.config.semi_colons.is_true() { items.push_str(";"); }
@@ -1109,7 +1112,9 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
                     start_info: header_start_info,
                     type_node: node.return_type.as_ref().map(|x| x.into()),
                     type_node_separator: None,
+                    param_count: node.params.len(),
                 }, context)),
+                is_parameters: true,
             }, context));
         } else {
             // there will only be one param in this case
@@ -1212,7 +1217,8 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
 fn parse_as_expr<'a>(node: &'a TsAsExpr, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.extend(parse_node((&node.expr).into(), context));
-    items.push_str(" as ");
+    items.push_str(" as");
+    items.push_signal(Signal::SpaceIfNotTrailing);
     items.push_condition(conditions::with_indent_if_start_of_line_indented(parse_node((&node.type_ann).into(), context)));
     items
 }
@@ -1453,6 +1459,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
             nodes: node.args.iter().map(|node| node.into()).collect(),
             prefer_hanging: context.config.call_expression_prefer_hanging_arguments,
             custom_close_paren: |_| None,
+            is_parameters: false,
         }, context)));
 
         items
@@ -1729,6 +1736,7 @@ fn parse_new_expr<'a>(node: &'a NewExpr, context: &mut Context<'a>) -> PrintItem
         nodes: args,
         prefer_hanging: context.config.new_expression_prefer_hanging_arguments,
         custom_close_paren: |_| None,
+        is_parameters: false
     }, context));
     return items;
 }
@@ -1771,7 +1779,8 @@ fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> Prin
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         custom_single_line_separator: None,
-        multi_line_style: helpers::MultiLineStyle::SameLineHangingIndented,
+        multi_line_style: helpers::MultiLineStyle::SameLineStartWithHangingIndent,
+        force_possible_newline_at_start: false,
     }, context)
 }
 
@@ -2033,7 +2042,9 @@ fn parse_call_signature_decl<'a>(node: &'a TsCallSignatureDecl, context: &mut Co
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
             type_node_separator: None,
+            param_count: node.params.len(),
         }, context)),
+        is_parameters: true,
     }, context));
 
     return items;
@@ -2055,7 +2066,9 @@ fn parse_construct_signature_decl<'a>(node: &'a TsConstructSignatureDecl, contex
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
             type_node_separator: None,
+            param_count: node.params.len(),
         }, context)),
+        is_parameters: true,
     }, context));
 
     return items;
@@ -2094,7 +2107,9 @@ fn parse_method_signature<'a>(node: &'a TsMethodSignature, context: &mut Context
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
             type_node_separator: None,
+            param_count: node.params.len(),
         }, context)),
+        is_parameters: true,
     }, context));
 
     return items;
@@ -2323,17 +2338,15 @@ fn parse_jsx_spread_child<'a>(node: &'a JSXSpreadChild, context: &mut Context<'a
 }
 
 fn parse_jsx_text<'a>(node: &'a JSXText, context: &mut Context<'a>) -> PrintItems {
-    let lines = node.text(context).trim().lines().map(|line| line.trim_end());
+    let lines = node.text(context).trim().lines().map(|line| line.trim());
     let mut past_line: Option<&str> = None;
-    let mut past_past_line: Option<&str> = None;
     let mut items = PrintItems::new();
 
     for line in lines {
         if let Some(past_line) = past_line {
-            if !line.is_empty() || past_past_line.is_none() {
+            if !line.is_empty() {
                 items.push_signal(Signal::NewLine);
-            } else if let Some(past_past_line) = past_past_line {
-                if past_line.is_empty() && !past_past_line.is_empty() {
+                if past_line.is_empty() {
                     items.push_signal(Signal::NewLine);
                 }
             }
@@ -2343,7 +2356,7 @@ fn parse_jsx_text<'a>(node: &'a JSXText, context: &mut Context<'a>) -> PrintItem
             items.push_str(line);
         }
 
-        past_past_line = std::mem::replace(&mut past_line, Some(line));
+        past_line.replace(line);
     }
 
     return items;
@@ -2591,6 +2604,7 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
     if let Some(type_params) = node.type_params { items.extend(parse_node(type_params, context)); }
     if get_use_space_before_parens(&node.kind, context) { items.push_str(" ") }
 
+    let param_count = node.params.len();
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.parameters_span_data,
         nodes: node.params.into_iter().map(|node| node.into()).collect(),
@@ -2601,8 +2615,10 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
                 start_info: start_header_info,
                 type_node: return_type,
                 type_node_separator: None,
+                param_count,
             }, context))
         },
+        is_parameters: true,
     }, context));
 
     if let Some(body) = node.body {
@@ -2897,7 +2913,8 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
         single_line_separator: separator_after_semi_colons.into(),
         indent_width: context.config.indent_width,
         multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
-    }));
+        force_possible_newline_at_start: false,
+    }).items);
     items.push_str(")");
     items.push_info(end_header_info);
 
@@ -3433,6 +3450,7 @@ fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context
     if let Some(type_params) = &node.type_params {
         items.extend(parse_node(type_params.into(), context));
     }
+
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.get_parameters_span_data(context),
         nodes: node.params.iter().map(|node| node.into()).collect(),
@@ -3442,13 +3460,17 @@ fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context
             type_node: Some((&node.type_ann).into()),
             type_node_separator: Some({
                 let mut items = PrintItems::new();
-                items.push_signal(Signal::SpaceOrNewLine);
-                items.push_str("=> ");
+                items.push_str(" =>");
+                items.push_signal(Signal::SpaceIfNotTrailing);
+                items.push_signal(Signal::PossibleNewLine);
                 items
             }),
+            param_count: node.params.len(),
         }, context)),
+        is_parameters: true,
     }, context));
-    return items;
+
+    items
 }
 
 fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> PrintItems {
@@ -3475,11 +3497,14 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Pri
             type_node_separator: {
                 let mut items = PrintItems::new();
                 items.push_str(" =>");
-                items.push_signal(Signal::SpaceOrNewLine);
+                items.push_signal(Signal::SpaceIfNotTrailing);
+                items.push_signal(Signal::PossibleNewLine);
                 items.push_condition(indent_after_arrow_condition);
                 Some(items)
             },
+            param_count: node.params.len(),
         }, context)),
+        is_parameters: true,
     }, context));
 
     items.push_condition(parser_helpers::if_true(
@@ -3643,10 +3668,11 @@ fn parse_type_param<'a>(node: &'a TsTypeParam, context: &mut Context<'a>) -> Pri
         items.push_condition(conditions::indent_if_start_of_line({
             let mut items = PrintItems::new();
             items.push_str(if context.parent().kind() == NodeKind::TsMappedType {
-                "in "
+                "in"
             } else {
-                "extends "
+                "extends"
             });
+            items.push_signal(Signal::SpaceIfNotTrailing);
             items.extend(parse_node(constraint.into(), context));
             items
         }));
@@ -3675,6 +3701,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
         single_line_space_at_end: false,
         custom_single_line_separator: None,
         multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+        force_possible_newline_at_start: false,
     }, context));
     items.push_str(">");
 
@@ -3744,72 +3771,91 @@ struct UnionOrIntersectionType<'a> {
 }
 
 fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, context: &mut Context<'a>) -> PrintItems {
+    // todo: configuration for operator position
     let mut items = PrintItems::new();
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.types[0], &*node.types[1], context);
     let separator = if node.is_union { "|" } else { "&" };
-    let is_ancestor_parenthesized_type = get_is_ancestor_parenthesized_type(context);
-    let is_parent_union_or_intersection_type = match context.parent().kind() { NodeKind::TsUnionType | NodeKind::TsIntersectionType => true, _ => false };
-    let mut last_type_node_span_data: Option<Span> = None;
 
-    for (i, type_node) in node.types.iter().enumerate() {
-        if i > 0 {
-            items.push_signal(if use_new_lines { Signal::NewLine } else { Signal::SpaceOrNewLine });
-        }
+    let leading_comments = node.span_data.leading_comments(context);
+    let has_leading_comments = !leading_comments.is_empty();
 
-        let separator_token = if let Some(last_type_node_span_data) = last_type_node_span_data.replace(type_node.span()) {
-            get_separator_token(&separator, &last_type_node_span_data, &node.span_data, context)
+    let indent_width = context.config.indent_width;
+    let prefer_hanging = context.config.union_and_intersection_type_prefer_hanging;
+    let multi_line_style = if node.is_union {
+        if use_surround_newlines(context) {
+            helpers::MultiLineStyle::SurroundNewlinesIndented
+        } else if has_leading_comments {
+            helpers::MultiLineStyle::SameLineNoIndent
         } else {
-            None
-        };
-        let parsed_node = {
-            let mut items = PrintItems::new();
+            helpers::MultiLineStyle::NewLineStart
+        }
+    } else if has_leading_comments {
+        helpers::MultiLineStyle::SameLineNoIndent
+    } else {
+        helpers::MultiLineStyle::SameLineStartWithHangingIndent
+    };
+    let parse_result = helpers::parse_separated_values(|is_multi_line_or_hanging_ref| {
+        let is_multi_line_or_hanging = is_multi_line_or_hanging_ref.create_resolver();
+        let mut parsed_nodes = Vec::new();
+        for (i, type_node) in node.types.into_iter().enumerate() {
+            let separator_token = context.token_finder.get_previous_token_if_operator(&type_node.span().data(), separator);
+            let start_info = Info::new("startInfo");
             let after_separator_info = Info::new("afterSeparatorInfo");
-            if i > 0 {
-                items.push_str(separator);
-                items.push_info(after_separator_info);
+            let mut items = PrintItems::new();
+            items.push_info(start_info);
+            if let Some(separator_token) = separator_token {
+                items.extend(parse_leading_comments(separator_token, context));
             }
+            if i == 0 && node.is_union {
+                items.push_condition(if_true(
+                    "separatorIfMultiLine",
+                    is_multi_line_or_hanging.clone(),
+                    separator.into()
+                ));
+            } else if i > 0 {
+                items.push_str(separator);
+            }
+
             if let Some(separator_token) = separator_token {
                 items.extend(parse_trailing_comments(separator_token, context));
             }
-            if i > 0 {
-                items.push_condition(Condition::new("afterSeparatorSpace", ConditionProperties {
-                    condition: Box::new(move |condition_context| condition_resolvers::is_on_same_line(condition_context, &after_separator_info)),
-                    true_path: Some(" ".into()),
-                    false_path: None
-                }));
-            }
+            items.push_info(after_separator_info);
+
+            items.push_condition(Condition::new("afterSeparatorSpace", ConditionProperties {
+                condition: Box::new(move |condition_context| {
+                    let is_on_same_line = condition_resolvers::is_on_same_line(condition_context, &after_separator_info)?;
+                    let is_at_same_position = condition_resolvers::is_at_same_position(condition_context, &start_info)?;
+                    return Some(is_on_same_line && !is_at_same_position);
+                }),
+                true_path: Some(" ".into()),
+                false_path: None
+            }));
             items.extend(parse_node(type_node.into(), context));
-            items
-        };
-        // probably something better needs to be done here, but htis is good enough for now
-        if is_ancestor_parenthesized_type || i == 0 && !is_parent_union_or_intersection_type {
-            items.extend(parsed_node);
-        } else {
-            items.push_condition(conditions::indent_if_start_of_line(parsed_node));
+
+            parsed_nodes.push(items);
         }
-    }
+
+        parsed_nodes
+    }, helpers::ParseSeparatedValuesOptions {
+        prefer_hanging,
+        force_use_new_lines: use_new_lines,
+        single_line_space_at_start: false,
+        single_line_space_at_end: false,
+        single_line_separator: Signal::SpaceOrNewLine.into(),
+        indent_width,
+        multi_line_style,
+        force_possible_newline_at_start: false,
+    });
+
+    items.extend(parse_result.items);
 
     return items;
 
-    fn get_separator_token<'a>(separator: &str, last_type_node: &dyn Ranged, parent: &dyn Ranged, context: &mut Context<'a>) -> Option<&'a TokenAndSpan> {
-        let token = context.token_finder.get_first_operator_after(last_type_node, separator);
-        if let Some(token) = &token {
-            if token.lo() > parent.hi() {
-                return None;
-            }
+    fn use_surround_newlines(context: &mut Context) -> bool {
+        match context.parent() {
+            Node::TsTypeAssertion(_) | Node::TsParenthesizedType(_) => true,
+            _ => false,
         }
-        return token;
-    }
-
-    fn get_is_ancestor_parenthesized_type(context: &mut Context) -> bool {
-        for ancestor in context.parent_stack.iter() {
-            match ancestor {
-                Node::TsUnionType(_) | Node::TsIntersectionType(_) => continue,
-                Node::TsParenthesizedType(_) => return true,
-                _ => return false,
-            }
-        }
-        return false;
     }
 }
 
@@ -3839,7 +3885,7 @@ fn parse_comments_as_leading<'a>(node: &dyn SpanDataContainer, comments: Comment
                 }
             }
             else if last_comment.kind == CommentKind::Block && node_start_line == last_comment_end_line {
-                items.push_str(" ");
+                items.push_signal(Signal::SpaceIfNotTrailing);
             }
         }
     }
@@ -4086,6 +4132,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
             single_line_space_at_end: false,
             custom_single_line_separator: None,
             multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+            force_possible_newline_at_start: false,
         }, context)
     }, |_| None, ParseSurroundedByTokensOptions {
         open_token: "[",
@@ -4273,6 +4320,7 @@ struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a
     nodes: Vec<Node<'a>>,
     prefer_hanging: bool,
     custom_close_paren: F,
+    is_parameters: bool,
 }
 
 fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
@@ -4282,6 +4330,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     let first_member_span_data = opts.nodes.iter().map(|n| n.span_data()).next();
     let nodes = opts.nodes;
     let prefer_hanging = opts.prefer_hanging;
+    let is_parameters = opts.is_parameters;
 
     return parse_surrounded_by_tokens(|context| {
         let mut items = PrintItems::new();
@@ -4309,6 +4358,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
                 single_line_space_at_end: false,
                 custom_single_line_separator: None,
                 multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+                force_possible_newline_at_start: is_parameters,
             }, context));
         }
 
@@ -4342,6 +4392,7 @@ struct ParseCloseParenWithTypeOptions<'a> {
     start_info: Info,
     type_node: Option<Node<'a>>,
     type_node_separator: Option<PrintItems>,
+    param_count: usize,
 }
 
 fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, context: &mut Context<'a>) -> PrintItems {
@@ -4350,7 +4401,7 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
     let has_type_node = opts.type_node.is_some();
     let type_node_end_info = Info::new("typeNodeEnd");
     let start_info = opts.start_info;
-    let parsed_type_node = parse_type_node(opts.type_node, opts.type_node_separator, type_node_start_info, type_node_end_info, context);
+    let parsed_type_node = parse_type_node(opts.type_node, opts.type_node_separator, type_node_start_info, type_node_end_info, opts.param_count, context);
     let mut items = PrintItems::new();
 
     items.push_condition(Condition::new("newLineIfHeaderHangingAndTypeNodeMultipleLines", ConditionProperties {
@@ -4376,6 +4427,7 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
         type_node_separator: Option<PrintItems>,
         type_node_start_info: Info,
         type_node_end_info: Info,
+        param_count: usize,
         context: &mut Context<'a>
     ) -> PrintItems {
         let mut items = PrintItems::new();
@@ -4385,12 +4437,17 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
                 items.extend(type_node_separator);
             } else {
                 if context.config.type_annotation_space_before_colon { items.push_str(" "); }
-                items.push_str(": ");
+                items.push_str(":");
+                items.push_signal(Signal::SpaceIfNotTrailing);
             }
-            items.extend(parse_node(type_node.into(), context));
+            let parsed_type_node = parse_node(type_node.into(), context);
+            items.extend(parsed_type_node);
             items.push_info(type_node_end_info);
+
+            if param_count > 0 { new_line_group(items) } else { items }
+        } else {
+            items
         }
-        return items;
     }
 }
 
@@ -4404,6 +4461,7 @@ struct ParseSeparatedValuesOptions<'a> {
     single_line_space_at_end: bool,
     custom_single_line_separator: Option<PrintItems>,
     multi_line_style: helpers::MultiLineStyle,
+    force_possible_newline_at_start: bool,
 }
 
 fn parse_separated_values<'a>(
@@ -4444,7 +4502,8 @@ fn parse_separated_values<'a>(
         single_line_separator: opts.custom_single_line_separator.unwrap_or(Signal::SpaceOrNewLine.into()),
         indent_width,
         multi_line_style: opts.multi_line_style,
-    })
+        force_possible_newline_at_start: opts.force_possible_newline_at_start,
+    }).items
 }
 
 fn parse_comma_separated_value<'a>(value: Option<Node<'a>>, parsed_comma: PrintItems, context: &mut Context<'a>) -> PrintItems {
@@ -4648,6 +4707,7 @@ fn parse_extends_or_implements<'a>(opts: ParseExtendsOrImplementsOptions<'a>, co
             single_line_space_at_end: false,
             custom_single_line_separator: None,
             multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+            force_possible_newline_at_start: false,
         }, context));
         items
     })));
@@ -4707,6 +4767,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
                 single_line_space_at_end: opts.surround_single_line_with_spaces,
                 custom_single_line_separator: None,
                 multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+                force_possible_newline_at_start: false,
             }, context));
         }
         items
@@ -5405,8 +5466,13 @@ fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Opti
         if !had_trailing_line_comment {
             items.push_condition(conditions::if_above_width_or(
                 context.config.indent_width,
-                Signal::SpaceOrNewLine.into(),
-                " ".into()
+                {
+                    let mut items = PrintItems::new();
+                    items.push_signal(Signal::SpaceIfNotTrailing);
+                    items.push_signal(Signal::PossibleNewLine);
+                    items
+                },
+                Signal::SpaceIfNotTrailing.into()
             ).into());
         }
         let assignment = parse_node_with_inner_parse(expr, context, |items| conditions::indent_if_start_of_line(items).into());
@@ -5588,7 +5654,8 @@ fn parse_surrounded_by_tokens<'a>(
                         single_line_separator: PrintItems::new(),
                         indent_width,
                         multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
-                    }));
+                        force_possible_newline_at_start: false,
+                    }).items);
                 } else {
                     items.push_signal(Signal::NewLine);
                     items.extend(with_indent(parse_comments_as_statements(comments, None, context)));

@@ -50,7 +50,7 @@ call(5, 6, 7,
     5, 6, 7
 ]
 
-== should not ignore when it's not the immediately preceeding comment ==
+== should not ignore when it's not the immediately preceding comment ==
 // dprint-ignore
 // test
 [

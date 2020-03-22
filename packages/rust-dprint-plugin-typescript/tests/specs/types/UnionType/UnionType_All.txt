@@ -1,30 +1,134 @@
-~~ lineWidth: 80 ~~
+~~ lineWidth: 40 ~~
 == should format ==
 export type T = string|number;
 
 [expect]
 export type T = string | number;
 
-== should use hanging indentation by default when a type goes on multiple lines ==
-export type T = string | number | string | number | string | number | string | number;
+== should go multi-line by default when a type exceeds line width ==
+export type T = string | test | string | number;
 
 [expect]
-export type T = string | number | string | number | string | number | string
+export type T =
+    | string
+    | test
+    | string
     | number;
 
 == should change to being a single line when too short ==
-export type T = string | number | other
+export type T = test | test
     | string;
 
 [expect]
-export type T = string | number | other | string;
+export type T = test | test | string;
 
 == should change to be on multiple lines when the first and second are on different lines ==
-export type T = string
-    | number | other | string;
+export type T = test
+    | test | other;
 
 [expect]
-export type T = string
-    | number
-    | other
-    | string;
+export type T =
+    | test
+    | test
+    | other;
+
+== should handle the separator being on the next line ==
+export type T =
+    | test
+    | test
+    | other;
+
+[expect]
+export type T =
+    | test
+    | test
+    | other;
+
+== should handle comments around separators ==
+export type T =
+    // testing
+    /*1*/ | /*2*/ test /* 3*/
+    /*4*/ | test // 5
+    | other;
+
+[expect]
+export type T =
+    // testing
+    /*1*/ | /*2*/ test /* 3*/
+    /*4*/ | test // 5
+    | other;
+
+== should handle block comment on current line ==
+export type T = /* test */ t | u;
+
+[expect]
+export type T = /* test */ t | u;
+
+== should handle block comment on next line ==
+export type T =
+    /* test */
+    test | test;
+
+[expect]
+export type T = /* test */
+    test | test;
+
+== should handle block comment on next line when multi-line ==
+export type T =
+    /* test */
+    test | test | test | tttttttttttttttt;
+
+[expect]
+export type T = /* test */
+    | test
+    | test
+    | test
+    | tttttttttttttttt;
+
+== should handle a block comment inside parenthesized type (good enough for now) ==
+export type T = (/*1*/ testing | testing | testing | testing);
+
+[expect]
+export type T =
+    (/*1*/
+        | testing
+        | testing
+        | testing
+        | testing
+    );
+
+== should keep block comment at top of union ==
+export type T =
+    (
+        /*1*/
+        | testing
+        | testing
+        | testing
+        | testing
+    );
+
+[expect]
+export type T = (
+    /*1*/
+    | testing
+    | testing
+    | testing
+    | testing
+);
+
+== should handle union in type parameters ==
+class Test<T extends string | number | test | test, U extends string | number | test | test> {}
+
+[expect]
+class Test<
+    T extends
+        | string
+        | number
+        | test
+        | test,
+    U extends
+        | string
+        | number
+        | test
+        | test
+> {}

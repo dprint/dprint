@@ -47,7 +47,7 @@ asdfasdfasdf
     // some comment
     + container;
 
-== should handle comments on a different line in-between when the operator is on the preceeding line ==
+== should handle comments on a different line in-between when the operator is on the preceding line ==
 asdfasdfasdf +
     // some comment
     container;

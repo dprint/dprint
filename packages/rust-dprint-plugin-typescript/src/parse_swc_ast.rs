@@ -54,7 +54,7 @@ pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFil
                 // return the formatted diagnostic string
                 Err(format_diagnostic(&error, file_text))
             },
-            Ok(module) => Ok((module, tokens))
+            Ok(module) => Ok((module, deduplicate_tokens(tokens)))
         }
     }?;
 
@@ -89,6 +89,19 @@ pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFil
         // because then locking on each comment lookup is not necessary. We don't
         // need to support multi-threading so convert to HashMap.
         comments.into_iter().collect()
+    }
+
+    fn deduplicate_tokens(tokens: Vec<TokenAndSpan>) -> Vec<TokenAndSpan> {
+        // See https://github.com/swc-project/swc/issues/726 (was returning duplicate tokens)
+        let mut last_pos = 0;
+        let mut new_tokens = Vec::new();
+        for (i, token) in tokens.into_iter().enumerate() {
+            if i == 0 || token.span.lo.0 > last_pos {
+                last_pos = token.span.lo.0;
+                new_tokens.push(token);
+            }
+        }
+        new_tokens
     }
 }
 

@@ -1,17 +1,15 @@
-~~ lineWidth: 40 ~~
+~~ lineWidth: 40, unionAndIntersectionType.preferHanging: true ~~
 == should format ==
 export type T = string&number;
 
 [expect]
 export type T = string & number;
 
-== should use multi-lines by default when a type exceeds line width ==
+== should use hanging indentation when a type goes on multiple lines ==
 export type T = string & test & string & test;
 
 [expect]
-export type T = string
-    & test
-    & string
+export type T = string & test & string
     & test;
 
 == should change back to being a single line when too short ==
@@ -23,16 +21,17 @@ export type T = string & test & test;
 
 == should change to be on multiple lines when the first and second are on different lines ==
 export type T = string
-    & number;
+    & number & other;
 
 [expect]
 export type T = string
-    & number;
+    & number
+    & other;
 
 == should format with comments after the separator ==
-export type T = string
+export type T = string & number
     & /* 2 */ number;
 
 [expect]
-export type T = string
+export type T = string & number
     & /* 2 */ number;

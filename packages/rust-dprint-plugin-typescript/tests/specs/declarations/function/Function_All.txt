@@ -1,4 +1,4 @@
-~~ lineWidth: 80 ~~
+~~ lineWidth: 60 ~~
 == should format everything in a function declaration ==
 export async function
 test<T, U>
@@ -43,15 +43,25 @@ test<T, U>
 [expect]
 declare function test<T, U>(p, u): string;
 
-== should format the return type as hanging when it's hanging ==
-function testing(param: string, other: number, finalParameter: string): testing | this {
-
+== should format the params as multi-line when the return type exceeds the line width ==
+function testing(param: string, other: number): testing | this {
 }
 
 [expect]
-function testing(param: string, other: number, finalParameter: string): testing
-    | this
-{
+function testing(
+    param: string,
+    other: number
+): testing | this {
+}
+
+== should format the params as multi-line when the return type exceeds the line width and there is only 1 param ==
+function testing(param: string): testing | this | out | aLittleBitToExceedTheWidth {
+}
+
+[expect]
+function testing(
+    param: string
+): testing | this | out | aLittleBitToExceedTheWidth {
 }
 
 == should not move the close brace to the next line when empty and on the same line ==
@@ -75,7 +85,7 @@ function t({ a, b }: { a: string; b: number }) {
 }
 
 == should force multi-line parameters when exceeding the line width ==
-function test(testing, thisOut, byExceeding, theLineWidth, testing, thisOuttttt) {
+function test(testing, thisOut, byExceeding, theLineWidth, testing) {
 }
 
 [expect]
@@ -84,8 +94,7 @@ function test(
     thisOut,
     byExceeding,
     theLineWidth,
-    testing,
-    thisOuttttt
+    testing
 ) {
 }
 

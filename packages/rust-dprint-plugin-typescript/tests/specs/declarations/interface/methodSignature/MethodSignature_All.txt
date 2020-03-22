@@ -15,15 +15,16 @@ type T = {
     [m4](): string;
 };
 
-== should format the return type as hanging when it's hanging ==
+== should format the params as multi-line when the return type exceeds the line width ==
 interface T {
     method(param: string): test | number;
 }
 
 [expect]
 interface T {
-    method(param: string): test
-        | number;
+    method(
+        param: string
+    ): test | number;
 }
 
 == should force multi-line parameters when exceeding the line width ==

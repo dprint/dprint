@@ -26,8 +26,11 @@ abstract class Test {
     7: number;
     ["8"]: number;
     prop9: number = 5;
-    someVeryLongProperty: string | number
-        | stringg | number;
+    someVeryLongProperty:
+        | string
+        | number
+        | stringg
+        | number;
     @dec
     readonly propReadonly = 3;
 }

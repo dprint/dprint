@@ -31,7 +31,7 @@ testingtest
     // some comment
     && container.pos !== container.end;
 
-== should handle comments on a different line in-between when the operator is on the preceeding line ==
+== should handle comments on a different line in-between when the operator is on the preceding line ==
 testingtest &&
     // some comment
     container.pos !== container.end;

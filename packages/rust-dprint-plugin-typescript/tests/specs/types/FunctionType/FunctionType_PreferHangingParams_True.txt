@@ -1,10 +1,11 @@
 ~~ functionType.preferHangingParameters: true, lineWidth: 40 ~~
-== should format the return type as hanging when it's hanging ==
+== should format the params as multi-line when the return type exceeds the line width ==
 type Test = (param: string) => str | number;
 
 [expect]
-type Test = (param: string) => str
-    | number;
+type Test = (
+    param: string
+) => str | number;
 
 == should format the return type on the same line when the rest of the header is hanging ==
 type Test = (param: string, otherParamTest) => str | number;
@@ -21,9 +22,10 @@ type Test = (param: string,
     otherParamTest
 ) => str | number | other | other;
 
-== should do a possible line break after the arrow ==
+== should make the single param multi-line when the return type extends beyond the line width ==
 type Test = (tttttt) => tttttttttttttttt;
 
 [expect]
-type Test = (tttttt) =>
-    tttttttttttttttt;
+type Test = (
+    tttttt
+) => tttttttttttttttt;

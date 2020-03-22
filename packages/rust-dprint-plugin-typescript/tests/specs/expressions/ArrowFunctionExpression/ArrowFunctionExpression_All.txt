@@ -1,4 +1,4 @@
-~~ lineWidth: 60 ~~
+~~ lineWidth: 40 ~~
 == should format a single line statement ==
 const t = ()   =>   7;
 
@@ -6,12 +6,12 @@ const t = ()   =>   7;
 const t = () => 7;
 
 == should format with everything ==
-const t = async <T, U>(p, u): string =>
+const t = async <T, U>(p, u): s =>
 {
 };
 
 [expect]
-const t = async <T, U>(p, u): string => {
+const t = async <T, U>(p, u): s => {
 };
 
 == should keep the body on a single line when formatted that way ==
@@ -21,11 +21,11 @@ const t = () => {   };
 const t = () => {};
 
 == should support multiple line expressions ==
-const t = () => true || false || true || false || true || false;
+const t = () => true || false || true || false;
 
 [expect]
 const t = () =>
-    true || false || true || false || true || false;
+    true || false || true || false;
 
 == should allow arrow functions without parens ==
 const t = a => 5;
@@ -57,40 +57,43 @@ const t = async a => 5;
 [expect]
 const t = async a => 5;
 
-== should format the return type as hanging when it's hanging ==
-const t = (param: string, other: number): testing | thisOutMore => {
+== should format the params as multi-line when the return type exceeds the line width ==
+const t = (test: s, other): testing | thisOutMore => {
 
 }
 
 [expect]
-const t = (param: string, other: number): testing
-    | thisOutMore =>
-{
+const t = (
+    test: s,
+    other
+): testing | thisOutMore => {
 };
 
 == should format the return type on the same line when the rest of the header is multi-line ==
-const testing = (param: string, other: number, finalParameterThatIs: string): testing | this => {
+const testing = (param: string, other: number): testing | this => {
 }
 
 [expect]
 const testing = (
     param: string,
-    other: number,
-    finalParameterThatIs: string
+    other: number
 ): testing | this => {
 };
 
-== should format the return type on a new line when it's hanging and the rest of the header is multi-line ==
-const testing = (param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut => {
+== should format the return type on a new line when it's multiple lines and the rest of the header is multi-line ==
+const testing = (param: string, other: number): testing | other | other | test | test => {
 }
 
 [expect]
 const testing = (
     param: string,
-    other: number,
-    finalParameterThatIsReallyReallyLong: string
-): testing | other | other | test | test | asdf
-    | testingThisOut | testingThisOut =>
+    other: number
+):
+    | testing
+    | other
+    | other
+    | test
+    | test =>
 {
 };
 
@@ -107,18 +110,15 @@ const test = (testing, thisOut) => ({
 });
 
 == should not newline when the arrow is on a separate line -- previously would newline before sum, which was useless ==
-const test = (testing, thisOut, with, somethingThatWillGo, multiLine) => sum(testing, thisOut, againWithSomethingThisisLong, testing);
+const test = (testing, thisOut, somethingThatWillGo) => sum(testing, thisOut, againWithSomethingThisisLong);
 
 [expect]
 const test = (
     testing,
     thisOut,
-    with,
-    somethingThatWillGo,
-    multiLine
+    somethingThatWillGo
 ) => sum(
     testing,
     thisOut,
-    againWithSomethingThisisLong,
-    testing
+    againWithSomethingThisisLong
 );

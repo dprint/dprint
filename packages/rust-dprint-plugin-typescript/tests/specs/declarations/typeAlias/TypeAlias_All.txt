@@ -9,5 +9,7 @@ export declare type MyTypeAlias<T> = string | number;
 export type MyTypeAlias<T, U> = Testing | ThisOut | ByGoingOverTheLimit;
 
 [expect]
-export type MyTypeAlias<T, U> = Testing | ThisOut
+export type MyTypeAlias<T, U> =
+    | Testing
+    | ThisOut
     | ByGoingOverTheLimit;

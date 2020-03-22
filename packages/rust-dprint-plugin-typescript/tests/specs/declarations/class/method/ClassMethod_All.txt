@@ -71,7 +71,11 @@ abstract class Test {
         console.log("test");
     }
 
-    method8(): string | number | string | number
+    method8():
+        | string
+        | number
+        | string
+        | number
         | string
     {
     }
@@ -83,7 +87,7 @@ abstract class Test {
     }
 }
 
-== should format the return type as hanging when it's hanging ==
+== should format as multi-line when the return type extends past the line width ==
 class Test {
     method(param: string): testt | other | number {
     }
@@ -91,9 +95,9 @@ class Test {
 
 [expect]
 class Test {
-    method(param: string): testt | other
-        | number
-    {
+    method(
+        param: string
+    ): testt | other | number {
     }
 }
 

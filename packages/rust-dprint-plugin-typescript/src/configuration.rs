@@ -526,6 +526,10 @@ impl ConfigurationBuilder {
         self.insert("typeParameterDeclaration.preferHanging", value)
     }
 
+    pub fn union_and_intersection_type_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("unionAndIntersectionType.preferHanging", value)
+    }
+
     pub fn while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("whileStatement.preferHanging", value)
     }
@@ -974,7 +978,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         new_line_kind: get_value(&mut config, "newLineKind", global_config.new_line_kind.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.new_line_kind), &mut diagnostics),
         quote_style: get_value(&mut config, "quoteStyle", QuoteStyle::PreferDouble, &mut diagnostics),
         semi_colons,
-        /* use parentheses */
+        /* situational */
         arrow_function_expression_use_parentheses: get_value(&mut config, "arrowFunctionExpression.useParentheses", UseParentheses::Maintain, &mut diagnostics),
         /* brace position */
         arrow_function_expression_brace_position: get_value(&mut config, "arrowFunctionExpression.bracePosition", brace_position, &mut diagnostics),
@@ -1017,6 +1021,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
         type_literal_prefer_hanging: get_value(&mut config, "typeLiteral.preferHanging", prefer_hanging, &mut diagnostics),
         type_parameter_declaration_prefer_hanging: get_value(&mut config, "typeParameterDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
+        union_and_intersection_type_prefer_hanging: get_value(&mut config, "unionAndIntersectionType.preferHanging", prefer_hanging, &mut diagnostics),
         while_statement_prefer_hanging: get_value(&mut config, "whileStatement.preferHanging", prefer_hanging, &mut diagnostics),
         /* prefer hanging arguments */
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
@@ -1191,6 +1196,8 @@ pub struct Configuration {
     pub type_literal_prefer_hanging: bool,
     #[serde(rename = "typeParameterDeclaration.preferHanging")]
     pub type_parameter_declaration_prefer_hanging: bool,
+    #[serde(rename = "unionAndIntersectionType.preferHanging")]
+    pub union_and_intersection_type_prefer_hanging: bool,
     #[serde(rename = "whileStatement.preferHanging")]
     pub while_statement_prefer_hanging: bool,
     /* prefer hanging arguments */

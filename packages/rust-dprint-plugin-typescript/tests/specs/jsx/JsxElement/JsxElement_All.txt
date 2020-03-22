@@ -107,7 +107,7 @@ const t = <Element>
     {other}
 </Element>;
 
-== should keep jsx text on the same line for a preceeding text with and without a space ==
+== should keep jsx text on the same line for a preceding text with and without a space ==
 const t = <Element>
     Test: {title}
     Test{other}

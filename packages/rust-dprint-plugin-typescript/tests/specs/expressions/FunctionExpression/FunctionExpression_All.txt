@@ -1,13 +1,13 @@
-~~ lineWidth: 80 ~~
+~~ lineWidth: 50 ~~
 == should format ==
 const t = async function
 test<T, U>
-(p, u): string
+(p, u): s
 {
 };
 
 [expect]
-const t = async function test<T, U>(p, u): string {
+const t = async function test<T, U>(p, u): s {
 };
 
 == should format generator ==
@@ -24,40 +24,43 @@ call(async function* agf() {})
 [expect]
 call(async function* agf() {});
 
-== should format the return type as hanging when it's hanging ==
-const t = function(param: string, other: number, finalParam: string): testing | this {
+== should format the params as multi-line when the return type exceeds the line width ==
+const t = function(param: string): testing | this {
 
 }
 
 [expect]
-const t = function(param: string, other: number, finalParam: string): testing
-    | this
-{
-};
-
-== should format the return type on the same line when the rest of the header is multi-line ==
-const testing = function(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | this {
-}
-
-[expect]
-const testing = function(
-    param: string,
-    other: number,
-    finalParameterThatIsReallyReallyLong: string
+const t = function(
+    param: string
 ): testing | this {
 };
 
-== should format the return type on a new line when it's multi-line and the rest of the header is hanging ==
-const testing = function(param: string, other: number, finalParameterThatIsReallyReallyLong: string): testing | other | other | test | test | asdf | testingThisOut | testingThisOut {
+== should format the return type on the same line when the rest of the header is multi-line ==
+const testing = function(param: string, other: number): testing | this {
 }
 
 [expect]
 const testing = function(
     param: string,
-    other: number,
-    finalParameterThatIsReallyReallyLong: string
-): testing | other | other | test | test | asdf | testingThisOut
-    | testingThisOut
+    other: number
+): testing | this {
+};
+
+== should format the return type on a new line when it's multi-line and the rest of the header is multi-line ==
+const testing = function(param: string, other: number): testing | other | other | test | test | otherrr {
+}
+
+[expect]
+const testing = function(
+    param: string,
+    other: number
+):
+    | testing
+    | other
+    | other
+    | test
+    | test
+    | otherrr
 {
 };
 

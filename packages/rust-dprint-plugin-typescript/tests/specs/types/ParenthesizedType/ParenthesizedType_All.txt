@@ -16,13 +16,14 @@ type Test = (
 == should use indent if on a line with hanging indentation ==
 type Test = test
     | test & (
-        test | test
-& other
+        test
+        | test & other
     );
 
 [expect]
-type Test = test
+type Test =
+    | test
     | test & (
-        test | test
-        & other
+        | test
+        | test & other
     );
