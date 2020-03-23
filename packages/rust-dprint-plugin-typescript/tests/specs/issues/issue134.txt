@@ -1,0 +1,18 @@
+~~ indentWidth: 2 ~~
+== should format as-is ==
+await assertThrowsAsync(
+  async (): Promise<void> => {
+    await ensureLink(testDir, linkDir);
+  },
+  // "Operation not permitted (os error 1)" // throw an local matching test
+  // "Access is denied. (os error 5)" // throw in CI
+);
+
+[expect]
+await assertThrowsAsync(
+  async (): Promise<void> => {
+    await ensureLink(testDir, linkDir);
+  },
+  // "Operation not permitted (os error 1)" // throw an local matching test
+  // "Access is denied. (os error 5)" // throw in CI
+);
