@@ -34,7 +34,7 @@ export class CliEnvironment extends CliLoggingEnvironment implements Environment
     glob(patterns: string[]) {
         return this.fastGlob(backSlashesToForward(patterns), {
             absolute: true,
-            cwd: path.resolve(".")
+            cwd: path.resolve("."),
         });
     }
 

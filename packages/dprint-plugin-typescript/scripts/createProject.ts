@@ -4,8 +4,8 @@ export function createProject() {
     const project = new Project({
         tsConfigFilePath: "tsconfig.json",
         manipulationSettings: {
-            newLineKind: NewLineKind.CarriageReturnLineFeed
-        }
+            newLineKind: NewLineKind.CarriageReturnLineFeed,
+        },
     });
 
     return project;

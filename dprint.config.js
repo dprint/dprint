@@ -13,15 +13,15 @@ module.exports.config = {
             preferHanging: true,
             nextControlFlowPosition: "nextLine",
             semiColons: "always",
-            "arrowFunctionExpression.useParentheses": "preferNone",
-            "tryStatement.nextControlFlowPosition": "sameLine"
+            "arrowFunction.useParentheses": "preferNone",
+            "tryStatement.nextControlFlowPosition": "sameLine",
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     includes: [
-        "**/*.{ts,tsx,json,js,jsx}"
+        "**/*.{ts,tsx,json,js,jsx}",
     ],
     excludes: [
         "packages/playground/public/vs/**/*.*",
@@ -29,6 +29,6 @@ module.exports.config = {
         "build-website/**/*.*",
         "**/dist/**/*.*",
         "**/target/**/*.*",
-        "**/wasm/**/*.*"
-    ]
+        "**/wasm/**/*.*",
+    ],
 };

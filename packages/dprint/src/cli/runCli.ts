@@ -73,7 +73,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
                 const result = formatFileText({
                     filePath,
                     fileText,
-                    plugins
+                    plugins,
                 });
                 // skip writing the file if it hasn't changed
                 return result === fileText ? Promise.resolve() : environment.writeFile(filePath, result);
@@ -90,7 +90,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
             for (const plugin of plugins) {
                 plugin.initialize({
                     environment,
-                    globalConfig
+                    globalConfig,
                 });
 
                 for (const diagnostic of plugin.getConfigurationDiagnostics())
@@ -188,7 +188,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         return {
             unresolvedConfiguration,
             configFilePath,
-            plugins: unresolvedConfiguration.plugins || []
+            plugins: unresolvedConfiguration.plugins || [],
         };
     }
 }

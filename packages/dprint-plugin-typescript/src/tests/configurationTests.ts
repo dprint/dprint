@@ -10,7 +10,7 @@ describe("configuration", () => {
         expectedConfig: Partial<ResolvedTypeScriptConfiguration>,
         propertyFilter: (propName: keyof ResolvedTypeScriptConfiguration) => boolean,
         expectedDiagnostics: ConfigurationDiagnostic[] = [],
-        globalConfig: Partial<GlobalConfiguration> = {}
+        globalConfig: Partial<GlobalConfiguration> = {},
     ) {
         const resolvedGlobalConfig = resolveGlobalConfiguration(globalConfig).config;
         const resolvedConfigResult = resolveConfiguration();
@@ -29,11 +29,11 @@ describe("configuration", () => {
             try {
                 plugin.initialize({
                     environment: new CliLoggingEnvironment(),
-                    globalConfig: resolvedGlobalConfig
+                    globalConfig: resolvedGlobalConfig,
                 });
                 return {
                     config: plugin.getConfiguration(),
-                    diagnostics: plugin.getConfigurationDiagnostics()
+                    diagnostics: plugin.getConfigurationDiagnostics(),
                 };
             } finally {
                 plugin.dispose();
@@ -45,21 +45,21 @@ describe("configuration", () => {
         it("should do a diagnostic when providing an incorrect number value", () => {
             doTest({ lineWidth: false as any as number }, {}, () => false, [{
                 message: "Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string",
-                propertyName: "lineWidth"
+                propertyName: "lineWidth",
             }]);
         });
 
         it("should do a diagnostic when providing an incorrect boolean value", () => {
             doTest({ "setAccessor.spaceBeforeParentheses": 5 as any as boolean }, {}, () => false, [{
                 message: "Error parsing configuration value for 'setAccessor.spaceBeforeParentheses'. Message: provided string was not `true` or `false`",
-                propertyName: "setAccessor.spaceBeforeParentheses"
+                propertyName: "setAccessor.spaceBeforeParentheses",
             }]);
         });
 
         it("should do a diagnostic when providing an excess property", () => {
             doTest({ asdf: 5 } as any, {}, () => false, [{
                 message: "Unknown property in configuration: asdf",
-                propertyName: "asdf"
+                propertyName: "asdf",
             }]);
         });
     });
@@ -133,7 +133,7 @@ describe("configuration", () => {
                 "forOfStatement.useBraces": value,
                 "forStatement.useBraces": value,
                 "ifStatement.useBraces": value,
-                "whileStatement.useBraces": value
+                "whileStatement.useBraces": value,
             };
         }
     });
@@ -184,7 +184,7 @@ describe("configuration", () => {
                 "switchStatement.bracePosition": value,
                 "switchCase.bracePosition": value,
                 "tryStatement.bracePosition": value,
-                "whileStatement.bracePosition": value
+                "whileStatement.bracePosition": value,
             };
         }
     });
@@ -219,7 +219,7 @@ describe("configuration", () => {
                 "forOfStatement.singleBodyPosition": value,
                 "forStatement.singleBodyPosition": value,
                 "ifStatement.singleBodyPosition": value,
-                "whileStatement.singleBodyPosition": value
+                "whileStatement.singleBodyPosition": value,
             };
         }
     });
@@ -254,7 +254,7 @@ describe("configuration", () => {
         function getObject(value: NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
                 "ifStatement.nextControlFlowPosition": value,
-                "tryStatement.nextControlFlowPosition": value
+                "tryStatement.nextControlFlowPosition": value,
             };
         }
     });
@@ -286,7 +286,7 @@ describe("configuration", () => {
         function getObject(value: NonNullable<TypeScriptConfiguration["operatorPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
                 "binaryExpression.operatorPosition": value,
-                "conditionalExpression.operatorPosition": value
+                "conditionalExpression.operatorPosition": value,
             };
         }
     });
@@ -324,7 +324,7 @@ describe("configuration", () => {
                 "enumDeclaration.trailingCommas": value,
                 "objectExpression.trailingCommas": value,
                 "typeParameterDeclaration.trailingCommas": value,
-                "tupleType.trailingCommas": value
+                "tupleType.trailingCommas": value,
             };
         }
     });
@@ -390,7 +390,7 @@ describe("configuration", () => {
                 "getAccessor.preferHangingParameters": value,
                 "method.preferHangingParameters": value,
                 "methodSignature.preferHangingParameters": value,
-                "setAccessor.preferHangingParameters": value
+                "setAccessor.preferHangingParameters": value,
             };
         }
     });
@@ -424,7 +424,7 @@ describe("configuration", () => {
         function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
                 "callExpression.preferHangingArguments": value,
-                "newExpression.preferHangingArguments": value
+                "newExpression.preferHangingArguments": value,
             };
         }
     });
@@ -468,7 +468,7 @@ describe("configuration", () => {
                 "getAccessor.preferHangingParameters": value,
                 "method.preferHangingParameters": value,
                 "methodSignature.preferHangingParameters": value,
-                "setAccessor.preferHangingParameters": value
+                "setAccessor.preferHangingParameters": value,
             };
         }
     });
@@ -485,7 +485,7 @@ describe("configuration", () => {
         it("should get the property when set", () => {
             doSpecificTest(
                 { "enumDeclaration.memberSpacing": "blankline" },
-                { "enumDeclaration.memberSpacing": "blankline" }
+                { "enumDeclaration.memberSpacing": "blankline" },
             );
         });
     });
@@ -502,7 +502,7 @@ describe("configuration", () => {
         it("should get the property when set", () => {
             doSpecificTest(
                 { "arrowFunction.useParentheses": "preferNone" },
-                { "arrowFunction.useParentheses": "preferNone" }
+                { "arrowFunction.useParentheses": "preferNone" },
             );
         });
     });
@@ -544,7 +544,7 @@ describe("configuration", () => {
                 "taggedTemplate.spaceBeforeLiteral",
                 "typeAnnotation.spaceBeforeColon",
                 "typeAssertion.spaceBeforeExpression",
-                "whileStatement.spaceAfterWhileKeyword"
+                "whileStatement.spaceAfterWhileKeyword",
             ];
 
             doSpecificTest(createConfigWithValue(keys, true), createConfigWithValue(keys, true) as any);

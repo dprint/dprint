@@ -38,7 +38,7 @@ export function formatFileText(options: FormatFileTextOptions) {
             newLineKind: config.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newLineKind,
             maxWidth: config.lineWidth,
             indentWidth: config.indentWidth,
-            useTabs: config.useTabs
+            useTabs: config.useTabs,
         });
     }
 

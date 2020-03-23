@@ -66,7 +66,7 @@ export function runSpecs(options: RunSpecsOptions) {
                 const actualText = formatFileText({
                     filePath: spec.filePath,
                     fileText: spec.fileText,
-                    plugins: [plugin]
+                    plugins: [plugin],
                 });
 
                 // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
@@ -85,7 +85,7 @@ export function runSpecs(options: RunSpecsOptions) {
                 const plugin = createPlugin(spec.config);
                 plugin.initialize({
                     globalConfig,
-                    environment
+                    environment,
                 });
                 throwIfConfigDiagnostics(plugin.getConfigurationDiagnostics());
                 return plugin;

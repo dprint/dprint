@@ -22,7 +22,7 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
 
     return {
         filePath: resolvedFilePath,
-        config: await getConfig()
+        config: await getConfig(),
     };
 
     async function getConfig() {
@@ -37,7 +37,7 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
                     return throwError(
                         `Could not find configuration file at '${resolvedFilePath}'. `
                             + `Did you mean to create one (dprint --init) or specify a --config option?\n\n`
-                            + err
+                            + err,
                     );
                 }
                 else {

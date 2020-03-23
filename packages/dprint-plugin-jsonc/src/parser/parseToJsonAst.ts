@@ -5,7 +5,7 @@ export function parseToJsonAst(fileText: string) {
     const diagnostics: parser.ParseError[] = [];
     const ast = parser.parseTree(fileText, diagnostics, {
         allowTrailingComma: true,
-        disallowComments: false
+        disallowComments: false,
     });
 
     if (diagnostics.length > 0)

@@ -28,7 +28,7 @@ const LocalSyntaxKind: {
     CommentBlockTrivia: 13,
     LineBreakTrivia: 14,
     Trivia: 15,
-    EOF: 17
+    EOF: 17,
 };
 
 export interface ParseJsonFileOptions {
@@ -46,7 +46,7 @@ export function* parseJsonFile(options: ParseJsonFileOptions): PrintItemIterable
         log: message => environment.log(`${message} (${filePath})`),
         warn: message => environment.warn(`${message} (${filePath})`),
         config,
-        scanner: createScanner(fileText, false)
+        scanner: createScanner(fileText, false),
     };
 
     // this will be undefined when the file has no object node
@@ -54,7 +54,7 @@ export function* parseJsonFile(options: ParseJsonFileOptions): PrintItemIterable
         yield* parseCommentsUpToPos({
             allowLeadingBlankLine: false,
             allowTrailingBlankLine: false,
-            stopPos: fileText.length
+            stopPos: fileText.length,
         }, context);
     }
     else {
@@ -67,7 +67,7 @@ export function* parseJsonFile(options: ParseJsonFileOptions): PrintItemIterable
         condition: conditionContext => {
             return conditionContext.writerInfo.columnNumber > 0 || conditionContext.writerInfo.lineNumber > 0;
         },
-        true: [Signal.NewLine]
+        true: [Signal.NewLine],
     };
 }
 
@@ -78,7 +78,7 @@ const parseObj: { [name in NodeType]: (node: Node, context: Context) => PrintIte
     "null": parseNodeAsIs,
     number: parseNodeAsIs,
     object: parseObject,
-    property: parseProperty
+    property: parseProperty,
 };
 
 interface ParseNodeOptions {
@@ -104,7 +104,7 @@ function* parseNode(node: Node, context: Context, opts?: ParseNodeOptions): Prin
         yield* parseCommentsUpToPos({
             stopPos: context.fileText.length,
             allowLeadingBlankLine: true,
-            allowTrailingBlankLine: false
+            allowTrailingBlankLine: false,
         }, context);
     }
 }
@@ -197,7 +197,7 @@ function* parseChildren(node: Node, context: Context) {
                     yield* iterator;
                     if (i < children.length - 1)
                         yield ",";
-                }
+                },
             });
 
             if (i < children.length - 1) {
@@ -223,7 +223,7 @@ function* parseChildren(node: Node, context: Context) {
         yield* parseCommentsUpToPos({
             stopPos: node.offset + node.length - 1,
             allowLeadingBlankLine: true,
-            allowTrailingBlankLine: false
+            allowTrailingBlankLine: false,
         }, context);
     }());
 
@@ -261,7 +261,7 @@ function* parseLeadingComments(node: Node, context: Context) {
     yield* parseCommentsUpToPos({
         stopPos: node.offset,
         allowLeadingBlankLine,
-        allowTrailingBlankLine: true
+        allowTrailingBlankLine: true,
     }, context);
 }
 
@@ -456,7 +456,7 @@ function getInnerComments(end: number, context: Context) {
             comments.push({
                 kind,
                 offset: scanner.getTokenOffset(),
-                length: scanner.getTokenLength()
+                length: scanner.getTokenLength(),
             });
         }
         else if (scanner.getPosition() >= end) {

@@ -6,20 +6,20 @@ export default {
     input: "./src/index.ts",
     output: {
         file: "./dist/dprint-core.js",
-        format: "cjs"
+        format: "cjs",
     },
     external: [
-        "../wasm/dprint_rust_printer"
+        "../wasm/dprint_rust_printer",
     ],
     plugins: [
         typescript({
             typescript: require("ttypescript"),
-            tsconfig: "tsconfig.rollup.json"
+            tsconfig: "tsconfig.rollup.json",
         }),
         replace({
-            PACKAGE_VERSION: getVersion()
-        })
-    ]
+            PACKAGE_VERSION: getVersion(),
+        }),
+    ],
 };
 
 function getVersion() {

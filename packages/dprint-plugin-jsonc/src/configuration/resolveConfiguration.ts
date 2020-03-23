@@ -9,7 +9,7 @@ import { JsoncConfiguration, ResolvedJsoncConfiguration } from "./Configuration"
  */
 export function resolveConfiguration(
     globalConfig: ResolvedConfiguration,
-    pluginConfig: JsoncConfiguration
+    pluginConfig: JsoncConfiguration,
 ): ResolveConfigurationResult<ResolvedJsoncConfiguration> {
     pluginConfig = { ...pluginConfig };
 
@@ -19,14 +19,14 @@ export function resolveConfiguration(
         newLineKind: getNewLineKind(),
         lineWidth: getValue("lineWidth", globalConfig.lineWidth, ensureNumber),
         indentWidth: getValue("indentWidth", globalConfig.indentWidth, ensureNumber),
-        useTabs: getValue("useTabs", globalConfig.useTabs, ensureBoolean)
+        useTabs: getValue("useTabs", globalConfig.useTabs, ensureBoolean),
     };
 
     addExcessPropertyDiagnostics();
 
     return {
         config: Object.freeze(resolvedConfig),
-        diagnostics
+        diagnostics,
     };
 
     function getNewLineKind() {
@@ -48,7 +48,7 @@ export function resolveConfiguration(
                 const propertyName: keyof JsoncConfiguration = "newLineKind";
                 diagnostics.push({
                     propertyName,
-                    message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`
+                    message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`,
                 });
                 return globalConfig.newLineKind;
         }
@@ -57,7 +57,7 @@ export function resolveConfiguration(
     function getValue<TKey extends keyof JsoncConfiguration>(
         key: TKey,
         defaultValue: NonNullable<JsoncConfiguration[TKey]>,
-        validateFunc: (key: TKey, value: NonNullable<JsoncConfiguration[TKey]>) => boolean
+        validateFunc: (key: TKey, value: NonNullable<JsoncConfiguration[TKey]>) => boolean,
     ) {
         let actualValue = pluginConfig[key] as NonNullable<JsoncConfiguration[TKey]>;
         if (actualValue == null || !validateFunc(key, actualValue as NonNullable<JsoncConfiguration[TKey]>))
@@ -74,7 +74,7 @@ export function resolveConfiguration(
 
         diagnostics.push({
             propertyName: key,
-            message: `Expected the configuration for '${key}' to be a number, but its value was: ${value}`
+            message: `Expected the configuration for '${key}' to be a number, but its value was: ${value}`,
         });
         return false;
     }
@@ -85,7 +85,7 @@ export function resolveConfiguration(
 
         diagnostics.push({
             propertyName: key,
-            message: `Expected the configuration for '${key}' to be a boolean, but its value was: ${value}`
+            message: `Expected the configuration for '${key}' to be a boolean, but its value was: ${value}`,
         });
         return false;
     }
@@ -94,7 +94,7 @@ export function resolveConfiguration(
         for (const propertyName in pluginConfig) {
             diagnostics.push({
                 propertyName: propertyName as keyof typeof pluginConfig,
-                message: `Unknown property in configuration: ${propertyName}`
+                message: `Unknown property in configuration: ${propertyName}`,
             });
         }
     }

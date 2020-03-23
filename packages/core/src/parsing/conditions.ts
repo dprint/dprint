@@ -22,7 +22,7 @@ export namespace conditions {
                 return conditionResolvers.isHanging(conditionContext, startInfo, endInfo);
             },
             true: [Signal.NewLine],
-            false: [spaceChar]
+            false: [spaceChar],
         };
     }
 
@@ -38,7 +38,7 @@ export namespace conditions {
             kind: PrintItemKind.Condition,
             condition: conditionContext => conditionResolvers.isMultipleLines(conditionContext, startInfo, endInfo || conditionContext.writerInfo, false),
             true: [Signal.NewLine],
-            false: [Signal.SpaceOrNewLine]
+            false: [Signal.SpaceOrNewLine],
         };
     }
 
@@ -47,7 +47,7 @@ export namespace conditions {
             kind: PrintItemKind.Condition,
             name: "singleIndentIfStartOfLine",
             condition: conditionResolvers.isStartOfNewLine,
-            true: [Signal.SingleIndent]
+            true: [Signal.SingleIndent],
         };
     }
 
@@ -61,7 +61,7 @@ export namespace conditions {
             name: "indentIfStartOfLine",
             condition: conditionResolvers.isStartOfNewLine,
             true: withIndent(item),
-            false: item
+            false: item,
         };
     }
 
@@ -77,7 +77,7 @@ export namespace conditions {
                 return context.writerInfo.lineStartIndentLevel > context.writerInfo.indentLevel;
             },
             true: withIndent(item),
-            false: item
+            false: item,
         };
     }
 
@@ -92,7 +92,7 @@ export namespace conditions {
             name: "forceReevaluationOnceInfoResolved",
             condition: conditionContext => {
                 return conditionContext.getResolvedInfo(info) == null ? undefined : false;
-            }
+            },
         };
     }
 }

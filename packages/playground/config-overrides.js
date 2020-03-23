@@ -5,7 +5,7 @@ module.exports = function override(config, env) {
     // Support web assembly.
     config.plugins.push(new WasmPackPlugin({
         crateDirectory: path.resolve(__dirname, "./wasm"),
-        outDir: path.resolve(__dirname, "./src/wasm")
+        outDir: path.resolve(__dirname, "./src/wasm"),
     }));
 
     // Make file-loader ignore WASM files (https://stackoverflow.com/a/59720645/188246)

@@ -37,7 +37,7 @@ function initCodeHighlightExtension() {
                     return left + hljs.highlight(getLanguage(left), match).value + right;
                 };
                 return showdown.helper.replaceRecursiveRegExp(text, replacement, left, right, flags);
-            }
+            },
         }];
 
         function getLanguage(left) {

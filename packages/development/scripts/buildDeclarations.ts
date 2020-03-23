@@ -9,8 +9,8 @@ for (const file of emitResult.getFiles())
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project({
     manipulationSettings: {
-        newLineKind: NewLineKind.CarriageReturnLineFeed
-    }
+        newLineKind: NewLineKind.CarriageReturnLineFeed,
+    },
 });
 const declarationFile = writeProject.addSourceFileAtPath("lib/dprint-development.d.ts");
 const packageVersion = require("../package.json").version;
@@ -38,7 +38,7 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 declarationFile.replaceWithText(text);
 declarationFile.insertImportDeclaration(0, {
     namedImports: ["PrintItemIterable", "Plugin"],
-    moduleSpecifier: "@dprint/types"
+    moduleSpecifier: "@dprint/types",
 });
 declarationFile.saveSync();
 

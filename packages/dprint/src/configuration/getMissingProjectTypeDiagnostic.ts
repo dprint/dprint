@@ -3,15 +3,15 @@ import { Configuration, ConfigurationDiagnostic } from "@dprint/types";
 const projectTypeInfo = {
     values: [{
         name: "openSource",
-        description: "Dprint is formatting an open source project."
+        description: "Dprint is formatting an open source project.",
     }, {
         name: "commercialSponsored",
-        description: "Dprint is formatting a closed source commercial project and your company sponsored dprint."
+        description: "Dprint is formatting a closed source commercial project and your company sponsored dprint.",
     }, {
         name: "commercialDidNotSponsor",
         description: "Dprint is formatting a closed source commercial project and you want to forever enshrine your name "
-            + "in source control for having specified this."
-    }]
+            + "in source control for having specified this.",
+    }],
 };
 
 /**
@@ -35,6 +35,6 @@ export function getMissingProjectTypeDiagnostic(config: Configuration): Configur
         propertyName,
         message: `The "${propertyName}" field is missing. You may specify any of the following possible values in the configuration file according to your `
             + `conscience and that will supress this warning.\n\n`
-            + projectTypeInfo.values.map(value => ` * ${value.name} ${" ".repeat(largestValueName - value.name.length)}${value.description}`).join("\n")
+            + projectTypeInfo.values.map(value => ` * ${value.name} ${" ".repeat(largestValueName - value.name.length)}${value.description}`).join("\n"),
     };
 }

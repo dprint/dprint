@@ -6,7 +6,7 @@ const defaultValues = {
     lineWidth: 120,
     indentWidth: 4,
     useTabs: false,
-    newLineKind: "auto"
+    newLineKind: "auto",
 } as const;
 
 /**
@@ -22,14 +22,14 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
         lineWidth: getValue("lineWidth", defaultValues.lineWidth, ensureNumber),
         indentWidth: getValue("indentWidth", defaultValues.indentWidth, ensureNumber),
         useTabs: getValue("useTabs", defaultValues.useTabs, ensureBoolean),
-        newLineKind: getNewLineKind()
+        newLineKind: getNewLineKind(),
     };
 
     addExcessPropertyDiagnostics();
 
     return {
         config: resolvedConfig,
-        diagnostics
+        diagnostics,
     };
 
     function getNewLineKind() {
@@ -51,7 +51,7 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
                 const propertyName: keyof ResolvedConfiguration = "newLineKind";
                 diagnostics.push({
                     propertyName,
-                    message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`
+                    message: `Unknown configuration specified for '${propertyName}': ${newLineKind}`,
                 });
                 return defaultValues["newLineKind"];
         }
@@ -60,7 +60,7 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
     function getValue<TKey extends keyof Configuration>(
         key: TKey,
         defaultValue: NonNullable<Configuration[TKey]>,
-        validateFunc: (key: TKey, value: NonNullable<Configuration[TKey]>) => boolean
+        validateFunc: (key: TKey, value: NonNullable<Configuration[TKey]>) => boolean,
     ) {
         let actualValue = config[key] as NonNullable<Configuration[TKey]>;
         if (actualValue == null || !validateFunc(key, actualValue as NonNullable<Configuration[TKey]>))
@@ -77,7 +77,7 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
 
         diagnostics.push({
             propertyName: key,
-            message: `Expected the configuration for '${key}' to be a number, but its value was: ${value}`
+            message: `Expected the configuration for '${key}' to be a number, but its value was: ${value}`,
         });
         return false;
     }
@@ -88,7 +88,7 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
 
         diagnostics.push({
             propertyName: key,
-            message: `Expected the configuration for '${key}' to be a boolean, but its value was: ${value}`
+            message: `Expected the configuration for '${key}' to be a boolean, but its value was: ${value}`,
         });
         return false;
     }
@@ -103,7 +103,7 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
 
             diagnostics.push({
                 propertyName: propertyName as keyof typeof config,
-                message: `Unknown property in configuration: ${propertyName}`
+                message: `Unknown property in configuration: ${propertyName}`,
             });
         }
     }

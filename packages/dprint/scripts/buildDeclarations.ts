@@ -9,8 +9,8 @@ for (const file of emitResult.getFiles())
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project({
     manipulationSettings: {
-        newLineKind: NewLineKind.CarriageReturnLineFeed
-    }
+        newLineKind: NewLineKind.CarriageReturnLineFeed,
+    },
 });
 const declarationFile = writeProject.addSourceFileAtPath("lib/dprint.d.ts");
 
@@ -35,11 +35,11 @@ declarationFile.replaceWithText(text);
 declarationFile.insertStatements(0, [{
     kind: StructureKind.ImportDeclaration,
     namedImports: ["CliLoggingEnvironment"],
-    moduleSpecifier: "@dprint/core"
+    moduleSpecifier: "@dprint/core",
 }, {
     kind: StructureKind.ImportDeclaration,
     namedImports: ["LoggingEnvironment", "Configuration as CoreConfiguration"],
-    moduleSpecifier: "@dprint/types"
+    moduleSpecifier: "@dprint/types",
 }]);
 declarationFile.saveSync();
 

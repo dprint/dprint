@@ -14,7 +14,7 @@ export interface PrintItemIterable extends Iterable<PrintItem> {
  */
 export enum PrintItemKind {
     Condition,
-    Info
+    Info,
 }
 
 /**
@@ -71,7 +71,7 @@ export enum Signal {
     /**
      * Signal to the printer that it should start using indentation again.
      */
-    FinishIgnoringIndent
+    FinishIgnoringIndent,
 }
 
 /**

@@ -9,8 +9,8 @@ for (const file of emitResult.getFiles())
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project({
     manipulationSettings: {
-        newLineKind: NewLineKind.CarriageReturnLineFeed
-    }
+        newLineKind: NewLineKind.CarriageReturnLineFeed,
+    },
 });
 const declarationFile = writeProject.addSourceFileAtPath("lib/dprint-core.d.ts");
 const packageVersion = require("../package.json").version;
@@ -50,9 +50,9 @@ declarationFile.addImportDeclaration({
         "ResolvedConfiguration",
         "ResolveConditionContext",
         "BaseResolvedConfiguration",
-        "LoggingEnvironment"
+        "LoggingEnvironment",
     ],
-    moduleSpecifier: "@dprint/types"
+    moduleSpecifier: "@dprint/types",
 });
 declarationFile.insertStatements(0, "// dprint-ignore-file");
 declarationFile.saveSync();

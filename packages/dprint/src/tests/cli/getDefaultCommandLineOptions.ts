@@ -10,6 +10,6 @@ export function getDefaultCommandLineOptions(): CommandLineOptions {
         outputFilePaths: false,
         outputResolvedConfig: false,
         duration: false,
-        filePatterns: []
+        filePatterns: [],
     };
 }

@@ -59,7 +59,7 @@ export namespace parserHelpers {
     export function createInfo(name: string): Info {
         return {
             kind: PrintItemKind.Info,
-            name
+            name,
         };
     }
 

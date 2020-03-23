@@ -25,7 +25,7 @@ project.addSourceFilesFromTsConfig("packages/dprint-plugin-typescript/tsconfig.j
 /** @type {[string, import("ts-morph").SourceFile][]} */
 const mappings = [
     ["@dprint/core", project.getSourceFileOrThrow("packages/core/src/index.ts")],
-    ["@dprint/development", project.getSourceFileOrThrow("packages/development/src/index.ts")]
+    ["@dprint/development", project.getSourceFileOrThrow("packages/development/src/index.ts")],
 ];
 
 if (process.argv[2] === "--undo")

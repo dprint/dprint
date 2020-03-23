@@ -6,17 +6,17 @@ export default {
     input: "./src/index.ts",
     output: {
         file: "./dist/dprint.js",
-        format: "cjs"
+        format: "cjs",
     },
     plugins: [
         typescript({
             typescript: require("ttypescript"),
-            tsconfig: "tsconfig.rollup.json"
+            tsconfig: "tsconfig.rollup.json",
         }),
         replace({
-            PACKAGE_VERSION: getVersion()
-        })
-    ]
+            PACKAGE_VERSION: getVersion(),
+        }),
+    ],
 };
 
 function getVersion() {

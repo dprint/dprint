@@ -84,7 +84,7 @@ export function preparePrintItems(items: PrintItemIterable) {
                     };
                 })(),
                 enumerable: true,
-                configurable: true
+                configurable: true,
             });
         }
 
@@ -103,7 +103,7 @@ export function preparePrintItems(items: PrintItemIterable) {
                     return id;
                 },
                 enumerable: true,
-                configurable: true
+                configurable: true,
             });
 
             return true;

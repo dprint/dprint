@@ -7,7 +7,7 @@ describe(nameof(resolveConfiguration), () => {
         config: Partial<Configuration>,
         expectedConfig: Partial<ResolvedConfiguration>,
         propertyFilter: (propName: keyof ResolvedConfiguration) => boolean,
-        expectedDiagnostics: ConfigurationDiagnostic[] = []
+        expectedDiagnostics: ConfigurationDiagnostic[] = [],
     ) {
         const resolvedConfig = resolveConfiguration(config);
         for (const propName in resolvedConfig.config) {
@@ -23,21 +23,21 @@ describe(nameof(resolveConfiguration), () => {
         it("should do a diagnostic when providing an incorrect number value", () => {
             doTest({ lineWidth: false as any as number }, {}, () => false, [{
                 message: "Expected the configuration for 'lineWidth' to be a number, but its value was: false",
-                propertyName: "lineWidth"
+                propertyName: "lineWidth",
             }]);
         });
 
         it("should do a diagnostic when providing an incorrect boolean value", () => {
             doTest({ useTabs: 5 as any as boolean }, {}, () => false, [{
                 message: "Expected the configuration for 'useTabs' to be a boolean, but its value was: 5",
-                propertyName: "useTabs"
+                propertyName: "useTabs",
             }]);
         });
 
         it("should do a diagnostic when providing an excess property", () => {
             doTest({ asdf: 5 } as any, {}, () => false, [{
                 message: "Unknown property in configuration: asdf",
-                propertyName: "asdf"
+                propertyName: "asdf",
             }]);
         });
     });
@@ -48,7 +48,7 @@ describe(nameof(resolveConfiguration), () => {
                 indentWidth: 4,
                 lineWidth: 120,
                 newLineKind: "auto",
-                useTabs: false
+                useTabs: false,
             }, () => true);
         });
 
@@ -57,12 +57,12 @@ describe(nameof(resolveConfiguration), () => {
                 indentWidth: 2,
                 lineWidth: 80,
                 newLineKind: "crlf",
-                useTabs: true
+                useTabs: true,
             }, {
                 indentWidth: 2,
                 lineWidth: 80,
                 newLineKind: "\r\n",
-                useTabs: true
+                useTabs: true,
             }, () => true);
         });
     });
@@ -95,7 +95,7 @@ describe(nameof(resolveConfiguration), () => {
         it("should do a diagnostic when providing an incorrect value", () => {
             doTest({ newLineKind: "asdf" as any }, {}, () => false, [{
                 message: "Unknown configuration specified for 'newLineKind': asdf",
-                propertyName: "newLineKind"
+                propertyName: "newLineKind",
             }]);
         });
     });

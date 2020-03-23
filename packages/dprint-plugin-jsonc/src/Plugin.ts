@@ -54,7 +54,7 @@ export class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
             filePath,
             fileText,
             config: this.getConfiguration(),
-            environment: this._getEnvironment()
+            environment: this._getEnvironment(),
         });
     }
 

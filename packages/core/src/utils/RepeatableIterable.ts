@@ -21,7 +21,7 @@ export class RepeatableIterable<T> implements Iterable<T> {
                 const result = { value: this.items[index], done: false };
                 index++;
                 return result;
-            }
+            },
         };
     }
 }

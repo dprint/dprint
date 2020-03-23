@@ -4,11 +4,11 @@ export default {
     input: "./src/index.ts",
     output: {
         file: "./dist/dprint-types.js",
-        format: "cjs"
+        format: "cjs",
     },
     plugins: [
         typescript({
-            tsconfig: "tsconfig.rollup.json"
-        })
-    ]
+            tsconfig: "tsconfig.rollup.json",
+        }),
+    ],
 };

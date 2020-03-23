@@ -7,7 +7,7 @@ describe("parsing example", () => {
 
     enum SyntaxKind {
         ArrayLiteralExpression,
-        ArrayElement
+        ArrayElement,
     }
 
     interface BaseNode {
@@ -62,7 +62,7 @@ describe("parsing example", () => {
             name: "indentIfMultipleLines",
             condition: isMultipleLines,
             true: withIndent(elements),
-            false: elements
+            false: elements,
         };
 
         yield ifMultipleLines(Signal.NewLine);
@@ -87,7 +87,7 @@ describe("parsing example", () => {
                 name: "ifMultipleLines",
                 condition: isMultipleLines,
                 true: [trueItem],
-                false: falseItem == null ? undefined : [falseItem]
+                false: falseItem == null ? undefined : [falseItem],
             };
         }
 
@@ -138,7 +138,7 @@ describe("parsing example", () => {
             indentWidth: 2,
             maxWidth: 40,
             newLineKind: "\n",
-            useTabs: false
+            useTabs: false,
         });
 
         expect(result).to.equal(expectedText);
@@ -153,13 +153,13 @@ describe("parsing example", () => {
                 kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 1,
-                text: "test"
+                text: "test",
             }, {
                 kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 6,
-                text: "other"
-            }]
+                text: "other",
+            }],
         }, "[test, other]");
     });
 
@@ -172,8 +172,8 @@ describe("parsing example", () => {
                 kind: SyntaxKind.ArrayElement,
                 lineNumber: 1,
                 columnNumber: 1,
-                text: "test"
-            }]
+                text: "test",
+            }],
         }, "[\n  test\n]");
     });
 
@@ -187,8 +187,8 @@ describe("parsing example", () => {
                 kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 1,
-                text: elementText
-            }]
+                text: elementText,
+            }],
         }, `[${elementText}]`);
     });
 
@@ -201,18 +201,18 @@ describe("parsing example", () => {
                 kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 1,
-                text: "test"
+                text: "test",
             }, {
                 kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 6,
-                text: "other"
+                text: "other",
             }, {
                 kind: SyntaxKind.ArrayElement,
                 lineNumber: 0,
                 columnNumber: 25,
-                text: "asdfasdfasdfasdfasdfasdfasdf"
-            }]
+                text: "asdfasdfasdfasdfasdfasdfasdf",
+            }],
         }, "[\n  test,\n  other,\n  asdfasdfasdfasdfasdfasdfasdf\n]");
     });
 });
