@@ -1,0 +1,12 @@
+~~ indentWidth: 2 ~~
+== should format as-is ==
+const createColumn = (value: unknown, shift?: number): string[] => [
+  ...(shift ? [...new Array(shift)].map((): string => "") : []),
+  stringifyValue(value),
+];
+
+[expect]
+const createColumn = (value: unknown, shift?: number): string[] => [
+  ...(shift ? [...new Array(shift)].map((): string => "") : []),
+  stringifyValue(value),
+];
