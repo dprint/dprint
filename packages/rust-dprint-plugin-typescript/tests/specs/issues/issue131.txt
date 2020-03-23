@@ -1,0 +1,11 @@
+-- filePath: file.tsx --
+~~ indentWidth: 2 ~~
+== should format as-is ==
+const View = () => (
+  <div class="deno">land</div>
+);
+
+[expect]
+const View = () => (
+  <div class="deno">land</div>
+);

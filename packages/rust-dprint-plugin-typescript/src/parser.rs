@@ -1181,12 +1181,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
             BlockStmtOrExpr::BlockStmt(_) => true,
             BlockStmtOrExpr::Expr(expr) => {
                 match &**expr {
-                    Expr::Paren(paren) => {
-                        match &*paren.expr {
-                            Expr::Object(_) => true,
-                            _ => false,
-                        }
-                    },
+                    Expr::Paren(_) => true,
                     _ => false,
                 }
             }
