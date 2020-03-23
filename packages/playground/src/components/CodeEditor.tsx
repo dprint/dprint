@@ -22,7 +22,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     constructor(props: CodeEditorProps) {
         super(props);
         this.state = {
-            editorComponent: undefined
+            editorComponent: undefined,
         };
         this.editorDidMount = this.editorDidMount.bind(this);
 
@@ -31,19 +31,19 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
             monacoEditor.languages.typescript.typescriptDefaults.setCompilerOptions({
                 noLib: true,
                 target: monacoEditor.languages.typescript.ScriptTarget.ESNext,
-                allowNonTsExtensions: true
+                allowNonTsExtensions: true,
             });
             monacoEditor.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
                 noSyntaxValidation: true,
-                noSemanticValidation: true
+                noSemanticValidation: true,
             });
             monacoEditor.editor.defineTheme("dprint-theme", {
                 base: "vs-dark",
                 inherit: true,
                 rules: [],
                 colors: {
-                    "editorRuler.foreground": "#283430"
-                }
+                    "editorRuler.foreground": "#283430",
+                },
             });
 
             reactMonacoEditorPromise.then(editor => {
@@ -89,7 +89,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                     readOnly: this.props.readonly || false,
                     minimap: { enabled: false },
                     quickSuggestions: false,
-                    rulers: [this.props.lineWidth]
+                    rulers: [this.props.lineWidth],
                 }}
             />
         );
@@ -102,7 +102,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
             if (this.props.readonly) {
                 this.editor!.setPosition({
                     column: 1,
-                    lineNumber: 1
+                    lineNumber: 1,
                 });
             }
         });

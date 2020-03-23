@@ -46,14 +46,14 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
             operatorPosition: initialConfig["binaryExpression.operatorPosition"],
             preferHanging: initialConfig["arrayExpression.preferHanging"],
             "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
-            "arrowFunction.useParentheses": initialConfig["arrowFunction.useParentheses"]
+            "arrowFunction.useParentheses": initialConfig["arrowFunction.useParentheses"],
         };
 
         this.state = {
             text: initialText,
             formattedText: this.formatText(initialText, config),
             scrollTop: 0,
-            config
+            config,
         };
 
         this.onConfigUpdate = this.onConfigUpdate.bind(this);

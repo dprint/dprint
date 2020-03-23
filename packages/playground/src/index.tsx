@@ -17,7 +17,7 @@ class Loader extends React.Component<{}, LoaderState> {
 
         this.state = {
             formatText: undefined,
-            resolveConfig: undefined
+            resolveConfig: undefined,
         };
 
         import("./wasm").then(wasmPkg => {
@@ -27,7 +27,7 @@ class Loader extends React.Component<{}, LoaderState> {
                 },
                 resolveConfig: config => {
                     return JSON.parse(wasmPkg.resolve_config(getConfigAsMap(config))) as ResolvedTypeScriptConfiguration;
-                }
+                },
             });
         }).catch(console.error);
     }
