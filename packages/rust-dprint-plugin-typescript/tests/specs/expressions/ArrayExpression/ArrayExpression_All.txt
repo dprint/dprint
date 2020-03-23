@@ -29,6 +29,58 @@ const t = [
     other,
 ];
 
+== should allow blank lines between items ==
+const t = [
+
+    other,
+
+    other,
+    other,
+
+
+    otherTest,
+
+    ];
+
+[expect]
+const t = [
+    other,
+
+    other,
+    other,
+
+    otherTest,
+];
+
+== should allow blank lines between leading inner comments ==
+const t = [
+
+    // 0
+
+
+    // 1
+
+    // 2
+    // 3
+
+    other,
+
+    other,];
+
+[expect]
+const t = [
+    // 0
+
+    // 1
+
+    // 2
+    // 3
+
+    other,
+
+    other,
+];
+
 == should become single line when empty ==
 const t = [
 ];

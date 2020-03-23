@@ -1785,6 +1785,7 @@ fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> Prin
         nodes: node.exprs.iter().map(|x| Some(x.into())).collect(),
         prefer_hanging: context.config.sequence_expression_prefer_hanging,
         force_use_new_lines: false,
+        allow_blank_lines: false,
         trailing_commas: Some(TrailingCommas::Never),
         semi_colons: None,
         single_line_space_at_start: false,
@@ -2912,13 +2913,14 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
     };
     items.extend(helpers::parse_separated_values(move |_| {
         let mut parsed_nodes = Vec::new();
-        parsed_nodes.push(parsed_init);
-        if let Some(parsed_test) = parsed_test { parsed_nodes.push(parsed_test); }
-        if let Some(parsed_update) = parsed_update { parsed_nodes.push(parsed_update); }
+        parsed_nodes.push(helpers::ParsedValue::from_items(parsed_init));
+        if let Some(parsed_test) = parsed_test { parsed_nodes.push(helpers::ParsedValue::from_items(parsed_test)); }
+        if let Some(parsed_update) = parsed_update { parsed_nodes.push(helpers::ParsedValue::from_items(parsed_update)); }
         parsed_nodes
     }, helpers::ParseSeparatedValuesOptions {
         prefer_hanging: context.config.for_statement_prefer_hanging,
         force_use_new_lines: use_new_lines,
+        allow_blank_lines: false,
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         single_line_separator: separator_after_semi_colons.into(),
@@ -3706,6 +3708,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
         nodes: params.into_iter().map(|p| Some(p)).collect(),
         prefer_hanging: context.config.type_parameter_declaration_prefer_hanging,
         force_use_new_lines: use_new_lines,
+        allow_blank_lines: false,
         trailing_commas: Some(get_trailing_commas(context)),
         semi_colons: None,
         single_line_space_at_start: false,
@@ -3859,13 +3862,14 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
             }));
             items.extend(parse_node(type_node.into(), context));
 
-            parsed_nodes.push(items);
+            parsed_nodes.push(helpers::ParsedValue::from_items(items));
         }
 
         parsed_nodes
     }, helpers::ParseSeparatedValuesOptions {
         prefer_hanging,
         force_use_new_lines: use_new_lines,
+        allow_blank_lines: false,
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         single_line_separator: Signal::SpaceOrNewLine.into(),
@@ -4153,6 +4157,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
             nodes: nodes,
             prefer_hanging,
             force_use_new_lines,
+            allow_blank_lines: true,
             trailing_commas: Some(trailing_commas),
             semi_colons: None,
             single_line_space_at_start: false,
@@ -4384,6 +4389,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
                 nodes: nodes.into_iter().map(|x| Some(x)).collect(),
                 prefer_hanging,
                 force_use_new_lines,
+                allow_blank_lines: false,
                 trailing_commas: Some(trailing_commas),
                 semi_colons: None,
                 single_line_space_at_start: false,
@@ -4487,6 +4493,7 @@ struct ParseSeparatedValuesOptions<'a> {
     nodes: Vec<Option<Node<'a>>>,
     prefer_hanging: bool,
     force_use_new_lines: bool,
+    allow_blank_lines: bool,
     trailing_commas: Option<TrailingCommas>,
     semi_colons: Option<SemiColons>,
     single_line_space_at_start: bool,
@@ -4504,12 +4511,14 @@ fn parse_separated_values<'a>(
     let semi_colons = opts.semi_colons;
     let trailing_commas = opts.trailing_commas;
     let indent_width = context.config.indent_width;
+    let compute_line_number = opts.allow_blank_lines && opts.force_use_new_lines; // save time otherwise
     helpers::parse_separated_values(|is_multi_line_or_hanging_ref| {
         let is_multi_line_or_hanging = is_multi_line_or_hanging_ref.create_resolver();
         let mut parsed_nodes = Vec::new();
         let nodes_count = nodes.len();
         for (i, value) in nodes.into_iter().enumerate() {
-            let parsed_value = parser_helpers::new_line_group(if let Some(trailing_commas) = trailing_commas {
+            let line_number = if compute_line_number { value.as_ref().map(|x| x.start_line(context)) } else { None };
+            let items = parser_helpers::new_line_group(if let Some(trailing_commas) = trailing_commas {
                 let parsed_comma = get_parsed_trailing_comma(trailing_commas, i == nodes_count - 1, &is_multi_line_or_hanging);
                 parse_comma_separated_value(value, parsed_comma, context)
             } else if let Some(semi_colons) = semi_colons {
@@ -4522,13 +4531,14 @@ fn parse_separated_values<'a>(
                     PrintItems::new()
                 }
             });
-            parsed_nodes.push(parsed_value);
+            parsed_nodes.push(helpers::ParsedValue { items, line_number });
         }
 
         parsed_nodes
     }, helpers::ParseSeparatedValuesOptions {
         prefer_hanging: opts.prefer_hanging,
         force_use_new_lines: opts.force_use_new_lines,
+        allow_blank_lines: opts.allow_blank_lines,
         single_line_space_at_start: opts.single_line_space_at_start,
         single_line_space_at_end: opts.single_line_space_at_end,
         single_line_separator: opts.custom_single_line_separator.unwrap_or(Signal::SpaceOrNewLine.into()),
@@ -4733,6 +4743,7 @@ fn parse_extends_or_implements<'a>(opts: ParseExtendsOrImplementsOptions<'a>, co
             nodes: opts.type_items.into_iter().map(|x| Some(x)).collect(),
             prefer_hanging: opts.prefer_hanging,
             force_use_new_lines: false,
+            allow_blank_lines: false,
             trailing_commas: Some(TrailingCommas::Never),
             semi_colons: None,
             single_line_space_at_start: true,
@@ -4793,6 +4804,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
                 nodes: opts.members.into_iter().map(|x| Some(x)).collect(),
                 prefer_hanging: opts.prefer_hanging,
                 force_use_new_lines: false,
+                allow_blank_lines: false,
                 trailing_commas: opts.trailing_commas,
                 semi_colons: opts.semi_colons,
                 single_line_space_at_start: opts.surround_single_line_with_spaces,
@@ -5676,14 +5688,19 @@ fn parse_surrounded_by_tokens<'a>(
                     items.extend(helpers::parse_separated_values(|_| {
                         let mut parsed_comments = Vec::new();
                         for c in comments {
-                            if let Some(print_items) = parse_comment(c, context) {
-                                parsed_comments.push(print_items);
+                            let line_number = c.start_line(context);
+                            if let Some(items) = parse_comment(c, context) {
+                                parsed_comments.push(helpers::ParsedValue {
+                                    items,
+                                    line_number: Some(line_number),
+                                });
                             }
                         }
                         parsed_comments
                     }, helpers::ParseSeparatedValuesOptions {
                         prefer_hanging: false,
                         force_use_new_lines: !is_single_line,
+                        allow_blank_lines: true,
                         single_line_space_at_start: false,
                         single_line_space_at_end: false,
                         single_line_separator: PrintItems::new(),
