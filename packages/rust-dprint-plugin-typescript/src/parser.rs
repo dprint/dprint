@@ -4372,7 +4372,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     return parse_surrounded_by_tokens(|context| {
         let mut items = PrintItems::new();
 
-        if nodes.len() == 1 && is_arrow_function_with_expr_body(&nodes[0]) {
+        if !force_use_new_lines && nodes.len() == 1 && is_arrow_function_with_expr_body(&nodes[0]) {
             let start_info = Info::new("startArrow");
             let parsed_node = parse_node(nodes.into_iter().next().unwrap(), context);
 
