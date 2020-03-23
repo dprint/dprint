@@ -1,9 +1,9 @@
-~~ lineWidth: 70 ~~
+~~ lineWidth: 40 ~~
 == should print everything in a type alias ==
-export declare type MyTypeAlias<    T   > =  string|number;
+export declare type MyTypeAlias<    T   > =  s;
 
 [expect]
-export declare type MyTypeAlias<T> = string | number;
+export declare type MyTypeAlias<T> = s;
 
 == should break up in the type when exceeding the line width (this would previous break up the type params) ==
 export type MyTypeAlias<T, U> = Testing | ThisOut | ByGoingOverTheLimit;
@@ -13,3 +13,12 @@ export type MyTypeAlias<T, U> =
     | Testing
     | ThisOut
     | ByGoingOverTheLimit;
+
+== should handle type parameters going over line width ==
+type Testing<TestingThisOut, WithSuperLongParams> = string;
+
+[expect]
+type Testing<
+    TestingThisOut,
+    WithSuperLongParams,
+> = string;

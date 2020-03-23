@@ -12,6 +12,10 @@ const obj = {
     },
     set test (value: string) {
     },
+    method3<T>(): string {
+    },
+    method4<TestingThisOut, Testinggggggggggggggg>(): string {
+    },
 };
 
 [expect]
@@ -26,6 +30,13 @@ const obj = {
         return "";
     },
     set test(value: string) {
+    },
+    method3<T>(): string {
+    },
+    method4<
+        TestingThisOut,
+        Testinggggggggggggggg,
+    >(): string {
     },
 };
 

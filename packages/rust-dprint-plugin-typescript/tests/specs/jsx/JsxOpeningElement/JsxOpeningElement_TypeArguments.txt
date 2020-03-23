@@ -26,5 +26,5 @@ string, number> />;
 [expect]
 const t = <Testing<
     string,
-    number,
+    number
 > />;

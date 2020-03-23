@@ -5,6 +5,7 @@ type T = {
     m2  ? (arg, arg2:  number): number  ;
     m3 ? <T , U> (  );
     [ m4  ](): string;
+    m5<TestingThisOut, WithSomeTypeParams>(): string;
 };
 
 [expect]
@@ -13,6 +14,10 @@ type T = {
     m2?(arg, arg2: number): number;
     m3?<T, U>();
     [m4](): string;
+    m5<
+        TestingThisOut,
+        WithSomeTypeParams,
+    >(): string;
 };
 
 == should format the params as multi-line when the return type exceeds the line width ==

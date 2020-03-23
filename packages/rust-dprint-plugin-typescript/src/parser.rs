@@ -3705,7 +3705,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
         nodes: params.into_iter().map(|p| Some(p)).collect(),
         prefer_hanging: context.config.type_parameter_declaration_prefer_hanging,
         force_use_new_lines: use_new_lines,
-        trailing_commas: Some(context.config.type_parameter_declaration_trailing_commas),
+        trailing_commas: Some(get_trailing_commas(context)),
         semi_colons: None,
         single_line_space_at_start: false,
         single_line_space_at_end: false,
@@ -3716,6 +3716,22 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
     items.push_str(">");
 
     return items;
+
+    fn get_trailing_commas(context: &mut Context) -> TrailingCommas {
+        let trailing_commas = context.config.type_parameter_declaration_trailing_commas;
+        if trailing_commas == TrailingCommas::Never { return trailing_commas; }
+        let parent_kind = context.parent().kind();
+        match parent_kind {
+            NodeKind::ClassDecl | NodeKind::TsInterfaceDecl | NodeKind::FnDecl
+            | NodeKind::ClassExpr | NodeKind::ClassMethod | NodeKind::TsTypeAliasDecl
+            | NodeKind::ArrowExpr | NodeKind::TsCallSignatureDecl | NodeKind::TsConstructSignatureDecl
+            | NodeKind::TsMethodSignature | NodeKind::MethodProp | NodeKind::TsConstructorType
+            | NodeKind::TsFnType => trailing_commas,
+            // Gives a compile error by TS at the moment.
+            // See https://github.com/microsoft/TypeScript/issues/21984
+            _ => TrailingCommas::Never,
+        }
+    }
 
     fn get_use_new_lines(parent_span_data: &SpanData, params: &Vec<Node>, context: &mut Context) -> bool {
         if params.is_empty() {

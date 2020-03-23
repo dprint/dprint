@@ -3,6 +3,7 @@
 type Test = {
     new(): string;
     new<T>(param: string): string;
+    new<TestingThisOut, WithSomeTypeParams>(): string;
     new(param: string, otherParam: number): string;
     new();
 };
@@ -11,6 +12,10 @@ type Test = {
 type Test = {
     new(): string;
     new<T>(param: string): string;
+    new<
+        TestingThisOut,
+        WithSomeTypeParams,
+    >(): string;
     new(
         param: string,
         otherParam: number,

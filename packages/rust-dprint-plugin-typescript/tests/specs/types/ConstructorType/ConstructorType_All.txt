@@ -2,10 +2,15 @@
 == should format ==
 type Test = new() => Date;
 type Test2 = new<T>() => Date;
+type Test3 = new<TestingThisOut, ByGoingOverLimit>() => Date;
 
 [expect]
 type Test = new() => Date;
 type Test2 = new<T>() => Date;
+type Test3 = new<
+    TestingThisOut,
+    ByGoingOverLimit,
+>() => Date;
 
 == should force multi-line parameters when exceeding the line width ==
 type Test = new(testing, thisOut, byExceeding, theLineWidth) => Date;

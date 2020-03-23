@@ -4,6 +4,7 @@ interface T {
     (): void;
     <T>(a: T): T;
     <T, U, V>(): string;
+    <TestingThisOut, WithSomeTypeParams>(): string;
     (a: string, b: number): string;
     (param: string, otherParameter: number): str;
     (
@@ -16,6 +17,10 @@ interface T {
     (): void;
     <T>(a: T): T;
     <T, U, V>(): string;
+    <
+        TestingThisOut,
+        WithSomeTypeParams,
+    >(): string;
     (a: string, b: number): string;
     (
         param: string,
