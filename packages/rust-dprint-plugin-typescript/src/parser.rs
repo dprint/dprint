@@ -126,6 +126,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::SpreadElement(node) => parse_spread_element(node, context),
             Node::Super(_) => "super".into(),
             Node::TaggedTpl(node) => parse_tagged_tpl(node, context),
+            Node::ThisExpr(_) => "this".into(),
             Node::Tpl(node) => parse_tpl(node, context),
             Node::TplElement(node) => parse_tpl_element(node, context),
             Node::TsAsExpr(node) => parse_as_expr(node, context),
@@ -1904,7 +1905,7 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
     // handle this on a case by case basis for now
     fn get_keep_on_one_line(node: &Node) -> bool {
         match node {
-            Node::Ident(_) => true,
+            Node::Ident(_) | Node::ThisExpr(_) | Node::Super(_) | Node::Str(_) | Node::PrivateName(_) => true,
             Node::MemberExpr(expr) => get_keep_on_one_line(&(&expr.obj).into()) && get_keep_on_one_line(&(&expr.prop).into()),
             _ => false,
         }

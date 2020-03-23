@@ -69,3 +69,21 @@ myCustomTag
 
 [expect]
 `tttttttttttttest ${testing.this.out.testing}`;
+
+== should not do newlines for a member expression with a this or super keyword ==
+`tttttttttttttest ${this.this.out.testing} or ${super.test}`;
+
+[expect]
+`tttttttttttttest ${this.this.out.testing} or ${super.test}`;
+
+== should not do newlines for a member expression with a string literal ==
+`tttttttttttttest ${"testing this out".test}`;
+
+[expect]
+`tttttttttttttest ${"testing this out".test}`;
+
+== should not do newlines for a private property name ==
+`tttttttttttttest ${ttttttttttttttt.#test}`;
+
+[expect]
+`tttttttttttttest ${ttttttttttttttt.#test}`;
