@@ -25,13 +25,19 @@ pub struct ParseSeparatedValuesOptions {
 
 pub struct ParsedValue {
     pub items: PrintItems,
-    pub line_number: Option<usize>,
+    pub lines_span: Option<LinesSpan>,
+}
+
+#[derive(Clone, Copy)]
+pub struct LinesSpan {
+    pub start_line: usize,
+    pub end_line: usize,
 }
 
 impl ParsedValue {
     /// Use this when you don't care about blank lines.
     pub fn from_items(items: PrintItems) -> ParsedValue {
-        ParsedValue { items, line_number: None }
+        ParsedValue { items, lines_span: None }
     }
 }
 
@@ -169,7 +175,7 @@ pub fn parse_separated_values(
         let mut item_start_infos = Vec::new();
         let values_count = parsed_values.len();
         let single_line_separator = single_line_separator.into_rc_path();
-        let mut last_line_number: Option<usize> = None;
+        let mut last_lines_span: Option<LinesSpan> = None;
 
         for (i, parsed_value) in parsed_values.into_iter().enumerate() {
             let start_info = Info::new("valueStartInfo");
@@ -187,9 +193,9 @@ pub fn parse_separated_values(
                 items.push_info(start_info);
                 items.extend(parsed_value.items);
             } else {
-                let use_blank_line = if let Some(last_line_number) = last_line_number {
-                    if let Some(current_line_number) = parsed_value.line_number {
-                        allow_blank_lines && last_line_number < current_line_number - 1
+                let use_blank_line = if let Some(last_lines_span) = last_lines_span {
+                    if let Some(current_lines_span) = parsed_value.lines_span {
+                        allow_blank_lines && last_lines_span.end_line < current_lines_span.start_line - 1
                     } else { false }
                 } else { false };
                 let parsed_value = parsed_value.items.into_rc_path();
@@ -225,7 +231,7 @@ pub fn parse_separated_values(
                 }));
             }
 
-            last_line_number = parsed_value.line_number;
+            last_lines_span = parsed_value.lines_span;
         }
 
         return InnerParseResult {

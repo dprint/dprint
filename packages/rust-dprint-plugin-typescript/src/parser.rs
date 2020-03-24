@@ -4506,13 +4506,15 @@ fn parse_separated_values<'a>(
     let semi_colons = opts.semi_colons;
     let trailing_commas = opts.trailing_commas;
     let indent_width = context.config.indent_width;
-    let compute_line_number = opts.allow_blank_lines && opts.force_use_new_lines; // save time otherwise
+    let compute_lines_span = opts.allow_blank_lines && opts.force_use_new_lines; // save time otherwise
     helpers::parse_separated_values(|is_multi_line_or_hanging_ref| {
         let is_multi_line_or_hanging = is_multi_line_or_hanging_ref.create_resolver();
         let mut parsed_nodes = Vec::new();
         let nodes_count = nodes.len();
         for (i, value) in nodes.into_iter().enumerate() {
-            let line_number = if compute_line_number { value.as_ref().map(|x| x.start_line(context)) } else { None };
+            let lines_span = if compute_lines_span {
+                value.as_ref().map(|x| helpers::LinesSpan{ start_line: x.start_line(context), end_line: x.end_line(context) })
+            } else { None };
             let items = parser_helpers::new_line_group(if let Some(trailing_commas) = trailing_commas {
                 let parsed_comma = get_parsed_trailing_comma(trailing_commas, i == nodes_count - 1, &is_multi_line_or_hanging);
                 parse_comma_separated_value(value, parsed_comma, context)
@@ -4526,7 +4528,7 @@ fn parse_separated_values<'a>(
                     PrintItems::new()
                 }
             });
-            parsed_nodes.push(helpers::ParsedValue { items, line_number });
+            parsed_nodes.push(helpers::ParsedValue { items, lines_span });
         }
 
         parsed_nodes
@@ -5683,11 +5685,12 @@ fn parse_surrounded_by_tokens<'a>(
                     items.extend(helpers::parse_separated_values(|_| {
                         let mut parsed_comments = Vec::new();
                         for c in comments {
-                            let line_number = c.start_line(context);
+                            let start_line = c.start_line(context);
+                            let end_line = c.end_line(context);
                             if let Some(items) = parse_comment(c, context) {
                                 parsed_comments.push(helpers::ParsedValue {
                                     items,
-                                    line_number: Some(line_number),
+                                    lines_span: Some(helpers::LinesSpan { start_line, end_line }),
                                 });
                             }
                         }

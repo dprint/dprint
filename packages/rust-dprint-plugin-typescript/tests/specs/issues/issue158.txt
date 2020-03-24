@@ -1,0 +1,24 @@
+~~ indentWidth: 2 ~~
+== should format as-is (was putting a blank line between items) ==
+const ustarStructure: Array<{ field: string; length: number }> = [
+  {
+    field: "fileName",
+    length: 100,
+  },
+  {
+    field: "fileMode",
+    length: 8,
+  },
+];
+
+[expect]
+const ustarStructure: Array<{ field: string; length: number }> = [
+  {
+    field: "fileName",
+    length: 100,
+  },
+  {
+    field: "fileMode",
+    length: 8,
+  },
+];
