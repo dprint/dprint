@@ -167,6 +167,10 @@ impl<T> Ranged for T where T : SpanDataContainer {
     }
 
     fn start_line_with_comments(&self, context: &mut Context) -> usize {
+        // The start position with comments is the next non-whitespace position
+        // after the previous token's trailing comments. The trailing comments
+        // are similar to the Roslyn definition where it's any comments on the
+        // same line or a single multi-line block comment that begins on the trailing line.
         let mut leading_comments = self.leading_comments(context);
         if leading_comments.is_empty() {
             self.start_line(context)
@@ -174,11 +178,15 @@ impl<T> Ranged for T where T : SpanDataContainer {
             let lo = self.lo();
             let previous_token = context.token_finder.get_previous_token(&lo);
             if let Some(previous_token) = previous_token {
-                let mut previous_end_line = previous_token.end_line(context);
+                let previous_end_line = previous_token.end_line(context);
+                let mut past_trailing_comments = false;
                 for comment in leading_comments {
                     let comment_start_line = comment.start_line(context);
-                    if comment_start_line <= previous_end_line {
-                        previous_end_line = comment.end_line(context);
+                    if !past_trailing_comments && comment_start_line <= previous_end_line {
+                        let comment_end_line = comment.end_line(context);
+                        if comment_end_line > previous_end_line {
+                            past_trailing_comments = true;
+                        }
                     } else {
                         return comment_start_line;
                     }
@@ -199,14 +207,17 @@ impl<T> Ranged for T where T : SpanDataContainer {
         // start searching from after the trailing comma if it exists
         let search_end = context.token_finder.get_next_token_if_comma(self).map(|x| x.hi()).unwrap_or(self.hi());
         let trailing_comments = search_end.trailing_comments(context);
-        let mut previous_end_line = search_end.end_line(context);
+        let previous_end_line = search_end.end_line(context);
         for comment in trailing_comments {
             // optimization
             if comment.kind == CommentKind::Line { break; }
 
             let comment_start_line = comment.start_line(context);
             if comment_start_line <= previous_end_line {
-                previous_end_line = comment.end_line(context);
+                let comment_end_line = comment.end_line(context);
+                if comment_end_line > previous_end_line {
+                    return comment_end_line; // should only include the first multi-line comment block
+                }
             } else {
                 break;
             }

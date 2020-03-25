@@ -126,6 +126,29 @@ const t = [
     test,
 ];
 
+== should format handling multiple multi-line block comments starting and stopping on same line after an item ==
+const t = [
+    test, /*
+    test */ /*
+    test */
+
+    test, /* 1 */ /*
+    test */
+    test,
+];
+
+[expect]
+const t = [
+    test, /*
+    test */
+    /*
+    test */
+
+    test, /* 1 */ /*
+    test */
+    test,
+];
+
 == should become single line when empty ==
 const t = [
 ];
