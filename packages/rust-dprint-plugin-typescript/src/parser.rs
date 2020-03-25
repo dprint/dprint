@@ -3344,6 +3344,7 @@ fn parse_try_stmt<'a>(node: &'a TryStmt, context: &mut Context<'a>) -> PrintItem
 
 fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
+    let use_new_lines = get_use_new_lines(&node.decls, context);
     if node.declare { items.push_str("declare "); }
     items.push_str(match node.kind {
         VarDeclKind::Const => "const ",
@@ -3351,13 +3352,24 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItem
         VarDeclKind::Var => "var ",
     });
 
-    for (i, decl) in node.decls.iter().enumerate() {
-        if i > 0 {
-            items.push_str(",");
-            items.push_signal(Signal::SpaceOrNewLine);
-        }
-
-        items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node(decl.into(), context))));
+    let decls_len = node.decls.len();
+    if decls_len == 1 {
+        // be lightweight by default
+        items.extend(parse_node((&node.decls[0]).into(), context));
+    } else if decls_len > 1 {
+        items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+            nodes: node.decls.iter().map(|p| Some(p.into())).collect(),
+            prefer_hanging: context.config.variable_statement_prefer_hanging,
+            force_use_new_lines: use_new_lines,
+            allow_blank_lines: false,
+            trailing_commas: Some(TrailingCommas::Never),
+            semi_colons: None,
+            single_line_space_at_start: false,
+            single_line_space_at_end: false,
+            custom_single_line_separator: None,
+            multi_line_style: helpers::MultiLineStyle::SameLineStartWithHangingIndent,
+            force_possible_newline_at_start: false,
+        }, context));
     }
 
     if requires_semi_colon(&node.span.data(), context) { items.push_str(";"); }
@@ -3371,6 +3383,14 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItem
             Node::ForOfStmt(node) => var_decl_span_data.lo >= node.body.span().lo(),
             Node::ForStmt(node) => var_decl_span_data.lo >= node.body.span().lo(),
             _ => context.config.semi_colons.is_true(),
+        }
+    }
+
+    fn get_use_new_lines(decls: &Vec<VarDeclarator>, context: &mut Context) -> bool {
+        if decls.len() < 2 {
+            false
+        } else {
+            node_helpers::get_use_new_lines_for_nodes(&decls[0], &decls[1], context)
         }
     }
 }

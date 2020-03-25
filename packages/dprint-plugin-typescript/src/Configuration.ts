@@ -378,6 +378,7 @@ export interface TypeScriptConfiguration {
     "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "typeParameterDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "unionAndIntersectionType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "variableStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
 
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
@@ -479,6 +480,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "typeParameterDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "unionAndIntersectionType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "variableStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
 
     // prefer hanging arguments

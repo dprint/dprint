@@ -1,31 +1,28 @@
-~~ lineWidth: 40 ~~
-== should format ==
-let a!: string;
-const b = 5;
-const c: number = 5;
-var d = 5, e = 20;
+~~ lineWidth: 40, variableStatement.preferHanging: true ~~
+== should format hanging ==
 let f = 2, g = 3, testingTheLimitOut = 4;
-declare const t: string;
 
 function test() {
     let f = 2, g = 3, testingTheLimitOut = 4;
 }
 
 [expect]
-let a!: string;
-const b = 5;
-const c: number = 5;
-var d = 5, e = 20;
+let f = 2, g = 3,
+    testingTheLimitOut = 4;
+
+function test() {
+    let f = 2, g = 3,
+        testingTheLimitOut = 4;
+}
+
+== should format multi-line when the first and second are on different lines ==
+let f = 2,
+    g = 3, testingTheLimitOut = 4;
+
+[expect]
 let f = 2,
     g = 3,
     testingTheLimitOut = 4;
-declare const t: string;
-
-function test() {
-    let f = 2,
-        g = 3,
-        testingTheLimitOut = 4;
-}
 
 == should not wrap within a variable declaration ==
 const t: Testing, testingThis: outALittleBit;

@@ -65,6 +65,7 @@ fn check_all_values_set() {
         .type_literal_prefer_hanging(true)
         .type_parameter_declaration_prefer_hanging(true)
         .union_and_intersection_type_prefer_hanging(true)
+        .variable_statement_prefer_hanging(true)
         .while_statement_prefer_hanging(true)
         /* prefer hanging arguments */
         .call_expression_prefer_hanging_arguments(true)
@@ -138,7 +139,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 117);
+    assert_eq!(inner_config.len(), 118);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

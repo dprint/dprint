@@ -53,6 +53,15 @@ pub enum MultiLineStyle {
     NewLineStart,
 }
 
+impl MultiLineStyle {
+    pub fn same_line_start(&self) -> bool {
+        match self {
+            MultiLineStyle::SameLineStartWithHangingIndent | MultiLineStyle::SameLineNoIndent => true,
+            _ => false,
+        }
+    }
+}
+
 pub fn parse_separated_values(
     parse_values: impl FnOnce(&ConditionReference) -> Vec<ParsedValue>,
     opts: ParseSeparatedValuesOptions
@@ -140,7 +149,7 @@ pub fn parse_separated_values(
                 items.push_signal(Signal::SpaceIfNotTrailing);
                 items.push_signal(Signal::PossibleNewLine);
             }
-            if has_values {
+            if has_values && !opts.multi_line_style.same_line_start() {
                 // place this after the space so the first item will start on a newline when there is a newline here
                 items.push_condition(conditions::if_above_width(
                     if opts.force_possible_newline_at_start { 0 } else { indent_width + if has_start_space { 1 } else { 0 } },

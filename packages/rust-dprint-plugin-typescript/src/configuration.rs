@@ -541,6 +541,10 @@ impl ConfigurationBuilder {
         self.insert("unionAndIntersectionType.preferHanging", value)
     }
 
+    pub fn variable_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("variableStatement.preferHanging", value)
+    }
+
     pub fn while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("whileStatement.preferHanging", value)
     }
@@ -1045,6 +1049,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         type_literal_prefer_hanging: get_value(&mut config, "typeLiteral.preferHanging", prefer_hanging, &mut diagnostics),
         type_parameter_declaration_prefer_hanging: get_value(&mut config, "typeParameterDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         union_and_intersection_type_prefer_hanging: get_value(&mut config, "unionAndIntersectionType.preferHanging", prefer_hanging, &mut diagnostics),
+        variable_statement_prefer_hanging: get_value(&mut config, "variableStatement.preferHanging", prefer_hanging, &mut diagnostics),
         while_statement_prefer_hanging: get_value(&mut config, "whileStatement.preferHanging", prefer_hanging, &mut diagnostics),
         /* prefer hanging arguments */
         call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
@@ -1225,6 +1230,8 @@ pub struct Configuration {
     pub type_parameter_declaration_prefer_hanging: bool,
     #[serde(rename = "unionAndIntersectionType.preferHanging")]
     pub union_and_intersection_type_prefer_hanging: bool,
+    #[serde(rename = "variableStatement.preferHanging")]
+    pub variable_statement_prefer_hanging: bool,
     #[serde(rename = "whileStatement.preferHanging")]
     pub while_statement_prefer_hanging: bool,
     /* prefer hanging arguments */

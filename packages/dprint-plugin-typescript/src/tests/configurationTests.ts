@@ -376,6 +376,7 @@ describe("configuration", () => {
                 "typeLiteral.preferHanging": value,
                 "typeParameterDeclaration.preferHanging": value,
                 "unionAndIntersectionType.preferHanging": value,
+                "variableStatement.preferHanging": value,
                 "whileStatement.preferHanging": value,
                 "callExpression.preferHangingArguments": value,
                 "newExpression.preferHangingArguments": value,
