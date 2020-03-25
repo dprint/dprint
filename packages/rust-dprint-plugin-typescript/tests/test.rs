@@ -1,7 +1,7 @@
 extern crate dprint_plugin_typescript;
 extern crate dprint_development;
 
-#[macro_use] extern crate debug_here;
+//#[macro_use] extern crate debug_here;
 
 use std::collections::HashMap;
 use std::fs::{self};
@@ -13,6 +13,7 @@ use dprint_plugin_typescript::configuration::*;
 use dprint_core::configuration::*;
 use dprint_development::*;
 
+#[allow(dead_code)]
 fn test_performance() {
     // run this with `cargo test --release -- --nocapture`
 
