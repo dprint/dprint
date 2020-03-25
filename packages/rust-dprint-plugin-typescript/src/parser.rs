@@ -1528,26 +1528,43 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
         return node.start_line(context) == node.args[1].start_line(context);
 
         fn is_valid_callee(callee: &ExprOrSuper) -> bool {
-            let ident_text = get_identifier_text(&callee);
-            if let Some(ident_text) = ident_text {
-                return match ident_text {
-                    "it" | "describe" | "test" => true,
-                    _ => false,
-                };
-            }
-            return false;
+            return match get_first_identifier_text(&callee) {
+                Some("it") | Some("describe") | Some("test") => true,
+                _ => {
+                    // support call expressions like `Deno.test("description", ...)`
+                    match get_last_identifier_text(&callee) {
+                        Some("test") => true,
+                        _ => false,
+                    }
+                },
+            };
 
-            fn get_identifier_text(callee: &ExprOrSuper) -> Option<&str> {
+            fn get_first_identifier_text(callee: &ExprOrSuper) -> Option<&str> {
                 return match callee {
                     ExprOrSuper::Super(_) => None,
                     ExprOrSuper::Expr(expr) => {
                         match &**expr {
                             Expr::Ident(ident) => Some(&ident.sym),
-                            Expr::Member(member) if (*member.prop).kind() == NodeKind::Ident => get_identifier_text(&member.obj),
+                            Expr::Member(member) if (*member.prop).kind() == NodeKind::Ident => get_first_identifier_text(&member.obj),
                             _ => None,
                         }
                     }
                 };
+            }
+
+            fn get_last_identifier_text(callee: &ExprOrSuper) -> Option<&str> {
+                return match callee {
+                    ExprOrSuper::Super(_) => None,
+                    ExprOrSuper::Expr(expr) => get_last_identifier_text_from_expr(expr),
+                };
+
+                fn get_last_identifier_text_from_expr(expr: &Expr) -> Option<&str> {
+                    match expr {
+                        Expr::Ident(ident) => Some(&ident.sym),
+                        Expr::Member(member) if (member.obj).kind() == NodeKind::Ident => get_last_identifier_text_from_expr(&member.prop),
+                        _ => None,
+                    }
+                }
             }
         }
     }

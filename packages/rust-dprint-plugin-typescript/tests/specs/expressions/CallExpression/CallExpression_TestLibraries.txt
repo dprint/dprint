@@ -60,3 +60,13 @@ test("testing this out with a long string", () => {
 test("testing this out with a long string", () => {
     // etc...
 });
+
+== should not go multiline when going above line width for an x.test call expression ==
+Deno.test("testing this out with a long string", () => {
+    // etc...
+});
+
+[expect]
+Deno.test("testing this out with a long string", () => {
+    // etc...
+});
