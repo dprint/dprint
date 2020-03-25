@@ -24,7 +24,7 @@ pub fn run_specs(
     format_text: impl Fn(&str, &str, &HashMap<String, String>) -> Result<Option<String>, String>
 ) {
     #[cfg(not(debug_assertions))]
-    assert_not_quick_fix(run_spec_options);
+    assert_not_fix_failures(run_spec_options);
 
     let specs = get_specs_in_dir(&directory_path, &parse_spec_options);
     let test_count = specs.len();
@@ -109,9 +109,9 @@ pub fn run_specs(
     }
 
     #[cfg(not(debug_assertions))]
-    fn assert_not_quick_fix(run_spec_options: &RunSpecsOptions) {
-        if run_spec_options.quick_fix {
-            panic!("Cannot have 'quick_fix' as `true` in release mode.");
+    fn assert_not_fix_failures(run_spec_options: &RunSpecsOptions) {
+        if run_spec_options.fix_failures {
+            panic!("Cannot have 'fix_failures' as `true` in release mode.");
         }
     }
 }
