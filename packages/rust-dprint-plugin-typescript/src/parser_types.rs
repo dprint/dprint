@@ -5,7 +5,7 @@ use super::configuration::*;
 use std::collections::{HashSet, HashMap};
 use dprint_core::{Info, ConditionReference};
 use utils::{Stack};
-use swc_common::{SpanData, BytePos, comments::{Comment}, SourceFile, Spanned, Span};
+use swc_common::{SpanData, BytePos, comments::{Comment, CommentKind}, SourceFile, Spanned, Span};
 use swc_ecma_ast::*;
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
@@ -142,7 +142,11 @@ pub trait Ranged : SpanDataContainer {
     fn lo(&self) -> BytePos;
     fn hi(&self) -> BytePos;
     fn start_line(&self, context: &mut Context) -> usize;
+    /// Gets the start line with possible first leading comment start.
+    fn start_line_with_comments(&self, context: &mut Context) -> usize;
     fn end_line(&self, context: &mut Context) -> usize;
+    /// Gets the end line with possible trailing multi-line block comment end.
+    fn end_line_with_comments(&self, context: &mut Context) -> usize;
     fn start_column(&self, context: &mut Context) -> usize;
     fn text<'a>(&self, context: &'a Context) -> &'a str;
     fn leading_comments<'a>(&self, context: &mut Context<'a>) -> CommentsIterator<'a>;
@@ -162,8 +166,53 @@ impl<T> Ranged for T where T : SpanDataContainer {
         context.info.lookup_line(self.lo()).unwrap_or(0) + 1
     }
 
+    fn start_line_with_comments(&self, context: &mut Context) -> usize {
+        let mut leading_comments = self.leading_comments(context);
+        if leading_comments.is_empty() {
+            self.start_line(context)
+        } else {
+            let lo = self.lo();
+            let previous_token = context.token_finder.get_previous_token(&lo);
+            if let Some(previous_token) = previous_token {
+                let mut previous_end_line = previous_token.end_line(context);
+                for comment in leading_comments {
+                    let comment_start_line = comment.start_line(context);
+                    if comment_start_line <= previous_end_line {
+                        previous_end_line = comment.end_line(context);
+                    } else {
+                        return comment_start_line;
+                    }
+                }
+
+                self.start_line(context)
+            } else {
+                leading_comments.next().unwrap().start_line(context)
+            }
+        }
+    }
+
     fn end_line(&self, context: &mut Context) -> usize {
         context.info.lookup_line(self.hi()).unwrap_or(0) + 1
+    }
+
+    fn end_line_with_comments(&self, context: &mut Context) -> usize {
+        // start searching from after the trailing comma if it exists
+        let search_end = context.token_finder.get_next_token_if_comma(self).map(|x| x.hi()).unwrap_or(self.hi());
+        let trailing_comments = search_end.trailing_comments(context);
+        let mut previous_end_line = search_end.end_line(context);
+        for comment in trailing_comments {
+            // optimization
+            if comment.kind == CommentKind::Line { break; }
+
+            let comment_start_line = comment.start_line(context);
+            if comment_start_line <= previous_end_line {
+                previous_end_line = comment.end_line(context);
+            } else {
+                break;
+            }
+        }
+
+        previous_end_line
     }
 
     fn start_column(&self, context: &mut Context) -> usize {

@@ -28,7 +28,7 @@ pub struct ParsedValue {
     pub lines_span: Option<LinesSpan>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct LinesSpan {
     pub start_line: usize,
     pub end_line: usize,

@@ -81,6 +81,51 @@ const t = [
     other,
 ];
 
+== should handle spacing between trailing comments ==
+const t = [
+    test, /*
+    test */
+    asdf, // test
+    /* t */
+    test,
+    asdf, // test
+
+    /* t */
+    test, /*
+    test
+    test */ //5
+    asdf, /*
+    t */ /* test
+    */
+    asdf, /*
+    u
+    */ test,
+];
+
+[expect]
+const t = [
+    test, /*
+    test */
+    asdf, // test
+    /* t */
+    test,
+    asdf, // test
+
+    /* t */
+    test, /*
+    test
+    test */
+    // 5
+    asdf, /*
+    t */
+    /* test
+    */
+    asdf, /*
+    u
+    */
+    test,
+];
+
 == should become single line when empty ==
 const t = [
 ];

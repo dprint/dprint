@@ -22,3 +22,33 @@ const ustarStructure: Array<{ field: string; length: number }> = [
     length: 8,
   },
 ];
+
+== should format as-is when there is a comment ==
+const testCases = [
+  {
+    Name: "BareCR",
+    Input: "a,b\rc,d\r\n",
+    Output: [["a", "b\rc", "d"]],
+  },
+  // test
+  {
+    Name: "NoEOLTest",
+    Input: "a,b,c",
+    Output: [["a", "b", "c"]],
+  },
+];
+
+[expect]
+const testCases = [
+  {
+    Name: "BareCR",
+    Input: "a,b\rc,d\r\n",
+    Output: [["a", "b\rc", "d"]],
+  },
+  // test
+  {
+    Name: "NoEOLTest",
+    Input: "a,b,c",
+    Output: [["a", "b", "c"]],
+  },
+];

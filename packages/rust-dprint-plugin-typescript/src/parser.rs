@@ -4513,7 +4513,10 @@ fn parse_separated_values<'a>(
         let nodes_count = nodes.len();
         for (i, value) in nodes.into_iter().enumerate() {
             let lines_span = if compute_lines_span {
-                value.as_ref().map(|x| helpers::LinesSpan{ start_line: x.start_line(context), end_line: x.end_line(context) })
+                value.as_ref().map(|x| helpers::LinesSpan{
+                    start_line: x.start_line_with_comments(context),
+                    end_line: x.end_line_with_comments(context)
+                })
             } else { None };
             let items = parser_helpers::new_line_group(if let Some(trailing_commas) = trailing_commas {
                 let parsed_comma = get_parsed_trailing_comma(trailing_commas, i == nodes_count - 1, &is_multi_line_or_hanging);
