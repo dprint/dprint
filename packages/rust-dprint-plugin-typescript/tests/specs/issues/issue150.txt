@@ -1,0 +1,9 @@
+== should format yield await in async generator function ==
+async function* main() {
+    yield await 0;
+}
+
+[expect]
+async function* main() {
+    yield await 0;
+}
