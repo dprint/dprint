@@ -1,6 +1,8 @@
 extern crate dprint_plugin_typescript as dprint;
 
 use clap::{App, Arg};
+use dprint::configuration::{Configuration, ConfigurationBuilder};
+use serde_json;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -17,10 +19,7 @@ fn is_supported(path: &Path) -> bool {
     }
 }
 
-fn check_source_files(
-    config: dprint::configuration::Configuration,
-    paths: Vec<PathBuf>,
-) -> Result<(), std::io::Error> {
+fn check_source_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(), std::io::Error> {
     let mut not_formatted_files = vec![];
 
     for file_path in paths {
@@ -57,10 +56,7 @@ fn check_source_files(
     }
 }
 
-fn format_source_files(
-    config: dprint::configuration::Configuration,
-    paths: Vec<PathBuf>,
-) -> Result<(), std::io::Error> {
+fn format_source_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(), std::io::Error> {
     let mut not_formatted_files = vec![];
 
     for file_path in paths {
@@ -145,10 +141,25 @@ fn main() {
 
     let matches = cli_parser.get_matches();
 
-    // TODO(bartlomieju): read config file from JSON
-    let config = match matches.value_of("config") {
-        Some(_config_path) => todo!(),
-        None => dprint::configuration::ConfigurationBuilder::new().build(),
+    let config = if let Some(config_path) = matches.value_of("config") {
+        let config_contents = match fs::read_to_string(&config_path) {
+            Ok(contents) => contents,
+            Err(e) => {
+                eprintln!("{}", e.to_string());
+                std::process::exit(1);
+            }
+        };
+
+        let c: Configuration = match serde_json::from_str(&config_contents) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{}", e.to_string());
+                std::process::exit(1);
+            }
+        };
+        c
+    } else {
+        ConfigurationBuilder::new().build()
     };
 
     let check = matches.is_present("check");
