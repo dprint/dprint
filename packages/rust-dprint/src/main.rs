@@ -1,8 +1,8 @@
 extern crate dprint_core;
-extern crate dprint_plugin_typescript as dprint;
+extern crate dprint_plugin_typescript as dprint_ts;
 
 use clap::{App, Arg};
-use dprint::configuration::{Configuration, ConfigurationBuilder};
+use dprint_ts::configuration::{Configuration, ConfigurationBuilder};
 use serde_json;
 use std::collections::HashMap;
 use std::fs;
@@ -43,7 +43,7 @@ fn main() {
         }
 
         let config_result =
-            dprint::configuration::resolve_config(&unresolved_config, &global_config_result.config);
+            dprint_ts::configuration::resolve_config(&unresolved_config, &global_config_result.config);
 
         if !config_result.diagnostics.is_empty() {
             for diagnostic in &config_result.diagnostics {
@@ -90,7 +90,7 @@ fn check_source_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(), 
     for file_path in paths {
         let file_path_str = file_path.to_string_lossy();
         let file_contents = fs::read_to_string(&file_path).unwrap();
-        match dprint::format_text(&file_path_str, &file_contents, &config) {
+        match dprint_ts::format_text(&file_path_str, &file_contents, &config) {
             Ok(None) => {
                 // nothing to format, pass
             }
@@ -128,7 +128,7 @@ fn format_source_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(),
         let file_path_str = file_path.to_string_lossy();
         let file_contents = fs::read_to_string(&file_path)?;
 
-        match dprint::format_text(&file_path_str, &file_contents, &config) {
+        match dprint_ts::format_text(&file_path_str, &file_contents, &config) {
             Ok(None) => {
                 // nothing to format, pass
             }
@@ -156,7 +156,7 @@ fn format_source_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(),
 }
 
 fn format(
-    config: dprint::configuration::Configuration,
+    config: Configuration,
     target_files: Vec<PathBuf>,
     check: bool,
 ) -> Result<(), std::io::Error> {
