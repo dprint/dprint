@@ -1,11 +1,76 @@
+extern crate dprint_core;
 extern crate dprint_plugin_typescript as dprint;
 
 use clap::{App, Arg};
 use dprint::configuration::{Configuration, ConfigurationBuilder};
 use serde_json;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+
+fn main() {
+    let cli_parser = create_cli_parser();
+
+    let matches = cli_parser.get_matches();
+
+    let config = if let Some(config_path) = matches.value_of("config") {
+        let config_contents = match fs::read_to_string(&config_path) {
+            Ok(contents) => contents,
+            Err(e) => {
+                eprintln!("{}", e.to_string());
+                std::process::exit(1);
+            }
+        };
+
+        let unresolved_config: HashMap<String, String> =
+            match serde_json::from_str(&config_contents) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("{}", e.to_string());
+                    std::process::exit(1);
+                }
+            };
+
+        let global_config_result =
+            dprint_core::configuration::resolve_global_config(&unresolved_config.clone());
+
+        if !global_config_result.diagnostics.is_empty() {
+            for diagnostic in &global_config_result.diagnostics {
+                eprintln!("{}", diagnostic.message);
+            }
+            std::process::exit(1);
+        }
+
+        let config_result =
+            dprint::configuration::resolve_config(&unresolved_config, &global_config_result.config);
+
+        if !config_result.diagnostics.is_empty() {
+            for diagnostic in &config_result.diagnostics {
+                eprintln!("{}", diagnostic.message);
+            }
+            std::process::exit(1);
+        }
+
+        config_result.config
+    } else {
+        ConfigurationBuilder::new().build()
+    };
+
+    let check = matches.is_present("check");
+    let files: Vec<PathBuf> = matches
+        .values_of("files")
+        .unwrap()
+        .map(std::string::ToString::to_string)
+        .map(PathBuf::from)
+        .filter(|p| is_supported(p))
+        .collect();
+
+    if let Err(e) = format(config, files, check) {
+        eprintln!("{}", e.to_string());
+        std::process::exit(1);
+    }
+}
 
 fn is_supported(path: &Path) -> bool {
     if let Some(ext) = path.extension() {
@@ -90,7 +155,7 @@ fn format_source_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(),
     Ok(())
 }
 
-pub fn format(
+fn format(
     config: dprint::configuration::Configuration,
     target_files: Vec<PathBuf>,
     check: bool,
@@ -134,47 +199,6 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
                 .multiple(true)
                 .required(true),
         )
-}
-
-fn main() {
-    let cli_parser = create_cli_parser();
-
-    let matches = cli_parser.get_matches();
-
-    let config = if let Some(config_path) = matches.value_of("config") {
-        let config_contents = match fs::read_to_string(&config_path) {
-            Ok(contents) => contents,
-            Err(e) => {
-                eprintln!("{}", e.to_string());
-                std::process::exit(1);
-            }
-        };
-
-        let c: Configuration = match serde_json::from_str(&config_contents) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("{}", e.to_string());
-                std::process::exit(1);
-            }
-        };
-        c
-    } else {
-        ConfigurationBuilder::new().build()
-    };
-
-    let check = matches.is_present("check");
-    let files: Vec<PathBuf> = matches
-        .values_of("files")
-        .unwrap()
-        .map(std::string::ToString::to_string)
-        .map(PathBuf::from)
-        .filter(|p| is_supported(p))
-        .collect();
-
-    if let Err(e) = format(config, files, check) {
-        eprintln!("{}", e.to_string());
-        std::process::exit(1);
-    }
 }
 
 #[test]
