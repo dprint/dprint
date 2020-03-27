@@ -32,8 +32,11 @@ fn main() {
                 }
             };
 
+        // Currently only TypeScript config is supported in file; it also
+        // includes and understands all options provided in "global config".
+        // More info: https://github.com/dsherret/dprint/pull/162#discussion_r399403808
         let global_config_result =
-            dprint_core::configuration::resolve_global_config(&unresolved_config.clone());
+            dprint_core::configuration::resolve_global_config(&HashMap::new());
 
         if !global_config_result.diagnostics.is_empty() {
             for diagnostic in &global_config_result.diagnostics {
