@@ -680,6 +680,10 @@ impl ConfigurationBuilder {
         self.insert("objectExpression.trailingCommas", value)
     }
 
+    pub fn object_pattern_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
+        self.insert("objectPattern.trailingCommas", value)
+    }
+
     pub fn tuple_type_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
         self.insert("tupleType.trailingCommas", value)
     }
@@ -1088,6 +1092,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         array_pattern_trailing_commas: get_value(&mut config, "arrayPattern.trailingCommas", trailing_commas, &mut diagnostics),
         enum_declaration_trailing_commas: get_value(&mut config, "enumDeclaration.trailingCommas", trailing_commas, &mut diagnostics),
         object_expression_trailing_commas: get_value(&mut config, "objectExpression.trailingCommas", trailing_commas, &mut diagnostics),
+        object_pattern_trailing_commas: get_value(&mut config, "objectPattern.trailingCommas", trailing_commas, &mut diagnostics),
         tuple_type_trailing_commas: get_value(&mut config, "tupleType.trailingCommas", trailing_commas, &mut diagnostics),
         type_parameter_declaration_trailing_commas: get_value(&mut config, "typeParameterDeclaration.trailingCommas", trailing_commas, &mut diagnostics),
         /* use braces */
@@ -1299,6 +1304,8 @@ pub struct Configuration {
     pub array_pattern_trailing_commas: TrailingCommas,
     #[serde(rename = "enumDeclaration.trailingCommas")]
     pub enum_declaration_trailing_commas: TrailingCommas,
+    #[serde(rename = "objectPattern.trailingCommas")]
+    pub object_pattern_trailing_commas: TrailingCommas,
     #[serde(rename = "objectExpression.trailingCommas")]
     pub object_expression_trailing_commas: TrailingCommas,
     #[serde(rename = "tupleType.trailingCommas")]

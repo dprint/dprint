@@ -345,6 +345,7 @@ export interface TypeScriptConfiguration {
     "arrayPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "enumDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "objectPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "typeParameterDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
@@ -368,6 +369,7 @@ export interface TypeScriptConfiguration {
     "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "typeParameterDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "unionAndIntersectionType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "variableStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
     "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
@@ -430,6 +432,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "arrayPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "enumDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "objectPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "typeParameterDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
@@ -453,6 +456,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "typeParameterDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "unionAndIntersectionType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "variableStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
     readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;

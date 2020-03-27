@@ -323,6 +323,7 @@ describe("configuration", () => {
                 "arrayPattern.trailingCommas": value,
                 "enumDeclaration.trailingCommas": value,
                 "objectExpression.trailingCommas": value,
+                "objectPattern.trailingCommas": value,
                 "typeParameterDeclaration.trailingCommas": value,
                 "tupleType.trailingCommas": value,
             };

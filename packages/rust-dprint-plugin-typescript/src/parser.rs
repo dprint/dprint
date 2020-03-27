@@ -2535,7 +2535,7 @@ fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Print
     items.extend(parse_object_like_node(ParseObjectLikeNodeOptions {
         node_span_data: node.span.data(),
         members: node.props.iter().map(|x| x.into()).collect(),
-        trailing_commas: Some(TrailingCommas::Never),
+        trailing_commas: Some(get_trailing_commas(node, context)),
         semi_colons: None,
         prefer_hanging: context.config.object_pattern_prefer_hanging,
         surround_single_line_with_spaces: true,
@@ -2543,6 +2543,15 @@ fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Print
     if node.optional { items.push_str("?"); }
     items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
     return items;
+
+    fn get_trailing_commas(node: &ObjectPat, context: &Context) -> TrailingCommas {
+        if let Some(last) = node.props.last() {
+            if last.kind() == NodeKind::RestPat {
+                return TrailingCommas::Never;
+            }
+        }
+        context.config.object_pattern_trailing_commas
+    }
 }
 
 /* properties */
@@ -4172,7 +4181,7 @@ struct ParseArrayLikeNodesOptions<'a> {
 fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mut Context<'a>) -> PrintItems {
     let parent_span_data = opts.parent_span_data;
     let nodes = opts.nodes;
-    let trailing_commas = opts.trailing_commas;
+    let trailing_commas = if allow_trailing_commas(&nodes) { opts.trailing_commas } else { TrailingCommas::Never };
     let prefer_hanging = opts.prefer_hanging;
     let force_use_new_lines = get_force_use_new_lines(&parent_span_data, &nodes, context);
     let mut items = PrintItems::new();
@@ -4225,6 +4234,16 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
                 }
             }
         }
+    }
+
+    fn allow_trailing_commas(nodes: &Vec<Option<Node>>) -> bool {
+        if let Some(Some(last)) = nodes.last() {
+            // this would be a syntax error
+            if last.kind() == NodeKind::RestPat {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -4395,11 +4414,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     let nodes = opts.nodes;
     let prefer_hanging = opts.prefer_hanging;
     let is_parameters = opts.is_parameters;
-    let trailing_commas = if is_parameters {
-        context.config.parameters_trailing_commas
-    } else {
-        context.config.arguments_trailing_commas
-    };
+    let trailing_commas = get_trailing_commas(&nodes, is_parameters, context);
 
     return parse_surrounded_by_tokens(|context| {
         let mut items = PrintItems::new();
@@ -4440,6 +4455,21 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
         first_member: first_member_span_data,
         prefer_single_line_when_empty: true,
     }, context);
+
+    fn get_trailing_commas(nodes: &Vec<Node>, is_parameters: bool, context: &mut Context) -> TrailingCommas {
+        if let Some(last) = nodes.last() {
+            // this would be a syntax error
+            if last.kind() == NodeKind::RestPat {
+                return TrailingCommas::Never;
+            }
+        }
+
+        if is_parameters {
+            context.config.parameters_trailing_commas
+        } else {
+            context.config.arguments_trailing_commas
+        }
+    }
 
     fn get_use_new_lines(nodes: &Vec<Node>, context: &mut Context) -> bool {
         if nodes.is_empty() {

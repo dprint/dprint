@@ -353,6 +353,7 @@ export interface TypeScriptConfiguration {
     "arrayPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "enumDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "objectPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "typeParameterDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
 
@@ -453,6 +454,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "arrayPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "enumDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "objectPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "typeParameterDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
 
