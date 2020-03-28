@@ -4420,7 +4420,6 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
         let mut items = PrintItems::new();
 
         if !force_use_new_lines && nodes.len() == 1 && is_arrow_function_with_expr_body(&nodes[0]) {
-            println!("HERE: {}", span_data.text(context));
             let start_info = Info::new("startArrow");
             let parsed_node = parse_node(nodes.into_iter().next().unwrap(), context);
 
