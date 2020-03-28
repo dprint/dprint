@@ -4420,6 +4420,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
         let mut items = PrintItems::new();
 
         if !force_use_new_lines && nodes.len() == 1 && is_arrow_function_with_expr_body(&nodes[0]) {
+            println!("HERE: {}", span_data.text(context));
             let start_info = Info::new("startArrow");
             let parsed_node = parse_node(nodes.into_iter().next().unwrap(), context);
 
@@ -4427,8 +4428,13 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
             items.push_signal(Signal::PossibleNewLine);
             items.push_condition(conditions::indent_if_start_of_line(parsed_node));
             items.push_condition(if_true(
-                "isDifferentLine",
-                move |context| condition_resolvers::is_on_different_line(context, &start_info),
+                "isDifferentLineAndStartLineIndentation",
+                move |context| {
+                    let start_info = context.get_resolved_info(&start_info)?;
+                    let is_different_line = start_info.line_number != context.writer_info.line_number;
+                    let is_different_start_line_indentation = start_info.line_start_indent_level != context.writer_info.line_start_indent_level;
+                    Some(is_different_line && is_different_start_line_indentation)
+                },
                 Signal::NewLine.into()
             ));
         } else {
