@@ -1,0 +1,14 @@
+~~ indentWidth: 2, lineWidth: 60 ~~
+== should format as-is ==
+rs.readableStreamDefaultControllerClose(
+  branch1![
+    rs.readableStreamController_
+  ] as ReadableStreamDefaultController<OutputType>
+);
+
+[expect]
+rs.readableStreamDefaultControllerClose(
+  branch1![
+    rs.readableStreamController_
+  ] as ReadableStreamDefaultController<OutputType>,
+);

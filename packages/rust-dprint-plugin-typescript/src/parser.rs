@@ -28,10 +28,10 @@ pub fn parse(source_file: ParsedSourceFile, config: Configuration) -> PrintItems
 }
 
 fn parse_node<'a>(node: Node<'a>, context: &mut Context<'a>) -> PrintItems {
-    parse_node_with_inner_parse(node, context, |items| items)
+    parse_node_with_inner_parse(node, context, |items, _| items)
 }
 
-fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, inner_parse: impl Fn(PrintItems) -> PrintItems) -> PrintItems {
+fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, inner_parse: impl FnOnce(PrintItems, &mut Context) -> PrintItems) -> PrintItems {
     // println!("Node kind: {:?}", node.kind());
     // println!("Text: {:?}", node.text(context));
 
@@ -59,7 +59,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     items.extend(if has_ignore_comment {
         parser_helpers::parse_raw_string(&node.text(context))
     } else {
-        inner_parse(parse_node_inner(node, context))
+        inner_parse(parse_node_inner(node, context), context)
     });
 
     if node_hi != parent_hi || context.parent().kind() == NodeKind::Module {
@@ -521,11 +521,10 @@ fn parse_catch_clause<'a>(node: &'a CatchClause, context: &mut Context<'a>) -> P
 /* common */
 
 fn parse_computed_prop_name<'a>(node: &'a ComputedPropName, context: &mut Context<'a>) -> PrintItems {
-    let mut items = PrintItems::new();
-    items.push_str("[");
-    items.extend(parse_node((&node.expr).into(), context));
-    items.push_str("]");
-    return items;
+    parse_computed_prop_like(ParseComputedPropLikeOptions {
+        inner_node_span_data: node.expr.span_data(),
+        inner_items: parse_node((&node.expr).into(), context),
+    }, context)
 }
 
 fn parse_identifier<'a>(node: &'a Ident, context: &mut Context<'a>) -> PrintItems {
@@ -1279,7 +1278,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         let node_left_node = Node::from(node_left);
 
         items.extend(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info, is_top_most_in_parens, {
-            new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items| {
+            new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items, _| {
                 if operator_position == OperatorPosition::SameLine {
                     if use_space_surrounding_operator {
                         items.push_str(" ");
@@ -1304,7 +1303,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             let mut items = PrintItems::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
             items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context), context));
-            items.extend(parse_node_with_inner_parse(node_right.into(), context, move |items| {
+            items.extend(parse_node_with_inner_parse(node_right.into(), context, move |items, _| {
                 let mut new_items = PrintItems::new();
                 if operator_position == OperatorPosition::NextLine {
                     new_items.push_str(node_op.as_str());
@@ -1499,7 +1498,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
         fn parse_test_library_arguments<'a>(args: &'a Vec<ExprOrSpread>, context: &mut Context<'a>) -> PrintItems {
             let mut items = PrintItems::new();
             items.push_str("(");
-            items.extend(parse_node_with_inner_parse((&args[0]).into(), context, |items| {
+            items.extend(parse_node_with_inner_parse((&args[0]).into(), context, |items, _| {
                 let mut new_items = parser_helpers::with_no_new_lines(items);
                 new_items.push_str(",");
                 new_items
@@ -1603,7 +1602,7 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
 
     items.push_info(start_info);
     items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.test).into(), context, {
-        move |mut items| {
+        move |mut items, _| {
             if operator_position == OperatorPosition::SameLine {
                 items.push_str(" ?");
             }
@@ -1626,7 +1625,7 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
             items.push_str("? ");
         }
         items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.cons).into(), context, {
-            move |mut items| {
+            move |mut items, _| {
                 if operator_position == OperatorPosition::SameLine {
                     items.push_str(" :");
                     items
@@ -1650,7 +1649,7 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
             items.push_str(": ");
         }
         items.push_info(before_alternate_info);
-        items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.alt).into(), context, |items| {
+        items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.alt).into(), context, |items, _| {
             if operator_position == OperatorPosition::NextLine {
                 conditions::indent_if_start_of_line(items).into()
             } else {
@@ -4626,7 +4625,7 @@ fn parse_comma_separated_value<'a>(value: Option<Node<'a>>, parsed_comma: PrintI
 
     if let Some(element) = value {
         let parsed_comma = parsed_comma.into_rc_path();
-        items.extend(parse_node_with_inner_parse(element, context, move |mut items| {
+        items.extend(parse_node_with_inner_parse(element, context, move |mut items, _| {
             // this Rc clone is necessary because we can't move the captured parsed_comma out of this closure
             items.push_optional_path(parsed_comma.clone());
             items
@@ -4655,7 +4654,7 @@ fn parse_comma_separated_value<'a>(value: Option<Node<'a>>, parsed_comma: PrintI
 fn parse_node_with_semi_colon<'a>(value: Option<Node<'a>>, parsed_semi_colon: PrintItems, context: &mut Context<'a>) -> PrintItems {
     if let Some(element) = value {
         let parsed_semi_colon = parsed_semi_colon.into_rc_path();
-        parse_node_with_inner_parse(element, context, move |mut items| {
+        parse_node_with_inner_parse(element, context, move |mut items, _| {
             // this Rc clone is necessary because we can't move the captured parsed_semi_colon out of this closure
             items.push_optional_path(parsed_semi_colon.clone());
             items
@@ -4752,6 +4751,7 @@ struct ParseNodeInParensOptions<'a> {
 }
 
 fn parse_node_in_parens<'a>(opts: ParseNodeInParensOptions<'a>, context: &mut Context<'a>) -> PrintItems {
+    // todo: should use parse_surrounded_by_tokens
     let use_new_lines = use_new_lines_for_node_in_parens(&opts.first_inner_node, context);
     let mut items = PrintItems::new();
     items.push_str("(");
@@ -4925,16 +4925,23 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
     items.push_condition(conditions::indent_if_start_of_line({
         let mut items = PrintItems::new();
         let is_computed = node.is_computed;
+        let right_node_span_data = node.right_node.span_data();
 
-        items.extend(parse_node_with_inner_parse(node.right_node, context, |node_items| {
+        items.extend(parse_node_with_inner_parse(node.right_node, context, |node_items, context| {
             let mut items = PrintItems::new();
             if is_optional {
                 items.push_str("?");
                 if is_computed { items.push_str("."); }
             }
-            items.push_str(if is_computed { "[" } else { "." });
-            items.extend(node_items);
-            if is_computed { items.push_str("]"); }
+            if is_computed {
+                items.extend(parse_computed_prop_like(ParseComputedPropLikeOptions {
+                    inner_node_span_data: right_node_span_data,
+                    inner_items: node_items
+                }, context));
+            } else {
+                items.push_str(".");
+                items.extend(node_items);
+            }
             items
         }));
 
@@ -4942,6 +4949,44 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
     }));
 
     return items;
+}
+
+struct ParseComputedPropLikeOptions {
+    inner_node_span_data: SpanData,
+    inner_items: PrintItems,
+}
+
+fn parse_computed_prop_like<'a>(opts: ParseComputedPropLikeOptions, context: &mut Context<'a>) -> PrintItems {
+    let inner_node_span_data = opts.inner_node_span_data;
+    let inner_items = opts.inner_items;
+    let span_data = get_bracket_span(&inner_node_span_data, context);
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context);
+
+    return new_line_group(parse_surrounded_by_tokens(|_| {
+        if use_new_lines {
+            surround_with_new_lines(with_indent(inner_items))
+        } else {
+            inner_items
+        }
+    }, |_| None, ParseSurroundedByTokensOptions {
+        open_token: "[",
+        close_token: "]",
+        span_data,
+        first_member: Some(inner_node_span_data),
+        prefer_single_line_when_empty: false,
+    }, context));
+
+    fn get_bracket_span(node: &dyn Ranged, context: &mut Context) -> SpanData {
+        let open_bracket = context.token_finder.get_previous_token_if_open_bracket(node);
+        let close_bracket = context.token_finder.get_next_token_if_close_bracket(node);
+        if let Some(open_bracket) = open_bracket {
+            if let Some(close_bracket) = close_bracket {
+                return create_span_data(open_bracket.lo(), close_bracket.hi());
+            }
+        }
+
+        node.span_data()
+    }
 }
 
 fn parse_decorators<'a>(decorators: &'a Vec<Decorator>, is_inline: bool, context: &mut Context<'a>) -> PrintItems {
@@ -5594,7 +5639,7 @@ fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Opti
                 Signal::SpaceIfNotTrailing.into()
             ).into());
         }
-        let assignment = parse_node_with_inner_parse(expr, context, |items| conditions::indent_if_start_of_line(items).into());
+        let assignment = parse_node_with_inner_parse(expr, context, |items, _| conditions::indent_if_start_of_line(items).into());
         let assignment = if use_newline_group { new_line_group(assignment) } else { assignment };
         items.extend(assignment);
         items

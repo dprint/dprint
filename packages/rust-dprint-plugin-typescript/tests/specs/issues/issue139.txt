@@ -1,5 +1,5 @@
 ~~ indentWidth: 2, lineWidth: 80 ~~
-== should format onto the next line (previously would newline before the computed property—[0]) ==
+== should format onto the next line (previously would newline before the computed access—[0]) ==
 const wrappedFn: WrappedFunction = rawListenersForOnceEvent[0] as WrappedFunction;
 const shouldForOptionalThoughhhh = rawListenersForOnceEvent?.[0] as WrappedFunction;
 

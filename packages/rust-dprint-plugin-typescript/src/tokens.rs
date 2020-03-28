@@ -34,6 +34,10 @@ impl<'a> TokenFinder<'a> {
         self.get_previous_token_if(node, |token| token.token == Token::LBrace)
     }
 
+    pub fn get_previous_token_if_open_bracket(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_previous_token_if(node, |token| token.token == Token::LBracket)
+    }
+
     pub fn get_previous_token_if_close_brace(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_previous_token_if(node, |token| token.token == Token::RBrace)
     }
@@ -63,6 +67,10 @@ impl<'a> TokenFinder<'a> {
 
     pub fn get_next_token_if_comma(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_next_token_if(node, |token| token.token == Token::Comma)
+    }
+
+    pub fn get_next_token_if_close_bracket(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_next_token_if(node, |token| token.token == Token::RBracket)
     }
 
     fn get_next_token_if<F>(&mut self, node: &dyn Ranged, is_match: F) -> Option<&'a TokenAndSpan> where F : FnOnce(&TokenAndSpan) -> bool {
