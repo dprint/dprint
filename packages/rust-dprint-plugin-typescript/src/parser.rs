@@ -1270,6 +1270,13 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         let is_top_most_in_parens = get_is_top_most_in_parens(node, context);
         let use_new_lines = node_helpers::get_use_new_lines_for_nodes(node_left, node_right, context);
         let top_most_info = get_or_set_top_most_info(top_most_expr_start, is_top_most, context);
+        let parsed_operator = parse_operator_with_comments(
+            operator_token,
+            operator_position,
+            use_space_surrounding_operator,
+            node_op.as_str(),
+            context
+        ).into_rc_path();
         let mut items = PrintItems::new();
 
         if is_top_most {
@@ -1279,18 +1286,14 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         let node_left_node = Node::from(node_left);
 
         items.extend(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info, is_top_most_in_parens, {
+            let parsed_operator = parsed_operator.clone(); // capture
             new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items, _| {
                 if operator_position == OperatorPosition::SameLine {
-                    if use_space_surrounding_operator {
-                        items.push_str(" ");
-                    }
-                    items.push_str(node_op.as_str());
+                    items.extend(parsed_operator.into());
                 }
                 items
             }))
         }));
-
-        items.extend(parse_comments_as_trailing(operator_token, operator_token.trailing_comments(context), context));
 
         items.push_signal(if use_new_lines {
             Signal::NewLine
@@ -1303,14 +1306,11 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         items.extend(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, is_top_most_in_parens, {
             let mut items = PrintItems::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
-            items.extend(parse_comments_as_leading(node_right, operator_token.leading_comments(context), context));
+
             items.extend(parse_node_with_inner_parse(node_right.into(), context, move |items, _| {
                 let mut new_items = PrintItems::new();
                 if operator_position == OperatorPosition::NextLine {
-                    new_items.push_str(node_op.as_str());
-                    if use_space_surrounding_operator {
-                        new_items.push_str(" ");
-                    }
+                    new_items.extend(parsed_operator.into());
                 }
                 new_items.extend(if use_new_line_group { new_line_group(items) } else { items });
                 new_items
@@ -1319,6 +1319,67 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         }));
 
         return items;
+    }
+
+    fn parse_operator_with_comments(
+        operator_token: &TokenAndSpan,
+        operator_position: OperatorPosition,
+        use_space_surrounding_operator: bool,
+        op_text: &str,
+        context: &mut Context
+    ) -> PrintItems {
+        let op_token_comments = get_operator_token_comments(operator_token, operator_position, context);
+        let mut items = PrintItems::new();
+        let has_leading_comments = !op_token_comments.0.is_empty();
+        let has_trailing_comments = !op_token_comments.1.is_empty();
+
+        if operator_position == OperatorPosition::SameLine && (use_space_surrounding_operator || has_leading_comments) {
+            items.push_str(" ");
+        }
+        items.extend(op_token_comments.0);
+        if has_leading_comments { items.push_str(" "); }
+        items.push_str(op_text);
+        if has_trailing_comments { items.push_str(" "); }
+        items.extend(op_token_comments.1);
+        if operator_position == OperatorPosition::NextLine && (use_space_surrounding_operator || has_trailing_comments) {
+            items.push_str(" ");
+        }
+
+        return items;
+
+        fn get_operator_token_comments(token: &TokenAndSpan, operator_position: OperatorPosition, context: &mut Context) -> (PrintItems, PrintItems) {
+            // get the leading and trailing block comments on the same line
+            let op_line = token.start_line(context);
+
+            return (
+                parse_op_comments(
+                    token.leading_comments(context).filter(|x| x.kind == CommentKind::Block && x.start_line(context) == op_line).collect(),
+                    context
+                ),
+                parse_op_comments(
+                    token.trailing_comments(context).filter(|x|
+                        // get comment lines on the same line when the operator position is same line
+                        (operator_position == OperatorPosition::SameLine || x.kind == CommentKind::Block) && x.start_line(context) == op_line
+                    ).collect(),
+                    context
+                )
+            );
+
+            fn parse_op_comments(comments: Vec<&Comment>, context: &mut Context) -> PrintItems {
+                let mut items = PrintItems::new();
+                let mut had_comment_last = false;
+                for comment in comments {
+                    if had_comment_last { items.push_str(" "); }
+                    if let Some(comment) = parse_comment(&comment, context) {
+                        items.extend(comment);
+                        had_comment_last = true;
+                    } else {
+                        had_comment_last = false;
+                    }
+                }
+                items
+            }
+        }
     }
 
     fn indent_if_necessary(

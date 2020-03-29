@@ -22,3 +22,11 @@
     4 ||
     7 && 6 || 4 &&
     5;
+
+== should keep comment before operator as well ==
+ttttttttttttt /*1*/ && /* 2 */
+    ttttttttt;
+
+[expect]
+ttttttttttttt /*1*/ && /* 2 */
+    ttttttttt;

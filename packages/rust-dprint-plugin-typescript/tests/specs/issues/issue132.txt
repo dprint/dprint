@@ -1,0 +1,12 @@
+~~ indentWidth: 2, binaryExpression.operatorPosition: sameLine ~~
+== should keep comments as-is ==
+return (
+  (0x0e000 <= c && c <= 0x00fffd && c !== 0xfeff) /* BOM */ ||
+  (0x10000 <= c && c <= 0x10ffff)
+);
+
+[expect]
+return (
+  (0x0e000 <= c && c <= 0x00fffd && c !== 0xfeff) /* BOM */ ||
+  (0x10000 <= c && c <= 0x10ffff)
+);
