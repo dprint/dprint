@@ -940,7 +940,8 @@ fn parse_import_equals_decl<'a>(node: &'a TsImportEqualsDecl, context: &mut Cont
 
     items.push_str("import ");
     items.extend(parse_node((&node.id).into(), context));
-    items.extend(parse_assignment((&node.module_ref).into(), "=", context));
+    items.push_str(" = "); // keep on one line
+    items.extend(parse_node((&node.module_ref).into(), context));
 
     if context.config.semi_colons.is_true() { items.push_str(";"); }
 
@@ -2043,25 +2044,12 @@ fn parse_import_namespace_specifier<'a>(node: &'a ImportStarAs, context: &mut Co
 }
 
 fn parse_external_module_ref<'a>(node: &'a TsExternalModuleRef, context: &mut Context<'a>) -> PrintItems {
-    // todo: change to this
     // force everything on a single line
-    //let mut items = PrintItems::new();
-    //items.push_str("require(");
-    //items.extend(parse_node((&node.expr).into(), context));
-    //items.push_str(")");
-    //return items;
     let mut items = PrintItems::new();
-    items.push_str("require");
-    items.extend(parse_node_in_parens(
-        |context| parse_node((&node.expr).into(), context),
-        ParseNodeInParensOptions {
-            inner_span: node.expr.span_data(),
-            prefer_hanging: context.config.call_expression_prefer_hanging_arguments, // not worth having specific config for this
-            allow_open_paren_trailing_comments: false,
-        },
-        context
-    ));
-    return items;
+    items.push_str("require(");
+    items.extend(parse_node((&node.expr).into(), context));
+    items.push_str(")");
+    items
 }
 
 /* interface / type element */

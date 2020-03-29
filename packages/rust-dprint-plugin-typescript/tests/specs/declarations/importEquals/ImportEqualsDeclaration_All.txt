@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should format ==
 import   a   =   require("test")  ;
 export   import   b = require("asdf");
@@ -5,3 +6,9 @@ export   import   b = require("asdf");
 [expect]
 import a = require("test");
 export import b = require("asdf");
+
+== should keep on a single line ==
+export import test = require("tttttttttttt");
+
+[expect]
+export import test = require("tttttttttttt");
