@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate swc_common;
-extern crate swc_ecma_parser;
 extern crate dprint_core;
 
 mod comments;
@@ -24,3 +21,11 @@ pub use format_text::{format_text};
 
 #[cfg(test)]
 mod configuration_tests;
+
+// Re-export swc for use in Deno
+#[doc(hidden)]
+pub use swc_common;
+#[doc(hidden)]
+pub use swc_ecma_ast;
+#[doc(hidden)]
+pub use swc_ecma_parser;
