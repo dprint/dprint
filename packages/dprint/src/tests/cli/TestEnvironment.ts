@@ -82,6 +82,17 @@ export class TestEnvironment implements Environment {
     glob(patterns: string[]) {
         return Promise.resolve(matchGlobs(Array.from(this.files.keys()), patterns));
     }
+
+    rename(oldFilePath: string, newFilePath: string) {
+        const fileText = this.files.get(oldFilePath);
+        this.files.delete(oldFilePath);
+        this.files.set(newFilePath, fileText || "");
+        return Promise.resolve();
+    }
+
+    unlinkSync(filePath: string) {
+        this.files.delete(filePath);
+    }
 }
 
 function matchGlobs(paths: ReadonlyArray<string>, patterns: ReadonlyArray<string>) {

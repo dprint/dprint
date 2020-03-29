@@ -1,12 +1,13 @@
 import { Environment } from "../environment";
 import { ConfigurationDiagnostic, WebAssemblyPlugin } from "@dprint/types";
 import { formatFileText, resolveConfiguration } from "@dprint/core";
+import { getMissingProjectTypeDiagnostic } from "../configuration";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
 import { getVersionText } from "./getVersionText";
 import { CommandLineOptions } from "./CommandLineOptions";
+import { KillSafeFileWriter } from "./fileSystem";
 import { resolveConfigFile, resolveConfigFilePath } from "./resolveConfigFile";
-import { getMissingProjectTypeDiagnostic } from "../configuration";
 
 /**
  * Function used by the cli to format files.
@@ -67,24 +68,28 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         }
 
         const promises: Promise<void>[] = [];
-
-        for (const filePath of filePaths) {
-            const promise = environment.readFile(filePath).then(fileText => {
-                const result = formatFileText({
-                    filePath,
-                    fileText,
-                    plugins,
+        const killSafeFileWriter = new KillSafeFileWriter(environment);
+        try {
+            for (const filePath of filePaths) {
+                const promise = environment.readFile(filePath).then(fileText => {
+                    const result = formatFileText({
+                        filePath,
+                        fileText,
+                        plugins,
+                    });
+                    // skip writing the file if it hasn't changed
+                    return result === fileText ? Promise.resolve() : killSafeFileWriter.writeFile(filePath, result);
+                }).catch(err => {
+                    const errorText = err.toString().replace("[dprint]: ", "");
+                    environment.error(`Error formatting file: ${filePath}\n\n${errorText}`);
                 });
-                // skip writing the file if it hasn't changed
-                return result === fileText ? Promise.resolve() : environment.writeFile(filePath, result);
-            }).catch(err => {
-                const errorText = err.toString().replace("[dprint]: ", "");
-                environment.error(`Error formatting file: ${filePath}\n\n${errorText}`);
-            });
-            promises.push(promise);
-        }
+                promises.push(promise);
+            }
 
-        await Promise.all(promises);
+            await Promise.all(promises);
+        } finally {
+            killSafeFileWriter.dispose();
+        }
 
         function updatePluginsWithConfiguration() {
             for (const plugin of plugins) {
