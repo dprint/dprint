@@ -16,3 +16,17 @@ const initialFiles = await Promise.all(
         } as FileInfo))
     ),
 );
+
+== should format as-is ==
+const namespaces = node.t(t.map(n => ({
+    isExported: true,
+    hasDeclareKeyword: true,
+    name: n.getName(),
+})));
+
+[expect]
+const namespaces = node.t(t.map(n => ({
+    isExported: true,
+    hasDeclareKeyword: true,
+    name: n.getName(),
+})));
