@@ -109,3 +109,32 @@ for (;;)
 
 [expect]
 for (;;);
+
+== should support comments inside ==
+for (
+    // testing
+    var i = 0; i < 5; i++) {
+}
+
+[expect]
+for (
+    // testing
+    var i = 0;
+    i < 5;
+    i++
+) {
+}
+
+== another comment scenario ==
+for ( // testing
+    var i = 0; i < 5; i++) {
+}
+
+[expect]
+for (
+    // testing
+    var i = 0;
+    i < 5;
+    i++
+) {
+}

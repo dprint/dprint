@@ -632,7 +632,7 @@ pub trait ParametersSpanned {
 impl ParametersSpanned for Function {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.return_type.as_ref().map(|t| t.lo())
                 .or(self.body.as_ref().map(|b| b.lo()))
                 .unwrap_or(self.span.hi()),
@@ -650,7 +650,7 @@ impl ParametersSpanned for ClassMethod {
 impl ParametersSpanned for Constructor {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.body.as_ref().map(|t| t.lo())
                 .unwrap_or(self.span.hi()),
             context
@@ -679,7 +679,7 @@ impl ParametersSpanned for GetterProp {
 impl ParametersSpanned for SetterProp {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            vec![self.param.span()],
+            vec![self.param.span_data()],
             self.body.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
         )
@@ -689,7 +689,7 @@ impl ParametersSpanned for SetterProp {
 impl ParametersSpanned for ArrowExpr {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.return_type.as_ref().map(|t| t.lo()).unwrap_or(self.body.lo()),
             context
         )
@@ -699,7 +699,7 @@ impl ParametersSpanned for ArrowExpr {
 impl ParametersSpanned for CallExpr {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.args.iter().map(|a| a.span()).collect(),
+            self.args.iter().map(|a| a.span_data()).collect(),
             self.hi(),
             context
         )
@@ -709,7 +709,7 @@ impl ParametersSpanned for CallExpr {
 impl ParametersSpanned for NewExpr {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.args.as_ref().map(|args| args.iter().map(|a| a.span()).collect()).unwrap_or_default(),
+            self.args.as_ref().map(|args| args.iter().map(|a| a.span_data()).collect()).unwrap_or_default(),
             self.hi(),
             context
         )
@@ -719,7 +719,7 @@ impl ParametersSpanned for NewExpr {
 impl ParametersSpanned for TsCallSignatureDecl {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
         )
@@ -729,7 +729,7 @@ impl ParametersSpanned for TsCallSignatureDecl {
 impl ParametersSpanned for TsConstructSignatureDecl {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
         )
@@ -739,7 +739,7 @@ impl ParametersSpanned for TsConstructSignatureDecl {
 impl ParametersSpanned for TsMethodSignature {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
         )
@@ -749,7 +749,7 @@ impl ParametersSpanned for TsMethodSignature {
 impl ParametersSpanned for TsConstructorType {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.lo(),
             context
         )
@@ -759,14 +759,14 @@ impl ParametersSpanned for TsConstructorType {
 impl ParametersSpanned for TsFnType {
     fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
         get_params_or_args_span_data(
-            self.params.iter().map(|x| x.span()).collect(),
+            self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.lo(),
             context
         )
     }
 }
 
-fn get_params_or_args_span_data(params: Vec<Span>, following_pos: BytePos, context: &mut Context) -> SpanData {
+fn get_params_or_args_span_data(params: Vec<SpanData>, following_pos: BytePos, context: &mut Context) -> SpanData {
     let close_token_end = {
         if let Some(last_param) = params.last() {
             context.token_finder.get_first_close_paren_after(last_param)
@@ -778,7 +778,7 @@ fn get_params_or_args_span_data(params: Vec<Span>, following_pos: BytePos, conte
     SpanData {
         lo: context.token_finder.get_first_open_paren_before(&{
             if let Some(first_param) = params.first() {
-                first_param.data().lo()
+                first_param.lo()
             } else {
                 close_token_end
             }

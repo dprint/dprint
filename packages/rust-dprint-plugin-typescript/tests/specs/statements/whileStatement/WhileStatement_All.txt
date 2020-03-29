@@ -88,3 +88,34 @@ while (true)
 
 [expect]
 while (true);
+
+== should support comments in header ==
+while (
+    // testing
+    test
+) {
+    a;
+}
+
+[expect]
+while (
+    // testing
+    test
+) {
+    a;
+}
+
+== should move trailing header comment to next line ==
+while (// testing
+    test
+) {
+    a;
+}
+
+[expect]
+while (
+    // testing
+    test
+) {
+    a;
+}

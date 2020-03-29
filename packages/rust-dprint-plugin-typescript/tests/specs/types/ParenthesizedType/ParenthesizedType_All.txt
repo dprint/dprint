@@ -27,3 +27,25 @@ type Test =
         | test
         | test & other
     );
+
+== should allow trailing comment on open paren ==
+type Test = ( // test
+    testing
+);
+
+[expect]
+type Test = ( // test
+    testing
+);
+
+== should keep comment on next line when on next line ==
+type Test = (
+    // test
+    testing
+);
+
+[expect]
+type Test = (
+    // test
+    testing
+);
