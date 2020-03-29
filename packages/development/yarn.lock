@@ -903,8 +903,8 @@ to-regex-range@^5.0.1:
     is-number "^7.0.0"
 
 ts-morph@^7.0.0:
-  version "7.0.0"
-  resolved "https://registry.yarnpkg.com/ts-morph/-/ts-morph-7.0.0.tgz#8e013a3b1164a01c7de42229538463d0f975043f"
+  version "7.0.1"
+  resolved "https://registry.yarnpkg.com/ts-morph/-/ts-morph-7.0.1.tgz#50ea7b48bf278ac8a9755038fc95de9754d66030"
   dependencies:
     "@dsherret/to-absolute-glob" "^2.0.2"
     "@ts-morph/common" "~0.4.0"
