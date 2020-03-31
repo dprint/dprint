@@ -93,6 +93,11 @@ export class TestEnvironment implements Environment {
     unlinkSync(filePath: string) {
         this.files.delete(filePath);
     }
+
+    unlink(filePath: string) {
+        this.unlinkSync(filePath);
+        return Promise.resolve();
+    }
 }
 
 function matchGlobs(paths: ReadonlyArray<string>, patterns: ReadonlyArray<string>) {

@@ -1,8 +1,7 @@
 import * as path from "path";
 import { CliLoggingEnvironment } from "@dprint/core";
 import { Environment } from "./Environment";
-import { readFile, writeFile, exists, rename } from "../utils";
-import * as fs from "fs";
+import { readFile, writeFile, exists, rename, unlink, unlinkSync } from "../utils";
 
 /**
  * An implementation of an environment that interacts with the user's file system and outputs to the console.
@@ -54,8 +53,12 @@ export class CliEnvironment extends CliLoggingEnvironment implements Environment
         return rename(oldFilePath, newFilePath);
     }
 
+    unlink(filePath: string) {
+        return unlink(filePath);
+    }
+
     unlinkSync(filePath: string) {
-        fs.unlinkSync(filePath);
+        unlinkSync(filePath);
     }
 }
 

@@ -88,7 +88,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
 
             await Promise.all(promises);
         } finally {
-            killSafeFileWriter.dispose();
+            await killSafeFileWriter.dispose();
         }
 
         function updatePluginsWithConfiguration() {

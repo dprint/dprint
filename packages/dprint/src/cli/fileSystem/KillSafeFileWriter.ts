@@ -21,18 +21,24 @@ export class KillSafeFileWriter {
         process.on("SIGUSR2", this.crashCleanup);
     }
 
-    dispose() {
+    async dispose() {
         process.off("SIGINT", this.crashCleanup);
         process.off("SIGUSR1", this.crashCleanup);
         process.off("SIGUSR2", this.crashCleanup);
+
+        // try to delete any remaining temporary files (just in case some exist...)
+        const tempFiles = Array.from(this.tempFiles.values());
+        return Promise.all(tempFiles.map(filePath => this.tryDeleteFile(filePath)));
     }
 
     async writeFile(filePath: string, fileText: string): Promise<void> {
         // get a temporary file path
-        let tempFilePath = this.getTempFileName(filePath);
+        const tempFilePath = this.getTempFileName(filePath);
         this.tempFiles.add(tempFilePath);
+
         // write to the temporary file
         await this.environment.writeFile(tempFilePath, fileText);
+
         // in case it already did the crash cleanup and this code is running for some reason
         if (this.crashed) {
             this.tryDeleteFileSync(tempFilePath);
@@ -51,7 +57,16 @@ export class KillSafeFileWriter {
         // happening when the process is being killed.
         for (const filePath of this.tempFiles.values())
             this.tryDeleteFileSync(filePath);
+        this.tempFiles.clear();
     };
+
+    private async tryDeleteFile(filePath: string) {
+        try {
+            await this.environment.unlink(filePath);
+        } catch {
+            // ignore
+        }
+    }
 
     private tryDeleteFileSync(filePath: string) {
         try {

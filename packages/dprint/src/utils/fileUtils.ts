@@ -44,3 +44,18 @@ export function exists(fileOrDirPath: string) {
         }
     });
 }
+
+export function unlink(filePath: string) {
+    return new Promise<void>((resolve, reject) => {
+        fs.unlink(filePath, err => {
+            if (err)
+                reject(err);
+            else
+                resolve();
+        });
+    });
+}
+
+export function unlinkSync(filePath: string) {
+    fs.unlinkSync(filePath);
+}
