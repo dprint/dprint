@@ -4575,10 +4575,26 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
             }
         }
 
-        if is_parameters {
+        return if is_dynamic_import(&context.current_node) {
+            TrailingCommas::Never // not allowed
+        } else if is_parameters {
             context.config.parameters_trailing_commas
         } else {
             context.config.arguments_trailing_commas
+        };
+
+        fn is_dynamic_import(node: &Node) -> bool {
+            if let Node::CallExpr(call_expr) = &node {
+                if let ExprOrSuper::Expr(expr) = &call_expr.callee {
+                    if let Expr::Ident(ident) = &**expr {
+                        if (&ident.sym as &str) == "import" {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            false
         }
     }
 
