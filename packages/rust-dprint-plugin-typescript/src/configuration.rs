@@ -65,6 +65,7 @@ impl ConfigurationBuilder {
             .arrow_function_use_parentheses(UseParentheses::Force)
             .new_line_kind(NewLineKind::LineFeed)
             .function_expression_space_after_function_keyword(true)
+            .tagged_template_space_before_literal(false)
     }
 
     /// The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
