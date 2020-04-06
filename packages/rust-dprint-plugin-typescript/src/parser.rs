@@ -1069,17 +1069,25 @@ fn parse_named_import_or_export_specifiers<'a>(parent: &Node<'a>, specifiers: Ve
     return parse_object_like_node(ParseObjectLikeNodeOptions {
         node_span_data: parent.span_data(),
         members: specifiers,
-        trailing_commas: Some(TrailingCommas::Never),
+        trailing_commas: Some(get_trailing_commas(parent, context)),
         semi_colons: None,
-        prefer_hanging: get_prefer_hanging(&parent, context),
-        surround_single_line_with_spaces: get_use_space(&parent, context),
+        prefer_hanging: get_prefer_hanging(parent, context),
+        surround_single_line_with_spaces: get_use_space(parent, context),
     }, context);
+
+    fn get_trailing_commas(parent_decl: &Node, context: &mut Context) -> TrailingCommas {
+        match parent_decl {
+            Node::NamedExport(_) => context.config.export_declaration_trailing_commas,
+            Node::ImportDecl(_) => context.config.import_declaration_trailing_commas,
+            _ => TrailingCommas::Never, // not worth panicking over
+        }
+    }
 
     fn get_use_space(parent_decl: &Node, context: &mut Context) -> bool {
         match parent_decl {
             Node::NamedExport(_) => context.config.export_declaration_space_surrounding_named_exports,
             Node::ImportDecl(_) => context.config.import_declaration_space_surrounding_named_imports,
-            _ => true, // not worth panicing over
+            _ => true, // not worth panicking over
         }
     }
 
@@ -1087,7 +1095,7 @@ fn parse_named_import_or_export_specifiers<'a>(parent: &Node<'a>, specifiers: Ve
         match parent_decl {
             Node::NamedExport(_) => context.config.export_declaration_prefer_hanging,
             Node::ImportDecl(_) => context.config.import_declaration_prefer_hanging,
-            _ => true, // not worth panicing over
+            _ => true, // not worth panicking over
         }
     }
 }

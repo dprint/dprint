@@ -352,6 +352,8 @@ export interface TypeScriptConfiguration {
     "arrayExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "arrayPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "enumDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "exportDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "importDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
@@ -420,6 +422,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "constructor.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "doWhileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "enumDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "exportDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "importDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forInStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forOfStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
@@ -453,6 +457,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "arrayExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "arrayPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "enumDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "exportDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "importDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "typeParameterDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;

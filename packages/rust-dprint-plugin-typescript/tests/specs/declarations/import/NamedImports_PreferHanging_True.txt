@@ -20,7 +20,7 @@ import { loooooooooooooooooooooooooooooooooooong as alias, test } from "test";
 import {
     loooooooooooooooooooooooooooooooooooong
         as alias,
-    test
+    test,
 } from "test";
 
 == should break up on `as` when really long on a different line ==
@@ -33,5 +33,5 @@ import {
 import {
     loooooooooooooooooooooooooooooooooooong
         as alias,
-    test
+    test,
 } from "test";

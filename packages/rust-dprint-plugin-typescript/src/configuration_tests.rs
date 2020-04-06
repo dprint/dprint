@@ -103,6 +103,8 @@ fn check_all_values_set() {
         .array_expression_trailing_commas(TrailingCommas::Never)
         .array_pattern_trailing_commas(TrailingCommas::Never)
         .enum_declaration_trailing_commas(TrailingCommas::Never)
+        .import_declaration_trailing_commas(TrailingCommas::Never)
+        .export_declaration_trailing_commas(TrailingCommas::Never)
         .object_expression_trailing_commas(TrailingCommas::Never)
         .object_pattern_trailing_commas(TrailingCommas::Never)
         .type_parameter_declaration_trailing_commas(TrailingCommas::Never)
@@ -140,7 +142,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 119);
+    assert_eq!(inner_config.len(), 121);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

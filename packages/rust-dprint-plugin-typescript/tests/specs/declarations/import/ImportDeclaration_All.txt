@@ -84,5 +84,5 @@ import { testingThisOut, test } from "testingtttttttttttttttttttttttttttttt";
 [expect]
 import {
     testingThisOut,
-    test
+    test,
 } from "testingtttttttttttttttttttttttttttttt";

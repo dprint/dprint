@@ -23,7 +23,7 @@ export {
     n3,
     n4,
     n5,
-    n6
+    n6,
 } from "test";
 
 == should always do a newline as a unit ==
@@ -40,7 +40,7 @@ export { loooooooooooooonnnnnnngggggggg as alias, t } from "test";
 export {
     loooooooooooooonnnnnnngggggggg
         as alias,
-    t
+    t,
 } from "test";
 
 == should break up on `as` when really long on a different line ==
@@ -53,5 +53,5 @@ export {
 export {
     loooooooooooooonnnnnnngggggggg
         as alias,
-    t
+    t,
 } from "test";

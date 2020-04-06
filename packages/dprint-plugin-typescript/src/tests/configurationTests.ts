@@ -322,6 +322,8 @@ describe("configuration", () => {
                 "arrayExpression.trailingCommas": value,
                 "arrayPattern.trailingCommas": value,
                 "enumDeclaration.trailingCommas": value,
+                "exportDeclaration.trailingCommas": value,
+                "importDeclaration.trailingCommas": value,
                 "objectExpression.trailingCommas": value,
                 "objectPattern.trailingCommas": value,
                 "typeParameterDeclaration.trailingCommas": value,
