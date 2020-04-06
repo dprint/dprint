@@ -23,4 +23,8 @@ impl<T> Stack<T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.items.iter().rev()
     }
+
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.items.get(self.items.len() - 1 - index)
+    }
 }

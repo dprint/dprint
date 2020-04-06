@@ -1261,15 +1261,12 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         // todo: clean this up
         let operator_token = context.token_finder.get_first_operator_after(&*node.left, node.op.as_str()).unwrap();
         let operator_position = get_operator_position(&node, &operator_token, context);
-        let top_most_expr_start = get_top_most_binary_expr_pos(&node, context);
+        let top_most_data = get_top_most_data(node, context);
         let node_left = &*node.left;
         let node_right = &*node.right;
         let node_op = node.op;
         let use_space_surrounding_operator = get_use_space_surrounding_operator(&node_op, context);
-        let is_top_most = top_most_expr_start == node.lo();
-        let is_top_most_in_parens = get_is_top_most_in_parens(node, context);
         let use_new_lines = node_helpers::get_use_new_lines_for_nodes(node_left, node_right, context);
-        let top_most_info = get_or_set_top_most_info(top_most_expr_start, is_top_most, context);
         let parsed_operator = parse_operator_with_comments(
             operator_token,
             operator_position,
@@ -1279,13 +1276,13 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         ).into_rc_path();
         let mut items = PrintItems::new();
 
-        if is_top_most {
-            items.push_info(top_most_info);
+        if top_most_data.is_current_top_most {
+            items.push_info(top_most_data.top_most_info);
         }
 
         let node_left_node = Node::from(node_left);
 
-        items.extend(indent_if_necessary(node_left.lo(), top_most_expr_start, top_most_info, is_top_most_in_parens, {
+        items.extend(indent_if_necessary(node_left.lo(), &top_most_data, {
             let parsed_operator = parsed_operator.clone(); // capture
             new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items, _| {
                 if operator_position == OperatorPosition::SameLine {
@@ -1303,7 +1300,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             Signal::PossibleNewLine
         });
 
-        items.extend(indent_if_necessary(node_right.lo(), top_most_expr_start, top_most_info, is_top_most_in_parens, {
+        items.extend(indent_if_necessary(node_right.lo(), &top_most_data, {
             let mut items = PrintItems::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
 
@@ -1384,18 +1381,18 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
     fn indent_if_necessary(
         current_node_start: BytePos,
-        top_most_expr_start: BytePos,
-        top_most_info: Info,
-        is_top_most_in_parens: bool,
+        top_most_data: &TopMostData,
         items: PrintItems
     ) -> PrintItems {
-        let is_left_most_node = top_most_expr_start == current_node_start;
+        let is_left_most_node = top_most_data.top_most_expr_start == current_node_start;
         let items = items.into_rc_path();
+        let top_most_info = top_most_data.top_most_info;
+        let is_top_most_parent_expr_stmt = top_most_data.is_parent_expr_stmt;
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
                 if is_left_most_node { return Some(false); }
                 let top_most_info = condition_context.get_resolved_info(&top_most_info)?;
-                if is_top_most_in_parens && top_most_info.is_start_of_line() { return Some(false); }
+                if !is_top_most_parent_expr_stmt && top_most_info.is_start_of_line() { return Some(false); }
                 let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
                 return Some(is_same_indent && condition_resolvers::is_start_of_line(condition_context));
             }),
@@ -1418,22 +1415,23 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         }
     }
 
-    fn get_or_set_top_most_info(top_most_expr_start: BytePos, is_top_most: bool, context: &mut Context) -> Info {
-        if is_top_most {
-            let info = Info::new("topBinaryOrLogicalExpressionStart");
-            context.store_info_for_node(&top_most_expr_start, info);
-            return info;
-        }
-        return context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored");
+    struct TopMostData {
+        top_most_expr_start: BytePos,
+        top_most_info: Info,
+        is_current_top_most: bool,
+        is_parent_expr_stmt: bool,
     }
 
-    fn get_top_most_binary_expr_pos(node: &BinExpr, context: &mut Context) -> BytePos {
+    fn get_top_most_data(node: &BinExpr, context: &mut Context) -> TopMostData {
         let mut top_most: &BinExpr = node;
+        let mut top_most_parent: &Node = context.parent();
+
         if is_expression_breakable(&node.op) {
-            for ancestor in context.parent_stack.iter() {
-                if let Node::BinExpr(ancestor) = ancestor {
-                    if is_expression_breakable(&ancestor.op) {
-                        top_most = ancestor;
+            for (i, ancestor) in context.parent_stack.iter().enumerate() {
+                if let Node::BinExpr(bin_expr) = ancestor {
+                    if is_expression_breakable(&bin_expr.op) {
+                        top_most = bin_expr;
+                        top_most_parent = context.parent_stack.get(i + 1).expect("Binary expr should always have a parent.");
                     } else {
                         break;
                     }
@@ -1443,28 +1441,25 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             }
         }
 
-        return top_most.lo();
-    }
+        let is_current_top_most = top_most == node;
+        let top_most_expr_start = top_most.lo();
+        let top_most_parent = top_most_parent.to_owned();
 
-    fn get_is_top_most_in_parens(node: &BinExpr, context: &mut Context) -> bool {
-        // todo: consolidate with get_top_most_binary_expr_pos somehow
-        if is_expression_breakable(&node.op) {
-            for ancestor in context.parent_stack.iter() {
-                if let Node::BinExpr(ancestor) = ancestor {
-                    if !is_expression_breakable(&ancestor.op) {
-                        return false;
-                    }
-                } else {
-                    return match ancestor {
-                        Node::ParenExpr(_) | Node::TsParenthesizedType(_) | Node::IfStmt(_) | Node::WhileStmt(_) | Node::DoWhileStmt(_)
-                            | Node::ForStmt(_) | Node::ForOfStmt(_) | Node::ForInStmt(_) | Node::SwitchStmt(_) => true,
-                        _ => false,
-                    };
-                }
+        return TopMostData {
+            top_most_info: get_or_set_top_most_info(top_most_expr_start, is_current_top_most, context),
+            top_most_expr_start,
+            is_parent_expr_stmt: top_most_parent.kind() == NodeKind::ExprStmt,
+            is_current_top_most,
+        };
+
+        fn get_or_set_top_most_info(top_most_expr_start: BytePos, is_top_most: bool, context: &mut Context) -> Info {
+            if is_top_most {
+                let info = Info::new("topBinaryOrLogicalExpressionStart");
+                context.store_info_for_node(&top_most_expr_start, info);
+                return info;
             }
+            return context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored");
         }
-
-        return false;
     }
 
     fn is_expression_breakable(op: &BinaryOp) -> bool {

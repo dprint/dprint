@@ -1,0 +1,12 @@
+~~ indentWidth: 2, lineWidth: 80 ~~
+== should format on same line ==
+result +=
+  `${tableChars.bottomLeft}${divider.join(tableChars.bottomMiddleeeeee)}`
+  + tableChars.bottomRight
+  + testing;
+
+[expect]
+result +=
+  `${tableChars.bottomLeft}${divider.join(tableChars.bottomMiddleeeeee)}`
+  + tableChars.bottomRight
+  + testing;
