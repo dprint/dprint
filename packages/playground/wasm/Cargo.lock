@@ -175,7 +175,7 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "dprint-core 0.12.0",
- "dprint-plugin-typescript 0.9.10",
+ "dprint-plugin-typescript 0.9.11",
  "js-sys 0.3.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasm-bindgen 0.2.59 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "dprint-core 0.12.0",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
