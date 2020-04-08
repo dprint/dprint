@@ -111,3 +111,31 @@ testing(testing)
 testing(testing)
     || testing
         === test;
+
+== should indent following lines when in call expr argument ==
+call(
+    testing && testing && test,
+    asdf,
+);
+
+[expect]
+call(
+    testing
+        && testing
+        && test,
+    asdf,
+);
+
+== should indent following lines when in new expr argument ==
+new Test(
+    testing && testing && test,
+    asdf,
+);
+
+[expect]
+new Test(
+    testing
+        && testing
+        && test,
+    asdf,
+);

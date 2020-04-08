@@ -1395,12 +1395,12 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         let is_left_most_node = top_most_data.top_most_expr_start == current_node_start;
         let items = items.into_rc_path();
         let top_most_info = top_most_data.top_most_info;
-        let is_top_most_parent_expr_stmt = top_most_data.is_parent_expr_stmt;
+        let allow_no_indent = !top_most_data.is_parent_expr_stmt && !top_most_data.is_in_argument;
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
                 if is_left_most_node { return Some(false); }
                 let top_most_info = condition_context.get_resolved_info(&top_most_info)?;
-                if !is_top_most_parent_expr_stmt && top_most_info.is_start_of_line() { return Some(false); }
+                if allow_no_indent && top_most_info.is_start_of_line() { return Some(false); }
                 let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
                 return Some(is_same_indent && condition_resolvers::is_start_of_line(condition_context));
             }),
@@ -1428,18 +1428,21 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         top_most_info: Info,
         is_current_top_most: bool,
         is_parent_expr_stmt: bool,
+        is_in_argument: bool,
     }
 
     fn get_top_most_data(node: &BinExpr, context: &mut Context) -> TopMostData {
         let mut top_most: &BinExpr = node;
         let mut top_most_parent: &Node = context.parent();
+        let mut top_most_parent_index = 0;
 
         if is_expression_breakable(&node.op) {
             for (i, ancestor) in context.parent_stack.iter().enumerate() {
                 if let Node::BinExpr(bin_expr) = ancestor {
                     if is_expression_breakable(&bin_expr.op) {
                         top_most = bin_expr;
-                        top_most_parent = context.parent_stack.get(i + 1).expect("Binary expr should always have a parent.");
+                        top_most_parent_index = i + 1;
+                        top_most_parent = context.parent_stack.get(top_most_parent_index).expect("Binary expr should always have a parent.");
                     } else {
                         break;
                     }
@@ -1451,13 +1454,15 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
         let is_current_top_most = top_most == node;
         let top_most_expr_start = top_most.lo();
-        let top_most_parent = top_most_parent.to_owned();
+        let top_most_parent_kind = top_most_parent.kind();
+        let is_in_argument = get_is_in_argument(top_most_parent, top_most_parent_index, context);
 
         return TopMostData {
             top_most_info: get_or_set_top_most_info(top_most_expr_start, is_current_top_most, context),
             top_most_expr_start,
-            is_parent_expr_stmt: top_most_parent.kind() == NodeKind::ExprStmt,
             is_current_top_most,
+            is_parent_expr_stmt: top_most_parent_kind == NodeKind::ExprStmt,
+            is_in_argument,
         };
 
         fn get_or_set_top_most_info(top_most_expr_start: BytePos, is_top_most: bool, context: &mut Context) -> Info {
@@ -1467,6 +1472,18 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
                 return info;
             }
             return context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored");
+        }
+
+        fn get_is_in_argument(top_most_parent: &Node, top_most_parent_index: usize, context: &Context) -> bool {
+            match top_most_parent {
+                Node::ExprOrSpread(_) => {
+                    match context.parent_stack.get(top_most_parent_index + 1).expect("Expr or spread should always have a parent.").kind() {
+                        NodeKind::CallExpr | NodeKind::NewExpr => true,
+                        _ => false,
+                    }
+                },
+                _ => false,
+            }
         }
     }
 
