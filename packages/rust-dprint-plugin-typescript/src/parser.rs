@@ -1469,9 +1469,10 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             if is_top_most {
                 let info = Info::new("topBinaryOrLogicalExpressionStart");
                 context.store_info_for_node(&top_most_expr_start, info);
-                return info;
+                info
+            } else {
+                context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored")
             }
-            return context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored");
         }
 
         fn get_is_in_argument(top_most_parent: &Node, top_most_parent_index: usize, context: &Context) -> bool {
@@ -1676,13 +1677,16 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
     let operator_token = context.token_finder.get_first_operator_after(&*node.test, "?").unwrap();
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.test, &*node.cons, context)
         || node_helpers::get_use_new_lines_for_nodes(&*node.cons, &*node.alt, context);
-    let operator_position = get_operator_position(&node, &operator_token, context);
-    let start_info = Info::new("startConditionalExpression");
+    let operator_position = get_operator_position(node, &operator_token, context);
+    let top_most_data = get_top_most_data(node, context);
     let before_alternate_info = Info::new("beforeAlternateInfo");
     let end_info = Info::new("endConditionalExpression");
     let mut items = PrintItems::new();
 
-    items.push_info(start_info);
+    if top_most_data.is_top_most {
+        items.push_info(top_most_data.top_most_info);
+    }
+
     items.extend(parser_helpers::new_line_group(parse_node_with_inner_parse((&node.test).into(), context, {
         move |mut items, _| {
             if operator_position == OperatorPosition::SameLine {
@@ -1698,10 +1702,10 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
     if use_new_lines {
         items.push_signal(Signal::NewLine);
     } else {
-        items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info, Some(before_alternate_info)));
+        items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(top_most_data.top_most_info, Some(before_alternate_info)));
     }
 
-    items.push_condition(conditions::indent_if_start_of_line({
+    let cons_and_alt_items = {
         let mut items = PrintItems::new();
         if operator_position == OperatorPosition::NextLine {
             items.push_str("? ");
@@ -1716,17 +1720,13 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
                 }
             }
         })));
-        items
-    }));
 
-    if use_new_lines {
-        items.push_signal(Signal::NewLine);
-    } else {
-        items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(start_info, Some(before_alternate_info)));
-    }
+        if use_new_lines {
+            items.push_signal(Signal::NewLine);
+        } else {
+            items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(top_most_data.top_most_info, Some(before_alternate_info)));
+        }
 
-    items.push_condition(conditions::indent_if_start_of_line({
-        let mut items = PrintItems::new();
         if operator_position == OperatorPosition::NextLine {
             items.push_str(": ");
         }
@@ -1739,10 +1739,58 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
             }
         })));
         items.push_info(end_info);
+
         items
-    }));
+    };
+
+    if top_most_data.is_top_most {
+        items.push_condition(conditions::indent_if_start_of_line(cons_and_alt_items));
+    } else {
+        items.extend(cons_and_alt_items);
+    }
 
     return items;
+
+    struct TopMostData {
+        top_most_info: Info,
+        is_top_most: bool,
+    }
+
+    fn get_top_most_data(node: &CondExpr, context: &mut Context) -> TopMostData {
+        // The "top most" node in nested conditionals follows the ancestors up through
+        // the alternate expressions.
+        let mut top_most_node = node;
+
+        for ancestor in context.parent_stack.iter() {
+            if let Node::CondExpr(parent) = ancestor {
+                if parent.alt.lo() == top_most_node.lo() {
+                    top_most_node = parent;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        let is_top_most = top_most_node == node;
+        let top_most_info = get_or_set_top_most_info(top_most_node.lo(), is_top_most, context);
+
+        return TopMostData {
+            is_top_most,
+            top_most_info,
+        };
+
+        fn get_or_set_top_most_info(top_most_expr_start: BytePos, is_top_most: bool, context: &mut Context) -> Info {
+            if is_top_most {
+                let info = Info::new("conditionalExprStart");
+                context.store_info_for_node(&top_most_expr_start, info);
+                info
+            } else {
+                context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored")
+            }
+        }
+    }
 
     fn get_operator_position(node: &CondExpr, operator_token: &TokenAndSpan, context: &mut Context) -> OperatorPosition {
         match context.config.conditional_expression_operator_position {

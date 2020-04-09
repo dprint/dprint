@@ -70,8 +70,66 @@ test
 test
     ? 1
     : test
-        ? 3
-        : 4;
+    ? 3
+    : 4;
+
+== should handle single line nested conditionals ==
+test ? 1 : test ? 3 : 46666666;
+
+[expect]
+test
+    ? 1
+    : test
+    ? 3
+    : 46666666;
+
+== should handle single line nested conditionals that exceed line width twice ==
+test ? 1 : test ? 3 : 466666666666666666666;
+
+[expect]
+test
+    ? 1
+    : test
+    ? 3
+    : 466666666666666666666;
+
+== additional nested condition test (from Deno's code) ==
+function test() {
+    return c === 0x30 /* 0 */
+        ? "\x00"
+        : c === 0x61 /* a */
+        ? "\x07"
+        : c === 0x62 /* b */
+        ? "\x08"
+        : "";
+}
+
+[expect]
+function test() {
+    return c === 0x30 /* 0 */
+        ? "\x00"
+        : c === 0x61 /* a */
+        ? "\x07"
+        : c === 0x62 /* b */
+        ? "\x08"
+        : "";
+}
+
+== should handle nested conditionals with the nested conditional being after the question mark ==
+test
+    ? 1
+    : test
+    ? 3 ? 5555555555555555555555555555 : 44444444444444
+    : 4;
+
+[expect]
+test
+    ? 1
+    : test
+    ? 3
+        ? 5555555555555555555555555555
+        : 44444444444444
+    : 4;
 
 == should handle when the semi-colon falls exactly on the line width ==
 test ? testingThis : outABittt;
