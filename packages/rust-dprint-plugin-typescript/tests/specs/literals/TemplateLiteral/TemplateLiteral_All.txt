@@ -61,6 +61,22 @@ function test() {
         : testingttttttttttttttttttttttt
 }`;
 
+== should handle conditional expr in this scenario ==
+const errMsg = `${name} test ${required === 1 ? "" : "s"}, but only ${length} present`;
+
+[expect]
+const errMsg = `${name} test ${
+    required === 1 ? "" : "s"
+}, but only ${length} present`;
+
+== should handle conditional expr when the conditional expr cons is on the line width and not make the cond expr multi-line ==
+const errMsg = `${testttttttt === 1 ? "" : "s"}, but only ${length} present`;
+
+[expect]
+const errMsg = `${
+    testttttttt === 1 ? "" : "s"
+}, but only ${length} present`;
+
 == should do a tagged template literal ==
 log(myTag `some text`);
 

@@ -2007,7 +2007,7 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
                 with_no_new_lines(parsed_expr)
             } else {
                 if possible_surround_newlines {
-                    parser_helpers::surround_with_newlines_indented_if_multi_line(parsed_expr, context.config.indent_width)
+                    parser_helpers::surround_with_newlines_indented_if_multi_line(new_line_group(parsed_expr), context.config.indent_width)
                 } else {
                     parsed_expr
                 }
