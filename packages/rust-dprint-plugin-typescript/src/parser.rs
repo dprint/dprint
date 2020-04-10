@@ -2001,8 +2001,17 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
             items.push_str("${");
             items.push_signal(Signal::FinishIgnoringIndent);
             let keep_on_one_line = get_keep_on_one_line(&node);
+            let possible_surround_newlines = get_possible_surround_newlines(&node);
             let parsed_expr = parse_node(node, context);
-            items.extend(if keep_on_one_line { with_no_new_lines(parsed_expr)} else { parsed_expr });
+            items.extend(if keep_on_one_line {
+                with_no_new_lines(parsed_expr)
+            } else {
+                if possible_surround_newlines {
+                    parser_helpers::surround_with_newlines_indented_if_multi_line(parsed_expr, context.config.indent_width)
+                } else {
+                    parsed_expr
+                }
+            });
             items.push_str("}");
             items.push_signal(Signal::StartIgnoringIndent);
         }
@@ -2053,6 +2062,13 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
         match node {
             Node::Ident(_) | Node::ThisExpr(_) | Node::Super(_) | Node::Str(_) | Node::PrivateName(_) => true,
             Node::MemberExpr(expr) => get_keep_on_one_line(&(&expr.obj).into()) && get_keep_on_one_line(&(&expr.prop).into()),
+            _ => false,
+        }
+    }
+
+    fn get_possible_surround_newlines(node: &Node) -> bool {
+        match node {
+            Node::CondExpr(_) => true,
             _ => false,
         }
     }
@@ -4952,29 +4968,14 @@ fn parse_node_in_parens<'a>(
 
     parse_surrounded_by_tokens(|context| {
         // todo: do something like this in the computed property area and reuse the code in both places?
-        let mut items = PrintItems::new();
         let parsed_node = parse_node(context);
         if use_new_lines {
-            items.extend(surround_with_new_lines(with_indent(parsed_node)));
+            surround_with_new_lines(with_indent(parsed_node))
         } else if opts.prefer_hanging {
-            items.extend(parsed_node);
+            parsed_node
         } else {
-            let start_info = Info::new("startParens");
-            let end_info = Info::new("endParens");
-            let parsed_node = parsed_node.into_rc_path();
-            items.push_info(start_info);
-            items.push_condition(conditions::if_above_width(
-                context.config.indent_width,
-                Signal::PossibleNewLine.into()
-            ));
-            items.push_condition(Condition::new_with_dependent_infos("multiLineOrHanging", ConditionProperties {
-                condition: Box::new(move |context| condition_resolvers::is_multiple_lines(context, &start_info, &end_info)),
-                true_path: Some(surround_with_new_lines(with_indent(parsed_node.clone().into()))),
-                false_path: Some(parsed_node.into()),
-            }, vec![end_info]));
-            items.push_info(end_info);
+            parser_helpers::surround_with_newlines_indented_if_multi_line(parsed_node, context.config.indent_width)
         }
-        items
     }, |_| None, ParseSurroundedByTokensOptions {
         open_token: "(",
         close_token: ")",

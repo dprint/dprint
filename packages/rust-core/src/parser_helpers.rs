@@ -121,3 +121,27 @@ pub fn parse_string(text: &str) -> PrintItems {
         items.into()
     }
 }
+
+/// Surrounds the items with newlines and indentation if its on multiple lines.
+/// Note: This currently inserts a possible newline at the start, but that might change or be made
+/// conditional in the future.
+pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, indent_width: u8) -> PrintItems {
+    let mut items = PrintItems::new();
+    let start_info = Info::new("surroundWithNewLinesIndentedIfMultiLineStart");
+    let end_info = Info::new("surroundWithNewLineIndentedsIfMultiLineEnd");
+    let inner_items = inner_items.into_rc_path();
+
+    items.push_info(start_info);
+    items.push_condition(super::conditions::if_above_width(
+        indent_width,
+        Signal::PossibleNewLine.into()
+    ));
+    items.push_condition(Condition::new_with_dependent_infos("newlineIfMultiLine", ConditionProperties {
+        true_path: Some(surround_with_new_lines(with_indent(inner_items.clone().into()))),
+        false_path: Some(inner_items.into()),
+        condition: Box::new(move |context| super::condition_resolvers::is_multiple_lines(context, &start_info, &end_info))
+    }, vec![end_info]));
+    items.push_info(end_info);
+
+    items
+}

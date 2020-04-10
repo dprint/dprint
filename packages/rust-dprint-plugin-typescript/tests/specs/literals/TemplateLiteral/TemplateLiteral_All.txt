@@ -39,17 +39,27 @@ log(`testing ${3} this ${6} out`);
     4,
 ]} testing`;
 
-== should indent properly within the expressions ==
+== should move conditional expressions to the next line when they exceed the line width ==
 function test() {
-    `const t = 5; ${testing ? thisIsATest : testing}`;
+    `const t = 5; ${test ? test : testing}`;
 }
 
 [expect]
 function test() {
-    `const t = 5; ${testing
-        ? thisIsATest
-        : testing}`;
+    `const t = 5; ${
+        test ? test : testing
+    }`;
 }
+
+== should handle conditional expressions that exceed the line width twice ==
+`const t = 5; ${test ? test : testingttttttttttttttttttttttt}`;
+
+[expect]
+`const t = 5; ${
+    test
+        ? test
+        : testingttttttttttttttttttttttt
+}`;
 
 == should do a tagged template literal ==
 log(myTag `some text`);
