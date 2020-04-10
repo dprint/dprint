@@ -132,13 +132,17 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
     let inner_items = inner_items.into_rc_path();
 
     items.push_info(start_info);
-    items.push_condition(super::conditions::if_above_width(
-        indent_width,
-        Signal::PossibleNewLine.into()
-    ));
     items.push_condition(Condition::new_with_dependent_infos("newlineIfMultiLine", ConditionProperties {
         true_path: Some(surround_with_new_lines(with_indent(inner_items.clone().into()))),
-        false_path: Some(inner_items.into()),
+        false_path: Some({
+            let mut items = PrintItems::new();
+            items.push_condition(super::conditions::if_above_width(
+                indent_width,
+                Signal::PossibleNewLine.into()
+            ));
+            items.extend(inner_items.into());
+            items
+        }),
         condition: Box::new(move |context| super::condition_resolvers::is_multiple_lines(context, &start_info, &end_info))
     }, vec![end_info]));
     items.push_info(end_info);
