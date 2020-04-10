@@ -1222,8 +1222,10 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
         if node.params.len() != 1 {
             true
         } else {
-            // checking for a close paren is more reliable because of this scenario: `call(a => {})`
-            context.token_finder.get_next_token_if_close_paren(node.params.first().unwrap()).is_some()
+            // checking for a close paren or comma is more reliable because of this scenario: `call(a => {})`
+            let param_end = node.params.first().unwrap().hi();
+            context.token_finder.get_next_token_if_comma(&param_end).is_some()
+                || context.token_finder.get_next_token_if_close_paren(&param_end).is_some()
         }
     }
 }
