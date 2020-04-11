@@ -2064,7 +2064,8 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
     fn get_keep_on_one_line(node: &Node) -> bool {
         match node {
             Node::Ident(_) | Node::ThisExpr(_) | Node::Super(_) | Node::Str(_) | Node::PrivateName(_) => true,
-            Node::MemberExpr(expr) => get_keep_on_one_line(&(&expr.obj).into()) && get_keep_on_one_line(&(&expr.prop).into()),
+            Node::MemberExpr(expr) => keep_member_expr_on_one_line(expr),
+            Node::CallExpr(expr) => keep_call_expr_on_one_line(expr),
             _ => false,
         }
     }
@@ -2072,9 +2073,18 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
     fn get_possible_surround_newlines(node: &Node) -> bool {
         match node {
             Node::CondExpr(_) => true,
-            Node::MemberExpr(expr) => expr.computed,
+            Node::MemberExpr(expr) => !keep_member_expr_on_one_line(expr),
+            Node::CallExpr(expr) => !keep_call_expr_on_one_line(expr),
             _ => false,
         }
+    }
+
+    fn keep_member_expr_on_one_line(expr: &MemberExpr) -> bool {
+        get_keep_on_one_line(&(&expr.obj).into()) && get_keep_on_one_line(&(&expr.prop).into()) && !expr.computed
+    }
+
+    fn keep_call_expr_on_one_line(expr: &CallExpr) -> bool {
+        expr.args.is_empty() && get_keep_on_one_line(&(&expr.callee).into())
     }
 }
 

@@ -121,3 +121,17 @@ myCustomTag
 `${days[date.getUTCDay()]}, ${d} ${
     months[date.getUTCMonth()]
 } ${y} ${h}:${testtt}:${s} GMT`;
+
+== should not break up call expressions with no argument ==
+`${date.getUTCDay()}, ${d} ${date.getUTCMonth()} ${y} ${h}:${testtt}:${s} GMT`;
+
+[expect]
+`${date.getUTCDay()}, ${d} ${date.getUTCMonth()} ${y} ${h}:${testtt}:${s} GMT`;
+
+== should break up call expressions with an argument ==
+`${date.getUTCDay()}, ${d} ${date.getUTCMonth(test)} ${y} ${h}:${testtt}:${s} GMT`;
+
+[expect]
+`${date.getUTCDay()}, ${d} ${
+    date.getUTCMonth(test)
+} ${y} ${h}:${testtt}:${s} GMT`;
