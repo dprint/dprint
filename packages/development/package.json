@@ -1,6 +1,6 @@
 {
   "name": "@dprint/development",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Reusable functionality for development of dprint libraries.",
   "main": "dist/dprint-development.js",
   "types": "lib/dprint-development.d.ts",
@@ -26,8 +26,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@dprint/core": "~0.6.0",
-    "@dprint/types": "~0.2.0",
+    "@dprint/core": "~0.7.0",
+    "@dprint/types": "~0.3.0",
     "fast-glob": "^3.2.2"
   },
   "peerDependencies": {

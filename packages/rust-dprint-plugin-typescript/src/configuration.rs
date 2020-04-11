@@ -1000,6 +1000,10 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let mut diagnostics = Vec::new();
     let mut config = config.clone();
 
+    if get_value(&mut config, "prettier", false, &mut diagnostics) {
+        fill_prettier_config(&mut config);
+    }
+
     let semi_colons = get_value(&mut config, "semiColons", SemiColons::Prefer, &mut diagnostics);
     let brace_position = get_value(&mut config, "bracePosition", BracePosition::NextLineIfHanging, &mut diagnostics);
     let next_control_flow_position = get_value(&mut config, "nextControlFlowPosition", NextControlFlowPosition::SameLine, &mut diagnostics);
@@ -1147,9 +1151,17 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         });
     }
 
-    ResolveConfigurationResult {
+    return ResolveConfigurationResult {
         config: resolved_config,
         diagnostics,
+    };
+
+    fn fill_prettier_config(config: &mut HashMap<String, String>) {
+        for (key, value) in ConfigurationBuilder::new().prettier().config.iter() {
+            if !config.contains_key(key) {
+                config.insert(key.clone(), value.clone());
+            }
+        }
     }
 }
 

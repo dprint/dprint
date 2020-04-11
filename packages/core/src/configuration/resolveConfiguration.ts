@@ -37,16 +37,14 @@ export function resolveConfiguration(config: Partial<Configuration>): ResolveCon
         delete config.newLineKind;
         switch (newLineKind) {
             case "auto":
-                return "auto";
             case "crlf":
-                return "\r\n";
             case "lf":
-                return "\n";
+                return newLineKind;
             case null:
             case undefined:
                 return defaultValues.newLineKind;
             case "system":
-                return os.EOL === "\r\n" ? "\r\n" : "\n";
+                return os.EOL === "\r\n" ? "crlf" : "lf";
             default:
                 const propertyName: keyof ResolvedConfiguration = "newLineKind";
                 diagnostics.push({

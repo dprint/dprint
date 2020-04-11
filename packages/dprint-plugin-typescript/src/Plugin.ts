@@ -76,28 +76,10 @@ export class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptCon
     }
 
     private _getFormatContext() {
-        return this._formatContext ?? (this._formatContext = FormatContext.new(this._getConfigMap()));
-    }
-
-    /** @internal */
-    private _getConfigMap() {
-        const map = new Map();
-        if (this._globalConfig)
-            addConfigToMap(this._globalConfig);
-        addConfigToMap(this._typeScriptConfig);
-        return map;
-
-        function addConfigToMap(config: any) {
-            for (let key of Object.keys(config)) {
-                const value = config[key] as unknown;
-                if (value == null)
-                    continue;
-                else if (typeof value === "string" || typeof value === "boolean" || typeof value === "number")
-                    map.set(key, value.toString());
-                else
-                    throw new Error(`Not supported value type '${typeof value}' for key '${key}'.`);
-            }
-        }
+        return this._formatContext ?? (this._formatContext = FormatContext.new(
+            objectToMap(this._typeScriptConfig),
+            objectToMap(this._globalConfig)
+        ));
     }
 
     /** @internal */
@@ -106,4 +88,19 @@ export class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptCon
             this._environment = new CliLoggingEnvironment();
         return this._environment;
     }
+}
+
+
+function objectToMap(config: any) {
+    const map = new Map();
+    for (let key of Object.keys(config)) {
+        const value = config[key] as unknown;
+        if (value == null)
+            continue;
+        else if (typeof value === "string" || typeof value === "boolean" || typeof value === "number")
+            map.set(key, value.toString());
+        else
+            throw new Error(`Not supported value type '${typeof value}' for key '${key}'.`);
+    }
+    return map;
 }

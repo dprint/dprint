@@ -1,6 +1,6 @@
-import { Plugin, JsPlugin, WebAssemblyPlugin, isJsPlugin } from "@dprint/types";
+import { Plugin, JsPlugin, WebAssemblyPlugin, isJsPlugin, BaseResolvedConfiguration } from "@dprint/types";
 import { print } from "./printer";
-import { resolveNewLineKindFromText, throwError } from "./utils";
+import { resolveNewLineKindFromText, throwError, assertNever } from "./utils";
 
 /** Options for formatting. */
 export interface FormatFileTextOptions {
@@ -35,11 +35,24 @@ export function formatFileText(options: FormatFileTextOptions) {
         // print it
         const config = plugin.getConfiguration();
         return print(parseResult, {
-            newLineKind: config.newLineKind === "auto" ? resolveNewLineKindFromText(fileText) : config.newLineKind,
+            newLineKind: resolveNewLineKind(config.newLineKind),
             maxWidth: config.lineWidth,
             indentWidth: config.indentWidth,
             useTabs: config.useTabs,
         });
+    }
+
+    function resolveNewLineKind(newLineKind: BaseResolvedConfiguration["newLineKind"]) {
+        switch (newLineKind) {
+            case "auto":
+                return resolveNewLineKindFromText(fileText);
+            case "crlf":
+                return "\r\n";
+            case "lf":
+                return "\n";
+            default:
+                return assertNever(newLineKind);
+        }
     }
 
     function handleWebAssemblyPlugin(plugin: WebAssemblyPlugin) {

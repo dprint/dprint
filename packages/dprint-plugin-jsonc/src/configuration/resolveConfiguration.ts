@@ -34,16 +34,14 @@ export function resolveConfiguration(
         delete pluginConfig.newLineKind;
         switch (newLineKind) {
             case "auto":
-                return "auto";
             case "crlf":
-                return "\r\n";
             case "lf":
-                return "\n";
+                return newLineKind;
             case null:
             case undefined:
                 return globalConfig.newLineKind;
             case "system":
-                return os.EOL === "\r\n" ? "\r\n" : "\n";
+                return os.EOL === "\r\n" ? "crlf" : "lf";
             default:
                 const propertyName: keyof JsoncConfiguration = "newLineKind";
                 diagnostics.push({

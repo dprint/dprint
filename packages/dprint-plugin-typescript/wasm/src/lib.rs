@@ -16,21 +16,11 @@ pub struct FormatContext {
 
 #[wasm_bindgen]
 impl FormatContext {
-    pub fn new(configuration: &js_sys::Map) -> FormatContext {
+    pub fn new(js_config: &js_sys::Map, js_global_config: &js_sys::Map) -> FormatContext {
         console_error_panic_hook::set_once();
 
-        let mut hash_map = HashMap::new();
-        for key in configuration.keys() {
-            let key = key.unwrap();
-            let value = configuration.get(&key);
-            let key = key.as_string().unwrap();
-            if let Some(value) = value.as_string() {
-                hash_map.insert(key, value);
-            }
-        }
-
-        let global_config = resolve_global_config(&HashMap::new()).config;
-        let config_result = resolve_config(&hash_map, &global_config);
+        let global_config = resolve_global_config(&js_map_to_hash_map(&js_global_config)).config;
+        let config_result = resolve_config(&js_map_to_hash_map(&js_config), &global_config);
         FormatContext {
             configuration: config_result.config,
             diagnostics: config_result.diagnostics,
@@ -53,4 +43,17 @@ impl FormatContext {
             Err(result) => Err(JsValue::from(result))
         }
     }
+}
+
+fn js_map_to_hash_map(map: &js_sys::Map) -> HashMap<String, String> {
+    let mut hash_map = HashMap::new();
+    for key in map.keys() {
+        let key = key.unwrap();
+        let value = map.get(&key);
+        let key = key.as_string().unwrap();
+        if let Some(value) = value.as_string() {
+            hash_map.insert(key, value);
+        }
+    }
+    hash_map
 }

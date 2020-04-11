@@ -555,4 +555,28 @@ describe("configuration", () => {
             doSpecificTest(createConfigWithValue(keys, false), createConfigWithValue(keys, false) as any);
         });
     });
+
+    describe("prettier", () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => expectedConfig.hasOwnProperty(prop));
+        }
+
+        it("should set some of the configuration", () => {
+            doSpecificTest({
+                prettier: true
+            }, {
+                lineWidth: 80,
+                indentWidth: 2,
+                "ifStatement.nextControlFlowPosition": "sameLine",
+                "ifStatement.bracePosition": "sameLine",
+                "commentLine.forceSpaceAfterSlashes": false,
+                "constructSignature.spaceAfterNewKeyword": true,
+                "constructorType.spaceAfterNewKeyword": true,
+                "arrowFunction.useParentheses": "force",
+                "newLineKind": "lf",
+                "functionExpression.spaceAfterFunctionKeyword": true,
+                "taggedTemplate.spaceBeforeLiteral": false,
+            });
+        });
+    });
 });

@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import * as os from "os";
-import { Configuration, resolveConfiguration, ConfigurationDiagnostic, ResolvedConfiguration } from "../../configuration";
+import { Configuration, ResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { resolveConfiguration } from "../../configuration";
 
 describe(nameof(resolveConfiguration), () => {
     function doTest(
@@ -61,7 +62,7 @@ describe(nameof(resolveConfiguration), () => {
             }, {
                 indentWidth: 2,
                 lineWidth: 80,
-                newLineKind: "\r\n",
+                newLineKind: "crlf",
                 useTabs: true,
             }, () => true);
         });
@@ -81,15 +82,15 @@ describe(nameof(resolveConfiguration), () => {
         });
 
         it("should set when set to crlf", () => {
-            doSpecificTest("crlf", "\r\n");
+            doSpecificTest("crlf", "crlf");
         });
 
         it("should set when set to lf", () => {
-            doSpecificTest("lf", "\n");
+            doSpecificTest("lf", "lf");
         });
 
         it("should resolve when set to system", () => {
-            doSpecificTest("system", os.EOL === "\r\n" ? "\r\n" : "\n");
+            doSpecificTest("system", os.EOL === "\r\n" ? "crlf" : "lf");
         });
 
         it("should do a diagnostic when providing an incorrect value", () => {

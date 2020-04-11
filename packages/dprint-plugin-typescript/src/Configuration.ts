@@ -123,6 +123,17 @@ export interface TypeScriptConfiguration {
     preferHangingParameters?: boolean;
 
     /**
+     * Top level configuration that sets the configuration to use configuration
+     * similar to Prettier, with the exception that it will use trailing commas
+     * in more places.
+     *
+     * Note: This is just an alias for having the configuration to be more
+     * like Prettier's. It does not mean the code will format exactly like
+     * Prettier in all scenarios.
+     */
+    prettier?: boolean;
+
+    /**
      * Whether to use parentheses around a single parameter in an arrow function.
      * @default "maintain"
      * @value "force" - Forces parentheses.
@@ -526,6 +537,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "forStatement.spaceAfterForKeyword": boolean;
     readonly "forStatement.spaceAfterSemiColons": boolean;
     readonly "functionDeclaration.spaceBeforeParentheses": boolean;
+    readonly "functionExpression.spaceAfterFunctionKeyword": boolean;
     readonly "functionExpression.spaceBeforeParentheses": boolean;
     readonly "getAccessor.spaceBeforeParentheses": boolean;
     readonly "ifStatement.spaceAfterIfKeyword": boolean;

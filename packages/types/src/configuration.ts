@@ -46,7 +46,7 @@ export interface BaseResolvedConfiguration {
     readonly lineWidth: number;
     readonly indentWidth: number;
     readonly useTabs: boolean;
-    readonly newLineKind: "auto" | "\r\n" | "\n";
+    readonly newLineKind: "auto" | "crlf" | "lf";
 }
 
 /** Represents a problem with a configuration. */
