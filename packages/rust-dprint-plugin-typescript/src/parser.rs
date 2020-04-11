@@ -2072,6 +2072,7 @@ fn parse_template_literal<'a>(quasis: &'a Vec<TplElement>, exprs: &Vec<&'a Expr>
     fn get_possible_surround_newlines(node: &Node) -> bool {
         match node {
             Node::CondExpr(_) => true,
+            Node::MemberExpr(expr) => expr.computed,
             _ => false,
         }
     }

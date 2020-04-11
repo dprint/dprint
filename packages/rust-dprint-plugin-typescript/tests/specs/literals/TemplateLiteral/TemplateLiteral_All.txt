@@ -113,3 +113,11 @@ myCustomTag
 
 [expect]
 `tttttttttttttest ${ttttttttttttttt.#test}`;
+
+== should do newlines for a member expression with a computed property ==
+`${days[date.getUTCDay()]}, ${d} ${months[date.getUTCMonth()]} ${y} ${h}:${testtt}:${s} GMT`;
+
+[expect]
+`${days[date.getUTCDay()]}, ${d} ${
+    months[date.getUTCMonth()]
+} ${y} ${h}:${testtt}:${s} GMT`;
