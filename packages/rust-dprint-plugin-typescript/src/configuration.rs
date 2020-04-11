@@ -62,6 +62,7 @@ impl ConfigurationBuilder {
             .brace_position(BracePosition::SameLine)
             .comment_line_force_space_after_slashes(false)
             .construct_signature_space_after_new_keyword(true)
+            .constructor_type_space_after_new_keyword(true)
             .arrow_function_use_parentheses(UseParentheses::Force)
             .new_line_kind(NewLineKind::LineFeed)
             .function_expression_space_after_function_keyword(true)
