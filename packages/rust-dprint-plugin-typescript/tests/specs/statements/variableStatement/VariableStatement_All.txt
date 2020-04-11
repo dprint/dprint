@@ -33,3 +33,56 @@ const t: Testing, testingThis: outALittleBit;
 [expect]
 const t: Testing,
     testingThis: outALittleBit;
+
+== should handle declarations that span multiple lines ==
+const testing = testtttttttt && testtttttttt, other = testtttttttt && testttttttttttt;
+
+[expect]
+const testing = testtttttttt
+        && testtttttttt,
+    other = testtttttttt
+        && testttttttttttt;
+
+== should handle multiple declarations that span multiple lines with an object ==
+const varA = { testttttttttttttttttttttttttttt }, varB = testtttttttt && testttttttttttt;
+
+[expect]
+const varA = {
+        testttttttttttttttttttttttttttt,
+    },
+    varB = testtttttttt
+        && testttttttttttt;
+
+== should handle multiple declarations that span multiple lines with comments in between ==
+const varA = /* test*/
+    // not ideal, but ok
+    {
+        testttttttttttttttttttttttttttt,
+    }, // test
+    // testing
+    varB = testtttttttt
+        && testttttttttttt;
+
+[expect]
+const varA = /* test*/
+    // not ideal, but ok
+        {
+            testttttttttttttttttttttttttttt,
+        }, // test
+    // testing
+    varB = testtttttttt
+        && testttttttttttt;
+
+== should handle multiple declarations that span multiple lines with object destructuring ==
+const { testing, othertestingggggggggggggggg } = {
+    testtttttttttttttttttttttt,
+}, test = 5;
+
+[expect]
+const {
+        testing,
+        othertestingggggggggggggggg,
+    } = {
+        testtttttttttttttttttttttt,
+    },
+    test = 5;

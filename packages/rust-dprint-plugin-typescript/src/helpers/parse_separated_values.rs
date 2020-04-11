@@ -78,7 +78,13 @@ pub fn parse_separated_values(
         else if opts.prefer_hanging {
             if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent || opts.multi_line_style == MultiLineStyle::SameLineNoIndent { Condition::new_false() }
             else { get_is_multi_line_for_hanging(value_start_infos.clone(), is_start_standalone_line_ref, end_info) }
-        } else { get_is_multi_line_for_multi_line(value_start_infos.clone(), is_start_standalone_line_ref, end_info) }
+        } else {
+            if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent {
+                get_spans_multiple_lines(value_start_infos.clone(), end_info)
+            } else {
+                get_is_multi_line_for_multi_line(value_start_infos.clone(), is_start_standalone_line_ref, end_info)
+            }
+        }
     };
     let is_multi_line_or_hanging_condition_ref = is_multi_line_or_hanging_condition.get_reference();
     let is_multi_line_or_hanging = is_multi_line_or_hanging_condition_ref.create_resolver();
@@ -328,6 +334,20 @@ fn get_is_multi_line_for_multi_line(value_start_infos: Rc<RefCell<Vec<Info>>>, i
             }
 
             Some(false)
+        }),
+        false_path: None,
+        true_path: None,
+    }, vec![end_info])
+}
+
+fn get_spans_multiple_lines(value_start_infos: Rc<RefCell<Vec<Info>>>, end_info: Info) -> Condition {
+    Condition::new_with_dependent_infos("spansMultipleLines", ConditionProperties {
+        condition: Box::new(move |condition_context| {
+            if let Some(start_info) = value_start_infos.borrow().first() {
+                condition_resolvers::is_multiple_lines(condition_context, &start_info, &end_info)
+            } else {
+                Some(false)
+            }
         }),
         false_path: None,
         true_path: None,

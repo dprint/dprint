@@ -1136,6 +1136,7 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
                 is_parameters: true,
             }, context));
         } else {
+            // todo: this should probably use more of the same logic as in parse_parameters_or_arguments
             // there will only be one param in this case
             items.push_str("(");
             items.extend(parse_node(node.params.first().unwrap().into(), context));
@@ -3595,7 +3596,24 @@ fn parse_var_declarator<'a>(node: &'a VarDeclarator, context: &mut Context<'a>) 
         items.extend(parse_assignment(init.into(), "=", context));
     }
 
-    items
+    // Indent the first variable declarator when there are multiple.
+    // Not ideal, but doing this here because of the abstraction used in
+    // `parse_var_decl`. In the future this should probably be moved away.
+    if let Node::VarDecl(var_dec) = context.parent() {
+        if var_dec.decls.len() > 1 && &var_dec.decls[0] == node {
+            let items = items.into_rc_path();
+            if_true_or(
+                "indentIfNotStartOfLine",
+                |context| Some(!condition_resolvers::is_start_of_line(context)),
+                with_indent(items.clone().into()),
+                items.into(),
+            ).into()
+        } else {
+            items
+        }
+    } else {
+        items
+    }
 }
 
 fn parse_while_stmt<'a>(node: &'a WhileStmt, context: &mut Context<'a>) -> PrintItems {

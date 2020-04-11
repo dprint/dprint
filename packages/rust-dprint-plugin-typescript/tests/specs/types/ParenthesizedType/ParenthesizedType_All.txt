@@ -23,10 +23,11 @@ type Test = test
 [expect]
 type Test =
     | test
-    | test & (
-        | test
-        | test & other
-    );
+    | test
+        & (
+            | test
+            | test & other
+        );
 
 == should allow trailing comment on open paren ==
 type Test = ( // test
