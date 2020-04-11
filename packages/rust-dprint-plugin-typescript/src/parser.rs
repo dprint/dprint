@@ -1293,7 +1293,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
         let node_left_node = Node::from(node_left);
 
-        items.extend(indent_if_necessary(node_left.lo(), &top_most_data, {
+        items.extend(indent_if_necessary(node_left.lo(), &node_op, operator_position, &top_most_data, {
             let parsed_operator = parsed_operator.clone(); // capture
             new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items, _| {
                 if operator_position == OperatorPosition::SameLine {
@@ -1311,7 +1311,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             Signal::PossibleNewLine
         });
 
-        items.extend(indent_if_necessary(node_right.lo(), &top_most_data, {
+        items.extend(indent_if_necessary(node_right.lo(), &node_op, operator_position, &top_most_data, {
             let mut items = PrintItems::new();
             let use_new_line_group = get_use_new_line_group(&node_right);
 
@@ -1392,13 +1392,16 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
     fn indent_if_necessary(
         current_node_start: BytePos,
+        op: &BinaryOp,
+        operator_position: OperatorPosition,
         top_most_data: &TopMostData,
         items: PrintItems
     ) -> PrintItems {
         let is_left_most_node = top_most_data.top_most_expr_start == current_node_start;
         let items = items.into_rc_path();
         let top_most_info = top_most_data.top_most_info;
-        let allow_no_indent = !top_most_data.is_parent_expr_stmt && !top_most_data.is_in_argument;
+        let allow_no_indent = !top_most_data.is_parent_expr_stmt && !top_most_data.is_in_argument
+            && (operator_position == OperatorPosition::NextLine || is_expression_breakable(op));
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
                 if is_left_most_node { return Some(false); }

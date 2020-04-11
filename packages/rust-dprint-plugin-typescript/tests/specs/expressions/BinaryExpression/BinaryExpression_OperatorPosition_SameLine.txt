@@ -30,3 +30,13 @@ ttttttttttttt /*1*/ && /* 2 */
 [expect]
 ttttttttttttt /*1*/ && /* 2 */
     ttttttttt;
+
+== should indent equality check when multi-line ==
+const t = this.context.currentGroup &&
+    this.context.currentGroup.name !==
+        test;
+
+[expect]
+const t = this.context.currentGroup &&
+    this.context.currentGroup.name !==
+        test;
