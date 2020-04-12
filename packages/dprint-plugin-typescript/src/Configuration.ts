@@ -123,6 +123,13 @@ export interface TypeScriptConfiguration {
     preferHangingParameters?: boolean;
 
     /**
+     * If code should revert back from being on multiple lines to being on a
+     * single line when able.
+     * @default true
+     */
+    preferSingleLine?: boolean;
+
+    /**
      * Top level configuration that sets the configuration to use configuration
      * similar to Prettier, with the exception that it will use trailing commas
      * in more places.
@@ -410,6 +417,8 @@ export interface TypeScriptConfiguration {
     "method.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "methodSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "setAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+
+    "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
 /**
@@ -519,6 +528,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "method.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "methodSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "setAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+
+    // prefer single line
+    readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
 
     // declaration specific
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;

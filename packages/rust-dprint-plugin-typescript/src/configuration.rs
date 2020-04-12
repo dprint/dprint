@@ -182,6 +182,14 @@ impl ConfigurationBuilder {
         self.insert("useBraces", value)
     }
 
+    /// If code should revert back from being on multiple lines to
+    /// being on a single line when able.
+    ///
+    /// Default: `true`
+    pub fn prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("preferSingleLine", value)
+    }
+
     /* space settings */
 
     /// Whether to surround bitwise and arithmetic operators in a binary expression with spaces.
@@ -724,6 +732,12 @@ impl ConfigurationBuilder {
         self.insert("whileStatement.useBraces", value)
     }
 
+    /* prefer single line */
+
+    pub fn conditional_expression_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("conditionalExpression.preferSingleLine", value)
+    }
+
     #[cfg(test)]
     pub(super) fn get_inner_config(&self) -> HashMap<String, String> {
         self.config.clone()
@@ -1011,6 +1025,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let single_body_position = get_value(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain, &mut diagnostics);
     let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::OnlyMultiLine, &mut diagnostics);
     let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, &mut diagnostics);
+    let prefer_single_line = get_value(&mut config, "preferSingleLine", true, &mut diagnostics);
     // prefer hanging config
     let prefer_hanging = get_value(&mut config, "preferHanging", false, &mut diagnostics);
     let prefer_hanging_arguments = get_value(&mut config, "preferHangingArguments", prefer_hanging, &mut diagnostics);
@@ -1117,6 +1132,8 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         for_in_statement_use_braces: get_value(&mut config, "forInStatement.useBraces", use_braces, &mut diagnostics),
         for_of_statement_use_braces: get_value(&mut config, "forOfStatement.useBraces", use_braces, &mut diagnostics),
         while_statement_use_braces: get_value(&mut config, "whileStatement.useBraces", use_braces, &mut diagnostics),
+        /* prefer single line */
+        conditional_expression_prefer_single_line: get_value(&mut config, "conditionalExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true, &mut diagnostics),
         comment_line_force_space_after_slashes: get_value(&mut config, "commentLine.forceSpaceAfterSlashes", true, &mut diagnostics),
@@ -1351,6 +1368,9 @@ pub struct Configuration {
     pub for_in_statement_use_braces: UseBraces,
     #[serde(rename = "whileStatement.useBraces")]
     pub while_statement_use_braces: UseBraces,
+    /* prefer single line */
+    #[serde(rename = "conditionalExpression.preferSingleLine")]
+    pub conditional_expression_prefer_single_line: bool,
 
     /* use space separator */
 

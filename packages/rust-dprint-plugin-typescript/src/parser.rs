@@ -1681,8 +1681,10 @@ fn parse_class_expr<'a>(node: &'a ClassExpr, context: &mut Context<'a>) -> Print
 
 fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> PrintItems {
     let operator_token = context.token_finder.get_first_operator_after(&*node.test, "?").unwrap();
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.test, &*node.cons, context)
-        || node_helpers::get_use_new_lines_for_nodes(&*node.cons, &*node.alt, context);
+    let force_new_lines = !context.config.conditional_expression_prefer_single_line && (
+        node_helpers::get_use_new_lines_for_nodes(&*node.test, &*node.cons, context)
+        || node_helpers::get_use_new_lines_for_nodes(&*node.cons, &*node.alt, context)
+    );
     let operator_position = get_operator_position(node, &operator_token, context);
     let top_most_data = get_top_most_data(node, context);
     let before_alternate_info = Info::new("beforeAlternateInfo");
@@ -1705,7 +1707,7 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
     // force re-evaluation of all the conditions below once the end info has been reached
     items.push_condition(conditions::force_reevaluation_once_resolved(context.end_statement_or_member_infos.peek().map(|x| x.clone()).unwrap_or(end_info)));
 
-    if use_new_lines {
+    if force_new_lines {
         items.push_signal(Signal::NewLine);
     } else {
         items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(top_most_data.top_most_info, Some(before_alternate_info)));
@@ -1727,7 +1729,7 @@ fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> 
             }
         })));
 
-        if use_new_lines {
+        if force_new_lines {
             items.push_signal(Signal::NewLine);
         } else {
             items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(top_most_data.top_most_info, Some(before_alternate_info)));

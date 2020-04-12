@@ -78,7 +78,7 @@ export class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptCon
     private _getFormatContext() {
         return this._formatContext ?? (this._formatContext = FormatContext.new(
             objectToMap(this._typeScriptConfig),
-            objectToMap(this._globalConfig)
+            objectToMap(this._globalConfig),
         ));
     }
 
@@ -89,7 +89,6 @@ export class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptCon
         return this._environment;
     }
 }
-
 
 function objectToMap(config: any) {
     const map = new Map();

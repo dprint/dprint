@@ -1,0 +1,28 @@
+~~ lineWidth: 30, conditionalExpression.preferSingleLine: false ~~
+== should use newlines when both are newlines ==
+test
+    ? 1
+    : 2;
+
+[expect]
+test
+    ? 1
+    : 2;
+
+== should use newlines when only the first is ==
+test
+    ? 1 : 2;
+
+[expect]
+test
+    ? 1
+    : 2;
+
+== should use newlines when only the second is ==
+test ? 1
+    : 2;
+
+[expect]
+test
+    ? 1
+    : 2;

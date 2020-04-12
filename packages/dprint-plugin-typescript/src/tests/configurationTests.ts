@@ -477,6 +477,39 @@ describe("configuration", () => {
         }
     });
 
+    describe(nameof<TypeScriptConfiguration>(c => c.preferSingleLine), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop.includes("preferSingleLine"));
+        }
+
+        let defaultValue = true;
+
+        it("should set all the values using the default", () => {
+            doSpecificTest({}, getObject(defaultValue));
+        });
+
+        it("should set all the values when using the default", () => {
+            doSpecificTest({ preferSingleLine: defaultValue }, getObject(defaultValue));
+        });
+
+        it("should set all the values when set to a non-default", () => {
+            doSpecificTest({ preferSingleLine: !defaultValue }, getObject(!defaultValue));
+        });
+
+        it("should allow setting specific values when not the default", () => {
+            const expectedConfig = getObject(defaultValue);
+            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
+            config.preferSingleLine = !defaultValue;
+            doSpecificTest(config, expectedConfig);
+        });
+
+        function getObject(value: NonNullable<TypeScriptConfiguration["preferSingleLine"]>): Partial<ResolvedTypeScriptConfiguration> {
+            return {
+                "conditionalExpression.preferSingleLine": value,
+            };
+        }
+    });
+
     describe("enumDeclaration.memberSpacing", () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop === "enumDeclaration.memberSpacing");
@@ -563,7 +596,7 @@ describe("configuration", () => {
 
         it("should set some of the configuration", () => {
             doSpecificTest({
-                prettier: true
+                prettier: true,
             }, {
                 lineWidth: 80,
                 indentWidth: 2,

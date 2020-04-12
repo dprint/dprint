@@ -19,7 +19,7 @@ export class TestPlugin implements JsPlugin<ResolvedTestPluginConfiguration> {
         return {
             indentWidth: 4,
             lineWidth: 80,
-            newLineKind: "\n",
+            newLineKind: "lf",
             useTabs: false,
         };
     }

@@ -144,9 +144,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         const isInNodeModules = /[\/|\\]node_modules[\/|\\]/i;
         const allFilePaths = await environment.glob(getFileGlobs());
 
-        return options.allowNodeModuleFiles
-            ? allFilePaths
-            : allFilePaths.filter(filePath => !isInNodeModules.test(filePath));
+        return options.allowNodeModuleFiles ? allFilePaths : allFilePaths.filter(filePath => !isInNodeModules.test(filePath));
 
         function getFileGlobs() {
             return [...getIncludes(), ...getExcludes()];

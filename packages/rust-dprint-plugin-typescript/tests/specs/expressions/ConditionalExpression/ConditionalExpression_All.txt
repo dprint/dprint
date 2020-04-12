@@ -21,34 +21,6 @@ testingThis
     ? test2
     : testingThis;
 
-== should use newlines when both are newlines ==
-test
-    ? 1
-    : 2;
-
-[expect]
-test
-    ? 1
-    : 2;
-
-== should use newlines when only the first is ==
-test
-    ? 1 : 2;
-
-[expect]
-test
-    ? 1
-    : 2;
-
-== should use newlines when only the second is ==
-test ? 1
-    : 2;
-
-[expect]
-test
-    ? 1
-    : 2;
-
 == should not use newlines when the first and second start on the same line, but the second goes onto multiple lines ==
 test ? test : a.b(m => {
     return 5;
@@ -67,8 +39,18 @@ test
     : 4;
 
 [expect]
+test ? 1 : test ? 3 : 4;
+
+== should handle multi-line nested conditionals ==
 test
-    ? 1
+    ? testtttt
+    : test
+    ? 3
+    : 4;
+
+[expect]
+test
+    ? testtttt
     : test
     ? 3
     : 4;
