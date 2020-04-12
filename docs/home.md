@@ -239,7 +239,7 @@ If trailing commas should be used.
 
 ### `preferHanging`
 
-When true, will prefer hanging indentation instead of making the code become split up on a line per item.
+When `true`, will prefer hanging indentation instead of making the code become split up on a line per item.
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBApgDwIYFsAOAbOMC8MDeMEIKcAanAE4CeAMuAOYBcMArKwMwAsAHKwJwB2bgBoYIAEYArOMCi0AllCpIMAUQRpKcCBAXgWrLhyPdWANhgBfALAAoe6EixipAIKVKSarhgBtY04ufgAGVh5+DhD+LnDuELEAJjNoiLCeWOjRGA4Y9NyQ2J5crnzYgF17R1V1TUoACmVoBTAGABUACwUIAHkAVygxAHclDoBlEjgAJTgaukY2xEGYJuXVsXWVnWWQKA6qRegASgBuaoxarXr7GFut6BEbu939yke7O-EB+1Pzy4bWGJzGJBL8HHYnNAYChqABJZxIMDAbB4MBwIYwADCGCQuka2xa7S6vQGw1G9CgvQAZh4GBAxFSQJRYVA2iAAOIgHoANwO+0xHSQlEUKCUYMhsBh8OgiORiV8aIx2NxEGuHzuq0JnW6-WWIz2FOptPpMEZzNZHK5vMonTgAqFIrFZwh4ChUoRSLgHAV6KxOLxmta2pJetGE3clDpACE4BgQENHVAwfYqX0kVB9GB7lAAIz45pB4m6sl7GZzeitAAKQtQJr2SCgnJ5fLgiY2BNaRwI9ls4NT6cz2cSas+gYYGyLAy7+B7VTs-bkg9WHHzGdaE51U+7disQA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2d9CyCMEXxBGIADs4syGJy0+1z9jAFKwnrcjBczhVVFpjyigQktIIAIjDeYCxeBwB0S4I2M5wusfNVOt1SH0Et9RgExrQoN4DgBRPLnPQZKS-BgwFLfEhoPR+CF9XrQEAAXyAA)
 
@@ -247,6 +247,41 @@ Sub configuration:
 
 * `preferHangingArguments`
 * `preferHangingParameters`
+
+### `preferSingleLine`
+
+When `false`, certain code will be allowed to span multiple lines even when it could possibly fit on a new line.
+
+For example, if the first parameter or argument is placed on a different line than the open parenthesis then the entire argument or parameter list will become multi-line.
+
+For example:
+
+```ts
+callExpr(1, 2, 3);
+// formats as
+callExpr(1, 2, 3);
+
+// but...
+callExpr(
+    1, 2, 3);
+// formats as
+callExpr(
+    1,
+    2,
+    3
+);
+```
+
+To switch back to a single line, place the first argument or parameter on the same line as the open parenthesis:
+
+```ts
+callExpr(1,
+    2,
+    3
+);
+// formats as
+callExpr(1, 2, 3);
+```
 
 ### Space separators
 
@@ -321,9 +356,9 @@ Add an ignore file comment as one of the first comments in the file:
 
 [Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTZAzWAGxwFgAoAY03gGdFRZwclZEBPUAXlAG0LQg0AEYANKAAM4qQKFSR00bMHz5wigF0A3BQrU6DJi0Rt2AJm59lCyYutq75IbZfry2oA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
-### Ignoring Nodes
+### Ignore Comments
 
-Add an ignore comment before the node:
+Add an ignore comment before the code:
 
 ```ts
 // dprint-ignore
@@ -343,39 +378,6 @@ const identity = /* dprint-ignore */ [
 ```
 
 [Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTAsAFADGm8AzoqLODkrIgJ6gC8oA2oaF6AIwA0oAAwDhnbsN4i+YrhIk9CAXQDchQiFDZQOAG60AdIbXFSFblRp1GAJm6tgAKggwEKdFlygHYDgXP8hKRlAyUDguQEFAhUgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
-
-### Multi-line arguments and parameters
-
-When the first parameter or argument is placed on a different line than the open parenthesis, the entire argument or parameter list will become multi-line.
-
-For example:
-
-```ts
-callExpr(1, 2, 3);
-// formats as
-callExpr(1, 2, 3);
-
-// but...
-callExpr(
-    1, 2, 3);
-// formats as
-callExpr(
-    1,
-    2,
-    3
-);
-```
-
-To switch back to a single line, place the first argument or parameter on the same line as the open parenthesis:
-
-```ts
-callExpr(1,
-    2,
-    3
-);
-// formats as
-callExpr(1, 2, 3);
-```
 
 ### Explicit Newlines
 

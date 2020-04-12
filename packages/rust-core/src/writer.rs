@@ -105,10 +105,12 @@ impl<T> Writer<T> where T : StringTrait {
         }
     }
 
+    #[inline]
     pub fn get_line_start_indent_level(&self) -> u8 {
         self.state.last_line_indent_level
     }
 
+    #[inline]
     pub fn get_indentation_level(&self) -> u8 {
         self.state.indent_level
     }
@@ -118,10 +120,12 @@ impl<T> Writer<T> where T : StringTrait {
         self.state.ignore_indent_count
     }
 
+    #[inline]
     pub fn get_line_start_column_number(&self) -> u32 {
         (self.indent_width as u32) * (self.state.last_line_indent_level as u32)
     }
 
+    #[inline]
     pub fn get_line_column(&self) -> u32 {
         if self.state.current_line_column == 0 {
             (self.indent_width as u32) * (self.state.indent_level as u32)
@@ -130,6 +134,7 @@ impl<T> Writer<T> where T : StringTrait {
         }
     }
 
+    #[inline]
     pub fn get_line_number(&self) -> u32 {
         self.state.current_line_number
     }
