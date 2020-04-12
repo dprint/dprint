@@ -1,4 +1,4 @@
-~~ functionDeclaration.spaceBeforeParentheses: true ~~
+~~ lineWidth: 40, functionDeclaration.spaceBeforeParentheses: true ~~
 == should format with a space before the parens ==
 function test<T>() {
 }
@@ -8,15 +8,14 @@ function test<T> () {
 }
 
 == should format with a space before the parens even when multi-line ==
-function test(
-    param, otherParam
-) {
+function test(param, otherParam, testing) {
 }
 
 [expect]
 function test (
     param,
     otherParam,
+    testing,
 ) {
 }
 

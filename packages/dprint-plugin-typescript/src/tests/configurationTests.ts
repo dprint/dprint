@@ -505,7 +505,9 @@ describe("configuration", () => {
 
         function getObject(value: NonNullable<TypeScriptConfiguration["preferSingleLine"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
+                "arguments.preferSingleLine": value,
                 "conditionalExpression.preferSingleLine": value,
+                "parameters.preferSingleLine": value,
             };
         }
     });

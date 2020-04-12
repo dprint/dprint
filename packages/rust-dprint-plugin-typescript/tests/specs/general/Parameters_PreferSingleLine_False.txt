@@ -1,0 +1,26 @@
+~~ lineWidth: 60, parameters.preferSingleLine: false ~~
+== should make parameters multi-line when they collectively exceed the line width ==
+export function test(param1: string, param2: number, t: string) {
+}
+
+[expect]
+export function test(
+    param1: string,
+    param2: number,
+    t: string,
+) {
+}
+
+== should keep parameters multi-line when they are below the line width ==
+export function test(
+    param1: string,
+    param2: number,
+) {
+}
+
+[expect]
+export function test(
+    param1: string,
+    param2: number,
+) {
+}

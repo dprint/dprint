@@ -1,0 +1,29 @@
+~~ lineWidth: 40, parameters.preferSingleLine: false ~~
+== should keep parameters on multiple lines on multiple lines ==
+function test(
+    p1,
+    p2
+)
+{
+}
+
+[expect]
+function test(
+    p1,
+    p2,
+) {
+}
+
+== should make multi-line when the first param is on a new line ==
+function test(
+    p1, p2, p3)
+{
+}
+
+[expect]
+function test(
+    p1,
+    p2,
+    p3,
+) {
+}

@@ -11,6 +11,7 @@ module.exports.config = {
             useBraces: "preferNone",
             singleBodyPosition: "nextLine",
             preferHanging: true,
+            preferSingleLine: false,
             nextControlFlowPosition: "nextLine",
             semiColons: "always",
             "arrowFunction.useParentheses": "preferNone",

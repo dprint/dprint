@@ -26,9 +26,7 @@ interface T {
         param: string,
         otherParameter: number,
     ): str;
-    (
-        param: string,
-    ): number;
+    (param: string): number;
 }
 
 == should format the params as multi-line when the return type exceeds the line width ==

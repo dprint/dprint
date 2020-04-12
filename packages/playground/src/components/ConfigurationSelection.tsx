@@ -76,6 +76,9 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Prefer hanging">
                 {this.getBooleanConfig("preferHanging")}
             </ConfigurationItem>
+            <ConfigurationItem title="Prefer single line">
+                {this.getBooleanConfig("preferSingleLine")}
+            </ConfigurationItem>
             <ConfigurationItem title="Arrow Function - Use parentheses">
                 {this.getSelectForConfig("arrowFunction.useParentheses", arrowFunctionUseParenthesesOptions)}
             </ConfigurationItem>

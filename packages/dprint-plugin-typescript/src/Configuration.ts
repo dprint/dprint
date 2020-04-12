@@ -418,7 +418,9 @@ export interface TypeScriptConfiguration {
     "methodSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "setAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
 
+    "arguments.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
 /**
@@ -530,7 +532,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "setAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
 
     // prefer single line
+    readonly "arguments.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
 
     // declaration specific
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;

@@ -4632,7 +4632,7 @@ struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a
 }
 
 fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
-    let force_use_new_lines = get_use_new_lines(&opts.nodes, context);
+    let force_use_new_lines = get_use_new_lines(&opts.nodes, opts.is_parameters, context);
     let span_data = opts.span_data;
     let custom_close_paren = opts.custom_close_paren;
     let first_member_span_data = opts.nodes.iter().map(|n| n.span_data()).next();
@@ -4718,7 +4718,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
         }
     }
 
-    fn get_use_new_lines(nodes: &Vec<Node>, context: &mut Context) -> bool {
+    fn get_use_new_lines(nodes: &Vec<Node>, is_parameters: bool, context: &mut Context) -> bool {
         if nodes.is_empty() {
             return false;
         }
@@ -4728,10 +4728,25 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
         let open_paren_token = context.token_finder.get_previous_token_if_open_paren(first_node);
 
         if let Some(open_paren_token) = open_paren_token {
-            node_helpers::get_use_new_lines_for_nodes(open_paren_token, first_node, context)
-        } else {
-            false
+            if is_parameters && context.config.parameters_prefer_single_line || !is_parameters && context.config.arguments_prefer_single_line {
+                let first_node_start_line = first_node.start_line(context);
+                if open_paren_token.trailing_comments(context).filter(|c| c.kind == CommentKind::Line || c.start_line(context) < first_node_start_line).next().is_some() {
+                    return true;
+                }
+
+                let last_node_end = nodes.last().unwrap().hi();
+                let last_end = context.token_finder.get_next_token_if_comma(&last_node_end).map(|x| x.hi()).unwrap_or(last_node_end);
+                let last_end_line = last_end.end_line(context);
+
+                if last_end.trailing_comments(context).filter(|c| c.kind == CommentKind::Line || c.start_line(context) > last_end_line).next().is_some() {
+                    return true;
+                }
+            } else {
+                return node_helpers::get_use_new_lines_for_nodes(open_paren_token, first_node, context);
+            }
         }
+
+        false
     }
 }
 

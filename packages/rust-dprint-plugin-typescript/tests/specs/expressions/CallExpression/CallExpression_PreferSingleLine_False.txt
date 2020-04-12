@@ -1,0 +1,11 @@
+~~ arguments.preferSingleLine: false ~~
+== should print multi-line when the first parameter is on a different line even when surrounded in parentheses ==
+callExpr(
+(5),
+                6);
+
+[expect]
+callExpr(
+    (5),
+    6,
+);

@@ -734,8 +734,16 @@ impl ConfigurationBuilder {
 
     /* prefer single line */
 
+    pub fn arguments_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("arguments.preferSingleLine", value)
+    }
+
     pub fn conditional_expression_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("conditionalExpression.preferSingleLine", value)
+    }
+
+    pub fn parameters_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("parameters.preferSingleLine", value)
     }
 
     #[cfg(test)]
@@ -1133,7 +1141,9 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         for_of_statement_use_braces: get_value(&mut config, "forOfStatement.useBraces", use_braces, &mut diagnostics),
         while_statement_use_braces: get_value(&mut config, "whileStatement.useBraces", use_braces, &mut diagnostics),
         /* prefer single line */
+        arguments_prefer_single_line: get_value(&mut config, "arguments.preferSingleLine", prefer_single_line, &mut diagnostics),
         conditional_expression_prefer_single_line: get_value(&mut config, "conditionalExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
+        parameters_prefer_single_line: get_value(&mut config, "parameters.preferSingleLine", prefer_single_line, &mut diagnostics),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true, &mut diagnostics),
         comment_line_force_space_after_slashes: get_value(&mut config, "commentLine.forceSpaceAfterSlashes", true, &mut diagnostics),
@@ -1369,8 +1379,12 @@ pub struct Configuration {
     #[serde(rename = "whileStatement.useBraces")]
     pub while_statement_use_braces: UseBraces,
     /* prefer single line */
+    #[serde(rename = "arguments.preferSingleLine")]
+    pub arguments_prefer_single_line: bool,
     #[serde(rename = "conditionalExpression.preferSingleLine")]
     pub conditional_expression_prefer_single_line: bool,
+    #[serde(rename = "parameters.preferSingleLine")]
+    pub parameters_prefer_single_line: bool,
 
     /* use space separator */
 

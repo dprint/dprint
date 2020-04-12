@@ -403,7 +403,9 @@ export interface TypeScriptConfiguration {
     "method.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "methodSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "setAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "arguments.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
 /**
@@ -495,7 +497,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "method.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "methodSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "setAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
+    readonly "arguments.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;
