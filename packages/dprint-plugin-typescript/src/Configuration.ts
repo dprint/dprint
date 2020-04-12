@@ -107,7 +107,7 @@ export interface TypeScriptConfiguration {
     /**
      * If code should revert back from being on multiple lines to being on a
      * single line when able.
-     * @default true
+     * @default false
      */
     preferSingleLine?: boolean;
 

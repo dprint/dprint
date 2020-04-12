@@ -1,5 +1,5 @@
 ~~ indentWidth: 2, lineWidth: 60 ~~
-== should format decently ==
+== should format as-is ==
 rs.readableStreamDefaultControllerClose(
   branch1![
     rs.readableStreamController_
@@ -7,6 +7,8 @@ rs.readableStreamDefaultControllerClose(
 );
 
 [expect]
-rs.readableStreamDefaultControllerClose(branch1![
-  rs.readableStreamController_
-] as ReadableStreamDefaultController<OutputType>);
+rs.readableStreamDefaultControllerClose(
+  branch1![
+    rs.readableStreamController_
+  ] as ReadableStreamDefaultController<OutputType>,
+);

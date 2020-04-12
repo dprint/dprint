@@ -392,7 +392,7 @@ describe("configuration", () => {
             doTest(config, expectedConfig, prop => prop.includes("preferSingleLine"));
         }
 
-        let defaultValue = true;
+        let defaultValue = false;
 
         it("should set all the values using the default", () => {
             doSpecificTest({}, getObject(defaultValue));

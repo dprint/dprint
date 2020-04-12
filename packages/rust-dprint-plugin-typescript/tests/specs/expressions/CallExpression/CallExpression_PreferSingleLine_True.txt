@@ -1,0 +1,8 @@
+~~ arguments.preferSingleLine: true ~~
+== should prefer keeping arguments on a single line ==
+callExpr(
+(5),
+                6);
+
+[expect]
+callExpr((5), 6);

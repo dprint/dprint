@@ -31,16 +31,6 @@ test ? test : a.b(m => {
     return 5;
 });
 
-== should handle nested conditionals ==
-test
-    ? 1
-    : test
-    ? 3
-    : 4;
-
-[expect]
-test ? 1 : test ? 3 : 4;
-
 == should handle multi-line nested conditionals ==
 test
     ? testtttt

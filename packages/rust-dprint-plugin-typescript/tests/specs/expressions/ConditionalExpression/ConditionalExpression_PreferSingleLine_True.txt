@@ -1,0 +1,10 @@
+~~ lineWidth: 30, conditionalExpression.preferSingleLine: true ~~
+== should handle nested conditionals ==
+test
+    ? 1
+    : test
+    ? 3
+    : 4;
+
+[expect]
+test ? 1 : test ? 3 : 4;

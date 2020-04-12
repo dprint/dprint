@@ -1,4 +1,4 @@
-~~ lineWidth: 60,parameters.preferHanging: true ~~
+~~ lineWidth: 60, parameters.preferHanging: true ~~
 == should not split up within a parameter that exceeds the line width ==
 export function test(param1: string, param2: number, t: string) {
 }

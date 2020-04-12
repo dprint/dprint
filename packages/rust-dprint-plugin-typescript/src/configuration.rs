@@ -163,7 +163,7 @@ impl ConfigurationBuilder {
     /// If code should revert back from being on multiple lines to
     /// being on a single line when able.
     ///
-    /// Default: `true`
+    /// Default: `false`
     pub fn prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("preferSingleLine", value)
     }
@@ -962,7 +962,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::OnlyMultiLine, &mut diagnostics);
     let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, &mut diagnostics);
     let prefer_hanging = get_value(&mut config, "preferHanging", false, &mut diagnostics);
-    let prefer_single_line = get_value(&mut config, "preferSingleLine", true, &mut diagnostics);
+    let prefer_single_line = get_value(&mut config, "preferSingleLine", false, &mut diagnostics);
 
     let resolved_config = Configuration {
         line_width: get_value(&mut config, "lineWidth", global_config.line_width.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.line_width), &mut diagnostics),

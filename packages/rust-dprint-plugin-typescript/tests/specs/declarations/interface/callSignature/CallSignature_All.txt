@@ -7,9 +7,7 @@ interface T {
     <TestingThisOut, WithSomeTypeParams>(): string;
     (a: string, b: number): string;
     (param: string, otherParameter: number): str;
-    (
-    param: string
-    ): number;
+    (  param: string    ): number;
 }
 
 [expect]
