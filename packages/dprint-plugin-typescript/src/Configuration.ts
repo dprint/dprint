@@ -112,15 +112,9 @@ export interface TypeScriptConfiguration {
     preferSingleLine?: boolean;
 
     /**
-     * Top level configuration that sets the configuration to use configuration
-     * similar to Prettier, with the exception that it will use trailing commas
-     * in more places.
-     *
-     * Note: This is just an alias for having the configuration to be more
-     * like Prettier's. It does not mean the code will format exactly like
-     * Prettier in all scenarios.
+     * Top level configuration that sets the configuration to what is used in Deno.
      */
-    prettier?: boolean;
+    deno?: boolean;
 
     /**
      * Whether to use parentheses around a single parameter in an arrow function.

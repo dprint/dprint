@@ -49,12 +49,8 @@ impl ConfigurationBuilder {
         self
     }
 
-    /// Helper method to more align Dprint with Prettier's defaults.
-    ///
-    /// Note: This is just an alias for having the configuration to be more
-    /// like Prettier's. It does not mean the code will format exactly like
-    /// Prettier in all scenarios.
-    pub fn prettier(&mut self) -> &mut Self {
+    /// Helper method to set the configuration to what's used for Deno.
+    pub fn deno(&mut self) -> &mut Self {
         self.line_width(80)
             .indent_width(2)
             .next_control_flow_position(NextControlFlowPosition::SameLine)
@@ -67,6 +63,7 @@ impl ConfigurationBuilder {
             .new_line_kind(NewLineKind::LineFeed)
             .function_expression_space_after_function_keyword(true)
             .tagged_template_space_before_literal(false)
+            .conditional_expression_prefer_single_line(true)
     }
 
     /// The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
@@ -950,8 +947,8 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let mut diagnostics = Vec::new();
     let mut config = config.clone();
 
-    if get_value(&mut config, "prettier", false, &mut diagnostics) {
-        fill_prettier_config(&mut config);
+    if get_value(&mut config, "deno", false, &mut diagnostics) {
+        fill_deno_config(&mut config);
     }
 
     let semi_colons = get_value(&mut config, "semiColons", SemiColons::Prefer, &mut diagnostics);
@@ -1094,8 +1091,8 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         diagnostics,
     };
 
-    fn fill_prettier_config(config: &mut HashMap<String, String>) {
-        for (key, value) in ConfigurationBuilder::new().prettier().config.iter() {
+    fn fill_deno_config(config: &mut HashMap<String, String>) {
+        for (key, value) in ConfigurationBuilder::new().deno().config.iter() {
             if !config.contains_key(key) {
                 config.insert(key.clone(), value.clone());
             }

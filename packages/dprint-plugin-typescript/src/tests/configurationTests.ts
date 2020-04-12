@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Configuration as GlobalConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { Configuration as GlobalConfiguration, ConfigurationDiagnostic, Configuration } from "@dprint/types";
 import { resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "../Configuration";
 import { TypeScriptPlugin } from "../Plugin";
@@ -501,14 +501,14 @@ describe("configuration", () => {
         });
     });
 
-    describe("prettier", () => {
+    describe(nameof<TypeScriptConfiguration>(c => c.deno), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => expectedConfig.hasOwnProperty(prop));
         }
 
         it("should set some of the configuration", () => {
             doSpecificTest({
-                prettier: true,
+                deno: true,
             }, {
                 lineWidth: 80,
                 indentWidth: 2,

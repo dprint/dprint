@@ -152,12 +152,12 @@ fn handle_global_config() {
 }
 
 #[test]
-fn handle_prettier_config() {
+fn handle_deno_config() {
     let mut config = HashMap::new();
-    config.insert(String::from("prettier"), String::from("true"));
+    config.insert(String::from("deno"), String::from("true"));
     let global_config = resolve_global_config(&HashMap::new()).config;
     let result = resolve_config(&config, &global_config);
-    let expected_config = ConfigurationBuilder::new().prettier().build();
+    let expected_config = ConfigurationBuilder::new().deno().build();
     // todo: test that both objects equal each other
     assert_eq!(result.config.indent_width, expected_config.indent_width);
     assert_eq!(result.config.line_width, expected_config.line_width);
@@ -165,13 +165,13 @@ fn handle_prettier_config() {
 }
 
 #[test]
-fn handle_prettier_config_with_overwrites() {
+fn handle_deno_config_with_overwrites() {
     let mut config = HashMap::new();
-    config.insert(String::from("prettier"), String::from("true"));
+    config.insert(String::from("deno"), String::from("true"));
     config.insert(String::from("indentWidth"), String::from("8"));
     let global_config = resolve_global_config(&HashMap::new()).config;
     let result = resolve_config(&config, &global_config);
-    let expected_config = ConfigurationBuilder::new().prettier().build();
+    let expected_config = ConfigurationBuilder::new().deno().build();
     assert_eq!(result.config.indent_width, 8);
     assert_eq!(result.config.line_width, expected_config.line_width);
     assert_eq!(result.diagnostics.len(), 0);
