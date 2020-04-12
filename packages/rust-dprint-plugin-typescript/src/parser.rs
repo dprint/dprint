@@ -5854,7 +5854,7 @@ fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Opti
 
     if op == ":" { items.push_str(op) } else { items.push_str(&format!(" {}", op)) }; // good enough for now...
     let had_trailing_line_comment = {
-        // ideally this should not be null and the caller should panic in debug if so
+        // todo: ideally this should not be null and the caller should panic in debug if so
         if let Some(op_token) = op_token {
             let parsed_comment = parse_op_token_trailing_line_comment(op_token, context);
             let had_trailing_line_comment = !parsed_comment.is_empty();
@@ -5879,11 +5879,16 @@ fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Opti
                 Signal::SpaceIfNotTrailing.into()
             ).into());
         }
-        let assignment = parse_node_with_inner_parse(expr, context, |items, _| conditions::indent_if_start_of_line(items).into());
+        let assignment = parse_node_with_inner_parse(expr, context, |items, _| {
+            if had_trailing_line_comment {
+                items
+            } else {
+                conditions::indent_if_start_of_line(items).into()
+            }
+        });
         let assignment = if use_newline_group { new_line_group(assignment) } else { assignment };
         items.extend(assignment);
         items
-
     }.into_rc_path();
 
     items.push_condition(if_true_or(
