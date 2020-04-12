@@ -358,8 +358,9 @@ describe("configuration", () => {
             doSpecificTest(config, expectedConfig);
         });
 
-        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
+        function getObject(value: NonNullable<TypeScriptConfiguration["preferHanging"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
+                "arguments.preferHanging": value,
                 "arrayExpression.preferHanging": value,
                 "arrayPattern.preferHanging": value,
                 "doWhileStatement.preferHanging": value,
@@ -373,6 +374,7 @@ describe("configuration", () => {
                 "importDeclaration.preferHanging": value,
                 "objectExpression.preferHanging": value,
                 "objectPattern.preferHanging": value,
+                "parameters.preferHanging": value,
                 "sequenceExpression.preferHanging": value,
                 "switchStatement.preferHanging": value,
                 "tupleType.preferHanging": value,
@@ -381,98 +383,6 @@ describe("configuration", () => {
                 "unionAndIntersectionType.preferHanging": value,
                 "variableStatement.preferHanging": value,
                 "whileStatement.preferHanging": value,
-                "callExpression.preferHangingArguments": value,
-                "newExpression.preferHangingArguments": value,
-                "arrowFunction.preferHangingParameters": value,
-                "callSignature.preferHangingParameters": value,
-                "constructor.preferHangingParameters": value,
-                "constructSignature.preferHangingParameters": value,
-                "constructorType.preferHangingParameters": value,
-                "functionDeclaration.preferHangingParameters": value,
-                "functionExpression.preferHangingParameters": value,
-                "functionType.preferHangingParameters": value,
-                "getAccessor.preferHangingParameters": value,
-                "method.preferHangingParameters": value,
-                "methodSignature.preferHangingParameters": value,
-                "setAccessor.preferHangingParameters": value,
-            };
-        }
-    });
-
-    describe(nameof<TypeScriptConfiguration>(c => c.preferHangingArguments), () => {
-        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("preferHangingArguments"));
-        }
-
-        let defaultValue = false;
-
-        it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(defaultValue));
-        });
-
-        it("should set all the values when using the default", () => {
-            doSpecificTest({ preferHangingArguments: defaultValue }, getObject(defaultValue));
-        });
-
-        it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ preferHangingArguments: !defaultValue }, getObject(!defaultValue));
-        });
-
-        it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(defaultValue);
-            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.preferHangingArguments = !defaultValue;
-            doSpecificTest(config, expectedConfig);
-        });
-
-        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
-            return {
-                "callExpression.preferHangingArguments": value,
-                "newExpression.preferHangingArguments": value,
-            };
-        }
-    });
-
-    describe(nameof<TypeScriptConfiguration>(c => c.preferHangingParameters), () => {
-        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("preferHangingParameters"));
-        }
-
-        let defaultValue = false;
-
-        it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(defaultValue));
-        });
-
-        it("should set all the values when using the default", () => {
-            doSpecificTest({ preferHangingParameters: defaultValue }, getObject(defaultValue));
-        });
-
-        it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ preferHangingParameters: !defaultValue }, getObject(!defaultValue));
-        });
-
-        it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(defaultValue);
-            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.preferHangingParameters = !defaultValue;
-            doSpecificTest(config, expectedConfig);
-        });
-
-        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingParameters"]>): Partial<ResolvedTypeScriptConfiguration> {
-            return {
-                "arrowFunction.preferHangingParameters": value,
-                "callSignature.preferHangingParameters": value,
-                "constructor.preferHangingParameters": value,
-                "constructSignature.preferHangingParameters": value,
-                "constructorType.preferHangingParameters": value,
-                "functionDeclaration.preferHangingParameters": value,
-                "functionExpression.preferHangingParameters": value,
-                "functionType.preferHangingParameters": value,
-                "getAccessor.preferHangingParameters": value,
-                "method.preferHangingParameters": value,
-                "methodSignature.preferHangingParameters": value,
-                "setAccessor.preferHangingParameters": value,
             };
         }
     });

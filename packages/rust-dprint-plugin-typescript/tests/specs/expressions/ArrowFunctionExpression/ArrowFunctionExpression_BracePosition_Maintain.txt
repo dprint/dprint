@@ -1,4 +1,4 @@
-~~ arrowFunction.bracePosition: maintain, arrowFunction.preferHangingParameters: true, lineWidth: 30 ~~
+~~ arrowFunction.bracePosition: maintain, parameters.preferHanging: true, lineWidth: 30 ~~
 == should maintain the position for the brace position when on same line ==
 const t = () => {
 };

@@ -1,4 +1,4 @@
-~~ lineWidth: 80, functionExpression.preferHangingParameters: true ~~
+~~ lineWidth: 80, parameters.preferHanging: true ~~
 == should format params with a hanging indent ==
 const t = function(here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) {
 }

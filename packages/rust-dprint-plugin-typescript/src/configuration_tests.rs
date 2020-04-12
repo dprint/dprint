@@ -18,10 +18,7 @@ fn check_all_values_set() {
         .single_body_position(SingleBodyPosition::SameLine)
         .trailing_commas(TrailingCommas::Never)
         .use_braces(UseBraces::WhenNotSingleLine)
-        /* prefer hanging */
         .prefer_hanging(false)
-        .prefer_hanging_arguments(false)
-        .prefer_hanging_parameters(false)
         /* use parentheses */
         .arrow_function_use_parentheses(UseParentheses::Maintain)
         /* brace position*/
@@ -47,6 +44,7 @@ fn check_all_values_set() {
         .try_statement_brace_position(BracePosition::NextLine)
         .while_statement_brace_position(BracePosition::NextLine)
         /* prefer hanging */
+        .arguments_prefer_hanging(true)
         .array_expression_prefer_hanging(true)
         .array_pattern_prefer_hanging(true)
         .do_while_statement_prefer_hanging(true)
@@ -59,6 +57,8 @@ fn check_all_values_set() {
         .implements_clause_prefer_hanging(true)
         .import_declaration_prefer_hanging(true)
         .object_expression_prefer_hanging(true)
+        .object_pattern_prefer_hanging(true)
+        .parameters_prefer_hanging(true)
         .sequence_expression_prefer_hanging(true)
         .switch_statement_prefer_hanging(true)
         .tuple_type_prefer_hanging(true)
@@ -67,22 +67,6 @@ fn check_all_values_set() {
         .union_and_intersection_type_prefer_hanging(true)
         .variable_statement_prefer_hanging(true)
         .while_statement_prefer_hanging(true)
-        /* prefer hanging arguments */
-        .call_expression_prefer_hanging_arguments(true)
-        .new_expression_prefer_hanging_arguments(true)
-        /* prefer hanging parameters */
-        .arrow_function_prefer_hanging_parameters(true)
-        .call_signature_prefer_hanging_parameters(true)
-        .construct_signature_prefer_hanging_parameters(true)
-        .constructor_prefer_hanging_parameters(true)
-        .constructor_type_prefer_hanging_parameters(true)
-        .function_declaration_prefer_hanging_parameters(true)
-        .function_expression_prefer_hanging_parameters(true)
-        .function_type_prefer_hanging_parameters(true)
-        .get_accessor_prefer_hanging_parameters(true)
-        .method_prefer_hanging_parameters(true)
-        .method_signature_prefer_hanging_parameters(true)
-        .set_accessor_prefer_hanging_parameters(true)
         /* member spacing */
         .enum_declaration_member_spacing(MemberSpacing::Maintain)
         /* next control flow position */
@@ -146,7 +130,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 124);
+    assert_eq!(inner_config.len(), 111);
     let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

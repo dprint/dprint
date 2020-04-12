@@ -101,26 +101,9 @@ export interface TypeScriptConfiguration {
     operatorPosition?: "maintain" | "sameLine" | "nextLine";
     /**
      * Set to prefer hanging indentation when exceeding the line width.
-     * @remarks When set, this value propagates down as the default value for
-     * other configuration such as `preferHangingArguments` and
-     * `preferHangingParameters`.
      * @default false
      */
     preferHanging?: boolean;
-    /**
-     * Prefers an argument list to be hanging when it exceeds the line width.
-     * @remarks It will be hanging when the first argument is on the same line
-     * as the open parenthesis and multi-line when on a different line.
-     * @default false
-     */
-    preferHangingArguments?: boolean;
-    /**
-     * Forces a parameter list to be multi-line when it exceeds the line width.
-     * @remarks It will be hanging when the first parameter is on the same line
-     * as the open parenthesis and multi-line when on a different line.
-     * @default false
-     */
-    preferHangingParameters?: boolean;
     /**
      * If code should revert back from being on multiple lines to being on a
      * single line when able.
@@ -368,6 +351,7 @@ export interface TypeScriptConfiguration {
     "typeParameterDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
+    "arguments.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "doWhileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
@@ -381,6 +365,7 @@ export interface TypeScriptConfiguration {
     "importDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "parameters.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "sequenceExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "switchStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
@@ -389,20 +374,6 @@ export interface TypeScriptConfiguration {
     "unionAndIntersectionType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "variableStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
-    "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
-    "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
-    "arrowFunction.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "callSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "constructor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "constructorType.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "constructSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "functionDeclaration.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "functionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "functionType.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "getAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "method.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "methodSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "setAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
     "arguments.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
@@ -462,6 +433,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
+    readonly "arguments.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "doWhileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
@@ -475,6 +447,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "importDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "parameters.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "sequenceExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "switchStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
@@ -483,20 +456,6 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "unionAndIntersectionType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "variableStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
-    readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
-    readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
-    readonly "arrowFunction.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "callSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "constructor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "constructorType.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "constructSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "functionDeclaration.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "functionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "functionType.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "getAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "method.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "methodSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "setAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
     readonly "arguments.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;

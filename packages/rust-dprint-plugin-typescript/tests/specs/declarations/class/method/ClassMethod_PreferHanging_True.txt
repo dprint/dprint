@@ -1,4 +1,4 @@
-~~ method.preferHangingParameters: true, lineWidth: 50 ~~
+~~ parameters.preferHanging: true, lineWidth: 50 ~~
 == should format the return type on the same line when the rest of the header is hanging ==
 class Test {
     method(param: string, otherTestinginging: string): test | other {

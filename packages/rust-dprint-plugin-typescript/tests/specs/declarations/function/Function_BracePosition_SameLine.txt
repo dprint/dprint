@@ -1,4 +1,4 @@
-~~ functionDeclaration.bracePosition: sameLine, functionDeclaration.preferHangingParameters: true, lineWidth: 30 ~~
+~~ functionDeclaration.bracePosition: sameLine, parameters.preferHanging: true, lineWidth: 30 ~~
 == should use the same line for the brace position ==
 function t()
 {

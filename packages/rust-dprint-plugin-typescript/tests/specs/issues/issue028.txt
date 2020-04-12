@@ -1,4 +1,4 @@
-~~ lineWidth: 80, preferHangingArguments: false, quoteStyle: alwaysSingle ~~
+~~ lineWidth: 80, arguments.preferHanging: false, quoteStyle: alwaysSingle ~~
 == should format ==
 export class Testing {
     constructor() {

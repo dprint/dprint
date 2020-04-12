@@ -1,4 +1,4 @@
-~~ arrowFunction.preferHangingParameters: true, lineWidth: 80 ~~
+~~ parameters.preferHanging: true, lineWidth: 80 ~~
 == should format params with a hanging indent by default ==
 const t = (here, are, some, parens, that, will, go, over, the, limit, off, width, source, file) => {
 }

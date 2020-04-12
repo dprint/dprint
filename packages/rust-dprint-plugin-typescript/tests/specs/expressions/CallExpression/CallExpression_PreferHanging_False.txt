@@ -1,4 +1,4 @@
-~~ callExpression.preferHangingArguments: false, lineWidth: 40 ~~
+~~ arguments.preferHanging: false, lineWidth: 40 ~~
 == should force multi-line arguments when exceeding the line width ==
 call(testing, thisOut, byExceeding, theLineWidth);
 

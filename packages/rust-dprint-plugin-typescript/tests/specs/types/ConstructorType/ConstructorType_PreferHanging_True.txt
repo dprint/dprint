@@ -1,4 +1,4 @@
-~~ constructorType.preferHangingParameters: true, lineWidth: 40 ~~
+~~ parameters.preferHanging: true, lineWidth: 40 ~~
 == should format the params as multi-line when the return type exceeds the line width ==
 type Test = new (param: string) => str | number;
 

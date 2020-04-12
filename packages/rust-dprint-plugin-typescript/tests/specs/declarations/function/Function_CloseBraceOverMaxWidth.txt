@@ -1,4 +1,4 @@
-~~ lineWidth: 80, functionDeclaration.preferHangingParameters: true ~~
+~~ lineWidth: 80, parameters.preferHanging: true ~~
 == Brace at 79 ==
 export function test(some, very, long, list, of, params, to, put, brace, over) {
 }

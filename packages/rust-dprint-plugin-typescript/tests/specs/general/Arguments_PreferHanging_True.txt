@@ -1,4 +1,4 @@
-~~ lineWidth: 80, preferHangingArguments: true ~~
+~~ lineWidth: 80, arguments.preferHanging: true ~~
 == should use the parenthesis before the argument for deciding whether to use multiple lines ==
 function test() {
     call(fileNames).then(() => {

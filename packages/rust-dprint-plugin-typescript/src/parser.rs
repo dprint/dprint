@@ -822,11 +822,6 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         nodes: func.params.iter().map(|node| node.into()).collect(),
         span_data: func.get_parameters_span_data(context),
-        prefer_hanging: if node.is_func_decl {
-            context.config.function_declaration_prefer_hanging_parameters
-        } else {
-            context.config.function_expression_prefer_hanging_parameters
-        },
         custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info: start_header_info,
             type_node: func.return_type.as_ref().map(|x| x.into()),
@@ -1126,7 +1121,6 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
             items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
                 span_data: node.get_parameters_span_data(context),
                 nodes: node.params.iter().map(|node| node.into()).collect(),
-                prefer_hanging: context.config.arrow_function_prefer_hanging_parameters,
                 custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
                     start_info: header_start_info,
                     type_node: node.return_type.as_ref().map(|x| x.into()),
@@ -1551,7 +1545,6 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
         items.push_condition(conditions::with_indent_if_start_of_line_indented(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
             span_data: node.get_parameters_span_data(context),
             nodes: node.args.iter().map(|node| node.into()).collect(),
-            prefer_hanging: context.config.call_expression_prefer_hanging_arguments,
             custom_close_paren: |_| None,
             is_parameters: false,
         }, context)));
@@ -1894,7 +1887,6 @@ fn parse_new_expr<'a>(node: &'a NewExpr, context: &mut Context<'a>) -> PrintItem
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.get_parameters_span_data(context),
         nodes: args,
-        prefer_hanging: context.config.new_expression_prefer_hanging_arguments,
         custom_close_paren: |_| None,
         is_parameters: false
     }, context));
@@ -2227,7 +2219,6 @@ fn parse_call_signature_decl<'a>(node: &'a TsCallSignatureDecl, context: &mut Co
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.get_parameters_span_data(context),
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        prefer_hanging: context.config.call_signature_prefer_hanging_parameters,
         custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
@@ -2251,7 +2242,6 @@ fn parse_construct_signature_decl<'a>(node: &'a TsConstructSignatureDecl, contex
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.get_parameters_span_data(context),
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        prefer_hanging: context.config.construct_signature_prefer_hanging_parameters,
         custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
@@ -2292,7 +2282,6 @@ fn parse_method_signature<'a>(node: &'a TsMethodSignature, context: &mut Context
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.get_parameters_span_data(context),
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        prefer_hanging: context.config.method_signature_prefer_hanging_parameters,
         custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: node.type_ann.as_ref().map(|x| x.into()),
@@ -2807,7 +2796,6 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.parameters_span_data,
         nodes: node.params.into_iter().map(|node| node.into()).collect(),
-        prefer_hanging: get_prefer_hanging_parameters(&node.kind, context),
         custom_close_paren: {
             let return_type = node.return_type;
             move |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
@@ -2833,15 +2821,6 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
     }
 
     return items;
-
-    fn get_prefer_hanging_parameters(kind: &ClassOrObjectMethodKind, context: &mut Context) -> bool {
-        match kind {
-            ClassOrObjectMethodKind::Constructor => context.config.constructor_prefer_hanging_parameters,
-            ClassOrObjectMethodKind::Getter => context.config.get_accessor_prefer_hanging_parameters,
-            ClassOrObjectMethodKind::Setter => context.config.set_accessor_prefer_hanging_parameters,
-            ClassOrObjectMethodKind::Method => context.config.method_prefer_hanging_parameters,
-        }
-    }
 
     fn get_use_space_before_parens(kind: &ClassOrObjectMethodKind, context: &mut Context) -> bool {
         match kind {
@@ -3728,7 +3707,6 @@ fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.get_parameters_span_data(context),
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        prefer_hanging: context.config.constructor_type_prefer_hanging_parameters,
         custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: Some((&node.type_ann).into()),
@@ -3764,7 +3742,6 @@ fn parse_function_type<'a>(node: &'a TsFnType, context: &mut Context<'a>) -> Pri
     items.extend(parse_parameters_or_arguments(ParseParametersOrArgumentsOptions {
         span_data: node.get_parameters_span_data(context),
         nodes: node.params.iter().map(|node| node.into()).collect(),
-        prefer_hanging: context.config.function_type_prefer_hanging_parameters,
         custom_close_paren: |context| Some(parse_close_paren_with_type(ParseCloseParenWithTypeOptions {
             start_info,
             type_node: Some((&node.type_ann).into()),
@@ -4626,7 +4603,6 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
 struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
     span_data: SpanData,
     nodes: Vec<Node<'a>>,
-    prefer_hanging: bool,
     custom_close_paren: F,
     is_parameters: bool,
 }
@@ -4637,8 +4613,8 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     let custom_close_paren = opts.custom_close_paren;
     let first_member_span_data = opts.nodes.iter().map(|n| n.span_data()).next();
     let nodes = opts.nodes;
-    let prefer_hanging = opts.prefer_hanging;
     let is_parameters = opts.is_parameters;
+    let prefer_hanging = if is_parameters { context.config.parameters_prefer_hanging } else { context.config.arguments_prefer_hanging };
     let trailing_commas = get_trailing_commas(&nodes, is_parameters, context);
 
     return parse_surrounded_by_tokens(|context| {

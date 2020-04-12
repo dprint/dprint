@@ -13,8 +13,8 @@ use dprint_core::configuration::*;
 ///
 /// let config = ConfigurationBuilder::new()
 ///     .line_width(80)
-///     .prefer_hanging_parameters(true)
-///     .prefer_hanging_arguments(true)
+///     .prefer_hanging(true)
+///     .prefer_single_line(false)
 ///     .quote_style(QuoteStyle::PreferSingle)
 ///     .next_control_flow_position(NextControlFlowPosition::SameLine)
 ///     .build();
@@ -113,31 +113,9 @@ impl ConfigurationBuilder {
 
     /// Set to prefer hanging indentation when exceeding the line width.
     ///
-    /// Remarks: When set, this value propagtes down as the default value
-    /// for other configuration such as `preferHangingArguments` and
-    /// `preferHangingParameters`.
-    ///
     /// Default: `false`
     pub fn prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("preferHanging", value)
-    }
-
-    /// Prefers an argument list is hanging when it exceeds the line width.
-    /// Note: It will be hanging when the first argument is on the same line
-    /// as the open parenthesis and multi-line when on a different line.
-    ///
-    /// Default: `false`
-    pub fn prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
-        self.insert("preferHangingArguments", value)
-    }
-
-    /// Prefers a parameter list to be hanging when it exceeds the line width.
-    /// Note: It will be hanging when the first parameter is on the same line
-    /// as the open parenthesis and multi-line when on a different line.
-    ///
-    /// Default: `false`
-    pub fn prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("preferHangingParameters", value)
     }
 
     /// Where to place the opening brace.
@@ -475,6 +453,10 @@ impl ConfigurationBuilder {
     }
 
     /* prefer hanging */
+    pub fn arguments_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("arguments.preferHanging", value)
+    }
+
     pub fn array_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("arrayExpression.preferHanging", value)
     }
@@ -527,6 +509,10 @@ impl ConfigurationBuilder {
         self.insert("objectPattern.preferHanging", value)
     }
 
+    pub fn parameters_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("parameters.preferHanging", value)
+    }
+
     pub fn sequence_expression_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("sequenceExpression.preferHanging", value)
     }
@@ -557,64 +543,6 @@ impl ConfigurationBuilder {
 
     pub fn while_statement_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("whileStatement.preferHanging", value)
-    }
-
-    /* prefer hanging arguments */
-    pub fn call_expression_prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
-        self.insert("callExpression.preferHangingArguments", value)
-    }
-
-    pub fn new_expression_prefer_hanging_arguments(&mut self, value: bool) -> &mut Self {
-        self.insert("newExpression.preferHangingArguments", value)
-    }
-
-    /* prefer hanging parameters */
-    pub fn arrow_function_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("arrowFunction.preferHangingParameters", value)
-    }
-
-    pub fn call_signature_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("callSignature.preferHangingParameters", value)
-    }
-
-    pub fn construct_signature_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("constructSignature.preferHangingParameters", value)
-    }
-
-    pub fn constructor_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("constructor.preferHangingParameters", value)
-    }
-
-    pub fn constructor_type_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("constructorType.preferHangingParameters", value)
-    }
-
-    pub fn function_declaration_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("functionDeclaration.preferHangingParameters", value)
-    }
-
-    pub fn function_expression_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("functionExpression.preferHangingParameters", value)
-    }
-
-    pub fn function_type_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("functionType.preferHangingParameters", value)
-    }
-
-    pub fn get_accessor_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("getAccessor.preferHangingParameters", value)
-    }
-
-    pub fn method_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("method.preferHangingParameters", value)
-    }
-
-    pub fn method_signature_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("methodSignature.preferHangingParameters", value)
-    }
-
-    pub fn set_accessor_prefer_hanging_parameters(&mut self, value: bool) -> &mut Self {
-        self.insert("setAccessor.preferHangingParameters", value)
     }
 
     /* member spacing */
@@ -1033,11 +961,8 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
     let single_body_position = get_value(&mut config, "singleBodyPosition", SingleBodyPosition::Maintain, &mut diagnostics);
     let trailing_commas = get_value(&mut config, "trailingCommas", TrailingCommas::OnlyMultiLine, &mut diagnostics);
     let use_braces = get_value(&mut config, "useBraces", UseBraces::WhenNotSingleLine, &mut diagnostics);
-    let prefer_single_line = get_value(&mut config, "preferSingleLine", true, &mut diagnostics);
-    // prefer hanging config
     let prefer_hanging = get_value(&mut config, "preferHanging", false, &mut diagnostics);
-    let prefer_hanging_arguments = get_value(&mut config, "preferHangingArguments", prefer_hanging, &mut diagnostics);
-    let prefer_hanging_parameters = get_value(&mut config, "preferHangingParameters", prefer_hanging, &mut diagnostics);
+    let prefer_single_line = get_value(&mut config, "preferSingleLine", true, &mut diagnostics);
 
     let resolved_config = Configuration {
         line_width: get_value(&mut config, "lineWidth", global_config.line_width.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.line_width), &mut diagnostics),
@@ -1071,6 +996,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         try_statement_brace_position: get_value(&mut config, "tryStatement.bracePosition", brace_position, &mut diagnostics),
         while_statement_brace_position: get_value(&mut config, "whileStatement.bracePosition", brace_position, &mut diagnostics),
         /* prefer hanging */
+        arguments_prefer_hanging: get_value(&mut config, "arguments.preferHanging", prefer_hanging, &mut diagnostics),
         array_expression_prefer_hanging: get_value(&mut config, "arrayExpression.preferHanging", prefer_hanging, &mut diagnostics),
         array_pattern_prefer_hanging: get_value(&mut config, "arrayPattern.preferHanging", prefer_hanging, &mut diagnostics),
         do_while_statement_prefer_hanging: get_value(&mut config, "doWhileStatement.preferHanging", prefer_hanging, &mut diagnostics),
@@ -1084,6 +1010,7 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         import_declaration_prefer_hanging: get_value(&mut config, "importDeclaration.preferHanging", prefer_hanging, &mut diagnostics),
         object_expression_prefer_hanging: get_value(&mut config, "objectExpression.preferHanging", prefer_hanging, &mut diagnostics),
         object_pattern_prefer_hanging: get_value(&mut config, "objectPattern.preferHanging", prefer_hanging, &mut diagnostics),
+        parameters_prefer_hanging: get_value(&mut config, "parameters.preferHanging", prefer_hanging, &mut diagnostics),
         sequence_expression_prefer_hanging: get_value(&mut config, "sequenceExpression.preferHanging", prefer_hanging, &mut diagnostics),
         switch_statement_prefer_hanging: get_value(&mut config, "switchStatement.preferHanging", prefer_hanging, &mut diagnostics),
         tuple_type_prefer_hanging: get_value(&mut config, "tupleType.preferHanging", prefer_hanging, &mut diagnostics),
@@ -1092,22 +1019,6 @@ pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalCo
         union_and_intersection_type_prefer_hanging: get_value(&mut config, "unionAndIntersectionType.preferHanging", prefer_hanging, &mut diagnostics),
         variable_statement_prefer_hanging: get_value(&mut config, "variableStatement.preferHanging", prefer_hanging, &mut diagnostics),
         while_statement_prefer_hanging: get_value(&mut config, "whileStatement.preferHanging", prefer_hanging, &mut diagnostics),
-        /* prefer hanging arguments */
-        call_expression_prefer_hanging_arguments: get_value(&mut config, "callExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
-        new_expression_prefer_hanging_arguments: get_value(&mut config, "newExpression.preferHangingArguments", prefer_hanging_arguments, &mut diagnostics),
-        /* prefer hanging parameters */
-        arrow_function_prefer_hanging_parameters: get_value(&mut config, "arrowFunction.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        call_signature_prefer_hanging_parameters: get_value(&mut config, "callSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        construct_signature_prefer_hanging_parameters: get_value(&mut config, "constructSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        constructor_prefer_hanging_parameters: get_value(&mut config, "constructor.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        constructor_type_prefer_hanging_parameters: get_value(&mut config, "constructorType.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        function_declaration_prefer_hanging_parameters: get_value(&mut config, "functionDeclaration.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        function_expression_prefer_hanging_parameters: get_value(&mut config, "functionExpression.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        function_type_prefer_hanging_parameters: get_value(&mut config, "functionType.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        get_accessor_prefer_hanging_parameters: get_value(&mut config, "getAccessor.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        method_prefer_hanging_parameters: get_value(&mut config, "method.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        method_signature_prefer_hanging_parameters: get_value(&mut config, "methodSignature.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
-        set_accessor_prefer_hanging_parameters: get_value(&mut config, "setAccessor.preferHangingParameters", prefer_hanging_parameters, &mut diagnostics),
         /* member spacing */
         enum_declaration_member_spacing: get_value(&mut config, "enumDeclaration.memberSpacing", MemberSpacing::Maintain, &mut diagnostics),
         /* next control flow position */
@@ -1248,6 +1159,8 @@ pub struct Configuration {
     #[serde(rename = "whileStatement.bracePosition")]
     pub while_statement_brace_position: BracePosition,
     /* prefer hanging */
+    #[serde(rename = "arguments.preferHanging")]
+    pub arguments_prefer_hanging: bool,
     #[serde(rename = "arrayExpression.preferHanging")]
     pub array_expression_prefer_hanging: bool,
     #[serde(rename = "arrayPattern.preferHanging")]
@@ -1274,6 +1187,8 @@ pub struct Configuration {
     pub object_expression_prefer_hanging: bool,
     #[serde(rename = "objectPattern.preferHanging")]
     pub object_pattern_prefer_hanging: bool,
+    #[serde(rename = "parameters.preferHanging")]
+    pub parameters_prefer_hanging: bool,
     #[serde(rename = "sequenceExpression.preferHanging")]
     pub sequence_expression_prefer_hanging: bool,
     #[serde(rename = "switchStatement.preferHanging")]
@@ -1290,36 +1205,6 @@ pub struct Configuration {
     pub variable_statement_prefer_hanging: bool,
     #[serde(rename = "whileStatement.preferHanging")]
     pub while_statement_prefer_hanging: bool,
-    /* prefer hanging arguments */
-    #[serde(rename = "callExpression.preferHangingArguments")]
-    pub call_expression_prefer_hanging_arguments: bool,
-    #[serde(rename = "newExpression.preferHangingArguments")]
-    pub new_expression_prefer_hanging_arguments: bool,
-    /* prefer hanging parameters */
-    #[serde(rename = "arrowFunction.preferHangingParameters")]
-    pub arrow_function_prefer_hanging_parameters: bool,
-    #[serde(rename = "callSignature.preferHangingParameters")]
-    pub call_signature_prefer_hanging_parameters: bool,
-    #[serde(rename = "constructSignature.preferHangingParameters")]
-    pub construct_signature_prefer_hanging_parameters: bool,
-    #[serde(rename = "constructor.preferHangingParameters")]
-    pub constructor_prefer_hanging_parameters: bool,
-    #[serde(rename = "constructorType.preferHangingParameters")]
-    pub constructor_type_prefer_hanging_parameters: bool,
-    #[serde(rename = "functionDeclaration.preferHangingParameters")]
-    pub function_declaration_prefer_hanging_parameters: bool,
-    #[serde(rename = "functionExpression.preferHangingParameters")]
-    pub function_expression_prefer_hanging_parameters: bool,
-    #[serde(rename = "functionType.preferHangingParameters")]
-    pub function_type_prefer_hanging_parameters: bool,
-    #[serde(rename = "getAccessor.preferHangingParameters")]
-    pub get_accessor_prefer_hanging_parameters: bool,
-    #[serde(rename = "method.preferHangingParameters")]
-    pub method_prefer_hanging_parameters: bool,
-    #[serde(rename = "methodSignature.preferHangingParameters")]
-    pub method_signature_prefer_hanging_parameters: bool,
-    #[serde(rename = "setAccessor.preferHangingParameters")]
-    pub set_accessor_prefer_hanging_parameters: bool,
     /* member spacing */
     #[serde(rename = "enumDeclaration.memberSpacing")]
     pub enum_declaration_member_spacing: MemberSpacing,

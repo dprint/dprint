@@ -1,4 +1,4 @@
-~~ constructSignature.preferHangingParameters: true, lineWidth: 40 ~~
+~~ parameters.preferHanging: true, lineWidth: 40 ~~
 == should format the return type on the same line when the rest of the header is hanging ==
 interface T {
     new (param: string, otherTest: string): te | st;
