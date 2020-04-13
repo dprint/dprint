@@ -4608,12 +4608,13 @@ struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a
 }
 
 fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
-    let force_use_new_lines = get_use_new_lines(&opts.nodes, opts.is_parameters, context);
+    let is_parameters = opts.is_parameters;
+    let prefer_single_line = is_parameters && context.config.parameters_prefer_single_line || !is_parameters && context.config.arguments_prefer_single_line;
+    let force_use_new_lines = get_use_new_lines(&opts.nodes, prefer_single_line, context);
     let span_data = opts.span_data;
     let custom_close_paren = opts.custom_close_paren;
     let first_member_span_data = opts.nodes.iter().map(|n| n.span_data()).next();
     let nodes = opts.nodes;
-    let is_parameters = opts.is_parameters;
     let prefer_hanging = if is_parameters { context.config.parameters_prefer_hanging } else { context.config.arguments_prefer_hanging };
     let trailing_commas = get_trailing_commas(&nodes, is_parameters, context);
 
@@ -4694,30 +4695,20 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
         }
     }
 
-    fn get_use_new_lines(nodes: &Vec<Node>, is_parameters: bool, context: &mut Context) -> bool {
+    fn get_use_new_lines(nodes: &Vec<Node>, prefer_single_line: bool, context: &mut Context) -> bool {
         if nodes.is_empty() {
             return false;
         }
 
-        let first_node = &nodes[0];
-        // arrow function expressions might not have an open paren (ex. `a => a + 5`)
-        let open_paren_token = context.token_finder.get_previous_token_if_open_paren(first_node);
+        if prefer_single_line {
+            // basic rule: if any comments exist on separate lines, then everything becomes multi-line
+            return has_any_node_comment_on_different_line(nodes, context);
+        } else {
+            // arrow function expressions might not have an open paren (ex. `a => a + 5`)
+            let first_node = &nodes[0];
+            let open_paren_token = context.token_finder.get_previous_token_if_open_paren(first_node);
 
-        if let Some(open_paren_token) = open_paren_token {
-            if is_parameters && context.config.parameters_prefer_single_line || !is_parameters && context.config.arguments_prefer_single_line {
-                let first_node_start_line = first_node.start_line(context);
-                if open_paren_token.trailing_comments(context).filter(|c| c.kind == CommentKind::Line || c.start_line(context) < first_node_start_line).next().is_some() {
-                    return true;
-                }
-
-                let last_node_end = nodes.last().unwrap().hi();
-                let last_end = context.token_finder.get_next_token_if_comma(&last_node_end).map(|x| x.hi()).unwrap_or(last_node_end);
-                let last_end_line = last_end.end_line(context);
-
-                if last_end.trailing_comments(context).filter(|c| c.kind == CommentKind::Line || c.start_line(context) > last_end_line).next().is_some() {
-                    return true;
-                }
-            } else {
+            if let Some(open_paren_token) = open_paren_token {
                 return node_helpers::get_use_new_lines_for_nodes(open_paren_token, first_node, context);
             }
         }
@@ -6120,7 +6111,7 @@ fn assert_has_op<'a>(op: &str, op_token: Option<&TokenAndSpan>, context: &mut Co
     }
 }
 
-/* is functions */
+/* is/has functions */
 
 fn is_expr_template(node: &Expr) -> bool {
     match node {
@@ -6143,6 +6134,39 @@ fn is_arrow_function_with_expr_body<'a>(node: &'a Node) -> bool {
             }
         },
         _ => false,
+    }
+}
+
+/// Gets if any of the provided nodes have leading or trailing comments on a different line.
+fn has_any_node_comment_on_different_line(nodes: &Vec<Node>, context: &mut Context) -> bool {
+    for (i, node) in nodes.iter().enumerate() {
+        if i == 0 {
+            let first_node_start_line = node.start_line(context);
+            if node.leading_comments(context).filter(|c| c.kind == CommentKind::Line || c.start_line(context) < first_node_start_line).next().is_some() {
+                return true;
+            }
+        }
+
+        let node_end = node.hi();
+        if check_pos_has_trailing_comments(node_end, context) {
+            return true;
+        } else if let Some(comma) = context.token_finder.get_next_token_if_comma(&node_end) {
+            if check_pos_has_trailing_comments(comma.hi(), context) {
+                return true;
+            }
+        }
+    }
+
+
+    return false;
+
+    fn check_pos_has_trailing_comments(pos: BytePos, context: &mut Context) -> bool {
+        let end_line = pos.end_line(context);
+        if pos.trailing_comments(context).filter(|c| c.kind == CommentKind::Line || c.start_line(context) > end_line).next().is_some() {
+            return true;
+        }
+
+        false
     }
 }
 

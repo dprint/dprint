@@ -1,0 +1,12 @@
+~~ lineWidth: 80, indentWidth: 2, preferSingleLine: true, preferHanging: true ~~
+== should become multi-line once there's a comment in the middle like this ==
+assertEquals(S("%.324f", Number.MIN_VALUE),
+  // eslint-disable-next-line max-len
+  "0.00000000000000000000000000000000000000000000");
+
+[expect]
+assertEquals(
+  S("%.324f", Number.MIN_VALUE),
+  // eslint-disable-next-line max-len
+  "0.00000000000000000000000000000000000000000000",
+);
