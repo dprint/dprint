@@ -4702,7 +4702,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
 
         if prefer_single_line {
             // basic rule: if any comments exist on separate lines, then everything becomes multi-line
-            return has_any_node_comment_on_different_line(nodes, context);
+            has_any_node_comment_on_different_line(nodes, context)
         } else {
             // arrow function expressions might not have an open paren (ex. `a => a + 5`)
             let first_node = &nodes[0];
@@ -4711,9 +4711,9 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
             if let Some(open_paren_token) = open_paren_token {
                 return node_helpers::get_use_new_lines_for_nodes(open_paren_token, first_node, context);
             }
-        }
 
-        false
+            false
+        }
     }
 }
 
@@ -6148,10 +6148,11 @@ fn has_any_node_comment_on_different_line(nodes: &Vec<Node>, context: &mut Conte
         }
 
         let node_end = node.hi();
-        if check_pos_has_trailing_comments(node_end, context) {
+        let next_node_pos = nodes.get(i + 1).map(|n| n.lo());
+        if check_pos_has_trailing_comments(node_end, next_node_pos, context) {
             return true;
         } else if let Some(comma) = context.token_finder.get_next_token_if_comma(&node_end) {
-            if check_pos_has_trailing_comments(comma.hi(), context) {
+            if check_pos_has_trailing_comments(comma.hi(), next_node_pos, context) {
                 return true;
             }
         }
@@ -6160,10 +6161,23 @@ fn has_any_node_comment_on_different_line(nodes: &Vec<Node>, context: &mut Conte
 
     return false;
 
-    fn check_pos_has_trailing_comments(pos: BytePos, context: &mut Context) -> bool {
-        let end_line = pos.end_line(context);
-        if pos.trailing_comments(context).filter(|c| c.kind == CommentKind::Line || c.start_line(context) > end_line).next().is_some() {
-            return true;
+    fn check_pos_has_trailing_comments(end: BytePos, next_node_pos: Option<BytePos>, context: &mut Context) -> bool {
+        let end_line = end.end_line(context);
+        let stop_line = next_node_pos.map(|p| p.start_line(context));
+
+        for c in end.trailing_comments(context) {
+            if c.kind == CommentKind::Line {
+                return true;
+            }
+            if let Some(stop_line) = stop_line {
+                if c.start_line(context) >= stop_line {
+                    // do not look at comments that the next node owns
+                    return false;
+                }
+            }
+            if c.end_line(context) > end_line {
+                return true;
+            }
         }
 
         false

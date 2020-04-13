@@ -1,0 +1,69 @@
+~~ arguments.preferSingleLine: true, arguments.preferHanging: true, lineWidth: 40 ~~
+== should not keep multi-line when multi-line and below the line width ==
+call(
+    testing,
+    testing,
+);
+
+[expect]
+call(testing, testing);
+
+== should become hanging when exceeding the line width ==
+call(
+    testing,
+    testing,
+    testing,
+    testing,
+);
+
+[expect]
+call(testing, testing, testing,
+    testing);
+
+== should become multi-line when a comment exists ==
+call(
+    // multi-line
+    testing, testing, testing
+);
+
+[expect]
+call(
+    // multi-line
+    testing,
+    testing,
+    testing,
+);
+
+== should become multi-line when a trailing line comment exists ==
+call(testing, testing, // test
+    testing, testing);
+
+[expect]
+call(
+    testing,
+    testing, // test
+    testing,
+    testing,
+);
+
+== should not become multi-line when a trailing line block exists ==
+call(/*1*/ testing, /*2*/ test, /*3*/
+    /*4*/ te /*5*/, /*6*/ test /*7*/);
+
+[expect]
+call(/*1*/ testing, /*2*/ test, /*3*/
+    /*4*/ te, /*5*/ /*6*/ test /*7*/);
+
+== should become multi-line when there is a trailing block comment that goes onto the next line ==
+call(testing, testing,
+    testing, testing/*
+    testing */);
+
+[expect]
+call(
+    testing,
+    testing,
+    testing,
+    testing, /*
+    testing */
+);
