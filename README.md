@@ -45,16 +45,16 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             useBraces: "preferNone",
-            "tryStatement.nextControlFlowPosition": "sameLine"
+            "tryStatement.nextControlFlowPosition": "sameLine",
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     // this could also be specified as a command line argument
     includes: ["**/*.{ts,tsx,json,js,jsx}"],
     // optionally specify file globs for files to ignore
-    excludes: []
+    excludes: [],
 };
 ```
 

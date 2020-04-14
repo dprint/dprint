@@ -34,16 +34,16 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             useBraces: "preferNone",
-            "tryStatement.nextControlFlowPosition": "sameLine"
+            "tryStatement.nextControlFlowPosition": "sameLine",
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     // this could also be specified as a command line argument
     includes: ["**/*.{ts,tsx,json,js,jsx}"],
     // optionally specify file globs for files to ignore
-    excludes: []
+    excludes: [],
 };
 ```
 
@@ -79,13 +79,13 @@ module.exports.config = {
     useTabs: true,
     plugins: [
         new TypeScriptPlugin({
-            lineWidth: 80
+            lineWidth: 80,
         }),
         new JsoncPlugin({
             indentWidth: 2,
-            useTabs: false
-        })
-    ]
+            useTabs: false,
+        }),
+    ],
 };
 ```
 
@@ -139,9 +139,9 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             // Specify TypeScript config here. For example...
-            semiColons: false
-        })
-    ]
+            semiColons: false,
+        }),
+    ],
 };
 ```
 
@@ -245,9 +245,7 @@ When `true` (non-default), Dprint will prefer hanging indentation instead of mak
 
 ### `preferSingleLine`
 
-Experimental when `true`. I wouldn't suggest using this yet.
-
-When `false` (default), certain code will be allowed to span multiple lines even when it could possibly fit on a new line.
+When `false` (default), certain code will be allowed to span multiple lines even when it could possibly fit on a single line.
 
 For example, if the first parameter or argument is placed on a different line than the open parenthesis then the entire argument or parameter list will become multi-line.
 
@@ -265,7 +263,7 @@ callExpr(
 callExpr(
     1,
     2,
-    3
+    3,
 );
 ```
 
@@ -274,10 +272,33 @@ To switch back to a single line, place the first argument or parameter on the sa
 ```ts
 callExpr(1,
     2,
-    3
+    3,
 );
 // formats as
 callExpr(1, 2, 3);
+```
+
+However, when `preferSingleLine` is `true`, then...
+
+```ts
+callExpr(
+    1,
+    2,
+    3,
+);
+// formats as
+callExpr(1, 2, 3);
+```
+
+If you would like to force something to be multi-line when `preferSingleLine` is `true`, then add a comment to the front:
+
+```ts
+call(
+    // force multi-line
+    1,
+    2,
+    3,
+);
 ```
 
 ### Space separators
@@ -289,9 +310,9 @@ module.exports.config = {
     projectType: "openSource",
     plugins: [
         new TypeScriptPlugin({
-            "constructorType.spaceAfterNewKeyword": true
-        })
-    ]
+            "constructorType.spaceAfterNewKeyword": true,
+        }),
+    ],
 };
 ```
 
@@ -337,9 +358,9 @@ module.exports.config = {
         new TypeScriptPlugin({
             nextControlFlowPosition: "maintain",
             "ifStatement.nextControlFlowPosition": "sameLine",
-            "returnStatement.semiColon": false
-        })
-    ]
+            "returnStatement.semiColon": false,
+        }),
+    ],
 };
 ```
 
@@ -362,7 +383,7 @@ Add an ignore comment before the code:
 const identity = [
     1, 0, 0,
     0, 1, 0,
-    0, 0, 1
+    0, 0, 1,
 ];
 
 // or even...
@@ -370,7 +391,7 @@ const identity = [
 const identity = /* dprint-ignore */ [
     1, 0, 0,
     0, 1, 0,
-    0, 0, 1
+    0, 0, 1,
 ];
 ```
 
@@ -443,8 +464,8 @@ const { JsoncPlugin } = require("dprint-plugin-jsonc");
 module.exports.config = {
     projectType: "openSource",
     plugins: [
-        new JsoncPlugin({})
-    ]
+        new JsoncPlugin({}),
+    ],
 };
 ```
 
