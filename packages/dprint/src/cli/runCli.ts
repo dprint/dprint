@@ -218,12 +218,12 @@ module.exports.config = {
         new TypeScriptPlugin({
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     includes: [
-        "**/*.{ts,tsx,json,js,jsx}"
-    ]
+        "**/*.{ts,tsx,json,js,jsx}",
+    ],
 };
 `;
     }
