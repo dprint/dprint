@@ -26,6 +26,15 @@ pub struct ParseSeparatedValuesOptions {
 pub struct ParsedValue {
     pub items: PrintItems,
     pub lines_span: Option<LinesSpan>,
+    /// Whether this value is allowed to start on the same line as the
+    /// previous token and finish on the same line as the next token
+    /// when multi-line.
+    pub allow_inline_multi_line: bool,
+    /// Whether this node is allowed to start on the same line as the
+    /// previous token and finish on the same line as the next token
+    /// when it is single line. In other words, it being on a single line
+    /// won't trigger all the values to be multi-line.
+    pub allow_inline_single_line: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -37,7 +46,12 @@ pub struct LinesSpan {
 impl ParsedValue {
     /// Use this when you don't care about blank lines.
     pub fn from_items(items: PrintItems) -> ParsedValue {
-        ParsedValue { items, lines_span: None }
+        ParsedValue {
+            items,
+            lines_span: None,
+            allow_inline_multi_line: false,
+            allow_inline_single_line: false,
+        }
     }
 }
 
@@ -51,6 +65,12 @@ pub enum MultiLineStyle {
     SameLineStartWithHangingIndent,
     SameLineNoIndent,
     NewLineStart,
+}
+
+struct ParsedValueData {
+    start_info: Info,
+    allow_inline_multi_line: bool,
+    allow_inline_single_line: bool,
 }
 
 impl MultiLineStyle {
@@ -69,20 +89,20 @@ pub fn parse_separated_values(
     let indent_width = opts.indent_width;
     let start_info = Info::new("startSeparatedValues");
     let end_info = Info::new("endSeparatedValues");
-    let value_start_infos: Rc<RefCell<Vec<Info>>> = Rc::new(RefCell::new(Vec::new()));
+    let value_datas: Rc<RefCell<Vec<ParsedValueData>>> = Rc::new(RefCell::new(Vec::new()));
 
-    let mut is_start_standalone_line = get_is_start_standalone_line(value_start_infos.clone(), start_info, end_info);
+    let mut is_start_standalone_line = get_is_start_standalone_line(value_datas.clone(), start_info, end_info);
     let is_start_standalone_line_ref = is_start_standalone_line.get_reference();
     let mut is_multi_line_or_hanging_condition = {
         if opts.force_use_new_lines { Condition::new_true() }
         else if opts.prefer_hanging {
             if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent || opts.multi_line_style == MultiLineStyle::SameLineNoIndent { Condition::new_false() }
-            else { get_is_multi_line_for_hanging(value_start_infos.clone(), is_start_standalone_line_ref, end_info) }
+            else { get_is_multi_line_for_hanging(value_datas.clone(), is_start_standalone_line_ref, end_info) }
         } else {
             if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent {
-                get_spans_multiple_lines(value_start_infos.clone(), end_info)
+                get_spans_multiple_lines(value_datas.clone(), end_info)
             } else {
-                get_is_multi_line_for_multi_line(value_start_infos.clone(), is_start_standalone_line_ref, end_info)
+                get_is_multi_line_for_multi_line(start_info, value_datas.clone(), is_start_standalone_line_ref, end_info)
             }
         }
     };
@@ -91,7 +111,7 @@ pub fn parse_separated_values(
 
     let mut items = PrintItems::new();
     items.push_info(start_info);
-    items.push_condition(get_clearer_resolutions_on_start_change_condition(value_start_infos.clone(), start_info, end_info));
+    items.push_condition(get_clearer_resolutions_on_start_change_condition(value_datas.clone(), start_info, end_info));
     items.push_condition(is_start_standalone_line);
     items.push_condition(is_multi_line_or_hanging_condition);
 
@@ -106,7 +126,7 @@ pub fn parse_separated_values(
         opts.multi_line_style,
         opts.allow_blank_lines,
     );
-    value_start_infos.borrow_mut().extend(inner_parse_result.item_start_infos);
+    value_datas.borrow_mut().extend(inner_parse_result.value_datas);
     let parsed_values_items = inner_parse_result.items.into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
         condition: Box::new(is_multi_line_or_hanging),
@@ -176,7 +196,7 @@ pub fn parse_separated_values(
 
     struct InnerParseResult {
         items: PrintItems,
-        item_start_infos: Vec<Info>,
+        value_datas: Vec<ParsedValueData>,
     }
 
     fn inner_parse(
@@ -187,14 +207,18 @@ pub fn parse_separated_values(
         allow_blank_lines: bool,
     ) -> InnerParseResult {
         let mut items = PrintItems::new();
-        let mut item_start_infos = Vec::new();
+        let mut value_datas = Vec::new();
         let values_count = parsed_values.len();
         let single_line_separator = single_line_separator.into_rc_path();
         let mut last_lines_span: Option<LinesSpan> = None;
 
         for (i, parsed_value) in parsed_values.into_iter().enumerate() {
             let start_info = Info::new("valueStartInfo");
-            item_start_infos.push(start_info);
+            value_datas.push(ParsedValueData {
+                start_info,
+                allow_inline_multi_line: parsed_value.allow_inline_multi_line,
+                allow_inline_single_line: parsed_value.allow_inline_single_line,
+            });
 
             if i == 0 {
                 if multi_line_style == MultiLineStyle::SurroundNewlinesIndented && values_count > 1 {
@@ -251,20 +275,20 @@ pub fn parse_separated_values(
 
         return InnerParseResult {
             items,
-            item_start_infos,
+            value_datas,
         };
     }
 }
 
-fn get_clearer_resolutions_on_start_change_condition(value_start_infos: Rc<RefCell<Vec<Info>>>, start_info: Info, end_info: Info) -> Condition {
+fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, start_info: Info, end_info: Info) -> Condition {
     let previous_position = RefCell::new((0, 0));
     Condition::new("clearWhenStartInfoChanges", ConditionProperties {
         condition: Box::new(move |condition_context| {
             // when the start info position changes, clear all the infos so they get re-evaluated again
             let start_info = condition_context.get_resolved_info(&start_info)?.clone();
             if start_info.get_line_and_column() != *previous_position.borrow() {
-                for info in value_start_infos.borrow().iter() {
-                    condition_context.clear_info(&info);
+                for value_data in value_datas.borrow().iter() {
+                    condition_context.clear_info(&value_data.start_info);
                 }
                 condition_context.clear_info(&end_info);
                 previous_position.replace(start_info.get_line_and_column());
@@ -277,12 +301,12 @@ fn get_clearer_resolutions_on_start_change_condition(value_start_infos: Rc<RefCe
     })
 }
 
-fn get_is_start_standalone_line(value_start_infos: Rc<RefCell<Vec<Info>>>, standalone_start_info: Info, end_info: Info) -> Condition {
+fn get_is_start_standalone_line(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, standalone_start_info: Info, end_info: Info) -> Condition {
     Condition::new_with_dependent_infos("isStartStandaloneLine", ConditionProperties {
         condition: Box::new(move |condition_context| {
-            if let Some(first_value_start_info) = value_start_infos.borrow().iter().next() {
+            if let Some(first_value_data) = value_datas.borrow().iter().next() {
                 let standalone_start_info = condition_context.get_resolved_info(&standalone_start_info)?;
-                let first_value_info = condition_context.get_resolved_info(first_value_start_info)?;
+                let first_value_info = condition_context.get_resolved_info(&first_value_data.start_info)?;
                 return Some(first_value_info.is_start_of_line() && standalone_start_info.line_number == first_value_info.line_number);
             }
 
@@ -293,20 +317,20 @@ fn get_is_start_standalone_line(value_start_infos: Rc<RefCell<Vec<Info>>>, stand
     }, vec![end_info])
 }
 
-fn get_is_multi_line_for_hanging(value_start_infos: Rc<RefCell<Vec<Info>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
+fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
     Condition::new_with_dependent_infos("isMultiLineForHanging", ConditionProperties {
         condition: Box::new(move |condition_context| {
             let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
             if is_start_standalone_line {
                 // check if the second value is on a newline
-                if let Some(second_value_start_info) = value_start_infos.borrow().iter().skip(1).next() {
-                    let second_value_start_info = condition_context.get_resolved_info(second_value_start_info)?;
+                if let Some(second_value_data) = value_datas.borrow().iter().skip(1).next() {
+                    let second_value_start_info = condition_context.get_resolved_info(&second_value_data.start_info)?;
                     return Some(second_value_start_info.is_start_of_line());
                 }
             } else {
                 // check if the first value is at the beginning of the line
-                if let Some(first_value_start_info) = value_start_infos.borrow().iter().next() {
-                    let first_value_start_info = condition_context.get_resolved_info(first_value_start_info)?;
+                if let Some(first_value_data) = value_datas.borrow().iter().next() {
+                    let first_value_start_info = condition_context.get_resolved_info(&first_value_data.start_info)?;
                     return Some(first_value_start_info.is_start_of_line());
                 }
             }
@@ -318,33 +342,77 @@ fn get_is_multi_line_for_hanging(value_start_infos: Rc<RefCell<Vec<Info>>>, is_s
     }, vec![end_info])
 }
 
-fn get_is_multi_line_for_multi_line(value_start_infos: Rc<RefCell<Vec<Info>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
-    Condition::new_with_dependent_infos("isMultiLineForMultiLine", ConditionProperties {
+fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Vec<ParsedValueData>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
+    return Condition::new_with_dependent_infos("isMultiLineForMultiLine", ConditionProperties {
         condition: Box::new(move |condition_context| {
+            // todo: This is slightly confusing because it works on the "last" value rather than the current
             let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
-            for (i, value_start_info) in value_start_infos.borrow().iter().enumerate() {
-                let value_start_info = condition_context.get_resolved_info(value_start_info)?;
+            let start_info = condition_context.get_resolved_info(&start_info)?;
+            let end_info = condition_context.get_resolved_info(&end_info)?;
+            let mut last_line_number = start_info.line_number;
+            let mut last_allows_multi_line = true;
+            let mut last_allows_single_line = false;
+            let mut has_multi_line_value = false;
+            let value_datas = value_datas.borrow();
+            for (i, value_data) in value_datas.iter().enumerate() {
                 // ignore, it will always be at the start of the line
                 if i == 0 && is_start_standalone_line { continue; }
 
+                let value_start_info = condition_context.get_resolved_info(&value_data.start_info)?;
                 // check if any of the value starts are at the beginning of the line
-                if value_start_info.is_start_of_line() {
+                if value_start_info.is_start_of_line() { return Some(true); }
+
+                let last_is_multi_line_value = last_line_number < value_start_info.line_number;
+                if i == 1 && last_is_multi_line_value {
+                    has_multi_line_value = true;
+                }
+
+                if i >= 1 && check_value_should_make_multi_line(
+                    last_is_multi_line_value,
+                    last_allows_multi_line,
+                    last_allows_single_line,
+                    has_multi_line_value,
+                ) {
                     return Some(true);
                 }
+
+                last_line_number = value_start_info.line_number;
+                last_allows_multi_line = value_data.allow_inline_multi_line;
+                last_allows_single_line = value_data.allow_inline_single_line;
             }
 
-            Some(false)
+            // check if the last node is single-line
+            let last_is_multi_line_value = last_line_number < end_info.line_number;
+            Some(check_value_should_make_multi_line(
+                last_is_multi_line_value,
+                last_allows_multi_line,
+                last_allows_single_line,
+                has_multi_line_value,
+            ))
         }),
         false_path: None,
         true_path: None,
-    }, vec![end_info])
+    }, vec![end_info]);
+
+    fn check_value_should_make_multi_line(
+        is_multi_line_value: bool,
+        allows_multi_line: bool,
+        allows_single_line: bool,
+        has_multi_line_value: bool,
+    ) -> bool {
+        if is_multi_line_value {
+            !allows_multi_line
+        } else {
+            has_multi_line_value && !allows_single_line
+        }
+    }
 }
 
-fn get_spans_multiple_lines(value_start_infos: Rc<RefCell<Vec<Info>>>, end_info: Info) -> Condition {
+fn get_spans_multiple_lines(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, end_info: Info) -> Condition {
     Condition::new_with_dependent_infos("spansMultipleLines", ConditionProperties {
         condition: Box::new(move |condition_context| {
-            if let Some(start_info) = value_start_infos.borrow().first() {
-                condition_resolvers::is_multiple_lines(condition_context, &start_info, &end_info)
+            if let Some(first_value_data) = value_datas.borrow().first() {
+                condition_resolvers::is_multiple_lines(condition_context, &first_value_data.start_info, &end_info)
             } else {
                 Some(false)
             }

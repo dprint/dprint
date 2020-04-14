@@ -9,7 +9,7 @@ f("testing", {
     a: 1,
 });
 
-== string after and not at start of line ==
+== should go multi-line when a single-line arg exists after a multi-line one ==
 call({
     prop,
 }, "testing");

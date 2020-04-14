@@ -38,3 +38,17 @@ type T = [
     number,
     string | number | other,
 ];
+
+== should not be on separate line within a type argument when multi-line ==
+type Test = Array<[
+    string,
+    number,
+    string,
+]>;
+
+[expect]
+type Test = Array<[
+    string,
+    number,
+    string,
+]>;

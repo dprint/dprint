@@ -1142,7 +1142,8 @@ fn parse_arrow_func_expr<'a>(node: &'a ArrowExpr, context: &mut Context<'a>) -> 
 
     items.push_str(" =>");
 
-    let parsed_body = new_line_group(parse_node((&node.body).into(), context)).into_rc_path();
+    let parsed_body = parse_node((&node.body).into(), context);
+    let parsed_body = if use_new_line_group_for_arrow_body(node) { new_line_group(parsed_body) } else { parsed_body }.into_rc_path();
     let open_brace_token = match &node.body {
         BlockStmtOrExpr::BlockStmt(stmt) => context.token_finder.get_first_open_brace_token_within(stmt),
         _ => None,
@@ -1912,17 +1913,30 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Print
 }
 
 fn parse_paren_expr<'a>(node: &'a ParenExpr, context: &mut Context<'a>) -> PrintItems {
-    conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(
-        parse_node_in_parens(
-            |context| parse_node((&node.expr).into(), context),
-            ParseNodeInParensOptions {
-                inner_span: node.expr.span_data(),
-                prefer_hanging: true,
-                allow_open_paren_trailing_comments: true,
-            },
-            context
-        )
-    )).into()
+    let parsed_items = conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
+        |context| parse_node((&node.expr).into(), context),
+        ParseNodeInParensOptions {
+            inner_span: node.expr.span_data(),
+            prefer_hanging: true,
+            allow_open_paren_trailing_comments: true,
+        },
+        context
+    )).into();
+
+    return if get_use_new_line_group(node, context) {
+        new_line_group(parsed_items)
+    } else {
+        parsed_items
+    };
+
+    fn get_use_new_line_group(node: &ParenExpr, context: &mut Context) -> bool {
+        if let Node::ArrowExpr(arrow_expr) = context.parent() {
+            debug_assert!(arrow_expr.body.lo() == node.lo());
+            use_new_line_group_for_arrow_body(arrow_expr)
+        } else {
+            true
+        }
+    }
 }
 
 fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> PrintItems {
@@ -4808,6 +4822,10 @@ fn parse_separated_values<'a>(
         let mut parsed_nodes = Vec::new();
         let nodes_count = nodes.len();
         for (i, value) in nodes.into_iter().enumerate() {
+            let (allow_inline_multi_line, allow_inline_single_line) = if let Some(value) = &value {
+                let is_last_value = i + 1 == nodes_count; // allow the last node to be single line
+                (allows_inline_multi_line(value, nodes_count > 1), is_last_value)
+            } else { (false, false) };
             let lines_span = if compute_lines_span {
                 value.as_ref().map(|x| helpers::LinesSpan{
                     start_line: x.start_line_with_comments(context),
@@ -4827,7 +4845,12 @@ fn parse_separated_values<'a>(
                     PrintItems::new()
                 }
             });
-            parsed_nodes.push(helpers::ParsedValue { items, lines_span });
+            parsed_nodes.push(helpers::ParsedValue {
+                items,
+                lines_span,
+                allow_inline_multi_line,
+                allow_inline_single_line,
+            });
         }
 
         parsed_nodes
@@ -6049,6 +6072,8 @@ fn parse_surrounded_by_tokens<'a>(
                                 parsed_comments.push(helpers::ParsedValue {
                                     items,
                                     lines_span: Some(helpers::LinesSpan { start_line, end_line }),
+                                    allow_inline_multi_line: false,
+                                    allow_inline_single_line: false,
                                 });
                             }
                         }
@@ -6111,6 +6136,19 @@ fn assert_has_op<'a>(op: &str, op_token: Option<&TokenAndSpan>, context: &mut Co
     }
 }
 
+fn use_new_line_group_for_arrow_body(arrow_expr: &ArrowExpr) -> bool {
+    match &arrow_expr.body {
+        BlockStmtOrExpr::Expr(expr) => match &**expr {
+            Expr::Paren(paren) => match &*paren.expr {
+                Expr::Object(_) => false,
+                _ => true,
+            },
+            _ => true,
+        },
+        _ => true,
+    }
+}
+
 /* is/has functions */
 
 fn is_expr_template(node: &Expr) -> bool {
@@ -6120,7 +6158,7 @@ fn is_expr_template(node: &Expr) -> bool {
     }
 }
 
-fn is_arrow_function_with_expr_body<'a>(node: &'a Node) -> bool {
+fn is_arrow_function_with_expr_body(node: &Node) -> bool {
     match node {
         Node::ExprOrSpread(expr_or_spread) => {
             match &*expr_or_spread.expr {
@@ -6134,6 +6172,44 @@ fn is_arrow_function_with_expr_body<'a>(node: &'a Node) -> bool {
             }
         },
         _ => false,
+    }
+}
+
+fn allows_inline_multi_line(node: &Node, has_siblings: bool) -> bool {
+    return match node {
+        Node::FnExpr(_) | Node::ArrowExpr(_) | Node::ObjectLit(_) | Node::ArrayLit(_)
+            | Node::ObjectPat(_) | Node::ArrayPat(_)
+            | Node::TsTypeLit(_) | Node::TsTupleType(_) => true,
+        Node::ExprOrSpread(node) => allows_inline_multi_line(&(&*node.expr).into(), has_siblings),
+        Node::TaggedTpl(_) | Node::Tpl(_) => !has_siblings,
+        Node::CallExpr(node) => !has_siblings && allow_inline_for_call_expr(node),
+        Node::Ident(node) => match &node.type_ann {
+            Some(type_ann) => allows_inline_multi_line(&(&type_ann.type_ann).into(), has_siblings),
+            None => false,
+        },
+        Node::AssignPat(node) => allows_inline_multi_line(&(&node.left).into(), has_siblings)
+            || allows_inline_multi_line(&(&node.right).into(), has_siblings),
+        Node::TsTypeAnn(type_ann) => allows_inline_multi_line(&(&type_ann.type_ann).into(), has_siblings),
+        _ => false,
+    };
+
+    fn allow_inline_for_call_expr(node: &CallExpr) -> bool {
+        // do not allow call exprs with nested call exprs in the member expr to be inline
+        return allow_for_expr_or_super(&node.callee);
+
+        fn allow_for_expr_or_super(expr_or_super: &ExprOrSuper) -> bool {
+            match expr_or_super {
+                ExprOrSuper::Expr(expr) => {
+                    let expr = &**expr;
+                    match expr {
+                        Expr::Member(member_expr) => allow_for_expr_or_super(&member_expr.obj),
+                        Expr::Call(_) => false,
+                        _=> true,
+                    }
+                },
+                ExprOrSuper::Super(_) => true,
+            }
+        }
     }
 }
 

@@ -1,4 +1,5 @@
-== should indent within the arguments when hanging indented through the call expression's calee ==
+~~ preferHanging: true ~~
+== should indent within the arguments when hanging indented through the call expression's callee ==
 function test() {
     expect.test
         .to.throw(errors.InvalidOperationError, "Cannot print a namespace with quotes. " +

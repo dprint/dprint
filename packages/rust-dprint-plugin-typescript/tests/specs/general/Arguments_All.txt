@@ -1,0 +1,94 @@
+~~ lineWidth: 40 ~~
+== should go multi-line when the following args are on a different line ==
+call({
+    test,
+}, test, test);
+
+[expect]
+call(
+    {
+        test,
+    },
+    test,
+    test,
+);
+
+== should go multi-line if a single arg is single-line ==
+call({
+    testing,
+}, test, {
+    testing,
+});
+
+[expect]
+call(
+    {
+        testing,
+    },
+    test,
+    {
+        testing,
+    },
+);
+
+== should go multi-line if a non-inline multi-line node is multi-line in the middle ==
+call({
+    test,
+    testing,
+}, "test"
+    + "testinggggggggggggggggggggg"
+    + "other", {
+    test,
+    testing,
+}, {
+    test,
+    testing,
+});
+
+[expect]
+call(
+    {
+        test,
+        testing,
+    },
+    "test"
+        + "testinggggggggggggggggggggg"
+        + "other",
+    {
+        test,
+        testing,
+    },
+    {
+        test,
+        testing,
+    },
+);
+
+== should go multi-line if a non-inline multi-line node is at the end ==
+call({
+    test,
+    testing,
+}, "test"
+    + "testinggggggggggggggggggggg"
+    + "other");
+
+[expect]
+call(
+    {
+        test,
+        testing,
+    },
+    "test"
+        + "testinggggggggggggggggggggg"
+        + "other",
+);
+
+== should not go multi-line if the last arg is on a single line ==
+setTimeout(() => {
+    test;
+}, 0);
+
+[expect]
+setTimeout(() => {
+    test;
+}, 0);

@@ -15,10 +15,11 @@ if (true)
     console.log(5);
 
 == should move and add braces (since useBraces is "preferNone") when exceeding line width on statement ==
-if (true) add(5345243524523452345 + 21344351345234652452345);
+if (true) testing(53452435245234523455555556666666);
 
 [expect]
 if (true) {
-    add(5345243524523452345
-        + 21344351345234652452345);
+    testing(
+        53452435245234523455555556666666,
+    );
 }

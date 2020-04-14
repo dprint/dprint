@@ -10,3 +10,63 @@ export function test(
     t: string,
 ) {
 }
+
+== should keep inline multi-line when multi-line assignment pattern with object pattern ==
+export async function runBenchmarks({
+    only = /[^\s]/,
+    skip = /^\s*$/,
+}: BenchmarkRunOptions = {}): Promise<void> {
+}
+
+[expect]
+export async function runBenchmarks({
+    only = /[^\s]/,
+    skip = /^\s*$/,
+}: BenchmarkRunOptions = {}): Promise<void> {
+}
+
+== should keep inline multi-line when multi-line assignment pattern with object pattern ==
+export async function runBenchmarks([
+    testing,
+    thisOut
+] = []): Promise<void> {
+}
+
+[expect]
+export async function runBenchmarks([
+    testing,
+    thisOut,
+] = []): Promise<void> {
+}
+
+== should keep inline multi-line when multi-line type literal ==
+export async function acceptWebSocket(req: {
+    conn: Conn;
+    bufWriter: BufWriter;
+    bufReader: BufReader;
+    headers: Headers;
+}): Promise<WebSocket> {
+}
+
+[expect]
+export async function acceptWebSocket(req: {
+    conn: Conn;
+    bufWriter: BufWriter;
+    bufReader: BufReader;
+    headers: Headers;
+}): Promise<WebSocket> {
+}
+
+== should keep inline multi-line when multi-line assignment ==
+export async function acceptWebSocket(req = {
+    testing: 4,
+    other: 7,
+}): Promise<WebSocket> {
+}
+
+[expect]
+export async function acceptWebSocket(req = {
+    testing: 4,
+    other: 7,
+}): Promise<WebSocket> {
+}

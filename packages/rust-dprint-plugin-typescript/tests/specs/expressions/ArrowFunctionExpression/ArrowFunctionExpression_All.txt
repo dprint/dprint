@@ -122,3 +122,12 @@ const test = (
     thisOut,
     againWithSomethingThisisLong,
 );
+
+== should break up appropriately when the body is in parens ==
+prefixCommon.map((c) => ({ type: DiffType.common, value: c }));
+
+[expect]
+prefixCommon.map((c) => ({
+    type: DiffType.common,
+    value: c,
+}));
