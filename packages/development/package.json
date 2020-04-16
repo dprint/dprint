@@ -26,7 +26,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@dprint/core": "~0.7.0",
+    "@dprint/core": "~0.8.0",
     "@dprint/types": "~0.3.0",
     "fast-glob": "^3.2.2"
   },

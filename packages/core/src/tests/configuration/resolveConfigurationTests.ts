@@ -48,7 +48,7 @@ describe(nameof(resolveConfiguration), () => {
             doTest({}, {
                 indentWidth: 4,
                 lineWidth: 120,
-                newLineKind: "auto",
+                newLineKind: "lf",
                 useTabs: false,
             }, () => true);
         });
@@ -74,7 +74,7 @@ describe(nameof(resolveConfiguration), () => {
         }
 
         it("should set when not set", () => {
-            doSpecificTest(undefined, "auto");
+            doSpecificTest(undefined, "lf");
         });
 
         it("should set when set to auto", () => {

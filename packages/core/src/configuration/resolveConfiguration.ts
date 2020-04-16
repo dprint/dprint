@@ -6,7 +6,7 @@ const defaultValues = {
     lineWidth: 120,
     indentWidth: 4,
     useTabs: false,
-    newLineKind: "auto",
+    newLineKind: "lf",
 } as const;
 
 /**

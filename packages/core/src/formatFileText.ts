@@ -44,12 +44,12 @@ export function formatFileText(options: FormatFileTextOptions) {
 
     function resolveNewLineKind(newLineKind: BaseResolvedConfiguration["newLineKind"]) {
         switch (newLineKind) {
-            case "auto":
-                return resolveNewLineKindFromText(fileText);
-            case "crlf":
-                return "\r\n";
             case "lf":
                 return "\n";
+            case "crlf":
+                return "\r\n";
+            case "auto":
+                return resolveNewLineKindFromText(fileText);
             default:
                 return assertNever(newLineKind);
         }

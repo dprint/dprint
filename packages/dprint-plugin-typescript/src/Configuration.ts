@@ -42,8 +42,8 @@ export interface TypeScriptConfiguration {
     quoteStyle?: "alwaysDouble" | "alwaysSingle" | "preferDouble" | "preferSingle";
     /**
      * The kind of newline to use.
-     * @default "auto"
-     * @value "auto" - For each file, uses the newline kind found at the end of the last line.
+     * @default "lf"
+     * @value "auto" - For each file, uses the last newline kind found in the file.
      * @value "crlf" - Uses carriage return, line feed.
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).

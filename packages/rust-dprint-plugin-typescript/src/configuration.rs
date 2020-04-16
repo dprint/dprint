@@ -89,7 +89,7 @@ impl ConfigurationBuilder {
 
     /// The kind of newline to use.
     ///
-    /// Default: `NewLineKind::Auto`
+    /// Default: `NewLineKind::LineFeed`
     pub fn new_line_kind(&mut self, value: NewLineKind) -> &mut Self {
         self.insert("newLineKind", value)
     }
