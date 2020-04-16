@@ -31,7 +31,7 @@ fn parse_node<'a>(node: Node<'a>, context: &mut Context<'a>) -> PrintItems {
     parse_node_with_inner_parse(node, context, |items, _| items)
 }
 
-fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, inner_parse: impl FnOnce(PrintItems, &mut Context) -> PrintItems) -> PrintItems {
+fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, inner_parse: impl FnOnce(PrintItems, &mut Context<'a>) -> PrintItems) -> PrintItems {
     // println!("Node kind: {:?}", node.kind());
     // println!("Text: {:?}", node.text(context));
 
@@ -51,17 +51,33 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     let node_span_data = node.span_data();
     let node_hi = node_span_data.hi;
     let node_lo = node_span_data.lo;
-    let leading_comments = context.comments.leading_comments_with_previous(node_lo);
-    let has_ignore_comment = get_has_ignore_comment(&leading_comments, &node_lo, context);
+    let has_ignore_comment: bool;
 
-    items.extend(parse_comments_as_leading(&node_span_data, leading_comments, context));
+    // get the leading comments
+    if get_first_child_owns_leading_comments_on_same_line(&node, context) {
+        // Some block comments should belong to the first child rather than the
+        // parent node because their first child may end up on the next line.
+        let leading_comments = context.comments.leading_comments(node_lo);
+        has_ignore_comment = get_has_ignore_comment(&leading_comments, &node_lo, context);
+        let node_start_line = node.start_line(context);
+        let leading_comments_on_previous_lines = leading_comments
+            .take_while(|c| c.kind == CommentKind::Line || c.start_line(context) < node_start_line)
+            .collect::<Vec<&'a Comment>>();
+        items.extend(parse_comment_collection(leading_comments_on_previous_lines.into_iter(), None, None, context));
+    } else {
+        let leading_comments = context.comments.leading_comments_with_previous(node_lo);
+        has_ignore_comment = get_has_ignore_comment(&leading_comments, &node_lo, context);
+        items.extend(parse_comments_as_leading(&node_span_data, leading_comments, context));
+    }
 
+    // parse the node
     items.extend(if has_ignore_comment {
         parser_helpers::parse_raw_string(&node.text(context))
     } else {
         inner_parse(parse_node_inner(node, context), context)
     });
 
+    // get the trailing comments
     if node_hi != parent_hi || context.parent().kind() == NodeKind::Module {
         let trailing_comments = context.comments.trailing_comments_with_previous(node_hi);
         items.extend(parse_comments_as_trailing(&node_span_data, trailing_comments, context));
@@ -257,6 +273,20 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
         return items;
     }
 
+    #[inline]
+    fn get_first_child_owns_leading_comments_on_same_line(node: &Node, context: &mut Context) -> bool {
+        match node {
+            Node::TsUnionType(_) | Node::TsIntersectionType(_) => {
+                let node_start_line = node.start_line(context);
+                node.leading_comments(context)
+                    .filter(|c| c.kind == CommentKind::Block && c.start_line(context) == node_start_line)
+                    .next().is_some()
+            },
+            _ => false,
+        }
+    }
+
+    #[inline]
     fn get_has_ignore_comment<'a>(leading_comments: &CommentsIterator<'a>, node_lo: &BytePos, context: &mut Context<'a>) -> bool {
         if let Some(last_comment) = get_last_comment(leading_comments, node_lo, context) {
             let searching_text = "dprint-ignore";
@@ -275,6 +305,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
 
         return false;
 
+        #[inline]
         fn get_last_comment<'a>(leading_comments: &CommentsIterator<'a>, node_lo: &BytePos, context: &mut Context<'a>) -> Option<&'a Comment> {
             return match context.parent() {
                 Node::JSXElement(jsx_element) => get_last_comment_for_jsx_children(&jsx_element.children, node_lo, context),
@@ -3896,7 +3927,7 @@ fn parse_qualified_name<'a>(node: &'a TsQualifiedName, context: &mut Context<'a>
 }
 
 fn parse_parenthesized_type<'a>(node: &'a TsParenthesizedType, context: &mut Context<'a>) -> PrintItems {
-    conditions::with_indent_if_start_of_line_indented(parser_helpers::new_line_group(parse_node_in_parens(
+    let parsed_type = conditions::with_indent_if_start_of_line_indented(parse_node_in_parens(
         |context| parse_node((&node.type_ann).into(), context),
         ParseNodeInParensOptions {
             inner_span: node.type_ann.span_data(),
@@ -3904,7 +3935,16 @@ fn parse_parenthesized_type<'a>(node: &'a TsParenthesizedType, context: &mut Con
             allow_open_paren_trailing_comments: true,
         },
         context
-    ))).into()
+    )).into();
+
+    return if use_new_line_group(context) { new_line_group(parsed_type) } else { parsed_type };
+
+    fn use_new_line_group(context: &mut Context) -> bool {
+        match context.parent() {
+            Node::TsTypeAliasDecl(_) => false,
+            _ => true,
+        }
+    }
 }
 
 fn parse_rest_type<'a>(node: &'a TsRestType, context: &mut Context<'a>) -> PrintItems {
@@ -5863,7 +5903,7 @@ fn parse_assignment<'a>(expr: Node<'a>, op: &str, context: &mut Context<'a>) -> 
 }
 
 fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Option<&TokenAndSpan>, context: &mut Context<'a>) -> PrintItems {
-    let use_newline_group = get_use_newline_group(&expr);
+    let use_new_line_group = get_use_new_line_group(&expr);
     let mut items = PrintItems::new();
 
     if op == ":" { items.push_str(op) } else { items.push_str(&format!(" {}", op)) }; // good enough for now...
@@ -5900,7 +5940,7 @@ fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Opti
                 conditions::indent_if_start_of_line(items).into()
             }
         });
-        let assignment = if use_newline_group { new_line_group(assignment) } else { assignment };
+        let assignment = if use_new_line_group { new_line_group(assignment) } else { assignment };
         items.extend(assignment);
         items
     }.into_rc_path();
@@ -5914,7 +5954,7 @@ fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Opti
 
     return items;
 
-    fn get_use_newline_group(expr: &Node) -> bool {
+    fn get_use_new_line_group(expr: &Node) -> bool {
         match expr {
             Node::MemberExpr(_) => true,
             _ => false,

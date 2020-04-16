@@ -85,17 +85,16 @@ export type T = /* test */
     | test
     | tttttttttttttttt;
 
-== should handle a block comment inside parenthesized type (good enough for now) ==
+== should handle a block comment inside parenthesized type ==
 export type T = (/*1*/ testing | testing | testing | testing);
 
 [expect]
-export type T =
-    (/*1*/
-        | testing
-        | testing
-        | testing
-        | testing
-    );
+export type T = (
+    | /*1*/ testing
+    | testing
+    | testing
+    | testing
+);
 
 == should keep block comment at top of union ==
 export type T =

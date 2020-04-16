@@ -15,6 +15,7 @@ struct FailedTestResult {
 pub struct RunSpecsOptions {
     /// Set to true to overwrite the failing tests with the actual result.
     pub fix_failures: bool,
+    pub format_twice: bool,
 }
 
 pub fn run_specs(
@@ -34,9 +35,13 @@ pub fn run_specs(
         #[cfg(not(debug_assertions))]
         assert_spec_not_only(&spec);
 
-        let result = format_text(&spec.file_name, &spec.file_text, &spec.config)
-            .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
-        let result = if let Some(result) = result { result } else { spec.file_text.clone() };
+        let format = |file_text: &str| {
+            let result = format_text(&spec.file_name, &file_text, &spec.config)
+                .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
+            return if let Some(result) = result { result } else { String::from(file_text) };
+        };
+
+        let result = format(&spec.file_text);
         if result != spec.expected_text {
             if run_spec_options.fix_failures {
                 // very rough, but good enough
@@ -53,18 +58,9 @@ pub fn run_specs(
                     message: spec.message.clone()
                 });
             }
-        } else {
-            // todo: re-enable
-            /*
+        } else if run_spec_options.format_twice {
             // ensure no changes when formatting twice
-            let twice_result = format_text(&spec.file_name, &result, &spec.config)
-                .expect(format!(
-                    "Could not parse when formatting twice '{}' in {} for text {}",
-                    spec.message,
-                    file_path,
-                    result
-                ).as_str());
-            let twice_result = if let Some(twice_result) = twice_result { twice_result } else { spec.file_text.clone() };
+            let twice_result = format(&result);
             if twice_result != spec.expected_text {
                 failed_tests.push(FailedTestResult {
                     file_path: file_path.clone(),
@@ -74,7 +70,6 @@ pub fn run_specs(
                     message: spec.message.clone()
                 });
             }
-            */
         }
     }
 
