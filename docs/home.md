@@ -170,9 +170,9 @@ How to decide to use single or double quotes.
 
 The kind of newline to use.
 
-* `"auto"` - For each file, uses the newline kind found at the end of the last line (default).
+* `"auto"` - For each file, uses the newline kind found at the end of the last line.
 * `"crlf"` - Uses carriage return, line feed.
-* `"lf"` - Uses line feed.
+* `"lf"` - Uses line feed (default).
 * `"system"` - Uses the system standard (ex. crlf on Windows).
 
 ### `useBraces`

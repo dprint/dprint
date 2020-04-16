@@ -80,7 +80,7 @@ pub const DEFAULT_GLOBAL_CONFIGURATION: DefaultGlobalConfiguration = DefaultGlob
     line_width: 120,
     indent_width: 4,
     use_tabs: false,
-    new_line_kind: NewLineKind::Auto,
+    new_line_kind: NewLineKind::LineFeed,
 };
 
 pub struct DefaultGlobalConfiguration {
