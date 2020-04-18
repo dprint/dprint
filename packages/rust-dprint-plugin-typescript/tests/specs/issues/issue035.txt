@@ -1,8 +1,10 @@
 ~~ lineWidth: 40, arguments.preferHanging: true ~~
-== should not throw error about finishIndent being called without a corresponding startIndent ==
+== should not throw error about finishIndent being called without a corresponding startIndent (skip-format-twice) ==
+// skip format twice because preferSingleLine is false
 t(u, tbdstdddddbbSftt ? dddddmdd : testt);
 
 [expect]
+// skip format twice because preferSingleLine is false
 t(u,
     tbdstdddddbbSftt
         ? dddddmdd
