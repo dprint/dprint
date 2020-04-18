@@ -58,7 +58,7 @@ pub fn run_specs(
                     message: spec.message.clone()
                 });
             }
-        } else if run_spec_options.format_twice {
+        } else if run_spec_options.format_twice && !spec.skip_format_twice {
             // ensure no changes when formatting twice
             let twice_result = format(&result);
             if twice_result != spec.expected_text {

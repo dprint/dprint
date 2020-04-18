@@ -9,6 +9,7 @@ pub struct Spec {
     pub is_only: bool,
     pub show_tree: bool,
     pub skip: bool,
+    pub skip_format_twice: bool,
     pub config: HashMap<String, String>,
 }
 
@@ -98,6 +99,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
             expected_text,
             is_only: lower_case_message_line.find("(only)").is_some(),
             skip: lower_case_message_line.find("(skip)").is_some(),
+            skip_format_twice: lower_case_message_line.find("(skip-format-twice)").is_some(),
             show_tree: lower_case_message_line.find("(tree)").is_some(),
             config: config.clone(),
         }
@@ -127,7 +129,7 @@ mod tests {
             "expected",
             "multiple",
             "",
-            "== message 2 (only) (tree) (skip) ==",
+            "== message 2 (only) (tree) (skip) (skip-format-twice) ==",
             "start2",
             "",
             "[expect]",
@@ -144,16 +146,18 @@ mod tests {
             is_only: false,
             show_tree: false,
             skip: false,
+            skip_format_twice: false,
             config: HashMap::new(),
         });
         assert_eq!(specs[1], Spec {
             file_name: "test.ts".into(),
             file_text: "start2\n".into(),
             expected_text: "expected2\n".into(),
-            message: "message 2 (only) (tree) (skip)".into(),
+            message: "message 2 (only) (tree) (skip) (skip-format-twice)".into(),
             is_only: true,
             show_tree: true,
             skip: true,
+            skip_format_twice: true,
             config: HashMap::new(),
         });
     }
@@ -177,6 +181,7 @@ mod tests {
             is_only: false,
             show_tree: false,
             skip: false,
+            skip_format_twice: false,
             config: HashMap::new(),
         });
     }
@@ -201,6 +206,7 @@ mod tests {
             is_only: false,
             show_tree: false,
             skip: false,
+            skip_format_twice: false,
             config: [("test.test".into(), "other".into()), ("lineWidth".into(), "40".into())].iter().cloned().collect(),
         });
     }
@@ -216,7 +222,7 @@ mod tests {
             "expected",
             "multiple",
             "",
-            "!! message 2 (only) (tree) (skip) !!",
+            "!! message 2 (only) (tree) (skip) (skip-format-twice) !!",
             "start2",
             "",
             "[expect]",
@@ -233,16 +239,18 @@ mod tests {
             is_only: false,
             show_tree: false,
             skip: false,
+            skip_format_twice: false,
             config: HashMap::new(),
         });
         assert_eq!(specs[1], Spec {
             file_name: "test.md".into(),
             file_text: "start2\n".into(),
             expected_text: "expected2\n".into(),
-            message: "message 2 (only) (tree) (skip)".into(),
+            message: "message 2 (only) (tree) (skip) (skip-format-twice)".into(),
             is_only: true,
             show_tree: true,
             skip: true,
+            skip_format_twice: true,
             config: HashMap::new(),
         });
     }
