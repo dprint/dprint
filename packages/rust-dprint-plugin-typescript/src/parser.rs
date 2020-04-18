@@ -7,7 +7,7 @@ use swc_ecma_parser::{token::{TokenAndSpan}};
 use super::*;
 use super::configuration::*;
 
-pub fn parse(source_file: ParsedSourceFile, config: Configuration) -> PrintItems {
+pub fn parse(source_file: ParsedSourceFile, config: &Configuration) -> PrintItems {
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
         config,

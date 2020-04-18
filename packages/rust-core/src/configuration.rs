@@ -167,7 +167,7 @@ fn get_nullable_value<T>(
 }
 
 /// Resolves the `NewLineKind` text from the provided file text and `NewLineKind`.
-pub fn resolve_new_line_kind(file_text: &str, new_line_kind: &NewLineKind) -> &'static str {
+pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'static str {
     match new_line_kind {
         NewLineKind::LineFeed => "\n",
         NewLineKind::CarriageReturnLineFeed => "\r\n",

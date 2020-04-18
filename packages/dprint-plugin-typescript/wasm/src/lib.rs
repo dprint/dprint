@@ -38,7 +38,8 @@ impl FormatContext {
     }
 
     pub fn format(&self, file_path: &str, file_text: &str) -> Result<Option<String>, JsValue> {
-        match dprint_plugin_typescript::format_text(file_path, file_text, &self.configuration) {
+        let formatter = dprint_plugin_typescript::Formatter::new(&self.configuration);
+        match formatter.format_text(file_path, file_text) {
             Ok(result) => Ok(result),
             Err(result) => Err(JsValue::from(result))
         }
