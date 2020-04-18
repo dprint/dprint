@@ -58,7 +58,7 @@ impl<'a> Formatter<'a> {
 
             let print_items = parse(parsed_source_file, &self.config);
 
-            // println!("{}", print_items.get_as_text());
+            println!("{}", print_items.get_as_text());
 
             Ok(Some(print(print_items, PrintOptions {
                 indent_width: self.config.indent_width,

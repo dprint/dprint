@@ -1,0 +1,30 @@
+~~ lineWidth: 40, bracePosition: sameLine, indentWidth: 2 ~~
+== should keep brace on same line for a class ==
+export class File
+  implements
+    Reader,
+    SyncReader,
+    Writer {
+}
+
+[expect]
+export class File
+  implements
+    Reader,
+    SyncReader,
+    Writer {
+}
+
+== should keep brace on the same line for an interface ==
+export interface Test
+  extends
+    Test<ArrayBufferView>,
+    q.ByteQueueContainer {
+}
+
+[expect]
+export interface Test
+  extends
+    Test<ArrayBufferView>,
+    q.ByteQueueContainer {
+}

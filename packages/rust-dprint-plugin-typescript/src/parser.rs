@@ -5135,7 +5135,7 @@ fn parse_extends_or_implements<'a>(opts: ParseExtendsOrImplementsOptions<'a>, co
             single_line_space_at_start: true,
             single_line_space_at_end: false,
             custom_single_line_separator: None,
-            multi_line_style: helpers::MultiLineStyle::SurroundNewlinesIndented,
+            multi_line_style: helpers::MultiLineStyle::NewLineStart,
             force_possible_newline_at_start: false,
         }, context));
         items
