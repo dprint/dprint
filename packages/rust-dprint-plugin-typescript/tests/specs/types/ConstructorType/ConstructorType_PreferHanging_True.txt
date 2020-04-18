@@ -22,13 +22,11 @@ type Test = new(param: string,
     otherParam
 ) => str | number | other | other;
 
-== should format the return type on multi-lines when it exceeds the line width (this is not ideal, but ok for now...) ==
+== should format the return type on multi-lines when it exceeds the line width ==
 type Test = new (p: string, o) => str | number | other | other | testing | this;
 
 [expect]
-type Test = new(p: string,
-    o
-) =>
+type Test = new(p: string, o) =>
     | str
     | number
     | other

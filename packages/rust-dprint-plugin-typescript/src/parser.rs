@@ -4814,7 +4814,8 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
         context: &mut Context<'a>
     ) -> PrintItems {
         let mut items = PrintItems::new();
-        if let Some(type_node) = type_node {
+        return if let Some(type_node) = type_node {
+            let use_new_line_group = get_use_new_line_group(param_count, &type_node, context);
             items.push_info(type_node_start_info);
             if let Some(type_node_separator) = type_node_separator {
                 items.extend(type_node_separator);
@@ -4827,9 +4828,30 @@ fn parse_close_paren_with_type<'a>(opts: ParseCloseParenWithTypeOptions<'a>, con
             items.extend(parsed_type_node);
             items.push_info(type_node_end_info);
 
-            if param_count > 0 { new_line_group(items) } else { items }
+            if use_new_line_group { new_line_group(items) } else { items }
         } else {
             items
+        };
+
+        fn get_use_new_line_group(param_count: usize, type_node: &Node, context: &mut Context) -> bool {
+            if param_count == 0 {
+                false
+            } else {
+                if context.config.parameters_prefer_hanging && param_count > 1 {
+                    // This was done to prevent the second argument becoming hanging, which doesn't
+                    // look good especially when the return type then becomes multi-line.
+                    match type_node {
+                        Node::TsUnionType(_) | Node::TsIntersectionType(_) => false,
+                        Node::TsTypeAnn(type_ann) => match &*type_ann.type_ann {
+                            TsType::TsUnionOrIntersectionType(_) => false,
+                            _ => true,
+                        },
+                        _ => true,
+                    }
+                } else {
+                    true
+                }
+            }
         }
     }
 }
