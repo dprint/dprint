@@ -22,7 +22,7 @@ fn main() {
     let files = resolve_file_paths(matches.values_of("files"));
 
     if check {
-        match check_files(&config, files) {
+        match check_files(config, files) {
             Ok(_) => {},
             Err(e) => {
                 eprintln!("{}", e);
@@ -30,11 +30,11 @@ fn main() {
             },
         }
     } else {
-        format_files(&config, files);
+        format_files(config, files);
     }
 }
 
-fn check_files(config: &Configuration, paths: Vec<PathBuf>) -> Result<(), String> {
+fn check_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(), String> {
     let not_formatted_files_count = AtomicUsize::new(0);
     let formatter = dprint_ts::Formatter::new(config);
 
@@ -47,10 +47,8 @@ fn check_files(config: &Configuration, paths: Vec<PathBuf>) -> Result<(), String
                     Ok(None) => {
                         // nothing to format, pass
                     }
-                    Ok(Some(formatted_text)) => {
-                        if formatted_text != file_contents {
-                            not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-                        }
+                    Ok(Some(_)) => {
+                        not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
                     }
                     Err(e) => {
                         output_error(&file_path_str, "Error checking", &e);
@@ -72,7 +70,7 @@ fn check_files(config: &Configuration, paths: Vec<PathBuf>) -> Result<(), String
     }
 }
 
-fn format_files(config: &Configuration, paths: Vec<PathBuf>) {
+fn format_files(config: Configuration, paths: Vec<PathBuf>) {
     let formatted_files_count = AtomicUsize::new(0);
     let files_count = paths.len();
     let formatter = dprint_ts::Formatter::new(config);
@@ -88,15 +86,13 @@ fn format_files(config: &Configuration, paths: Vec<PathBuf>) {
                         // nothing to format, pass
                     }
                     Ok(Some(formatted_text)) => {
-                        if formatted_text != file_contents {
-                            println!("{}", file_path_str);
-                            match fs::write(&file_path, formatted_text) {
-                                Ok(_) => {
-                                    formatted_files_count.fetch_add(1, Ordering::SeqCst);
-                                },
-                                Err(e) => output_error(&file_path_str, "Error writing file", &e),
-                            };
-                        }
+                        println!("{}", file_path_str);
+                        match fs::write(&file_path, formatted_text) {
+                            Ok(_) => {
+                                formatted_files_count.fetch_add(1, Ordering::SeqCst);
+                            },
+                            Err(e) => output_error(&file_path_str, "Error writing file", &e),
+                        };
                     }
                     Err(e) => output_error(&file_path_str, "Error formatting", &e),
                 }
