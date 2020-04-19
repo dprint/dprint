@@ -1,38 +1,56 @@
-== should skip parsing when the file starts off with a skip comment ==
-/* dprint-ignore-file */
-1 + 2 +         5;
-
-[expect]
-/* dprint-ignore-file */
-1 + 2 +         5;
-
-== should skip when it's not the first comment ==
-// testing
-/* other */
-/* dprint-ignore-file */
-1 + 2 +         5;
-
-[expect]
-// testing
-/* other */
-/* dprint-ignore-file */
-1 + 2 +         5;
-
-== should skip when it's a comment line ==
-// testing
-/* other */
-
-
+== should skip parsing when the file starts off with a skip comment and it's a comment line ==
 // dprint-ignore-file
 1 + 2 +         5;
 
 [expect]
-// testing
-/* other */
-
-
 // dprint-ignore-file
 1 + 2 +         5;
+
+== should skip parsing when the file starts off with a skip comment and it's a comment line without a leading space ==
+//dprint-ignore-file
+1 + 2 +         5;
+
+[expect]
+//dprint-ignore-file
+1 + 2 +         5;
+
+== should skip parsing when the file starts off with a skip comment and it's a comment block ==
+/* dprint-ignore-file */
+1 + 2 +         5;
+
+[expect]
+/* dprint-ignore-file */
+1 + 2 +         5;
+
+== should skip parsing when the file starts off with a skip comment and it's a comment block without a leading space ==
+/*dprint-ignore-file */
+1 + 2 +         5;
+
+[expect]
+/*dprint-ignore-file */
+1 + 2 +         5;
+
+== should skip parsing when the file when the comment is on a different line ==
+
+/*dprint-ignore-file */
+1 + 2 +         5;
+
+[expect]
+
+/*dprint-ignore-file */
+1 + 2 +         5;
+
+== should not skip when it's not the first comment (doesn't bother searching for these) ==
+// testing
+/* dprint-ignore-file */
+/* other */
+1 + 2 +         5;
+
+[expect]
+// testing
+/* dprint-ignore-file */
+/* other */
+1 + 2 + 5;
 
 == should skip when there are only comments ==
 /* dprint-ignore-file */
@@ -52,10 +70,12 @@
 
 == should not skip when it's not before the first statement -- it doesn't bother searching the rest of the file ==
 testing ;
-/* dprint: skip */
+/* dprint-ignore-file */
+// test
 testing( 1,   5 );
 
 [expect]
 testing;
-/* dprint: skip */
+/* dprint-ignore-file */
+// test
 testing(1, 5);
