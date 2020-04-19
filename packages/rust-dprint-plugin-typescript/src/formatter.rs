@@ -47,32 +47,24 @@ impl Formatter {
 
     /// Formats a file.
     ///
-    /// Returns the file text `Ok(Some(formatted_text))` when the file was
-    /// formatted, `Ok(None)` when nothing changed in the file, and an error
-    /// when it failed to parse.
-    pub fn format_text(&self, file_path: &str, file_text: &str) -> Result<Option<String>, String> {
+    /// Returns the file text `Ok(formatted_text) or an error when it failed to parse.
+    pub fn format_text(&self, file_path: &str, file_text: &str) -> Result<String, String> {
         return self.run(|| {
             let mut parsed_source_file = parse_swc_ast(&file_path, &file_text)?;
             if !should_format_file(&mut parsed_source_file) {
-                return Ok(None);
+                return Ok(String::from(file_text));
             }
 
             let print_items = parse(parsed_source_file, &self.config);
 
             // println!("{}", print_items.get_as_text());
 
-            let formatted_text = print(print_items, PrintOptions {
+            Ok(print(print_items, PrintOptions {
                 indent_width: self.config.indent_width,
                 max_width: self.config.line_width,
                 use_tabs: self.config.use_tabs,
                 new_line_text: resolve_new_line_kind(file_text, self.config.new_line_kind),
-            });
-
-            Ok(if formatted_text == file_text {
-                None
-            } else {
-                Some(formatted_text)
-            })
+            }))
         });
 
         fn should_format_file(file: &mut ParsedSourceFile) -> bool {

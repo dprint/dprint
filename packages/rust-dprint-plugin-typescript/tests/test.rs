@@ -31,7 +31,6 @@ fn test_performance() {
     for i in 0..10 {
         let start = Instant::now();
         let result = formatter.format_text("checker.ts", &file_text).expect("Could not parse...");
-        let result = if let Some(result) = result { result } else { file_text.clone() };
 
         println!("{}ms", start.elapsed().as_millis());
         println!("---");

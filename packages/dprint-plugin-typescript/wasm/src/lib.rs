@@ -43,7 +43,13 @@ impl FormatContext {
 
     pub fn format(&self, file_path: &str, file_text: &str) -> Result<Option<String>, JsValue> {
         match self.formatter.format_text(file_path, file_text) {
-            Ok(result) => Ok(result),
+            Ok(result) => {
+                Ok(if result == file_text {
+                    None
+                } else {
+                    Some(result)
+                })
+            },
             Err(result) => Err(JsValue::from(result))
         }
     }

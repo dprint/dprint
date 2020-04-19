@@ -22,7 +22,7 @@ pub fn run_specs(
     directory_path: &Path,
     parse_spec_options: &ParseSpecOptions,
     run_spec_options: &RunSpecsOptions,
-    format_text: impl Fn(&str, &str, &HashMap<String, String>) -> Result<Option<String>, String>
+    format_text: impl Fn(&str, &str, &HashMap<String, String>) -> Result<String, String>
 ) {
     #[cfg(not(debug_assertions))]
     assert_not_fix_failures(run_spec_options);
@@ -36,9 +36,8 @@ pub fn run_specs(
         assert_spec_not_only(&spec);
 
         let format = |file_text: &str| {
-            let result = format_text(&spec.file_name, &file_text, &spec.config)
-                .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str());
-            return if let Some(result) = result { result } else { String::from(file_text) };
+            format_text(&spec.file_name, &file_text, &spec.config)
+                .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str())
         };
 
         let result = format(&spec.file_text);

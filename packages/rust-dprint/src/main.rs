@@ -44,11 +44,10 @@ fn check_files(config: Configuration, paths: Vec<PathBuf>) -> Result<(), String>
         match file_contents {
             Ok(file_contents) => {
                 match formatter.format_text(&file_path_str, &file_contents) {
-                    Ok(None) => {
-                        // nothing to format, pass
-                    }
-                    Ok(Some(_)) => {
-                        not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+                    Ok(formatted_file_text) => {
+                        if formatted_file_text != file_contents {
+                            not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+                        }
                     }
                     Err(e) => {
                         output_error(&file_path_str, "Error checking", &e);
@@ -82,17 +81,16 @@ fn format_files(config: Configuration, paths: Vec<PathBuf>) {
         match file_contents {
             Ok(file_contents) => {
                 match formatter.format_text(&file_path_str, &file_contents) {
-                    Ok(None) => {
-                        // nothing to format, pass
-                    }
-                    Ok(Some(formatted_text)) => {
-                        println!("{}", file_path_str);
-                        match fs::write(&file_path, formatted_text) {
-                            Ok(_) => {
-                                formatted_files_count.fetch_add(1, Ordering::SeqCst);
-                            },
-                            Err(e) => output_error(&file_path_str, "Error writing file", &e),
-                        };
+                    Ok(formatted_text) => {
+                        if formatted_text != file_contents {
+                            println!("{}", file_path_str);
+                            match fs::write(&file_path, formatted_text) {
+                                Ok(_) => {
+                                    formatted_files_count.fetch_add(1, Ordering::SeqCst);
+                                },
+                                Err(e) => output_error(&file_path_str, "Error writing file", &e),
+                            };
+                        }
                     }
                     Err(e) => output_error(&file_path_str, "Error formatting", &e),
                 }
