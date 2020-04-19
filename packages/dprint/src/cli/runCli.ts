@@ -78,7 +78,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
                         plugins,
                     });
                     // skip writing the file if it hasn't changed
-                    return result === fileText ? Promise.resolve() : killSafeFileWriter.writeFile(filePath, result);
+                    return result === false ? Promise.resolve() : killSafeFileWriter.writeFile(filePath, result);
                 }).catch(err => {
                     const errorText = err.toString().replace("[dprint]: ", "");
                     environment.error(`Error formatting file: ${filePath}\n\n${errorText}`);

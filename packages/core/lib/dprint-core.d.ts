@@ -1,7 +1,7 @@
 // dprint-ignore-file
 import { Condition, Signal, Info, PrintItem, PrintItemIterable, WriterInfo, Plugin, Configuration, ConfigurationDiagnostic, ResolvedConfiguration, ResolveConditionContext, BaseResolvedConfiguration, LoggingEnvironment } from "@dprint/types";
 
-export declare const version = "0.8.0";
+export declare const version = "0.9.0";
 
 export declare function makeIterableRepeatable<T>(iterable: Iterable<T>): Iterable<T>;
 
@@ -111,8 +111,9 @@ export declare class CliLoggingEnvironment implements LoggingEnvironment {
 /**
  * Formats the provided file's text.
  * @param options - Options to use.
+ * @returns The file text when it's changed; false otherwise.
  */
-export declare function formatFileText(options: FormatFileTextOptions): string;
+export declare function formatFileText(options: FormatFileTextOptions): string | false;
 
 /** Options for formatting. */
 export interface FormatFileTextOptions {

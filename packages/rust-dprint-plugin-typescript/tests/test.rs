@@ -24,7 +24,7 @@ fn test_performance() {
         .quote_style(QuoteStyle::PreferSingle)
         .build();
     let file_text = fs::read_to_string("tests/performance/checker.txt").expect("Expected to read.");
-    let formatter = Formatter::new(&config);
+    let formatter = Formatter::new(config);
 
     //debug_here!();
 
@@ -55,7 +55,7 @@ fn test_specs() {
             let config_result = resolve_config(&spec_config, &global_config);
             ensure_no_diagnostics(&config_result.diagnostics);
 
-            let formatter = Formatter::new(&config_result.config);
+            let formatter = Formatter::new(config_result.config);
             formatter.format_text(&file_name, &file_text)
         }
     )

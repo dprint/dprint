@@ -5,7 +5,6 @@ pub mod configuration;
 mod node_helpers;
 mod parser_types;
 mod formatter;
-mod format_text;
 mod parse_swc_ast;
 mod parser;
 mod tokens;
@@ -18,8 +17,6 @@ use parser::*;
 use parse_swc_ast::*;
 use tokens::*;
 
-#[allow(deprecated)]
-pub use format_text::format_text;
 pub use formatter::Formatter;
 
 #[cfg(test)]

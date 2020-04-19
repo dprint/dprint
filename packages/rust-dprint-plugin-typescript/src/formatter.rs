@@ -22,23 +22,23 @@ use super::configuration::Configuration;
 ///     .build();
 ///
 /// // create the formatter
-/// let formatter = Formatter::new(&config);
+/// let formatter = Formatter::new(config);
 ///
 /// // now format many files (possibly parallelize this)
 /// let files_to_format = vec![("path/to/file.ts", "const  t  =  5 ;")];
 /// for (file_path, file_text) in files_to_format {
-///     let formatted_text = formatter.format_text(file_path, file_text);
-///     // ...save formatted_text here...
+///     let result = formatter.format_text(file_path, file_text);
+///     // save result here... will be `Ok(Some(text))` when it has changed
 /// }
 /// ```
-pub struct Formatter<'a> {
+pub struct Formatter {
     globals: Globals,
-    config: &'a Configuration,
+    config: Configuration,
 }
 
-impl<'a> Formatter<'a> {
-    /// Creates a new formatter from the specified configuration.
-    pub fn new(config: &'a Configuration) -> Self {
+impl Formatter {
+    /// Creates a new formatter with the specified configuration.
+    pub fn new(config: Configuration) -> Self {
         Formatter {
             globals: Globals::new(),
             config,
@@ -47,8 +47,9 @@ impl<'a> Formatter<'a> {
 
     /// Formats a file.
     ///
-    /// Returns the file text when the file was formatted, `None` when the file had an ignore comment, and
-    /// an error when it failed to parse.
+    /// Returns the file text `Ok(Some(formatted_text))` when the file was
+    /// formatted, `Ok(None)` when nothing changed in the file, and an error
+    /// when it failed to parse.
     pub fn format_text(&self, file_path: &str, file_text: &str) -> Result<Option<String>, String> {
         return self.run(|| {
             let mut parsed_source_file = parse_swc_ast(&file_path, &file_text)?;
@@ -60,12 +61,18 @@ impl<'a> Formatter<'a> {
 
             // println!("{}", print_items.get_as_text());
 
-            Ok(Some(print(print_items, PrintOptions {
+            let formatted_text = print(print_items, PrintOptions {
                 indent_width: self.config.indent_width,
                 max_width: self.config.line_width,
                 use_tabs: self.config.use_tabs,
                 new_line_text: resolve_new_line_kind(file_text, self.config.new_line_kind),
-            })))
+            });
+
+            Ok(if formatted_text == file_text {
+                None
+            } else {
+                Some(formatted_text)
+            })
         });
 
         fn should_format_file(file: &mut ParsedSourceFile) -> bool {

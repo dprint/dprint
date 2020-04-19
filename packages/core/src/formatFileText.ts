@@ -19,6 +19,7 @@ export interface FormatFileTextOptions {
 /**
  * Formats the provided file's text.
  * @param options - Options to use.
+ * @returns The file text when it's changed; false otherwise.
  */
 export function formatFileText(options: FormatFileTextOptions) {
     const { filePath, fileText, plugins } = options;
@@ -30,16 +31,20 @@ export function formatFileText(options: FormatFileTextOptions) {
         // parse the file
         const parseResult = plugin.parseFile(filePath, fileText);
         if (!parseResult)
-            return options.fileText;
+            return false;
 
         // print it
         const config = plugin.getConfiguration();
-        return print(parseResult, {
+        const formattedText = print(parseResult, {
             newLineKind: resolveNewLineKind(config.newLineKind),
             maxWidth: config.lineWidth,
             indentWidth: config.indentWidth,
             useTabs: config.useTabs,
         });
+
+        if (formattedText == fileText)
+            return false;
+        return formattedText;
     }
 
     function resolveNewLineKind(newLineKind: BaseResolvedConfiguration["newLineKind"]) {
@@ -56,8 +61,7 @@ export function formatFileText(options: FormatFileTextOptions) {
     }
 
     function handleWebAssemblyPlugin(plugin: WebAssemblyPlugin) {
-        const formattedText = plugin.formatText(filePath, fileText);
-        return formattedText === false ? options.fileText : formattedText;
+        return plugin.formatText(filePath, fileText);
     }
 
     function getPlugin() {

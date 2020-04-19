@@ -67,7 +67,7 @@ export function runSpecs(options: RunSpecsOptions) {
                     filePath: spec.filePath,
                     fileText: spec.fileText,
                     plugins: [plugin],
-                });
+                }) || spec.fileText;
 
                 // expect(JSON.stringify(actualText)).to.equal(JSON.stringify(spec.expectedText), spec.message);
                 expect(actualText).to.equal(spec.expectedText, spec.message);
