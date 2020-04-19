@@ -366,7 +366,7 @@ module.exports.config = {
 
 ### Ignoring Files
 
-Add an ignore file comment as one of the first comments in the file:
+Add an ignore file comment as the **first** comment in the file:
 
 ```ts
 // dprint-ignore-file
