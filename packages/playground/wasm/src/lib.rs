@@ -11,17 +11,18 @@ use std::collections::HashMap;
 
 #[wasm_bindgen]
 pub fn resolve_config(configuration: &js_sys::Map) -> String {
+    console_error_panic_hook::set_once();
     serde_json::to_string(&resolve_to_typescript_config(configuration)).unwrap()
 }
 
 #[wasm_bindgen]
 pub fn format_text(file_text: &str, configuration: &js_sys::Map) -> String {
+    console_error_panic_hook::set_once();
+
     let configuration = resolve_to_typescript_config(&configuration);
-    match dprint_plugin_typescript::format_text("./file.tsx", file_text, &configuration) {
-        Ok(result) => match result {
-            Some(result) => result,
-            None => String::from(file_text),
-        },
+    let formatter = dprint_plugin_typescript::Formatter::new(configuration);
+    match formatter.format_text("./file.tsx", file_text) {
+        Ok(result) => result,
         Err(error) => String::from(error),
     }
 }
