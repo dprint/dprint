@@ -3699,19 +3699,15 @@ fn parse_array_type<'a>(node: &'a TsArrayType, context: &mut Context<'a>) -> Pri
 }
 
 fn parse_conditional_type<'a>(node: &'a TsConditionalType, context: &mut Context<'a>) -> PrintItems {
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.check_type, &*node.false_type, context);
+    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.true_type, &*node.false_type, context);
     let is_parent_conditional_type = context.parent().kind() == NodeKind::TsConditionalType;
     let mut items = PrintItems::new();
 
     // main area
     items.extend(parser_helpers::new_line_group(parse_node((&node.check_type).into(), context)));
+    items.push_str(" extends"); // do not newline before because it's a parsing error
     items.push_signal(Signal::SpaceOrNewLine);
-    items.push_condition(conditions::indent_if_start_of_line({
-        let mut items = PrintItems::new();
-        items.push_str("extends ");
-        items.extend(parser_helpers::new_line_group(parse_node((&node.extends_type).into(), context)));
-        items
-    }));
+    items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node((&node.extends_type).into(), context))));
     items.push_signal(Signal::SpaceOrNewLine);
     items.push_condition(conditions::indent_if_start_of_line({
         let mut items = PrintItems::new();
@@ -4099,7 +4095,7 @@ struct UnionOrIntersectionType<'a> {
 fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, context: &mut Context<'a>) -> PrintItems {
     // todo: configuration for operator position
     let mut items = PrintItems::new();
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.types[0], &*node.types[1], context);
+    let force_use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.types[0], &*node.types[1], context);
     let separator = if node.is_union { "|" } else { "&" };
 
     let leading_comments = node.span_data.leading_comments(context);
@@ -4164,7 +4160,7 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
         parsed_nodes
     }, helpers::ParseSeparatedValuesOptions {
         prefer_hanging,
-        force_use_new_lines: use_new_lines,
+        force_use_new_lines,
         allow_blank_lines: false,
         single_line_space_at_start: false,
         single_line_space_at_end: false,

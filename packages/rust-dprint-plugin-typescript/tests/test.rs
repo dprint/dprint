@@ -49,7 +49,7 @@ fn test_specs() {
     run_specs(
         &Path::new("./tests/specs"),
         &ParseSpecOptions { default_file_name: "file.ts" },
-        &RunSpecsOptions { fix_failures: false, format_twice: false },
+        &RunSpecsOptions { fix_failures: false, format_twice: true },
         move |file_name, file_text, spec_config| {
             let config_result = resolve_config(&spec_config, &global_config);
             ensure_no_diagnostics(&config_result.diagnostics);

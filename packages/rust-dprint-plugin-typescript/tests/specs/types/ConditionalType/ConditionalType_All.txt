@@ -27,3 +27,10 @@ type Type<T> = T extends string ? number
     : T extends hereIsAVeryLongExtendsClause
         ? testingThis
     : boolean;
+
+== should not line break before the extends keyword ==
+type Args<R> = R extends (messageArgs: string[]) => string[] ? A : [];
+
+[expect]
+type Args<R> = R extends
+    (messageArgs: string[]) => string[] ? A : [];
