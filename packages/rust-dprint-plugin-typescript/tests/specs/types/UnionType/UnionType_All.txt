@@ -131,3 +131,51 @@ class Test<
         | test
         | test,
 > {}
+
+== should keep on a single line when the type has an object type last that spans multiple lines ==
+type Test = Test | Testing | {
+    testing: string;
+};
+
+[expect]
+type Test = Test | Testing | {
+    testing: string;
+};
+
+== should keep non-multi-line when all the union types are object types ==
+type Test = {
+    testing: string;
+} | {
+    other: string;
+};
+
+[expect]
+type Test = {
+    testing: string;
+} | {
+    other: string;
+};
+
+== should allow the last node to be on a single line ==
+type Test = testing | {
+    testing: string;
+} | test;
+
+[expect]
+type Test = testing | {
+    testing: string;
+} | test;
+
+== should not allow the last node to be a single line when the second last one isn't ==
+type Test = testing | {
+    testing: string;
+} | test | test;
+
+[expect]
+type Test =
+    | testing
+    | {
+        testing: string;
+    }
+    | test
+    | test;

@@ -4118,8 +4118,13 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
     };
     let parse_result = helpers::parse_separated_values(|is_multi_line_or_hanging_ref| {
         let is_multi_line_or_hanging = is_multi_line_or_hanging_ref.create_resolver();
+        let types_count = node.types.len();
         let mut parsed_nodes = Vec::new();
         for (i, type_node) in node.types.into_iter().enumerate() {
+            let (allow_inline_multi_line, allow_inline_single_line) = {
+                let is_last_value = i + 1 == types_count; // allow the last type to be single line
+                (allows_inline_multi_line(&(&**type_node).into(), types_count > 1), is_last_value)
+            };
             let separator_token = context.token_finder.get_previous_token_if_operator(&type_node.span().data(), separator);
             let start_info = Info::new("startInfo");
             let after_separator_info = Info::new("afterSeparatorInfo");
@@ -4154,7 +4159,12 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
             }));
             items.extend(parse_node(type_node.into(), context));
 
-            parsed_nodes.push(helpers::ParsedValue::from_items(items));
+            parsed_nodes.push(helpers::ParsedValue {
+                items,
+                lines_span: None,
+                allow_inline_multi_line,
+                allow_inline_single_line,
+            });
         }
 
         parsed_nodes

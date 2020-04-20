@@ -92,3 +92,17 @@ setTimeout(() => {
 setTimeout(() => {
     test;
 }, 0);
+
+== should go multi-line if the last two args are on a single line ==
+setTimeout(() => {
+    test;
+}, 0, 0);
+
+[expect]
+setTimeout(
+    () => {
+        test;
+    },
+    0,
+    0,
+);

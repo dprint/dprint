@@ -36,3 +36,26 @@ export type T = string
 [expect]
 export type T = string
     & /* 2 */ number;
+
+== should allow the last node to be on a single line ==
+type Test = testing & {
+    testing: string;
+} & test;
+
+[expect]
+type Test = testing & {
+    testing: string;
+} & test;
+
+== should not allow the last node to be a single line when the second last one isn't ==
+type Test = testing & {
+    testing: string;
+} & test & test;
+
+[expect]
+type Test = testing
+    & {
+        testing: string;
+    }
+    & test
+    & test;

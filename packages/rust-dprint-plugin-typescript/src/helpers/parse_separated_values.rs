@@ -99,11 +99,7 @@ pub fn parse_separated_values(
             if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent || opts.multi_line_style == MultiLineStyle::SameLineNoIndent { Condition::new_false() }
             else { get_is_multi_line_for_hanging(value_datas.clone(), is_start_standalone_line_ref, end_info) }
         } else {
-            if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent {
-                get_spans_multiple_lines(value_datas.clone(), end_info)
-            } else {
-                get_is_multi_line_for_multi_line(start_info, value_datas.clone(), is_start_standalone_line_ref, end_info)
-            }
+            get_is_multi_line_for_multi_line(start_info, value_datas.clone(), is_start_standalone_line_ref, end_info)
         }
     };
     let is_multi_line_or_hanging_condition_ref = is_multi_line_or_hanging_condition.get_reference();
@@ -354,6 +350,7 @@ fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Ve
             let mut last_allows_single_line = false;
             let mut has_multi_line_value = false;
             let value_datas = value_datas.borrow();
+
             for (i, value_data) in value_datas.iter().enumerate() {
                 // ignore, it will always be at the start of the line
                 if i == 0 && is_start_standalone_line { continue; }
@@ -362,18 +359,21 @@ fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Ve
                 // check if any of the value starts are at the beginning of the line
                 if value_start_info.is_start_of_line() { return Some(true); }
 
-                let last_is_multi_line_value = last_line_number < value_start_info.line_number;
-                if i == 1 && last_is_multi_line_value {
-                    has_multi_line_value = true;
-                }
+                if i >= 1 {
+                    // todo: consolidate with below
+                    let last_is_multi_line_value = last_line_number < value_start_info.line_number;
+                    if last_is_multi_line_value {
+                        has_multi_line_value = true;
+                    }
 
-                if i >= 1 && check_value_should_make_multi_line(
-                    last_is_multi_line_value,
-                    last_allows_multi_line,
-                    last_allows_single_line,
-                    has_multi_line_value,
-                ) {
-                    return Some(true);
+                    if check_value_should_make_multi_line(
+                        last_is_multi_line_value,
+                        last_allows_multi_line,
+                        last_allows_single_line,
+                        has_multi_line_value,
+                    ) {
+                        return Some(true);
+                    }
                 }
 
                 last_line_number = value_start_info.line_number;
@@ -382,7 +382,11 @@ fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Ve
             }
 
             // check if the last node is single-line
+            // todo: consolidate with above
             let last_is_multi_line_value = last_line_number < end_info.line_number;
+            if last_is_multi_line_value {
+                has_multi_line_value = true;
+            }
             Some(check_value_should_make_multi_line(
                 last_is_multi_line_value,
                 last_allows_multi_line,
@@ -406,18 +410,4 @@ fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Ve
             has_multi_line_value && !allows_single_line
         }
     }
-}
-
-fn get_spans_multiple_lines(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, end_info: Info) -> Condition {
-    Condition::new_with_dependent_infos("spansMultipleLines", ConditionProperties {
-        condition: Box::new(move |condition_context| {
-            if let Some(first_value_data) = value_datas.borrow().first() {
-                condition_resolvers::is_multiple_lines(condition_context, &first_value_data.start_info, &end_info)
-            } else {
-                Some(false)
-            }
-        }),
-        false_path: None,
-        true_path: None,
-    }, vec![end_info])
 }
