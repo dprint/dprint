@@ -1,4 +1,4 @@
-import { Project, TypeGuards, NewLineKind } from "ts-morph";
+import { Project, TypeGuards } from "ts-morph";
 
 const readProject = new Project({ tsConfigFilePath: "tsconfig.json", compilerOptions: { declaration: true } });
 const emitResult = readProject.emitToMemory({ emitOnlyDtsFiles: true });
@@ -7,18 +7,14 @@ for (const file of emitResult.getFiles())
     readProject.createSourceFile(file.filePath, file.text);
 
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
-const writeProject = new Project({
-    manipulationSettings: {
-        newLineKind: NewLineKind.CarriageReturnLineFeed,
-    },
-});
+const writeProject = new Project();
 const declarationFile = writeProject.addSourceFileAtPath("lib/dprint-types.d.ts");
 const packageVersion = require("../package.json").version;
 
 const writer = readProject.createWriter();
 writer.writeLine("// dprint-ignore-file");
 
-for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
+for (const [_, declarations] of emitMainFile.getExportedDeclarations()) {
     for (const declaration of declarations) {
         if (writer.getLength() > 0)
             writer.newLine();
