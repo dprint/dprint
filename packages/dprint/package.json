@@ -19,7 +19,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dsherret/dprint.git"
+    "url": "git+https://github.com/dprint/dprint.git"
   },
   "keywords": [
     "configurable",
@@ -31,9 +31,9 @@
   "author": "David Sherret",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/dsherret/dprint/issues"
+    "url": "https://github.com/dprint/dprint/issues"
   },
-  "homepage": "https://github.com/dsherret/dprint#readme",
+  "homepage": "https://github.com/dprint/dprint#readme",
   "dependencies": {
     "@dprint/core": "~0.9.0",
     "@dprint/types": "~0.3.0",

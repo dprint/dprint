@@ -6,8 +6,8 @@ version = "0.13.1"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
-homepage = "https://github.com/dsherret/dprint/tree/master/packages/rust-dprint-plugin-typescript"
-repository = "https://github.com/dsherret/dprint"
+homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-dprint-plugin-typescript"
+repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 dprint-core = { path = "../rust-core", version = "0.14.0" }

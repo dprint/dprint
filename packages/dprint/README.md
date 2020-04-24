@@ -1,7 +1,7 @@
 # dprint
 
 [![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
-[![Build Status](https://travis-ci.org/dsherret/dprint.svg?branch=master)](https://travis-ci.org/dsherret/dprint)
+[![Build Status](https://travis-ci.org/dprint/dprint.svg?branch=master)](https://travis-ci.org/dprint/dprint)
 
 TypeScript and JSONC code formatter.
 

@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dsherret/dprint.git"
+    "url": "git+https://github.com/dprint/dprint.git"
   },
   "keywords": [
     "dprint",
@@ -20,9 +20,9 @@
   "author": "David Sherret",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/dsherret/dprint/issues"
+    "url": "https://github.com/dprint/dprint/issues"
   },
-  "homepage": "https://github.com/dsherret/dprint#readme",
+  "homepage": "https://github.com/dprint/dprint#readme",
   "publishConfig": {
     "access": "public"
   },
