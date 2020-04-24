@@ -6,8 +6,8 @@ version = "0.14.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
-homepage = "https://github.com/dsherret/dprint/tree/master/packages/rust-core"
-repository = "https://github.com/dsherret/dprint"
+homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-core"
+repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 serde = { version = "1.0.88", features = ["derive"] }

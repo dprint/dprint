@@ -1,9 +1,9 @@
 # dprint
 
 [![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
-[![Build Status](https://travis-ci.org/dsherret/dprint.svg?branch=master)](https://travis-ci.org/dsherret/dprint)
+[![Build Status](https://travis-ci.org/dprint/dprint.svg?branch=master)](https://travis-ci.org/dprint/dprint)
 
-Mono-repo for dprint—a configurable and plugable code formatter.
+Mono-repo for dprint—a configurable and pluggable code formatter.
 
 This library is under active early development. I recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
 

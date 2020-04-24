@@ -71,7 +71,7 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
                         <div id="headerRight">
                             <a href="/">Overview</a>
                             <a href="/playground">Playground</a>
-                            <ExternalLink url="https://github.com/dsherret/dprint" text="View on GitHub" />
+                            <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
                         </div>
                     </header>
                     {/* Todo: re-enable resizing, but doesn't seem to work well with monaco editor on

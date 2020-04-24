@@ -1,6 +1,6 @@
 # dprint
 
-dprint is a configurable and plugable code formatter.
+dprint is a configurable and pluggable code formatting platform.
 
 Currently only TypeScript, JavaScript, and JSONC are supported.
 
@@ -147,7 +147,7 @@ module.exports.config = {
 
 Links:
 
-* [Type Declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts)
+* [Type Declarations](https://github.com/dprint/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts)
 
 ### `semiColons`
 
@@ -323,7 +323,7 @@ type CtorOf<T> = new(...args) => T;
 type CtorOf<T> = new (...args) => T;
 ```
 
-See the `TypeScriptConfiguration` interface in the [type declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts) and search for options that begin with the word "space" to see all the possibilities.
+See the `TypeScriptConfiguration` interface in the [type declarations](https://github.com/dprint/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts) and search for options that begin with the word "space" to see all the possibilities.
 
 ### `"arrowFunction.useParentheses"`
 
@@ -475,4 +475,4 @@ There is currently no JSONC specific configuration beyond the global configurati
 
 Links:
 
-* [Type Declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)
+* [Type Declarations](https://github.com/dprint/dprint/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)

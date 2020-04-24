@@ -5,7 +5,7 @@ authors = ["Bartek Iwańczuk <biwanczuk@gmail.com>", "David Sherret<dsherret@gma
 edition = "2018"
 license = "MIT"
 description = "Binary for dprint."
-repository = "https://github.com/dsherret/dprint"
+repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 clap = "2.33.0"
