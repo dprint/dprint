@@ -1,22 +1,24 @@
-import { getFileExtension, resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment, ResolveConfigurationResult } from "@dprint/core";
-import { JsPlugin, PrintItemIterable, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment } from "@dprint/types";
-import { JsoncConfiguration, ResolvedJsoncConfiguration, resolveConfiguration } from "./configuration";
-import { parseToJsonAst, parseJsonFile } from "./parser";
+import { getFileExtension, CliLoggingEnvironment } from "@dprint/core";
+import { WebAssemblyPlugin, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment, ResolvedConfiguration as GlobalConfig } from "@dprint/types";
+import { JsoncConfiguration, ResolvedJsoncConfiguration } from "./Configuration";
+import { FormatContext } from "./wasm/ts_dprint_plugin_jsonc";
 
-export class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
+export class JsoncPlugin implements WebAssemblyPlugin<ResolvedJsoncConfiguration> {
     /** @internal */
-    private readonly _unresolvedConfig: JsoncConfiguration;
+    private readonly _jsoncConfig: JsoncConfiguration;
     /** @internal */
-    private _resolveConfigurationResult?: ResolveConfigurationResult<ResolvedJsoncConfiguration>;
+    private _globalConfig: GlobalConfig | undefined;
     /** @internal */
     private _environment?: LoggingEnvironment;
+    /** @internal */
+    private _formatContext: FormatContext | undefined;
 
     /**
      * Constructor.
      * @param config - The configuration to use.
      */
     constructor(config: JsoncConfiguration = {}) {
-        this._unresolvedConfig = config;
+        this._jsoncConfig = config;
     }
 
     /** @inheritdoc */
@@ -26,8 +28,16 @@ export class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
     name = "dprint-plugin-json";
 
     /** @inheritdoc */
+    dispose() {
+        this._formatContext?.free();
+    }
+
+    /** @inheritdoc */
     initialize(options: PluginInitializeOptions) {
-        this._resolveConfigurationResult = resolveConfiguration(options.globalConfig, this._unresolvedConfig);
+        this._formatContext?.free();
+        this._formatContext = undefined;
+
+        this._globalConfig = options.globalConfig;
         this._environment = options.environment;
     }
 
@@ -37,34 +47,28 @@ export class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
     }
 
     /** @inheritdoc */
-    getConfiguration(): ResolvedJsoncConfiguration {
-        return this._getResolveConfigurationResult().config;
+    getConfiguration() {
+        return JSON.parse(this._getFormatContext().get_configuration()) as ResolvedJsoncConfiguration;
     }
 
     /** @inheritdoc */
-    getConfigurationDiagnostics(): ConfigurationDiagnostic[] {
-        return this._getResolveConfigurationResult().diagnostics;
+    getConfigurationDiagnostics() {
+        return JSON.parse(this._getFormatContext().get_configuration_diagnostics()) as ConfigurationDiagnostic[];
     }
 
     /** @inheritdoc */
-    parseFile(filePath: string, fileText: string): PrintItemIterable | false {
-        const jsonAst = parseToJsonAst(fileText);
-        return parseJsonFile({
-            file: jsonAst,
-            filePath,
-            fileText,
-            config: this.getConfiguration(),
-            environment: this._getEnvironment(),
-        });
+    formatText(filePath: string, fileText: string): string | false {
+        const result = this._getFormatContext().format(fileText);
+        if (result == null)
+            return false;
+        return result;
     }
 
-    /** @internal */
-    private _getResolveConfigurationResult() {
-        if (this._resolveConfigurationResult == null) {
-            const globalConfig = resolveGlobalConfiguration({}).config;
-            this._resolveConfigurationResult = resolveConfiguration(globalConfig, this._unresolvedConfig);
-        }
-        return this._resolveConfigurationResult;
+    private _getFormatContext() {
+        return this._formatContext ?? (this._formatContext = FormatContext.new(
+            objectToMap(this._jsoncConfig),
+            objectToMap(this._globalConfig),
+        ));
     }
 
     /** @internal */
@@ -73,4 +77,18 @@ export class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
             this._environment = new CliLoggingEnvironment();
         return this._environment;
     }
+}
+
+function objectToMap(config: any) {
+    const map = new Map();
+    for (let key of Object.keys(config)) {
+        const value = config[key] as unknown;
+        if (value == null)
+            continue;
+        else if (typeof value === "string" || typeof value === "boolean" || typeof value === "number")
+            map.set(key, value.toString());
+        else
+            throw new Error(`Not supported value type '${typeof value}' for key '${key}'.`);
+    }
+    return map;
 }

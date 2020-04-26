@@ -1,2 +1,2 @@
-export { JsoncConfiguration, ResolvedJsoncConfiguration } from "./configuration";
+export { JsoncConfiguration, ResolvedJsoncConfiguration } from "./Configuration";
 export { JsoncPlugin } from "./Plugin";

@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Configuration as GlobalConfiguration, ConfigurationDiagnostic, Configuration } from "@dprint/types";
+import { Configuration as GlobalConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 import { resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "../Configuration";
 import { TypeScriptPlugin } from "../Plugin";

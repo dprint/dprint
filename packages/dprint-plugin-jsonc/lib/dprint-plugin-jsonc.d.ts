@@ -1,4 +1,4 @@
-import { PrintItemIterable, JsPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { WebAssemblyPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 export interface JsoncConfiguration {
     /**
@@ -25,15 +25,22 @@ export interface JsoncConfiguration {
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
     newLineKind?: "auto" | "crlf" | "lf" | "system";
+    /**
+     * Forces a space after slashes.
+     *
+     * For example: `// comment` instead of `//comment`
+     */
+    "commentLine.forceSpaceAfterSlashes"?: boolean;
 }
 
 /**
  * Resolved configuration from user specified configuration.
  */
 export interface ResolvedJsoncConfiguration extends BaseResolvedConfiguration {
+    "commentLine.forceSpaceAfterSlashes": boolean;
 }
 
-export declare class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration> {
+export declare class JsoncPlugin implements WebAssemblyPlugin<ResolvedJsoncConfiguration> {
     /**
      * Constructor.
      * @param config - The configuration to use.
@@ -44,6 +51,8 @@ export declare class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration>
     /** @inheritdoc */
     name: string;
     /** @inheritdoc */
+    dispose(): void;
+    /** @inheritdoc */
     initialize(options: PluginInitializeOptions): void;
     /** @inheritdoc */
     shouldFormatFile(filePath: string): boolean;
@@ -52,5 +61,6 @@ export declare class JsoncPlugin implements JsPlugin<ResolvedJsoncConfiguration>
     /** @inheritdoc */
     getConfigurationDiagnostics(): ConfigurationDiagnostic[];
     /** @inheritdoc */
-    parseFile(filePath: string, fileText: string): PrintItemIterable | false;
+    formatText(filePath: string, fileText: string): string | false;
+    private _getFormatContext;
 }

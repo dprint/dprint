@@ -25,10 +25,17 @@ export interface JsoncConfiguration {
      * @value "system" - Uses the system standard (ex. crlf on Windows).
      */
     newLineKind?: "auto" | "crlf" | "lf" | "system";
+    /**
+     * Forces a space after slashes.
+     *
+     * For example: `// comment` instead of `//comment`
+     */
+    "commentLine.forceSpaceAfterSlashes"?: boolean;
 }
 
 /**
  * Resolved configuration from user specified configuration.
  */
 export interface ResolvedJsoncConfiguration extends BaseResolvedConfiguration {
+    "commentLine.forceSpaceAfterSlashes": boolean;
 }
