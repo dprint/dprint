@@ -1,0 +1,53 @@
+-- /file.json --
+~~ lineWidth: 60 ~~
+== should keep on one line for an empty root node ==
+{}
+
+[expect]
+{}
+
+== should format all the json types ==
+{
+"test": "string", "other": "asdf", "a1": 5, "a2": false, "a3": null,
+"a4": { "test": null, "other": [1, 2, 3, 4] }, "a5": {
+
+}, "a6": {},
+"a7": [123456, 123456, 123456, 123456, 123456, 123456, 123456],
+"a8": [
+    1234, 5677]}
+
+[expect]
+{
+    "test": "string",
+    "other": "asdf",
+    "a1": 5,
+    "a2": false,
+    "a3": null,
+    "a4": { "test": null, "other": [1, 2, 3, 4] },
+    "a5": {
+    },
+    "a6": {},
+    "a7": [
+        123456,
+        123456,
+        123456,
+        123456,
+        123456,
+        123456,
+        123456
+    ],
+    "a8": [
+        1234,
+        5677
+    ]
+}
+
+== should handle escaped string literals ==
+{
+    "testing": "asdf \"test\""
+}
+
+[expect]
+{
+    "testing": "asdf \"test\""
+}

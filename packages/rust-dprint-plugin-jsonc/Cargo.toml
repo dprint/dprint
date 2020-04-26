@@ -1,19 +1,17 @@
 [package]
-name = "dprint-plugin-typescript"
-description = "TypeScript formatter for dprint."
-keywords = ["formatting", "formatter", "typescript"]
-version = "0.13.2"
+name = "dprint-plugin-jsonc"
+description = "JSONC formatter for dprint."
+keywords = ["formatting", "formatter", "jsonc"]
+version = "0.1.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
-edition = "2018"
 license = "MIT"
-homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-dprint-plugin-typescript"
+edition = "2018"
+homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-dprint-plugin-jsonc"
 repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 dprint-core = { path = "../rust-core", version = "0.15.0" }
-swc_common = "=0.5.9"
-swc_ecma_ast = "=0.18.1"
-swc_ecma_parser = "=0.21.9"
+jsonc-parser = { version = "0.4.0" }
 serde = { version = "1.0.88", features = ["derive"] }
 
 [dev-dependencies]

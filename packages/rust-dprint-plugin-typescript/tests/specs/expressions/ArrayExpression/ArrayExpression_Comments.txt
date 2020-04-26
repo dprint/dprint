@@ -15,6 +15,12 @@ const t = [/*1*/];
 [expect]
 const t = [/*1*/];
 
+== multiple block comments should have a space separator ==
+[/*1*//*2*/]
+
+[expect]
+[/*1*/ /*2*/];
+
 == should format multi-line when the comment extends past the line width ==
 const t = [/*testing this out with a long comment*/];
 

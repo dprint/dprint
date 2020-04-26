@@ -15,3 +15,9 @@ a;
 "use strict";
 "use strict";
 a;
+
+== multiple block comments should have a space separator ==
+/*1*//*2*/
+
+[expect]
+/*1*/ /*2*/

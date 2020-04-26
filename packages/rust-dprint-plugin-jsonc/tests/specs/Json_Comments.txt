@@ -1,0 +1,136 @@
+~~ lineWidth: 60 ~~
+== should format with comments ==
+// test
+{ // here
+    // testing
+    /* a */ // b
+    /* test *//* b */
+    "test": /* a */ "prop",
+    "other": [ // test
+        1234, // 1
+        5678 // 2
+    ], // test
+    "asdf": { // test
+    }
+    // trailing
+} // test
+// testing
+
+[expect]
+// test
+{ // here
+    // testing
+    /* a */
+    // b
+    /* test */
+    /* b */
+    "test": /* a */ "prop",
+    "other": [ // test
+        1234, // 1
+        5678 // 2
+    ], // test
+    "asdf": { // test
+    }
+    // trailing
+} // test
+// testing
+
+== should format when an object only has a trailing comment ==
+{
+    "asdf": { // test
+    }
+}
+
+[expect]
+{
+    "asdf": { // test
+    }
+}
+
+== should format a comment within empty arrays ==
+{
+    "test": [
+
+        /* test */
+
+        // other
+
+    ], // test
+    "other": [
+        // test
+    ],
+    "testing": [ // test
+        // other
+    ],
+    "other": [/*asdf*/ /*test*/],
+    "final": {/*a*/ /*b*/}
+}
+
+[expect]
+{
+    "test": [
+        /* test */
+
+        // other
+    ], // test
+    "other": [
+        // test
+    ],
+    "testing": [ // test
+        // other
+    ],
+    "other": [/*asdf*/ /*test*/],
+    "final": {/*a*/ /*b*/}
+}
+
+== should place block comment on line before when it's on the line before ==
+{
+    /* test */
+    "p": 5
+}
+
+[expect]
+{
+    /* test */
+    "p": 5
+}
+
+== should format trailing comments on array items ==
+{
+    "a": [
+        1, // a
+        2    , /* b*/
+        3, // c
+
+        4
+    ]
+}
+
+[expect]
+{
+    "a": [
+        1, // a
+        2, /* b*/
+        3, // c
+
+        4
+    ]
+}
+
+== should allow indenting ==
+// function test() {
+//     test;
+// }
+
+[expect]
+// function test() {
+//     test;
+// }
+
+== should allow as many slashes as specified at the start ==
+/// test
+//////asdf
+
+[expect]
+/// test
+////// asdf

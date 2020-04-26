@@ -1,12 +1,10 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 
-use dprint_core::*;
-use dprint_core::{parser_helpers::*,condition_resolvers};
-
-use super::super::*;
-
-// todo: improve then move down to the core library
+use super::super::print_items::*;
+use super::helpers::*;
+use super::super::condition_resolvers;
+use super::super::conditions;
 
 pub struct ParseSeparatedValuesOptions {
     pub prefer_hanging: bool,
