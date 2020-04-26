@@ -1,7 +1,8 @@
 use swc_common::{GLOBALS, Globals};
 use dprint_core::*;
 use dprint_core::configuration::{resolve_new_line_kind};
-use super::*;
+use super::parsing::parse;
+use super::swc::parse_swc_ast;
 use super::configuration::Configuration;
 
 /// Formatter for formatting JavaScript and TypeScript code.
@@ -68,7 +69,7 @@ impl Formatter {
         });
 
         fn has_ignore_comment(file_text: &str) -> bool {
-            let mut iterator = utils::CharIterator::new(file_text.chars());
+            let mut iterator = super::utils::CharIterator::new(file_text.chars());
             iterator.skip_whitespace();
             if iterator.move_next() != Some('/') { return false; }
             match iterator.move_next() {

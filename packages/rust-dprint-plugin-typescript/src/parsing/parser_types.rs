@@ -1,13 +1,13 @@
 use std::str;
 use std::rc::Rc;
-use super::*;
-use super::configuration::*;
 use std::collections::{HashSet, HashMap};
 use dprint_core::{Info, ConditionReference};
-use utils::{Stack};
 use swc_common::{SpanData, BytePos, comments::{Comment, CommentKind}, SourceFile, Spanned, Span};
 use swc_ecma_ast::*;
-use swc_ecma_parser::{token::{TokenAndSpan}};
+use swc_ecma_parser::{token::TokenAndSpan};
+use super::*;
+use super::super::configuration::*;
+use super::super::utils::Stack;
 
 pub struct Context<'a> {
     pub config: &'a Configuration,

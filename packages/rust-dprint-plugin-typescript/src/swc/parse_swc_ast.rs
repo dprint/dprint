@@ -1,4 +1,3 @@
-use super::*;
 use std::collections::{HashMap};
 use swc_common::{
     errors::{Handler, Emitter, DiagnosticBuilder},
@@ -6,6 +5,7 @@ use swc_common::{
 };
 use swc_ecma_ast::{Module};
 use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget, token::{TokenAndSpan}};
+use super::super::utils;
 
 pub struct ParsedSourceFile {
     pub module: Module,

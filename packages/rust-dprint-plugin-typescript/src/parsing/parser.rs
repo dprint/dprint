@@ -5,7 +5,9 @@ use swc_common::{comments::{Comment, CommentKind}, BytePos, Span, Spanned, SpanD
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
 use super::*;
-use super::configuration::*;
+use super::super::configuration::*;
+use super::super::swc::ParsedSourceFile;
+use super::super::utils;
 
 pub fn parse(source_file: ParsedSourceFile, config: &Configuration) -> PrintItems {
     let module = Node::Module(&source_file.module);

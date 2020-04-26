@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use dprint_core::configuration::{resolve_global_config, NewLineKind};
-use super::configuration::*;
+
+use super::builder::ConfigurationBuilder;
+use super::resolve_config::resolve_config;
+use super::types::*;
 
 #[test]
 fn check_all_values_set() {
