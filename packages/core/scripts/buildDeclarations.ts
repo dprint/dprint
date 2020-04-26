@@ -34,17 +34,10 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 declarationFile.replaceWithText(writer.toString());
 declarationFile.addImportDeclaration({
     namedImports: [
-        "Condition",
-        "Signal",
-        "Info",
-        "PrintItem",
-        "PrintItemIterable",
-        "WriterInfo",
         "Plugin",
         "Configuration",
         "ConfigurationDiagnostic",
         "ResolvedConfiguration",
-        "ResolveConditionContext",
         "BaseResolvedConfiguration",
         "LoggingEnvironment",
     ],

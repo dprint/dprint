@@ -150,7 +150,7 @@ module.exports.config = {
         environment.addFile("file.asdf", "test");
         await handleOptions({ filePatterns: ["**/*.asdf"] }, environment);
         expect(environment.getErrors()).to.deep.equal([
-            "Error formatting file: file.asdf\n\nError: Could not find a plugin that would parse the file at path: file.asdf",
+            "Error formatting file: file.asdf\n\nError: Could not find a plugin that would format the file at path: file.asdf",
         ]);
     });
 

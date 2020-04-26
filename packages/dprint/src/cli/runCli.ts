@@ -1,5 +1,5 @@
 import { Environment } from "../environment";
-import { ConfigurationDiagnostic, WebAssemblyPlugin } from "@dprint/types";
+import { ConfigurationDiagnostic } from "@dprint/types";
 import { formatFileText, resolveConfiguration } from "@dprint/core";
 import { getMissingProjectTypeDiagnostic } from "../configuration";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
@@ -39,7 +39,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     try {
         await runCliWithPlugins();
     } finally {
-        plugins.forEach(p => (p as WebAssemblyPlugin).dispose?.());
+        plugins.forEach(p => p.dispose?.());
     }
 
     if (options.duration) {

@@ -9,7 +9,6 @@ export interface Spec {
     fileText: string;
     expectedText: string;
     isOnly: boolean;
-    showTree: boolean;
     skip: boolean;
     config: UnknownConfiguration;
 }
@@ -132,7 +131,6 @@ function parseSingleSpec(filePath: string, messageLine: string, lines: string[],
         expectedText,
         isOnly: lowerCaseMessageLine.includes("(only)"),
         skip: lowerCaseMessageLine.includes("(skip)"),
-        showTree: lowerCaseMessageLine.includes("(tree)"),
         config,
     };
 

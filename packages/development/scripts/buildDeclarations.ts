@@ -4,7 +4,7 @@ const readProject = new Project({ tsConfigFilePath: "tsconfig.json", compilerOpt
 const emitResult = readProject.emitToMemory({ emitOnlyDtsFiles: true });
 
 for (const file of emitResult.getFiles())
-    readProject.createSourceFile(file.filePath, file.text);
+    readProject.createSourceFile(file.filePath, file.text, { overwrite: true });
 
 const emitMainFile = readProject.getSourceFileOrThrow("./dist/index.d.ts");
 const writeProject = new Project();
@@ -33,7 +33,7 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 // todo: format using dprint
 declarationFile.replaceWithText(text);
 declarationFile.insertImportDeclaration(0, {
-    namedImports: ["PrintItemIterable", "Plugin"],
+    namedImports: ["Plugin"],
     moduleSpecifier: "@dprint/types",
 });
 declarationFile.saveSync();

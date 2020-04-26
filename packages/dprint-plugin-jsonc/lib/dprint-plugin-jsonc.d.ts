@@ -1,4 +1,4 @@
-import { WebAssemblyPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 export interface JsoncConfiguration {
     /**
@@ -40,7 +40,7 @@ export interface ResolvedJsoncConfiguration extends BaseResolvedConfiguration {
     "commentLine.forceSpaceAfterSlashes": boolean;
 }
 
-export declare class JsoncPlugin implements WebAssemblyPlugin<ResolvedJsoncConfiguration> {
+export declare class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     /**
      * Constructor.
      * @param config - The configuration to use.

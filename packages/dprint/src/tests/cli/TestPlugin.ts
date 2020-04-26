@@ -1,10 +1,9 @@
-import { JsPlugin, BaseResolvedConfiguration, PluginInitializeOptions, PrintItemIterable, Signal } from "@dprint/types";
-import { parserHelpers } from "@dprint/core";
+import { Plugin, BaseResolvedConfiguration, PluginInitializeOptions } from "@dprint/types";
 
 export interface ResolvedTestPluginConfiguration extends BaseResolvedConfiguration {
 }
 
-export class TestPlugin implements JsPlugin<ResolvedTestPluginConfiguration> {
+export class TestPlugin implements Plugin<ResolvedTestPluginConfiguration> {
     version = "0.1.0";
     name = "dprint-plugin-test";
 
@@ -28,9 +27,7 @@ export class TestPlugin implements JsPlugin<ResolvedTestPluginConfiguration> {
         return [];
     }
 
-    *parseFile(filePath: string, fileText: string): PrintItemIterable {
-        yield "// formatted";
-        yield Signal.NewLine;
-        yield* parserHelpers.parseRawString(fileText);
+    formatText(filePath: string, fileText: string) {
+        return `// formatted\n${fileText}`;
     }
 }

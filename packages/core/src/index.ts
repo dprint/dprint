@@ -12,8 +12,6 @@ if (typeof TextEncoder === "undefined") {
 }
 
 export * from "./configuration";
-export * from "./parsing";
 export * from "./environment";
-export { makeIterableRepeatable, getFileExtension, resolveNewLineKindFromText } from "./utils";
+export { getFileExtension } from "./utils";
 export * from "./formatFileText";
-export { print, PrintOptions } from "./printer";

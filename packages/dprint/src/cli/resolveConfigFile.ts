@@ -1,4 +1,4 @@
-import { Configuration as CoreConfiguration, WebAssemblyPlugin } from "@dprint/types";
+import { Configuration as CoreConfiguration } from "@dprint/types";
 import { Environment } from "../environment";
 import { throwError } from "../utils";
 
@@ -53,7 +53,7 @@ export async function resolveConfigFile(filePath: string | undefined, environmen
             // dispose the plugins on error if they were created
             const plugins = (config as ResolveConfigFileResult)?.config?.plugins;
             if (plugins instanceof Array)
-                plugins.forEach(p => (p as WebAssemblyPlugin)?.dispose?.());
+                plugins.forEach(p => p?.dispose?.());
 
             throw err;
         }

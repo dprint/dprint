@@ -1,4 +1,4 @@
-import { PrintItemIterable, WebAssemblyPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 /**
  * User specified configuration for formatting TypeScript code.
@@ -484,7 +484,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
 /**
  * Plugin for formatting TypeScript code (.ts/.tsx/.js/.jsx files).
  */
-export declare class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptConfiguration> {
+export declare class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
     /**
      * Constructor.
      * @param config - The configuration to use.

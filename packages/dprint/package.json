@@ -1,6 +1,6 @@
 {
   "name": "dprint",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "TypeScript and JSONC code formatter.",
   "main": "dist/dprint.js",
   "bin": {

@@ -1,6 +1,5 @@
-import { Plugin, JsPlugin, WebAssemblyPlugin, isJsPlugin, BaseResolvedConfiguration } from "@dprint/types";
-import { print } from "./printer";
-import { resolveNewLineKindFromText, throwError, assertNever } from "./utils";
+import { Plugin } from "@dprint/types";
+import { throwError } from "./utils";
 
 /** Options for formatting. */
 export interface FormatFileTextOptions {
@@ -11,7 +10,8 @@ export interface FormatFileTextOptions {
     /**
      * Plugins to use.
      * @remarks This function does not assume ownership of the plugins and so if there are
-     * any web assembly plugins you should dispose of them after you no longer need them.
+     * any plugins that require disposal then you should dispose of them after you no longer
+     * need them.
      */
     plugins: Plugin[];
 }
@@ -25,54 +25,17 @@ export function formatFileText(options: FormatFileTextOptions) {
     const { filePath, fileText, plugins } = options;
     const plugin = getPlugin();
 
-    return isJsPlugin(plugin) ? handleJsPlugin(plugin) : handleWebAssemblyPlugin(plugin);
-
-    function handleJsPlugin(plugin: JsPlugin) {
-        // parse the file
-        const parseResult = plugin.parseFile(filePath, fileText);
-        if (!parseResult)
-            return false;
-
-        // print it
-        const config = plugin.getConfiguration();
-        const formattedText = print(parseResult, {
-            newLineKind: resolveNewLineKind(config.newLineKind),
-            maxWidth: config.lineWidth,
-            indentWidth: config.indentWidth,
-            useTabs: config.useTabs,
-        });
-
-        if (formattedText == fileText)
-            return false;
-        return formattedText;
-    }
-
-    function resolveNewLineKind(newLineKind: BaseResolvedConfiguration["newLineKind"]) {
-        switch (newLineKind) {
-            case "lf":
-                return "\n";
-            case "crlf":
-                return "\r\n";
-            case "auto":
-                return resolveNewLineKindFromText(fileText);
-            default:
-                return assertNever(newLineKind);
-        }
-    }
-
-    function handleWebAssemblyPlugin(plugin: WebAssemblyPlugin) {
-        return plugin.formatText(filePath, fileText);
-    }
+    return plugin.formatText(filePath, fileText);
 
     function getPlugin() {
         if (plugins.length === 0)
-            return throwError("Formatter had zero plugins to format with. Did you mean to install or provide one such as dprint-plugin-typescript?");
+            return throwError("Formatter had zero plugins to format with. Did you mean to install or provide one? (Ex. dprint-plugin-typescript)");
 
         for (const plugin of plugins) {
             if (plugin.shouldFormatFile(filePath, fileText))
                 return plugin;
         }
 
-        return throwError(`Could not find a plugin that would parse the file at path: ${filePath}`);
+        return throwError(`Could not find a plugin that would format the file at path: ${filePath}`);
     }
 }

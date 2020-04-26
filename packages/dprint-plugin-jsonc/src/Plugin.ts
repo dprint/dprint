@@ -1,9 +1,9 @@
 import { getFileExtension, CliLoggingEnvironment } from "@dprint/core";
-import { WebAssemblyPlugin, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment, ResolvedConfiguration as GlobalConfig } from "@dprint/types";
+import { Plugin, ConfigurationDiagnostic, PluginInitializeOptions, LoggingEnvironment, ResolvedConfiguration as GlobalConfig } from "@dprint/types";
 import { JsoncConfiguration, ResolvedJsoncConfiguration } from "./Configuration";
 import { FormatContext } from "./wasm/ts_dprint_plugin_jsonc";
 
-export class JsoncPlugin implements WebAssemblyPlugin<ResolvedJsoncConfiguration> {
+export class JsoncPlugin implements Plugin<ResolvedJsoncConfiguration> {
     /** @internal */
     private readonly _jsoncConfig: JsoncConfiguration;
     /** @internal */

@@ -1,3 +1,5 @@
+import { Plugin } from "./plugins";
+
 /**
  * Dprint's configuration.
  */
@@ -26,7 +28,7 @@ export interface Configuration {
     useTabs?: boolean;
     /**
      * The kind of newline to use.
-     * @default "auto"
+     * @default "lf"
      * @value "auto" - For each file, uses the newline kind found at the end of the last line.
      * @value "crlf" - Uses carriage return, line feed.
      * @value "lf" - Uses line feed.

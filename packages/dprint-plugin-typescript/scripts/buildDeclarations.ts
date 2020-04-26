@@ -29,7 +29,7 @@ for (const [name, declarations] of emitMainFile.getExportedDeclarations()) {
 // todo: format using dprint
 declarationFile.replaceWithText(text);
 declarationFile.insertImportDeclaration(0, {
-    namedImports: ["PrintItemIterable", "WebAssemblyPlugin", "PluginInitializeOptions", "BaseResolvedConfiguration", "ConfigurationDiagnostic"],
+    namedImports: ["Plugin", "PluginInitializeOptions", "BaseResolvedConfiguration", "ConfigurationDiagnostic"],
     moduleSpecifier: "@dprint/types",
 });
 declarationFile.saveSync();
