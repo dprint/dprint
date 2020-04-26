@@ -166,7 +166,7 @@ fn parse_object_prop<'a>(node: &'a ObjectProp, context: &mut Context<'a>) -> Pri
 fn parse_string_lit<'a>(node: &'a StringLit, _: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str("\"");
-    items.push_str(node.value.as_ref());
+    items.push_str(&node.value.as_ref().replace("\"", "\\\""));
     items.push_str("\"");
     items
 }

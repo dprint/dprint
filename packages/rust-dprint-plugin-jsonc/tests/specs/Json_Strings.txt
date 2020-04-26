@@ -1,0 +1,11 @@
+== should support single quote strings ==
+'te\'st'
+
+[expect]
+"te'st"
+
+== should support double quote strings ==
+"test\"test"
+
+[expect]
+"test\"test"

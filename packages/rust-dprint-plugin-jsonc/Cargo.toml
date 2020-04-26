@@ -2,7 +2,7 @@
 name = "dprint-plugin-jsonc"
 description = "JSONC formatter for dprint."
 keywords = ["formatting", "formatter", "jsonc"]
-version = "0.1.0"
+version = "0.2.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 license = "MIT"
 edition = "2018"
@@ -11,7 +11,7 @@ repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 dprint-core = { path = "../rust-core", version = "0.15.0" }
-jsonc-parser = { version = "0.4.0" }
+jsonc-parser = { version = "0.5.0" }
 serde = { version = "1.0.88", features = ["derive"] }
 
 [dev-dependencies]
