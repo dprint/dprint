@@ -1,4 +1,6 @@
-use super::print_items::*;
+use super::super::print_items::*;
+use super::super::conditions;
+use super::super::condition_resolvers;
 
 pub fn surround_with_new_lines(item: PrintItems) -> PrintItems {
     let mut items = PrintItems::new();
@@ -136,16 +138,82 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
         true_path: Some(surround_with_new_lines(with_indent(inner_items.clone().into()))),
         false_path: Some({
             let mut items = PrintItems::new();
-            items.push_condition(super::conditions::if_above_width(
+            items.push_condition(conditions::if_above_width(
                 indent_width,
                 Signal::PossibleNewLine.into()
             ));
             items.extend(inner_items.into());
             items
         }),
-        condition: Box::new(move |context| super::condition_resolvers::is_multiple_lines(context, &start_info, &end_info))
+        condition: Box::new(move |context| condition_resolvers::is_multiple_lines(context, &start_info, &end_info))
     }, vec![end_info]));
     items.push_info(end_info);
 
     items
+}
+
+pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.extend(parse_raw_string(&get_comment_text(text, force_space_after_slashes)));
+    items.push_signal(Signal::ExpectNewLine);
+    return with_no_new_lines(items);
+
+    fn get_comment_text(original_text: &str, force_space_after_slashes: bool) -> String {
+        let non_slash_index = get_first_non_slash_index(&original_text);
+        let skip_space = force_space_after_slashes && original_text.chars().skip(non_slash_index).next() == Some(' ');
+        let start_text_index = if skip_space { non_slash_index + 1 } else { non_slash_index };
+        let comment_text_original = original_text.chars().skip(start_text_index).collect::<String>();
+        let comment_text = comment_text_original.trim_end();
+        let prefix = format!("//{}", original_text.chars().take(non_slash_index).collect::<String>());
+
+        return if comment_text.is_empty() {
+            prefix
+        } else {
+            format!(
+                "{}{}{}",
+                prefix,
+                if force_space_after_slashes { " " } else { "" },
+                comment_text
+            )
+        };
+
+        fn get_first_non_slash_index(text: &str) -> usize {
+            let mut i: usize = 0;
+            for c in text.chars() {
+                if c != '/' {
+                    return i;
+                }
+                i += 1;
+            }
+
+            return i;
+        }
+    }
+}
+
+/// Gets if the provided text has "dprint-ignore" in it.
+pub fn text_has_dprint_ignore(text: &str) -> bool {
+    let searching_text = "dprint-ignore";
+    let pos = text.find(searching_text);
+    if let Some(pos) = pos {
+        let end = pos + searching_text.len();
+        if pos > 0 && is_alpha_numeric_at_pos(text, pos - 1) {
+            return false;
+        }
+        if is_alpha_numeric_at_pos(text, end) {
+            return false;
+        }
+        return true;
+    } else {
+        return false;
+    }
+
+    fn is_alpha_numeric_at_pos(text: &str, pos: usize) -> bool {
+        if let Some(chars_after) = text.get(pos..) {
+            if let Some(char_after) = chars_after.chars().next() {
+                return char_after.is_alphanumeric();
+            }
+        }
+        return false;
+    }
 }
