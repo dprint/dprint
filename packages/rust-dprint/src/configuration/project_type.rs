@@ -12,7 +12,7 @@ pub fn handle_project_type_diagnostic(config: &mut HashMap<String, StringOrHashM
     let project_type_infos = get_project_type_infos();
     let property_name = "projectType";
     let has_project_type_config = match config.get(property_name) {
-        Some(StringOrHashMap::String(project_type)) => project_type_infos.iter().any(|(k, _)| k == project_type),
+        Some(StringOrHashMap::String(project_type)) => project_type_infos.iter().any(|(k, _)| k.to_lowercase() == project_type.to_lowercase()),
         _ => false,
     };
 
@@ -39,7 +39,6 @@ fn build_message(project_type_infos: &Vec<(&'static str, &'static str)>, propert
     message.push_str("You may specify any of the following possible values according to your conscience and that will suppress this warning.\n");
     for project_type_info in project_type_infos {
         message.push_str(&format!("\n * {}", project_type_info.0));
-        println!("{}", largest_name_len - project_type_info.0.len() + 1);
         message.push_str(&" ".repeat(largest_name_len - project_type_info.0.len() + 1));
         message.push_str(project_type_info.1);
     }
@@ -69,6 +68,16 @@ mod tests {
     fn it_should_handle_when_project_type_exists() {
         let mut config = HashMap::new();
         config.insert(String::from("projectType"), StringOrHashMap::String(String::from("openSource")));
+        let result = handle_project_type_diagnostic(&mut config);
+        assert_eq!(config.len(), 0); // should remove
+        assert_eq!(result.is_none(), true);
+    }
+
+    #[test]
+    fn it_should_be_case_insensitive() {
+        // don't get people too upset :)
+        let mut config = HashMap::new();
+        config.insert(String::from("projectType"), StringOrHashMap::String(String::from("opensource")));
         let result = handle_project_type_diagnostic(&mut config);
         assert_eq!(config.len(), 0); // should remove
         assert_eq!(result.is_none(), true);

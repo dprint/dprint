@@ -20,10 +20,6 @@ impl TestEnvironment {
 }
 
 impl TestEnvironment {
-    pub fn get_files(&self) -> HashMap<PathBuf, String> {
-        self.files.lock().unwrap().clone()
-    }
-
     pub fn get_logged_messages(&self) -> Vec<String> {
         self.logged_messages.lock().unwrap().clone()
     }

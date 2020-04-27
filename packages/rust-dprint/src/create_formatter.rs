@@ -1,21 +1,31 @@
-use dprint_core::plugins::Formatter;
+use dprint_core::plugins::{Formatter, Plugin};
 use std::collections::HashMap;
-use std::path::Path;
 use std::path::PathBuf;
 
 use super::configuration::{self, StringOrHashMap};
 use super::environment::Environment;
 
 pub fn create_formatter(config_path: Option<&str>, environment: &impl Environment) -> Result<Formatter, String> {
-    let mut plugins = Formatter::new(vec![
-        Box::new(dprint_plugin_typescript::TypeScriptPlugin::new()),
-        Box::new(dprint_plugin_jsonc::JsoncPlugin::new())
-    ]);
+    let mut plugins = Formatter::new(get_uninitialized_plugins());
 
     match initialize_plugins(config_path, &mut plugins, environment) {
         Ok(()) => Ok(plugins),
-        Err(err) => Err(format!("Error initializing from the configuration file: {}", err)),
+        Err(err) => {
+            let canonical_file_path = config_path.and_then(|x| PathBuf::from(x).canonicalize().ok()).map(|f| String::from(f.to_string_lossy()));
+            if let Some(canonical_file_path) = canonical_file_path {
+                Err(format!("Error initializing from configuration file '{}'. {}", canonical_file_path, err))
+            } else {
+                Err(format!("Error initializing from configuration file. {}", err))
+            }
+        },
     }
+}
+
+pub fn get_uninitialized_plugins() -> Vec<Box<dyn Plugin>> {
+    vec![
+        Box::new(dprint_plugin_typescript::TypeScriptPlugin::new()),
+        Box::new(dprint_plugin_jsonc::JsoncPlugin::new())
+    ]
 }
 
 fn initialize_plugins(config_path: Option<&str>, formatter: &mut Formatter, environment: &impl Environment) -> Result<(), String> {
@@ -49,13 +59,13 @@ fn initialize_plugins(config_path: Option<&str>, formatter: &mut Formatter, envi
         plugin.initialize(plugins_to_config.remove(&plugin.name()).unwrap_or(HashMap::new()), &global_config_result.config);
 
         for diagnostic in plugin.get_configuration_diagnostics() {
-            environment.log_error(&diagnostic.message);
+            environment.log_error(&format!("[{}]: {}", plugin.name(), diagnostic.message));
             diagnostic_count += 1;
         }
     }
 
     if diagnostic_count > 0 {
-        Err(format!("Had {} configuration file diagnostic(s).", diagnostic_count))
+        Err(format!("Had {} diagnostic(s).", diagnostic_count))
     } else {
         Ok(())
     }
@@ -100,7 +110,7 @@ fn get_global_config_from_config_map(
         if let StringOrHashMap::String(value) = value {
             global_config.insert(key, value);
         } else {
-            return Err(format!("Unexpected object property '{}' in config file.", key));
+            return Err(format!("Unexpected object property '{}'.", key));
         }
     }
 
@@ -109,20 +119,135 @@ fn get_global_config_from_config_map(
 
 fn deserialize_config_file(config_path: Option<&str>, environment: &impl Environment) -> Result<HashMap<String, StringOrHashMap>, String> {
     if let Some(config_path) = config_path {
-        let config_path = Path::new(config_path);
-        let canonical_file_path = config_path.canonicalize().map(|f| String::from(f.to_string_lossy())).unwrap_or(String::from(config_path.to_string_lossy()));
         let config_file_text = match environment.read_file(&PathBuf::from(config_path)) {
             Ok(contents) => contents,
-            Err(e) => return Err(format!("Could not read config file {} at {}", canonical_file_path, e.to_string())),
+            Err(e) => return Err(e.to_string()),
         };
 
         let result = match configuration::deserialize_config(&config_file_text) {
             Ok(map) => map,
-            Err(e) => return Err(format!("Error deserializing config file '{}'. {}", canonical_file_path, e.to_string())),
+            Err(e) => return Err(format!("Error deserializing. {}", e.to_string())),
         };
 
         Ok(result)
     } else {
         Ok(HashMap::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use super::create_formatter;
+    use super::super::environment::{Environment, TestEnvironment};
+
+    #[test]
+    fn it_should_get_formatter() {
+        assert_creates(r#"{
+    "projectType": "openSource",
+    "lineWidth": "80",
+    "typescript": {
+        "lineWidth": 40
+    },
+    "jsonc": {
+        "lineWidth": 70
+    }
+}"#);
+    }
+
+    #[test]
+    fn it_should_only_warn_when_missing_project_type() {
+        let test_environment = TestEnvironment::new();
+        let cfg_file_path = "./config.json";
+        test_environment.write_file(&PathBuf::from(cfg_file_path), r#"{ "lineWidth": 40 }"#).unwrap();
+        let result = create_formatter(Some(cfg_file_path), &test_environment);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(test_environment.get_logged_errors()[0].find("The 'projectType' property").is_some(), true);
+    }
+
+    #[test]
+    fn it_should_error_when_has_double_plugin_config_keys() {
+        assert_errors(r#"{
+    "projectType": "openSource",
+    "lineWidth": "80",
+    "typescript": {
+        "lineWidth": 40
+    },
+    "javascript": {
+        "lineWidth": 70
+    }
+}"#, vec![], "Error initializing from configuration file. Cannot specify both the 'typescript' and 'javascript' configurations for dprint-plugin-typescript.");
+    }
+
+    #[test]
+    fn it_should_error_plugin_key_is_not_object() {
+        assert_errors(r#"{
+    "projectType": "openSource",
+    "typescript": ""
+}"#, vec![], "Error initializing from configuration file. Expected the configuration property 'typescript' to be an object.");
+    }
+
+    #[test]
+    fn it_should_log_global_diagnostics() {
+        assert_errors(r#"{
+    "projectType": "openSource",
+    "lineWidth": "null"
+}"#, vec!["Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string"], "Error initializing from configuration file. Had 1 diagnostic(s).");
+    }
+
+
+    #[test]
+    fn it_should_log_unexpected_object_properties() {
+        assert_errors(r#"{
+    "projectType": "openSource",
+    "test": {}
+}"#, vec![], "Error initializing from configuration file. Unexpected object property 'test'.");
+    }
+
+    #[test]
+    fn it_should_log_plugin_diagnostics() {
+        assert_errors(
+            r#"{
+    "projectType": "openSource",
+    "typescript": {
+        "lineWidth": "null"
+    }
+}"#,
+            vec!["[dprint-plugin-typescript]: Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string"],
+            "Error initializing from configuration file. Had 1 diagnostic(s)."
+        );
+    }
+
+    #[test]
+    fn it_should_error_when_cannot_parse() {
+        assert_errors(
+            r#"{"#,
+            vec![],
+            "Error initializing from configuration file. Error deserializing. Unterminated object on line 1 column 1."
+        );
+    }
+
+    #[test]
+    fn it_should_error_when_no_file() {
+        let test_environment = TestEnvironment::new();
+        let cfg_file_path = "./config.json";
+        let result = create_formatter(Some(cfg_file_path), &test_environment);
+        assert_eq!(result.err().unwrap(), "Error initializing from configuration file. Could not find file at path ./config.json");
+    }
+
+    fn assert_creates(cfg_file_text: &str) {
+        let test_environment = TestEnvironment::new();
+        let cfg_file_path = "./config.json";
+        test_environment.write_file(&PathBuf::from(cfg_file_path), cfg_file_text).unwrap();
+        assert_eq!(create_formatter(Some(cfg_file_path), &test_environment).is_ok(), true);
+    }
+
+    fn assert_errors(cfg_file_text: &str, logged_errors: Vec<&'static str>, message: &str) {
+        let test_environment = TestEnvironment::new();
+        let cfg_file_path = "./config.json";
+        test_environment.write_file(&PathBuf::from(cfg_file_path), cfg_file_text).unwrap();
+        let result = create_formatter(Some(cfg_file_path), &test_environment);
+        assert_eq!(result.err().unwrap(), message);
+        assert_eq!(test_environment.get_logged_errors(), logged_errors);
     }
 }
