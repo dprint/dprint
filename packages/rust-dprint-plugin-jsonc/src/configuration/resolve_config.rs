@@ -18,15 +18,15 @@ use super::Configuration;
 ///
 /// let jsonc_config_map = HashMap::new(); // get a collection of k/v pairs from somewhere
 /// let config_result = resolve_config(
-///     &jsonc_config_map,
+///     jsonc_config_map,
 ///     &global_config_result.config
 /// );
 ///
 /// // check config_result.diagnostics here and use config_result.config
 /// ```
-pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut diagnostics = Vec::new();
-    let mut config = config.clone();
+    let mut config = config;
 
     let resolved_config = Configuration {
         line_width: get_value(&mut config, "lineWidth", global_config.line_width.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.line_width), &mut diagnostics),

@@ -1,4 +1,5 @@
 use std::collections::{HashMap};
+use std::path::PathBuf;
 use swc_common::{
     errors::{Handler, Emitter, DiagnosticBuilder},
     FileName, comments::{Comment, Comments, CommentMap}, SourceFile, BytePos
@@ -16,15 +17,15 @@ pub struct ParsedSourceFile {
     pub trailing_comments: HashMap<BytePos, Vec<Comment>>,
 }
 
-pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFile, String> {
+pub fn parse_swc_ast(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourceFile, String> {
     let handler = Handler::with_emitter(false, false, Box::new(EmptyEmitter {}));
     let session = Session { handler: &handler };
 
-    let file_bytes = file_text.as_bytes().to_vec();
+    let file_bytes = file_text.as_bytes().to_vec(); // todo: I think remove to_vec()
     let source_file = SourceFile::new(
-        FileName::Custom(file_path.into()),
+        FileName::Custom(file_path.to_string_lossy().into()),
         false,
-        FileName::Custom(file_path.into()),
+        FileName::Custom(file_path.to_string_lossy().into()),
         file_text.into(),
         BytePos(0),
     );
@@ -69,16 +70,11 @@ pub fn parse_swc_ast(file_path: &str, file_text: &str) -> Result<ParsedSourceFil
         file_bytes,
     });
 
-    fn should_parse_as_jsx(file_path: &str) -> bool {
-        if let Some(extension) = get_extension(&file_path) {
+    fn should_parse_as_jsx(file_path: &PathBuf) -> bool {
+        if let Some(extension) = file_path.extension().and_then(|e| e.to_str()) {
             return extension == "tsx" || extension == "jsx" || extension == "js";
         }
         return true;
-
-        fn get_extension(file_path: &str) -> Option<String> {
-            let period_pos = file_path.rfind('.')?;
-            return Some(file_path[period_pos + 1..].to_lowercase());
-        }
     }
 
     fn comment_map_to_hash_map(comments: CommentMap) -> HashMap<BytePos, Vec<Comment>> {

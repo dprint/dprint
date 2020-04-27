@@ -34,7 +34,7 @@ export function getMissingProjectTypeDiagnostic(config: Configuration): Configur
     return {
         propertyName,
         message: `The "${propertyName}" field is missing. You may specify any of the following possible values in the configuration file according to your `
-            + `conscience and that will supress this warning.\n\n`
+            + `conscience and that will suppress this warning.\n\n`
             + projectTypeInfo.values.map(value => ` * ${value.name} ${" ".repeat(largestValueName - value.name.length)}${value.description}`).join("\n"),
     };
 }

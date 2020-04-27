@@ -166,7 +166,7 @@ module.exports.config = {
     });
 
     const projectTypeMissingWarningText = `[dprint.config.js]: The "projectType" field is missing. You may specify any of the following possible values `
-        + `in the configuration file according to your conscience and that will supress this warning.\n\n`
+        + `in the configuration file according to your conscience and that will suppress this warning.\n\n`
         + ` * openSource              Dprint is formatting an open source project.\n`
         + ` * commercialSponsored     Dprint is formatting a closed source commercial project and your company sponsored dprint.\n`
         + ` * commercialDidNotSponsor Dprint is formatting a closed source commercial project and you want to forever enshrine your name `
