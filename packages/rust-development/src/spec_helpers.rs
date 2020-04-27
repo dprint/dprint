@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs::{self};
 
 use super::*;
@@ -44,10 +44,10 @@ pub fn run_specs(
         if result != spec.expected_text {
             if run_spec_options.fix_failures {
                 // very rough, but good enough
-                let file_path = Path::new(&file_path);
-                let file_text = fs::read_to_string(file_path).expect("Expected to read the file.");
+                let file_path = PathBuf::from(&file_path);
+                let file_text = fs::read_to_string(&file_path).expect("Expected to read the file.");
                 let file_text = file_text.replace(&spec.expected_text.replace("\n", "\r\n"), &result.replace("\n", "\r\n"));
-                fs::write(file_path, file_text).expect("Expected to write to file.");
+                fs::write(&file_path, file_text).expect("Expected to write to file.");
             } else {
                 failed_tests.push(FailedTestResult {
                     file_path: file_path.clone(),

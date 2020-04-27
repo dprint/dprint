@@ -5,7 +5,7 @@ extern crate dprint_development;
 
 use std::collections::HashMap;
 use std::fs::{self};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use dprint_plugin_typescript::*;

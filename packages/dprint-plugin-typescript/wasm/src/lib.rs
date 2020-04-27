@@ -8,6 +8,7 @@ use dprint_plugin_typescript::configuration::*;
 use dprint_plugin_typescript::Formatter;
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[wasm_bindgen]
 pub struct FormatContext {
@@ -22,7 +23,7 @@ impl FormatContext {
         console_error_panic_hook::set_once();
 
         let global_config = resolve_global_config(&js_map_to_hash_map(&js_global_config)).config;
-        let config_result = resolve_config(&js_map_to_hash_map(&js_config), &global_config);
+        let config_result = resolve_config(js_map_to_hash_map(&js_config), &global_config);
         let formatter = dprint_plugin_typescript::Formatter::new(config_result.config.clone());
         FormatContext {
             configuration: config_result.config,
@@ -42,7 +43,7 @@ impl FormatContext {
     }
 
     pub fn format(&self, file_path: &str, file_text: &str) -> Result<Option<String>, JsValue> {
-        match self.formatter.format_text(file_path, file_text) {
+        match self.formatter.format_text(&PathBuf::from(file_path), file_text) {
             Ok(result) => {
                 Ok(if result == file_text {
                     None
