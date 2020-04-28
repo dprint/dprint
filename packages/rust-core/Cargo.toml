@@ -2,7 +2,7 @@
 name = "dprint-core"
 description = "Core rust library for dprint."
 keywords = ["formatting", "formatter"]
-version = "0.15.0"
+version = "0.16.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
