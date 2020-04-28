@@ -1,0 +1,33 @@
+~~ lineWidth: 40, tupleType.preferSingleLine: true ~~
+== should format on a single line when below the line width ==
+type T = [
+    string,
+    number,];
+
+[expect]
+type T = [string, number];
+
+== should do multiple lines if one ends with a line comment even if it could fit on one line ==
+type T = [
+    string, // test
+    number, ];
+
+[expect]
+type T = [
+    string, // test
+    number,
+];
+
+== should not be multi line if the objects are allowed to be inline multi-line ==
+type T = [{
+    prop: number
+}, {
+    other: string
+}];
+
+[expect]
+type T = [{
+    prop: number;
+}, {
+    other: string;
+}];

@@ -380,9 +380,12 @@ export interface TypeScriptConfiguration {
     "variableStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
 
+    "arrayExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "arrayPattern.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "arguments.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "tupleType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
 /**
@@ -478,9 +481,12 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
 
     // prefer single line
+    readonly "arrayExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "arrayPattern.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arguments.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "tupleType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
 
     // declaration specific
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;

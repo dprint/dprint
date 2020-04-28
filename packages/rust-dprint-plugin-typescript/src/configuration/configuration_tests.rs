@@ -103,9 +103,12 @@ fn check_all_values_set() {
         .for_of_statement_use_braces(UseBraces::Always)
         .while_statement_use_braces(UseBraces::Always)
         /* prefer single line */
+        .array_expression_prefer_single_line(false)
+        .array_pattern_prefer_single_line(false)
         .arguments_prefer_single_line(false)
         .conditional_expression_prefer_single_line(false)
         .parameters_prefer_single_line(false)
+        .tuple_type_prefer_single_line(false)
         /* space settings */
         .binary_expression_space_surrounding_bitwise_and_arithmetic_operator(true)
         .comment_line_force_space_after_slashes(false)
@@ -133,7 +136,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 111);
+    assert_eq!(inner_config.len(), 114);
     let diagnostics = resolve_config(inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

@@ -400,12 +400,18 @@ pub struct Configuration {
     #[serde(rename = "whileStatement.useBraces")]
     pub while_statement_use_braces: UseBraces,
     /* prefer single line */
+    #[serde(rename = "arrayExpression.preferSingleLine")]
+    pub array_expression_prefer_single_line: bool,
+    #[serde(rename = "arrayPattern.preferSingleLine")]
+    pub array_pattern_prefer_single_line: bool,
     #[serde(rename = "arguments.preferSingleLine")]
     pub arguments_prefer_single_line: bool,
     #[serde(rename = "conditionalExpression.preferSingleLine")]
     pub conditional_expression_prefer_single_line: bool,
     #[serde(rename = "parameters.preferSingleLine")]
     pub parameters_prefer_single_line: bool,
+    #[serde(rename = "tupleType.preferSingleLine")]
+    pub tuple_type_prefer_single_line: bool,
 
     /* use space separator */
 

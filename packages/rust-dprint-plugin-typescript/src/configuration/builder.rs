@@ -658,6 +658,14 @@ impl ConfigurationBuilder {
 
     /* prefer single line */
 
+    pub fn array_expression_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("arrayExpression.preferSingleLine", value)
+    }
+
+    pub fn array_pattern_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("arrayPattern.preferSingleLine", value)
+    }
+
     pub fn arguments_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("arguments.preferSingleLine", value)
     }
@@ -668,6 +676,10 @@ impl ConfigurationBuilder {
 
     pub fn parameters_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("parameters.preferSingleLine", value)
+    }
+
+    pub fn tuple_type_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("tupleType.preferSingleLine", value)
     }
 
     #[cfg(test)]

@@ -1,0 +1,25 @@
+~~ lineWidth: 40, arrayPattern.preferSingleLine: true ~~
+== should format on a single line when below the line width ==
+function t([
+    a ,
+    b,
+]) {
+}
+
+[expect]
+function t([a, b]) {
+}
+
+== should do multiple lines if one ends with a line comment even if it could fit on one line ==
+function t([
+    a , //1
+    b,
+]) {
+}
+
+[expect]
+function t([
+    a, // 1
+    b,
+]) {
+}

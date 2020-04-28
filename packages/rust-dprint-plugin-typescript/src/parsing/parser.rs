@@ -1115,6 +1115,7 @@ fn parse_array_expr<'a>(node: &'a ArrayLit, context: &mut Context<'a>) -> PrintI
         parent_span_data: node.span.data(),
         nodes: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
         prefer_hanging: context.config.array_expression_prefer_hanging,
+        prefer_single_line: context.config.array_expression_prefer_single_line,
         trailing_commas: context.config.array_expression_trailing_commas,
     }, context)
 }
@@ -2677,6 +2678,7 @@ fn parse_array_pat<'a>(node: &'a ArrayPat, context: &mut Context<'a>) -> PrintIt
         parent_span_data: node.span.data(),
         nodes: node.elems.iter().map(|x| x.as_ref().map(|elem| elem.into())).collect(),
         prefer_hanging: context.config.array_pattern_prefer_hanging,
+        prefer_single_line: context.config.array_pattern_prefer_single_line,
         trailing_commas: context.config.array_pattern_trailing_commas,
     }, context));
     if node.optional { items.push_str("?"); }
@@ -3937,6 +3939,7 @@ fn parse_tuple_type<'a>(node: &'a TsTupleType, context: &mut Context<'a>) -> Pri
         parent_span_data: node.span.data(),
         nodes: node.elem_types.iter().map(|x| Some(x.into())).collect(),
         prefer_hanging: context.config.tuple_type_prefer_hanging,
+        prefer_single_line: context.config.tuple_type_prefer_single_line,
         trailing_commas: context.config.tuple_type_trailing_commas,
     }, context)
 }
@@ -4378,8 +4381,9 @@ fn get_jsx_empty_expr_comments<'a>(node: &JSXEmptyExpr, context: &mut Context<'a
 struct ParseArrayLikeNodesOptions<'a> {
     parent_span_data: SpanData,
     nodes: Vec<Option<Node<'a>>>,
-    trailing_commas: TrailingCommas,
     prefer_hanging: bool,
+    prefer_single_line: bool,
+    trailing_commas: TrailingCommas,
 }
 
 fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mut Context<'a>) -> PrintItems {
@@ -4387,7 +4391,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
     let nodes = opts.nodes;
     let trailing_commas = if allow_trailing_commas(&nodes) { opts.trailing_commas } else { TrailingCommas::Never };
     let prefer_hanging = opts.prefer_hanging;
-    let force_use_new_lines = get_force_use_new_lines(&parent_span_data, &nodes, context);
+    let force_use_new_lines = !opts.prefer_single_line && get_force_use_new_lines(&parent_span_data, &nodes, context);
     let mut items = PrintItems::new();
     let mut first_member = nodes.get(0).map(|x| x.as_ref().map(|y| y.span_data())).flatten();
 
