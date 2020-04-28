@@ -18,6 +18,24 @@ pub struct ParsedSourceFile {
 }
 
 pub fn parse_swc_ast(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourceFile, String> {
+    match parse_inner(file_path, file_text) {
+        Ok(result) => Ok(result),
+        Err(err) => {
+            if get_lowercase_extension(file_path) == Some(String::from("ts")) {
+                // try to parse as jsx
+                let tsx_file_path = file_path.with_extension("tsx");
+                match parse_inner(&tsx_file_path, file_text) {
+                    Ok(result) => Ok(result),
+                    Err(_) => Err(err), // return the original error
+                }
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
+fn parse_inner(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourceFile, String> {
     let handler = Handler::with_emitter(false, false, Box::new(EmptyEmitter {}));
     let session = Session { handler: &handler };
 
@@ -71,7 +89,7 @@ pub fn parse_swc_ast(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourc
     });
 
     fn should_parse_as_jsx(file_path: &PathBuf) -> bool {
-        if let Some(extension) = file_path.extension().and_then(|e| e.to_str()) {
+        if let Some(extension) = get_lowercase_extension(file_path) {
             return extension == "tsx" || extension == "jsx" || extension == "js";
         }
         return true;
@@ -86,6 +104,10 @@ pub fn parse_swc_ast(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourc
         // need to support multi-threading so convert to HashMap.
         comments.into_iter().collect()
     }
+}
+
+fn get_lowercase_extension(file_path: &PathBuf) -> Option<String> {
+    file_path.extension().and_then(|e| e.to_str()).map(|f| f.to_lowercase())
 }
 
 pub struct EmptyEmitter {
