@@ -1,4 +1,3 @@
-use super::StringTrait;
 use super::WriteItem;
 
 pub struct PrintWriteItemsOptions {
@@ -12,7 +11,7 @@ pub struct PrintWriteItemsOptions {
 }
 
 /// Prints string based writer items.
-pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, options: PrintWriteItemsOptions) -> String where T : StringTrait {
+pub fn print_write_items(write_items: impl Iterator<Item = WriteItem>, options: PrintWriteItemsOptions) -> String {
     // todo: faster string manipulation? or is this as good as it gets?
     let mut final_string = String::new();
     let indent_string = if options.use_tabs { String::from("\t") } else { " ".repeat(options.indent_width as usize) };
@@ -23,7 +22,7 @@ pub fn print_write_items<T>(write_items: impl Iterator<Item = WriteItem<T>>, opt
             WriteItem::NewLine => final_string.push_str(&options.new_line_text),
             WriteItem::Tab => final_string.push_str("\t"),
             WriteItem::Space => final_string.push_str(" "),
-            WriteItem::String(text) => final_string.push_str(text.text.get_text()),
+            WriteItem::String(text) => final_string.push_str(&text.text),
         }
     }
 
