@@ -35,11 +35,11 @@
     "@types/showdown": "^1.9.3",
     "clean-css": "^4.2.3",
     "copyfiles": "^2.2.0",
-    "highlight.js": "^9.18.1",
+    "highlight.js": "^10.0.1",
     "html-minifier": "^4.0.0",
     "lerna": "^3.20.2",
     "rimraf": "^3.0.2",
     "showdown": "^1.9.1",
-    "ts-morph": "^7.0.1"
+    "ts-morph": "^7.0.3"
   }
 }
