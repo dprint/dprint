@@ -10,7 +10,7 @@ homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-dprint-pl
 repository = "https://github.com/dprint/dprint"
 
 [dependencies]
-dprint-core = { path = "../rust-core", version = "0.15.0" }
+dprint-core = { path = "../rust-core", version = "0.16.0" }
 swc_common = "=0.5.9"
 swc_ecma_ast = "=0.18.1"
 swc_ecma_parser = "=0.21.9"
