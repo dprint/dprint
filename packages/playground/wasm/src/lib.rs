@@ -4,10 +4,12 @@ extern crate console_error_panic_hook;
 extern crate dprint_plugin_typescript;
 extern crate dprint_core;
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use dprint_core::configuration::*;
 use dprint_plugin_typescript::configuration::*;
 use wasm_bindgen::prelude::*;
-use std::collections::HashMap;
 
 #[wasm_bindgen]
 pub fn resolve_config(configuration: &js_sys::Map) -> String {
@@ -21,7 +23,7 @@ pub fn format_text(file_text: &str, configuration: &js_sys::Map) -> String {
 
     let configuration = resolve_to_typescript_config(&configuration);
     let formatter = dprint_plugin_typescript::Formatter::new(configuration);
-    match formatter.format_text("./file.tsx", file_text) {
+    match formatter.format_text(&PathBuf::from("./file.tsx"), file_text) {
         Ok(result) => result,
         Err(error) => String::from(error),
     }
@@ -39,5 +41,5 @@ fn resolve_to_typescript_config(configuration: &js_sys::Map) -> Configuration {
     }
 
     let global_config = resolve_global_config(&HashMap::new()).config;
-    return dprint_plugin_typescript::configuration::resolve_config(&hash_map, &global_config).config;
+    return dprint_plugin_typescript::configuration::resolve_config(hash_map, &global_config).config;
 }

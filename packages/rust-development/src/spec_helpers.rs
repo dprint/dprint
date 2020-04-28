@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::PathBuf;
 use std::fs::{self};
 
 use super::*;
@@ -19,10 +19,10 @@ pub struct RunSpecsOptions {
 }
 
 pub fn run_specs(
-    directory_path: &Path,
+    directory_path: &PathBuf,
     parse_spec_options: &ParseSpecOptions,
     run_spec_options: &RunSpecsOptions,
-    format_text: impl Fn(&str, &str, &HashMap<String, String>) -> Result<String, String>
+    format_text: impl Fn(&PathBuf, &str, &HashMap<String, String>) -> Result<String, String>
 ) {
     #[cfg(not(debug_assertions))]
     assert_not_fix_failures(run_spec_options);
@@ -31,12 +31,12 @@ pub fn run_specs(
     let test_count = specs.len();
     let mut failed_tests = Vec::new();
 
-    for (file_path, spec) in specs.iter().filter(|(_, spec)| !spec.skip) {
+    for (file_path, spec) in specs.into_iter().filter(|(_, spec)| !spec.skip) {
         #[cfg(not(debug_assertions))]
         assert_spec_not_only(&spec);
 
         let format = |file_text: &str| {
-            format_text(&spec.file_name, &file_text, &spec.config)
+            format_text(&PathBuf::from(&spec.file_name), &file_text, &spec.config)
                 .expect(format!("Could not parse spec '{}' in {}", spec.message, file_path).as_str())
         };
 
@@ -44,10 +44,10 @@ pub fn run_specs(
         if result != spec.expected_text {
             if run_spec_options.fix_failures {
                 // very rough, but good enough
-                let file_path = Path::new(file_path);
-                let file_text = fs::read_to_string(file_path).expect("Expected to read the file.");
+                let file_path = PathBuf::from(&file_path);
+                let file_text = fs::read_to_string(&file_path).expect("Expected to read the file.");
                 let file_text = file_text.replace(&spec.expected_text.replace("\n", "\r\n"), &result.replace("\n", "\r\n"));
-                fs::write(file_path, file_text).expect("Expected to write to file.");
+                fs::write(&file_path, file_text).expect("Expected to write to file.");
             } else {
                 failed_tests.push(FailedTestResult {
                     file_path: file_path.clone(),
