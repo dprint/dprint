@@ -368,9 +368,17 @@ export interface TypeScriptConfiguration {
     "unionAndIntersectionType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "variableStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "arrayExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "arrayPattern.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "arguments.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "exportDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "importDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "objectExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "objectPattern.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "tupleType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "typeLiteral.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
 /**
@@ -450,9 +458,17 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "unionAndIntersectionType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "variableStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "arrayExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "arrayPattern.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arguments.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "importDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "exportDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "objectExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "objectPattern.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "tupleType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "typeLiteral.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;

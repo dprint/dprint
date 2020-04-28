@@ -1,0 +1,34 @@
+~~ lineWidth: 40, typeLiteral.preferSingleLine: true ~~
+== should maintain blank lines when above line width ==
+type Test = {
+    testinggg: number;
+
+    uotththth: string;
+};
+
+[expect]
+type Test = {
+    testinggg: number;
+
+    uotththth: string;
+};
+
+== should collapse to a single line when below the line width ==
+type Test = {
+    a: string;
+
+    b: string;
+};
+
+[expect]
+type Test = { a: string; b: string };
+
+== should force using multiple lines when there's a comment ==
+type Test = {
+    a: string; // 1
+};
+
+[expect]
+type Test = {
+    a: string; // 1
+};

@@ -1,0 +1,34 @@
+~~ lineWidth: 40, exportDeclaration.preferSingleLine: true ~~
+== should format on a single line when short enough ==
+export {
+    n1,
+    n2,
+    n3,
+} from "test";
+
+[expect]
+export { n1, n2, n3 } from "test";
+
+== should format on multiple lines when long enough ==
+export {
+    testing,
+    thisOut,
+    aBit,
+} from "test";
+
+[expect]
+export {
+    testing,
+    thisOut,
+    aBit,
+} from "test";
+
+== should format on multiple lines when short enough, but there's a comment ==
+export {
+    testing, // 1
+} from "test";
+
+[expect]
+export {
+    testing, // 1
+} from "test";

@@ -408,10 +408,20 @@ pub struct Configuration {
     pub arguments_prefer_single_line: bool,
     #[serde(rename = "conditionalExpression.preferSingleLine")]
     pub conditional_expression_prefer_single_line: bool,
+    #[serde(rename = "exportDeclaration.preferSingleLine")]
+    pub export_declaration_prefer_single_line: bool,
+    #[serde(rename = "importDeclaration.preferSingleLine")]
+    pub import_declaration_prefer_single_line: bool,
+    #[serde(rename = "objectExpression.preferSingleLine")]
+    pub object_expression_prefer_single_line: bool,
+    #[serde(rename = "objectPattern.preferSingleLine")]
+    pub object_pattern_prefer_single_line: bool,
     #[serde(rename = "parameters.preferSingleLine")]
     pub parameters_prefer_single_line: bool,
     #[serde(rename = "tupleType.preferSingleLine")]
     pub tuple_type_prefer_single_line: bool,
+    #[serde(rename = "typeLiteral.preferSingleLine")]
+    pub type_literal_prefer_single_line: bool,
 
     /* use space separator */
 

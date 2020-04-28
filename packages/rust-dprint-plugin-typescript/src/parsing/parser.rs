@@ -1080,30 +1080,39 @@ fn parse_named_import_or_export_specifiers<'a>(parent: &Node<'a>, specifiers: Ve
         trailing_commas: Some(get_trailing_commas(parent, context)),
         semi_colons: None,
         prefer_hanging: get_prefer_hanging(parent, context),
+        prefer_single_line: get_prefer_single_line(parent, context),
         surround_single_line_with_spaces: get_use_space(parent, context),
     }, context);
 
-    fn get_trailing_commas(parent_decl: &Node, context: &mut Context) -> TrailingCommas {
+    fn get_trailing_commas(parent_decl: &Node, context: &Context) -> TrailingCommas {
         match parent_decl {
             Node::NamedExport(_) => context.config.export_declaration_trailing_commas,
             Node::ImportDecl(_) => context.config.import_declaration_trailing_commas,
-            _ => TrailingCommas::Never, // not worth panicking over
+            _ => unreachable!(),
         }
     }
 
-    fn get_use_space(parent_decl: &Node, context: &mut Context) -> bool {
+    fn get_use_space(parent_decl: &Node, context: &Context) -> bool {
         match parent_decl {
             Node::NamedExport(_) => context.config.export_declaration_space_surrounding_named_exports,
             Node::ImportDecl(_) => context.config.import_declaration_space_surrounding_named_imports,
-            _ => true, // not worth panicking over
+            _ => unreachable!(),
         }
     }
 
-    fn get_prefer_hanging(parent_decl: &Node, context: &mut Context) -> bool {
+    fn get_prefer_hanging(parent_decl: &Node, context: &Context) -> bool {
         match parent_decl {
             Node::NamedExport(_) => context.config.export_declaration_prefer_hanging,
             Node::ImportDecl(_) => context.config.import_declaration_prefer_hanging,
-            _ => true, // not worth panicking over
+            _ => unreachable!(),
+        }
+    }
+
+    fn get_prefer_single_line(parent_decl: &Node, context: &Context) -> bool {
+        match parent_decl {
+            Node::NamedExport(_) => context.config.export_declaration_prefer_single_line,
+            Node::ImportDecl(_) => context.config.import_declaration_prefer_single_line,
+            _ => unreachable!(),
         }
     }
 }
@@ -1922,6 +1931,7 @@ fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> Print
         trailing_commas: Some(context.config.object_expression_trailing_commas),
         semi_colons: None,
         prefer_hanging: context.config.object_expression_prefer_hanging,
+        prefer_single_line: context.config.object_expression_prefer_single_line,
         surround_single_line_with_spaces: true,
     }, context)
 }
@@ -2370,6 +2380,7 @@ fn parse_type_lit<'a>(node: &'a TsTypeLit, context: &mut Context<'a>) -> PrintIt
         trailing_commas: None,
         semi_colons: Some(context.config.semi_colons),
         prefer_hanging: context.config.type_literal_prefer_hanging,
+        prefer_single_line: context.config.type_literal_prefer_single_line,
         surround_single_line_with_spaces: true,
     }, context);
 }
@@ -2722,6 +2733,7 @@ fn parse_object_pat<'a>(node: &'a ObjectPat, context: &mut Context<'a>) -> Print
         trailing_commas: Some(get_trailing_commas(node, context)),
         semi_colons: None,
         prefer_hanging: context.config.object_pattern_prefer_hanging,
+        prefer_single_line: context.config.object_pattern_prefer_single_line,
         surround_single_line_with_spaces: true,
     }, context));
     if node.optional { items.push_str("?"); }
@@ -4617,7 +4629,7 @@ struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a
 fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
     let is_parameters = opts.is_parameters;
     let prefer_single_line = is_parameters && context.config.parameters_prefer_single_line || !is_parameters && context.config.arguments_prefer_single_line;
-    let force_use_new_lines = get_use_new_lines(&opts.nodes, prefer_single_line, context);
+    let force_use_new_lines = get_use_new_lines_for_nodes("(", &opts.nodes, prefer_single_line, context);
     let span_data = opts.span_data;
     let custom_close_paren = opts.custom_close_paren;
     let first_member_span_data = opts.nodes.iter().map(|n| n.span_data()).next();
@@ -4696,27 +4708,6 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
                         }
                     }
                 }
-            }
-
-            false
-        }
-    }
-
-    fn get_use_new_lines(nodes: &Vec<Node>, prefer_single_line: bool, context: &mut Context) -> bool {
-        if nodes.is_empty() {
-            return false;
-        }
-
-        if prefer_single_line {
-            // basic rule: if any comments exist on separate lines, then everything becomes multi-line
-            has_any_node_comment_on_different_line(nodes, context)
-        } else {
-            // arrow function expressions might not have an open paren (ex. `a => a + 5`)
-            let first_node = &nodes[0];
-            let open_paren_token = context.token_finder.get_previous_token_if_open_paren(first_node);
-
-            if let Some(open_paren_token) = open_paren_token {
-                return node_helpers::get_use_new_lines_for_nodes(open_paren_token, first_node, context);
             }
 
             false
@@ -4831,7 +4822,7 @@ fn parse_separated_values<'a>(
     let semi_colons = opts.semi_colons;
     let trailing_commas = opts.trailing_commas;
     let indent_width = context.config.indent_width;
-    let compute_lines_span = opts.allow_blank_lines && opts.force_use_new_lines; // save time otherwise
+    let compute_lines_span = opts.allow_blank_lines; // save time otherwise
     parser_helpers::parse_separated_values(|is_multi_line_or_hanging_ref| {
         let is_multi_line_or_hanging = is_multi_line_or_hanging_ref.create_resolver();
         let mut parsed_nodes = Vec::new();
@@ -5103,6 +5094,7 @@ struct ParseObjectLikeNodeOptions<'a> {
     trailing_commas: Option<TrailingCommas>,
     semi_colons: Option<SemiColons>,
     prefer_hanging: bool,
+    prefer_single_line: bool,
     surround_single_line_with_spaces: bool,
 }
 
@@ -5111,39 +5103,19 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
 
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(&opts.node_span_data).expect("Expected to find an open brace token.");
     let close_brace_token = context.token_finder.get_last_close_brace_token_within(&opts.node_span_data).expect("Expected to find a close brace token.");
-    let multi_line = if opts.members.is_empty() {
-        false
-    } else {
-        node_helpers::get_use_new_lines_for_nodes(
-            open_brace_token,
-            &opts.members[0],
-            context
-        )
-    };
+    let force_multi_line = get_use_new_lines_for_nodes("{", &opts.members, opts.prefer_single_line, context);
 
     let first_member_span_data = opts.members.get(0).map(|x| x.span_data());
     let obj_span_data = create_span_data(open_brace_token.lo(), close_brace_token.hi());
 
     items.extend(parse_surrounded_by_tokens(|context| {
         let mut items = PrintItems::new();
-        if multi_line {
-            items.push_signal(Signal::NewLine);
-            items.extend(parser_helpers::with_indent(parse_statements_or_members(ParseStatementsOrMembersOptions {
-                inner_span_data: create_span_data(open_brace_token.hi(), close_brace_token.lo()),
-                items: opts.members.into_iter().map(|member| (member.into(), None)).collect(),
-                should_use_space: None,
-                should_use_new_line: None,
-                should_use_blank_line: |previous, next, context| node_helpers::has_separating_blank_line(previous, next, context),
-                trailing_commas: opts.trailing_commas,
-                semi_colons: opts.semi_colons,
-            }, context)));
-            items.push_signal(Signal::NewLine);
-        } else if !opts.members.is_empty() {
+        if !opts.members.is_empty() {
             items.extend(parse_separated_values(ParseSeparatedValuesOptions {
                 nodes: opts.members.into_iter().map(|x| Some(x)).collect(),
                 prefer_hanging: opts.prefer_hanging,
-                force_use_new_lines: false,
-                allow_blank_lines: false,
+                force_use_new_lines: force_multi_line,
+                allow_blank_lines: true,
                 trailing_commas: opts.trailing_commas,
                 semi_colons: opts.semi_colons,
                 single_line_space_at_start: opts.surround_single_line_with_spaces,
@@ -6225,6 +6197,29 @@ fn allows_inline_multi_line(node: &Node, has_siblings: bool) -> bool {
                 ExprOrSuper::Super(_) => true,
             }
         }
+    }
+}
+
+fn get_use_new_lines_for_nodes(open_token_text: &str, nodes: &Vec<Node>, prefer_single_line: bool, context: &mut Context) -> bool {
+    if nodes.is_empty() {
+        return false;
+    }
+
+    if prefer_single_line {
+        // basic rule: if any comments exist on separate lines, then everything becomes multi-line
+        has_any_node_comment_on_different_line(nodes, context)
+    } else {
+        let first_node = &nodes[0];
+        let previous_token = context.token_finder.get_previous_token(first_node);
+
+        if let Some(previous_token) = previous_token {
+            if previous_token.text(context) == open_token_text {
+                return node_helpers::get_use_new_lines_for_nodes(previous_token, first_node, context);
+            }
+        }
+
+        // arrow function expressions might not have an open paren (ex. `a => a + 5`)
+        false
     }
 }
 

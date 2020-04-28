@@ -419,8 +419,13 @@ describe("configuration", () => {
                 "arrayPattern.preferSingleLine": value,
                 "arguments.preferSingleLine": value,
                 "conditionalExpression.preferSingleLine": value,
+                "exportDeclaration.preferSingleLine": value,
+                "importDeclaration.preferSingleLine": value,
+                "objectExpression.preferSingleLine": value,
+                "objectPattern.preferSingleLine": value,
                 "parameters.preferSingleLine": value,
                 "tupleType.preferSingleLine": value,
+                "typeLiteral.preferSingleLine": value,
             };
         }
     });

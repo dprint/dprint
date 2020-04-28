@@ -2,6 +2,7 @@
 == should format on a single line when below the line width ==
 const t = [
     5   ,
+
     6
 ];
 
@@ -31,3 +32,20 @@ const t = [{
 }, {
     other: "string",
 }];
+
+== should maintain blank lines when exceeding the line width ==
+const t = [
+    testint,
+
+    thisOutWithSomeLong,
+
+    text];
+
+[expect]
+const t = [
+    testint,
+
+    thisOutWithSomeLong,
+
+    text,
+];

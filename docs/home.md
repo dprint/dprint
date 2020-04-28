@@ -290,7 +290,7 @@ callExpr(
 callExpr(1, 2, 3);
 ```
 
-If you would like to force something to be multi-line when `preferSingleLine` is `true`, then add a comment to the front:
+If you would like to force something to be multi-line when `preferSingleLine` is `true`, then add a comment to the front or beside an item:
 
 ```ts
 call(

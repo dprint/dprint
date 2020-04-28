@@ -135,8 +135,13 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         array_pattern_prefer_single_line: get_value(&mut config, "arrayPattern.preferSingleLine", prefer_single_line, &mut diagnostics),
         arguments_prefer_single_line: get_value(&mut config, "arguments.preferSingleLine", prefer_single_line, &mut diagnostics),
         conditional_expression_prefer_single_line: get_value(&mut config, "conditionalExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
+        import_declaration_prefer_single_line: get_value(&mut config, "importDeclaration.preferSingleLine", prefer_single_line, &mut diagnostics),
+        export_declaration_prefer_single_line: get_value(&mut config, "exportDeclaration.preferSingleLine", prefer_single_line, &mut diagnostics),
+        object_expression_prefer_single_line: get_value(&mut config, "objectExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
+        object_pattern_prefer_single_line: get_value(&mut config, "objectPattern.preferSingleLine", prefer_single_line, &mut diagnostics),
         parameters_prefer_single_line: get_value(&mut config, "parameters.preferSingleLine", prefer_single_line, &mut diagnostics),
         tuple_type_prefer_single_line: get_value(&mut config, "tupleType.preferSingleLine", prefer_single_line, &mut diagnostics),
+        type_literal_prefer_single_line: get_value(&mut config, "typeLiteral.preferSingleLine", prefer_single_line, &mut diagnostics),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true, &mut diagnostics),
         comment_line_force_space_after_slashes: get_value(&mut config, "commentLine.forceSpaceAfterSlashes", true, &mut diagnostics),

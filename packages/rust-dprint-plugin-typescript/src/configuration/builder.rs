@@ -674,12 +674,32 @@ impl ConfigurationBuilder {
         self.insert("conditionalExpression.preferSingleLine", value)
     }
 
+    pub fn import_declaration_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("importDeclaration.preferSingleLine", value)
+    }
+
+    pub fn export_declaration_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("exportDeclaration.preferSingleLine", value)
+    }
+
+    pub fn object_expression_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("objectExpression.preferSingleLine", value)
+    }
+
+    pub fn object_pattern_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("objectPattern.preferSingleLine", value)
+    }
+
     pub fn parameters_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("parameters.preferSingleLine", value)
     }
 
     pub fn tuple_type_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("tupleType.preferSingleLine", value)
+    }
+
+    pub fn type_literal_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("typeLiteral.preferSingleLine", value)
     }
 
     #[cfg(test)]
