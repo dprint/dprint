@@ -1,6 +1,6 @@
 {
   "name": "@dprint/core",
-  "version": "0.10.0",
+  "version": "0.9.0",
   "description": "Core functionality for dprint.",
   "main": "dist/dprint-core.js",
   "types": "lib/dprint-core.d.ts",
@@ -30,7 +30,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@dprint/types": "~0.3.0"
+    "@dprint/types": "~0.4.0"
   },
   "devDependencies": {
     "@types/chai": "^4.2.11",

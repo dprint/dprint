@@ -1,7 +1,7 @@
 // dprint-ignore-file
 import { Plugin, Configuration, ConfigurationDiagnostic, ResolvedConfiguration, BaseResolvedConfiguration, LoggingEnvironment } from "@dprint/types";
 
-export declare const version = "0.10.0";
+export declare const version = "0.9.0";
 
 export declare function getFileExtension(filePath: string): string;
 
