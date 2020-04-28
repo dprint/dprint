@@ -11,6 +11,7 @@ pub mod condition_resolvers;
 pub mod conditions;
 pub mod parser_helpers;
 pub mod tokens;
+pub mod plugins;
 
 pub use print_items::*;
 pub use write_items::*;

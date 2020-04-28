@@ -5,7 +5,7 @@ extern crate dprint_development;
 
 use std::collections::HashMap;
 use std::fs::{self};
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use dprint_plugin_typescript::*;
@@ -30,7 +30,7 @@ fn test_performance() {
 
     for i in 0..10 {
         let start = Instant::now();
-        let result = formatter.format_text("checker.ts", &file_text).expect("Could not parse...");
+        let result = formatter.format_text(&PathBuf::from("checker.ts"), &file_text).expect("Could not parse...");
 
         println!("{}ms", start.elapsed().as_millis());
         println!("---");
@@ -47,11 +47,11 @@ fn test_specs() {
     let global_config = resolve_global_config(&HashMap::new()).config;
 
     run_specs(
-        &Path::new("./tests/specs"),
+        &PathBuf::from("./tests/specs"),
         &ParseSpecOptions { default_file_name: "file.ts" },
         &RunSpecsOptions { fix_failures: false, format_twice: true },
         move |file_name, file_text, spec_config| {
-            let config_result = resolve_config(&spec_config, &global_config);
+            let config_result = resolve_config(spec_config.clone(), &global_config);
             ensure_no_diagnostics(&config_result.diagnostics);
 
             let formatter = Formatter::new(config_result.config);

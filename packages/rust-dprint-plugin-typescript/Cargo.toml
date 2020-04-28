@@ -2,7 +2,7 @@
 name = "dprint-plugin-typescript"
 description = "TypeScript formatter for dprint."
 keywords = ["formatting", "formatter", "typescript"]
-version = "0.13.2"
+version = "0.14.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -15,6 +15,7 @@ swc_common = "=0.5.9"
 swc_ecma_ast = "=0.18.1"
 swc_ecma_parser = "=0.21.9"
 serde = { version = "1.0.88", features = ["derive"] }
+serde_json = "1.0"
 
 [dev-dependencies]
 dprint-development = { path = "../rust-development" }

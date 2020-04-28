@@ -25,9 +25,9 @@ use super::types::*;
 ///
 /// // check config_result.diagnostics here and use config_result.config
 /// ```
-pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut diagnostics = Vec::new();
-    let mut config = config.clone();
+    let mut config = config;
 
     if get_value(&mut config, "deno", false, &mut diagnostics) {
         fill_deno_config(&mut config);

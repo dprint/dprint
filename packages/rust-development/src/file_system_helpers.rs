@@ -1,8 +1,8 @@
 use std::fs::{self};
-use std::path::Path;
+use std::path::PathBuf;
 use super::*;
 
-pub fn get_specs_in_dir(path: &Path, parse_spec_options: &ParseSpecOptions) -> Vec<(String, Spec)> {
+pub fn get_specs_in_dir(path: &PathBuf, parse_spec_options: &ParseSpecOptions) -> Vec<(String, Spec)> {
     let mut result: Vec<(String, Spec)> = Vec::new();
     let spec_files = get_files_in_dir_recursive(&path);
     for (file_path, text) in spec_files {
@@ -23,10 +23,10 @@ pub fn get_specs_in_dir(path: &Path, parse_spec_options: &ParseSpecOptions) -> V
     }
 }
 
-pub fn get_files_in_dir_recursive(path: &Path) -> Vec<(String, String)> {
+pub fn get_files_in_dir_recursive(path: &PathBuf) -> Vec<(String, String)> {
     return read_dir_recursively(path);
 
-    fn read_dir_recursively(dir_path: &Path) -> Vec<(String, String)> {
+    fn read_dir_recursively(dir_path: &PathBuf) -> Vec<(String, String)> {
         let mut result = Vec::new();
 
         for entry in dir_path.read_dir().expect("read dir failed") {

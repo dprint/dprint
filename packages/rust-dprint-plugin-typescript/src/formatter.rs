@@ -1,6 +1,7 @@
 use swc_common::{GLOBALS, Globals};
 use dprint_core::*;
 use dprint_core::configuration::{resolve_new_line_kind};
+use std::path::PathBuf;
 use super::parsing::parse;
 use super::swc::parse_swc_ast;
 use super::configuration::Configuration;
@@ -49,7 +50,7 @@ impl Formatter {
     /// Formats a file.
     ///
     /// Returns the file text `Ok(formatted_text) or an error when it failed to parse.
-    pub fn format_text(&self, file_path: &str, file_text: &str) -> Result<String, String> {
+    pub fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, String> {
         return self.run(|| {
             if has_ignore_comment(file_text) {
                 return Ok(String::from(file_text));
