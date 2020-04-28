@@ -52,7 +52,7 @@ fn markexpectnewline_writesnewline() {
     assert_writer_equal(writer, "1\n2");
 }
 
-fn assert_writer_equal(writer: Writer<String>, text: &str) {
+fn assert_writer_equal(writer: Writer, text: &str) {
     let result = print_write_items(writer.get_items(), PrintWriteItemsOptions {
         indent_width: 2,
         use_tabs: false,
@@ -61,10 +61,10 @@ fn assert_writer_equal(writer: Writer<String>, text: &str) {
     assert_eq!(result, String::from(text));
 }
 
-fn write_text(writer: &mut Writer<String>, text: &'static str) {
+fn write_text(writer: &mut Writer, text: &'static str) {
     writer.write(Rc::new(StringContainer::new(String::from(text))));
 }
 
-fn create_writer() -> Writer<String> {
+fn create_writer() -> Writer {
     Writer::new(WriterOptions { indent_width: 2 })
 }

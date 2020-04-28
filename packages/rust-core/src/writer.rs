@@ -1,10 +1,9 @@
 use super::StringContainer;
-use super::StringTrait;
 use super::WriteItem;
 use super::collections::{GraphNode, GraphNodeIterator};
 use std::rc::Rc;
 
-pub struct WriterState<T> where T : StringTrait {
+pub struct WriterState {
     current_line_column: u32,
     current_line_number: u32,
     last_line_indent_level: u8,
@@ -12,11 +11,11 @@ pub struct WriterState<T> where T : StringTrait {
     expect_newline_next: bool,
     last_was_not_trailing_space: bool,
     ignore_indent_count: u8,
-    items: Option<Rc<GraphNode<WriteItem<T>>>>,
+    items: Option<Rc<GraphNode<WriteItem>>>,
 }
 
-impl<T> Clone for WriterState<T> where T : StringTrait {
-    fn clone(&self) -> WriterState<T> {
+impl Clone for WriterState {
+    fn clone(&self) -> WriterState {
         WriterState {
             current_line_column: self.current_line_column,
             current_line_number: self.current_line_number,
@@ -34,13 +33,13 @@ pub struct WriterOptions {
     pub indent_width: u8,
 }
 
-pub struct Writer<T> where T : StringTrait {
-    state: WriterState<T>,
+pub struct Writer {
+    state: WriterState,
     indent_width: u8,
 }
 
-impl<T> Writer<T> where T : StringTrait {
-    pub fn new(options: WriterOptions) -> Writer<T> {
+impl Writer {
+    pub fn new(options: WriterOptions) -> Writer {
         Writer {
             indent_width: options.indent_width,
             state: WriterState {
@@ -56,11 +55,11 @@ impl<T> Writer<T> where T : StringTrait {
         }
     }
 
-    pub fn get_state(&self) -> WriterState<T> {
+    pub fn get_state(&self) -> WriterState {
         self.state.clone()
     }
 
-    pub fn set_state(&mut self, state: WriterState<T>) {
+    pub fn set_state(&mut self, state: WriterState) {
         self.state = state;
     }
 
@@ -170,7 +169,7 @@ impl<T> Writer<T> where T : StringTrait {
         self.push_item(WriteItem::Space);
     }
 
-    pub fn write(&mut self, text: Rc<StringContainer<T>>) {
+    pub fn write(&mut self, text: Rc<StringContainer>) {
         self.handle_first_column();
         self.state.current_line_column += text.char_count;
         self.push_item(WriteItem::String(text));
@@ -196,7 +195,7 @@ impl<T> Writer<T> where T : StringTrait {
         }
     }
 
-    fn push_item(&mut self, item: WriteItem<T>) {
+    fn push_item(&mut self, item: WriteItem) {
         let previous = std::mem::replace(&mut self.state.items, None);
         self.state.items = Some(Rc::new(GraphNode::new(item, previous)));
     }
@@ -207,10 +206,10 @@ impl<T> Writer<T> where T : StringTrait {
         }
     }
 
-    pub fn get_items(self) -> impl Iterator<Item = WriteItem<T>> {
+    pub fn get_items(self) -> impl Iterator<Item = WriteItem> {
         match self.state.items {
-            Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
-            None => GraphNodeIterator::empty().collect::<Vec<WriteItem<T>>>().into_iter().rev(),
+            Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter().collect::<Vec<_>>().into_iter().rev(),
+            None => GraphNodeIterator::empty().collect::<Vec<_>>().into_iter().rev(),
         }
     }
 
@@ -226,7 +225,7 @@ impl<T> Writer<T> where T : StringTrait {
     }
 
     #[cfg(debug_assertions)]
-    fn get_items_cloned(&self) -> Vec<WriteItem<T>> {
+    fn get_items_cloned(&self) -> Vec<WriteItem> {
         let mut items = Vec::new();
         let mut current_item = self.state.items.clone();
         while let Some(item) = current_item {

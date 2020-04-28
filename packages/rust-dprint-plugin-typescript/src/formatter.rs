@@ -11,6 +11,7 @@ use super::configuration::Configuration;
 /// # Example
 ///
 /// ```
+/// use std::path::PathBuf;
 /// use dprint_plugin_typescript::*;
 /// use dprint_plugin_typescript::configuration::*;
 ///
@@ -27,10 +28,10 @@ use super::configuration::Configuration;
 /// let formatter = Formatter::new(config);
 ///
 /// // now format many files (possibly parallelize this)
-/// let files_to_format = vec![("path/to/file.ts", "const  t  =  5 ;")];
-/// for (file_path, file_text) in files_to_format {
+/// let files_to_format = vec![(PathBuf::from("path/to/file.ts"), "const  t  =  5 ;")];
+/// for (file_path, file_text) in files_to_format.iter() {
 ///     let result = formatter.format_text(file_path, file_text);
-///     // save result here... will be `Ok(Some(text))` when it has changed
+///     // save result here...
 /// }
 /// ```
 pub struct Formatter {

@@ -13,10 +13,7 @@ pub struct PrintOptions {
 }
 
 /// Prints out the print items using the provided
-pub fn print<TString, TInfo, TCondition>(
-    print_items: PrintItems<TString, TInfo, TCondition>,
-    options: PrintOptions
-) -> String where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
     let write_items = get_write_items(&print_items, GetWriteItemsOptions {
         indent_width: options.indent_width,
         max_width: options.max_width,

@@ -19,7 +19,7 @@ use super::types::*;
 ///
 /// let typescript_config_map = HashMap::new(); // get a collection of k/v pairs from somewhere
 /// let config_result = resolve_config(
-///     &typescript_config_map,
+///     typescript_config_map,
 ///     &global_config_result.config
 /// );
 ///
