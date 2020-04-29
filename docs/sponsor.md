@@ -25,7 +25,9 @@ I'm in the process of setting up a GitHub sponsors account for [dprint](https://
 
 ### PayPal
 
-[Donate Now](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=Z2LLZ62KCCAXW&source=url) (Recurring donation strongly recommended)
+[Donate Now](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=Z2LLZ62KCCAXW&source=url)
+
+(Recurring donation strongly recommended)
 
 ## After Donating
 
