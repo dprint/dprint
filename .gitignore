@@ -13,6 +13,3 @@ package-lock.json
 /packages/dprint-plugin-typescript/wasm/target
 /packages/playground/wasm/target
 /packages/dprint-plugin-jsonc/wasm/target
-/packages/dprint-plugin-jsonc/wasm/Cargo.lock
-/packages/dprint-plugin-typescript/wasm/Cargo.lock
-/packages/playground/wasm/Cargo.lock
