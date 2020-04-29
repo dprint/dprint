@@ -1,0 +1,24 @@
+~~ lineWidth: 40, variableStatement.preferSingleLine: true ~~
+== should format on one line when below the width ==
+let f = 2,
+    g = 3,
+    test = 4;
+
+[expect]
+let f = 2, g = 3, test = 4;
+
+== should format multi-line when one has a comment even below the limit ==
+let f = 2, // test
+    g = 3;
+
+[expect]
+let f = 2, // test
+    g = 3;
+
+== should be multi-line when exceeding the width ==
+let f = 2, g = 3, testttttt = ttttttttttt;
+
+[expect]
+let f = 2,
+    g = 3,
+    testttttt = ttttttttttt;

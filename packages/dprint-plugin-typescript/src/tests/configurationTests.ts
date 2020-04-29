@@ -426,6 +426,7 @@ describe("configuration", () => {
                 "parameters.preferSingleLine": value,
                 "tupleType.preferSingleLine": value,
                 "typeLiteral.preferSingleLine": value,
+                "variableStatement.preferSingleLine": value,
             };
         }
     });

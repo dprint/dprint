@@ -390,6 +390,7 @@ export interface TypeScriptConfiguration {
     "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "tupleType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "typeLiteral.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "variableStatement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
 /**
@@ -496,6 +497,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "tupleType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "typeLiteral.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "variableStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
 
     // declaration specific
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;

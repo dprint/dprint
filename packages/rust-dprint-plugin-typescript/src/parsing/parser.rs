@@ -3572,7 +3572,7 @@ fn parse_try_stmt<'a>(node: &'a TryStmt, context: &mut Context<'a>) -> PrintItem
 
 fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    let use_new_lines = get_use_new_lines(&node.decls, context);
+    let force_use_new_lines = get_use_new_lines(&node.decls, context);
     if node.declare { items.push_str("declare "); }
     items.push_str(match node.kind {
         VarDeclKind::Const => "const ",
@@ -3588,7 +3588,7 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItem
         items.extend(parse_separated_values(ParseSeparatedValuesOptions {
             nodes: node.decls.iter().map(|p| Some(p.into())).collect(),
             prefer_hanging: context.config.variable_statement_prefer_hanging,
-            force_use_new_lines: use_new_lines,
+            force_use_new_lines,
             allow_blank_lines: false,
             trailing_commas: Some(TrailingCommas::Never),
             semi_colons: None,
@@ -3615,11 +3615,7 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItem
     }
 
     fn get_use_new_lines(decls: &Vec<VarDeclarator>, context: &mut Context) -> bool {
-        if decls.len() < 2 {
-            false
-        } else {
-            node_helpers::get_use_new_lines_for_nodes(&decls[0], &decls[1], context)
-        }
+        get_use_new_lines_for_nodes(decls, context.config.variable_statement_prefer_single_line, context)
     }
 }
 
@@ -4629,7 +4625,7 @@ struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a
 fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<'a, F>, context: &mut Context<'a>) -> PrintItems where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
     let is_parameters = opts.is_parameters;
     let prefer_single_line = is_parameters && context.config.parameters_prefer_single_line || !is_parameters && context.config.arguments_prefer_single_line;
-    let force_use_new_lines = get_use_new_lines_for_nodes("(", &opts.nodes, prefer_single_line, context);
+    let force_use_new_lines = get_use_new_lines_for_nodes_with_preceeding_token("(", &opts.nodes, prefer_single_line, context);
     let span_data = opts.span_data;
     let custom_close_paren = opts.custom_close_paren;
     let first_member_span_data = opts.nodes.iter().map(|n| n.span_data()).next();
@@ -5103,7 +5099,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
 
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(&opts.node_span_data).expect("Expected to find an open brace token.");
     let close_brace_token = context.token_finder.get_last_close_brace_token_within(&opts.node_span_data).expect("Expected to find a close brace token.");
-    let force_multi_line = get_use_new_lines_for_nodes("{", &opts.members, opts.prefer_single_line, context);
+    let force_multi_line = get_use_new_lines_for_nodes_with_preceeding_token("{", &opts.members, opts.prefer_single_line, context);
 
     let first_member_span_data = opts.members.get(0).map(|x| x.span_data());
     let obj_span_data = create_span_data(open_brace_token.lo(), close_brace_token.hi());
@@ -6200,7 +6196,7 @@ fn allows_inline_multi_line(node: &Node, has_siblings: bool) -> bool {
     }
 }
 
-fn get_use_new_lines_for_nodes(open_token_text: &str, nodes: &Vec<Node>, prefer_single_line: bool, context: &mut Context) -> bool {
+fn get_use_new_lines_for_nodes_with_preceeding_token(open_token_text: &str, nodes: &Vec<impl Ranged>, prefer_single_line: bool, context: &mut Context) -> bool {
     if nodes.is_empty() {
         return false;
     }
@@ -6223,8 +6219,21 @@ fn get_use_new_lines_for_nodes(open_token_text: &str, nodes: &Vec<Node>, prefer_
     }
 }
 
+fn get_use_new_lines_for_nodes(nodes: &Vec<impl Ranged>, prefer_single_line: bool, context: &mut Context) -> bool {
+    if nodes.len() < 2 {
+        return false;
+    }
+
+    if prefer_single_line {
+        // basic rule: if any comments exist on separate lines, then everything becomes multi-line
+        has_any_node_comment_on_different_line(nodes, context)
+    } else {
+        node_helpers::get_use_new_lines_for_nodes(&nodes[0], &nodes[1], context)
+    }
+}
+
 /// Gets if any of the provided nodes have leading or trailing comments on a different line.
-fn has_any_node_comment_on_different_line(nodes: &Vec<Node>, context: &mut Context) -> bool {
+fn has_any_node_comment_on_different_line(nodes: &Vec<impl Ranged>, context: &mut Context) -> bool {
     for (i, node) in nodes.iter().enumerate() {
         if i == 0 {
             let first_node_start_line = node.start_line(context);

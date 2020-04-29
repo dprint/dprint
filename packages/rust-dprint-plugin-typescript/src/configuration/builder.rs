@@ -568,6 +568,7 @@ impl ConfigurationBuilder {
     }
 
     /* single body position */
+
     pub fn if_statement_single_body_position(&mut self, value: SingleBodyPosition) -> &mut Self {
         self.insert("ifStatement.singleBodyPosition", value)
     }
@@ -700,6 +701,10 @@ impl ConfigurationBuilder {
 
     pub fn type_literal_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("typeLiteral.preferSingleLine", value)
+    }
+
+    pub fn variable_statement_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("variableStatement.preferSingleLine", value)
     }
 
     #[cfg(test)]

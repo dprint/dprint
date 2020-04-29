@@ -422,6 +422,8 @@ pub struct Configuration {
     pub tuple_type_prefer_single_line: bool,
     #[serde(rename = "typeLiteral.preferSingleLine")]
     pub type_literal_prefer_single_line: bool,
+    #[serde(rename = "variableStatement.preferSingleLine")]
+    pub variable_statement_prefer_single_line: bool,
 
     /* use space separator */
 
