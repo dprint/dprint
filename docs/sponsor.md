@@ -1,21 +1,18 @@
 # Sponsor
 
-A lot of time and effort has gone into creating dprint. If you are using it in a commercial environment then it is strongly recommended you support the project financially.
+A lot of time and effort has gone into creating dprint.
+
+If you are using it in a commercial environment then it is strongly recommended you support the project financially.
 
 ## How much is dprint worth to your company?
 
 Think about the cost savings from the following:
 
 1. How much time will your developers save auto-formatting their code?
-2. How much time will your team save not doing code formatting related comments on code reviews?
-3. If you are checking formatting on your CI, how much time will your CI runs save checking formatting compared to other formatters? Remember dprint is lightning fast compared to other formatters.
+2. How much time will your team save not making and acting on code formatting related comments on code reviews?
+3. If you are checking formatting on your CI, how much time will your CI runs save checking formatting with dprint compared to other formatters? Remember dprint is lightning fast.
 
-If you see the benefit, please spend the time to pass along a fraction of that cost savings to support this project.
-
-## How does your contribution help?
-
-1. Keeps me motivated to continue improving and maintaining the project.
-2. Supports my other open source development, such as [ts-morph](https://github.com/dsherret/ts-morph).
+If you see the benefit, please spend the time to pass along a small fraction of that cost savings to support this project.
 
 ## Donate
 
