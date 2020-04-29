@@ -1,0 +1,16 @@
+~~ indentWidth: 2 ~~
+== should format async generated method in object expression ==
+export function readdir(path: string): AsyncIterable<DirEntry> {
+  return {
+    async *test(): AsyncIterableIterator<DirEntry> {
+    },
+  };
+}
+
+[expect]
+export function readdir(path: string): AsyncIterable<DirEntry> {
+  return {
+    async *test(): AsyncIterableIterator<DirEntry> {
+    },
+  };
+}

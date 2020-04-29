@@ -139,7 +139,6 @@ export interface TypeScriptConfiguration {
     "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"?: boolean;
     /**
      * Forces a space after the double slash in a comment line.
-     *
      * @default true
      * @value true - Ex. `//test` -> `// test`
      * @value false - Ex. `//test` -> `//test`

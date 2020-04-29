@@ -1,0 +1,5 @@
+== should not panic ==
+test ? -(value >>> 1) : value >>> 1
+
+[expect]
+test ? -(value >>> 1) : value >>> 1;
