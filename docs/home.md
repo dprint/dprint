@@ -32,6 +32,7 @@ module.exports.config = {
     projectType: "openSource",
     lineWidth: 160,
     plugins: [
+        // use this for JS and TS formatting
         new TypeScriptPlugin({
             useBraces: "preferNone",
             "tryStatement.nextControlFlowPosition": "sameLine",
@@ -96,8 +97,10 @@ Specify the type of project dprint is formatting. This is required when using th
 You may specify any of the following values according to your conscience:
 
 * `"openSource"` - Dprint is formatting an open source project.
-* `"commercialSponsored"` - Dprint is formatting a closed source commercial project and your company sponsored dprint.
-* `"commercialDidNotSponsor"` - Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this.
+* `"commercialSponsored"` - Dprint is formatting a commercial project and your company sponsored dprint.
+* `"commercialDidNotSponsor"` - Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this.
+
+More information: [Sponsoring dprint](https://dprint.dev/sponsor)
 
 ### `lineWidth`
 
@@ -357,8 +360,7 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             nextControlFlowPosition: "maintain",
-            "ifStatement.nextControlFlowPosition": "sameLine",
-            "returnStatement.semiColon": false,
+            "ifStatement.nextControlFlowPosition": "sameLine"
         }),
     ],
 };
