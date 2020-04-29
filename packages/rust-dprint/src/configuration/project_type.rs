@@ -42,6 +42,7 @@ fn build_message(project_type_infos: &Vec<(&'static str, &'static str)>, propert
         message.push_str(&" ".repeat(largest_name_len - project_type_info.0.len() + 1));
         message.push_str(project_type_info.1);
     }
+    message.push_str("\n\nDonate at: https://dprint.dev/sponsor");
     message
 }
 
@@ -94,7 +95,9 @@ mod tests {
 
  * openSource              Dprint is formatting an open source project.
  * commercialSponsored     Dprint is formatting a commercial project and your company sponsored dprint.
- * commercialDidNotSponsor Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this."#);
+ * commercialDidNotSponsor Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this.
+
+Donate at: https://dprint.dev/sponsor"#);
     }
 
     #[test]

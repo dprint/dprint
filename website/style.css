@@ -62,13 +62,12 @@ body {
 }
 
 #appHeader h1 a {
-    text-decoration: none;
+  text-decoration: none;
 }
 
 #headerRight {
-  /* todo: this should not do this (requires duplicating right value with above padding) */
-  position: absolute;
-  right: 15px;
+  flex: 1;
+  text-align: right;
 }
 
 #headerRight a:not(:first-child) {

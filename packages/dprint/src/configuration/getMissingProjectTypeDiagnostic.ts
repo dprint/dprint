@@ -23,9 +23,9 @@ const projectTypeInfo = {
  * but would like to see companies support it financially even if it's only in a small way.
  */
 export function getMissingProjectTypeDiagnostic(config: Configuration): ConfigurationDiagnostic | undefined {
-    const validProjectTypes = projectTypeInfo.values.map(v => v.name);
+    const validProjectTypes = projectTypeInfo.values.map(v => v.name.toLowerCase());
 
-    if (validProjectTypes.includes(config.projectType || ""))
+    if (validProjectTypes.includes(config.projectType?.toLowerCase() ?? ""))
         return undefined;
 
     const propertyName: keyof Configuration = "projectType";
@@ -35,6 +35,7 @@ export function getMissingProjectTypeDiagnostic(config: Configuration): Configur
         propertyName,
         message: `The "${propertyName}" field is missing. You may specify any of the following possible values in the configuration file according to your `
             + `conscience and that will suppress this warning.\n\n`
-            + projectTypeInfo.values.map(value => ` * ${value.name} ${" ".repeat(largestValueName - value.name.length)}${value.description}`).join("\n"),
+            + projectTypeInfo.values.map(value => ` * ${value.name} ${" ".repeat(largestValueName - value.name.length)}${value.description}`).join("\n")
+            + "\n\nDonate at: https://dprint.dev/sponsor",
     };
 }

@@ -170,7 +170,8 @@ module.exports.config = {
         + ` * openSource              Dprint is formatting an open source project.\n`
         + ` * commercialSponsored     Dprint is formatting a commercial project and your company sponsored dprint.\n`
         + ` * commercialDidNotSponsor Dprint is formatting a commercial project and you want to forever enshrine your name `
-        + `in source control for having specified this.`;
+        + `in source control for having specified this.\n\n`
+        + `Donate at: https://dprint.dev/sponsor`;
 
     it("should warn when not specifying a project type field", async () => {
         const environment = createTestEnvironment();
@@ -202,6 +203,18 @@ module.exports.config = {
         environment.setRequireObject("/dprint.config.js", {
             config: {
                 projectType: "openSource",
+                newLineKind: "lf",
+            },
+        });
+        const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
+        expect(warns.length).to.equal(0);
+    });
+
+    it("should not warn when specifying an incorrectly cased project type field", async () => {
+        const environment = createTestEnvironment();
+        environment.setRequireObject("/dprint.config.js", {
+            config: {
+                projectType: "opensource",
                 newLineKind: "lf",
             },
         });
