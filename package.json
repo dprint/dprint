@@ -1,7 +1,7 @@
 {
   "name": "dprint-mono-repo",
   "private": true,
-  "description": "A plugable and configurable code formatter.",
+  "description": "A configurable and pluggable code formatter.",
   "scripts": {
     "bootstrap": "lerna bootstrap",
     "build": "lerna run build",

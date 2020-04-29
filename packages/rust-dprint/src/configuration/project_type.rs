@@ -51,10 +51,10 @@ fn get_project_type_infos() -> Vec<(&'static str, &'static str)> {
         "Dprint is formatting an open source project."
     ), (
         "commercialSponsored",
-        "Dprint is formatting a closed source commercial project and your company sponsored dprint."
+        "Dprint is formatting a commercial project and your company sponsored dprint."
     ), (
         "commercialDidNotSponsor",
-        "Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this."
+        "Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this."
     )]
 }
 
@@ -93,8 +93,8 @@ mod tests {
         assert_eq!(result.message, r#"The 'projectType' property is missing in the configuration file. You may specify any of the following possible values according to your conscience and that will suppress this warning.
 
  * openSource              Dprint is formatting an open source project.
- * commercialSponsored     Dprint is formatting a closed source commercial project and your company sponsored dprint.
- * commercialDidNotSponsor Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this."#);
+ * commercialSponsored     Dprint is formatting a commercial project and your company sponsored dprint.
+ * commercialDidNotSponsor Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this."#);
     }
 
     #[test]

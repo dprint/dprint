@@ -6,10 +6,10 @@ const projectTypeInfo = {
         description: "Dprint is formatting an open source project.",
     }, {
         name: "commercialSponsored",
-        description: "Dprint is formatting a closed source commercial project and your company sponsored dprint.",
+        description: "Dprint is formatting a commercial project and your company sponsored dprint.",
     }, {
         name: "commercialDidNotSponsor",
-        description: "Dprint is formatting a closed source commercial project and you want to forever enshrine your name "
+        description: "Dprint is formatting a commercial project and you want to forever enshrine your name "
             + "in source control for having specified this.",
     }],
 };
