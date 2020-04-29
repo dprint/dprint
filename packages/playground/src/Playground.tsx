@@ -71,6 +71,7 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
                         <div id="headerRight">
                             <a href="/">Overview</a>
                             <a href="/playground">Playground</a>
+                            <a href="/sponsor">Sponsor</a>
                             <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
                         </div>
                     </header>

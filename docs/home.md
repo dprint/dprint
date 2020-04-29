@@ -100,7 +100,7 @@ You may specify any of the following values according to your conscience:
 * `"commercialSponsored"` - Dprint is formatting a commercial project and your company sponsored dprint.
 * `"commercialDidNotSponsor"` - Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this.
 
-More information: [Sponsoring dprint](https://dprint.dev/sponsor)
+[Sponsoring](https://dprint.dev/sponsor)
 
 ### `lineWidth`
 
