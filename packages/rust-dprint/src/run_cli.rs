@@ -4,6 +4,7 @@ use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use super::environment::Environment;
+use super::configuration::get_init_config_file_text;
 use super::create_formatter::{create_formatter, get_uninitialized_plugins};
 
 pub fn run_cli(environment: &impl Environment, args: Vec<String>) -> Result<(), String> {
@@ -16,6 +17,9 @@ pub fn run_cli(environment: &impl Environment, args: Vec<String>) -> Result<(), 
     if matches.is_present("version") {
         output_version(environment);
         return Ok(());
+    }
+    if matches.is_present("init") {
+        return init_config_file(environment);
     }
 
     let formatter = create_formatter(matches.value_of("config"), environment)?;
@@ -33,6 +37,15 @@ fn output_version(environment: &impl Environment) {
     environment.log(&format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
     for plugin in get_uninitialized_plugins().iter() {
         environment.log(&format!("{} v{}", plugin.name(), plugin.version()));
+    }
+}
+
+fn init_config_file(environment: &impl Environment) -> Result<(), String> {
+    let config_file_path = PathBuf::from("./dprint.config.json");
+    if !environment.path_exists(&config_file_path) {
+        environment.write_file(&config_file_path, get_init_config_file_text())
+    } else {
+        Err(String::from("Configuration file 'dprint.config.json' already exists in current working directory."))
     }
 }
 
@@ -138,6 +151,7 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
         .arg(
             Arg::with_name("config")
                 .long("config")
+                .short("c")
                 .help("Path to JSON configuration file.")
                 .takes_value(true),
         )
@@ -146,7 +160,13 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
                 .help("List of file paths to format")
                 .takes_value(true)
                 .multiple(true)
-                .required_unless("version"),
+                .required_unless_one(&vec!["version", "init"]),
+        )
+        .arg(
+            Arg::with_name("init")
+                .long("init")
+                .help("Initializes a configuration file in the current directory.")
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("version")
@@ -162,6 +182,7 @@ mod tests {
     use std::path::PathBuf;
     use super::run_cli;
     use super::super::environment::{Environment, TestEnvironment};
+    use super::super::configuration::*;
 
     #[test]
     fn it_should_output_version() {
@@ -199,6 +220,21 @@ mod tests {
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "const t = 4\n");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "log(55)\n");
+    }
+
+    #[test]
+    fn it_should_format_files_with_config_using_c() {
+        let environment = TestEnvironment::new();
+        let file_path1 = PathBuf::from("/file1.ts");
+        let config_file_path = PathBuf::from("/config.json");
+        environment.write_file(&file_path1, "const t=4;").unwrap();
+        environment.write_file(&config_file_path, r#"{ "projectType": "openSource", "typescript": { "semiColons": "asi" } }"#).unwrap();
+
+        run_cli(&environment, vec![String::from(""), String::from("-c"), String::from("/config.json"), String::from("/file1.ts")]).unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "const t = 4\n");
     }
 
     #[test]
@@ -240,5 +276,26 @@ mod tests {
         assert_eq!(error_message, "Found 2 not formatted files.");
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
+    }
+
+    #[test]
+    fn it_should_initialize() {
+        let environment = TestEnvironment::new();
+        run_cli(&environment, vec![String::from(""), String::from("--init")]).unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.read_file(&PathBuf::from("./dprint.config.json")).unwrap(), get_init_config_file_text());
+        // ensure this file doesn't need formatting
+        assert_eq!(
+            run_cli(&environment, vec![String::from(""), String::from("--check"), String::from("/dprint.config.json")]).err().is_none(),
+            true
+        );
+    }
+
+    #[test]
+    fn it_should_error_when_config_file_exists_on_initialize() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("./dprint.config.json"), "{}").unwrap();
+        let error_message = run_cli(&environment, vec![String::from(""), String::from("--init")]).err().unwrap();
+        assert_eq!(error_message, "Configuration file 'dprint.config.json' already exists in current working directory.");
     }
 }

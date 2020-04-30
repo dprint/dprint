@@ -28,6 +28,10 @@ impl Environment for RealEnvironment {
         }
     }
 
+    fn path_exists(&self, file_path: &PathBuf) -> bool {
+        file_path.exists()
+    }
+
     fn log(&self, text: &str) {
         let _g = self.output_lock.lock().unwrap();
         println!("{}", text);
