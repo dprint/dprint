@@ -44,6 +44,11 @@ impl Environment for TestEnvironment {
         Ok(())
     }
 
+    fn path_exists(&self, file_path: &PathBuf) -> bool {
+        let files = self.files.lock().unwrap();
+        files.contains_key(file_path)
+    }
+
     fn log(&self, text: &str) {
         self.logged_messages.lock().unwrap().push(String::from(text));
     }
