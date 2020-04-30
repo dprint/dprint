@@ -38,6 +38,8 @@ abstract class Test {
 
     set getSet(value: string) {
     }
+
+    public abstract async test(): Promise<number>;
 }
 
 [expect]
@@ -85,6 +87,8 @@ abstract class Test {
 
     set getSet(value: string) {
     }
+
+    public abstract async test(): Promise<number>;
 }
 
 == should format as multi-line when the return type extends past the line width ==

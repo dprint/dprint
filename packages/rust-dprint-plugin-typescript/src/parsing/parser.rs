@@ -2534,6 +2534,7 @@ fn parse_jsx_opening_element<'a>(node: &'a JSXOpeningElement, context: &mut Cont
     }
 
     fn get_is_multi_line(node: &JSXOpeningElement, context: &mut Context) -> bool {
+        // todo: preferSingleLine
         if let Some(first_attrib) = node.attrs.first() {
             node_helpers::get_use_new_lines_for_nodes(&node.name, first_attrib, context)
         } else {
@@ -2818,8 +2819,8 @@ fn parse_class_or_object_method<'a>(node: ClassOrObjectMethod<'a>, context: &mut
         items.push_str(&format!("{} ", accessibility_to_str(&accessibility)));
     }
     if node.is_static { items.push_str("static "); }
-    if node.is_async { items.push_str("async "); }
     if node.is_abstract { items.push_str("abstract "); }
+    if node.is_async { items.push_str("async "); }
 
     match node.kind {
         ClassOrObjectMethodKind::Getter => items.push_str("get "),
@@ -3159,6 +3160,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
     return items;
 
     fn get_use_new_lines<'a>(node: &dyn Ranged, context: &mut Context<'a>) -> bool {
+        // todo: preferSingleLine
         let open_paren_token = context.token_finder.get_previous_token_if_open_paren(node);
         if let Some(open_paren_token) = open_paren_token {
             node_helpers::get_use_new_lines_for_nodes(open_paren_token, node, context)
@@ -3691,6 +3693,7 @@ fn parse_array_type<'a>(node: &'a TsArrayType, context: &mut Context<'a>) -> Pri
 }
 
 fn parse_conditional_type<'a>(node: &'a TsConditionalType, context: &mut Context<'a>) -> PrintItems {
+    // todo: preferSingleLine
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.true_type, &*node.false_type, context);
     let is_parent_conditional_type = context.parent().kind() == NodeKind::TsConditionalType;
     let mut items = PrintItems::new();
@@ -3854,6 +3857,7 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
     let start_info = Info::new("startMappedType");
     let end_info = Info::new("endMappedType");
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(node).expect("Expected to find an open brace token in the mapped type.");
+    // todo: prefer single line
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(open_brace_token, &node.type_param, context);
     let mut is_multiple_lines_condition = Condition::new("mappedTypeNewLine", ConditionProperties {
         condition: Box::new(move |context| {
@@ -4023,6 +4027,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
     }
 
     fn get_use_new_lines(parent_span_data: &SpanData, params: &Vec<Node>, context: &mut Context) -> bool {
+        // todo: preferSingleLine
         if params.is_empty() {
             false
         } else {
@@ -4088,6 +4093,7 @@ struct UnionOrIntersectionType<'a> {
 fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, context: &mut Context<'a>) -> PrintItems {
     // todo: configuration for operator position
     let mut items = PrintItems::new();
+    // todo: preferSingleLine
     let force_use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.types[0], &*node.types[1], context);
     let separator = if node.is_union { "|" } else { "&" };
 
@@ -4399,7 +4405,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
     let nodes = opts.nodes;
     let trailing_commas = if allow_trailing_commas(&nodes) { opts.trailing_commas } else { TrailingCommas::Never };
     let prefer_hanging = opts.prefer_hanging;
-    let force_use_new_lines = !opts.prefer_single_line && get_force_use_new_lines(&parent_span_data, &nodes, context);
+    let force_use_new_lines = get_force_use_new_lines(&parent_span_data, &nodes, opts.prefer_single_line, context);
     let mut items = PrintItems::new();
     let mut first_member = nodes.get(0).map(|x| x.as_ref().map(|y| y.span_data())).flatten();
 
@@ -4434,8 +4440,8 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
 
     return items;
 
-    fn get_force_use_new_lines(node: &dyn Ranged, nodes: &Vec<Option<Node>>, context: &mut Context) -> bool {
-        if nodes.is_empty() {
+    fn get_force_use_new_lines(node: &dyn Ranged, nodes: &Vec<Option<Node>>, prefer_single_line: bool, context: &mut Context) -> bool {
+        if prefer_single_line || nodes.is_empty() {
             false
         } else {
             let open_bracket_token = context.token_finder.get_first_open_bracket_token_within(node).expect("Expected to find an open bracket token.");
@@ -5007,6 +5013,7 @@ fn parse_node_in_parens<'a>(
 ) -> PrintItems {
     let inner_span = opts.inner_span;
     let paren_span = get_paren_span(&inner_span, context);
+    // todo: preferSingleLine
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&paren_span.lo(), &inner_span, context);
 
     parse_surrounded_by_tokens(|context| {
@@ -5142,6 +5149,7 @@ struct MemberLikeExpr<'a> {
 
 fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
+    // todo: preferSingleLine
     let use_new_line = node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
     let is_optional = context.parent().kind() == NodeKind::OptChainExpr;
 
@@ -5196,6 +5204,7 @@ fn parse_computed_prop_like<'a>(opts: ParseComputedPropLikeOptions, context: &mu
     let inner_node_span_data = opts.inner_node_span_data;
     let inner_items = opts.inner_items;
     let span_data = get_bracket_span(&inner_node_span_data, context);
+    // todo: preferSingleLine
     let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context);
 
     return new_line_group(parse_surrounded_by_tokens(|_| {
@@ -5232,6 +5241,7 @@ fn parse_decorators<'a>(decorators: &'a Vec<Decorator>, is_inline: bool, context
         return items;
     }
 
+    // todo: preferSingleLine
     let use_new_lines = !is_inline
         && decorators.len() >= 2
         && node_helpers::get_use_new_lines_for_nodes(&decorators[0], &decorators[1], context);
@@ -5717,6 +5727,7 @@ fn parse_jsx_with_opening_and_closing<'a>(opts: ParseJsxWithOpeningAndClosingOpt
     return items;
 
     fn get_use_multi_lines(opening_element: &Node, children: &Vec<Node>, context: &mut Context) -> bool {
+        // todo: preferSingleLine
         if let Some(first_child) = children.get(0) {
             if let Node::JSXText(first_child) = first_child {
                 if first_child.text(context).find("\n").is_some() {
