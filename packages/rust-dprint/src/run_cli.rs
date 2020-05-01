@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use dprint_core::plugins::Formatter;
 use clap::{App, Arg, Values};
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use super::environment::Environment;
-use super::configuration::get_init_config_file_text;
+use super::configuration;
+use super::configuration::{ConfigMap, ConfigMapValue};
 use super::create_formatter::{create_formatter, get_uninitialized_plugins};
 
 pub fn run_cli(environment: &impl Environment, args: Vec<String>) -> Result<(), String> {
@@ -19,15 +21,20 @@ pub fn run_cli(environment: &impl Environment, args: Vec<String>) -> Result<(), 
         return Ok(());
     }
     if matches.is_present("init") {
-        return init_config_file(environment);
+        init_config_file(environment)?;
+        environment.log("Created dprint.config.json");
+        return Ok(());
     }
 
-    let formatter = create_formatter(matches.value_of("config"), environment)?;
-    let files = resolve_file_paths(matches.values_of("files"));
+    let mut config_map = deserialize_config_file(matches.value_of("config"), environment)?;
+    check_project_type_diagnostic(&mut config_map, environment);
+    let file_paths = resolve_file_paths(&mut config_map, matches.values_of("file patterns"), environment)?;
+    let formatter = create_formatter(config_map, environment)?;
+
     if matches.is_present("check") {
-        check_files(environment, formatter, files)?
+        check_files(environment, formatter, file_paths)?
     } else {
-        format_files(environment, formatter, files);
+        format_files(environment, formatter, file_paths);
     }
 
     Ok(())
@@ -43,16 +50,16 @@ fn output_version(environment: &impl Environment) {
 fn init_config_file(environment: &impl Environment) -> Result<(), String> {
     let config_file_path = PathBuf::from("./dprint.config.json");
     if !environment.path_exists(&config_file_path) {
-        environment.write_file(&config_file_path, get_init_config_file_text())
+        environment.write_file(&config_file_path, configuration::get_init_config_file_text())
     } else {
         Err(String::from("Configuration file 'dprint.config.json' already exists in current working directory."))
     }
 }
 
-fn check_files(environment: &impl Environment, formatter: Formatter, paths: Vec<PathBuf>) -> Result<(), String> {
+fn check_files(environment: &impl Environment, formatter: Formatter, file_paths: Vec<PathBuf>) -> Result<(), String> {
     let not_formatted_files_count = AtomicUsize::new(0);
 
-    paths.par_iter().for_each(|file_path| {
+    file_paths.par_iter().for_each(|file_path| {
         let file_contents = environment.read_file(&file_path);
         match file_contents {
             Ok(file_contents) => {
@@ -83,11 +90,11 @@ fn check_files(environment: &impl Environment, formatter: Formatter, paths: Vec<
     }
 }
 
-fn format_files(environment: &impl Environment, formatter: Formatter, paths: Vec<PathBuf>) {
+fn format_files(environment: &impl Environment, formatter: Formatter, file_paths: Vec<PathBuf>) {
     let formatted_files_count = AtomicUsize::new(0);
-    let files_count = paths.len();
+    let files_count = file_paths.len();
 
-    paths.par_iter().for_each(|file_path| {
+    file_paths.par_iter().for_each(|file_path| {
         let file_contents = environment.read_file(&file_path);
 
         match file_contents {
@@ -122,19 +129,11 @@ fn output_error(environment: &impl Environment, file_path: &PathBuf, text: &str,
     environment.log_error(&format!("{}: {}\n    {}", text, &file_path.to_string_lossy(), error));
 }
 
-fn resolve_file_paths<'a>(files: Option<Values<'a>>) -> Vec<PathBuf> {
-    files
-        .unwrap()
-        .map(std::string::ToString::to_string)
-        .map(PathBuf::from)
-        .collect()
-}
-
 fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
     App::new("dprint")
         .about("Format source files")
         .long_about(
-            "Auto-format JavaScript/TypeScript source code.
+            "Auto-format JavaScript, TypeScript, and JSON source code.
 
   dprint myfile1.ts myfile2.ts
 
@@ -156,11 +155,10 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("files")
-                .help("List of file paths to format")
+            Arg::with_name("file patterns")
+                .help("List of file patterns used to find files to format.")
                 .takes_value(true)
-                .multiple(true)
-                .required_unless_one(&vec!["version", "init"]),
+                .multiple(true),
         )
         .arg(
             Arg::with_name("init")
@@ -175,6 +173,70 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
                 .help("Outputs the version")
                 .takes_value(false),
         )
+}
+
+fn check_project_type_diagnostic(config_map: &mut ConfigMap, environment: &impl Environment) {
+    if !config_map.is_empty() {
+        if let Some(diagnostic) = configuration::handle_project_type_diagnostic(config_map) {
+            environment.log_error(&diagnostic.message);
+        }
+    }
+}
+
+fn deserialize_config_file(config_path: Option<&str>, environment: &impl Environment) -> Result<ConfigMap, String> {
+    if let Some(config_path) = config_path {
+        let config_file_text = match environment.read_file(&PathBuf::from(config_path)) {
+            Ok(contents) => contents,
+            Err(e) => return Err(e.to_string()),
+        };
+
+        let result = match configuration::deserialize_config(&config_file_text) {
+            Ok(map) => map,
+            Err(e) => return Err(format!("Error deserializing. {}", e.to_string())),
+        };
+
+        Ok(result)
+    } else {
+        Ok(HashMap::new())
+    }
+}
+
+fn resolve_file_paths(config_map: &mut ConfigMap, cli_file_patterns: Option<Values>, environment: &impl Environment) -> Result<Vec<PathBuf>, String> {
+    let mut file_patterns = get_config_file_patterns(config_map)?;
+    file_patterns.extend(resolve_file_patterns_from_cli(cli_file_patterns));
+    return environment.glob(&file_patterns);
+
+    fn resolve_file_patterns_from_cli(cli_file_patterns: Option<Values>) -> Vec<String> {
+        if let Some(file_patterns) = cli_file_patterns {
+            file_patterns.map(std::string::ToString::to_string).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn get_config_file_patterns(config_map: &mut ConfigMap) -> Result<Vec<String>, String> {
+        let mut patterns = Vec::new();
+        patterns.extend(take_array_from_config_map(config_map, "includes")?);
+        patterns.extend(
+            take_array_from_config_map(config_map, "excludes")?
+                .into_iter()
+                .map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) })
+        );
+        return Ok(patterns);
+
+        fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>, String> {
+            let mut result = Vec::new();
+            if let Some(value) = config_map.remove(property_name) {
+                match value {
+                    ConfigMapValue::Vec(elements) => {
+                        result.extend(elements);
+                    },
+                    _ => return Err(format!("Expected array in '{}' property.", property_name))
+                }
+            }
+            Ok(result)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -238,6 +300,63 @@ mod tests {
     }
 
     #[test]
+    fn it_should_format_files_with_config_includes() {
+        let environment = TestEnvironment::new();
+        let file_path1 = PathBuf::from("/file1.ts");
+        let file_path2 = PathBuf::from("/file2.ts");
+        let config_file_path = PathBuf::from("/config.json");
+        environment.write_file(&file_path1, "const t=4;").unwrap();
+        environment.write_file(&file_path2, "log(   55    );").unwrap();
+        environment.write_file(&config_file_path, r#"{
+            "projectType": "openSource",
+            "typescript": { "semiColons": "asi" },
+            "includes": ["**/*.ts"]
+        }"#).unwrap();
+
+        run_cli(&environment, vec![String::from(""), String::from("--config"), String::from("/config.json")]).unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec!["Formatted 2 files."]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "const t = 4\n");
+        assert_eq!(environment.read_file(&file_path2).unwrap(), "log(55)\n");
+    }
+
+    #[test]
+    fn it_should_format_files_with_config_excludes() {
+        let environment = TestEnvironment::new();
+        let file_path1 = PathBuf::from("/file1.ts");
+        let file_path2 = PathBuf::from("/file2.ts");
+        let config_file_path = PathBuf::from("/config.json");
+        environment.write_file(&file_path1, "const t=4;").unwrap();
+        environment.write_file(&file_path2, "log(   55    );").unwrap();
+        environment.write_file(&config_file_path, r#"{
+            "projectType": "openSource",
+            "typescript": { "semiColons": "asi" },
+            "includes": ["**/*.ts"],
+            "excludes": ["/file2.ts"]
+        }"#).unwrap();
+
+        run_cli(&environment, vec![String::from(""), String::from("--config"), String::from("/config.json")]).unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "const t = 4\n");
+        assert_eq!(environment.read_file(&file_path2).unwrap(), "log(   55    );");
+    }
+
+    #[test]
+    fn it_should_only_warn_when_missing_project_type() {
+        let environment = TestEnvironment::new();
+        let file_path1 = PathBuf::from("/file1.ts");
+        let config_file_path = PathBuf::from("/config.json");
+        environment.write_file(&file_path1, "const t=4;").unwrap();
+        environment.write_file(&config_file_path, r#"{ "typescript": { "semiColons": "asi" } }"#).unwrap();
+        run_cli(&environment, vec![String::from(""), String::from("-c"), String::from("/config.json"), String::from("/file1.ts")]).unwrap();
+        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_errors()[0].find("The 'projectType' property").is_some(), true);
+    }
+
+    #[test]
     fn it_should_not_output_when_no_files_need_formatting() {
         let environment = TestEnvironment::new();
         let file_path = PathBuf::from("/file.ts");
@@ -282,7 +401,7 @@ mod tests {
     fn it_should_initialize() {
         let environment = TestEnvironment::new();
         run_cli(&environment, vec![String::from(""), String::from("--init")]).unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.get_logged_messages(), vec!["Created dprint.config.json"]);
         assert_eq!(environment.read_file(&PathBuf::from("./dprint.config.json")).unwrap(), get_init_config_file_text());
         // ensure this file doesn't need formatting
         assert_eq!(

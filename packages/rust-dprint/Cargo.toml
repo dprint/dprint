@@ -12,5 +12,9 @@ clap = "2.33.0"
 dprint-core = { path = "../rust-core", version = "0.16.0" }
 dprint-plugin-typescript = { path = "../rust-dprint-plugin-typescript", version = "0.14.0" }
 dprint-plugin-jsonc = { path = "../rust-dprint-plugin-jsonc", version = "0.2.0" }
+globwalk = "0.8.0"
 jsonc-parser = { version = "0.5.0" }
 rayon = "1.1"
+
+[dev-dependencies]
+globset = "0.4.5"

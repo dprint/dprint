@@ -1,23 +1,15 @@
 use dprint_core::plugins::{Formatter, Plugin};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
-use super::configuration::{self, StringOrHashMap};
+use super::configuration::{ConfigMapValue, ConfigMap};
 use super::environment::Environment;
 
-pub fn create_formatter(config_path: Option<&str>, environment: &impl Environment) -> Result<Formatter, String> {
+pub fn create_formatter(config_map: ConfigMap, environment: &impl Environment) -> Result<Formatter, String> {
     let mut plugins = Formatter::new(get_uninitialized_plugins());
 
-    match initialize_plugins(config_path, &mut plugins, environment) {
+    match initialize_plugins(config_map, &mut plugins, environment) {
         Ok(()) => Ok(plugins),
-        Err(err) => {
-            let canonical_file_path = config_path.and_then(|x| PathBuf::from(x).canonicalize().ok()).map(|f| String::from(f.to_string_lossy()));
-            if let Some(canonical_file_path) = canonical_file_path {
-                Err(format!("Error initializing from configuration file '{}'. {}", canonical_file_path, err))
-            } else {
-                Err(format!("Error initializing from configuration file. {}", err))
-            }
-        },
+        Err(err) => Err(format!("Error initializing from configuration file. {}", err)),
     }
 }
 
@@ -28,15 +20,8 @@ pub fn get_uninitialized_plugins() -> Vec<Box<dyn Plugin>> {
     ]
 }
 
-fn initialize_plugins(config_path: Option<&str>, formatter: &mut Formatter, environment: &impl Environment) -> Result<(), String> {
-    let mut config_map = deserialize_config_file(config_path, environment)?;
-
-    // check for the project type diagnostic
-    if !config_map.is_empty() {
-        if let Some(diagnostic) = configuration::handle_project_type_diagnostic(&mut config_map) {
-            environment.log_error(&diagnostic.message);
-        }
-    }
+fn initialize_plugins(config_map: ConfigMap, formatter: &mut Formatter, environment: &impl Environment) -> Result<(), String> {
+    let mut config_map = config_map;
 
     // get hashmaps per plugin
     let mut plugins_to_config = handle_plugins_to_config_map(&formatter, &mut config_map)?;
@@ -73,7 +58,7 @@ fn initialize_plugins(config_path: Option<&str>, formatter: &mut Formatter, envi
 
 fn handle_plugins_to_config_map(
     formatter: &Formatter,
-    config_map: &mut HashMap<String, StringOrHashMap>,
+    config_map: &mut ConfigMap,
 ) -> Result<HashMap<&'static str, HashMap<String, String>>, String> {
     let mut plugin_maps = HashMap::new();
     for plugin in formatter.iter_plugins() {
@@ -90,7 +75,7 @@ fn handle_plugins_to_config_map(
         }
         if let Some(key_name) = key_name {
             let plugin_config_map = config_map.remove(&key_name).unwrap();
-            if let StringOrHashMap::HashMap(plugin_config_map) = plugin_config_map {
+            if let ConfigMapValue::HashMap(plugin_config_map) = plugin_config_map {
                 plugin_maps.insert(plugin.name(), plugin_config_map);
             } else {
                 return Err(format!("Expected the configuration property '{}' to be an object.", key_name));
@@ -100,14 +85,12 @@ fn handle_plugins_to_config_map(
     Ok(plugin_maps)
 }
 
-fn get_global_config_from_config_map(
-    config_map: HashMap<String, StringOrHashMap>,
-) -> Result<HashMap<String, String>, String> {
+fn get_global_config_from_config_map(config_map: ConfigMap) -> Result<HashMap<String, String>, String> {
     // at this point, there should only be string values inside the hash map
     let mut global_config = HashMap::new();
 
     for (key, value) in config_map.into_iter() {
-        if let StringOrHashMap::String(value) = value {
+        if let ConfigMapValue::String(value) = value {
             global_config.insert(key, value);
         } else {
             return Err(format!("Unexpected object property '{}'.", key));
@@ -117,136 +100,104 @@ fn get_global_config_from_config_map(
     Ok(global_config)
 }
 
-fn deserialize_config_file(config_path: Option<&str>, environment: &impl Environment) -> Result<HashMap<String, StringOrHashMap>, String> {
-    if let Some(config_path) = config_path {
-        let config_file_text = match environment.read_file(&PathBuf::from(config_path)) {
-            Ok(contents) => contents,
-            Err(e) => return Err(e.to_string()),
-        };
-
-        let result = match configuration::deserialize_config(&config_file_text) {
-            Ok(map) => map,
-            Err(e) => return Err(format!("Error deserializing. {}", e.to_string())),
-        };
-
-        Ok(result)
-    } else {
-        Ok(HashMap::new())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::collections::HashMap;
     use super::create_formatter;
-    use super::super::environment::{Environment, TestEnvironment};
+    use super::super::environment::{TestEnvironment};
+    use super::super::configuration::{ConfigMapValue, ConfigMap};
 
     #[test]
     fn it_should_get_formatter() {
-        assert_creates(r#"{
-    "projectType": "openSource",
-    "lineWidth": "80",
-    "typescript": {
-        "lineWidth": 40
-    },
-    "jsonc": {
-        "lineWidth": 70
-    }
-}"#);
-    }
-
-    #[test]
-    fn it_should_only_warn_when_missing_project_type() {
-        let test_environment = TestEnvironment::new();
-        let cfg_file_path = "./config.json";
-        test_environment.write_file(&PathBuf::from(cfg_file_path), r#"{ "lineWidth": 40 }"#).unwrap();
-        let result = create_formatter(Some(cfg_file_path), &test_environment);
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(test_environment.get_logged_errors()[0].find("The 'projectType' property").is_some(), true);
+        let mut config_map = HashMap::new();
+        config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("80")));
+        config_map.insert(String::from("typescript"), {
+            let mut ts_config_map = HashMap::new();
+            ts_config_map.insert(String::from("lineWidth"), String::from("40"));
+            ConfigMapValue::HashMap(ts_config_map)
+        });
+        assert_creates(config_map);
     }
 
     #[test]
     fn it_should_error_when_has_double_plugin_config_keys() {
-        assert_errors(r#"{
-    "projectType": "openSource",
-    "lineWidth": "80",
-    "typescript": {
-        "lineWidth": 40
-    },
-    "javascript": {
-        "lineWidth": 70
-    }
-}"#, vec![], "Error initializing from configuration file. Cannot specify both the 'typescript' and 'javascript' configurations for dprint-plugin-typescript.");
+        let mut config_map = HashMap::new();
+        config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("80")));
+        config_map.insert(String::from("typescript"), {
+            let mut map = HashMap::new();
+            map.insert(String::from("lineWidth"), String::from("40"));
+            ConfigMapValue::HashMap(map)
+        });
+        config_map.insert(String::from("javascript"), {
+            let mut map = HashMap::new();
+            map.insert(String::from("lineWidth"), String::from("40"));
+            ConfigMapValue::HashMap(map)
+        });
+        assert_errors(
+            config_map,
+            vec![],
+            "Error initializing from configuration file. Cannot specify both the 'typescript' and 'javascript' configurations for dprint-plugin-typescript."
+        );
     }
 
     #[test]
     fn it_should_error_plugin_key_is_not_object() {
-        assert_errors(r#"{
-    "projectType": "openSource",
-    "typescript": ""
-}"#, vec![], "Error initializing from configuration file. Expected the configuration property 'typescript' to be an object.");
+        let mut config_map = HashMap::new();
+        config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("80")));
+        config_map.insert(String::from("typescript"), ConfigMapValue::String(String::from("")));
+        assert_errors(
+            config_map,
+            vec![],
+            "Error initializing from configuration file. Expected the configuration property 'typescript' to be an object."
+        );
     }
 
     #[test]
     fn it_should_log_global_diagnostics() {
-        assert_errors(r#"{
-    "projectType": "openSource",
-    "lineWidth": "null"
-}"#, vec!["Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string"], "Error initializing from configuration file. Had 1 diagnostic(s).");
+        let mut config_map = HashMap::new();
+        config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("null")));
+        assert_errors(
+            config_map,
+            vec!["Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string"],
+            "Error initializing from configuration file. Had 1 diagnostic(s)."
+        );
     }
 
 
     #[test]
     fn it_should_log_unexpected_object_properties() {
-        assert_errors(r#"{
-    "projectType": "openSource",
-    "test": {}
-}"#, vec![], "Error initializing from configuration file. Unexpected object property 'test'.");
+        let mut config_map = HashMap::new();
+        config_map.insert(String::from("test"), ConfigMapValue::HashMap(HashMap::new()));
+        assert_errors(
+            config_map,
+            vec![],
+            "Error initializing from configuration file. Unexpected object property 'test'."
+        );
     }
 
     #[test]
     fn it_should_log_plugin_diagnostics() {
+        let mut config_map = HashMap::new();
+        config_map.insert(String::from("typescript"), {
+            let mut map = HashMap::new();
+            map.insert(String::from("lineWidth"), String::from("null"));
+            ConfigMapValue::HashMap(map)
+        });
         assert_errors(
-            r#"{
-    "projectType": "openSource",
-    "typescript": {
-        "lineWidth": "null"
-    }
-}"#,
+            config_map,
             vec!["[dprint-plugin-typescript]: Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string"],
             "Error initializing from configuration file. Had 1 diagnostic(s)."
         );
     }
 
-    #[test]
-    fn it_should_error_when_cannot_parse() {
-        assert_errors(
-            r#"{"#,
-            vec![],
-            "Error initializing from configuration file. Error deserializing. Unterminated object on line 1 column 1."
-        );
+    fn assert_creates(config_map: ConfigMap) {
+        let test_environment = TestEnvironment::new();
+        assert_eq!(create_formatter(config_map, &test_environment).is_ok(), true);
     }
 
-    #[test]
-    fn it_should_error_when_no_file() {
+    fn assert_errors(config_map: ConfigMap, logged_errors: Vec<&'static str>, message: &str) {
         let test_environment = TestEnvironment::new();
-        let cfg_file_path = "./config.json";
-        let result = create_formatter(Some(cfg_file_path), &test_environment);
-        assert_eq!(result.err().unwrap(), "Error initializing from configuration file. Could not find file at path ./config.json");
-    }
-
-    fn assert_creates(cfg_file_text: &str) {
-        let test_environment = TestEnvironment::new();
-        let cfg_file_path = "./config.json";
-        test_environment.write_file(&PathBuf::from(cfg_file_path), cfg_file_text).unwrap();
-        assert_eq!(create_formatter(Some(cfg_file_path), &test_environment).is_ok(), true);
-    }
-
-    fn assert_errors(cfg_file_text: &str, logged_errors: Vec<&'static str>, message: &str) {
-        let test_environment = TestEnvironment::new();
-        let cfg_file_path = "./config.json";
-        test_environment.write_file(&PathBuf::from(cfg_file_path), cfg_file_text).unwrap();
-        let result = create_formatter(Some(cfg_file_path), &test_environment);
+        let result = create_formatter(config_map, &test_environment);
         assert_eq!(result.err().unwrap(), message);
         assert_eq!(test_environment.get_logged_errors(), logged_errors);
     }

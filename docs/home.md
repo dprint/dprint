@@ -42,7 +42,7 @@ module.exports.config = {
         }),
     ],
     // this could also be specified as a command line argument
-    includes: ["**/*.{ts,tsx,json,js,jsx}"],
+    includes: ["**/*.{ts,tsx,js,jsx,json}"],
     // optionally specify file globs for files to ignore
     excludes: [],
 };

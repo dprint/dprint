@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use super::StringOrHashMap;
+use super::{ConfigMapValue, ConfigMap};
 
 /// Checks if the configuration has a missing "projectType" property.
 ///
@@ -8,11 +7,11 @@ use super::StringOrHashMap;
 /// Please discuss this with me if you have strong reservations about this. Note that this library took a lot of
 /// time, effort, and previous built up knowledge and I'm happy to give it away for free to open source projects,
 /// but would like to see companies support it financially even if it's only in a small way.
-pub fn handle_project_type_diagnostic(config: &mut HashMap<String, StringOrHashMap>) -> Option<ConfigurationDiagnostic> {
+pub fn handle_project_type_diagnostic(config: &mut ConfigMap) -> Option<ConfigurationDiagnostic> {
     let project_type_infos = get_project_type_infos();
     let property_name = "projectType";
     let has_project_type_config = match config.get(property_name) {
-        Some(StringOrHashMap::String(project_type)) => project_type_infos.iter().any(|(k, _)| k.to_lowercase() == project_type.to_lowercase()),
+        Some(ConfigMapValue::String(project_type)) => project_type_infos.iter().any(|(k, _)| k.to_lowercase() == project_type.to_lowercase()),
         _ => false,
     };
 
@@ -63,12 +62,12 @@ fn get_project_type_infos() -> Vec<(&'static str, &'static str)> {
 mod tests {
     use std::collections::HashMap;
     use super::handle_project_type_diagnostic;
-    use super::super::StringOrHashMap;
+    use super::super::ConfigMapValue;
 
     #[test]
     fn it_should_handle_when_project_type_exists() {
         let mut config = HashMap::new();
-        config.insert(String::from("projectType"), StringOrHashMap::String(String::from("openSource")));
+        config.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
         let result = handle_project_type_diagnostic(&mut config);
         assert_eq!(config.len(), 0); // should remove
         assert_eq!(result.is_none(), true);
@@ -78,7 +77,7 @@ mod tests {
     fn it_should_be_case_insensitive() {
         // don't get people too upset :)
         let mut config = HashMap::new();
-        config.insert(String::from("projectType"), StringOrHashMap::String(String::from("opensource")));
+        config.insert(String::from("projectType"), ConfigMapValue::String(String::from("opensource")));
         let result = handle_project_type_diagnostic(&mut config);
         assert_eq!(config.len(), 0); // should remove
         assert_eq!(result.is_none(), true);
@@ -103,7 +102,7 @@ Donate at: https://dprint.dev/sponsor"#);
     #[test]
     fn it_should_handle_when_project_type_not_string() {
         let mut config = HashMap::new();
-        config.insert(String::from("projectType"), StringOrHashMap::HashMap(HashMap::new()));
+        config.insert(String::from("projectType"), ConfigMapValue::HashMap(HashMap::new()));
         let result = handle_project_type_diagnostic(&mut config);
         assert_eq!(config.len(), 0); // should remove regardless
         assert_eq!(result.is_some(), true);
@@ -112,7 +111,7 @@ Donate at: https://dprint.dev/sponsor"#);
     #[test]
     fn it_should_handle_when_project_type_not_valid_option() {
         let mut config = HashMap::new();
-        config.insert(String::from("projectType"), StringOrHashMap::String(String::from("test")));
+        config.insert(String::from("projectType"), ConfigMapValue::String(String::from("test")));
         let result = handle_project_type_diagnostic(&mut config);
         assert_eq!(config.len(), 0); // should remove regardless
         assert_eq!(result.is_some(), true);
