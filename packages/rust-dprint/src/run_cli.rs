@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use dprint_core::plugins::Formatter;
-use clap::{App, Arg, Values};
+use clap::{App, Arg, Values, ArgMatches};
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,8 +28,19 @@ pub fn run_cli(environment: &impl Environment, args: Vec<String>) -> Result<(), 
 
     let mut config_map = deserialize_config_file(matches.value_of("config"), environment)?;
     check_project_type_diagnostic(&mut config_map, environment);
-    let file_paths = resolve_file_paths(&mut config_map, matches.values_of("file patterns"), environment)?;
+    let file_paths = resolve_file_paths(&mut config_map, &matches, environment)?;
+
+    if matches.is_present("outputFilePaths") {
+        output_file_paths(file_paths.iter(), environment);
+        return Ok(());
+    }
+
     let formatter = create_formatter(config_map, environment)?;
+
+    if matches.is_present("outputResolvedConfig") {
+        output_resolved_config(&formatter, environment);
+        return Ok(());
+    }
 
     if matches.is_present("check") {
         check_files(environment, formatter, file_paths)?
@@ -44,6 +55,18 @@ fn output_version(environment: &impl Environment) {
     environment.log(&format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
     for plugin in get_uninitialized_plugins().iter() {
         environment.log(&format!("{} v{}", plugin.name(), plugin.version()));
+    }
+}
+
+fn output_file_paths<'a>(file_paths: impl Iterator<Item=&'a PathBuf>, environment: &impl Environment) {
+    for file_path in file_paths {
+        environment.log(&file_path.to_string_lossy())
+    }
+}
+
+fn output_resolved_config(formatter: &Formatter, environment: &impl Environment) {
+    for plugin in formatter.iter_plugins() {
+        environment.log(&format!("{}: {}", plugin.config_keys().join("/"), plugin.get_resolved_config()));
     }
 }
 
@@ -133,13 +156,13 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
     App::new("dprint")
         .about("Format source files")
         .long_about(
-            "Auto-format JavaScript, TypeScript, and JSON source code.
+            r#"Auto-format JavaScript, TypeScript, and JSON source code.
 
-  dprint myfile1.ts myfile2.ts
+  dprint "**/*.{ts,tsx,js,jsx,json}"
 
   dprint --check myfile1.ts myfile2.ts
 
-  dprint --config dprint.config.json myfile1.ts myfile2.ts",
+  dprint --config dprint.config.json"#,
         )
         .arg(
             Arg::with_name("check")
@@ -161,6 +184,12 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
                 .multiple(true),
         )
         .arg(
+            Arg::with_name("allowNodeModules")
+                .long("allowNodeModules")
+                .help("Allows traversing node module directories.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("init")
                 .long("init")
                 .help("Initializes a configuration file in the current directory.")
@@ -170,7 +199,19 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
             Arg::with_name("version")
                 .short("v")
                 .long("version")
-                .help("Outputs the version")
+                .help("Outputs the version.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("outputResolvedConfig")
+                .long("outputResolvedConfig")
+                .help("Outputs the resolved configuration.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("outputFilePaths")
+                .long("outputFilePaths")
+                .help("Outputs the resolved file paths.")
                 .takes_value(false),
         )
 }
@@ -201,9 +242,12 @@ fn deserialize_config_file(config_path: Option<&str>, environment: &impl Environ
     }
 }
 
-fn resolve_file_paths(config_map: &mut ConfigMap, cli_file_patterns: Option<Values>, environment: &impl Environment) -> Result<Vec<PathBuf>, String> {
+fn resolve_file_paths(config_map: &mut ConfigMap, args: &ArgMatches, environment: &impl Environment) -> Result<Vec<PathBuf>, String> {
     let mut file_patterns = get_config_file_patterns(config_map)?;
-    file_patterns.extend(resolve_file_patterns_from_cli(cli_file_patterns));
+    file_patterns.extend(resolve_file_patterns_from_cli(args.values_of("file patterns")));
+    if !args.is_present("allowNodeModules") {
+        file_patterns.push(String::from("!**/node_modules/**/*"));
+    }
     return environment.glob(&file_patterns);
 
     fn resolve_file_patterns_from_cli(cli_file_patterns: Option<Values>) -> Vec<String> {
@@ -256,6 +300,27 @@ mod tests {
     }
 
     #[test]
+    fn it_should_output_resolve_config() {
+        let environment = TestEnvironment::new();
+        run_cli(&environment, vec![String::from(""), String::from("--outputResolvedConfig")]).unwrap();
+        let logged_messages = environment.get_logged_messages();
+        assert_eq!(logged_messages[0].starts_with("typescript/javascript: {\n"), true); // good enough
+        assert_eq!(logged_messages[1].starts_with("json/jsonc: {\n"), true);
+        assert_eq!(logged_messages.len(), 2);
+    }
+
+    #[test]
+    fn it_should_output_resolved_file_paths() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/file.ts"), "const t=4;").unwrap();
+        environment.write_file(&PathBuf::from("/file2.ts"), "const t=4;").unwrap();
+        run_cli(&environment, vec![String::from(""), String::from("--outputFilePaths"), String::from("**/*.ts")]).unwrap();
+        let mut logged_messages = environment.get_logged_messages();
+        logged_messages.sort();
+        assert_eq!(logged_messages, vec!["/file.ts", "/file2.ts"]);
+    }
+
+    #[test]
     fn it_should_format_files() {
         let environment = TestEnvironment::new();
         let file_path = PathBuf::from("/file.ts");
@@ -264,6 +329,26 @@ mod tests {
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "const t = 4;\n");
+    }
+
+    #[test]
+    fn it_should_ignore_files_in_node_modules_by_default() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/node_modules/file.ts"), "const t=4;").unwrap();
+        environment.write_file(&PathBuf::from("/test/node_modules/file.ts"), "const t=4;").unwrap();
+        run_cli(&environment, vec![String::from(""), String::from("**/*.ts")]).unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+    }
+
+    #[test]
+    fn it_should_not_ignore_files_in_node_modules_when_allowed() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/node_modules/file.ts"), "const t=4;").unwrap();
+        environment.write_file(&PathBuf::from("/test/node_modules/file.ts"), "const t=4;").unwrap();
+        run_cli(&environment, vec![String::from(""), String::from("--allowNodeModules"), String::from("**/*.ts")]).unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![String::from("Formatted 2 files.")]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
     #[test]
