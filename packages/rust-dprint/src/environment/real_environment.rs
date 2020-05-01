@@ -28,6 +28,23 @@ impl Environment for RealEnvironment {
         }
     }
 
+    fn glob(&self, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, String> {
+        let walker = match globwalk::GlobWalkerBuilder::from_patterns(&PathBuf::from("."), file_patterns).follow_links(true).build() {
+            Ok(walker) => walker,
+            Err(err) => return Err(format!("Error parsing file patterns: {}", err)),
+        };
+
+        let mut file_paths = Vec::new();
+        for result in walker.into_iter() {
+            match result {
+                Ok(result) => { file_paths.push(result.into_path()); },
+                Err(err) => return Err(format!("Error walking files: {}", err)),
+            }
+        }
+
+        Ok(file_paths)
+    }
+
     fn path_exists(&self, file_path: &PathBuf) -> bool {
         file_path.exists()
     }

@@ -107,7 +107,7 @@ module.exports.config = {
         }),
     ],
     includes: [
-        "**/*.{ts,tsx,json,js,jsx}",
+        "**/*.{ts,tsx,js,jsx,json}",
     ],
 };
 `);

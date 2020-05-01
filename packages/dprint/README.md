@@ -48,7 +48,7 @@ Add a format script to your *package.json*'s "scripts" section (see `npx dprint 
 {
   "name": "your-package-name",
   "scripts": {
-    "format": "dprint \"**/*.{ts,tsx,json,js,jsx}\""
+    "format": "dprint \"**/*.{ts,tsx,js,jsx,json}\""
   }
 }
 ```
