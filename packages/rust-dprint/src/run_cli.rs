@@ -30,14 +30,14 @@ pub fn run_cli(environment: &impl Environment, args: Vec<String>) -> Result<(), 
     check_project_type_diagnostic(&mut config_map, environment);
     let file_paths = resolve_file_paths(&mut config_map, &matches, environment)?;
 
-    if matches.is_present("outputFilePaths") {
+    if matches.is_present("output-file-paths") {
         output_file_paths(file_paths.iter(), environment);
         return Ok(());
     }
 
     let formatter = create_formatter(config_map, environment)?;
 
-    if matches.is_present("outputResolvedConfig") {
+    if matches.is_present("output-resolved-config") {
         output_resolved_config(&formatter, environment);
         return Ok(());
     }
@@ -184,8 +184,8 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
                 .multiple(true),
         )
         .arg(
-            Arg::with_name("allowNodeModules")
-                .long("allowNodeModules")
+            Arg::with_name("allow-node-modules")
+                .long("allow-node-modules")
                 .help("Allows traversing node module directories.")
                 .takes_value(false),
         )
@@ -203,14 +203,14 @@ fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("outputResolvedConfig")
-                .long("outputResolvedConfig")
+            Arg::with_name("output-resolved-config")
+                .long("output-resolved-config")
                 .help("Outputs the resolved configuration.")
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("outputFilePaths")
-                .long("outputFilePaths")
+            Arg::with_name("output-file-paths")
+                .long("output-file-paths")
                 .help("Outputs the resolved file paths.")
                 .takes_value(false),
         )
@@ -245,7 +245,7 @@ fn deserialize_config_file(config_path: Option<&str>, environment: &impl Environ
 fn resolve_file_paths(config_map: &mut ConfigMap, args: &ArgMatches, environment: &impl Environment) -> Result<Vec<PathBuf>, String> {
     let mut file_patterns = get_config_file_patterns(config_map)?;
     file_patterns.extend(resolve_file_patterns_from_cli(args.values_of("file patterns")));
-    if !args.is_present("allowNodeModules") {
+    if !args.is_present("allow-node-modules") {
         file_patterns.push(String::from("!**/node_modules/**/*"));
     }
     return environment.glob(&file_patterns);
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn it_should_output_resolve_config() {
         let environment = TestEnvironment::new();
-        run_cli(&environment, vec![String::from(""), String::from("--outputResolvedConfig")]).unwrap();
+        run_cli(&environment, vec![String::from(""), String::from("--output-resolved-config")]).unwrap();
         let logged_messages = environment.get_logged_messages();
         assert_eq!(logged_messages[0].starts_with("typescript/javascript: {\n"), true); // good enough
         assert_eq!(logged_messages[1].starts_with("json/jsonc: {\n"), true);
@@ -314,7 +314,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/file.ts"), "const t=4;").unwrap();
         environment.write_file(&PathBuf::from("/file2.ts"), "const t=4;").unwrap();
-        run_cli(&environment, vec![String::from(""), String::from("--outputFilePaths"), String::from("**/*.ts")]).unwrap();
+        run_cli(&environment, vec![String::from(""), String::from("--output-file-paths"), String::from("**/*.ts")]).unwrap();
         let mut logged_messages = environment.get_logged_messages();
         logged_messages.sort();
         assert_eq!(logged_messages, vec!["/file.ts", "/file2.ts"]);
@@ -346,7 +346,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/node_modules/file.ts"), "const t=4;").unwrap();
         environment.write_file(&PathBuf::from("/test/node_modules/file.ts"), "const t=4;").unwrap();
-        run_cli(&environment, vec![String::from(""), String::from("--allowNodeModules"), String::from("**/*.ts")]).unwrap();
+        run_cli(&environment, vec![String::from(""), String::from("--allow-node-modules"), String::from("**/*.ts")]).unwrap();
         assert_eq!(environment.get_logged_messages(), vec![String::from("Formatted 2 files.")]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
