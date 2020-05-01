@@ -4102,7 +4102,11 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
 
     let indent_width = context.config.indent_width;
     let prefer_hanging = context.config.union_and_intersection_type_prefer_hanging;
-    let multi_line_style = if node.is_union {
+    let is_parent_union_or_intersection = match context.parent().kind() {
+        NodeKind::TsUnionType | NodeKind::TsIntersectionType => true,
+        _ => false,
+    };
+    let multi_line_style = if !is_parent_union_or_intersection {
         if use_surround_newlines(context) {
             parser_helpers::MultiLineStyle::SurroundNewlinesIndented
         } else if has_leading_comments {
@@ -4132,11 +4136,11 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
             if let Some(separator_token) = separator_token {
                 items.extend(parse_leading_comments(separator_token, context));
             }
-            if i == 0 && node.is_union {
+            if i == 0 && !is_parent_union_or_intersection {
                 items.push_condition(if_true(
                     "separatorIfMultiLine",
                     is_multi_line_or_hanging.clone(),
-                    separator.into()
+                    separator.into(),
                 ));
             } else if i > 0 {
                 items.push_str(separator);
@@ -4153,7 +4157,7 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
                     let is_at_same_position = condition_resolvers::is_at_same_position(condition_context, &start_info)?;
                     return Some(is_on_same_line && !is_at_same_position);
                 }),
-                true_path: Some(" ".into()),
+                true_path: Some(Signal::SpaceIfNotTrailing.into()),
                 false_path: None
             }));
             items.extend(parse_node(type_node.into(), context));
@@ -4994,7 +4998,7 @@ fn parse_brace_separator<'a>(opts: ParseBraceSeparatorOptions<'a>, context: &mut
     fn space_if_not_start_line() -> PrintItems {
         if_true(
             "spaceIfNotStartLine",
-            |context| Some(!condition_resolvers::is_start_of_line(context)),
+            |context| Some(!context.writer_info.is_start_of_line()),
             " ".into()
         ).into()
     }

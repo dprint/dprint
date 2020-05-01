@@ -9,7 +9,8 @@ export type T = string & number;
 export type T = string & test & string & test;
 
 [expect]
-export type T = string
+export type T =
+    & string
     & test
     & string
     & test;
@@ -26,7 +27,8 @@ export type T = string
     & number;
 
 [expect]
-export type T = string
+export type T =
+    & string
     & number;
 
 == should format with comments after the separator ==
@@ -34,7 +36,8 @@ export type T = string
     & /* 2 */ number;
 
 [expect]
-export type T = string
+export type T =
+    & string
     & /* 2 */ number;
 
 == should allow the last node to be on a single line ==
@@ -53,9 +56,26 @@ type Test = testing & {
 } & test & test;
 
 [expect]
-type Test = testing
+type Test =
+    & testing
     & {
         testing: string;
     }
     & test
     & test;
+
+== should not have a leading amersand if multi-line within a union type ==
+type Test = test
+    | test & (
+        test
+        | test & other
+    );
+
+[expect]
+type Test =
+    | test
+    | test
+        & (
+            | test
+            | test & other
+        );

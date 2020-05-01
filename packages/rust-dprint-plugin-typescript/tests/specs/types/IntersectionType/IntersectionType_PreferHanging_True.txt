@@ -24,7 +24,8 @@ export type T = string
     & number & other;
 
 [expect]
-export type T = string
+export type T =
+    & string
     & number
     & other;
 
