@@ -41,7 +41,7 @@ impl Plugin for JsoncPlugin {
 
     fn get_resolved_config(&self) -> String {
         let config = &self.get_resolved_config_result().config;
-        serde_json::to_string(config).unwrap()
+        serde_json::to_string_pretty(config).unwrap()
     }
 
     fn get_configuration_diagnostics(&self) -> &Vec<ConfigurationDiagnostic> {
