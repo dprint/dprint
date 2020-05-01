@@ -9,7 +9,6 @@ export function getDefaultCommandLineOptions(): CommandLineOptions {
         showVersion: false,
         outputFilePaths: false,
         outputResolvedConfig: false,
-        duration: false,
         filePatterns: [],
     };
 }

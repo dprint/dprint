@@ -56,7 +56,6 @@ Options:
 -c, --config            Configuration file to use (default: dprint.config.js)
 --outputFilePaths       Outputs the list of file paths found for formatting without formatting the files.
 --outputResolvedConfig  Outputs the resolved configuration from the configuration file.
---duration              Outputs how long the format took.
 --allowNodeModuleFiles  Allows including files that have a node_modules directory in their path.
 Plugins:
 * dprint-plugin-test v0.1.0`,
@@ -220,12 +219,6 @@ module.exports.config = {
         });
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
         expect(warns.length).to.equal(0);
-    });
-
-    it("should output the duration when specifying to", async () => {
-        const logs = await getLogs({ duration: true });
-        expect(logs.length).to.equal(1);
-        expect(/^Duration: [0-9]+\.[0-9][0-9]s$/.test(logs[0])).to.be.true;
     });
 
     it("should format the files specified in the includes", async () => {

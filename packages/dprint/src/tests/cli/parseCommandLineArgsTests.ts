@@ -64,8 +64,4 @@ describe(nameof(parseCommandLineArgs), () => {
     it("should parse file globs specified with a leading allowNodeModuleFiles", () => {
         doTest(["--allowNodeModuleFiles", "file.ts", "file2.ts"], { allowNodeModuleFiles: true, filePatterns: ["file.ts", "file2.ts"] });
     });
-
-    it("should parse file globs specified with a leading outputDuration", () => {
-        doTest(["--duration", "file.ts", "file2.ts"], { duration: true, filePatterns: ["file.ts", "file2.ts"] });
-    });
 });

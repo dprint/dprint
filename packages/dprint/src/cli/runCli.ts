@@ -20,8 +20,6 @@ export async function runCli(args: string[], environment: Environment) {
 }
 
 export async function runCliWithOptions(options: CommandLineOptions, environment: Environment) {
-    const startDate = new Date();
-
     if (options.showHelp) {
         environment.log(getHelpText(await safeGetPlugins()));
         return;
@@ -40,11 +38,6 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         await runCliWithPlugins();
     } finally {
         plugins.forEach(p => p.dispose?.());
-    }
-
-    if (options.duration) {
-        const durationInSeconds = ((new Date()).getTime() - startDate.getTime()) / 1000;
-        environment.log(`Duration: ${durationInSeconds.toFixed(2)}s`);
     }
 
     async function runCliWithPlugins() {

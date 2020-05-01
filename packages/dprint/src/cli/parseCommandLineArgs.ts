@@ -4,7 +4,7 @@ import { CommandLineOptions } from "./CommandLineOptions";
 export function parseCommandLineArgs(args: string[]): CommandLineOptions {
     const argv = minimist(args, {
         string: ["config"],
-        boolean: ["help", "version", "outputFilePaths", "outputResolvedConfig", "allowNodeModuleFiles", "duration", "init"],
+        boolean: ["help", "version", "outputFilePaths", "outputResolvedConfig", "allowNodeModuleFiles", "init"],
     });
 
     return {
@@ -15,7 +15,6 @@ export function parseCommandLineArgs(args: string[]): CommandLineOptions {
         showVersion: argv["v"] || argv["version"],
         outputFilePaths: argv["outputFilePaths"],
         outputResolvedConfig: argv["outputResolvedConfig"],
-        duration: argv["duration"],
         filePatterns: argv._,
     };
 
