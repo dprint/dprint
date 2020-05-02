@@ -675,6 +675,10 @@ impl ConfigurationBuilder {
         self.insert("conditionalExpression.preferSingleLine", value)
     }
 
+    pub fn conditional_type_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("conditionalType.preferSingleLine", value)
+    }
+
     pub fn import_declaration_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("importDeclaration.preferSingleLine", value)
     }

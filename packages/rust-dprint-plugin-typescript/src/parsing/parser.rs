@@ -3693,15 +3693,22 @@ fn parse_array_type<'a>(node: &'a TsArrayType, context: &mut Context<'a>) -> Pri
 }
 
 fn parse_conditional_type<'a>(node: &'a TsConditionalType, context: &mut Context<'a>) -> PrintItems {
-    // todo: preferSingleLine
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.true_type, &*node.false_type, context);
+    let use_new_lines = !context.config.conditional_type_prefer_single_line
+        && node_helpers::get_use_new_lines_for_nodes(&*node.true_type, &*node.false_type, context);
+    let top_most_data = get_top_most_data(node, context);
     let is_parent_conditional_type = context.parent().kind() == NodeKind::TsConditionalType;
     let mut items = PrintItems::new();
+    let before_false_info = Info::new("beforeFalse");
 
     // main area
     items.extend(parser_helpers::new_line_group(parse_node((&node.check_type).into(), context)));
     items.push_str(" extends"); // do not newline before because it's a parsing error
     items.push_signal(Signal::SpaceOrNewLine);
+
+    if top_most_data.is_top_most {
+        items.push_info(top_most_data.top_most_info);
+    }
+
     items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parse_node((&node.extends_type).into(), context))));
     items.push_signal(Signal::SpaceOrNewLine);
     items.push_condition(conditions::indent_if_start_of_line({
@@ -3712,10 +3719,15 @@ fn parse_conditional_type<'a>(node: &'a TsConditionalType, context: &mut Context
     }));
 
     // false type
-    items.push_signal(if use_new_lines { Signal::NewLine } else { Signal::SpaceOrNewLine });
+    if use_new_lines {
+        items.push_signal(Signal::NewLine);
+    } else {
+        items.push_condition(conditions::new_line_if_multiple_lines_space_or_new_line_otherwise(top_most_data.top_most_info, Some(before_false_info)));
+    }
 
     let false_type_parsed = {
         let mut items = PrintItems::new();
+        items.push_info(before_false_info);
         items.push_str(": ");
         items.extend(parser_helpers::new_line_group(parse_node((&node.false_type).into(), context)));
         items
@@ -3728,6 +3740,48 @@ fn parse_conditional_type<'a>(node: &'a TsConditionalType, context: &mut Context
     }
 
     return items;
+
+    struct TopMostData {
+        top_most_info: Info,
+        is_top_most: bool,
+    }
+
+    fn get_top_most_data(node: &TsConditionalType, context: &mut Context) -> TopMostData {
+        // todo: consolidate with conditional expression
+        // The "top most" node in nested conditionals follows the ancestors up through
+        // the false expressions.
+        let mut top_most_node = node;
+
+        for ancestor in context.parent_stack.iter() {
+            if let Node::TsConditionalType(parent) = ancestor {
+                if parent.false_type.lo() == top_most_node.lo() {
+                    top_most_node = parent;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        let is_top_most = top_most_node == node;
+        let top_most_info = get_or_set_top_most_info(top_most_node.lo(), is_top_most, context);
+
+        return TopMostData {
+            is_top_most,
+            top_most_info,
+        };
+
+        fn get_or_set_top_most_info(top_most_expr_start: BytePos, is_top_most: bool, context: &mut Context) -> Info {
+            if is_top_most {
+                let info = Info::new("conditionalTypeStart");
+                context.store_info_for_node(&top_most_expr_start, info);
+                info
+            } else {
+                context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored")
+            }
+        }
+    }
 }
 
 fn parse_constructor_type<'a>(node: &'a TsConstructorType, context: &mut Context<'a>) -> PrintItems {

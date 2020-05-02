@@ -408,6 +408,8 @@ pub struct Configuration {
     pub arguments_prefer_single_line: bool,
     #[serde(rename = "conditionalExpression.preferSingleLine")]
     pub conditional_expression_prefer_single_line: bool,
+    #[serde(rename = "conditionalType.preferSingleLine")]
+    pub conditional_type_prefer_single_line: bool,
     #[serde(rename = "exportDeclaration.preferSingleLine")]
     pub export_declaration_prefer_single_line: bool,
     #[serde(rename = "importDeclaration.preferSingleLine")]

@@ -135,6 +135,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         array_pattern_prefer_single_line: get_value(&mut config, "arrayPattern.preferSingleLine", prefer_single_line, &mut diagnostics),
         arguments_prefer_single_line: get_value(&mut config, "arguments.preferSingleLine", prefer_single_line, &mut diagnostics),
         conditional_expression_prefer_single_line: get_value(&mut config, "conditionalExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
+        conditional_type_prefer_single_line: get_value(&mut config, "conditionalType.preferSingleLine", prefer_single_line, &mut diagnostics),
         import_declaration_prefer_single_line: get_value(&mut config, "importDeclaration.preferSingleLine", prefer_single_line, &mut diagnostics),
         export_declaration_prefer_single_line: get_value(&mut config, "exportDeclaration.preferSingleLine", prefer_single_line, &mut diagnostics),
         object_expression_prefer_single_line: get_value(&mut config, "objectExpression.preferSingleLine", prefer_single_line, &mut diagnostics),

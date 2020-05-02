@@ -107,6 +107,7 @@ fn check_all_values_set() {
         .array_pattern_prefer_single_line(false)
         .arguments_prefer_single_line(false)
         .conditional_expression_prefer_single_line(false)
+        .conditional_type_prefer_single_line(false)
         .export_declaration_prefer_single_line(false)
         .import_declaration_prefer_single_line(false)
         .object_expression_prefer_single_line(false)
@@ -142,7 +143,7 @@ fn check_all_values_set() {
         .while_statement_space_after_while_keyword(true);
 
     let inner_config = config.get_inner_config();
-    assert_eq!(inner_config.len(), 120);
+    assert_eq!(inner_config.len(), 121);
     let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }

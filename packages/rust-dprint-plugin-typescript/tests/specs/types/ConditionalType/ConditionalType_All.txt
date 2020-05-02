@@ -34,3 +34,12 @@ type Args<R> = R extends (messageArgs: string[]) => string[] ? A : [];
 [expect]
 type Args<R> = R extends
     (messageArgs: string[]) => string[] ? A : [];
+
+== should format all as "multi-line" when going past line width ==
+type Type<T> = T extends string ? number : T extends number ? boolean : T extends other ? string : boolean;
+
+[expect]
+type Type<T> = T extends string ? number
+    : T extends number ? boolean
+    : T extends other ? string
+    : boolean;

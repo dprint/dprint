@@ -419,6 +419,7 @@ describe("configuration", () => {
                 "arrayPattern.preferSingleLine": value,
                 "arguments.preferSingleLine": value,
                 "conditionalExpression.preferSingleLine": value,
+                "conditionalType.preferSingleLine": value,
                 "exportDeclaration.preferSingleLine": value,
                 "importDeclaration.preferSingleLine": value,
                 "objectExpression.preferSingleLine": value,
