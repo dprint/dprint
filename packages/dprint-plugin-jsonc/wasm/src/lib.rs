@@ -20,7 +20,7 @@ impl FormatContext {
     pub fn new(js_config: &js_sys::Map, js_global_config: &js_sys::Map) -> FormatContext {
         console_error_panic_hook::set_once();
 
-        let global_config = resolve_global_config(&js_map_to_hash_map(&js_global_config)).config;
+        let global_config = resolve_global_config(js_map_to_hash_map(&js_global_config)).config;
         let config_result = resolve_config(js_map_to_hash_map(&js_config), &global_config);
         FormatContext {
             configuration: config_result.config,

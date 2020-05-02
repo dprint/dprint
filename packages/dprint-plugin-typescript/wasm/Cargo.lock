@@ -184,14 +184,14 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "dprint-core",
  "serde",

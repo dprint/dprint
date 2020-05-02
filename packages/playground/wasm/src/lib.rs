@@ -40,6 +40,6 @@ fn resolve_to_typescript_config(configuration: &js_sys::Map) -> Configuration {
         }
     }
 
-    let global_config = resolve_global_config(&HashMap::new()).config;
+    let global_config = resolve_global_config(HashMap::new()).config;
     return dprint_plugin_typescript::configuration::resolve_config(hash_map, &global_config).config;
 }

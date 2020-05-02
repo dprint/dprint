@@ -12,7 +12,11 @@ pub fn parse_items(text: &str, config: &Configuration) -> Result<PrintItems, Str
     let parse_result = parse_jsonc_ast(text);
     let parse_result = match parse_result {
         Ok(result) => result,
-        Err(err) => return Err(err.get_message_with_range(text)),
+        Err(err) => return Err(dprint_core::utils::string_utils::format_diagnostic(
+            Some((err.range.start, err.range.end)),
+            &err.message,
+            text
+        )),
     };
     let node_value = parse_result.value;
     let mut context = Context {

@@ -44,7 +44,7 @@ fn test_performance() {
 #[test]
 fn test_specs() {
     //debug_here!();
-    let global_config = resolve_global_config(&HashMap::new()).config;
+    let global_config = resolve_global_config(HashMap::new()).config;
 
     run_specs(
         &PathBuf::from("./tests/specs"),

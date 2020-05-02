@@ -37,7 +37,7 @@ impl ConfigurationBuilder {
         if let Some(global_config) = &self.global_config {
             resolve_config(self.config.clone(), global_config).config
         } else {
-            let global_config = resolve_global_config(&HashMap::new()).config;
+            let global_config = resolve_global_config(HashMap::new()).config;
             resolve_config(self.config.clone(), &global_config).config
         }
     }

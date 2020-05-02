@@ -6,7 +6,6 @@ use swc_common::{
 };
 use swc_ecma_ast::{Module};
 use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget, token::{TokenAndSpan}};
-use super::super::utils;
 
 pub struct ParsedSourceFile {
     pub module: Module,
@@ -125,13 +124,28 @@ impl Emitter for EmptyEmitter {
 
 fn format_diagnostic(error: &DiagnosticBuilder, file_text: &str) -> String {
     // todo: handling sub diagnostics?
-    let mut message = String::new();
-    if let Some(primary_span) = error.span.primary_span() {
-        let error_pos = primary_span.lo().0 as usize;
-        let line_number = utils::get_line_number_of_pos(file_text, error_pos);
-        let column_number = utils::get_column_number_of_pos(file_text, error_pos);
-        message.push_str(&format!("Line {}, column {}: ", line_number, column_number))
+    dprint_core::utils::string_utils::format_diagnostic(
+        error.span.primary_span().map(|span| (span.lo().0 as usize, span.hi().0 as usize)),
+        &error.message(),
+        file_text
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_error_on_syntax_diagnostic() {
+        let message = parse_swc_ast(&PathBuf::from("./test.ts"), "test;\nas#;").err().unwrap();
+        assert_eq!(
+            message,
+            concat!(
+                "Line 2, column 3: Expected ';', '}' or <eof>\n",
+                "\n",
+                "  as#;\n",
+                "    ~"
+            )
+        );
     }
-    message.push_str(&error.message());
-    return message;
 }
