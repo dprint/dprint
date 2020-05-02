@@ -102,9 +102,9 @@ pub struct ResolveConfigurationResult<T> where T : Clone + Serialize {
 }
 
 /// Resolves a collection of key value pairs to a GlobalConfiguration.
-pub fn resolve_global_config(config: &HashMap<String, String>) -> ResolveConfigurationResult<GlobalConfiguration> {
+pub fn resolve_global_config(config: HashMap<String, String>) -> ResolveConfigurationResult<GlobalConfiguration> {
+    let mut config = config;
     let mut diagnostics = Vec::new();
-    let mut config = config.clone();
 
     let resolved_config = GlobalConfiguration {
         line_width: get_nullable_value(&mut config, "lineWidth", &mut diagnostics),

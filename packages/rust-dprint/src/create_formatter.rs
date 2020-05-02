@@ -28,7 +28,7 @@ fn initialize_plugins(config_map: ConfigMap, formatter: &mut Formatter, environm
 
     // now get and resolve the global config
     let global_config = get_global_config_from_config_map(config_map)?;
-    let global_config_result = dprint_core::configuration::resolve_global_config(&global_config);
+    let global_config_result = dprint_core::configuration::resolve_global_config(global_config);
 
     // check global diagnostics
     let mut diagnostic_count = 0;
