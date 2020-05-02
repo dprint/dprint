@@ -333,8 +333,8 @@ pub struct Configuration {
     pub tuple_type_prefer_hanging: bool,
     #[serde(rename = "typeLiteral.preferHanging")]
     pub type_literal_prefer_hanging: bool,
-    #[serde(rename = "typeParameterDeclaration.preferHanging")]
-    pub type_parameter_declaration_prefer_hanging: bool,
+    #[serde(rename = "typeParameters.preferHanging")]
+    pub type_parameters_prefer_hanging: bool,
     #[serde(rename = "unionAndIntersectionType.preferHanging")]
     pub union_and_intersection_type_prefer_hanging: bool,
     #[serde(rename = "variableStatement.preferHanging")]
@@ -386,8 +386,8 @@ pub struct Configuration {
     pub object_expression_trailing_commas: TrailingCommas,
     #[serde(rename = "tupleType.trailingCommas")]
     pub tuple_type_trailing_commas: TrailingCommas,
-    #[serde(rename = "typeParameterDeclaration.trailingCommas")]
-    pub type_parameter_declaration_trailing_commas: TrailingCommas,
+    #[serde(rename = "typeParameters.trailingCommas")]
+    pub type_parameters_trailing_commas: TrailingCommas,
     /* use braces */
     #[serde(rename = "ifStatement.useBraces")]
     pub if_statement_use_braces: UseBraces,
@@ -426,6 +426,8 @@ pub struct Configuration {
     pub tuple_type_prefer_single_line: bool,
     #[serde(rename = "typeLiteral.preferSingleLine")]
     pub type_literal_prefer_single_line: bool,
+    #[serde(rename = "typeParameters.preferSingleLine")]
+    pub type_parameters_prefer_single_line: bool,
     #[serde(rename = "variableStatement.preferSingleLine")]
     pub variable_statement_prefer_single_line: bool,
 

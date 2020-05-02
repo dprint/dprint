@@ -245,8 +245,8 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::TsTupleType(node) => parse_tuple_type(node, context),
             Node::TsTypeAnn(node) => parse_type_ann(node, context),
             Node::TsTypeParam(node) => parse_type_param(node, context),
-            Node::TsTypeParamDecl(node) => parse_type_param_instantiation(TypeParamNode::Decl(node), context),
-            Node::TsTypeParamInstantiation(node) => parse_type_param_instantiation(TypeParamNode::Instantiation(node), context),
+            Node::TsTypeParamDecl(node) => parse_type_parameters(TypeParamNode::Decl(node), context),
+            Node::TsTypeParamInstantiation(node) => parse_type_parameters(TypeParamNode::Instantiation(node), context),
             Node::TsTypeOperator(node) => parse_type_operator(node, context),
             Node::TsTypePredicate(node) => parse_type_predicate(node, context),
             Node::TsTypeQuery(node) => parse_type_query(node, context),
@@ -4040,7 +4040,7 @@ fn parse_type_param<'a>(node: &'a TsTypeParam, context: &mut Context<'a>) -> Pri
     return items;
 }
 
-fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Context<'a>) -> PrintItems {
+fn parse_type_parameters<'a>(node: TypeParamNode<'a>, context: &mut Context<'a>) -> PrintItems {
     let params = node.params();
     let use_new_lines = get_use_new_lines(&node.span().data(), &params, context);
     let mut items = PrintItems::new();
@@ -4048,7 +4048,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
     items.push_str("<");
     items.extend(parse_separated_values(ParseSeparatedValuesOptions {
         nodes: params.into_iter().map(|p| Some(p)).collect(),
-        prefer_hanging: context.config.type_parameter_declaration_prefer_hanging,
+        prefer_hanging: context.config.type_parameters_prefer_hanging,
         force_use_new_lines: use_new_lines,
         allow_blank_lines: false,
         trailing_commas: Some(get_trailing_commas(context)),
@@ -4064,7 +4064,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
     return items;
 
     fn get_trailing_commas(context: &mut Context) -> TrailingCommas {
-        let trailing_commas = context.config.type_parameter_declaration_trailing_commas;
+        let trailing_commas = context.config.type_parameters_trailing_commas;
         if trailing_commas == TrailingCommas::Never { return trailing_commas; }
         let parent_kind = context.parent().kind();
         match parent_kind {
@@ -4080,8 +4080,7 @@ fn parse_type_param_instantiation<'a>(node: TypeParamNode<'a>, context: &mut Con
     }
 
     fn get_use_new_lines(parent_span_data: &SpanData, params: &Vec<Node>, context: &mut Context) -> bool {
-        // todo: preferSingleLine
-        if params.is_empty() {
+        if context.config.type_parameters_prefer_single_line || params.is_empty() {
             false
         } else {
             let first_param = &params[0];

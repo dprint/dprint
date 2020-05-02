@@ -341,7 +341,7 @@ export interface TypeScriptConfiguration {
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
-    "typeParameterDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "typeParameters.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "arguments.preferHanging"?: TypeScriptConfiguration["preferHanging"];
@@ -363,7 +363,7 @@ export interface TypeScriptConfiguration {
     "switchStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
-    "typeParameterDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeParameters.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "unionAndIntersectionType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "variableStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
@@ -374,11 +374,13 @@ export interface TypeScriptConfiguration {
     "conditionalType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "exportDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "importDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "mappedType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "objectExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "objectPattern.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "tupleType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "typeLiteral.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "typeParameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "variableStatement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
@@ -432,7 +434,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "importDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
-    readonly "typeParameterDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "typeParameters.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
@@ -455,7 +457,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "switchStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
-    readonly "typeParameterDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeParameters.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "unionAndIntersectionType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "variableStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
@@ -466,11 +468,13 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "conditionalType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "importDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "exportDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "mappedType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "objectExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "objectPattern.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "tupleType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "typeLiteral.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "typeParameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "variableStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;

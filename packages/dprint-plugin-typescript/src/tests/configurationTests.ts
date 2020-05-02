@@ -326,7 +326,7 @@ describe("configuration", () => {
                 "importDeclaration.trailingCommas": value,
                 "objectExpression.trailingCommas": value,
                 "objectPattern.trailingCommas": value,
-                "typeParameterDeclaration.trailingCommas": value,
+                "typeParameters.trailingCommas": value,
                 "tupleType.trailingCommas": value,
             };
         }
@@ -379,7 +379,7 @@ describe("configuration", () => {
                 "switchStatement.preferHanging": value,
                 "tupleType.preferHanging": value,
                 "typeLiteral.preferHanging": value,
-                "typeParameterDeclaration.preferHanging": value,
+                "typeParameters.preferHanging": value,
                 "unionAndIntersectionType.preferHanging": value,
                 "variableStatement.preferHanging": value,
                 "whileStatement.preferHanging": value,
@@ -428,6 +428,7 @@ describe("configuration", () => {
                 "parameters.preferSingleLine": value,
                 "tupleType.preferSingleLine": value,
                 "typeLiteral.preferSingleLine": value,
+                "typeParameters.preferSingleLine": value,
                 "variableStatement.preferSingleLine": value,
             };
         }

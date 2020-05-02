@@ -525,8 +525,8 @@ impl ConfigurationBuilder {
         self.insert("typeLiteral.preferHanging", value)
     }
 
-    pub fn type_parameter_declaration_prefer_hanging(&mut self, value: bool) -> &mut Self {
-        self.insert("typeParameterDeclaration.preferHanging", value)
+    pub fn type_parameters_prefer_hanging(&mut self, value: bool) -> &mut Self {
+        self.insert("typeParameters.preferHanging", value)
     }
 
     pub fn union_and_intersection_type_prefer_hanging(&mut self, value: bool) -> &mut Self {
@@ -631,8 +631,8 @@ impl ConfigurationBuilder {
         self.insert("tupleType.trailingCommas", value)
     }
 
-    pub fn type_parameter_declaration_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
-        self.insert("typeParameterDeclaration.trailingCommas", value)
+    pub fn type_parameters_trailing_commas(&mut self, value: TrailingCommas) -> &mut Self {
+        self.insert("typeParameters.trailingCommas", value)
     }
 
     /* use braces */
@@ -709,6 +709,10 @@ impl ConfigurationBuilder {
 
     pub fn type_literal_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("typeLiteral.preferSingleLine", value)
+    }
+
+    pub fn type_parameters_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("typeParameters.preferSingleLine", value)
     }
 
     pub fn variable_statement_prefer_single_line(&mut self, value: bool) -> &mut Self {
@@ -791,7 +795,7 @@ mod tests {
             .switch_statement_prefer_hanging(true)
             .tuple_type_prefer_hanging(true)
             .type_literal_prefer_hanging(true)
-            .type_parameter_declaration_prefer_hanging(true)
+            .type_parameters_prefer_hanging(true)
             .union_and_intersection_type_prefer_hanging(true)
             .variable_statement_prefer_hanging(true)
             .while_statement_prefer_hanging(true)
@@ -819,7 +823,7 @@ mod tests {
             .export_declaration_trailing_commas(TrailingCommas::Never)
             .object_expression_trailing_commas(TrailingCommas::Never)
             .object_pattern_trailing_commas(TrailingCommas::Never)
-            .type_parameter_declaration_trailing_commas(TrailingCommas::Never)
+            .type_parameters_trailing_commas(TrailingCommas::Never)
             .tuple_type_trailing_commas(TrailingCommas::Never)
             /* use braces */
             .if_statement_use_braces(UseBraces::Always)
@@ -841,6 +845,7 @@ mod tests {
             .parameters_prefer_single_line(false)
             .tuple_type_prefer_single_line(false)
             .type_literal_prefer_single_line(false)
+            .type_parameters_prefer_single_line(false)
             .variable_statement_prefer_single_line(false)
             /* space settings */
             .binary_expression_space_surrounding_bitwise_and_arithmetic_operator(true)
@@ -869,7 +874,7 @@ mod tests {
             .while_statement_space_after_while_keyword(true);
 
         let inner_config = config.get_inner_config();
-        assert_eq!(inner_config.len(), 122);
+        assert_eq!(inner_config.len(), 123);
         let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
         assert_eq!(diagnostics.len(), 0);
     }

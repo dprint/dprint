@@ -1,4 +1,4 @@
-~~ lineWidth: 40, preferHanging: true ~~
+~~ lineWidth: 40, typeParameters.preferHanging: true ~~
 == should not break up the middle of a type parameter ==
 class Test<T, TestingThisOut extends number> {
 }
