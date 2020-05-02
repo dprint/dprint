@@ -414,6 +414,8 @@ pub struct Configuration {
     pub export_declaration_prefer_single_line: bool,
     #[serde(rename = "importDeclaration.preferSingleLine")]
     pub import_declaration_prefer_single_line: bool,
+    #[serde(rename = "mappedType.preferSingleLine")]
+    pub mapped_type_prefer_single_line: bool,
     #[serde(rename = "objectExpression.preferSingleLine")]
     pub object_expression_prefer_single_line: bool,
     #[serde(rename = "objectPattern.preferSingleLine")]

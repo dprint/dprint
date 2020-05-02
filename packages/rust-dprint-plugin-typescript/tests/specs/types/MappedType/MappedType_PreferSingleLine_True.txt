@@ -1,0 +1,16 @@
+~~ lineWidth: 48, mappedType.preferSingleLine: true ~~
+== should format on single line when it can fit ==
+type Partial<T> = {
+    [P in keyof T]?: T[P];
+};
+
+[expect]
+type Partial<T> = { [P in keyof T]?: T[P] };
+
+== should format with newlines when the length goes over the line width ==
+type Partial<T> = { [TESTINGTHIS in keyof T]?: T[TESTINGTHIS]; };
+
+[expect]
+type Partial<T> = {
+    [TESTINGTHIS in keyof T]?: T[TESTINGTHIS];
+};

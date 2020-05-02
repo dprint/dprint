@@ -3911,8 +3911,7 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
     let start_info = Info::new("startMappedType");
     let end_info = Info::new("endMappedType");
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(node).expect("Expected to find an open brace token in the mapped type.");
-    // todo: prefer single line
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(open_brace_token, &node.type_param, context);
+    let use_new_lines = !context.config.mapped_type_prefer_single_line && node_helpers::get_use_new_lines_for_nodes(open_brace_token, &node.type_param, context);
     let mut is_multiple_lines_condition = Condition::new("mappedTypeNewLine", ConditionProperties {
         condition: Box::new(move |context| {
             if use_new_lines {
