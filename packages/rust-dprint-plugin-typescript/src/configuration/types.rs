@@ -412,6 +412,8 @@ pub struct Configuration {
     pub conditional_type_prefer_single_line: bool,
     #[serde(rename = "exportDeclaration.preferSingleLine")]
     pub export_declaration_prefer_single_line: bool,
+    #[serde(rename = "forStatement.preferSingleLine")]
+    pub for_statement_prefer_single_line: bool,
     #[serde(rename = "importDeclaration.preferSingleLine")]
     pub import_declaration_prefer_single_line: bool,
     #[serde(rename = "mappedType.preferSingleLine")]
@@ -422,6 +424,8 @@ pub struct Configuration {
     pub object_pattern_prefer_single_line: bool,
     #[serde(rename = "parameters.preferSingleLine")]
     pub parameters_prefer_single_line: bool,
+    #[serde(rename = "parentheses.preferSingleLine")]
+    pub parentheses_prefer_single_line: bool,
     #[serde(rename = "tupleType.preferSingleLine")]
     pub tuple_type_prefer_single_line: bool,
     #[serde(rename = "typeLiteral.preferSingleLine")]

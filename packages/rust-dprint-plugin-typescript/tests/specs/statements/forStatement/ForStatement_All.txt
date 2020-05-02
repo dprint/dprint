@@ -97,6 +97,22 @@ for (; i < 5; i++) {
 for (; i < 5; i++) {
 }
 
+== should print when only has init ==
+for (var i; ;) {
+}
+
+[expect]
+for (var i;;) {
+}
+
+== should print when only has test ==
+for (; i < 5;) {
+}
+
+[expect]
+for (; i < 5;) {
+}
+
 == should print when only has an empty statement ==
 for (;;);
 

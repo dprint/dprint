@@ -679,12 +679,16 @@ impl ConfigurationBuilder {
         self.insert("conditionalType.preferSingleLine", value)
     }
 
-    pub fn import_declaration_prefer_single_line(&mut self, value: bool) -> &mut Self {
-        self.insert("importDeclaration.preferSingleLine", value)
-    }
-
     pub fn export_declaration_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("exportDeclaration.preferSingleLine", value)
+    }
+
+    pub fn for_statement_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("forStatement.preferSingleLine", value)
+    }
+
+    pub fn import_declaration_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("importDeclaration.preferSingleLine", value)
     }
 
     pub fn mapped_type_prefer_single_line(&mut self, value: bool) -> &mut Self {
@@ -701,6 +705,10 @@ impl ConfigurationBuilder {
 
     pub fn parameters_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("parameters.preferSingleLine", value)
+    }
+
+    pub fn parentheses_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("parentheses.preferSingleLine", value)
     }
 
     pub fn tuple_type_prefer_single_line(&mut self, value: bool) -> &mut Self {
@@ -838,11 +846,13 @@ mod tests {
             .conditional_expression_prefer_single_line(false)
             .conditional_type_prefer_single_line(false)
             .export_declaration_prefer_single_line(false)
+            .for_statement_prefer_single_line(false)
             .import_declaration_prefer_single_line(false)
             .mapped_type_prefer_single_line(false)
             .object_expression_prefer_single_line(false)
             .object_pattern_prefer_single_line(false)
             .parameters_prefer_single_line(false)
+            .parentheses_prefer_single_line(false)
             .tuple_type_prefer_single_line(false)
             .type_literal_prefer_single_line(false)
             .type_parameters_prefer_single_line(false)
@@ -874,7 +884,7 @@ mod tests {
             .while_statement_space_after_while_keyword(true);
 
         let inner_config = config.get_inner_config();
-        assert_eq!(inner_config.len(), 123);
+        assert_eq!(inner_config.len(), 125);
         let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
         assert_eq!(diagnostics.len(), 0);
     }

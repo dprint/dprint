@@ -3084,13 +3084,26 @@ fn parse_expr_stmt<'a>(stmt: &'a ExprStmt, context: &mut Context<'a>) -> PrintIt
 fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItems {
     let start_header_info = Info::new("startHeader");
     let end_header_info = Info::new("endHeader");
-    let use_new_lines = get_use_new_lines(&{
+    let first_inner_node = {
         if let Some(init) = &node.init {
             init.span_data()
         } else {
-            context.token_finder.get_first_semi_colon_within(node).expect("Expected to find a semi-colon within the for stmt.").span
+            context.token_finder.get_first_semi_colon_within(node).expect("Expected to find a semi-colon in for stmt.").span
         }
-    }, context);
+    };
+    let last_inner_node = {
+        if let Some(update) = &node.update {
+            update.span_data()
+        } else if let Some(test) = &node.test {
+            context.token_finder.get_first_semi_colon_after(&test.span()).expect("Expected to find second semi-colon in for stmt.").span
+        } else if let Some(init) = &node.init {
+            let first_semi_colon = context.token_finder.get_first_semi_colon_after(init).expect("Expected to find a semi-colon in for stmt.");
+            context.token_finder.get_first_semi_colon_after(&first_semi_colon.span).expect("Expected to find second semi-colon in for stmt.").span
+        } else {
+            context.token_finder.get_first_semi_colon_after(&first_inner_node).expect("Expected to find second semi-colon in for stmt.").span
+        }
+    };
+    let force_use_new_lines = get_use_new_lines(&first_inner_node, context);
     let mut items = PrintItems::new();
     items.push_info(start_header_info);
     items.push_str("for");
@@ -3123,26 +3136,35 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
     } else {
         None
     };
-    // todo: use parse_node_in_parens or parse_surrounded_by_tokens?
-    items.push_str("(");
-    items.extend(parser_helpers::parse_separated_values(move |_| {
-        let mut parsed_nodes = Vec::new();
-        parsed_nodes.push(parser_helpers::ParsedValue::from_items(parsed_init));
-        if let Some(parsed_test) = parsed_test { parsed_nodes.push(parser_helpers::ParsedValue::from_items(parsed_test)); }
-        if let Some(parsed_update) = parsed_update { parsed_nodes.push(parser_helpers::ParsedValue::from_items(parsed_update)); }
-        parsed_nodes
-    }, parser_helpers::ParseSeparatedValuesOptions {
-        prefer_hanging: context.config.for_statement_prefer_hanging,
-        force_use_new_lines: use_new_lines,
-        allow_blank_lines: false,
-        single_line_space_at_start: false,
-        single_line_space_at_end: false,
-        single_line_separator: separator_after_semi_colons.into(),
-        indent_width: context.config.indent_width,
-        multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
-        force_possible_newline_at_start: false,
-    }).items);
-    items.push_str(")");
+
+    items.extend(parse_node_in_parens(
+        |context| {
+            parser_helpers::parse_separated_values(move |_| {
+                let mut parsed_nodes = Vec::new();
+                parsed_nodes.push(parser_helpers::ParsedValue::from_items(parsed_init));
+                if let Some(parsed_test) = parsed_test { parsed_nodes.push(parser_helpers::ParsedValue::from_items(parsed_test)); }
+                if let Some(parsed_update) = parsed_update { parsed_nodes.push(parser_helpers::ParsedValue::from_items(parsed_update)); }
+                parsed_nodes
+            }, parser_helpers::ParseSeparatedValuesOptions {
+                prefer_hanging: context.config.for_statement_prefer_hanging,
+                force_use_new_lines,
+                allow_blank_lines: false,
+                single_line_space_at_start: false,
+                single_line_space_at_end: false,
+                single_line_separator: separator_after_semi_colons.into(),
+                indent_width: context.config.indent_width,
+                multi_line_style: parser_helpers::MultiLineStyle::SameLineNoIndent,
+                force_possible_newline_at_start: false,
+            }).items
+        },
+        ParseNodeInParensOptions {
+            inner_span: create_span_data(first_inner_node.lo(), last_inner_node.hi()),
+            prefer_hanging: context.config.for_statement_prefer_hanging,
+            allow_open_paren_trailing_comments: false,
+        },
+        context
+    ));
+
     items.push_info(end_header_info);
 
     items.extend(parse_conditional_brace_body(ParseConditionalBraceBodyOptions {
@@ -3160,7 +3182,10 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
     return items;
 
     fn get_use_new_lines<'a>(node: &dyn Ranged, context: &mut Context<'a>) -> bool {
-        // todo: preferSingleLine
+        if context.config.for_statement_prefer_single_line {
+            return false;
+        }
+
         let open_paren_token = context.token_finder.get_previous_token_if_open_paren(node);
         if let Some(open_paren_token) = open_paren_token {
             node_helpers::get_use_new_lines_for_nodes(open_paren_token, node, context)
@@ -5069,13 +5094,14 @@ fn parse_node_in_parens<'a>(
 ) -> PrintItems {
     let inner_span = opts.inner_span;
     let paren_span = get_paren_span(&inner_span, context);
-    // todo: preferSingleLine
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&paren_span.lo(), &inner_span, context);
+    let force_use_new_lines = !context.config.parentheses_prefer_single_line
+        && node_helpers::get_use_new_lines_for_nodes(&paren_span.lo(), &inner_span, context)
+        || has_any_node_comment_on_different_line(&vec![inner_span], context);
 
     parse_surrounded_by_tokens(|context| {
         // todo: do something like this in the computed property area and reuse the code in both places?
         let parsed_node = parse_node(context);
-        if use_new_lines {
+        if force_use_new_lines {
             surround_with_new_lines(with_indent(parsed_node))
         } else if opts.prefer_hanging {
             parsed_node

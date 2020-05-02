@@ -88,6 +88,10 @@ impl<'a> TokenFinder<'a> {
         self.get_first_token_within(node, |token| token.token == Token::Semi)
     }
 
+    pub fn get_first_semi_colon_after(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
+        self.get_first_token_after(node, |token| token.token == Token::Semi)
+    }
+
     pub fn get_first_colon_token_after(&mut self, node: &dyn Ranged) -> Option<&'a TokenAndSpan> {
         self.get_first_token_after(node, |token| token.token == Token::Colon)
     }
