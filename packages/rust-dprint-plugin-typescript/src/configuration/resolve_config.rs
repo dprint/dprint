@@ -191,3 +191,56 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use dprint_core::configuration::{resolve_global_config, NewLineKind};
+
+    use super::super::builder::ConfigurationBuilder;
+    use super::*;
+
+    // todo: more tests, but this is currently tested by the javascript code in dprint-plugin-typescript
+
+    #[test]
+    fn handle_global_config() {
+        let mut global_config = HashMap::new();
+        global_config.insert(String::from("lineWidth"), String::from("80"));
+        global_config.insert(String::from("indentWidth"), String::from("8"));
+        global_config.insert(String::from("newLineKind"), String::from("crlf"));
+        global_config.insert(String::from("useTabs"), String::from("true"));
+        let global_config = resolve_global_config(global_config).config;
+        let mut config_builder = ConfigurationBuilder::new();
+        let config = config_builder.global_config(global_config).build();
+        assert_eq!(config.line_width, 80);
+        assert_eq!(config.indent_width, 8);
+        assert_eq!(config.new_line_kind == NewLineKind::CarriageReturnLineFeed, true);
+        assert_eq!(config.use_tabs, true);
+    }
+
+    #[test]
+    fn handle_deno_config() {
+        let mut config = HashMap::new();
+        config.insert(String::from("deno"), String::from("true"));
+        let global_config = resolve_global_config(HashMap::new()).config;
+        let result = resolve_config(config, &global_config);
+        let expected_config = ConfigurationBuilder::new().deno().build();
+        // todo: test that both objects equal each other
+        assert_eq!(result.config.indent_width, expected_config.indent_width);
+        assert_eq!(result.config.line_width, expected_config.line_width);
+        assert_eq!(result.diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn handle_deno_config_with_overwrites() {
+        let mut config = HashMap::new();
+        config.insert(String::from("deno"), String::from("true"));
+        config.insert(String::from("indentWidth"), String::from("8"));
+        let global_config = resolve_global_config(HashMap::new()).config;
+        let result = resolve_config(config, &global_config);
+        let expected_config = ConfigurationBuilder::new().deno().build();
+        assert_eq!(result.config.indent_width, 8);
+        assert_eq!(result.config.line_width, expected_config.line_width);
+        assert_eq!(result.diagnostics.len(), 0);
+    }
+}
