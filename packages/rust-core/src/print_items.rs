@@ -530,8 +530,7 @@ pub struct ConditionResolverContext<'a> {
 }
 
 impl<'a> ConditionResolverContext<'a> {
-    pub(super) fn new(printer: &'a mut Printer) -> Self {
-        let writer_info = printer.get_writer_info();
+    pub(super) fn new(printer: &'a mut Printer, writer_info: WriterInfo) -> Self {
         ConditionResolverContext {
             printer,
             writer_info,
