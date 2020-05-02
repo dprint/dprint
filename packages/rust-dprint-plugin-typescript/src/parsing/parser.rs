@@ -473,9 +473,16 @@ fn parse_class_prop_common<'a>(node: ParseClassPropCommon<'a>, context: &mut Con
     if node.is_static { items.push_str("static "); }
     if node.is_abstract { items.push_str("abstract "); }
     if node.readonly { items.push_str("readonly "); }
-    if node.computed { items.push_str("["); }
-    items.extend(parse_node(node.key, context));
-    if node.computed { items.push_str("]"); }
+    let key_span_data = node.key.span_data();
+    let key_items = parse_node(node.key, context);
+    items.extend(if node.computed {
+        parse_computed_prop_like(ParseComputedPropLikeOptions {
+            inner_node_span_data: key_span_data,
+            inner_items: key_items
+        }, context)
+    } else {
+        key_items
+    });
     if node.is_optional { items.push_str("?"); }
     if node.definite { items.push_str("!"); }
     items.extend(parse_type_ann_with_colon_if_exists(node.type_ann, context));
@@ -2297,10 +2304,11 @@ fn parse_index_signature<'a>(node: &'a TsIndexSignature, context: &mut Context<'
 
     if node.readonly { items.push_str("readonly "); }
 
-    // todo: this should do something similar to the other declarations here (the ones with customCloseParen)
-    items.push_str("[");
-    items.extend(parse_node(node.params.iter().next().expect("Expected the index signature to have one parameter.").into(), context));
-    items.push_str("]");
+    let param: Node<'a> = node.params.iter().next().expect("Expected the index signature to have one parameter.").into();
+    items.extend(parse_computed_prop_like(ParseComputedPropLikeOptions {
+        inner_node_span_data: param.span_data(),
+        inner_items: parse_node(param, context)
+    }, context));
     items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
 
     return items;
@@ -2311,9 +2319,16 @@ fn parse_method_signature<'a>(node: &'a TsMethodSignature, context: &mut Context
     let start_info = Info::new("startMethodSignature");
     items.push_info(start_info);
 
-    if node.computed { items.push_str("["); }
-    items.extend(parse_node((&node.key).into(), context));
-    if node.computed { items.push_str("]"); }
+    let key_items = parse_node((&node.key).into(), context);
+    items.extend(if node.computed {
+        parse_computed_prop_like(ParseComputedPropLikeOptions {
+            inner_node_span_data: node.key.span_data(),
+            inner_items: key_items
+        }, context)
+    } else {
+        key_items
+    });
+
     if node.optional { items.push_str("?"); }
     if let Some(type_params) = &node.type_params { items.extend(parse_node(type_params.into(), context)); }
 
@@ -2335,9 +2350,17 @@ fn parse_method_signature<'a>(node: &'a TsMethodSignature, context: &mut Context
 fn parse_property_signature<'a>(node: &'a TsPropertySignature, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     if node.readonly { items.push_str("readonly "); }
-    if node.computed { items.push_str("["); }
-    items.extend(parse_node((&node.key).into(), context));
-    if node.computed { items.push_str("]"); }
+
+    let key_items = parse_node((&node.key).into(), context);
+    items.extend(if node.computed {
+        parse_computed_prop_like(ParseComputedPropLikeOptions {
+            inner_node_span_data: node.key.span_data(),
+            inner_items: key_items
+        }, context)
+    } else {
+        key_items
+    });
+
     if node.optional { items.push_str("?"); }
     items.extend(parse_type_ann_with_colon_if_exists(&node.type_ann, context));
 
@@ -3902,9 +3925,10 @@ fn parse_import_type<'a>(node: &'a TsImportType, context: &mut Context<'a>) -> P
 fn parse_indexed_access_type<'a>(node: &'a TsIndexedAccessType, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.extend(parse_node((&node.obj_type).into(), context));
-    items.push_str("[");
-    items.extend(parse_node((&node.index_type).into(), context));
-    items.push_str("]");
+    items.extend(parse_computed_prop_like(ParseComputedPropLikeOptions {
+        inner_node_span_data: node.index_type.span_data(),
+        inner_items: parse_node((&node.index_type).into(), context),
+    }, context));
     return items;
 }
 
@@ -3936,10 +3960,10 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
     let start_info = Info::new("startMappedType");
     let end_info = Info::new("endMappedType");
     let open_brace_token = context.token_finder.get_first_open_brace_token_within(node).expect("Expected to find an open brace token in the mapped type.");
-    let use_new_lines = !context.config.mapped_type_prefer_single_line && node_helpers::get_use_new_lines_for_nodes(open_brace_token, &node.type_param, context);
+    let force_use_new_lines = !context.config.mapped_type_prefer_single_line && node_helpers::get_use_new_lines_for_nodes(open_brace_token, &node.type_param, context);
     let mut is_multiple_lines_condition = Condition::new("mappedTypeNewLine", ConditionProperties {
         condition: Box::new(move |context| {
-            if use_new_lines {
+            if force_use_new_lines {
                 Some(true)
             } else {
                 condition_resolvers::is_multiple_lines(context, &start_info, &end_info)
@@ -3961,9 +3985,12 @@ fn parse_mapped_type<'a>(node: &'a TsMappedType, context: &mut Context<'a>) -> P
                 TruePlusMinus::Minus => "-readonly ",
             });
         }
-        items.push_str("[");
-        items.extend(parse_node((&node.type_param).into(), context));
-        items.push_str("]");
+
+        items.extend(parse_computed_prop_like(ParseComputedPropLikeOptions {
+            inner_node_span_data: node.type_param.span_data(),
+            inner_items: parse_node((&node.type_param).into(), context),
+        }, context));
+
         if let Some(optional) = node.optional {
             items.push_str(match optional {
                 TruePlusMinus::True => "?",
@@ -4067,14 +4094,14 @@ fn parse_type_param<'a>(node: &'a TsTypeParam, context: &mut Context<'a>) -> Pri
 
 fn parse_type_parameters<'a>(node: TypeParamNode<'a>, context: &mut Context<'a>) -> PrintItems {
     let params = node.params();
-    let use_new_lines = get_use_new_lines(&node.span().data(), &params, context);
+    let force_use_new_lines = get_use_new_lines(&node.span().data(), &params, context);
     let mut items = PrintItems::new();
 
     items.push_str("<");
     items.extend(parse_separated_values(ParseSeparatedValuesOptions {
         nodes: params.into_iter().map(|p| Some(p)).collect(),
         prefer_hanging: context.config.type_parameters_prefer_hanging,
-        force_use_new_lines: use_new_lines,
+        force_use_new_lines,
         allow_blank_lines: false,
         trailing_commas: Some(get_trailing_commas(context)),
         semi_colons: None,
@@ -5099,7 +5126,6 @@ fn parse_node_in_parens<'a>(
         || has_any_node_comment_on_different_line(&vec![inner_span], context);
 
     parse_surrounded_by_tokens(|context| {
-        // todo: do something like this in the computed property area and reuse the code in both places?
         let parsed_node = parse_node(context);
         if force_use_new_lines {
             surround_with_new_lines(with_indent(parsed_node))
@@ -5262,7 +5288,7 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
             if is_computed {
                 items.extend(parse_computed_prop_like(ParseComputedPropLikeOptions {
                     inner_node_span_data: right_node_span_data,
-                    inner_items: node_items
+                    inner_items: node_items,
                 }, context));
             } else {
                 items.push_str(".");
@@ -5287,13 +5313,13 @@ fn parse_computed_prop_like<'a>(opts: ParseComputedPropLikeOptions, context: &mu
     let inner_items = opts.inner_items;
     let span_data = get_bracket_span(&inner_node_span_data, context);
     // todo: preferSingleLine
-    let use_new_lines = node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context);
+    let force_use_new_lines = node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context);
 
-    return new_line_group(parse_surrounded_by_tokens(|_| {
-        if use_new_lines {
+    return new_line_group(parse_surrounded_by_tokens(|context| {
+        if force_use_new_lines {
             surround_with_new_lines(with_indent(inner_items))
         } else {
-            inner_items
+            parser_helpers::surround_with_newlines_indented_if_multi_line(inner_items, context.config.indent_width)
         }
     }, |_| None, ParseSurroundedByTokensOptions {
         open_token: "[",

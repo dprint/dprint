@@ -279,13 +279,13 @@ fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec
     Condition::new("clearWhenStartInfoChanges", ConditionProperties {
         condition: Box::new(move |condition_context| {
             // when the start info position changes, clear all the infos so they get re-evaluated again
-            let start_info = condition_context.get_resolved_info(&start_info)?.clone();
-            if start_info.get_line_and_column() != *previous_position.borrow() {
+            let start_position = condition_context.get_resolved_info(&start_info)?.get_line_and_column();
+            if start_position != *previous_position.borrow() {
                 for value_data in value_datas.borrow().iter() {
                     condition_context.clear_info(&value_data.start_info);
                 }
                 condition_context.clear_info(&end_info);
-                previous_position.replace(start_info.get_line_and_column());
+                previous_position.replace(start_position);
             }
 
             return None;
