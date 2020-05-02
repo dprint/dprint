@@ -1,6 +1,7 @@
 use super::StringContainer;
 use super::WriteItem;
 use super::collections::{GraphNode, GraphNodeIterator};
+use super::print_items::WriterInfo;
 use std::rc::Rc;
 
 pub struct WriterState {
@@ -12,6 +13,18 @@ pub struct WriterState {
     last_was_not_trailing_space: bool,
     ignore_indent_count: u8,
     items: Option<Rc<GraphNode<WriteItem>>>,
+}
+
+impl WriterState {
+    pub fn get_writer_info(&self, indent_width: u8) -> WriterInfo {
+        WriterInfo {
+            line_number: self.current_line_number,
+            column_number: self.current_line_column,
+            indent_level: self.indent_level,
+            line_start_indent_level: self.last_line_indent_level,
+            line_start_column_number: get_line_start_column_number(&self, indent_width),
+        }
+    }
 }
 
 impl Clone for WriterState {
@@ -114,6 +127,11 @@ impl Writer {
         self.state.indent_level
     }
 
+    #[inline]
+    pub fn get_indent_width(&self) -> u8 {
+        self.indent_width
+    }
+
     #[cfg(debug_assertions)]
     pub fn get_ignore_indent_count(&self) -> u8 {
         self.state.ignore_indent_count
@@ -121,7 +139,7 @@ impl Writer {
 
     #[inline]
     pub fn get_line_start_column_number(&self) -> u32 {
-        (self.indent_width as u32) * (self.state.last_line_indent_level as u32)
+        get_line_start_column_number(&self.state, self.indent_width)
     }
 
     #[inline]
@@ -235,4 +253,9 @@ impl Writer {
         }
         items
     }
+}
+
+#[inline]
+fn get_line_start_column_number(writer_state: &WriterState, indent_width: u8) -> u32 {
+    (writer_state.last_line_indent_level as u32) * (indent_width as u32)
 }

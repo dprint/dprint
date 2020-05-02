@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::mem::{self, MaybeUninit};
 use std::rc::Rc;
 
+// todo: Needs slight redesign. See issue #71 and #195.
+
 struct SavePoint {
     /// Name for debugging purposes.
     pub name: &'static str,
@@ -47,6 +49,7 @@ pub struct Printer {
     conditions_for_infos: HashMap<usize, HashMap<usize, (Rc<Condition>, Rc<SavePoint>)>>,
     max_width: u32,
     skip_moving_next: bool,
+    resolving_save_point: Option<Rc<SavePoint>>,
 }
 
 impl Printer {
@@ -67,6 +70,7 @@ impl Printer {
             next_node_stack: Vec::new(),
             max_width: options.max_width,
             skip_moving_next: false,
+            resolving_save_point: None,
         }
     }
 
@@ -112,7 +116,7 @@ impl Printer {
     pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
         let resolved_info = self.resolved_infos.get(&info.get_unique_id());
         if resolved_info.is_none() && !self.look_ahead_info_save_points.contains_key(&info.get_unique_id()) {
-            let save_point = self.create_save_point_for_restoring_condition(&info.get_name());
+            let save_point = self.get_save_point_for_restoring_condition(&info.get_name());
             self.look_ahead_info_save_points.insert(info.get_unique_id(), save_point);
         }
 
@@ -125,7 +129,7 @@ impl Printer {
 
     pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
         if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
-            let save_point = self.create_save_point_for_restoring_condition(&condition_reference.name);
+            let save_point = self.get_save_point_for_restoring_condition(&condition_reference.name);
             self.look_ahead_condition_save_points.insert(condition_reference.id, save_point);
         }
 
@@ -163,8 +167,12 @@ impl Printer {
     }
 
     #[inline]
-    fn create_save_point_for_restoring_condition(&self, name: &'static str) -> Rc<SavePoint> {
-        self.create_save_point(name, self.current_node.clone())
+    fn get_save_point_for_restoring_condition(&self, name: &'static str) -> Rc<SavePoint> {
+        if let Some(save_point) = &self.resolving_save_point {
+            save_point.clone()
+        } else {
+            self.create_save_point(name, self.current_node.clone())
+        }
     }
 
     fn mark_possible_new_line_if_able(&mut self) {
@@ -274,9 +282,13 @@ impl Printer {
             let conditions_for_info = self.conditions_for_infos.get(&info_id).unwrap().clone();
             for (condition, save_point) in conditions_for_info.values() {
                 let condition_id = condition.get_unique_id();
+
                 if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).map(|x| x.to_owned()).flatten() {
-                    // todo: this should definitely not use the condition context because the printer is not on the condition
-                    if let Some(condition_value) = condition.resolve(&mut ConditionResolverContext::new(self)) {
+                    self.resolving_save_point.replace(save_point.clone());
+                    let mut context = ConditionResolverContext::new(self, save_point.writer_state.get_writer_info(self.writer.get_indent_width()));
+                    let condition_value = condition.resolve(&mut context);
+                    self.resolving_save_point.take();
+                    if let Some(condition_value) = condition_value {
                         if condition_value != resolved_condition_value {
                             self.update_state_to_save_point(save_point.clone(), false);
                             return;
@@ -295,7 +307,7 @@ impl Printer {
         if let Some(dependent_infos) = &condition.dependent_infos {
             for info in dependent_infos {
                 let info_id = info.get_unique_id();
-                let save_point = self.create_save_point_for_restoring_condition(condition.get_name());
+                let save_point = self.get_save_point_for_restoring_condition(condition.get_name());
                 let conditions_for_info = if let Some(conditions) = self.conditions_for_infos.get_mut(&info_id) {
                     conditions
                 } else {
@@ -308,7 +320,7 @@ impl Printer {
             }
         }
 
-        let condition_value = condition.resolve(&mut ConditionResolverContext::new(self));
+        let condition_value = condition.resolve(&mut ConditionResolverContext::new(self, self.get_writer_info()));
         if condition.is_stored {
             self.resolved_conditions.insert(condition_id, condition_value);
         }
