@@ -352,7 +352,7 @@ How to space the members of an enum.
 
 In most situations, configuration can be set for specific kinds of declarations, statements, and expressions.
 
-For example, you can specify the general `nextControlFlowPosition`, but you can also specify a more specific `"ifStatement.nextControlFlowPosition"` option that will be used for that statement.
+For example, you can specify the general `nextControlFlowPosition`, but you can also specify a more specific `"tryStatement.nextControlFlowPosition"` option that will be used for that statement.
 
 ```ts
 module.exports.config = {
@@ -360,7 +360,7 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             nextControlFlowPosition: "maintain",
-            "ifStatement.nextControlFlowPosition": "sameLine"
+            "tryStatement.nextControlFlowPosition": "sameLine"
         }),
     ],
 };
@@ -401,7 +401,7 @@ const identity = /* dprint-ignore */ [
 
 ### Explicit Newlines
 
-For the most part, dprint allows you to place certain nodes like binary, logical, and property access expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.
+For the most part, dprint allows you to place certain nodes like binary, logical, and member expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.
 
 ```ts
 // formats this as-is
@@ -437,6 +437,44 @@ if (
 ```
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
+
+#### Disabling explicit newlines
+
+The configuration in this area is being actively developed. For now, you can disable maintaining line breaks in member expressions by setting `"memberExpression.maintainLineBreaks"` to `false`.
+
+```ts
+myObject.accessing.someProperty;
+myObject
+    .accessing.some
+    .other.prop;
+myObject.myLooooooooooonnnnnggggggg.propAccess;
+// formats as (when line width is 40)
+myObject.accessing.someProperty;
+myObject
+    .accessing
+    .some
+    .other
+    .prop;
+myObject
+    .myLooooooooooonnnnnggggggg
+    .propAccess;
+```
+
+You may want to use both `preferSingleLine: true` in combination with `"memberExpression.maintainLineBreaks": false`:
+
+```ts
+myObject.accessing.someProperty;
+myObject
+    .accessing.some
+    .other.prop;
+myObject.myLooooooooooonnnnnggggggg.propAccess;
+// formats as (when line width is 40)
+myObject.accessing.someProperty;
+myObject.accessing.some.other.prop;
+myObject
+    .myLooooooooooonnnnnggggggg
+    .propAccess;
+```
 
 ### Statement & Member Spacing
 
