@@ -1891,19 +1891,21 @@ fn parse_key_value_prop<'a>(node: &'a KeyValueProp, context: &mut Context<'a>) -
 }
 
 fn parse_member_expr<'a>(node: &'a MemberExpr, context: &mut Context<'a>) -> PrintItems {
-    return parse_for_member_like_expr(MemberLikeExpr {
+    parse_for_member_like_expr(MemberLikeExpr {
         left_node: (&node.obj).into(),
         right_node: (&node.prop).into(),
         is_computed: node.computed,
-    }, context);
+        prefer_single_line: context.config.member_expression_prefer_single_line,
+    }, context)
 }
 
 fn parse_meta_prop_expr<'a>(node: &'a MetaPropExpr, context: &mut Context<'a>) -> PrintItems {
-    return parse_for_member_like_expr(MemberLikeExpr {
+    parse_for_member_like_expr(MemberLikeExpr {
         left_node: (&node.meta).into(),
         right_node: (&node.prop).into(),
         is_computed: false,
-    }, context);
+        prefer_single_line: context.config.member_expression_prefer_single_line, // ok
+    }, context)
 }
 
 fn parse_new_expr<'a>(node: &'a NewExpr, context: &mut Context<'a>) -> PrintItems {
@@ -1921,14 +1923,14 @@ fn parse_new_expr<'a>(node: &'a NewExpr, context: &mut Context<'a>) -> PrintItem
         custom_close_paren: |_| None,
         is_parameters: false
     }, context));
-    return items;
+    items
 }
 
 fn parse_non_null_expr<'a>(node: &'a TsNonNullExpr, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.extend(parse_node((&node.expr).into(), context));
     items.push_str("!");
-    return items;
+    items
 }
 
 fn parse_object_lit<'a>(node: &'a ObjectLit, context: &mut Context<'a>) -> PrintItems {
@@ -5252,12 +5254,12 @@ struct MemberLikeExpr<'a> {
     left_node: Node<'a>,
     right_node: Node<'a>,
     is_computed: bool,
+    prefer_single_line: bool,
 }
 
 fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    // todo: preferSingleLine
-    let use_new_line = node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
+    let use_new_line = !node.prefer_single_line && node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
     let is_optional = context.parent().kind() == NodeKind::OptChainExpr;
 
     items.extend(parse_node(node.left_node, context));

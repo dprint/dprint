@@ -424,6 +424,7 @@ describe("configuration", () => {
                 "forStatement.preferSingleLine": value,
                 "importDeclaration.preferSingleLine": value,
                 "mappedType.preferSingleLine": value,
+                "memberExpression.preferSingleLine": value,
                 "objectExpression.preferSingleLine": value,
                 "objectPattern.preferSingleLine": value,
                 "parameters.preferSingleLine": value,
