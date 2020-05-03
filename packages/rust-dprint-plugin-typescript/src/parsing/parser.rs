@@ -4197,8 +4197,7 @@ struct UnionOrIntersectionType<'a> {
 fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, context: &mut Context<'a>) -> PrintItems {
     // todo: configuration for operator position
     let mut items = PrintItems::new();
-    // todo: preferSingleLine
-    let force_use_new_lines = node_helpers::get_use_new_lines_for_nodes(&*node.types[0], &*node.types[1], context);
+    let force_use_new_lines = get_use_new_lines_for_nodes(&node.types, context.config.union_and_intersection_type_prefer_single_line, context);
     let separator = if node.is_union { "|" } else { "&" };
 
     let leading_comments = node.span_data.leading_comments(context);

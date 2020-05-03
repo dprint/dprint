@@ -431,6 +431,7 @@ describe("configuration", () => {
                 "tupleType.preferSingleLine": value,
                 "typeLiteral.preferSingleLine": value,
                 "typeParameters.preferSingleLine": value,
+                "unionAndIntersectionType.preferSingleLine": value,
                 "variableStatement.preferSingleLine": value,
             };
         }

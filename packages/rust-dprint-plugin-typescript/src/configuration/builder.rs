@@ -723,6 +723,10 @@ impl ConfigurationBuilder {
         self.insert("typeParameters.preferSingleLine", value)
     }
 
+    pub fn union_and_intersection_type_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("unionAndIntersectionType.preferSingleLine", value)
+    }
+
     pub fn variable_statement_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("variableStatement.preferSingleLine", value)
     }
@@ -856,6 +860,7 @@ mod tests {
             .tuple_type_prefer_single_line(false)
             .type_literal_prefer_single_line(false)
             .type_parameters_prefer_single_line(false)
+            .union_and_intersection_type_prefer_single_line(false)
             .variable_statement_prefer_single_line(false)
             /* space settings */
             .binary_expression_space_surrounding_bitwise_and_arithmetic_operator(true)
@@ -884,7 +889,7 @@ mod tests {
             .while_statement_space_after_while_keyword(true);
 
         let inner_config = config.get_inner_config();
-        assert_eq!(inner_config.len(), 125);
+        assert_eq!(inner_config.len(), 126);
         let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
         assert_eq!(diagnostics.len(), 0);
     }

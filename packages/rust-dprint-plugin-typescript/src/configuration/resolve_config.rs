@@ -147,6 +147,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         tuple_type_prefer_single_line: get_value(&mut config, "tupleType.preferSingleLine", prefer_single_line, &mut diagnostics),
         type_literal_prefer_single_line: get_value(&mut config, "typeLiteral.preferSingleLine", prefer_single_line, &mut diagnostics),
         type_parameters_prefer_single_line: get_value(&mut config, "typeParameters.preferSingleLine", prefer_single_line, &mut diagnostics),
+        union_and_intersection_type_prefer_single_line: get_value(&mut config, "unionAndIntersectionType.preferSingleLine", prefer_single_line, &mut diagnostics),
         variable_statement_prefer_single_line: get_value(&mut config, "variableStatement.preferSingleLine", prefer_single_line, &mut diagnostics),
         /* space settings */
         binary_expression_space_surrounding_bitwise_and_arithmetic_operator: get_value(&mut config, "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator", true, &mut diagnostics),

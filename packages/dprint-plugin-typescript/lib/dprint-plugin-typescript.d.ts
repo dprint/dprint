@@ -383,6 +383,7 @@ export interface TypeScriptConfiguration {
     "tupleType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "typeLiteral.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "typeParameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "unionAndIntersectionType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "variableStatement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
@@ -479,6 +480,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "tupleType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "typeLiteral.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "typeParameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "unionAndIntersectionType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "variableStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;

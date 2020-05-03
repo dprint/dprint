@@ -138,6 +138,12 @@ impl SpanDataContainer for BytePos {
     }
 }
 
+impl<T> SpanDataContainer for std::boxed::Box<T> where T : SpanDataContainer {
+    fn span_data(&self) -> SpanData {
+        (**self).span_data()
+    }
+}
+
 pub trait Ranged : SpanDataContainer {
     fn lo(&self) -> BytePos;
     fn hi(&self) -> BytePos;

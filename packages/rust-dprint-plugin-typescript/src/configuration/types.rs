@@ -432,6 +432,8 @@ pub struct Configuration {
     pub type_literal_prefer_single_line: bool,
     #[serde(rename = "typeParameters.preferSingleLine")]
     pub type_parameters_prefer_single_line: bool,
+    #[serde(rename = "unionAndIntersectionType.preferSingleLine")]
+    pub union_and_intersection_type_prefer_single_line: bool,
     #[serde(rename = "variableStatement.preferSingleLine")]
     pub variable_statement_prefer_single_line: bool,
 
