@@ -126,6 +126,15 @@ export interface TypeScriptConfiguration {
     "arrowFunction.useParentheses"?: "force" | "maintain" | "preferNone";
 
     /**
+     * Whether to maintain line breaks in member expressions.
+     *
+     * @default true
+     * @value true - Maintains the line breaks as written by the programmer.
+     * @value false - Formats member expressions with each part on a new line.
+     */
+    "memberExpression.maintainLineBreaks"?: boolean;
+
+    /**
      * How to space the members of an enum.
      * @default "maintain"
      * @value "newline" - Forces a new line between members.
@@ -514,7 +523,9 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "variableStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
 
     // declaration specific
+
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
+    readonly "memberExpression.maintainLineBreaks": NonNullable<TypeScriptConfiguration["memberExpression.maintainLineBreaks"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
 
     // use space separator

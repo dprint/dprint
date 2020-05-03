@@ -472,6 +472,23 @@ describe("configuration", () => {
         });
     });
 
+    describe("memberExpression.maintainLineBreaks", () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "memberExpression.maintainLineBreaks");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "memberExpression.maintainLineBreaks": true });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "memberExpression.maintainLineBreaks": false },
+                { "memberExpression.maintainLineBreaks": false },
+            );
+        });
+    });
+
     describe("space settings", () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => expectedConfig.hasOwnProperty(prop));

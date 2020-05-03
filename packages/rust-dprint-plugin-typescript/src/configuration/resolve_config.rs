@@ -52,6 +52,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         semi_colons,
         /* situational */
         arrow_function_use_parentheses: get_value(&mut config, "arrowFunction.useParentheses", UseParentheses::Maintain, &mut diagnostics),
+        member_expression_maintain_line_breaks: get_value(&mut config, "memberExpression.maintainLineBreaks", true, &mut diagnostics),
         /* brace position */
         arrow_function_brace_position: get_value(&mut config, "arrowFunction.bracePosition", brace_position, &mut diagnostics),
         class_declaration_brace_position: get_value(&mut config, "classDeclaration.bracePosition", brace_position, &mut diagnostics),

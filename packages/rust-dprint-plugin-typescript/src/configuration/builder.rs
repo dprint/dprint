@@ -328,8 +328,8 @@ impl ConfigurationBuilder {
 
     /// Whether to add a space before the literal in a tagged template.
     ///
-    /// `true` (default) - Ex. `html \`<element />\``
-    /// `false` - Ex. `html\`<element />\``
+    /// * `true` (default) - Ex. `html \`<element />\``
+    /// * `false` - Ex. `html\`<element />\``
     pub fn tagged_template_space_before_literal(&mut self, value: bool) -> &mut Self {
         self.insert("taggedTemplate.spaceBeforeLiteral", value)
     }
@@ -358,12 +358,23 @@ impl ConfigurationBuilder {
         self.insert("whileStatement.spaceAfterWhileKeyword", value)
     }
 
-    /* use parentheses */
+    /* situational */
+
+    /// Whether to use parentheses for arrow functions.
     pub fn arrow_function_use_parentheses(&mut self, value: UseParentheses) -> &mut Self {
         self.insert("arrowFunction.useParentheses", value)
     }
 
+    /// Whether to maintain line breaks in member expressions.
+    ///
+    /// * `true` (default) - Maintains the line breaks as written by the programmer.
+    /// * `false` - Formats member expressions with each part on a new line.
+    pub fn member_expression_maintain_line_breaks(&mut self, value: bool) -> &mut Self {
+        self.insert("memberExpression.maintainLineBreaks", value)
+    }
+
     /* brace position */
+
     pub fn arrow_function_brace_position(&mut self, value: BracePosition) -> &mut Self {
         self.insert("arrowFunction.bracePosition", value)
     }
@@ -767,8 +778,9 @@ mod tests {
             .trailing_commas(TrailingCommas::Never)
             .use_braces(UseBraces::WhenNotSingleLine)
             .prefer_hanging(false)
-            /* use parentheses */
+            /* situational */
             .arrow_function_use_parentheses(UseParentheses::Maintain)
+            .member_expression_maintain_line_breaks(false)
             /* brace position*/
             .arrow_function_brace_position(BracePosition::NextLine)
             .class_declaration_brace_position(BracePosition::NextLine)
@@ -894,7 +906,7 @@ mod tests {
             .while_statement_space_after_while_keyword(true);
 
         let inner_config = config.get_inner_config();
-        assert_eq!(inner_config.len(), 127);
+        assert_eq!(inner_config.len(), 128);
         let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
         assert_eq!(diagnostics.len(), 0);
     }

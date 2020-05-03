@@ -248,9 +248,11 @@ pub struct Configuration {
     pub new_line_kind: NewLineKind,
     pub quote_style: QuoteStyle,
     pub semi_colons: SemiColons,
-    /* use parentheses */
+    /* situational */
     #[serde(rename = "arrowFunction.useParentheses")]
     pub arrow_function_use_parentheses: UseParentheses,
+    #[serde(rename = "memberExpression.maintainLineBreaks")]
+    pub member_expression_maintain_line_breaks: bool,
     /* brace position */
     #[serde(rename = "arrowFunction.bracePosition")]
     pub arrow_function_brace_position: BracePosition,

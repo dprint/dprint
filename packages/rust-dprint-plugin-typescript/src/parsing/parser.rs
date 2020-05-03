@@ -1895,7 +1895,6 @@ fn parse_member_expr<'a>(node: &'a MemberExpr, context: &mut Context<'a>) -> Pri
         left_node: (&node.obj).into(),
         right_node: (&node.prop).into(),
         is_computed: node.computed,
-        prefer_single_line: context.config.member_expression_prefer_single_line,
     }, context)
 }
 
@@ -1904,7 +1903,6 @@ fn parse_meta_prop_expr<'a>(node: &'a MetaPropExpr, context: &mut Context<'a>) -
         left_node: (&node.meta).into(),
         right_node: (&node.prop).into(),
         is_computed: false,
-        prefer_single_line: context.config.member_expression_prefer_single_line, // ok
     }, context)
 }
 
@@ -5254,25 +5252,44 @@ struct MemberLikeExpr<'a> {
     left_node: Node<'a>,
     right_node: Node<'a>,
     is_computed: bool,
-    prefer_single_line: bool,
 }
 
 fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    let use_new_line = !node.prefer_single_line && node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
+    let force_use_new_line = !context.config.member_expression_prefer_single_line
+        && node_helpers::get_use_new_lines_for_nodes(&node.left_node, &node.right_node, context);
     let is_optional = context.parent().kind() == NodeKind::OptChainExpr;
+    let top_most_data = get_top_most_data(context);
+
+    if top_most_data.is_top_most {
+        items.push_info(top_most_data.top_most_start_info);
+    }
 
     items.extend(parse_node(node.left_node, context));
 
     if is_optional || !node.is_computed {
-        if use_new_line {
+        if force_use_new_line {
             items.push_signal(Signal::NewLine);
-        } else {
+        } else if context.config.member_expression_maintain_line_breaks {
             items.push_condition(conditions::if_above_width(
                 context.config.indent_width,
                 Signal::PossibleNewLine.into()
             ));
+        } else {
+            let top_most_start_info = top_most_data.top_most_start_info;
+            let top_most_end_info = top_most_data.top_most_end_info;
+            items.push_condition(if_true_or(
+                "isMultipleLines",
+                move |context| condition_resolvers::is_multiple_lines(context, &top_most_start_info, &top_most_end_info),
+                Signal::NewLine.into(),
+                Signal::PossibleNewLine.into(),
+            ));
         }
+    }
+
+    // store this right before the last right expression
+    if top_most_data.is_top_most {
+        items.push_info(top_most_data.top_most_end_info);
     }
 
     items.push_condition(conditions::indent_if_start_of_line({
@@ -5302,6 +5319,55 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
     }));
 
     return items;
+
+    struct TopMostData {
+        top_most_start_info: Info,
+        top_most_end_info: Info,
+        is_top_most: bool,
+    }
+
+    fn get_top_most_data(context: &mut Context) -> TopMostData {
+        // The "top most" node follows the ancestors up through the left expressions...
+        //
+        //  member.expression.test
+        //    left: member.expression
+        //            left: member
+        //            right: expression
+        //    right: test
+        let current_node = &context.current_node;
+        let mut top_most_node = &context.current_node;
+
+        for ancestor in context.parent_stack.iter() {
+            if let Node::MemberExpr(_) = ancestor {
+                top_most_node = ancestor;
+            } else if let Node::MetaPropExpr(_) = ancestor {
+                top_most_node = ancestor;
+            } else {
+                break;
+            }
+        }
+
+        let top_most_range = top_most_node.span_data();
+        let is_top_most = top_most_range.lo() == current_node.lo() && top_most_range.hi() == current_node.hi();
+        let top_most_start_info = get_or_set_top_most_info(top_most_range.lo(), is_top_most, context);
+        let top_most_end_info = get_or_set_top_most_info(top_most_range.hi(), is_top_most, context);
+
+        return TopMostData {
+            is_top_most,
+            top_most_start_info,
+            top_most_end_info,
+        };
+
+        fn get_or_set_top_most_info(pos: BytePos, is_top_most: bool, context: &mut Context) -> Info {
+            if is_top_most {
+                let info = Info::new("topMember");
+                context.store_info_for_node(&pos, info);
+                info
+            } else {
+                context.get_info_for_node(&pos).expect("Expected to have the top most expr info stored")
+            }
+        }
+    }
 }
 
 struct ParseComputedPropLikeOptions {
