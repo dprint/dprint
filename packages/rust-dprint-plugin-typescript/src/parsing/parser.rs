@@ -4145,10 +4145,11 @@ fn parse_type_parameters<'a>(node: TypeParamNode<'a>, context: &mut Context<'a>)
 fn parse_type_operator<'a>(node: &'a TsTypeOperator, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str(match node.op {
-        TsTypeOperatorOp::KeyOf => "keyof ",
-        TsTypeOperatorOp::Unique => "unique ",
-        TsTypeOperatorOp::ReadOnly => "readonly ",
+        TsTypeOperatorOp::KeyOf => "keyof",
+        TsTypeOperatorOp::Unique => "unique",
+        TsTypeOperatorOp::ReadOnly => "readonly",
     });
+    items.push_signal(Signal::SpaceIfNotTrailing);
     items.extend(parse_node((&node.type_ann).into(), context));
     return items;
 }
@@ -4158,7 +4159,8 @@ fn parse_type_predicate<'a>(node: &'a TsTypePredicate, context: &mut Context<'a>
     if node.asserts { items.push_str("asserts "); }
     items.extend(parse_node((&node.param_name).into(), context));
     if let Some(type_ann) = &node.type_ann {
-        items.push_str(" is ");
+        items.push_str(" is");
+        items.push_signal(Signal::SpaceIfNotTrailing);
         items.extend(parse_node(type_ann.into(), context));
     }
     return items;
@@ -4166,7 +4168,8 @@ fn parse_type_predicate<'a>(node: &'a TsTypePredicate, context: &mut Context<'a>
 
 fn parse_type_query<'a>(node: &'a TsTypeQuery, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
-    items.push_str("typeof ");
+    items.push_str("typeof");
+    items.push_signal(Signal::SpaceIfNotTrailing);
     items.extend(parse_node((&node.expr_name).into(), context));
     return items;
 }
