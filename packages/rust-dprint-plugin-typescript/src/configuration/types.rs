@@ -411,6 +411,8 @@ pub struct Configuration {
     pub array_pattern_prefer_single_line: bool,
     #[serde(rename = "arguments.preferSingleLine")]
     pub arguments_prefer_single_line: bool,
+    #[serde(rename = "computed.preferSingleLine")]
+    pub computed_prefer_single_line: bool,
     #[serde(rename = "conditionalExpression.preferSingleLine")]
     pub conditional_expression_prefer_single_line: bool,
     #[serde(rename = "conditionalType.preferSingleLine")]

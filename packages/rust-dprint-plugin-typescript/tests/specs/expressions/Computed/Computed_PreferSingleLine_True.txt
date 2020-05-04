@@ -1,0 +1,8 @@
+~~ computed.preferSingleLine: true ~~
+== should format on a single line when it can -- note: computed is general ==
+member.expr[
+    test
+];
+
+[expect]
+member.expr[test];

@@ -5382,8 +5382,8 @@ fn parse_computed_prop_like<'a>(opts: ParseComputedPropLikeOptions, context: &mu
     let inner_node_span_data = opts.inner_node_span_data;
     let inner_items = opts.inner_items;
     let span_data = get_bracket_span(&inner_node_span_data, context);
-    // todo: preferSingleLine
-    let force_use_new_lines = node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context);
+    let force_use_new_lines = !context.config.computed_prefer_single_line
+        && node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context);
 
     return new_line_group(parse_surrounded_by_tokens(|context| {
         if force_use_new_lines {
