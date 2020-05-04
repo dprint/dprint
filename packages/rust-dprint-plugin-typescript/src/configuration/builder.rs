@@ -63,6 +63,8 @@ impl ConfigurationBuilder {
             .function_expression_space_after_function_keyword(true)
             .tagged_template_space_before_literal(false)
             .conditional_expression_prefer_single_line(true)
+            .ignore_node_comment_text("deno-fmt-ignore")
+            .ignore_file_comment_text("deno-fmt-ignore-file")
     }
 
     /// The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.
@@ -373,6 +375,22 @@ impl ConfigurationBuilder {
         self.insert("memberExpression.maintainLineBreaks", value)
     }
 
+    /* ignore comments */
+
+    /// The text to use for an ignore comment (ex. `// dprint-ignore`).
+    ///
+    /// Default: `"dprint-ignore"`
+    pub fn ignore_node_comment_text(&mut self, value: &str) -> &mut Self {
+        self.insert("ignoreNodeCommentText", value)
+    }
+
+    /// The text to use for a file ignore comment (ex. `// dprint-ignore-file`).
+    ///
+    /// Default: `"dprint-ignore-file"`
+    pub fn ignore_file_comment_text(&mut self, value: &str) -> &mut Self {
+        self.insert("ignoreFileCommentText", value)
+    }
+
     /* brace position */
 
     pub fn arrow_function_brace_position(&mut self, value: BracePosition) -> &mut Self {
@@ -460,6 +478,7 @@ impl ConfigurationBuilder {
     }
 
     /* prefer hanging */
+
     pub fn arguments_prefer_hanging(&mut self, value: bool) -> &mut Self {
         self.insert("arguments.preferHanging", value)
     }
@@ -781,6 +800,9 @@ mod tests {
             /* situational */
             .arrow_function_use_parentheses(UseParentheses::Maintain)
             .member_expression_maintain_line_breaks(false)
+            /* ignore comments */
+            .ignore_node_comment_text("ignore")
+            .ignore_file_comment_text("ignore-file")
             /* brace position*/
             .arrow_function_brace_position(BracePosition::NextLine)
             .class_declaration_brace_position(BracePosition::NextLine)
@@ -906,7 +928,7 @@ mod tests {
             .while_statement_space_after_while_keyword(true);
 
         let inner_config = config.get_inner_config();
-        assert_eq!(inner_config.len(), 128);
+        assert_eq!(inner_config.len(), 130);
         let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
         assert_eq!(diagnostics.len(), 0);
     }

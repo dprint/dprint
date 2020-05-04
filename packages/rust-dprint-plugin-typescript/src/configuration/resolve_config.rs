@@ -53,6 +53,9 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         /* situational */
         arrow_function_use_parentheses: get_value(&mut config, "arrowFunction.useParentheses", UseParentheses::Maintain, &mut diagnostics),
         member_expression_maintain_line_breaks: get_value(&mut config, "memberExpression.maintainLineBreaks", true, &mut diagnostics),
+        /* ignore comments */
+        ignore_node_comment_text: get_value(&mut config, "ignoreNodeCommentText", String::from("dprint-ignore"), &mut diagnostics),
+        ignore_file_comment_text: get_value(&mut config, "ignoreFileCommentText", String::from("dprint-ignore-file"), &mut diagnostics),
         /* brace position */
         arrow_function_brace_position: get_value(&mut config, "arrowFunction.bracePosition", brace_position, &mut diagnostics),
         class_declaration_brace_position: get_value(&mut config, "classDeclaration.bracePosition", brace_position, &mut diagnostics),

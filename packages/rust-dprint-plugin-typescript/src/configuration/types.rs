@@ -253,6 +253,9 @@ pub struct Configuration {
     pub arrow_function_use_parentheses: UseParentheses,
     #[serde(rename = "memberExpression.maintainLineBreaks")]
     pub member_expression_maintain_line_breaks: bool,
+    /* ignore comments */
+    pub ignore_node_comment_text: String,
+    pub ignore_file_comment_text: String,
     /* brace position */
     #[serde(rename = "arrowFunction.bracePosition")]
     pub arrow_function_brace_position: BracePosition,

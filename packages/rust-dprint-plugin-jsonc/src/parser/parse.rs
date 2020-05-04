@@ -574,7 +574,7 @@ fn parse_comment(comment: &Comment, context: &mut Context) -> Option<PrintItems>
 
 fn has_ignore_comment(node: &dyn Ranged, context: &Context) -> bool {
     if let Some(last_comment) = context.comments.get(&(node.start())).map(|c| c.last()).flatten() {
-        parser_helpers::text_has_dprint_ignore(last_comment.text())
+        parser_helpers::text_has_dprint_ignore(last_comment.text(), "dprint-ignore")
     } else {
         false
     }

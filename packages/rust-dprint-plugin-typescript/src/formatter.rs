@@ -53,7 +53,7 @@ impl Formatter {
     /// Returns the file text `Ok(formatted_text) or an error when it failed to parse.
     pub fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, String> {
         return self.run(|| {
-            if has_ignore_comment(file_text) {
+            if has_ignore_comment(file_text, &self.config) {
                 return Ok(String::from(file_text));
             }
 
@@ -70,7 +70,7 @@ impl Formatter {
             }))
         });
 
-        fn has_ignore_comment(file_text: &str) -> bool {
+        fn has_ignore_comment(file_text: &str, config: &Configuration) -> bool {
             let mut iterator = super::utils::CharIterator::new(file_text.chars());
             iterator.skip_whitespace();
             if iterator.move_next() != Some('/') { return false; }
@@ -79,7 +79,7 @@ impl Formatter {
                 _ => return false,
             }
             iterator.skip_whitespace();
-            iterator.check_text("dprint-ignore-file")
+            iterator.check_text(&config.ignore_file_comment_text)
         }
     }
 

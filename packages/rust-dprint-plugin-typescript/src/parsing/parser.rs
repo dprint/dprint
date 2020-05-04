@@ -291,7 +291,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     #[inline]
     fn get_has_ignore_comment<'a>(leading_comments: &CommentsIterator<'a>, node_lo: &BytePos, context: &mut Context<'a>) -> bool {
         return if let Some(last_comment) = get_last_comment(leading_comments, node_lo, context) {
-            parser_helpers::text_has_dprint_ignore(&last_comment.text)
+            parser_helpers::text_has_dprint_ignore(&last_comment.text, &context.config.ignore_node_comment_text)
         } else {
             false
         };

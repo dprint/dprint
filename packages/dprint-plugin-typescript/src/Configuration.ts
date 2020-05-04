@@ -312,6 +312,17 @@ export interface TypeScriptConfiguration {
      */
     "whileStatement.spaceAfterWhileKeyword"?: boolean;
 
+    /**
+     * The text to use for an ignore comment (ex. `// dprint-ignore`).
+     * @default `"dprint-ignore"`
+     */
+    ignoreNodeCommentText?: string;
+    /**
+     * The text to use for a file ignore comment (ex. `// dprint-ignore-file`).
+     * @default `"dprint-ignore-file"`
+     */
+    ignoreFileCommentText?: string;
+
     "forInStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forOfStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
@@ -553,4 +564,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "typeAnnotation.spaceBeforeColon": boolean;
     readonly "typeAssertion.spaceBeforeExpression": boolean;
     readonly "whileStatement.spaceAfterWhileKeyword": boolean;
+
+    // ignore comments
+    readonly ignoreNodeCommentText: string;
+    readonly ignoreFileCommentText: string;
 }

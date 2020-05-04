@@ -201,9 +201,8 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
     }
 }
 
-/// Gets if the provided text has "dprint-ignore" in it.
-pub fn text_has_dprint_ignore(text: &str) -> bool {
-    let searching_text = "dprint-ignore";
+/// Gets if the provided text has the provided searching text in it (ex. "dprint-ignore").
+pub fn text_has_dprint_ignore(text: &str, searching_text: &str) -> bool {
     let pos = text.find(searching_text);
     if let Some(pos) = pos {
         let end = pos + searching_text.len();

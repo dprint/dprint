@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Configuration as GlobalConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { Configuration as GlobalConfiguration, ConfigurationDiagnostic, Configuration } from "@dprint/types";
 import { resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "../Configuration";
 import { TypeScriptPlugin } from "../Plugin";
@@ -438,7 +438,7 @@ describe("configuration", () => {
         }
     });
 
-    describe("enumDeclaration.memberSpacing", () => {
+    describe(nameof<TypeScriptConfiguration>(c => c["enumDeclaration.memberSpacing"]), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop === "enumDeclaration.memberSpacing");
         }
@@ -455,7 +455,7 @@ describe("configuration", () => {
         });
     });
 
-    describe("arrowFunction.useParentheses", () => {
+    describe(nameof<TypeScriptConfiguration>(c => c["arrowFunction.useParentheses"]), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop === "arrowFunction.useParentheses");
         }
@@ -472,7 +472,7 @@ describe("configuration", () => {
         });
     });
 
-    describe("memberExpression.maintainLineBreaks", () => {
+    describe(nameof<TypeScriptConfiguration>(c => c["memberExpression.maintainLineBreaks"]), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop === "memberExpression.maintainLineBreaks");
         }
@@ -485,6 +485,40 @@ describe("configuration", () => {
             doSpecificTest(
                 { "memberExpression.maintainLineBreaks": false },
                 { "memberExpression.maintainLineBreaks": false },
+            );
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c["ignoreNodeCommentText"]), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "ignoreNodeCommentText");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "ignoreNodeCommentText": "dprint-ignore" });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "ignoreNodeCommentText": "other-ignore" },
+                { "ignoreNodeCommentText": "other-ignore" },
+            );
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c["ignoreFileCommentText"]), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "ignoreFileCommentText");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "ignoreFileCommentText": "dprint-ignore-file" });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "ignoreFileCommentText": "other-ignore" },
+                { "ignoreFileCommentText": "other-ignore" },
             );
         });
     });
@@ -554,6 +588,8 @@ describe("configuration", () => {
                 "newLineKind": "lf",
                 "functionExpression.spaceAfterFunctionKeyword": true,
                 "taggedTemplate.spaceBeforeLiteral": false,
+                "ignoreNodeCommentText": "deno-fmt-ignore",
+                "ignoreFileCommentText": "deno-fmt-ignore-file",
             });
         });
     });
