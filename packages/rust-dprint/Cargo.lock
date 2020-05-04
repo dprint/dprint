@@ -232,12 +232,12 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dprint-core 0.17.0",
  "dprint-plugin-jsonc 0.2.0",
- "dprint-plugin-typescript 0.15.0",
+ "dprint-plugin-typescript 0.16.0",
  "globset 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "globwalk 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonc-parser 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "dprint-core 0.17.0",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
