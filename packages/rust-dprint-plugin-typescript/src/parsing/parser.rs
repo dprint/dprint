@@ -3655,12 +3655,12 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItem
     return items;
 
     fn requires_semi_colon(var_decl_span_data: &SpanData, context: &mut Context) -> bool {
-        let parent = context.parent();
-        match parent {
+        let use_semi_colons = context.config.semi_colons.is_true();
+        use_semi_colons && match context.parent() {
             Node::ForInStmt(node) => var_decl_span_data.lo >= node.body.span().lo(),
             Node::ForOfStmt(node) => var_decl_span_data.lo >= node.body.span().lo(),
             Node::ForStmt(node) => var_decl_span_data.lo >= node.body.span().lo(),
-            _ => context.config.semi_colons.is_true(),
+            _ => use_semi_colons,
         }
     }
 

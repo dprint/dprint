@@ -1,0 +1,10 @@
+~~ semiColons: asi, indentWidth: 2 ~~
+== should not add a semi-colon ==
+for (const asdf of test) {
+  const json = JSON.stringify(targetData, undefined, 2) + "\n"
+}
+
+[expect]
+for (const asdf of test) {
+  const json = JSON.stringify(targetData, undefined, 2) + "\n"
+}
