@@ -1,0 +1,17 @@
+-- filePath: file.tsx --
+~~ lineWidth: 50, jsxAttributes.preferHanging: true ~~
+== should format when single line ==
+const t = <Test>Test</Test>;
+
+[expect]
+const t = <Test>Test</Test>;
+
+== should make the children multi-line when the header exceeds the line width ==
+const t = <Test testingThisOut={5} other={longVariable}><Test /></Test>;
+
+[expect]
+const t = <Test testingThisOut={5}
+    other={longVariable}
+>
+    <Test />
+</Test>;

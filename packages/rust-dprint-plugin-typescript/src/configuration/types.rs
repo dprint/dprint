@@ -324,6 +324,8 @@ pub struct Configuration {
     pub implements_clause_prefer_hanging: bool,
     #[serde(rename = "importDeclaration.preferHanging")]
     pub import_declaration_prefer_hanging: bool,
+    #[serde(rename = "jsxAttributes.preferHanging")]
+    pub jsx_attributes_prefer_hanging: bool,
     #[serde(rename = "objectExpression.preferHanging")]
     pub object_expression_prefer_hanging: bool,
     #[serde(rename = "objectPattern.preferHanging")]
@@ -423,6 +425,8 @@ pub struct Configuration {
     pub for_statement_prefer_single_line: bool,
     #[serde(rename = "importDeclaration.preferSingleLine")]
     pub import_declaration_prefer_single_line: bool,
+    #[serde(rename = "jsxAttributes.preferSingleLine")]
+    pub jsx_attributes_prefer_single_line: bool,
     #[serde(rename = "mappedType.preferSingleLine")]
     pub mapped_type_prefer_single_line: bool,
     #[serde(rename = "memberExpression.preferSingleLine")]

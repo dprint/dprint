@@ -374,6 +374,7 @@ export interface TypeScriptConfiguration {
     "ifStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "implementsClause.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "importDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "jsxAttributes.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "parameters.preferHanging"?: TypeScriptConfiguration["preferHanging"];
@@ -394,6 +395,7 @@ export interface TypeScriptConfiguration {
     "exportDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "forStatement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "importDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "jsxAttributes.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "mappedType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "memberExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "objectExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
@@ -473,6 +475,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "ifStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "implementsClause.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "importDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "jsxAttributes.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "parameters.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
@@ -490,9 +493,10 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "computed.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
-    readonly "importDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "exportDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "forStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "importDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "jsxAttributes.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "mappedType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "memberExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "objectExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;

@@ -1987,7 +1987,7 @@ fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> Prin
 }
 
 fn parse_setter_prop<'a>(node: &'a SetterProp, context: &mut Context<'a>) -> PrintItems {
-    return parse_class_or_object_method(ClassOrObjectMethod {
+    parse_class_or_object_method(ClassOrObjectMethod {
         parameters_span_data: node.get_parameters_span_data(context),
         decorators: None,
         accessibility: None,
@@ -2002,14 +2002,19 @@ fn parse_setter_prop<'a>(node: &'a SetterProp, context: &mut Context<'a>) -> Pri
         params: vec![(&node.param).into()],
         return_type: None,
         body: node.body.as_ref().map(|x| x.into()),
-    }, context);
+    }, context)
 }
 
 fn parse_spread_element<'a>(node: &'a SpreadElement, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str("...");
     items.extend(parse_node((&node.expr).into(), context));
-    return items;
+
+    if context.parent().kind() == NodeKind::JSXOpeningElement {
+        parse_as_jsx_expr_container(items, context)
+    } else {
+        items
+    }
 }
 
 fn parse_tagged_tpl<'a>(node: &'a TaggedTpl, context: &mut Context<'a>) -> PrintItems {
@@ -2024,7 +2029,7 @@ fn parse_tagged_tpl<'a>(node: &'a TaggedTpl, context: &mut Context<'a>) -> Print
     ));
 
     items.push_condition(conditions::indent_if_start_of_line(parse_template_literal(&node.quasis, &node.exprs.iter().map(|x| &**x).collect(), context)));
-    return items;
+    items
 }
 
 fn parse_tpl<'a>(node: &'a Tpl, context: &mut Context<'a>) -> PrintItems {
@@ -2475,7 +2480,7 @@ fn parse_as_jsx_expr_container(parsed_node: PrintItems, context: &mut Context) -
     if surround_with_space { items.push_str(" "); }
     items.push_str("}");
 
-    return items;
+    items
 }
 
 fn parse_jsx_fragment<'a>(node: &'a JSXFragment, context: &mut Context<'a>) -> PrintItems {
@@ -2491,7 +2496,7 @@ fn parse_jsx_member_expr<'a>(node: &'a JSXMemberExpr, context: &mut Context<'a>)
     items.extend(parse_node((&node.obj).into(), context));
     items.push_str(".");
     items.extend(parse_node((&node.prop).into(), context));
-    return items;
+    items
 }
 
 fn parse_jsx_namespaced_name<'a>(node: &'a JSXNamespacedName, context: &mut Context<'a>) -> PrintItems {
@@ -2499,11 +2504,11 @@ fn parse_jsx_namespaced_name<'a>(node: &'a JSXNamespacedName, context: &mut Cont
     items.extend(parse_node((&node.ns).into(), context));
     items.push_str(":");
     items.extend(parse_node((&node.name).into(), context));
-    return items;
+    items
 }
 
 fn parse_jsx_opening_element<'a>(node: &'a JSXOpeningElement, context: &mut Context<'a>) -> PrintItems {
-    let is_multi_line = get_is_multi_line(node, context);
+    let force_use_new_lines = get_force_is_multi_line(node, context);
     let start_info = Info::new("openingElementStartInfo");
     let mut items = PrintItems::new();
 
@@ -2513,52 +2518,42 @@ fn parse_jsx_opening_element<'a>(node: &'a JSXOpeningElement, context: &mut Cont
     if let Some(type_args) = &node.type_args {
         items.extend(parse_node(type_args.into(), context));
     }
-    items.extend(parse_attribs(&node.attrs, is_multi_line, context));
-    if node.self_closing {
-        if !is_multi_line {
+
+    if !node.attrs.is_empty() {
+        items.extend(parse_separated_values(ParseSeparatedValuesOptions {
+            nodes: node.attrs.iter().map(|p| Some(p.into())).collect(),
+            prefer_hanging: context.config.jsx_attributes_prefer_hanging,
+            force_use_new_lines,
+            allow_blank_lines: false,
+            trailing_commas: None,
+            semi_colons: None,
+            single_line_space_at_start: true,
+            single_line_space_at_end: node.self_closing,
+            custom_single_line_separator: None,
+            multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+            force_possible_newline_at_start: false,
+        }, context));
+    } else {
+        if node.self_closing {
             items.push_str(" ");
         }
+    }
+
+    if node.self_closing {
         items.push_str("/");
     } else {
-        items.push_condition(conditions::new_line_if_hanging(start_info, None));
+        if context.config.jsx_attributes_prefer_hanging {
+            items.push_condition(conditions::new_line_if_hanging(start_info, None));
+        }
     }
     items.push_str(">");
 
     return items;
 
-    fn parse_attribs<'a>(attribs: &'a Vec<JSXAttrOrSpread>, is_multi_line: bool, context: &mut Context<'a>) -> PrintItems {
-        let mut items = PrintItems::new();
-        if attribs.is_empty() {
-            return items;
-        }
-
-        for attrib in attribs {
-            items.push_signal(if is_multi_line {
-                Signal::NewLine
-            } else {
-                Signal::SpaceOrNewLine
-            });
-
-            items.push_condition(conditions::indent_if_start_of_line({
-                match attrib {
-                    JSXAttrOrSpread::JSXAttr(attr) => parse_node(attr.into(), context),
-                    JSXAttrOrSpread::SpreadElement(element) => {
-                        parse_as_jsx_expr_container(parse_node(element.into(), context), context)
-                    }
-                }
-            }));
-        }
-
-        if is_multi_line {
-            items.push_signal(Signal::NewLine);
-        }
-
-        return items;
-    }
-
-    fn get_is_multi_line(node: &JSXOpeningElement, context: &mut Context) -> bool {
-        // todo: preferSingleLine
-        if let Some(first_attrib) = node.attrs.first() {
+    fn get_force_is_multi_line(node: &JSXOpeningElement, context: &mut Context) -> bool {
+        if context.config.jsx_attributes_prefer_single_line {
+            false
+        } else if let Some(first_attrib) = node.attrs.first() {
             node_helpers::get_use_new_lines_for_nodes(&node.name, first_attrib, context)
         } else {
             false
@@ -2601,7 +2596,7 @@ fn parse_jsx_text<'a>(node: &'a JSXText, context: &mut Context<'a>) -> PrintItem
         past_line.replace(line);
     }
 
-    return items;
+    items
 }
 
 /* literals */
@@ -2731,14 +2726,14 @@ fn parse_assign_pat<'a>(node: &'a AssignPat, context: &mut Context<'a>) -> Print
 }
 
 fn parse_assign_pat_prop<'a>(node: &'a AssignPatProp, context: &mut Context<'a>) -> PrintItems {
-    return parser_helpers::new_line_group({
+    parser_helpers::new_line_group({
         let mut items = PrintItems::new();
         items.extend(parse_node((&node.key).into(), context));
         if let Some(value) = &node.value {
             items.extend(parse_assignment(value.into(), "=", context));
         }
         items
-    });
+    })
 }
 
 fn parse_rest_pat<'a>(node: &'a RestPat, context: &mut Context<'a>) -> PrintItems {
@@ -5880,6 +5875,7 @@ struct ParseJsxWithOpeningAndClosingOptions<'a> {
 }
 
 fn parse_jsx_with_opening_and_closing<'a>(opts: ParseJsxWithOpeningAndClosingOptions<'a>, context: &mut Context<'a>) -> PrintItems {
+    // todo: preferSingleLine
     let use_multi_lines = get_use_multi_lines(&opts.opening_element, &opts.children, context);
     let children = opts.children.into_iter().filter(|c| match c {
         Node::JSXText(c) => !c.text(context).trim().is_empty(),

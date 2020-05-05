@@ -79,7 +79,8 @@ const t = <Test>
 const t = <Test testingThisOut={5} other={longVariable}><Test /></Test>;
 
 [expect]
-const t = <Test testingThisOut={5}
+const t = <Test
+    testingThisOut={5}
     other={longVariable}
 >
     <Test />
