@@ -52,6 +52,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         semi_colons,
         /* situational */
         arrow_function_use_parentheses: get_value(&mut config, "arrowFunction.useParentheses", UseParentheses::Maintain, &mut diagnostics),
+        binary_expression_maintain_line_breaks: get_value(&mut config, "binaryExpression.maintainLineBreaks", true, &mut diagnostics),
         member_expression_maintain_line_breaks: get_value(&mut config, "memberExpression.maintainLineBreaks", true, &mut diagnostics),
         /* ignore comments */
         ignore_node_comment_text: get_value(&mut config, "ignoreNodeCommentText", String::from("dprint-ignore"), &mut diagnostics),
@@ -139,6 +140,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         array_expression_prefer_single_line: get_value(&mut config, "arrayExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
         array_pattern_prefer_single_line: get_value(&mut config, "arrayPattern.preferSingleLine", prefer_single_line, &mut diagnostics),
         arguments_prefer_single_line: get_value(&mut config, "arguments.preferSingleLine", prefer_single_line, &mut diagnostics),
+        binary_expression_prefer_single_line: get_value(&mut config, "binaryExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
         computed_prefer_single_line: get_value(&mut config, "computed.preferSingleLine", prefer_single_line, &mut diagnostics),
         conditional_expression_prefer_single_line: get_value(&mut config, "conditionalExpression.preferSingleLine", prefer_single_line, &mut diagnostics),
         conditional_type_prefer_single_line: get_value(&mut config, "conditionalType.preferSingleLine", prefer_single_line, &mut diagnostics),

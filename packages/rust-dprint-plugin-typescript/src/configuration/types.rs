@@ -251,6 +251,8 @@ pub struct Configuration {
     /* situational */
     #[serde(rename = "arrowFunction.useParentheses")]
     pub arrow_function_use_parentheses: UseParentheses,
+    #[serde(rename = "binaryExpression.maintainLineBreaks")]
+    pub binary_expression_maintain_line_breaks: bool,
     #[serde(rename = "memberExpression.maintainLineBreaks")]
     pub member_expression_maintain_line_breaks: bool,
     /* ignore comments */
@@ -413,6 +415,8 @@ pub struct Configuration {
     pub array_pattern_prefer_single_line: bool,
     #[serde(rename = "arguments.preferSingleLine")]
     pub arguments_prefer_single_line: bool,
+    #[serde(rename = "binaryExpression.preferSingleLine")]
+    pub binary_expression_prefer_single_line: bool,
     #[serde(rename = "computed.preferSingleLine")]
     pub computed_prefer_single_line: bool,
     #[serde(rename = "conditionalExpression.preferSingleLine")]

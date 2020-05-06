@@ -123,6 +123,14 @@ export interface TypeScriptConfiguration {
      */
     "arrowFunction.useParentheses"?: "force" | "maintain" | "preferNone";
     /**
+     * Whether to maintain line breaks in binary expressions.
+     *
+     * @default true
+     * @value true - Maintains the line breaks as written by the programmer.
+     * @value false - Formats binary expressions with each part on a new line.
+     */
+    "binaryExpression.maintainLineBreaks"?: boolean;
+    /**
      * Whether to maintain line breaks in member expressions.
      *
      * @default true
@@ -389,6 +397,7 @@ export interface TypeScriptConfiguration {
     "arrayExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "arrayPattern.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "arguments.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "binaryExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "computed.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "conditionalType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
@@ -492,6 +501,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "arrayExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arrayPattern.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arguments.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "binaryExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "computed.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "conditionalType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
@@ -513,6 +523,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "unionAndIntersectionType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "variableStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
+    readonly "binaryExpression.maintainLineBreaks": NonNullable<TypeScriptConfiguration["binaryExpression.maintainLineBreaks"]>;
     readonly "memberExpression.maintainLineBreaks": NonNullable<TypeScriptConfiguration["memberExpression.maintainLineBreaks"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;

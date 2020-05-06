@@ -1303,7 +1303,8 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         let node_right = &*node.right;
         let node_op = node.op;
         let use_space_surrounding_operator = get_use_space_surrounding_operator(&node_op, context);
-        let use_new_lines = node_helpers::get_use_new_lines_for_nodes(node_left, node_right, context);
+        let force_use_new_line = !context.config.binary_expression_prefer_single_line
+            && node_helpers::get_use_new_lines_for_nodes(node_left, node_right, context);
         let parsed_operator = parse_operator_with_comments(
             operator_token,
             operator_position,
@@ -1314,7 +1315,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         let mut items = PrintItems::new();
 
         if top_most_data.is_current_top_most {
-            items.push_info(top_most_data.top_most_info);
+            items.push_info(top_most_data.top_most_start_info);
         }
 
         let node_left_node = Node::from(node_left);
@@ -1329,13 +1330,40 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             }))
         }));
 
-        items.push_signal(if use_new_lines {
-            Signal::NewLine
-        } else if use_space_surrounding_operator {
-            Signal::SpaceOrNewLine
+        if force_use_new_line {
+            items.push_signal(Signal::NewLine);
+        } else if context.config.binary_expression_maintain_line_breaks {
+            items.push_condition(conditions::if_above_width_or(
+                context.config.indent_width,
+                if use_space_surrounding_operator {
+                    Signal::SpaceOrNewLine
+                } else {
+                    Signal::PossibleNewLine
+                }.into(),
+                if use_space_surrounding_operator {
+                    " ".into()
+                } else {
+                    PrintItems::new()
+                },
+            ));
         } else {
-            Signal::PossibleNewLine
-        });
+            let top_most_start_info = top_most_data.top_most_start_info;
+            let top_most_end_info = top_most_data.top_most_end_info;
+            items.push_condition(if_true_or(
+                "isMultipleLines",
+                move |context| condition_resolvers::is_multiple_lines(context, &top_most_start_info, &top_most_end_info),
+                Signal::NewLine.into(),
+                if use_space_surrounding_operator {
+                    Signal::SpaceOrNewLine
+                } else {
+                    Signal::PossibleNewLine
+                }.into(),
+            ));
+        }
+
+        if top_most_data.is_current_top_most {
+            items.push_info(top_most_data.top_most_end_info);
+        }
 
         items.extend(indent_if_necessary(node_right.lo(), &node_op, operator_position, &top_most_data, {
             let mut items = PrintItems::new();
@@ -1425,13 +1453,13 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
     ) -> PrintItems {
         let is_left_most_node = top_most_data.top_most_expr_start == current_node_start;
         let items = items.into_rc_path();
-        let top_most_info = top_most_data.top_most_info;
+        let top_most_start_info = top_most_data.top_most_start_info;
         let allow_no_indent = !top_most_data.is_parent_expr_stmt && !top_most_data.is_in_argument
             && (operator_position == OperatorPosition::NextLine || is_expression_breakable(op));
         Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
             condition: Box::new(move |condition_context| {
                 if is_left_most_node { return Some(false); }
-                let top_most_info = condition_context.get_resolved_info(&top_most_info)?;
+                let top_most_info = condition_context.get_resolved_info(&top_most_start_info)?;
                 if allow_no_indent && top_most_info.is_start_of_line() { return Some(false); }
                 let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
                 return Some(is_same_indent && condition_resolvers::is_start_of_line(condition_context));
@@ -1457,7 +1485,8 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
     struct TopMostData {
         top_most_expr_start: BytePos,
-        top_most_info: Info,
+        top_most_start_info: Info,
+        top_most_end_info: Info,
         is_current_top_most: bool,
         is_parent_expr_stmt: bool,
         is_in_argument: bool,
@@ -1486,11 +1515,13 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
         let is_current_top_most = top_most == node;
         let top_most_expr_start = top_most.lo();
+        let top_most_expr_end = top_most.hi();
         let top_most_parent_kind = top_most_parent.kind();
         let is_in_argument = get_is_in_argument(top_most_parent, top_most_parent_index, context);
 
         return TopMostData {
-            top_most_info: get_or_set_top_most_info(top_most_expr_start, is_current_top_most, context),
+            top_most_end_info: get_or_set_top_most_info(top_most_expr_start, is_current_top_most, context),
+            top_most_start_info: get_or_set_top_most_info(top_most_expr_end, is_current_top_most, context),
             top_most_expr_start,
             is_current_top_most,
             is_parent_expr_stmt: top_most_parent_kind == NodeKind::ExprStmt,

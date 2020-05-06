@@ -419,6 +419,7 @@ describe("configuration", () => {
                 "arrayExpression.preferSingleLine": value,
                 "arrayPattern.preferSingleLine": value,
                 "arguments.preferSingleLine": value,
+                "binaryExpression.preferSingleLine": value,
                 "computed.preferSingleLine": value,
                 "conditionalExpression.preferSingleLine": value,
                 "conditionalType.preferSingleLine": value,
@@ -473,6 +474,23 @@ describe("configuration", () => {
             doSpecificTest(
                 { "arrowFunction.useParentheses": "preferNone" },
                 { "arrowFunction.useParentheses": "preferNone" },
+            );
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c["binaryExpression.maintainLineBreaks"]), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "binaryExpression.maintainLineBreaks");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "binaryExpression.maintainLineBreaks": true });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "binaryExpression.maintainLineBreaks": false },
+                { "binaryExpression.maintainLineBreaks": false },
             );
         });
     });
