@@ -1,6 +1,6 @@
 {
   "name": "dprint-plugin-typescript",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "TypeScript plugin for dprint.",
   "main": "dist/dprint-plugin-typescript.js",
   "types": "lib/dprint-plugin-typescript.d.ts",

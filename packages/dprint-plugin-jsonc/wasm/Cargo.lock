@@ -24,14 +24,14 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "dprint-plugin-jsonc"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "dprint-core",
  "jsonc-parser",
