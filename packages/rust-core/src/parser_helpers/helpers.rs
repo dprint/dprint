@@ -1,7 +1,6 @@
 use super::super::print_items::*;
 use super::super::conditions;
 use super::super::condition_resolvers;
-use std::cell::RefCell;
 
 pub fn surround_with_new_lines(item: PrintItems) -> PrintItems {
     let mut items = PrintItems::new();
@@ -133,7 +132,6 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
     let start_info = Info::new("surroundWithNewLinesIndentedIfMultiLineStart");
     let end_info = Info::new("surroundWithNewLineIndentedsIfMultiLineEnd");
     let inner_items = inner_items.into_rc_path();
-    let previous_position = RefCell::new((0, 0));
 
     items.push_info(start_info);
     items.push_condition(Condition::new_with_dependent_infos("newlineIfMultiLine", ConditionProperties {
@@ -149,10 +147,8 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
         }),
         condition: Box::new(move |context| {
             // clear the end info when the start info changes
-            let start_position = context.get_resolved_info(&start_info)?.get_line_and_column();
-            if start_position != *previous_position.borrow() {
+            if context.has_info_moved(&start_info)? {
                 context.clear_info(&end_info);
-                previous_position.replace(start_position);
             }
             condition_resolvers::is_multiple_lines(context, &start_info, &end_info)
         })
