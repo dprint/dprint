@@ -248,6 +248,8 @@ When `true` (non-default), Dprint will prefer hanging indentation instead of mak
 
 ### `preferSingleLine`
 
+**Note:** This configuration option was recently added and is still undergoing lots of changes.
+
 When `false` (default), certain code will be allowed to span multiple lines even when it could possibly fit on a single line.
 
 For example, if the first parameter or argument is placed on a different line than the open parenthesis then the entire argument or parameter list will become multi-line.
