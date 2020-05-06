@@ -1451,7 +1451,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         top_most_data: &TopMostData,
         items: PrintItems
     ) -> PrintItems {
-        let is_left_most_node = top_most_data.top_most_expr_start == current_node_start;
+        let is_left_most_node = top_most_data.top_most_expr_range.lo() == current_node_start;
         let items = items.into_rc_path();
         let top_most_start_info = top_most_data.top_most_start_info;
         let allow_no_indent = !top_most_data.is_parent_expr_stmt && !top_most_data.is_in_argument
@@ -1484,7 +1484,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
     }
 
     struct TopMostData {
-        top_most_expr_start: BytePos,
+        top_most_expr_range: SpanData,
         top_most_start_info: Info,
         top_most_end_info: Info,
         is_current_top_most: bool,
@@ -1514,27 +1514,27 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         }
 
         let is_current_top_most = top_most == node;
-        let top_most_expr_start = top_most.lo();
-        let top_most_expr_end = top_most.hi();
+        let top_most_expr_range = top_most.span_data();
         let top_most_parent_kind = top_most_parent.kind();
         let is_in_argument = get_is_in_argument(top_most_parent, top_most_parent_index, context);
+        let (top_most_start_info, top_most_end_info) = get_or_set_top_most_infos(&top_most_expr_range, is_current_top_most, context);
 
         return TopMostData {
-            top_most_end_info: get_or_set_top_most_info(top_most_expr_start, is_current_top_most, context),
-            top_most_start_info: get_or_set_top_most_info(top_most_expr_end, is_current_top_most, context),
-            top_most_expr_start,
+            top_most_end_info,
+            top_most_start_info,
+            top_most_expr_range,
             is_current_top_most,
             is_parent_expr_stmt: top_most_parent_kind == NodeKind::ExprStmt,
             is_in_argument,
         };
 
-        fn get_or_set_top_most_info(top_most_expr_start: BytePos, is_top_most: bool, context: &mut Context) -> Info {
+        fn get_or_set_top_most_infos(range: &impl Ranged, is_top_most: bool, context: &mut Context) -> (Info, Info) {
             if is_top_most {
-                let info = Info::new("topBinaryOrLogicalExpressionStart");
-                context.store_info_for_node(&top_most_expr_start, info);
-                info
+                let infos = (Info::new("topBinaryOrLogicalExpressionStart"), Info::new("topBinaryOrLogicalExpressionEnd"));
+                context.store_info_range_for_node(range, infos);
+                infos
             } else {
-                context.get_info_for_node(&top_most_expr_start).expect("Expected to have the top most expr info stored")
+                context.get_info_range_for_node(range).expect("Expected to have the top most expr info stored")
             }
         }
 
@@ -5418,8 +5418,7 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
 
         let top_most_range = top_most_node.span_data();
         let is_top_most = top_most_range.lo() == current_node.lo() && top_most_range.hi() == current_node.hi();
-        let top_most_start_info = get_or_set_top_most_info(top_most_range.lo(), is_top_most, context);
-        let top_most_end_info = get_or_set_top_most_info(top_most_range.hi(), is_top_most, context);
+        let (top_most_start_info, top_most_end_info) = get_or_set_top_most_infos(&top_most_range, is_top_most, context);
 
         return TopMostData {
             is_top_most,
@@ -5427,13 +5426,13 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
             top_most_end_info,
         };
 
-        fn get_or_set_top_most_info(pos: BytePos, is_top_most: bool, context: &mut Context) -> Info {
+        fn get_or_set_top_most_infos(range: &impl Ranged, is_top_most: bool, context: &mut Context) -> (Info, Info) {
             if is_top_most {
-                let info = Info::new("topMember");
-                context.store_info_for_node(&pos, info);
-                info
+                let infos = (Info::new("topMemberStart"), Info::new("topMemberEnd"));
+                context.store_info_range_for_node(range, infos);
+                infos
             } else {
-                context.get_info_for_node(&pos).expect("Expected to have the top most expr info stored")
+                context.get_info_range_for_node(range).expect("Expected to have the top most expr info stored")
             }
         }
     }

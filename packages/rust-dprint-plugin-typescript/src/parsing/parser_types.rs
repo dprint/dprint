@@ -18,7 +18,8 @@ pub struct Context<'a> {
     pub parent_stack: Stack<Node<'a>>,
     handled_comments: HashSet<BytePos>,
     pub info: Rc<SourceFile>,
-    stored_infos: HashMap<BytePos, Info>,
+    stored_infos: HashMap<(BytePos, BytePos), Info>,
+    stored_info_ranges: HashMap<(BytePos, BytePos), (Info, Info)>,
     pub end_statement_or_member_infos: Stack<Info>,
     if_stmt_last_brace_condition_ref: Option<ConditionReference>,
     /// Used for ensuring nodes are parsed in order.
@@ -46,6 +47,7 @@ impl<'a> Context<'a> {
             handled_comments: HashSet::new(),
             info: Rc::new(info),
             stored_infos: HashMap::new(),
+            stored_info_ranges: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),
             if_stmt_last_brace_condition_ref: None,
             #[cfg(debug_assertions)]
@@ -71,11 +73,19 @@ impl<'a> Context<'a> {
     }
 
     pub fn store_info_for_node(&mut self, node: &dyn Ranged, info: Info) {
-        self.stored_infos.insert(node.lo(), info);
+        self.stored_infos.insert((node.lo(), node.hi()), info);
     }
 
     pub fn get_info_for_node(&self, node: &dyn Ranged) -> Option<Info> {
-        self.stored_infos.get(&node.lo()).map(|x| x.to_owned())
+        self.stored_infos.get(&(node.lo(), node.hi())).map(|x| x.to_owned())
+    }
+
+    pub fn store_info_range_for_node(&mut self, node: &dyn Ranged, infos: (Info, Info)) {
+        self.stored_info_ranges.insert((node.lo(), node.hi()), infos);
+    }
+
+    pub fn get_info_range_for_node(&self, node: &dyn Ranged) -> Option<(Info, Info)> {
+        self.stored_info_ranges.get(&(node.lo(), node.hi())).map(|x| x.to_owned())
     }
 
     pub fn store_if_stmt_last_brace_condition_ref(&mut self, condition_reference: ConditionReference) {
