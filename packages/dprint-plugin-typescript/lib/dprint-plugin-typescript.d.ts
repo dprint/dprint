@@ -396,6 +396,7 @@ export interface TypeScriptConfiguration {
     "forStatement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "importDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "jsxAttributes.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "jsxElement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "mappedType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "memberExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
     "objectExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
@@ -497,6 +498,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "forStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "importDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "jsxAttributes.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "jsxElement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "mappedType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "memberExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
     readonly "objectExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;

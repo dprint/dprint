@@ -2402,7 +2402,7 @@ fn parse_interface_body<'a>(node: &'a TsInterfaceBody, context: &mut Context<'a>
 }
 
 fn parse_type_lit<'a>(node: &'a TsTypeLit, context: &mut Context<'a>) -> PrintItems {
-    return parse_object_like_node(ParseObjectLikeNodeOptions {
+    parse_object_like_node(ParseObjectLikeNodeOptions {
         node_span_data: node.span.data(),
         members: node.members.iter().map(|m| m.into()).collect(),
         trailing_commas: None,
@@ -2410,7 +2410,7 @@ fn parse_type_lit<'a>(node: &'a TsTypeLit, context: &mut Context<'a>) -> PrintIt
         prefer_hanging: context.config.type_literal_prefer_hanging,
         prefer_single_line: context.config.type_literal_prefer_single_line,
         surround_single_line_with_spaces: true,
-    }, context);
+    }, context)
 }
 
 /* jsx */
@@ -2428,7 +2428,7 @@ fn parse_jsx_attribute<'a>(node: &'a JSXAttr, context: &mut Context<'a>) -> Prin
             parsed_value
         });
     }
-    return items;
+    items
 }
 
 fn parse_jsx_closing_element<'a>(node: &'a JSXClosingElement, context: &mut Context<'a>) -> PrintItems {
@@ -2436,7 +2436,7 @@ fn parse_jsx_closing_element<'a>(node: &'a JSXClosingElement, context: &mut Cont
     items.push_str("</");
     items.extend(parse_node((&node.name).into(), context));
     items.push_str(">");
-    return items;
+    items
 }
 
 fn parse_jsx_closing_fragment<'a>(_: &'a JSXClosingFragment, _: &mut Context<'a>) -> PrintItems {
@@ -2575,28 +2575,59 @@ fn parse_jsx_spread_child<'a>(node: &'a JSXSpreadChild, context: &mut Context<'a
 }
 
 fn parse_jsx_text<'a>(node: &'a JSXText, context: &mut Context<'a>) -> PrintItems {
-    let lines = node.text(context).trim().lines().map(|line| line.trim());
-    let mut past_line: Option<&str> = None;
     let mut items = PrintItems::new();
 
-    for line in lines {
-        if let Some(past_line) = past_line {
-            if !line.is_empty() {
-                items.push_signal(Signal::NewLine);
-                if past_line.is_empty() {
-                    items.push_signal(Signal::NewLine);
-                }
+    for (i, line) in get_lines(node.text(context)).into_iter().enumerate() {
+        if i > 0 {
+            items.push_signal(Signal::NewLine);
+            items.push_signal(Signal::NewLine);
+        }
+
+        let mut was_last_space_or_newline = true;
+        for word in line.split(' ') {
+            if !was_last_space_or_newline {
+                items.push_signal(Signal::SpaceOrNewLine);
+                was_last_space_or_newline = true;
+            }
+            if !word.is_empty() {
+                items.push_str(word);
+                was_last_space_or_newline = false;
             }
         }
-
-        if !line.is_empty() {
-            items.push_str(line);
-        }
-
-        past_line.replace(line);
     }
 
-    items
+    return parser_helpers::new_line_group(items);
+
+    fn get_lines(node_text: &str) -> Vec<String> {
+        let mut past_line: Option<&str> = None;
+        let lines = node_text.trim().lines().map(|line| line.trim());
+        let mut result = Vec::new();
+        let mut current_line = String::new();
+
+        for line in lines {
+            if let Some(past_line) = past_line {
+                if !line.is_empty() && past_line.is_empty() && !current_line.is_empty() {
+                    result.push(current_line);
+                    current_line = String::new();
+                }
+            }
+
+            if !line.is_empty() {
+                if !current_line.is_empty() {
+                    current_line.push_str(" ");
+                }
+                current_line.push_str(line);
+            }
+
+            past_line.replace(line);
+        }
+
+        if !current_line.is_empty() {
+            result.push(current_line);
+        }
+
+        result
+    }
 }
 
 /* literals */
@@ -5875,8 +5906,7 @@ struct ParseJsxWithOpeningAndClosingOptions<'a> {
 }
 
 fn parse_jsx_with_opening_and_closing<'a>(opts: ParseJsxWithOpeningAndClosingOptions<'a>, context: &mut Context<'a>) -> PrintItems {
-    // todo: preferSingleLine
-    let use_multi_lines = get_use_multi_lines(&opts.opening_element, &opts.children, context);
+    let force_use_multi_lines = get_force_use_multi_lines(&opts.opening_element, &opts.children, context);
     let children = opts.children.into_iter().filter(|c| match c {
         Node::JSXText(c) => !c.text(context).trim().is_empty(),
         _=> true,
@@ -5893,16 +5923,17 @@ fn parse_jsx_with_opening_and_closing<'a>(opts: ParseJsxWithOpeningAndClosingOpt
         children,
         parent_start_info: start_info,
         parent_end_info: end_info,
-        use_multi_lines,
+        force_use_multi_lines,
     }, context));
     items.extend(parse_node(opts.closing_element, context));
     items.push_info(end_info);
 
     return items;
 
-    fn get_use_multi_lines(opening_element: &Node, children: &Vec<Node>, context: &mut Context) -> bool {
-        // todo: preferSingleLine
-        if let Some(first_child) = children.get(0) {
+    fn get_force_use_multi_lines(opening_element: &Node, children: &Vec<Node>, context: &mut Context) -> bool {
+        if context.config.jsx_element_prefer_single_line {
+            false
+        } else if let Some(first_child) = children.get(0) {
             if let Node::JSXText(first_child) = first_child {
                 if first_child.text(context).find("\n").is_some() {
                     return true;
@@ -5921,7 +5952,7 @@ struct ParseJsxChildrenOptions<'a> {
     children: Vec<Node<'a>>,
     parent_start_info: Info,
     parent_end_info: Info,
-    use_multi_lines: bool,
+    force_use_multi_lines: bool,
 }
 
 fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Context<'a>) -> PrintItems {
@@ -5932,7 +5963,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
     let parent_start_info = opts.parent_start_info;
     let parent_end_info = opts.parent_end_info;
 
-    if opts.use_multi_lines {
+    if opts.force_use_multi_lines {
         return parse_for_new_lines(children, opts.inner_span_data, context);
     }
     else {
@@ -5987,7 +6018,7 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
             items.push_signal(Signal::NewLine);
         }
 
-        return items;
+        items
     }
 
     fn parse_for_single_line<'a>(children: Vec<(Node<'a>, Option<PrintItemPath>)>, context: &mut Context<'a>) -> PrintItems {
@@ -6008,17 +6039,17 @@ fn parse_jsx_children<'a>(opts: ParseJsxChildrenOptions<'a>, context: &mut Conte
                 previous_child = Some(child);
             }
         }
-        return items;
+        items
     }
 
     fn should_use_space(previous_element: &Node, next_element: &Node, context: &mut Context) -> bool {
         if let Node::JSXText(element) = previous_element {
-            return element.text(context).ends_with(" ");
+            element.text(context).ends_with(" ")
+        } else if let Node::JSXText(element) = next_element {
+            element.text(context).starts_with(" ")
+        } else {
+            false
         }
-        if let Node::JSXText(element) = next_element {
-            return element.text(context).starts_with(" ");
-        }
-        return false;
     }
 }
 

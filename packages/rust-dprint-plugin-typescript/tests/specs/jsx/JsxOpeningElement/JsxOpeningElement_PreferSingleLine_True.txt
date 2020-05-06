@@ -6,7 +6,7 @@ const t = <Test    attrib={5}    other="test"  > < /  Test  > ;
 [expect]
 const t = <Test attrib={5} other="test"></Test>;
 
-== should make the body multi-line when exceeding th eline width ==
+== should make the body multi-line when exceeding the line width ==
 const t = <Test attrib={5} otherAttrib="test" anotherVeryLongAttrib={234234}>Test</Test>;
 
 [expect]

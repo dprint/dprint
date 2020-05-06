@@ -733,6 +733,10 @@ impl ConfigurationBuilder {
         self.insert("jsxAttributes.preferSingleLine", value)
     }
 
+    pub fn jsx_element_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("jsxElement.preferSingleLine", value)
+    }
+
     pub fn mapped_type_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("mappedType.preferSingleLine", value)
     }
@@ -905,6 +909,7 @@ mod tests {
             .for_statement_prefer_single_line(false)
             .import_declaration_prefer_single_line(false)
             .jsx_attributes_prefer_single_line(false)
+            .jsx_element_prefer_single_line(false)
             .mapped_type_prefer_single_line(false)
             .member_expression_prefer_single_line(false)
             .object_expression_prefer_single_line(false)
@@ -943,7 +948,7 @@ mod tests {
             .while_statement_space_after_while_keyword(true);
 
         let inner_config = config.get_inner_config();
-        assert_eq!(inner_config.len(), 133);
+        assert_eq!(inner_config.len(), 134);
         let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
         assert_eq!(diagnostics.len(), 0);
     }

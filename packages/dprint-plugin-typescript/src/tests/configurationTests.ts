@@ -426,6 +426,7 @@ describe("configuration", () => {
                 "forStatement.preferSingleLine": value,
                 "importDeclaration.preferSingleLine": value,
                 "jsxAttributes.preferSingleLine": value,
+                "jsxElement.preferSingleLine": value,
                 "mappedType.preferSingleLine": value,
                 "memberExpression.preferSingleLine": value,
                 "objectExpression.preferSingleLine": value,
