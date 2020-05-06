@@ -251,10 +251,10 @@ pub struct Configuration {
     /* situational */
     #[serde(rename = "arrowFunction.useParentheses")]
     pub arrow_function_use_parentheses: UseParentheses,
-    #[serde(rename = "binaryExpression.maintainLineBreaks")]
-    pub binary_expression_maintain_line_breaks: bool,
-    #[serde(rename = "memberExpression.maintainLineBreaks")]
-    pub member_expression_maintain_line_breaks: bool,
+    #[serde(rename = "binaryExpression.linePerExpression")]
+    pub binary_expression_line_per_expression: bool,
+    #[serde(rename = "memberExpression.linePerExpression")]
+    pub member_expression_line_per_expression: bool,
     /* ignore comments */
     pub ignore_node_comment_text: String,
     pub ignore_file_comment_text: String,

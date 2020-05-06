@@ -52,8 +52,8 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         semi_colons,
         /* situational */
         arrow_function_use_parentheses: get_value(&mut config, "arrowFunction.useParentheses", UseParentheses::Maintain, &mut diagnostics),
-        binary_expression_maintain_line_breaks: get_value(&mut config, "binaryExpression.maintainLineBreaks", true, &mut diagnostics),
-        member_expression_maintain_line_breaks: get_value(&mut config, "memberExpression.maintainLineBreaks", true, &mut diagnostics),
+        binary_expression_line_per_expression: get_value(&mut config, "binaryExpression.linePerExpression", false, &mut diagnostics),
+        member_expression_line_per_expression: get_value(&mut config, "memberExpression.linePerExpression", false, &mut diagnostics),
         /* ignore comments */
         ignore_node_comment_text: get_value(&mut config, "ignoreNodeCommentText", String::from("dprint-ignore"), &mut diagnostics),
         ignore_file_comment_text: get_value(&mut config, "ignoreFileCommentText", String::from("dprint-ignore-file"), &mut diagnostics),

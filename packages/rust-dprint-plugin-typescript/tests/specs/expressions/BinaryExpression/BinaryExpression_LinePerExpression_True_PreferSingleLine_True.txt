@@ -1,4 +1,4 @@
-~~ lineWidth: 40, binaryExpression.maintainLineBreaks: false ~~
+~~ lineWidth: 40, binaryExpression.linePerExpression: true, preferSingleLine: true ~~
 == should go full multi-line when exceeding the width ==
 testing + asdf + out + asdf + when + it + passes + thelineWidth + someMore;
 
@@ -19,16 +19,12 @@ testing + asdf + out;
 [expect]
 testing + asdf + out;
 
-== should go multi-line once one of the nodes are on different lines ==
+== should go single line when able ==
 testing
     + asdf + out;
 testing + asdf
     + out;
 
 [expect]
-testing
-    + asdf
-    + out;
-testing
-    + asdf
-    + out;
+testing + asdf + out;
+testing + asdf + out;

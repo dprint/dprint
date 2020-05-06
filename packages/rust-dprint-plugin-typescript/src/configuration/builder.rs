@@ -367,20 +367,20 @@ impl ConfigurationBuilder {
         self.insert("arrowFunction.useParentheses", value)
     }
 
-    /// Whether to maintain line breaks in binary expressions.
+    /// Whether to force a line per expression when spanning multiple lines.
     ///
-    /// * `true` (default) - Maintains the line breaks as written by the programmer.
-    /// * `false` - Formats binary expressions with each part on a new line.
-    pub fn binary_expression_maintain_line_breaks(&mut self, value: bool) -> &mut Self {
-        self.insert("binaryExpression.maintainLineBreaks", value)
+    /// * `true` - Formats with each part on a new line.
+    /// * `false` (default) - Maintains the line breaks as written by the programmer.
+    pub fn binary_expression_line_per_expression(&mut self, value: bool) -> &mut Self {
+        self.insert("binaryExpression.linePerExpression", value)
     }
 
-    /// Whether to maintain line breaks in member expressions.
+    /// Whether to force a line per expression when spanning multiple lines.
     ///
-    /// * `true` (default) - Maintains the line breaks as written by the programmer.
-    /// * `false` - Formats member expressions with each part on a new line.
-    pub fn member_expression_maintain_line_breaks(&mut self, value: bool) -> &mut Self {
-        self.insert("memberExpression.maintainLineBreaks", value)
+    /// * `true` - Formats with each part on a new line.
+    /// * `false` (default) - Maintains the line breaks as written by the programmer.
+    pub fn member_expression_line_per_expression(&mut self, value: bool) -> &mut Self {
+        self.insert("memberExpression.linePerExpression", value)
     }
 
     /* ignore comments */
@@ -831,8 +831,8 @@ mod tests {
             .prefer_hanging(false)
             /* situational */
             .arrow_function_use_parentheses(UseParentheses::Maintain)
-            .binary_expression_maintain_line_breaks(false)
-            .member_expression_maintain_line_breaks(false)
+            .binary_expression_line_per_expression(false)
+            .member_expression_line_per_expression(false)
             /* ignore comments */
             .ignore_node_comment_text("ignore")
             .ignore_file_comment_text("ignore-file")

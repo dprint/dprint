@@ -1,4 +1,4 @@
-~~ lineWidth: 40, memberExpression.maintainLineBreaks: false ~~
+~~ lineWidth: 40, memberExpression.linePerExpression: true, preferSingleLine: true ~~
 == should go full multi-line when exceeding the width ==
 testing.this.out.for.when.it.passes.thelineWidth.someMore;
 
@@ -19,16 +19,12 @@ testing.this.out;
 [expect]
 testing.this.out;
 
-== should go multi-line once one of the nodes are on different lines ==
+== should be single line when below the width even when on multiple lines ==
 testing
     .this.out;
 testing.this
     .out;
 
 [expect]
-testing
-    .this
-    .out;
-testing
-    .this
-    .out;
+testing.this.out;
+testing.this.out;

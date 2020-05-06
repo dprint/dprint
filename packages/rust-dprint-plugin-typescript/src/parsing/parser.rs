@@ -1332,7 +1332,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
         if force_use_new_line {
             items.push_signal(Signal::NewLine);
-        } else if context.config.binary_expression_maintain_line_breaks {
+        } else if !context.config.binary_expression_line_per_expression {
             items.push_condition(conditions::if_above_width_or(
                 context.config.indent_width,
                 if use_space_surrounding_operator {
@@ -5339,7 +5339,7 @@ fn parse_for_member_like_expr<'a>(node: MemberLikeExpr<'a>, context: &mut Contex
     if is_optional || !node.is_computed {
         if force_use_new_line {
             items.push_signal(Signal::NewLine);
-        } else if context.config.member_expression_maintain_line_breaks {
+        } else if !context.config.member_expression_line_per_expression {
             items.push_condition(conditions::if_above_width(
                 context.config.indent_width,
                 Signal::PossibleNewLine.into()

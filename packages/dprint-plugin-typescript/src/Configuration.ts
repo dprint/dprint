@@ -126,22 +126,20 @@ export interface TypeScriptConfiguration {
     "arrowFunction.useParentheses"?: "force" | "maintain" | "preferNone";
 
     /**
-     * Whether to maintain line breaks in binary expressions.
-     *
-     * @default true
-     * @value true - Maintains the line breaks as written by the programmer.
-     * @value false - Formats binary expressions with each part on a new line.
+     * Whether to force a line per expression when spanning multiple lines.
+     * @default false
+     * @value true - Formats with each part on a new line.
+     * @value false - Maintains the line breaks as written by the programmer.
      */
-    "binaryExpression.maintainLineBreaks"?: boolean;
+    "binaryExpression.linePerExpression"?: boolean;
 
     /**
-     * Whether to maintain line breaks in member expressions.
-     *
-     * @default true
-     * @value true - Maintains the line breaks as written by the programmer.
-     * @value false - Formats member expressions with each part on a new line.
+     * Whether to force a line per expression when spanning multiple lines.
+     * @default false
+     * @value true - Formats with each part on a new line.
+     * @value false - Maintains the line breaks as written by the programmer.
      */
-    "memberExpression.maintainLineBreaks"?: boolean;
+    "memberExpression.linePerExpression"?: boolean;
 
     /**
      * How to space the members of an enum.
@@ -557,8 +555,8 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     // declaration specific
 
     readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
-    readonly "binaryExpression.maintainLineBreaks": NonNullable<TypeScriptConfiguration["binaryExpression.maintainLineBreaks"]>;
-    readonly "memberExpression.maintainLineBreaks": NonNullable<TypeScriptConfiguration["memberExpression.maintainLineBreaks"]>;
+    readonly "binaryExpression.linePerExpression": NonNullable<TypeScriptConfiguration["binaryExpression.linePerExpression"]>;
+    readonly "memberExpression.linePerExpression": NonNullable<TypeScriptConfiguration["memberExpression.linePerExpression"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
 
     // use space separator

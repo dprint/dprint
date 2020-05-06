@@ -478,36 +478,36 @@ describe("configuration", () => {
         });
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c["binaryExpression.maintainLineBreaks"]), () => {
+    describe(nameof<TypeScriptConfiguration>(c => c["binaryExpression.linePerExpression"]), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop === "binaryExpression.maintainLineBreaks");
+            doTest(config, expectedConfig, prop => prop === "binaryExpression.linePerExpression");
         }
 
         it("should get the default property", () => {
-            doSpecificTest({}, { "binaryExpression.maintainLineBreaks": true });
+            doSpecificTest({}, { "binaryExpression.linePerExpression": false });
         });
 
         it("should get the property when set", () => {
             doSpecificTest(
-                { "binaryExpression.maintainLineBreaks": false },
-                { "binaryExpression.maintainLineBreaks": false },
+                { "binaryExpression.linePerExpression": true },
+                { "binaryExpression.linePerExpression": true },
             );
         });
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c["memberExpression.maintainLineBreaks"]), () => {
+    describe(nameof<TypeScriptConfiguration>(c => c["memberExpression.linePerExpression"]), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop === "memberExpression.maintainLineBreaks");
+            doTest(config, expectedConfig, prop => prop === "memberExpression.linePerExpression");
         }
 
         it("should get the default property", () => {
-            doSpecificTest({}, { "memberExpression.maintainLineBreaks": true });
+            doSpecificTest({}, { "memberExpression.linePerExpression": false });
         });
 
         it("should get the property when set", () => {
             doSpecificTest(
-                { "memberExpression.maintainLineBreaks": false },
-                { "memberExpression.maintainLineBreaks": false },
+                { "memberExpression.linePerExpression": true },
+                { "memberExpression.linePerExpression": true },
             );
         });
     });
