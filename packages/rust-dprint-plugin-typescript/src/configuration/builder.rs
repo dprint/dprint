@@ -717,6 +717,10 @@ impl ConfigurationBuilder {
         self.insert("conditionalType.preferSingleLine", value)
     }
 
+    pub fn decorators_prefer_single_line(&mut self, value: bool) -> &mut Self {
+        self.insert("decorators.preferSingleLine", value)
+    }
+
     pub fn export_declaration_prefer_single_line(&mut self, value: bool) -> &mut Self {
         self.insert("exportDeclaration.preferSingleLine", value)
     }
@@ -905,6 +909,7 @@ mod tests {
             .computed_prefer_single_line(false)
             .conditional_expression_prefer_single_line(false)
             .conditional_type_prefer_single_line(false)
+            .decorators_prefer_single_line(false)
             .export_declaration_prefer_single_line(false)
             .for_statement_prefer_single_line(false)
             .import_declaration_prefer_single_line(false)
@@ -948,7 +953,7 @@ mod tests {
             .while_statement_space_after_while_keyword(true);
 
         let inner_config = config.get_inner_config();
-        assert_eq!(inner_config.len(), 134);
+        assert_eq!(inner_config.len(), 135);
         let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
         assert_eq!(diagnostics.len(), 0);
     }

@@ -422,6 +422,7 @@ describe("configuration", () => {
                 "computed.preferSingleLine": value,
                 "conditionalExpression.preferSingleLine": value,
                 "conditionalType.preferSingleLine": value,
+                "decorators.preferSingleLine": value,
                 "exportDeclaration.preferSingleLine": value,
                 "forStatement.preferSingleLine": value,
                 "importDeclaration.preferSingleLine": value,

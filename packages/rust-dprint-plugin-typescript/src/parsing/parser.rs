@@ -602,12 +602,15 @@ struct ClassDeclOrExpr<'a> {
 fn parse_class_decl_or_expr<'a>(node: ClassDeclOrExpr<'a>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
 
+    // parse decorators
     let parent_kind = context.parent().kind();
     if parent_kind != NodeKind::ExportDecl && parent_kind != NodeKind::ExportDefaultDecl {
         items.extend(parse_decorators(node.decorators, node.is_class_expr, context));
     }
-    let start_header_info = Info::new("startHeader");
-    let parsed_header = {
+
+    // parse header and body
+    let parsed_class_expr = {
+        let start_header_info = Info::new("startHeader");
         let mut items = PrintItems::new();
         items.push_info(start_header_info);
 
@@ -649,29 +652,27 @@ fn parse_class_decl_or_expr<'a>(node: ClassDeclOrExpr<'a>, context: &mut Context
             start_header_info,
             prefer_hanging: context.config.implements_clause_prefer_hanging,
         }, context));
+        items.extend(parse_membered_body(ParseMemberedBodyOptions {
+            span_data: node.span_data,
+            members: node.members,
+            start_header_info: Some(start_header_info),
+            brace_position: node.brace_position,
+            should_use_blank_line: move |previous, next, context| {
+                node_helpers::has_separating_blank_line(previous, next, context)
+            },
+            trailing_commas: None,
+            semi_colons: None,
+        }, context));
         items
     };
 
     if node.is_class_expr {
-        items.push_condition(conditions::indent_if_start_of_line(parsed_header));
+        items.push_condition(conditions::indent_if_start_of_line(parsed_class_expr));
     } else {
-        items.extend(parsed_header);
+        items.extend(parsed_class_expr);
     }
 
-    // parse body
-    items.extend(parse_membered_body(ParseMemberedBodyOptions {
-        span_data: node.span_data,
-        members: node.members,
-        start_header_info: Some(start_header_info),
-        brace_position: node.brace_position,
-        should_use_blank_line: move |previous, next, context| {
-            node_helpers::has_separating_blank_line(previous, next, context)
-        },
-        trailing_commas: None,
-        semi_colons: None,
-    }, context));
-
-    return items;
+    items
 }
 
 fn parse_export_decl<'a>(node: &'a ExportDecl, context: &mut Context<'a>) -> PrintItems {
@@ -1687,7 +1688,7 @@ fn parse_call_expr<'a>(node: &'a CallExpr, context: &mut Context<'a>) -> PrintIt
 }
 
 fn parse_class_expr<'a>(node: &'a ClassExpr, context: &mut Context<'a>) -> PrintItems {
-    return parse_class_decl_or_expr(ClassDeclOrExpr {
+    parse_class_decl_or_expr(ClassDeclOrExpr {
         span_data: node.class.span.data(),
         decorators: &node.class.decorators,
         is_class_expr: true,
@@ -1700,7 +1701,7 @@ fn parse_class_expr<'a>(node: &'a ClassExpr, context: &mut Context<'a>) -> Print
         implements: node.class.implements.iter().map(|x| x.into()).collect(),
         members: node.class.body.iter().map(|x| x.into()).collect(),
         brace_position: context.config.class_expression_brace_position,
-    }, context);
+    }, context)
 }
 
 fn parse_conditional_expr<'a>(node: &'a CondExpr, context: &mut Context<'a>) -> PrintItems {
@@ -4952,10 +4953,18 @@ struct ParseSeparatedValuesOptions<'a> {
     force_possible_newline_at_start: bool,
 }
 
+#[inline]
 fn parse_separated_values<'a>(
     opts: ParseSeparatedValuesOptions<'a>,
     context: &mut Context<'a>
 ) -> PrintItems {
+    parse_separated_values_with_result(opts, context).items
+}
+
+fn parse_separated_values_with_result<'a>(
+    opts: ParseSeparatedValuesOptions<'a>,
+    context: &mut Context<'a>
+) -> ParseSeparatedValuesResult {
     let nodes = opts.nodes;
     let semi_colons = opts.semi_colons;
     let trailing_commas = opts.trailing_commas;
@@ -5008,7 +5017,7 @@ fn parse_separated_values<'a>(
         indent_width,
         multi_line_style: opts.multi_line_style,
         force_possible_newline_at_start: opts.force_possible_newline_at_start,
-    }).items
+    })
 }
 
 fn parse_comma_separated_value<'a>(value: Option<Node<'a>>, parsed_comma: PrintItems, context: &mut Context<'a>) -> PrintItems {
@@ -5445,33 +5454,32 @@ fn parse_decorators<'a>(decorators: &'a Vec<Decorator>, is_inline: bool, context
         return items;
     }
 
-    // todo: preferSingleLine
-    let use_new_lines = !is_inline
+    let force_use_new_lines = !context.config.decorators_prefer_single_line
         && decorators.len() >= 2
         && node_helpers::get_use_new_lines_for_nodes(&decorators[0], &decorators[1], context);
 
-    for (i, decorator) in decorators.iter().enumerate() {
-        if i > 0 {
-            items.push_signal(if use_new_lines {
-                Signal::NewLine
-            } else {
-                Signal::SpaceOrNewLine
-            });
-        }
+    let separated_values_result = parse_separated_values_with_result(ParseSeparatedValuesOptions {
+        nodes: decorators.iter().map(|p| Some(p.into())).collect(),
+        prefer_hanging: false, // would need to think about the design because prefer_hanging causes a hanging indent
+        force_use_new_lines,
+        allow_blank_lines: false,
+        trailing_commas: None,
+        semi_colons: None,
+        single_line_space_at_start: false,
+        single_line_space_at_end: is_inline,
+        custom_single_line_separator: None,
+        multi_line_style: if is_inline { parser_helpers::MultiLineStyle::SameLineStartWithHangingIndent } else { parser_helpers::MultiLineStyle::SameLineNoIndent },
+        force_possible_newline_at_start: false,
+    }, context);
 
-        let parsed_node = parse_node(decorator.into(), context);
-        if is_inline {
-            items.push_condition(conditions::indent_if_start_of_line(parser_helpers::new_line_group(parsed_node)));
-        } else {
-            items.extend(parser_helpers::new_line_group(parsed_node));
-        }
-    }
+    items.extend(separated_values_result.items);
 
-    items.push_signal(if is_inline {
-        Signal::SpaceOrNewLine
+    if is_inline {
+        let is_multi_line = separated_values_result.is_multi_line_condition_ref.create_resolver();
+        items.push_condition(if_true("inlineMultiLineSpace", is_multi_line, Signal::NewLine.into()));
     } else {
-        Signal::NewLine
-    });
+        items.push_signal(Signal::NewLine);
+    }
 
     return items;
 }

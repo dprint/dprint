@@ -20,17 +20,37 @@ const t = @decorator1 @decorator2 @decorator3 @decorator4 class Test {
 };
 
 [expect]
-const t = @decorator1 @decorator2
-    @decorator3 @decorator4
+const t = @decorator1
+    @decorator2
+    @decorator3
+    @decorator4
     class Test {
-};
+    };
 
-== should not use newlines if the first two decorators are on different lines ==
+== should use newlines if the first two decorators are on different lines ==
 let t = @d
 @e
 class Test {
 };
 
 [expect]
-let t = @d @e class Test {
-};
+let t = @d
+    @e
+    class Test {
+    };
+
+== should handle preceeding comments ==
+const t = @decorator1
+    @decorator2
+    @decorator3
+    @decorator4
+    /* test*/ class Test {
+    };
+
+[expect]
+const t = @decorator1
+    @decorator2
+    @decorator3
+    @decorator4
+    class /* test*/ Test {
+    };

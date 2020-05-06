@@ -419,6 +419,8 @@ pub struct Configuration {
     pub conditional_expression_prefer_single_line: bool,
     #[serde(rename = "conditionalType.preferSingleLine")]
     pub conditional_type_prefer_single_line: bool,
+    #[serde(rename = "decorators.preferSingleLine")]
+    pub decorators_prefer_single_line: bool,
     #[serde(rename = "exportDeclaration.preferSingleLine")]
     pub export_declaration_prefer_single_line: bool,
     #[serde(rename = "forStatement.preferSingleLine")]

@@ -55,6 +55,7 @@ impl ParsedValue {
 
 pub struct ParseSeparatedValuesResult {
     pub items: PrintItems,
+    pub is_multi_line_condition_ref: ConditionReference,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -91,7 +92,7 @@ pub fn parse_separated_values(
 
     let mut is_start_standalone_line = get_is_start_standalone_line(value_datas.clone(), start_info, end_info);
     let is_start_standalone_line_ref = is_start_standalone_line.get_reference();
-    let mut is_multi_line_or_hanging_condition = {
+    let mut is_multi_line_condition = {
         if opts.force_use_new_lines { Condition::new_true() }
         else if opts.prefer_hanging {
             if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent || opts.multi_line_style == MultiLineStyle::SameLineNoIndent { Condition::new_false() }
@@ -100,22 +101,22 @@ pub fn parse_separated_values(
             get_is_multi_line_for_multi_line(start_info, value_datas.clone(), is_start_standalone_line_ref, end_info)
         }
     };
-    let is_multi_line_or_hanging_condition_ref = is_multi_line_or_hanging_condition.get_reference();
-    let is_multi_line_or_hanging = is_multi_line_or_hanging_condition_ref.create_resolver();
+    let is_multi_line_condition_ref = is_multi_line_condition.get_reference();
+    let is_multi_line = is_multi_line_condition_ref.create_resolver();
 
     let mut items = PrintItems::new();
     items.push_info(start_info);
     items.push_condition(get_clearer_resolutions_on_start_change_condition(value_datas.clone(), start_info, end_info));
     items.push_condition(is_start_standalone_line);
-    items.push_condition(is_multi_line_or_hanging_condition);
+    items.push_condition(is_multi_line_condition);
 
     let parsed_values = (parse_values)(
-        &is_multi_line_or_hanging_condition_ref // need to use a sized value it seems...
+        &is_multi_line_condition_ref // need to use a sized value it seems...
     );
     let has_values = !parsed_values.is_empty();
     let inner_parse_result = inner_parse(
         parsed_values,
-        &is_multi_line_or_hanging,
+        &is_multi_line,
         opts.single_line_separator,
         opts.multi_line_style,
         opts.allow_blank_lines,
@@ -123,7 +124,7 @@ pub fn parse_separated_values(
     value_datas.borrow_mut().extend(inner_parse_result.value_datas);
     let parsed_values_items = inner_parse_result.items.into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
-        condition: Box::new(is_multi_line_or_hanging),
+        condition: Box::new(is_multi_line),
         true_path: Some(match opts.multi_line_style {
             MultiLineStyle::SurroundNewlinesIndented => {
                 let mut items = PrintItems::new();
@@ -186,6 +187,7 @@ pub fn parse_separated_values(
 
     return ParseSeparatedValuesResult {
         items,
+        is_multi_line_condition_ref,
     };
 
     struct InnerParseResult {

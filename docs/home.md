@@ -252,8 +252,6 @@ When `false` (default), certain code will be allowed to span multiple lines even
 
 For example, if the first parameter or argument is placed on a different line than the open parenthesis then the entire argument or parameter list will become multi-line.
 
-For example:
-
 ```ts
 callExpr(1, 2, 3);
 // formats as
@@ -303,6 +301,8 @@ call(
     3,
 );
 ```
+
+Note: Turning `preferSingleLine` on might cause more code to prefer being on a single line than you are used to. You may want to disable this feature on a per-node basis (ex. `"objectExpression.preferSingleLine": false`).
 
 ### Space separators
 
@@ -460,7 +460,7 @@ myObject
     .propAccess;
 ```
 
-You may want to use both `preferSingleLine: true` in combination with `"memberExpression.maintainLineBreaks": false`:
+You may want to use both `"preferSingleLine": true` in combination with `"memberExpression.maintainLineBreaks": false`:
 
 ```ts
 myObject.accessing.someProperty;

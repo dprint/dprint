@@ -45,7 +45,8 @@ class Test {
 }
 
 [expect]
-@decorator1 @decorator2
+@decorator1
+@decorator2
 @decorator3
 class Test {
 }
