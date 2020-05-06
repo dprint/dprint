@@ -438,9 +438,14 @@ if (
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
-#### Disabling explicit newlines
+#### Forcing a Line Per Expression
 
-The configuration in this area is being actively developed. For now, you can disable maintaining line breaks in member expressions by setting `"memberExpression.maintainLineBreaks"` to `false`.
+By default, dprint will leave line breaks between expressions in member expressions (ex. `myObj.prop`) and binary expressions (ex. `value + other`). If you don't want this behaviour, you can disable it by setting the following configuration:
+
+* `"memberExpression.linePerExpression": true`
+* `"binaryExpression.linePerExpression": true`
+
+Example:
 
 ```ts
 myObject.accessing.someProperty;
@@ -460,7 +465,7 @@ myObject
     .propAccess;
 ```
 
-You may want to use both `"preferSingleLine": true` in combination with `"memberExpression.maintainLineBreaks": false`:
+You may want to use both `"preferSingleLine": true` in combination with this option:
 
 ```ts
 myObject.accessing.someProperty;
