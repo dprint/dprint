@@ -552,6 +552,12 @@ impl<'a> ConditionResolverContext<'a> {
     pub fn clear_info(&mut self, info: &Info) {
         self.printer.clear_info(info)
     }
+
+    /// Gets if the provided info has moved positions since the last check.
+    /// Returns None when the info can't be resolved. Returns Some(false) the first time this is called.
+    pub fn has_info_moved(&mut self, info: &Info) -> Option<bool> {
+        self.printer.has_info_moved(info)
+    }
 }
 
 /// A container that holds the string's value and character count.
