@@ -28,3 +28,19 @@ testing + asdf
 [expect]
 testing + asdf + out;
 testing + asdf + out;
+
+== should format with nested binary expressions ==
+if (
+    test >= 2
+    && test === "\r"
+    && test === "\n"
+) {
+}
+
+[expect]
+if (
+    test >= 2
+    && test === "\r"
+    && test === "\n"
+) {
+}

@@ -5,9 +5,11 @@ use swc_common::{comments::{Comment, CommentKind}, BytePos, Span, Spanned, SpanD
 use swc_ecma_parser::{token::{TokenAndSpan}};
 
 use super::*;
+use super::swc::*;
 use super::super::configuration::*;
 use super::super::swc::ParsedSourceFile;
 use super::super::utils;
+use super::swc::{get_flattened_bin_expr};
 
 pub fn parse(source_file: ParsedSourceFile, config: &Configuration) -> PrintItems {
     let module = Node::Module(&source_file.module);
@@ -1288,299 +1290,177 @@ fn parse_await_expr<'a>(node: &'a AwaitExpr, context: &mut Context<'a>) -> Print
 }
 
 fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintItems {
-    return if is_expression_breakable(&node.op) {
-        inner_parse(node, context)
-    } else {
-        new_line_group(inner_parse(node, context))
-    };
+    // todo: use a simplified version for nodes that don't need the complexity (for performance reasons)
+    let mut items = PrintItems::new();
+    let flattened_binary_expr = get_flattened_bin_expr(node, context);
+    let line_per_expression = context.config.binary_expression_line_per_expression;
+    let force_use_new_lines = line_per_expression
+        && !context.config.binary_expression_prefer_single_line
+        && node_helpers::get_use_new_lines_for_nodes(&flattened_binary_expr[0].expr, &flattened_binary_expr[1].expr, context);
+    let indent_width = context.config.indent_width;
+    let binary_expr_start_info = Info::new("binExprStartInfo");
+    let allow_no_indent = get_allow_no_indent(node, context);
+    let use_space_surrounding_operator = get_use_space_surrounding_operator(&node.op, context);
 
-    fn inner_parse<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintItems {
-        // todo: clean this up
-        let operator_token = context.token_finder.get_first_operator_after(&*node.left, node.op.as_str()).unwrap();
-        let operator_position = get_operator_position(&node, &operator_token, context);
-        let top_most_data = get_top_most_data(node, context);
-        let node_left = &*node.left;
-        let node_right = &*node.right;
-        let node_op = node.op;
-        let use_space_surrounding_operator = get_use_space_surrounding_operator(&node_op, context);
-        let force_use_new_line = !context.config.binary_expression_prefer_single_line
-            && node_helpers::get_use_new_lines_for_nodes(node_left, node_right, context);
-        let parsed_operator = parse_operator_with_comments(
-            operator_token,
-            operator_position,
-            use_space_surrounding_operator,
-            node_op.as_str(),
-            context
-        ).into_rc_path();
-        let mut items = PrintItems::new();
+    items.push_info(binary_expr_start_info);
 
-        if top_most_data.is_current_top_most {
-            items.push_info(top_most_data.top_most_start_info);
-        }
-
-        let node_left_node = Node::from(node_left);
-
-        items.extend(indent_if_necessary(node_left.lo(), &node_op, operator_position, &top_most_data, {
-            let parsed_operator = parsed_operator.clone(); // capture
-            new_line_group_if_necessary(&node_left, parse_node_with_inner_parse(node_left_node, context, move |mut items, _| {
-                if operator_position == OperatorPosition::SameLine {
-                    items.extend(parsed_operator.into());
-                }
-                items
-            }))
-        }));
-
-        if force_use_new_line {
-            items.push_signal(Signal::NewLine);
-        } else if !context.config.binary_expression_line_per_expression {
-            items.push_condition(conditions::if_above_width_or(
-                context.config.indent_width,
-                if use_space_surrounding_operator {
-                    Signal::SpaceOrNewLine
-                } else {
-                    Signal::PossibleNewLine
-                }.into(),
-                if use_space_surrounding_operator {
-                    " ".into()
-                } else {
-                    PrintItems::new()
-                },
-            ));
-        } else {
-            let top_most_start_info = top_most_data.top_most_start_info;
-            let top_most_end_info = top_most_data.top_most_end_info;
-            items.push_condition(if_true_or(
-                "isMultipleLines",
-                move |context| condition_resolvers::is_multiple_lines(context, &top_most_start_info, &top_most_end_info),
-                Signal::NewLine.into(),
-                if use_space_surrounding_operator {
-                    Signal::SpaceOrNewLine
-                } else {
-                    Signal::PossibleNewLine
-                }.into(),
-            ));
-        }
-
-        if top_most_data.is_current_top_most {
-            items.push_info(top_most_data.top_most_end_info);
-        }
-
-        items.extend(indent_if_necessary(node_right.lo(), &node_op, operator_position, &top_most_data, {
+    items.extend(parser_helpers::parse_separated_values(|_| {
+        let mut parsed_nodes = Vec::new();
+        let nodes_count = flattened_binary_expr.len();
+        for (i, bin_expr_item) in flattened_binary_expr.into_iter().enumerate() {
+            let (allow_inline_multi_line, allow_inline_single_line) = {
+                let is_last_value = i + 1 == nodes_count; // allow the last node to be single line
+                (allows_inline_multi_line(&bin_expr_item.expr, nodes_count > 1), is_last_value)
+            };
+            let lines_span = Some(parser_helpers::LinesSpan{
+                start_line: bin_expr_item.expr.span_data().start_line(context),
+                end_line: bin_expr_item.expr.span_data().end_line(context)
+            });
             let mut items = PrintItems::new();
-            let use_new_line_group = get_use_new_line_group(&node_right);
 
-            items.extend(parse_node_with_inner_parse(node_right.into(), context, move |items, _| {
-                let mut new_items = PrintItems::new();
-                if operator_position == OperatorPosition::NextLine {
-                    new_items.extend(parsed_operator.into());
-                }
-                new_items.extend(if use_new_line_group { new_line_group(items) } else { items });
-                new_items
-            }));
-            items
-        }));
-
-        return items;
-    }
-
-    fn parse_operator_with_comments(
-        operator_token: &TokenAndSpan,
-        operator_position: OperatorPosition,
-        use_space_surrounding_operator: bool,
-        op_text: &str,
-        context: &mut Context
-    ) -> PrintItems {
-        let op_token_comments = get_operator_token_comments(operator_token, operator_position, context);
-        let mut items = PrintItems::new();
-        let has_leading_comments = !op_token_comments.0.is_empty();
-        let has_trailing_comments = !op_token_comments.1.is_empty();
-
-        if operator_position == OperatorPosition::SameLine && (use_space_surrounding_operator || has_leading_comments) {
-            items.push_str(" ");
-        }
-        items.extend(op_token_comments.0);
-        if has_leading_comments { items.push_str(" "); }
-        items.push_str(op_text);
-        if has_trailing_comments { items.push_str(" "); }
-        items.extend(op_token_comments.1);
-        if operator_position == OperatorPosition::NextLine && (use_space_surrounding_operator || has_trailing_comments) {
-            items.push_str(" ");
-        }
-
-        return items;
-
-        fn get_operator_token_comments(token: &TokenAndSpan, operator_position: OperatorPosition, context: &mut Context) -> (PrintItems, PrintItems) {
-            // get the leading and trailing block comments on the same line
-            let op_line = token.start_line(context);
-
-            return (
-                parse_op_comments(
-                    token.leading_comments(context).filter(|x| x.kind == CommentKind::Block && x.start_line(context) == op_line).collect(),
-                    context
-                ),
-                parse_op_comments(
-                    token.trailing_comments(context).filter(|x|
-                        // get comment lines on the same line when the operator position is same line
-                        (operator_position == OperatorPosition::SameLine || x.kind == CommentKind::Block) && x.start_line(context) == op_line
+            let pre_op = bin_expr_item.pre_op;
+            let post_op = bin_expr_item.post_op;
+            let (leading_pre_op_comments, trailing_pre_op_comments) = if let Some(op) = &pre_op {
+                let op_line = op.token.start_line(context);
+                (parse_op_comments(
+                    op.token.leading_comments(context).filter(|x|
+                        x.kind == CommentKind::Block && x.start_line(context) == op_line
                     ).collect(),
                     context
-                )
-            );
-
-            fn parse_op_comments(comments: Vec<&Comment>, context: &mut Context) -> PrintItems {
+                ), parse_op_comments(
+                    op.token.trailing_comments(context).filter(|x|
+                        x.kind == CommentKind::Block && x.start_line(context) == op_line
+                    ).collect(),
+                    context
+                ))
+            } else { (PrintItems::new(), PrintItems::new()) };
+            items.extend(parse_node_with_inner_parse(bin_expr_item.expr, context, |node_items, context| {
                 let mut items = PrintItems::new();
-                let mut had_comment_last = false;
-                for comment in comments {
-                    if had_comment_last { items.push_str(" "); }
-                    if let Some(comment) = parse_comment(&comment, context) {
-                        items.extend(comment);
-                        had_comment_last = true;
+                if let Some(op) = pre_op {
+                    if !leading_pre_op_comments.is_empty() {
+                        items.extend(leading_pre_op_comments);
+                        items.push_str(" ");
+                    }
+                    items.push_str(op.op.as_str());
+                    if trailing_pre_op_comments.is_empty() {
+                        if use_space_surrounding_operator {
+                            items.push_str(" ");
+                        }
                     } else {
-                        had_comment_last = false;
+                        items.push_str(" ");
+                        items.extend(trailing_pre_op_comments);
+                        items.push_str(" ");
+                    }
+                }
+                items.extend(node_items);
+                if let Some(op) = post_op {
+                    let op_line = op.token.start_line(context);
+                    let leading_post_op_comments = parse_op_comments(
+                        op.token.leading_comments(context).filter(|x|
+                            x.kind == CommentKind::Block && x.start_line(context) == op_line
+                        ).collect(),
+                        context
+                    );
+                    let trailing_post_op_comments = parse_op_comments(
+                        op.token.trailing_comments(context).filter(|x|
+                            x.start_line(context) == op_line
+                        ).collect(),
+                        context
+                    );
+                    if leading_post_op_comments.is_empty() {
+                        if use_space_surrounding_operator {
+                            items.push_str(" ");
+                        }
+                    } else {
+                        items.push_str(" ");
+                        items.extend(leading_post_op_comments);
+                        items.push_str(" ");
+                    }
+                    items.push_str(op.op.as_str());
+                    if !trailing_post_op_comments.is_empty() {
+                        items.push_str(" ");
+                        items.extend(trailing_post_op_comments);
                     }
                 }
                 items
-            }
-        }
-    }
+            }));
 
-    fn indent_if_necessary(
-        current_node_start: BytePos,
-        op: &BinaryOp,
-        operator_position: OperatorPosition,
-        top_most_data: &TopMostData,
-        items: PrintItems
-    ) -> PrintItems {
-        let is_left_most_node = top_most_data.top_most_expr_range.lo() == current_node_start;
-        let items = items.into_rc_path();
-        let top_most_start_info = top_most_data.top_most_start_info;
-        let allow_no_indent = !top_most_data.is_parent_expr_stmt && !top_most_data.is_in_argument
-            && (operator_position == OperatorPosition::NextLine || is_expression_breakable(op));
-        Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
-            condition: Box::new(move |condition_context| {
-                if is_left_most_node { return Some(false); }
-                let top_most_info = condition_context.get_resolved_info(&top_most_start_info)?;
-                if allow_no_indent && top_most_info.is_start_of_line() { return Some(false); }
-                let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
-                return Some(is_same_indent && condition_resolvers::is_start_of_line(condition_context));
-            }),
-            true_path: Some(parser_helpers::with_indent(items.clone().into())),
-            false_path: Some(items.into())
-        }).into()
-    }
+            let is_left_most_node = i == 0;
+            let items = items.into_rc_path();
+            let items = Condition::new("indentIfNecessaryForBinaryExpressions", ConditionProperties {
+                condition: Box::new(move |condition_context| {
+                    if is_left_most_node { return Some(false); }
+                    let top_most_info = condition_context.get_resolved_info(&binary_expr_start_info)?;
+                    if allow_no_indent && top_most_info.is_start_of_line() { return Some(false); }
+                    let is_same_indent = top_most_info.indent_level == condition_context.writer_info.indent_level;
+                    return Some(is_same_indent && condition_resolvers::is_start_of_line(condition_context));
+                }),
+                true_path: Some(parser_helpers::with_indent(items.clone().into())),
+                false_path: Some(items.into())
+            }).into();
 
-    fn new_line_group_if_necessary(expr: &Expr, items: PrintItems) -> PrintItems {
-        match get_use_new_line_group(expr) {
-            true => parser_helpers::new_line_group(items),
-            false => items,
-        }
-    }
-
-    fn get_use_new_line_group(expr: &Expr) -> bool {
-        match expr {
-            Expr::Bin(_) => false,
-            _ => true,
-        }
-    }
-
-    struct TopMostData {
-        top_most_expr_range: SpanData,
-        top_most_start_info: Info,
-        top_most_end_info: Info,
-        is_current_top_most: bool,
-        is_parent_expr_stmt: bool,
-        is_in_argument: bool,
-    }
-
-    fn get_top_most_data(node: &BinExpr, context: &mut Context) -> TopMostData {
-        let mut top_most: &BinExpr = node;
-        let mut top_most_parent: &Node = context.parent();
-        let mut top_most_parent_index = 0;
-
-        if is_expression_breakable(&node.op) {
-            for (i, ancestor) in context.parent_stack.iter().enumerate() {
-                if let Node::BinExpr(bin_expr) = ancestor {
-                    if is_expression_breakable(&bin_expr.op) {
-                        top_most = bin_expr;
-                        top_most_parent_index = i + 1;
-                        top_most_parent = context.parent_stack.get(top_most_parent_index).expect("Binary expr should always have a parent.");
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
+            parsed_nodes.push(parser_helpers::ParsedValue {
+                items: parser_helpers::new_line_group(items),
+                lines_span,
+                allow_inline_multi_line,
+                allow_inline_single_line,
+            });
         }
 
-        let is_current_top_most = top_most == node;
-        let top_most_expr_range = top_most.span_data();
-        let top_most_parent_kind = top_most_parent.kind();
-        let is_in_argument = get_is_in_argument(top_most_parent, top_most_parent_index, context);
-        let (top_most_start_info, top_most_end_info) = get_or_set_top_most_infos(&top_most_expr_range, is_current_top_most, context);
+        parsed_nodes
+    }, parser_helpers::ParseSeparatedValuesOptions {
+        prefer_hanging: false, // todo
+        force_use_new_lines,
+        allow_blank_lines: false,
+        single_line_space_at_start: false,
+        single_line_space_at_end: false,
+        single_line_separator: if use_space_surrounding_operator { Signal::SpaceOrNewLine.into() } else { PrintItems::new() },
+        indent_width,
+        multi_line_style: if line_per_expression { parser_helpers::MultiLineStyle::SameLineNoIndent } else { parser_helpers::MultiLineStyle::MaintainLineBreaks },
+        force_possible_newline_at_start: false,
+    }).items);
 
-        return TopMostData {
-            top_most_end_info,
-            top_most_start_info,
-            top_most_expr_range,
-            is_current_top_most,
-            is_parent_expr_stmt: top_most_parent_kind == NodeKind::ExprStmt,
-            is_in_argument,
-        };
+    return items;
 
-        fn get_or_set_top_most_infos(range: &impl Ranged, is_top_most: bool, context: &mut Context) -> (Info, Info) {
-            if is_top_most {
-                let infos = (Info::new("topBinaryOrLogicalExpressionStart"), Info::new("topBinaryOrLogicalExpressionEnd"));
-                context.store_info_range_for_node(range, infos);
-                infos
-            } else {
-                context.get_info_range_for_node(range).expect("Expected to have the top most expr info stored")
-            }
-        }
-
-        fn get_is_in_argument(top_most_parent: &Node, top_most_parent_index: usize, context: &Context) -> bool {
-            match top_most_parent {
+    fn get_allow_no_indent(node: &BinExpr, context: &mut Context) -> bool {
+        if !node.op.is_add_sub_mul_div() && !node.op.is_logical() {
+            false
+        } else if context.parent().kind() == NodeKind::ExprStmt {
+            false
+        } else {
+            // get if in an argument
+            match context.parent() {
                 Node::ExprOrSpread(_) => {
-                    match context.parent_stack.get(top_most_parent_index + 1).expect("Expr or spread should always have a parent.").kind() {
-                        NodeKind::CallExpr | NodeKind::NewExpr => true,
-                        _ => false,
+                    match context.parent_stack.get(1).expect("Expr or spread should always have a parent.").kind() {
+                        NodeKind::CallExpr | NodeKind::NewExpr => false,
+                        _ => true,
                     }
                 },
-                _ => false,
+                _ => true,
             }
         }
     }
 
-    fn is_expression_breakable(op: &BinaryOp) -> bool {
-        match op {
-            BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul
-                | BinaryOp::Div => true,
-            _ => false,
+    fn parse_op_comments(comments: Vec<&Comment>, context: &mut Context) -> PrintItems {
+        let mut items = PrintItems::new();
+        let mut had_comment_last = false;
+        for comment in comments {
+            if had_comment_last { items.push_str(" "); }
+            if let Some(comment) = parse_comment(&comment, context) {
+                items.extend(comment);
+                had_comment_last = true;
+            } else {
+                had_comment_last = false;
+            }
         }
+        items
     }
 
     fn get_use_space_surrounding_operator(op: &BinaryOp, context: &mut Context) -> bool {
-        match op {
-            BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::Lt | BinaryOp::LtEq
-                | BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::LogicalOr | BinaryOp::LogicalAnd | BinaryOp::In
-                | BinaryOp::InstanceOf | BinaryOp::Exp | BinaryOp::NullishCoalescing => true,
-            BinaryOp::LShift | BinaryOp::RShift | BinaryOp::ZeroFillRShift | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul
-                | BinaryOp::Div | BinaryOp::Mod | BinaryOp::BitOr | BinaryOp::BitXor
-                | BinaryOp::BitAnd => context.config.binary_expression_space_surrounding_bitwise_and_arithmetic_operator,
-        }
-    }
-
-    fn get_operator_position(node: &BinExpr, operator_token: &TokenAndSpan, context: &mut Context) -> OperatorPosition {
-        match context.config.binary_expression_operator_position {
-            OperatorPosition::NextLine => OperatorPosition::NextLine,
-            OperatorPosition::SameLine => OperatorPosition::SameLine,
-            OperatorPosition::Maintain => {
-                if node.left.end_line(context) == operator_token.start_line(context) {
-                    OperatorPosition::SameLine
-                } else {
-                    OperatorPosition::NextLine
-                }
-            }
+        if op.is_bitwise_or_arithmetic() {
+            context.config.binary_expression_space_surrounding_bitwise_and_arithmetic_operator
+        } else {
+            true
         }
     }
 }

@@ -3,6 +3,7 @@ mod node_helpers;
 mod parser_types;
 mod parser;
 mod tokens;
+mod swc;
 
 use comments::*;
 use parser_types::*;

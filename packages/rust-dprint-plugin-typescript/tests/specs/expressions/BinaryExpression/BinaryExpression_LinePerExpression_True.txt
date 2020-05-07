@@ -19,7 +19,7 @@ testing + asdf + out;
 [expect]
 testing + asdf + out;
 
-== should go multi-line once one of the nodes are on different lines ==
+== should go multi-line when the first and second are on different lines ==
 testing
     + asdf + out;
 testing + asdf
@@ -29,6 +29,4 @@ testing + asdf
 testing
     + asdf
     + out;
-testing
-    + asdf
-    + out;
+testing + asdf + out;

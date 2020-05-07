@@ -59,11 +59,12 @@ pub struct ParseSeparatedValuesResult {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-pub enum MultiLineStyle {
+pub enum MultiLineStyle { // todo: remove this and use something similar to what's done with single_line
     SurroundNewlinesIndented,
     SameLineStartWithHangingIndent,
     SameLineNoIndent,
     NewLineStart,
+    MaintainLineBreaks
 }
 
 struct ParsedValueData {
@@ -93,7 +94,8 @@ pub fn parse_separated_values(
     let mut is_start_standalone_line = get_is_start_standalone_line(value_datas.clone(), start_info, end_info);
     let is_start_standalone_line_ref = is_start_standalone_line.get_reference();
     let mut is_multi_line_condition = {
-        if opts.force_use_new_lines { Condition::new_true() }
+        if opts.multi_line_style == MultiLineStyle::MaintainLineBreaks { Condition::new_true() }
+        else if opts.force_use_new_lines { Condition::new_true() }
         else if opts.prefer_hanging {
             if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent || opts.multi_line_style == MultiLineStyle::SameLineNoIndent { Condition::new_false() }
             else { get_is_multi_line_for_hanging(value_datas.clone(), is_start_standalone_line_ref, end_info) }
@@ -151,7 +153,7 @@ pub fn parse_separated_values(
                 ));
                 items
             },
-            MultiLineStyle::SameLineStartWithHangingIndent | MultiLineStyle::SameLineNoIndent => parsed_values_items.clone().into(),
+            MultiLineStyle::SameLineStartWithHangingIndent | MultiLineStyle::SameLineNoIndent | MultiLineStyle::MaintainLineBreaks => parsed_values_items.clone().into(),
             MultiLineStyle::NewLineStart => {
                 let mut items = PrintItems::new();
                 items.push_condition(if_false(
@@ -228,20 +230,25 @@ pub fn parse_separated_values(
                 items.push_info(start_info);
                 items.extend(parsed_value.items);
             } else {
-                let use_blank_line = if let Some(last_lines_span) = last_lines_span {
+                let (has_new_line, has_blank_line) = if let Some(last_lines_span) = last_lines_span {
                     if let Some(current_lines_span) = parsed_value.lines_span {
-                        allow_blank_lines && last_lines_span.end_line < current_lines_span.start_line - 1
-                    } else { false }
-                } else { false };
+                        (last_lines_span.end_line < current_lines_span.start_line, last_lines_span.end_line < current_lines_span.start_line - 1)
+                    } else { (false, false) }
+                } else { (false, false) };
+                let use_blank_line = allow_blank_lines && has_blank_line;
                 let parsed_value = parsed_value.items.into_rc_path();
                 items.push_condition(Condition::new("multiLineOrHangingCondition", ConditionProperties {
                     condition: Box::new(is_multi_line_or_hanging.clone()),
                     true_path: {
                         let mut items = PrintItems::new();
                         if use_blank_line { items.push_signal(Signal::NewLine); }
-                        items.push_signal(Signal::NewLine);
+                        if multi_line_style != MultiLineStyle::MaintainLineBreaks || has_new_line {
+                            items.push_signal(Signal::NewLine);
+                        } else {
+                            items.extend(single_line_separator.clone().into()); // ex. Signal::SpaceOrNewLine
+                        }
                         match multi_line_style {
-                            MultiLineStyle::SurroundNewlinesIndented | MultiLineStyle::NewLineStart | MultiLineStyle::SameLineNoIndent => {
+                            MultiLineStyle::SurroundNewlinesIndented | MultiLineStyle::NewLineStart | MultiLineStyle::SameLineNoIndent | MultiLineStyle::MaintainLineBreaks => {
                                 items.push_info(start_info);
                                 items.extend(parsed_value.clone().into());
                             },
