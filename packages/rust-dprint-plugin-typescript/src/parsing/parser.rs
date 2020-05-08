@@ -1294,9 +1294,12 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
     let mut items = PrintItems::new();
     let flattened_binary_expr = get_flattened_bin_expr(node, context);
     let line_per_expression = context.config.binary_expression_line_per_expression;
-    let force_use_new_lines = line_per_expression
-        && !context.config.binary_expression_prefer_single_line
-        && node_helpers::get_use_new_lines_for_nodes(&flattened_binary_expr[0].expr, &flattened_binary_expr[1].expr, context);
+    let force_use_new_lines = !context.config.binary_expression_prefer_single_line
+        && node_helpers::get_use_new_lines_for_nodes(&flattened_binary_expr[0].expr, if line_per_expression {
+            &flattened_binary_expr[1].expr
+        } else {
+            &flattened_binary_expr.last().unwrap().expr
+        }, context);
     let indent_width = context.config.indent_width;
     let binary_expr_start_info = Info::new("binExprStartInfo");
     let allow_no_indent = get_allow_no_indent(node, context);
@@ -1306,12 +1309,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
 
     items.extend(parser_helpers::parse_separated_values(|_| {
         let mut parsed_nodes = Vec::new();
-        let nodes_count = flattened_binary_expr.len();
         for (i, bin_expr_item) in flattened_binary_expr.into_iter().enumerate() {
-            let (allow_inline_multi_line, allow_inline_single_line) = {
-                let is_last_value = i + 1 == nodes_count; // allow the last node to be single line
-                (allows_inline_multi_line(&bin_expr_item.expr, nodes_count > 1), is_last_value)
-            };
             let lines_span = Some(parser_helpers::LinesSpan{
                 start_line: bin_expr_item.expr.span_data().start_line(context),
                 end_line: bin_expr_item.expr.span_data().end_line(context)
@@ -1402,8 +1400,8 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
             parsed_nodes.push(parser_helpers::ParsedValue {
                 items: parser_helpers::new_line_group(items),
                 lines_span,
-                allow_inline_multi_line,
-                allow_inline_single_line,
+                allow_inline_multi_line: true,
+                allow_inline_single_line: true,
             });
         }
 
@@ -1416,7 +1414,7 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         single_line_space_at_end: false,
         single_line_separator: if use_space_surrounding_operator { Signal::SpaceOrNewLine.into() } else { PrintItems::new() },
         indent_width,
-        multi_line_style: if line_per_expression { parser_helpers::MultiLineStyle::SameLineNoIndent } else { parser_helpers::MultiLineStyle::MaintainLineBreaks },
+        multi_line_options: if line_per_expression { parser_helpers::MultiLineOptions::same_line_no_indent() } else { parser_helpers::MultiLineOptions::maintain_line_breaks() },
         force_possible_newline_at_start: false,
     }).items);
 
@@ -1893,7 +1891,7 @@ fn parse_sequence_expr<'a>(node: &'a SeqExpr, context: &mut Context<'a>) -> Prin
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         custom_single_line_separator: None,
-        multi_line_style: parser_helpers::MultiLineStyle::SameLineStartWithHangingIndent,
+        multi_line_options: parser_helpers::MultiLineOptions::same_line_start_hanging_indent(),
         force_possible_newline_at_start: false,
     }, context)
 }
@@ -2442,7 +2440,7 @@ fn parse_jsx_opening_element<'a>(node: &'a JSXOpeningElement, context: &mut Cont
             single_line_space_at_start: true,
             single_line_space_at_end: node.self_closing,
             custom_single_line_separator: None,
-            multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+            multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
             force_possible_newline_at_start: false,
         }, context));
     } else {
@@ -3114,7 +3112,7 @@ fn parse_for_stmt<'a>(node: &'a ForStmt, context: &mut Context<'a>) -> PrintItem
                 single_line_space_at_end: false,
                 single_line_separator: separator_after_semi_colons.into(),
                 indent_width: context.config.indent_width,
-                multi_line_style: parser_helpers::MultiLineStyle::SameLineNoIndent,
+                multi_line_options: parser_helpers::MultiLineOptions::same_line_no_indent(),
                 force_possible_newline_at_start: false,
             }).items
         },
@@ -3583,7 +3581,7 @@ fn parse_var_decl<'a>(node: &'a VarDecl, context: &mut Context<'a>) -> PrintItem
             single_line_space_at_start: false,
             single_line_space_at_end: false,
             custom_single_line_separator: None,
-            multi_line_style: parser_helpers::MultiLineStyle::SameLineStartWithHangingIndent,
+            multi_line_options: parser_helpers::MultiLineOptions::same_line_start_hanging_indent(),
             force_possible_newline_at_start: false,
         }, context));
     }
@@ -4046,7 +4044,7 @@ fn parse_type_parameters<'a>(node: TypeParamNode<'a>, context: &mut Context<'a>)
         single_line_space_at_start: false,
         single_line_space_at_end: false,
         custom_single_line_separator: None,
-        multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+        multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
         force_possible_newline_at_start: false,
     }, context));
     items.push_str(">");
@@ -4150,18 +4148,18 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
         NodeKind::TsUnionType | NodeKind::TsIntersectionType => true,
         _ => false,
     };
-    let multi_line_style = if !is_parent_union_or_intersection {
+    let multi_line_options = if !is_parent_union_or_intersection {
         if use_surround_newlines(context) {
-            parser_helpers::MultiLineStyle::SurroundNewlinesIndented
+            parser_helpers::MultiLineOptions::surround_newlines_indented()
         } else if has_leading_comments {
-            parser_helpers::MultiLineStyle::SameLineNoIndent
+            parser_helpers::MultiLineOptions::same_line_no_indent()
         } else {
-            parser_helpers::MultiLineStyle::NewLineStart
+            parser_helpers::MultiLineOptions::new_line_start()
         }
     } else if has_leading_comments {
-        parser_helpers::MultiLineStyle::SameLineNoIndent
+        parser_helpers::MultiLineOptions::same_line_no_indent()
     } else {
-        parser_helpers::MultiLineStyle::SameLineStartWithHangingIndent
+        parser_helpers::MultiLineOptions::same_line_start_hanging_indent()
     };
     let parse_result = parser_helpers::parse_separated_values(|is_multi_line_or_hanging_ref| {
         let is_multi_line_or_hanging = is_multi_line_or_hanging_ref.create_resolver();
@@ -4223,7 +4221,7 @@ fn parse_union_or_intersection_type<'a>(node: UnionOrIntersectionType<'a>, conte
         single_line_space_at_end: false,
         single_line_separator: Signal::SpaceOrNewLine.into(),
         indent_width,
-        multi_line_style,
+        multi_line_options,
         force_possible_newline_at_start: false,
     });
 
@@ -4474,7 +4472,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
             single_line_space_at_start: false,
             single_line_space_at_end: false,
             custom_single_line_separator: None,
-            multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+            multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
             force_possible_newline_at_start: false,
         }, context)
     }, |_| None, ParseSurroundedByTokensOptions {
@@ -4718,7 +4716,7 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
                 single_line_space_at_start: false,
                 single_line_space_at_end: false,
                 custom_single_line_separator: None,
-                multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+                multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
                 force_possible_newline_at_start: is_parameters,
             }, context));
         }
@@ -4860,7 +4858,7 @@ struct ParseSeparatedValuesOptions<'a> {
     single_line_space_at_start: bool,
     single_line_space_at_end: bool,
     custom_single_line_separator: Option<PrintItems>,
-    multi_line_style: parser_helpers::MultiLineStyle,
+    multi_line_options: parser_helpers::MultiLineOptions,
     force_possible_newline_at_start: bool,
 }
 
@@ -4926,7 +4924,7 @@ fn parse_separated_values_with_result<'a>(
         single_line_space_at_end: opts.single_line_space_at_end,
         single_line_separator: opts.custom_single_line_separator.unwrap_or(Signal::SpaceOrNewLine.into()),
         indent_width,
-        multi_line_style: opts.multi_line_style,
+        multi_line_options: opts.multi_line_options,
         force_possible_newline_at_start: opts.force_possible_newline_at_start,
     })
 }
@@ -5138,7 +5136,7 @@ fn parse_extends_or_implements<'a>(opts: ParseExtendsOrImplementsOptions<'a>, co
             single_line_space_at_start: true,
             single_line_space_at_end: false,
             custom_single_line_separator: None,
-            multi_line_style: parser_helpers::MultiLineStyle::NewLineStart,
+            multi_line_options: parser_helpers::MultiLineOptions::new_line_start(),
             force_possible_newline_at_start: false,
         }, context));
         items
@@ -5180,7 +5178,7 @@ fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mu
                 single_line_space_at_start: opts.surround_single_line_with_spaces,
                 single_line_space_at_end: opts.surround_single_line_with_spaces,
                 custom_single_line_separator: None,
-                multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+                multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
                 force_possible_newline_at_start: false,
             }, context));
         }
@@ -5378,7 +5376,7 @@ fn parse_decorators<'a>(decorators: &'a Vec<Decorator>, is_inline: bool, context
         single_line_space_at_start: false,
         single_line_space_at_end: is_inline,
         custom_single_line_separator: None,
-        multi_line_style: if is_inline { parser_helpers::MultiLineStyle::SameLineStartWithHangingIndent } else { parser_helpers::MultiLineStyle::SameLineNoIndent },
+        multi_line_options: if is_inline { parser_helpers::MultiLineOptions::same_line_start_hanging_indent() } else { parser_helpers::MultiLineOptions::same_line_no_indent() },
         force_possible_newline_at_start: false,
     }, context);
 
@@ -6203,7 +6201,7 @@ fn parse_surrounded_by_tokens<'a>(
                         single_line_space_at_end: false,
                         single_line_separator: Signal::SpaceOrNewLine.into(),
                         indent_width,
-                        multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+                        multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
                         force_possible_newline_at_start: false,
                     }).items);
                 } else {

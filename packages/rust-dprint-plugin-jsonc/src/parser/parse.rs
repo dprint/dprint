@@ -119,7 +119,7 @@ fn parse_array<'a>(node: &'a Array, context: &mut Context<'a>) -> PrintItems {
             single_line_space_at_start: false,
             single_line_space_at_end: false,
             custom_single_line_separator: None,
-            multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+            multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
             force_possible_newline_at_start: false,
         }, context));
         items
@@ -145,7 +145,7 @@ fn parse_object<'a>(obj: &'a Object, context: &mut Context<'a>) -> PrintItems {
             single_line_space_at_start: true,
             single_line_space_at_end: true,
             custom_single_line_separator: None,
-            multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+            multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
             force_possible_newline_at_start: false,
         }, context));
         items
@@ -183,7 +183,7 @@ struct ParseCommaSeparatedValuesOptions<'a> {
     single_line_space_at_start: bool,
     single_line_space_at_end: bool,
     custom_single_line_separator: Option<PrintItems>,
-    multi_line_style: parser_helpers::MultiLineStyle,
+    multi_line_options: parser_helpers::MultiLineOptions,
     force_possible_newline_at_start: bool,
 }
 
@@ -228,7 +228,7 @@ fn parse_comma_separated_values<'a>(
         single_line_space_at_end: opts.single_line_space_at_end,
         single_line_separator: opts.custom_single_line_separator.unwrap_or(Signal::SpaceOrNewLine.into()),
         indent_width,
-        multi_line_style: opts.multi_line_style,
+        multi_line_options: opts.multi_line_options,
         force_possible_newline_at_start: opts.force_possible_newline_at_start,
     }).items
 }
@@ -349,7 +349,7 @@ fn parse_surrounded_by_tokens<'a>(
                         single_line_space_at_end: false,
                         single_line_separator: Signal::SpaceOrNewLine.into(),
                         indent_width,
-                        multi_line_style: parser_helpers::MultiLineStyle::SurroundNewlinesIndented,
+                        multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
                         force_possible_newline_at_start: false,
                     }).items);
                 } else {

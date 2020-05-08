@@ -22,12 +22,14 @@ testing + asdf
 testing + asdf + out;
 testing + asdf + out;
 
-== should fit everything on lines ==
+== should maintain line breaks ==
 testing + asdf
     + out + asdf + when + it
     + passes + thelineWidth
     + someMore;
 
 [expect]
-testing + asdf + out + asdf + when + it
-    + passes + thelineWidth + someMore;
+testing + asdf
+    + out + asdf + when + it
+    + passes + thelineWidth
+    + someMore;

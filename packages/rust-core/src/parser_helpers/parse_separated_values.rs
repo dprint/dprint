@@ -14,11 +14,72 @@ pub struct ParseSeparatedValuesOptions {
     pub single_line_space_at_end: bool,
     pub single_line_separator: PrintItems,
     pub indent_width: u8,
-    pub multi_line_style: MultiLineStyle,
+    pub multi_line_options: MultiLineOptions,
     /// Forces a possible newline at the start when there are values.
     /// If this isn't used, then a possible newline won't happen when
     /// the value is below the line
     pub force_possible_newline_at_start: bool,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+pub struct MultiLineOptions {
+    pub newline_at_start: bool,
+    pub newline_at_end: bool,
+    pub with_indent: bool,
+    pub with_hanging_indent: bool,
+    pub maintain_line_breaks: bool,
+}
+
+impl MultiLineOptions {
+    pub fn new_line_start() -> Self { // todo: rename: newlinestarewithindent
+        MultiLineOptions {
+            newline_at_start: true,
+            newline_at_end: false,
+            with_indent: true,
+            with_hanging_indent: false,
+            maintain_line_breaks: false,
+        }
+    }
+
+    pub fn surround_newlines_indented() -> Self {
+        MultiLineOptions {
+            newline_at_start: true,
+            newline_at_end: true,
+            with_indent: true,
+            with_hanging_indent: false,
+            maintain_line_breaks: false,
+        }
+    }
+
+    pub fn same_line_start_hanging_indent() -> Self {
+        MultiLineOptions {
+            newline_at_start: false,
+            newline_at_end: false,
+            with_indent: false,
+            with_hanging_indent: true,
+            maintain_line_breaks: false,
+        }
+    }
+
+    pub fn same_line_no_indent() -> Self {
+        MultiLineOptions {
+            newline_at_start: false,
+            newline_at_end: false,
+            with_indent: false,
+            with_hanging_indent: false,
+            maintain_line_breaks: false,
+        }
+    }
+
+    pub fn maintain_line_breaks() -> Self {
+        MultiLineOptions {
+            newline_at_start: false,
+            newline_at_end: false,
+            with_indent: false,
+            with_hanging_indent: false,
+            maintain_line_breaks: true,
+        }
+    }
 }
 
 pub struct ParsedValue {
@@ -58,46 +119,27 @@ pub struct ParseSeparatedValuesResult {
     pub is_multi_line_condition_ref: ConditionReference,
 }
 
-#[derive(PartialEq, Clone, Copy)]
-pub enum MultiLineStyle { // todo: remove this and use something similar to what's done with single_line
-    SurroundNewlinesIndented,
-    SameLineStartWithHangingIndent,
-    SameLineNoIndent,
-    NewLineStart,
-    MaintainLineBreaks
-}
-
 struct ParsedValueData {
     start_info: Info,
     allow_inline_multi_line: bool,
     allow_inline_single_line: bool,
 }
 
-impl MultiLineStyle {
-    pub fn same_line_start(&self) -> bool {
-        match self {
-            MultiLineStyle::SameLineStartWithHangingIndent | MultiLineStyle::SameLineNoIndent => true,
-            _ => false,
-        }
-    }
-}
-
 pub fn parse_separated_values(
-    parse_values: impl FnOnce(&ConditionReference) -> Vec<ParsedValue>,
+    parsed_values: impl FnOnce(&ConditionReference) -> Vec<ParsedValue>,
     opts: ParseSeparatedValuesOptions
 ) -> ParseSeparatedValuesResult {
     let indent_width = opts.indent_width;
     let start_info = Info::new("startSeparatedValues");
     let end_info = Info::new("endSeparatedValues");
     let value_datas: Rc<RefCell<Vec<ParsedValueData>>> = Rc::new(RefCell::new(Vec::new()));
-
-    let mut is_start_standalone_line = get_is_start_standalone_line(value_datas.clone(), start_info, end_info);
+    let multi_line_options = opts.multi_line_options;
+    let mut is_start_standalone_line = get_is_start_standalone_line(start_info);
     let is_start_standalone_line_ref = is_start_standalone_line.get_reference();
     let mut is_multi_line_condition = {
-        if opts.multi_line_style == MultiLineStyle::MaintainLineBreaks { Condition::new_true() }
-        else if opts.force_use_new_lines { Condition::new_true() }
+        if opts.force_use_new_lines { Condition::new_true() }
         else if opts.prefer_hanging {
-            if opts.multi_line_style == MultiLineStyle::SameLineStartWithHangingIndent || opts.multi_line_style == MultiLineStyle::SameLineNoIndent { Condition::new_false() }
+            if !multi_line_options.newline_at_start { Condition::new_false() }
             else { get_is_multi_line_for_hanging(value_datas.clone(), is_start_standalone_line_ref, end_info) }
         } else {
             get_is_multi_line_for_multi_line(start_info, value_datas.clone(), is_start_standalone_line_ref, end_info)
@@ -112,7 +154,7 @@ pub fn parse_separated_values(
     items.push_condition(is_start_standalone_line);
     items.push_condition(is_multi_line_condition);
 
-    let parsed_values = (parse_values)(
+    let parsed_values = (parsed_values)(
         &is_multi_line_condition_ref // need to use a sized value it seems...
     );
     let has_values = !parsed_values.is_empty();
@@ -120,51 +162,35 @@ pub fn parse_separated_values(
         parsed_values,
         &is_multi_line,
         opts.single_line_separator,
-        opts.multi_line_style,
+        &multi_line_options,
         opts.allow_blank_lines,
     );
     value_datas.borrow_mut().extend(inner_parse_result.value_datas);
     let parsed_values_items = inner_parse_result.items.into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
         condition: Box::new(is_multi_line),
-        true_path: Some(match opts.multi_line_style {
-            MultiLineStyle::SurroundNewlinesIndented => {
+        true_path: Some(if_true_or(
+            "newLineIndentedIfNotStandalone",
+            move |context| Some(!context.get_resolved_condition(&is_start_standalone_line_ref)?),
+            {
                 let mut items = PrintItems::new();
-                items.push_condition(if_true(
-                    "newLineIndentedIfNotStandalone",
-                    move |context| Some(!context.get_resolved_condition(&is_start_standalone_line_ref)?),
-                    {
-                        let mut items = PrintItems::new();
-                        items.push_signal(Signal::NewLine);
-                        items.push_signal(Signal::StartIndent);
-                        items
-                    }
-                ));
+                if multi_line_options.newline_at_start {
+                    items.push_signal(Signal::NewLine);
+                }
+                if multi_line_options.with_indent {
+                    items.push_signal(Signal::StartIndent);
+                }
                 items.extend(parsed_values_items.clone().into());
-                items.push_condition(if_true(
-                    "newLineIndentedIfNotStandalone",
-                    move |context| Some(!context.get_resolved_condition(&is_start_standalone_line_ref)?),
-                    {
-                        let mut items = PrintItems::new();
-                        items.push_signal(Signal::FinishIndent);
-                        items.push_signal(Signal::NewLine);
-                        items
-                    }
-                ));
+                if multi_line_options.with_indent {
+                    items.push_signal(Signal::FinishIndent);
+                }
+                if multi_line_options.newline_at_end {
+                    items.push_signal(Signal::NewLine);
+                }
                 items
             },
-            MultiLineStyle::SameLineStartWithHangingIndent | MultiLineStyle::SameLineNoIndent | MultiLineStyle::MaintainLineBreaks => parsed_values_items.clone().into(),
-            MultiLineStyle::NewLineStart => {
-                let mut items = PrintItems::new();
-                items.push_condition(if_false(
-                    "isNotStartOfLine",
-                    |context| Some(condition_resolvers::is_start_of_line(context)),
-                    Signal::NewLine.into()
-                ));
-                items.extend(with_indent(parsed_values_items.clone().into()));
-                items
-            },
-        }),
+            parsed_values_items.clone().into(),
+        ).into()),
         false_path: Some({
             let mut items = PrintItems::new();
             let has_start_space = opts.single_line_space_at_start;
@@ -172,7 +198,7 @@ pub fn parse_separated_values(
                 items.push_signal(Signal::SpaceIfNotTrailing);
                 items.push_signal(Signal::PossibleNewLine);
             }
-            if has_values && !opts.multi_line_style.same_line_start() {
+            if has_values && multi_line_options.newline_at_start {
                 // place this after the space so the first item will start on a newline when there is a newline here
                 items.push_condition(conditions::if_above_width(
                     if opts.force_possible_newline_at_start { 0 } else { indent_width + if has_start_space { 1 } else { 0 } },
@@ -201,7 +227,7 @@ pub fn parse_separated_values(
         parsed_values: Vec<ParsedValue>,
         is_multi_line_or_hanging: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static),
         single_line_separator: PrintItems,
-        multi_line_style: MultiLineStyle,
+        multi_line_options: &MultiLineOptions,
         allow_blank_lines: bool,
     ) -> InnerParseResult {
         let mut items = PrintItems::new();
@@ -209,9 +235,12 @@ pub fn parse_separated_values(
         let values_count = parsed_values.len();
         let single_line_separator = single_line_separator.into_rc_path();
         let mut last_lines_span: Option<LinesSpan> = None;
+        let maintain_line_breaks = multi_line_options.maintain_line_breaks;
+        let mut had_newline = false;
+        let first_start_info = Info::new("firstValueStartInfo");
 
         for (i, parsed_value) in parsed_values.into_iter().enumerate() {
-            let start_info = Info::new("valueStartInfo");
+            let start_info = if i == 0 { first_start_info } else { Info::new("valueStartInfo") };
             value_datas.push(ParsedValueData {
                 start_info,
                 allow_inline_multi_line: parsed_value.allow_inline_multi_line,
@@ -219,7 +248,7 @@ pub fn parse_separated_values(
             });
 
             if i == 0 {
-                if multi_line_style == MultiLineStyle::SurroundNewlinesIndented && values_count > 1 {
+                if multi_line_options.newline_at_start && values_count > 1 {
                     items.push_condition(if_false(
                         "isNotStartOfLine",
                         |context| Some(condition_resolvers::is_start_of_line(context)),
@@ -242,24 +271,30 @@ pub fn parse_separated_values(
                     true_path: {
                         let mut items = PrintItems::new();
                         if use_blank_line { items.push_signal(Signal::NewLine); }
-                        if multi_line_style != MultiLineStyle::MaintainLineBreaks || has_new_line {
+                        if !maintain_line_breaks || has_new_line {
                             items.push_signal(Signal::NewLine);
+                            had_newline = true;
+                        } else if i == values_count - 1 && !had_newline {
+                            // if there hasn't been a newline, then this should be forced to be one
+                            items.push_condition(if_true_or(
+                                "forcedNewLineIfNoNewLine",
+                                move |context| condition_resolvers::is_on_different_line(context, &first_start_info),
+                                single_line_separator.clone().into(),
+                                Signal::NewLine.into(),
+                            ))
                         } else {
                             items.extend(single_line_separator.clone().into()); // ex. Signal::SpaceOrNewLine
                         }
-                        match multi_line_style {
-                            MultiLineStyle::SurroundNewlinesIndented | MultiLineStyle::NewLineStart | MultiLineStyle::SameLineNoIndent | MultiLineStyle::MaintainLineBreaks => {
+                        if multi_line_options.with_hanging_indent {
+                            items.push_condition(conditions::indent_if_start_of_line({
+                                let mut items = PrintItems::new();
                                 items.push_info(start_info);
                                 items.extend(parsed_value.clone().into());
-                            },
-                            MultiLineStyle::SameLineStartWithHangingIndent => {
-                                items.push_condition(conditions::indent_if_start_of_line({
-                                    let mut items = PrintItems::new();
-                                    items.push_info(start_info);
-                                    items.extend(parsed_value.clone().into());
-                                    items
-                                }));
-                            },
+                                items
+                            }));
+                        } else {
+                            items.push_info(start_info);
+                            items.extend(parsed_value.clone().into());
                         }
                         Some(items)
                     },
@@ -301,20 +336,15 @@ fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec
     })
 }
 
-fn get_is_start_standalone_line(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, standalone_start_info: Info, end_info: Info) -> Condition {
-    Condition::new_with_dependent_infos("isStartStandaloneLine", ConditionProperties {
+fn get_is_start_standalone_line(start_info: Info) -> Condition {
+    Condition::new("isStartStandaloneLine", ConditionProperties {
         condition: Box::new(move |condition_context| {
-            if let Some(first_value_data) = value_datas.borrow().iter().next() {
-                let standalone_start_info = condition_context.get_resolved_info(&standalone_start_info)?;
-                let first_value_info = condition_context.get_resolved_info(&first_value_data.start_info)?;
-                return Some(first_value_info.is_start_of_line() && standalone_start_info.line_number == first_value_info.line_number);
-            }
-
-            Some(false)
+            let start_info = condition_context.get_resolved_info(&start_info)?;
+            Some(start_info.is_start_of_line())
         }),
         false_path: None,
         true_path: None,
-    }, vec![end_info])
+    })
 }
 
 fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
