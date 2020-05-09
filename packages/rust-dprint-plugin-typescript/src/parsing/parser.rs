@@ -1446,7 +1446,8 @@ fn parse_binary_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) -> PrintI
         force_possible_newline_at_start: false,
     }).items);
 
-    return items;
+
+    return if node.op.is_equality() { parser_helpers::new_line_group(items) } else { items };
 
     fn get_allow_no_indent(node: &BinExpr, context: &mut Context) -> bool {
         let parent_kind = context.parent().kind();

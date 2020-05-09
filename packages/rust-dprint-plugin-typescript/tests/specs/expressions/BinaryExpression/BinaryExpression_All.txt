@@ -242,3 +242,31 @@ if (
     % ttttttttttt
 ) {
 }
+
+== should use a newline group for equality checks and not break them up so easily ==
+let a = test == test;
+let b = test === test;
+let c = test !== test;
+let d = test != test;
+let e = test < testt;
+let f = test > testt;
+let g = test >= test;
+let h = test <= test;
+
+[expect]
+let a =
+    test == test;
+let b =
+    test === test;
+let c =
+    test !== test;
+let d =
+    test != test;
+let e =
+    test < testt;
+let f =
+    test > testt;
+let g =
+    test >= test;
+let h =
+    test <= test;

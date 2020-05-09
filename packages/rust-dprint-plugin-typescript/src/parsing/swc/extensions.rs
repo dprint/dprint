@@ -7,6 +7,7 @@ pub trait BinaryOpExtensions {
     fn is_logical(&self) -> bool;
     fn is_bit_logical(&self) -> bool;
     fn is_bit_shift(&self) -> bool;
+    fn is_equality(&self) -> bool;
 }
 
 impl BinaryOpExtensions for BinaryOp {
@@ -50,6 +51,13 @@ impl BinaryOpExtensions for BinaryOp {
     fn is_bit_shift(&self) -> bool {
         match self {
             BinaryOp::LShift | BinaryOp::RShift | BinaryOp::ZeroFillRShift => true,
+            _ => false,
+        }
+    }
+
+    fn is_equality(&self) -> bool {
+        match self {
+            BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => true,
             _ => false,
         }
     }
