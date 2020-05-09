@@ -269,6 +269,7 @@ impl Printer {
                     self.writer.space();
                 }
             }
+            Signal::QueueStartIndent => self.writer.queue_indent(),
             Signal::StartIndent => self.writer.start_indent(),
             Signal::FinishIndent => self.writer.finish_indent(),
             Signal::StartNewLineGroup => self.new_line_group_depth += 1,

@@ -1,5 +1,7 @@
 use super::print_items::*;
 
+// todo: the condition resolvers that only accept a condition_context should be lazy static and of type Rc<Box<ConditionResolver>>
+
 pub fn is_start_of_line(condition_context: &ConditionResolverContext) -> bool {
     condition_context.writer_info.is_start_of_line()
 }

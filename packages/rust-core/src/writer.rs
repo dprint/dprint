@@ -10,6 +10,7 @@ pub struct WriterState {
     last_line_indent_level: u8,
     indent_level: u8,
     expect_newline_next: bool,
+    indent_queue_count: u8,
     last_was_not_trailing_space: bool,
     ignore_indent_count: u8,
     items: Option<Rc<GraphNode<WriteItem>>>,
@@ -35,6 +36,7 @@ impl Clone for WriterState {
             last_line_indent_level: self.last_line_indent_level,
             indent_level: self.indent_level,
             expect_newline_next: self.expect_newline_next,
+            indent_queue_count: self.indent_queue_count,
             last_was_not_trailing_space: self.last_was_not_trailing_space,
             ignore_indent_count: self.ignore_indent_count,
             items: self.items.clone(),
@@ -61,6 +63,7 @@ impl Writer {
                 last_line_indent_level: 0,
                 indent_level: 0,
                 expect_newline_next: false,
+                indent_queue_count: 0,
                 last_was_not_trailing_space: false,
                 ignore_indent_count: 0,
                 items: None,
@@ -81,11 +84,15 @@ impl Writer {
     }
 
     pub fn finish_indent(&mut self) {
-        if self.state.indent_level == 0 {
-            panic!("For some reason finish_indent was called without a corresponding start_indent.");
-        }
+        if self.state.indent_queue_count > 0 {
+            self.state.indent_queue_count -= 1;
+        } else {
+            if self.state.indent_level == 0 {
+                panic!("For some reason finish_indent was called without a corresponding start_indent.");
+            }
 
-        self.set_indent_level(self.state.indent_level - 1);
+            self.set_indent_level(self.state.indent_level - 1);
+        }
     }
 
     fn set_indent_level(&mut self, new_level: u8) {
@@ -115,6 +122,10 @@ impl Writer {
             self.space();
             self.state.last_was_not_trailing_space = true;
         }
+    }
+
+    pub fn queue_indent(&mut self) {
+        self.state.indent_queue_count += 1;
     }
 
     #[inline]
@@ -216,6 +227,12 @@ impl Writer {
     fn push_item(&mut self, item: WriteItem) {
         let previous = std::mem::replace(&mut self.state.items, None);
         self.state.items = Some(Rc::new(GraphNode::new(item, previous)));
+
+        if self.state.indent_queue_count > 0 {
+            let indent_count = self.state.indent_queue_count;
+            self.state.indent_queue_count = 0;
+            self.state.indent_level = self.state.indent_level + indent_count;
+        }
     }
 
     fn pop_item(&mut self) {

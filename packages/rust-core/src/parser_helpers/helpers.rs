@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use super::super::print_items::*;
 use super::super::conditions;
 use super::super::condition_resolvers;
@@ -12,6 +14,14 @@ pub fn surround_with_new_lines(item: PrintItems) -> PrintItems {
 
 pub fn with_indent(item: PrintItems) -> PrintItems {
     with_indent_times(item, 1)
+}
+
+pub fn with_queued_indent(item: PrintItems) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.push_signal(Signal::QueueStartIndent);
+    items.extend(item);
+    items.push_signal(Signal::FinishIndent);
+    items
 }
 
 pub fn with_indent_times(item: PrintItems, times: u32) -> PrintItems {
@@ -36,45 +46,6 @@ pub fn new_line_group(item: PrintItems) -> PrintItems {
     items.extend(item);
     items.push_signal(Signal::FinishNewLineGroup);
     items
-}
-
-// todo: move these conditions to the conditions module
-
-pub fn if_true(
-    name: &'static str,
-    resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
-    true_path: PrintItems
-) -> Condition {
-    Condition::new(name, ConditionProperties {
-        true_path: Some(true_path),
-        false_path: None,
-        condition: Box::new(resolver.clone()),
-    })
-}
-
-pub fn if_true_or(
-    name: &'static str,
-    resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
-    true_path: PrintItems,
-    false_path: PrintItems
-) -> Condition {
-    Condition::new(name, ConditionProperties {
-        true_path: Some(true_path),
-        false_path: Some(false_path),
-        condition: Box::new(resolver.clone())
-    })
-}
-
-pub fn if_false(
-    name: &'static str,
-    resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static,
-    false_path: PrintItems
-) -> Condition {
-    Condition::new(name, ConditionProperties {
-        true_path: None,
-        false_path: Some(false_path),
-        condition: Box::new(resolver.clone()),
-    })
 }
 
 /// Parses a string as is and ignores its indent.
@@ -145,13 +116,13 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
             items.extend(inner_items.into());
             items
         }),
-        condition: Box::new(move |context| {
+        condition: Rc::new(Box::new(move |context| {
             // clear the end info when the start info changes
             if context.has_info_moved(&start_info)? {
                 context.clear_info(&end_info);
             }
             condition_resolvers::is_multiple_lines(context, &start_info, &end_info)
-        })
+        }))
     }, vec![end_info]));
     items.push_info(end_info);
 

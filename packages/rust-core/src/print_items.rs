@@ -340,6 +340,8 @@ pub enum Signal {
     SpaceOrNewLine,
     /// Expect the next character to be a newline. If it's not, force a newline.
     ExpectNewLine,
+    /// Queue a start indent to be set after the next written item.
+    QueueStartIndent,
     /// Signal the start of a section that should be indented.
     StartIndent,
     /// Signal the end of a section that should be indented.
@@ -428,7 +430,7 @@ impl Condition {
 
     pub fn new_true() -> Condition {
         Condition::new_internal("trueCondition", ConditionProperties {
-            condition: Box::new(|_| Some(true)),
+            condition: Rc::new(Box::new(|_| Some(true))),
             true_path: None,
             false_path: None,
         }, None)
@@ -436,7 +438,7 @@ impl Condition {
 
     pub fn new_false() -> Condition {
         Condition::new_internal("falseCondition", ConditionProperties {
-            condition: Box::new(|_| Some(false)),
+            condition: Rc::new(Box::new(|_| Some(false))),
             true_path: None,
             false_path: None,
         }, None)
@@ -451,7 +453,7 @@ impl Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
             is_stored: dependent_infos.is_some(),
             name,
-            condition: Rc::new(properties.condition),
+            condition: properties.condition,
             true_path: properties.true_path.map(|x| x.first_node).flatten(),
             false_path: properties.false_path.map(|x| x.first_node).flatten(),
             dependent_infos,
@@ -512,7 +514,7 @@ impl ConditionReference {
 /// Properties for the condition.
 pub struct ConditionProperties {
     /// The condition to resolve.
-    pub condition: Box<ConditionResolver>,
+    pub condition: Rc<Box<ConditionResolver>>,
     /// The items to print when the condition is true.
     pub true_path: Option<PrintItems>,
     /// The items to print when the condition is false or undefined (not yet resolved).
