@@ -2,7 +2,7 @@
 name = "dprint-plugin-jsonc"
 description = "JSONC formatter for dprint."
 keywords = ["formatting", "formatter", "jsonc"]
-version = "0.2.1"
+version = "0.2.2"
 authors = ["David Sherret <dsherret@gmail.com>"]
 license = "MIT"
 edition = "2018"
