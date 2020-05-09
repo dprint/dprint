@@ -1,15 +1,25 @@
 use swc_ecma_ast::BinaryOp;
 
 pub trait BinaryOpExtensions {
-    fn is_add_sub_mul_div(&self) -> bool;
+    fn is_add_sub(&self) -> bool;
+    fn is_mul_div(&self) -> bool;
     fn is_bitwise_or_arithmetic(&self) -> bool;
     fn is_logical(&self) -> bool;
+    fn is_bit_logical(&self) -> bool;
+    fn is_bit_shift(&self) -> bool;
 }
 
 impl BinaryOpExtensions for BinaryOp {
-    fn is_add_sub_mul_div(&self) -> bool {
+    fn is_add_sub(&self) -> bool {
         match self {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => true,
+            BinaryOp::Add | BinaryOp::Sub => true,
+            _ => false,
+        }
+    }
+
+    fn is_mul_div(&self) -> bool {
+        match self {
+            BinaryOp::Mul | BinaryOp::Div => true,
             _ => false,
         }
     }
@@ -26,6 +36,20 @@ impl BinaryOpExtensions for BinaryOp {
     fn is_logical(&self) -> bool {
         match self {
             BinaryOp::LogicalAnd | BinaryOp::LogicalOr => true,
+            _ => false,
+        }
+    }
+
+    fn is_bit_logical(&self) -> bool {
+        match self {
+            BinaryOp::BitOr | BinaryOp::BitAnd | BinaryOp::BitXor => true,
+            _ => false,
+        }
+    }
+
+    fn is_bit_shift(&self) -> bool {
+        match self {
+            BinaryOp::LShift | BinaryOp::RShift | BinaryOp::ZeroFillRShift => true,
             _ => false,
         }
     }

@@ -38,7 +38,7 @@ pub fn parse_items(text: &str, config: &Configuration) -> Result<PrintItems, Str
             items.extend(parse_comments_as_statements(comments.iter(), None, &mut context));
         }
     }
-    items.push_condition(parser_helpers::if_true(
+    items.push_condition(conditions::if_true(
         "endOfFileNewLine",
         |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
         Signal::NewLine.into()
@@ -306,7 +306,7 @@ fn parse_surrounded_by_tokens<'a>(
         if let Some(leading_comments) = context.comments.get(&close_token_start.start()) {
             items.extend(parser_helpers::with_indent(parse_comments_as_statements(leading_comments.iter(), None, context)));
         }
-        items.push_condition(parser_helpers::if_true(
+        items.push_condition(conditions::if_true(
             "newLineIfHasCommentsAndNotStartOfNewLine",
             move |context| {
                 let had_comments = !condition_resolvers::is_at_same_position(context, &before_trailing_comments_info)?;

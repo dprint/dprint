@@ -2,9 +2,9 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 use super::super::print_items::*;
-use super::helpers::*;
+use super::super::conditions::*;
 use super::super::condition_resolvers;
-use super::super::conditions;
+use super::super::parser_helpers;
 
 pub struct ParseSeparatedValuesOptions {
     pub prefer_hanging: bool,
@@ -21,12 +21,16 @@ pub struct ParseSeparatedValuesOptions {
     pub force_possible_newline_at_start: bool,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+pub enum BoolOrCondition {
+    Bool(bool),
+    Condition(Rc<Box<ConditionResolver>>)
+}
+
 pub struct MultiLineOptions {
     pub newline_at_start: bool,
     pub newline_at_end: bool,
     pub with_indent: bool,
-    pub with_hanging_indent: bool,
+    pub with_hanging_indent: BoolOrCondition,
     pub maintain_line_breaks: bool,
 }
 
@@ -36,7 +40,7 @@ impl MultiLineOptions {
             newline_at_start: true,
             newline_at_end: false,
             with_indent: true,
-            with_hanging_indent: false,
+            with_hanging_indent: BoolOrCondition::Bool(false),
             maintain_line_breaks: false,
         }
     }
@@ -46,7 +50,7 @@ impl MultiLineOptions {
             newline_at_start: true,
             newline_at_end: true,
             with_indent: true,
-            with_hanging_indent: false,
+            with_hanging_indent: BoolOrCondition::Bool(false),
             maintain_line_breaks: false,
         }
     }
@@ -56,7 +60,7 @@ impl MultiLineOptions {
             newline_at_start: false,
             newline_at_end: false,
             with_indent: false,
-            with_hanging_indent: true,
+            with_hanging_indent: BoolOrCondition::Bool(true),
             maintain_line_breaks: false,
         }
     }
@@ -66,7 +70,7 @@ impl MultiLineOptions {
             newline_at_start: false,
             newline_at_end: false,
             with_indent: false,
-            with_hanging_indent: false,
+            with_hanging_indent: BoolOrCondition::Bool(false),
             maintain_line_breaks: false,
         }
     }
@@ -76,7 +80,7 @@ impl MultiLineOptions {
             newline_at_start: false,
             newline_at_end: false,
             with_indent: false,
-            with_hanging_indent: false,
+            with_hanging_indent: BoolOrCondition::Bool(false),
             maintain_line_breaks: true,
         }
     }
@@ -147,6 +151,7 @@ pub fn parse_separated_values(
     };
     let is_multi_line_condition_ref = is_multi_line_condition.get_reference();
     let is_multi_line = is_multi_line_condition_ref.create_resolver();
+    let is_multi_line = Rc::new(Box::new(is_multi_line) as Box<ConditionResolver>);
 
     let mut items = PrintItems::new();
     items.push_info(start_info);
@@ -160,7 +165,7 @@ pub fn parse_separated_values(
     let has_values = !parsed_values.is_empty();
     let inner_parse_result = inner_parse(
         parsed_values,
-        &is_multi_line,
+        is_multi_line.clone(),
         opts.single_line_separator,
         &multi_line_options,
         opts.allow_blank_lines,
@@ -168,7 +173,7 @@ pub fn parse_separated_values(
     value_datas.borrow_mut().extend(inner_parse_result.value_datas);
     let parsed_values_items = inner_parse_result.items.into_rc_path();
     items.push_condition(Condition::new("multiLineOrHanging", ConditionProperties {
-        condition: Box::new(is_multi_line),
+        condition: is_multi_line,
         true_path: Some(if_true_or(
             "newLineIndentedIfNotStandalone",
             move |context| Some(!context.get_resolved_condition(&is_start_standalone_line_ref)?),
@@ -200,7 +205,7 @@ pub fn parse_separated_values(
             }
             if has_values && multi_line_options.newline_at_start {
                 // place this after the space so the first item will start on a newline when there is a newline here
-                items.push_condition(conditions::if_above_width(
+                items.push_condition(if_above_width(
                     if opts.force_possible_newline_at_start { 0 } else { indent_width + if has_start_space { 1 } else { 0 } },
                     Signal::PossibleNewLine.into()
                 ));
@@ -225,7 +230,7 @@ pub fn parse_separated_values(
 
     fn inner_parse(
         parsed_values: Vec<ParsedValue>,
-        is_multi_line_or_hanging: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static),
+        is_multi_line: Rc<Box<ConditionResolver>>,
         single_line_separator: PrintItems,
         multi_line_options: &MultiLineOptions,
         allow_blank_lines: bool,
@@ -238,6 +243,7 @@ pub fn parse_separated_values(
         let maintain_line_breaks = multi_line_options.maintain_line_breaks;
         let mut had_newline = false;
         let first_start_info = Info::new("firstValueStartInfo");
+        let mut last_start_info = None;
 
         for (i, parsed_value) in parsed_values.into_iter().enumerate() {
             let start_info = if i == 0 { first_start_info } else { Info::new("valueStartInfo") };
@@ -267,48 +273,88 @@ pub fn parse_separated_values(
                 let use_blank_line = allow_blank_lines && has_blank_line;
                 let parsed_value = parsed_value.items.into_rc_path();
                 items.push_condition(Condition::new("multiLineOrHangingCondition", ConditionProperties {
-                    condition: Box::new(is_multi_line_or_hanging.clone()),
+                    condition: is_multi_line.clone(),
                     true_path: {
                         let mut items = PrintItems::new();
                         if use_blank_line { items.push_signal(Signal::NewLine); }
                         if !maintain_line_breaks || has_new_line {
                             items.push_signal(Signal::NewLine);
                             had_newline = true;
-                        } else if i == values_count - 1 && !had_newline {
-                            // if there hasn't been a newline, then this should be forced to be one
-                            items.push_condition(if_true_or(
-                                "forcedNewLineIfNoNewLine",
-                                move |context| condition_resolvers::is_on_different_line(context, &first_start_info),
-                                single_line_separator.clone().into(),
-                                Signal::NewLine.into(),
-                            ))
                         } else {
-                            items.extend(single_line_separator.clone().into()); // ex. Signal::SpaceOrNewLine
+                            let space_or_newline = {
+                                if let Some(last_start_info) = last_start_info {
+                                    if_true_or(
+                                        "newlineIfHanging",
+                                        move |context| condition_resolvers::is_hanging(context, &last_start_info, &None),
+                                        Signal::NewLine.into(),
+                                        single_line_separator.clone().into(),
+                                    ).into()
+                                } else {
+                                    single_line_separator.clone().into()
+                                }
+                            };
+                            if i == values_count - 1 && !had_newline {
+                                // If there hasn't been a newline, then this should be forced to be one
+                                // since this is in multi-line mode (meaning, since we're here, one of these
+                                // was a newline due to the line width so it must be this one)
+                                items.push_condition(if_true_or(
+                                    "forcedNewLineIfNoNewLine",
+                                    move |context| condition_resolvers::is_on_different_line(context, &first_start_info),
+                                    space_or_newline,
+                                    Signal::NewLine.into(),
+                                ))
+                            } else {
+                                items.extend(space_or_newline);
+                            }
                         }
-                        if multi_line_options.with_hanging_indent {
-                            items.push_condition(conditions::indent_if_start_of_line({
-                                let mut items = PrintItems::new();
-                                items.push_info(start_info);
-                                items.extend(parsed_value.clone().into());
-                                items
-                            }));
-                        } else {
-                            items.push_info(start_info);
-                            items.extend(parsed_value.clone().into());
+
+                        match &multi_line_options.with_hanging_indent {
+                            BoolOrCondition::Bool(with_hanging_indent) => {
+                                if *with_hanging_indent {
+                                    items.push_condition(indent_if_start_of_line({
+                                        let mut items = PrintItems::new();
+                                        items.push_info(start_info);
+                                        items.extend(parsed_value.clone().into());
+                                        items
+                                    }));
+                                } else {
+                                    items.push_info(start_info);
+                                    items.extend(parsed_value.clone().into());
+                                }
+                            },
+                            BoolOrCondition::Condition(condition) => {
+                                let inner_items = {
+                                    let mut items = PrintItems::new();
+                                    items.push_info(start_info);
+                                    items.extend(parsed_value.clone().into());
+                                    items
+                                }.into_rc_path();
+                                items.push_condition(Condition::new("valueHangingIndent", ConditionProperties {
+                                    condition: condition.clone(),
+                                    true_path: Some(parser_helpers::with_indent(inner_items.clone().into())),
+                                    false_path: Some(inner_items.into()),
+                                }));
+                            }
                         }
+
                         Some(items)
                     },
                     false_path: {
                         let mut items = PrintItems::new();
                         items.extend(single_line_separator.clone().into()); // ex. Signal::SpaceOrNewLine
-                        items.push_info(start_info);
-                        items.push_condition(conditions::indent_if_start_of_line(parsed_value.into()));
+                        items.push_condition(indent_if_start_of_line({
+                            let mut items = PrintItems::new();
+                            items.push_info(start_info);
+                            items.extend(parsed_value.into());
+                            items
+                        }));
                         Some(items)
                     },
                 }));
             }
 
             last_lines_span = parsed_value.lines_span;
+            last_start_info.replace(start_info);
         }
 
         return InnerParseResult {
@@ -320,7 +366,7 @@ pub fn parse_separated_values(
 
 fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, start_info: Info, end_info: Info) -> Condition {
     Condition::new("clearWhenStartInfoChanges", ConditionProperties {
-        condition: Box::new(move |condition_context| {
+        condition: Rc::new(Box::new(move |condition_context| {
             // when the start info position changes, clear all the infos so they get re-evaluated again
             if condition_context.has_info_moved(&start_info)? {
                 for value_data in value_datas.borrow().iter() {
@@ -330,7 +376,7 @@ fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec
             }
 
             return None;
-        }),
+        })),
         false_path: None,
         true_path: None,
     })
@@ -338,10 +384,10 @@ fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec
 
 fn get_is_start_standalone_line(start_info: Info) -> Condition {
     Condition::new("isStartStandaloneLine", ConditionProperties {
-        condition: Box::new(move |condition_context| {
+        condition: Rc::new(Box::new(move |condition_context| {
             let start_info = condition_context.get_resolved_info(&start_info)?;
             Some(start_info.is_start_of_line())
-        }),
+        })),
         false_path: None,
         true_path: None,
     })
@@ -349,7 +395,7 @@ fn get_is_start_standalone_line(start_info: Info) -> Condition {
 
 fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
     Condition::new_with_dependent_infos("isMultiLineForHanging", ConditionProperties {
-        condition: Box::new(move |condition_context| {
+        condition: Rc::new(Box::new(move |condition_context| {
             let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
             if is_start_standalone_line {
                 // check if the second value is on a newline
@@ -366,7 +412,7 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>,
             }
 
             Some(false)
-        }),
+        })),
         false_path: None,
         true_path: None,
     }, vec![end_info])
@@ -374,7 +420,7 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>,
 
 fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Vec<ParsedValueData>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
     return Condition::new_with_dependent_infos("isMultiLineForMultiLine", ConditionProperties {
-        condition: Box::new(move |condition_context| {
+        condition: Rc::new(Box::new(move |condition_context| {
             // todo: This is slightly confusing because it works on the "last" value rather than the current
             let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
             let start_info = condition_context.get_resolved_info(&start_info)?;
@@ -427,7 +473,7 @@ fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Ve
                 last_allows_single_line,
                 has_multi_line_value,
             ))
-        }),
+        })),
         false_path: None,
         true_path: None,
     }, vec![end_info]);

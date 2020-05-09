@@ -6,18 +6,18 @@
 1234 + 12345 * 5;
 
 == should print hanging when exceeding line width ==
-1234 + 12345 * 5 * 10;
+1234 + 12345 - 5 - 10;
 
 [expect]
-1234 + 12345 * 5
-    * 10;
+1234 + 12345 - 5
+    - 10;
 
 == should print hanging when exceeding line width multiple times ==
-1234 + 12345 * 5 * 10 * 200 + 509;
+1234 + 12345 - 5 - 10 - 200 + 509;
 
 [expect]
-1234 + 12345 * 5
-    * 10 * 200
+1234 + 12345 - 5
+    - 10 - 200
     + 509;
 
 == should maintain newlines ==
@@ -30,12 +30,21 @@
     + 567 + 214
     + 32;
 
+== should group together multiplication when used with addition or subtraction ==
+1234 + 12345 * 5 * 10 * 200 + 509;
+
+[expect]
+1234
+    + 12345 * 5 * 10
+        * 200
+    + 509;
+
 == should maintain parentheses ==
-(1 + 43) + 5 * (20 + 23);
+(1 + 43) + 5 + (20 + 23);
 
 [expect]
 (1 + 43) + 5
-    * (20 + 23);
+    + (20 + 23);
 
 == should handle comments on a different line in-between ==
 asdfasdfasdf
@@ -139,3 +148,97 @@ new Test(
         && test,
     asdf,
 );
+
+== should support multi-line ==
+a && b && {
+    test: 5
+};
+
+[expect]
+a && b && {
+    test: 5,
+};
+
+== should format bitwise operators with proper presedence ==
+testst & test | test & other | test ^ asdf | test;
+
+[expect]
+testst & test
+    | test & other
+    | test ^ asdf
+    | test;
+
+== should format bitwise inline ==
+if (
+    tttttttttttt ^ ttttttttttt
+) {
+}
+if (
+    tttttttttttt & ttttttttttt
+) {
+}
+if (
+    tttttttttttt | ttttttttttt
+) {
+}
+
+[expect]
+if (
+    tttttttttttt
+    ^ ttttttttttt
+) {
+}
+if (
+    tttttttttttt
+    & ttttttttttt
+) {
+}
+if (
+    tttttttttttt
+    | ttttttttttt
+) {
+}
+
+== should format bitshift inline ==
+if (
+    tttttttttttt >> ttttttttttt
+) {
+}
+if (
+    tttttttttttt >>> ttttttttttt
+) {
+}
+if (
+    tttttttttttt << ttttttttttt
+) {
+}
+
+[expect]
+if (
+    tttttttttttt
+    >> ttttttttttt
+) {
+}
+if (
+    tttttttttttt
+    >>> ttttttttttt
+) {
+}
+if (
+    tttttttttttt
+    << ttttttttttt
+) {
+}
+
+== should format mod inline ==
+if (
+    tttttttttttt % ttttttttttt
+) {
+}
+
+[expect]
+if (
+    tttttttttttt
+    % ttttttttttt
+) {
+}

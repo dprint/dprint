@@ -36,7 +36,7 @@
     }
     && (
         other
-        && test
+            && test
         || test
     )
 );
@@ -59,15 +59,15 @@ if (
 [expect]
 if (
     test
-    && other
+        && other
     || test && {
-        test: 5,
-    }
-    && {
-        other: 6,
-    } && (
-        test
-    )
+            test: 5,
+        }
+        && {
+            other: 6,
+        } && (
+            test
+        )
 ) {
 }
 
@@ -90,12 +90,13 @@ if (
 (
     1543652546
     + 2
-    * 5 * {
-        prop: 6,
-    }
-    * {
-        other: 7,
-    } + (
+        * 5 * {
+            prop: 6,
+        }
+        * {
+            other: 7,
+        }
+    + (
         5
         * 7
     )
@@ -109,6 +110,7 @@ possiblyTrue || (
 
 [expect]
 const binaryResult = true || false
-    && possiblyTrue || (
+        && possiblyTrue
+    || (
         true && false || maybeTrue
     );

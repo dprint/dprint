@@ -18,28 +18,9 @@ let result = dprint_core::print(print_items, PrintOptions {
 });
 ```
 
-Or do the steps individually:
-
-```rust
-// Send the print items to be transformed into write items.
-let write_items = dprint_core::get_write_items(print_items, GetWriteItemsOptions {
-    indent_width: 4,
-    max_width: 10,
-});
-
-// Write out the write items to a string.
-let result = dprint_core::print_write_items(write_items, PrintWriteItemsOptions {
-    use_tabs: false,
-    newline_kind: "\n",
-    indent_width: 4,
-})
-```
-
-It is useful to only do the first step of getting the "write items" when using this library in WebAssembly. That allows for avoiding to copy/encode over the strings from JavaScript to Rust and back—all the strings can remain in JS. An example of this can be seen in the [@dprint/rust-printer](../rust-printer) package.
-
 ## Example
 
-This reimplements the example from [overview.md](../../docs/overview.md), but in rust.
+This reimplements the example from [overview.md](../../docs/overview.md), but in Rust.
 
 Given the following AST nodes:
 
@@ -143,20 +124,21 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
     items.push_info(start_info);
 
     items.push_str("[");
-    items.extend(parser_helpers::if_true(
+    items.push_condition(conditions::if_true(
         "arrayStartNewLine",
         is_multiple_lines.clone(),
         Signal::NewLine.into()
     ));
 
     let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines).into_rc_path();
-    items.push_condition(Condition::new("indentIfMultipleLines", ConditionProperties {
-        condition: Box::new(is_multiple_lines.clone()),
-        true_path: Some(parser_helpers::with_indent(parsed_elements.clone().into())),
-        false_path: Some(parsed_elements.into()),
-    }).into());
+    items.push_condition(conditions::if_true_or(
+        "indentIfMultipleLines",
+        is_multiple_lines.clone(),
+        parser_helpers::with_indent(parsed_elements.clone().into()),
+        parsed_elements.into(),
+    ));
 
-    items.extend(parser_helpers::if_true(
+    items.push_condition(conditions::if_true(
         "arrayEndNewLine",
         is_multiple_lines,
         Signal::NewLine.into()
@@ -179,7 +161,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 
             if i < elements_len - 1 {
                 items.push_str(",");
-                items.extend(parser_helpers::if_true_or(
+                items.push_condition(conditions::if_true_or(
                     "afterCommaSeparator",
                     is_multiple_lines.clone(),
                     Signal::NewLine.into(),

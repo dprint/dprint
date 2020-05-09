@@ -28,8 +28,7 @@ pub fn get_flattened_bin_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) 
     let mut handled_right = false;
 
     if let Expr::Bin(left_bin) = &*node.left {
-        // todo: should use something more sophisticated (ex. || and && should not be in same group)
-        if is_expression_breakable(&left_bin.op) {
+        if is_expression_breakable(&node.op, &left_bin.op) {
             items.extend(get_flattened_bin_expr(left_bin, context));
             if is_op_same_line {
                 items.last_mut().unwrap().post_op = Some(operator_token.clone());
@@ -47,7 +46,7 @@ pub fn get_flattened_bin_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) 
     }
 
     if let Expr::Bin(right_bin) = &*node.right {
-        if is_expression_breakable(&right_bin.op) {
+        if is_expression_breakable(&node.op, &right_bin.op) {
             let mut right_items = get_flattened_bin_expr(right_bin, context);
             if !is_op_same_line {
                 right_items.first_mut().unwrap().pre_op = Some(operator_token.clone());
@@ -67,8 +66,14 @@ pub fn get_flattened_bin_expr<'a>(node: &'a BinExpr, context: &mut Context<'a>) 
 
     return items;
 
-    fn is_expression_breakable(op: &BinaryOp) -> bool {
-        op.is_logical() || op.is_add_sub_mul_div()
+    fn is_expression_breakable(top_op: &BinaryOp, op: &BinaryOp) -> bool {
+        if top_op.is_add_sub() {
+            op.is_add_sub()
+        } else if top_op.is_mul_div() {
+            op.is_mul_div()
+        } else {
+            top_op == op
+        }
     }
 
     fn get_operator_position(node: &BinExpr, operator_token: &TokenAndSpan, context: &mut Context) -> OperatorPosition {

@@ -11,6 +11,20 @@
     7 * 6 + 4 +
     5;
 
+== should maintain the operator position when one of the multiplications go multi-line ==
+1 + 2 * 6
+    + 4 +
+    7 * 6 * 30 * 40
+        * 50
+    + 5;
+
+[expect]
+1 + 2 * 6 +
+    4 +
+    7 * 6 * 30 * 40 *
+        50 +
+    5;
+
 == should move the operator to the same line for logical operators ==
 1 && 2 || 6 // test
     && 4 ||
@@ -19,9 +33,9 @@
 
 [expect]
 1 && 2 || 6 && // test
-    4 ||
+        4 ||
     7 && 6 || 4 &&
-    5;
+        5;
 
 == should keep comment before operator as well ==
 ttttttttttttt /*1*/ && /* 2 */
