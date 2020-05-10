@@ -235,9 +235,9 @@ name = "dprint"
 version = "0.3.2"
 dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "dprint-core 0.19.0",
- "dprint-plugin-jsonc 0.2.2",
- "dprint-plugin-typescript 0.17.1",
+ "dprint-core 0.19.1",
+ "dprint-plugin-jsonc 0.2.3",
+ "dprint-plugin-typescript 0.17.2",
  "globset 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "globwalk 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonc-parser 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -246,16 +246,16 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "dprint-plugin-jsonc"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
- "dprint-core 0.19.0",
+ "dprint-core 0.19.1",
  "jsonc-parser 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.51 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -263,9 +263,9 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
- "dprint-core 0.19.0",
+ "dprint-core 0.19.1",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.51 (registry+https://github.com/rust-lang/crates.io-index)",
  "swc_common 0.5.9 (registry+https://github.com/rust-lang/crates.io-index)",

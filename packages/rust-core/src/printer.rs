@@ -13,6 +13,7 @@ struct SavePoint {
     /// Name for debugging purposes.
     pub name: &'static str,
     pub new_line_group_depth: u16,
+    pub force_no_newlines_depth: u8,
     pub writer_state: WriterState,
     pub possible_new_line_save_point: Option<Rc<SavePoint>>,
     pub node: Option<PrintItemPath>,
@@ -174,6 +175,7 @@ impl Printer {
             name,
             possible_new_line_save_point: self.possible_new_line_save_point.clone(),
             new_line_group_depth: self.new_line_group_depth,
+            force_no_newlines_depth: self.force_no_newlines_depth,
             node: next_node,
             writer_state: self.writer.get_state(),
             look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
@@ -214,6 +216,7 @@ impl Printer {
                 self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point };
                 self.current_node = save_point.node;
                 self.new_line_group_depth = save_point.new_line_group_depth;
+                self.force_no_newlines_depth = save_point.force_no_newlines_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points;
                 self.look_ahead_info_save_points.replace_map(save_point.look_ahead_info_save_points);
                 self.next_node_stack = save_point.next_node_stack;
@@ -223,6 +226,7 @@ impl Printer {
                 self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point.clone() };
                 self.current_node = save_point.node.clone();
                 self.new_line_group_depth = save_point.new_line_group_depth;
+                self.force_no_newlines_depth = save_point.force_no_newlines_depth;
                 self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
                 self.look_ahead_info_save_points.replace_map(save_point.look_ahead_info_save_points.clone());
                 self.next_node_stack = save_point.next_node_stack.clone();
