@@ -1,0 +1,35 @@
+~~ lineWidth: 40, binaryExpression.preferSingleLine: true ~~
+== should fit onto lines as able ==
+testing + asdf + out + asdf + when + it + passes + thelineWidth + someMore;
+
+[expect]
+testing + asdf + out + asdf + when + it
+    + passes + thelineWidth + someMore;
+
+== should maintain single line when below the width ==
+testing + asdf + out;
+
+[expect]
+testing + asdf + out;
+
+== should go single line when able ==
+testing
+    + asdf + out;
+testing + asdf
+    + out;
+
+[expect]
+testing + asdf + out;
+testing + asdf + out;
+
+== should maintain line breaks ==
+testing + asdf
+    + out + asdf + when + it
+    + passes + thelineWidth
+    + someMore;
+
+[expect]
+testing + asdf
+    + out + asdf + when + it
+    + passes + thelineWidth
+    + someMore;

@@ -12,7 +12,7 @@ const {
 
 [expect]
 const {
-    test
+    test,
 } = obj;
 
 == should make hanging when exceeding ==

@@ -3,11 +3,16 @@
 type T = ()   =>    void;
 type U = (param: string  )  =>   void;
 type V = <  T>(param: string   ) => void;
+type W = <TestingThisOut, ByGoingOverLimit>() => Date;
 
 [expect]
 type T = () => void;
 type U = (param: string) => void;
 type V = <T>(param: string) => void;
+type W = <
+    TestingThisOut,
+    ByGoingOverLimit,
+>() => Date;
 
 == should force multi-line parameters when exceeding the line width ==
 type Test = (testing, thisOut, byExceeding, theLineWidth) => Date;
@@ -17,7 +22,7 @@ type Test = (
     testing,
     thisOut,
     byExceeding,
-    theLineWidth
+    theLineWidth,
 ) => Date;
 
 == should not be multi-line when not exceeding the line width ==

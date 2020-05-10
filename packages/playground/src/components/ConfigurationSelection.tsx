@@ -11,28 +11,31 @@ export interface ConfigurationSelectionProps {
 const semiColonsOptions = ["always", "prefer", "asi"] as const;
 type _assertSemiColons = AssertTrue<IsExact<typeof semiColonsOptions[number], NonNullable<TypeScriptConfiguration["semiColons"]>>>;
 const quoteStyleOptions = ["alwaysDouble", "alwaysSingle", "preferDouble", "preferSingle"] as const;
-type _assertQuoteStyleOptions = AssertTrue<IsExact<typeof quoteStyleOptions[number],
-    NonNullable<TypeScriptConfiguration["quoteStyle"]>>>;
+type _assertQuoteStyleOptions = AssertTrue<IsExact<typeof quoteStyleOptions[number], NonNullable<TypeScriptConfiguration["quoteStyle"]>>>;
 const useBraceOptions = ["maintain", "whenNotSingleLine", "always", "preferNone"] as const;
 type _assertUseBraces = AssertTrue<IsExact<typeof useBraceOptions[number], NonNullable<TypeScriptConfiguration["useBraces"]>>>;
 const bracePositionOptions = ["maintain", "sameLine", "nextLine", "nextLineIfHanging"] as const;
 type _assertBracePosition = AssertTrue<IsExact<typeof bracePositionOptions[number], NonNullable<TypeScriptConfiguration["bracePosition"]>>>;
 const singleBodyPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
-type _assertSingleBodyPositionOptions = AssertTrue<IsExact<typeof singleBodyPositionOptions[number],
-    NonNullable<TypeScriptConfiguration["singleBodyPosition"]>>>;
+type _assertSingleBodyPositionOptions = AssertTrue<
+    IsExact<typeof singleBodyPositionOptions[number], NonNullable<TypeScriptConfiguration["singleBodyPosition"]>>
+>;
 const nextControlFlowPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
-type _assertNextControlFlowPosition = AssertTrue<IsExact<typeof nextControlFlowPositionOptions[number],
-    NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>>>;
+type _assertNextControlFlowPosition = AssertTrue<
+    IsExact<typeof nextControlFlowPositionOptions[number], NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>>
+>;
 const operatorPositionOptions = ["maintain", "sameLine", "nextLine"] as const;
 type _assertOperatorPosition = AssertTrue<IsExact<typeof operatorPositionOptions[number], NonNullable<TypeScriptConfiguration["operatorPosition"]>>>;
 const trailingCommaOptions = ["never", "always", "onlyMultiLine"] as const;
 type _assertTrailingCommas = AssertTrue<IsExact<typeof trailingCommaOptions[number], NonNullable<TypeScriptConfiguration["trailingCommas"]>>>;
 const arrowFunctionUseParenthesesOptions = ["force", "maintain", "preferNone"] as const;
-type _assertArrowFunctionUseParentheses = AssertTrue<IsExact<typeof arrowFunctionUseParenthesesOptions[number],
-    NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>>>;
+type _assertArrowFunctionUseParentheses = AssertTrue<
+    IsExact<typeof arrowFunctionUseParenthesesOptions[number], NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>>
+>;
 const enumMemberSpacingOptions = ["newline", "blankline", "maintain"] as const;
-type _assertEnumMemberSpacing = AssertTrue<IsExact<typeof enumMemberSpacingOptions[number],
-    NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>>>;
+type _assertEnumMemberSpacing = AssertTrue<
+    IsExact<typeof enumMemberSpacingOptions[number], NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>>
+>;
 
 export class ConfigurationSelection extends React.Component<ConfigurationSelectionProps> {
     render() {
@@ -73,8 +76,11 @@ export class ConfigurationSelection extends React.Component<ConfigurationSelecti
             <ConfigurationItem title="Prefer hanging">
                 {this.getBooleanConfig("preferHanging")}
             </ConfigurationItem>
+            <ConfigurationItem title="Prefer single line">
+                {this.getBooleanConfig("preferSingleLine")}
+            </ConfigurationItem>
             <ConfigurationItem title="Arrow Function - Use parentheses">
-                {this.getSelectForConfig("arrowFunctionExpression.useParentheses", arrowFunctionUseParenthesesOptions)}
+                {this.getSelectForConfig("arrowFunction.useParentheses", arrowFunctionUseParenthesesOptions)}
             </ConfigurationItem>
             <ConfigurationItem title="Enum member spacing">
                 {this.getSelectForConfig("enumDeclaration.memberSpacing", enumMemberSpacingOptions)}

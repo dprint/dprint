@@ -6,7 +6,7 @@ class Test<T, TestingThisOut extends number> {
 [expect]
 class Test<
     T,
-    TestingThisOut extends number
+    TestingThisOut extends number,
 > {
 }
 
@@ -16,7 +16,7 @@ class Test<TestingThisOut = TestingThisOut> {
 
 [expect]
 class Test<
-    TestingThisOut = TestingThisOut
+    TestingThisOut = TestingThisOut,
 > {
 }
 
@@ -26,6 +26,6 @@ class Test<TestingThisOut extends Testing> {
 
 [expect]
 class Test<
-    TestingThisOut extends Testing
+    TestingThisOut extends Testing,
 > {
 }

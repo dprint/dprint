@@ -1,0 +1,23 @@
+~~ indentWidth: 2, lineWidth: 80 ~~
+== should format multi-line ==
+export const updateArea = async ({ params, request, response }:
+  RouterContext) => {
+};
+
+[expect]
+export const updateArea = async (
+  { params, request, response }: RouterContext,
+) => {
+};
+
+== should stay multi-line ==
+export const updateArea = async (
+  { params, request, response }: RouterContext,
+) => {
+};
+
+[expect]
+export const updateArea = async (
+  { params, request, response }: RouterContext,
+) => {
+};

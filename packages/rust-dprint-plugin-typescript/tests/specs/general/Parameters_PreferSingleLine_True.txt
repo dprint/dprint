@@ -1,0 +1,81 @@
+~~ lineWidth: 60, parameters.preferSingleLine: true ~~
+== should not keep parameters multi-line when they are below the line width ==
+export function test(
+    param1: string,
+    param2: number,
+) {
+}
+
+[expect]
+export function test(param1: string, param2: number) {
+}
+
+== should keep multi-line if there is a preceeding comment ==
+export function test( // test
+    test
+) {
+}
+
+[expect]
+export function test( // test
+    test,
+) {
+}
+
+== should keep multi-line if there is a following comment and not using a trailing comma ==
+export function test(
+    test // test
+) {
+}
+
+[expect]
+export function test(
+    test, // test
+) {
+}
+
+== should keep multi-line if there is a following comment and using a trailing comma ==
+export function test(
+    test, // test
+) {
+}
+
+[expect]
+export function test(
+    test, // test
+) {
+}
+
+== should keep multi-line if there is a comment on the next line ==
+export function test(
+    test,
+    // test
+) {
+}
+
+[expect]
+export function test(
+    test,
+    // test
+) {
+}
+
+== should bring back to single-line when there is a block comment before on the same line and it's below the width ==
+export function test(
+    /* test */ test,
+) {
+}
+
+[expect]
+export function test(/* test */ test) {
+}
+
+== should bring back to single-line when there is a block comment after on the same line and it's below the width ==
+export function test(
+    test, /* test */
+) {
+}
+
+[expect]
+export function test(test /* test */) {
+}

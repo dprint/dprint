@@ -1,0 +1,12 @@
+~~ lineWidth: 40, importDeclaration.trailingCommas: never ~~
+== should not use trailing commas when multi-line ==
+import {
+    n1, n2,
+    n3 } from "test";
+
+[expect]
+import {
+    n1,
+    n2,
+    n3
+} from "test";

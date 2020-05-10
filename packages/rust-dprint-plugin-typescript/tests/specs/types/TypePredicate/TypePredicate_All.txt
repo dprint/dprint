@@ -37,3 +37,18 @@ class C {
     h(): asserts this is boolean {}
     i(): asserts this {}
 }
+
+== should not have a trailing space after the "is" ==
+function test(c: any): asserts c is
+    & testingggggg
+    & aaaaaaaaaaaaaaa
+    & othhheerrrr {
+}
+
+[expect]
+function test(c: any): asserts c is
+    & testingggggg
+    & aaaaaaaaaaaaaaa
+    & othhheerrrr
+{
+}

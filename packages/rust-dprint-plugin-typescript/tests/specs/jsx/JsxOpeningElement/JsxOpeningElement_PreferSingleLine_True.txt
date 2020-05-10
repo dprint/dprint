@@ -1,0 +1,43 @@
+-- filePath: file.tsx --
+~~ lineWidth: 50, jsxAttributes.preferSingleLine: true ~~
+== should format when has attributes below line width ==
+const t = <Test    attrib={5}    other="test"  > < /  Test  > ;
+
+[expect]
+const t = <Test attrib={5} other="test"></Test>;
+
+== should make the body multi-line when exceeding the line width ==
+const t = <Test attrib={5} otherAttrib="test" anotherVeryLongAttrib={234234}>Test</Test>;
+
+[expect]
+const t = <Test
+    attrib={5}
+    otherAttrib="test"
+    anotherVeryLongAttrib={234234}
+>
+    Test
+</Test>;
+
+== should revert back to being single line when the attributes are below the line width ==
+const t = (
+    <Test
+        attrib={5}
+        test="test"
+    >
+        Test
+    </Test>
+);
+
+[expect]
+const t = (
+    <Test attrib={5} test="test">
+        Test
+    </Test>
+);
+
+== should not make the attribs multi-line when first is on a different line ==
+const t = <A
+attrib={5} other={6}><B /></A>;
+
+[expect]
+const t = <A attrib={5} other={6}><B /></A>;

@@ -1,8 +1,8 @@
 ~~ useTabs: true, indentWidth: 4, lineWidth: 40 ~~
 == should use the specified indent width for the tab size ==
-const test = testingThisOutt + testtt + testingThisOut + testingthi + out;
+const test = testingThisOutt + testtt + testingThisOut + testingthi + outt;
 
 [expect]
 const test = testingThisOutt + testtt
 	+ testingThisOut + testingthi
-	+ out;
+	+ outt;

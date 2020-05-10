@@ -1,0 +1,31 @@
+~~ parameters.preferHanging: true, lineWidth: 40 ~~
+== should format the params as multi-line when the return type exceeds the line width ==
+type Test = (param: string) => str | number;
+
+[expect]
+type Test = (
+    param: string,
+) => str | number;
+
+== should format the return type on the same line when the rest of the header is hanging ==
+type Test = (param: string, otherParamTest) => str | number;
+
+[expect]
+type Test = (param: string,
+    otherParamTest) => str | number;
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+type Test = (param: string, otherParamTest) => str | number | other | other;
+
+[expect]
+type Test = (param: string,
+    otherParamTest
+) => str | number | other | other;
+
+== should make the single param multi-line when the return type extends beyond the line width ==
+type Test = (tttttt) => tttttttttttttttt;
+
+[expect]
+type Test = (
+    tttttt,
+) => tttttttttttttttt;

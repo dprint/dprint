@@ -1,0 +1,9 @@
+== should format a const assertion ==
+const defaultValues = {
+    lineWidth: 120
+} as const;
+
+[expect]
+const defaultValues = {
+    lineWidth: 120,
+} as const;

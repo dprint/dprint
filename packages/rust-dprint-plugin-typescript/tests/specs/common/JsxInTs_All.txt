@@ -1,0 +1,6 @@
+-- fileName: test.ts --
+== should support JSX in ts file ==
+const test     = <Test>Test</Test>;
+
+[expect]
+const test = <Test>Test</Test>;

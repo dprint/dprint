@@ -1,4 +1,3 @@
-import { PrintItemIterable } from "./printing";
 import { BaseResolvedConfiguration, ConfigurationDiagnostic, ResolvedConfiguration } from "./configuration";
 import { LoggingEnvironment } from "./environment";
 
@@ -10,8 +9,10 @@ export interface PluginInitializeOptions {
     globalConfig: ResolvedConfiguration;
 }
 
-/** Base interface a plugin must implement. */
-export interface BasePlugin<ResolvedPluginConfiguration = BaseResolvedConfiguration> {
+/**
+ * Plugin for dprint.
+ */
+export interface Plugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration> {
     /**
      * The package version of the plugin.
      */
@@ -37,27 +38,6 @@ export interface BasePlugin<ResolvedPluginConfiguration = BaseResolvedConfigurat
      * Gets the configuration diagnostics.
      */
     getConfigurationDiagnostics(): ConfigurationDiagnostic[];
-}
-
-/**
- * A plugin that only lives in JavaScript land.
- */
-export interface JsPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration>
-    extends BasePlugin<ResolvedPluginConfiguration>
-{
-    /**
-     * Parses the file to an iterable of print items.
-     * @returns An iterable of print items or false if the file said to skip parsing (ex. it had an ignore comment).
-     */
-    parseFile(filePath: string, fileText: string): PrintItemIterable | false;
-}
-
-/**
- * A plugin that may send the string to WebAssembly, in which it will print out the print items.
- */
-export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResolvedConfiguration = BaseResolvedConfiguration>
-    extends BasePlugin<ResolvedPluginConfiguration>
-{
     /**
      * Formats the provided file text.
      * @returns The formatted text or false if the file said to skip parsing (ex. it had an ignore comment).
@@ -66,23 +46,5 @@ export interface WebAssemblyPlugin<ResolvedPluginConfiguration extends BaseResol
     /**
      * Disposes any unmanaged resources held by the plugin.
      */
-    dispose(): void;
-}
-
-export type Plugin = WebAssemblyPlugin | JsPlugin;
-
-/**
- * Gets if the provided plugin is a js plugin.
- * @param plugin - Plugin to check.
- */
-export function isJsPlugin(plugin: Plugin): plugin is JsPlugin {
-    return (plugin as any as JsPlugin).parseFile != null;
-}
-
-/**
- * Gets if the provided plugin is a WebAssembly plugin.
- * @param plugin - Plugin to check.
- */
-export function isWebAssemblyPlugin(plugin: Plugin): plugin is WebAssemblyPlugin {
-    return (plugin as any as WebAssemblyPlugin).formatText != null;
+    dispose?(): void;
 }

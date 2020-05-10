@@ -1,0 +1,38 @@
+~~ trailingCommas: always, lineWidth: 40 ~~
+== should not do a trailing comma in rest parameters ==
+function foo(
+    a: A,
+    b: B,
+    ...c: C
+): void {}
+
+[expect]
+function foo(
+    a: A,
+    b: B,
+    ...c: C
+): void {}
+
+== should not do a trailing comma in array patterns ==
+const [a, b] = [1, 2, 3];
+const [a, ...b] = [1, 2, 3];
+
+[expect]
+const [a, b,] = [1, 2, 3,];
+const [a, ...b] = [1, 2, 3,];
+
+== should not do a trailing comma in object patterns ==
+const { a, b } = {};
+const { a, ...b } = {};
+
+[expect]
+const { a, b, } = {};
+const { a, ...b } = {};
+
+== should not use trailing commas on a dynamic import ==
+const ttttesssttt = import("testttttttt");
+
+[expect]
+const ttttesssttt = import(
+    "testttttttt"
+);

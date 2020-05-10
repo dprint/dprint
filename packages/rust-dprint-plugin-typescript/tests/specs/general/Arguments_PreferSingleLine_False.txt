@@ -1,0 +1,12 @@
+~~ arguments.preferSingleLine: false ~~
+== should keep multi-line when multi-line and below the line width ==
+call(
+    testing,
+    testing,
+);
+
+[expect]
+call(
+    testing,
+    testing,
+);

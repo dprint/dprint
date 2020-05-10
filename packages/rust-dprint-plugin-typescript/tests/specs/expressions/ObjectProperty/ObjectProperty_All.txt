@@ -9,7 +9,7 @@ const obj = {
 const obj = {
     prop, // test
     prop2: 2,
-    ["test"]: 4
+    ["test"]: 4,
 };
 
 == should indent arrow function expression appropriately ==
@@ -26,6 +26,6 @@ function test() {
     return {
         prop: () => {
             return 5;
-        }
+        },
     };
 }

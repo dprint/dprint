@@ -1,4 +1,4 @@
-import { PrintItemIterable, WebAssemblyPlugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { Plugin, PluginInitializeOptions, BaseResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
 
 /**
  * User specified configuration for formatting TypeScript code.
@@ -31,7 +31,7 @@ export interface TypeScriptConfiguration {
     semiColons?: "always" | "prefer" | "asi";
     /**
      * How to decide to use single or double quotes.
-     * @default "preferDouble"
+     * @default "alwaysDouble"
      * @value "alwaysDouble" - Always use double quotes.
      * @value "alwaysSingle" - Always use single quotes.
      * @value "preferDouble" - Prefer using double quotes except in scenarios where the string
@@ -42,8 +42,8 @@ export interface TypeScriptConfiguration {
     quoteStyle?: "alwaysDouble" | "alwaysSingle" | "preferDouble" | "preferSingle";
     /**
      * The kind of newline to use.
-     * @default "auto"
-     * @value "auto" - For each file, uses the newline kind found at the end of the last line.
+     * @default "lf"
+     * @value "auto" - For each file, uses the last newline kind found in the file.
      * @value "crlf" - Uses carriage return, line feed.
      * @value "lf" - Uses line feed.
      * @value "system" - Uses the system standard (ex. crlf on Windows).
@@ -85,7 +85,7 @@ export interface TypeScriptConfiguration {
     nextControlFlowPosition?: "maintain" | "sameLine" | "nextLine";
     /**
      * If trailing commas should be used.
-     * @default "never"
+     * @default "onlyMultiLine"
      * @value "never" - Trailing commas should not be used.
      * @value "always" - Trailing commas should always be used.
      * @value "onlyMultiLine" - Trailing commas should only be used in multi-line scenarios.
@@ -101,26 +101,19 @@ export interface TypeScriptConfiguration {
     operatorPosition?: "maintain" | "sameLine" | "nextLine";
     /**
      * Set to prefer hanging indentation when exceeding the line width.
-     * @remarks When set, this value propagates down as the default value for
-     * other configuration such as `preferHangingArguments` and
-     * `preferHangingParameters`.
      * @default false
      */
     preferHanging?: boolean;
     /**
-     * Prefers an argument list to be hanging when it exceeds the line width.
-     * @remarks It will be hanging when the first argument is on the same line
-     * as the open parenthesis and multi-line when on a different line.
+     * If code should revert back from being on multiple lines to being on a
+     * single line when able.
      * @default false
      */
-    preferHangingArguments?: boolean;
+    preferSingleLine?: boolean;
     /**
-     * Forces a parameter list to be multi-line when it exceeds the line width.
-     * @remarks It will be hanging when the first parameter is on the same line
-     * as the open parenthesis and multi-line when on a different line.
-     * @default false
+     * Top level configuration that sets the configuration to what is used in Deno.
      */
-    preferHangingParameters?: boolean;
+    deno?: boolean;
     /**
      * Whether to use parentheses around a single parameter in an arrow function.
      * @default "maintain"
@@ -128,7 +121,21 @@ export interface TypeScriptConfiguration {
      * @value "maintain" - Maintains the current state of the parentheses.
      * @value "preferNone" - Prefers not using parentheses when possible.
      */
-    "arrowFunctionExpression.useParentheses"?: "force" | "maintain" | "preferNone";
+    "arrowFunction.useParentheses"?: "force" | "maintain" | "preferNone";
+    /**
+     * Whether to force a line per expression when spanning multiple lines.
+     * @default false
+     * @value true - Formats with each part on a new line.
+     * @value false - Maintains the line breaks as written by the programmer.
+     */
+    "binaryExpression.linePerExpression"?: boolean;
+    /**
+     * Whether to force a line per expression when spanning multiple lines.
+     * @default false
+     * @value true - Formats with each part on a new line.
+     * @value false - Maintains the line breaks as written by the programmer.
+     */
+    "memberExpression.linePerExpression"?: boolean;
     /**
      * How to space the members of an enum.
      * @default "maintain"
@@ -146,7 +153,6 @@ export interface TypeScriptConfiguration {
     "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator"?: boolean;
     /**
      * Forces a space after the double slash in a comment line.
-     *
      * @default true
      * @value true - Ex. `//test` -> `// test`
      * @value false - Ex. `//test` -> `//test`
@@ -225,10 +231,17 @@ export interface TypeScriptConfiguration {
     /**
      * Whether to add a space before the parentheses of a function expression.
      * @default false
-     * @value true - Ex. `function ()`
-     * @value false - Ex. `function()`
+     * @value true - Ex. `function<T> ()`
+     * @value false - Ex. `function<T>()`
      */
     "functionExpression.spaceBeforeParentheses"?: boolean;
+    /**
+     * Whether to add a space after the function keyword of a function expression.
+     * @default false
+     * @value true - Ex. `function <T>()`
+     * @value false - Ex. `function<T>()`
+     */
+    "functionExpression.spaceAfterFunctionKeyword"?: boolean;
     /**
      * Whether to add a space before the parentheses of a get accessor.
      * @default false
@@ -299,12 +312,22 @@ export interface TypeScriptConfiguration {
      * @value false - Ex. `while(true)`
      */
     "whileStatement.spaceAfterWhileKeyword"?: boolean;
+    /**
+     * The text to use for an ignore comment (ex. `// dprint-ignore`).
+     * @default `"dprint-ignore"`
+     */
+    ignoreNodeCommentText?: string;
+    /**
+     * The text to use for a file ignore comment (ex. `// dprint-ignore-file`).
+     * @default `"dprint-ignore-file"`
+     */
+    ignoreFileCommentText?: string;
     "forInStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forOfStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "forStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "ifStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
     "whileStatement.useBraces"?: TypeScriptConfiguration["useBraces"];
-    "arrowFunctionExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
+    "arrowFunction.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "classDeclaration.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "classExpression.bracePosition"?: TypeScriptConfiguration["bracePosition"];
     "constructor.bracePosition"?: TypeScriptConfiguration["bracePosition"];
@@ -332,13 +355,20 @@ export interface TypeScriptConfiguration {
     "whileStatement.singleBodyPosition"?: TypeScriptConfiguration["singleBodyPosition"];
     "ifStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
     "tryStatement.nextControlFlowPosition"?: TypeScriptConfiguration["nextControlFlowPosition"];
+    "arguments.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "parameters.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "arrayExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "arrayPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "enumDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "exportDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "importDeclaration.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "objectExpression.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "objectPattern.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "tupleType.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
+    "typeParameters.trailingCommas"?: TypeScriptConfiguration["trailingCommas"];
     "binaryExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
     "conditionalExpression.operatorPosition"?: TypeScriptConfiguration["operatorPosition"];
+    "arguments.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "arrayPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "doWhileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
@@ -350,28 +380,42 @@ export interface TypeScriptConfiguration {
     "ifStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "implementsClause.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "importDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "jsxAttributes.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "objectPattern.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "parameters.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "sequenceExpression.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "switchStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "tupleType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "typeLiteral.preferHanging"?: TypeScriptConfiguration["preferHanging"];
-    "typeParameterDeclaration.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "typeParameters.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "unionAndIntersectionType.preferHanging"?: TypeScriptConfiguration["preferHanging"];
+    "variableStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
     "whileStatement.preferHanging"?: TypeScriptConfiguration["preferHanging"];
-    "callExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
-    "newExpression.preferHangingArguments"?: TypeScriptConfiguration["preferHangingArguments"];
-    "arrowFunctionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "callSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "constructor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "constructorType.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "constructSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "functionDeclaration.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "functionExpression.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "functionType.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "getAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "method.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "methodSignature.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
-    "setAccessor.preferHangingParameters"?: TypeScriptConfiguration["preferHangingParameters"];
+    "arrayExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "arrayPattern.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "arguments.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "binaryExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "computed.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "conditionalExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "conditionalType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "decorators.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "exportDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "forStatement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "importDeclaration.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "jsxAttributes.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "jsxElement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "mappedType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "memberExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "objectExpression.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "objectPattern.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "parameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "parentheses.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "tupleType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "typeLiteral.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "typeParameters.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "unionAndIntersectionType.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
+    "variableStatement.preferSingleLine"?: TypeScriptConfiguration["preferSingleLine"];
 }
 
 /**
@@ -385,12 +429,14 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "forStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;
     readonly "ifStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;
     readonly "whileStatement.useBraces": NonNullable<TypeScriptConfiguration["useBraces"]>;
-    readonly "arrowFunctionExpression.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "arrowFunction.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "classDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "classExpression.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "constructor.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "doWhileStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "enumDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "exportDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
+    readonly "importDeclaration.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forInStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forOfStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
     readonly "forStatement.bracePosition": NonNullable<TypeScriptConfiguration["bracePosition"]>;
@@ -413,13 +459,20 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "whileStatement.singleBodyPosition": TypeScriptConfiguration["singleBodyPosition"];
     readonly "ifStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
     readonly "tryStatement.nextControlFlowPosition": NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>;
+    readonly "arguments.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "parameters.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "arrayExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "arrayPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "enumDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "exportDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "importDeclaration.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "objectExpression.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "objectPattern.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
+    readonly "typeParameters.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "tupleType.trailingCommas": NonNullable<TypeScriptConfiguration["trailingCommas"]>;
     readonly "binaryExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
     readonly "conditionalExpression.operatorPosition": NonNullable<TypeScriptConfiguration["operatorPosition"]>;
+    readonly "arguments.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "arrayPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "doWhileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
@@ -431,29 +484,45 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "ifStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "implementsClause.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "importDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "jsxAttributes.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "objectPattern.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "parameters.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "sequenceExpression.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "switchStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "tupleType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "typeLiteral.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
-    readonly "typeParameterDeclaration.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "typeParameters.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "unionAndIntersectionType.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
+    readonly "variableStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
     readonly "whileStatement.preferHanging": NonNullable<TypeScriptConfiguration["preferHanging"]>;
-    readonly "callExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
-    readonly "newExpression.preferHangingArguments": NonNullable<TypeScriptConfiguration["preferHangingArguments"]>;
-    readonly "arrowFunctionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "callSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "constructor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "constructorType.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "constructSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "functionDeclaration.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "functionExpression.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "functionType.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "getAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "method.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "methodSignature.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "setAccessor.preferHangingParameters": NonNullable<TypeScriptConfiguration["preferHangingParameters"]>;
-    readonly "arrowFunctionExpression.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunctionExpression.useParentheses"]>;
+    readonly "arrayExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "arrayPattern.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "arguments.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "binaryExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "computed.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "conditionalExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "conditionalType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "decorators.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "exportDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "forStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "importDeclaration.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "jsxAttributes.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "jsxElement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "mappedType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "memberExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "objectExpression.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "objectPattern.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "parameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "parentheses.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "tupleType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "typeLiteral.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "typeParameters.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "unionAndIntersectionType.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "variableStatement.preferSingleLine": NonNullable<TypeScriptConfiguration["preferSingleLine"]>;
+    readonly "arrowFunction.useParentheses": NonNullable<TypeScriptConfiguration["arrowFunction.useParentheses"]>;
+    readonly "binaryExpression.linePerExpression": NonNullable<TypeScriptConfiguration["binaryExpression.linePerExpression"]>;
+    readonly "memberExpression.linePerExpression": NonNullable<TypeScriptConfiguration["memberExpression.linePerExpression"]>;
     readonly "enumDeclaration.memberSpacing": NonNullable<TypeScriptConfiguration["enumDeclaration.memberSpacing"]>;
     readonly "binaryExpression.spaceSurroundingBitwiseAndArithmeticOperator": boolean;
     readonly "commentLine.forceSpaceAfterSlashes": boolean;
@@ -467,6 +536,7 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "forStatement.spaceAfterForKeyword": boolean;
     readonly "forStatement.spaceAfterSemiColons": boolean;
     readonly "functionDeclaration.spaceBeforeParentheses": boolean;
+    readonly "functionExpression.spaceAfterFunctionKeyword": boolean;
     readonly "functionExpression.spaceBeforeParentheses": boolean;
     readonly "getAccessor.spaceBeforeParentheses": boolean;
     readonly "ifStatement.spaceAfterIfKeyword": boolean;
@@ -478,12 +548,14 @@ export interface ResolvedTypeScriptConfiguration extends BaseResolvedConfigurati
     readonly "typeAnnotation.spaceBeforeColon": boolean;
     readonly "typeAssertion.spaceBeforeExpression": boolean;
     readonly "whileStatement.spaceAfterWhileKeyword": boolean;
+    readonly ignoreNodeCommentText: string;
+    readonly ignoreFileCommentText: string;
 }
 
 /**
  * Plugin for formatting TypeScript code (.ts/.tsx/.js/.jsx files).
  */
-export declare class TypeScriptPlugin implements WebAssemblyPlugin<ResolvedTypeScriptConfiguration> {
+export declare class TypeScriptPlugin implements Plugin<ResolvedTypeScriptConfiguration> {
     /**
      * Constructor.
      * @param config - The configuration to use.

@@ -1,19 +1,25 @@
 # dprint
 
 [![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
-[![Build Status](https://travis-ci.org/dsherret/dprint.svg?branch=master)](https://travis-ci.org/dsherret/dprint)
+[![Build Status](https://travis-ci.com/dprint/dprint.svg?branch=master)](https://travis-ci.com/dprint/dprint)
 
-Mono-repo for dprint—a configurable and plugable code formatter.
-
-* [dprint](packages/dprint) - CLI tool.
-* [dprint-plugin-typescript](packages/rust-dprint-plugin-typescript) (Rust) - Plugin for TypeScript formatting.
-* [dprint-plugin-jsonc](packages/dprint-plugin-jsonc) - Plugin for JSONC formatting.
-* [@dprint/core](packages/core) - Core functionality and library for creating formatters in TypeScript.
-* [dprint-core](packages/rust-core) (Rust) - Library for creating formatters in Rust.
+Mono-repo for dprint—a configurable and pluggable code formatter.
 
 This library is under active early development. I recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
 
 Currently only TypeScript, Javascript, and JSONC are supported.
+
+## Links
+
+* [Overview](https://dprint.dev)
+* [Playground](https://dprint.dev/playground)
+* [Algorithm overview](docs/overview.md)
+
+## Future
+
+This project is slowly moving towards a Rust-only CLI independent of any language specific ecosystem.
+
+The configuration, install, and setup instructions below will change. See issue [#194](https://github.com/dprint/dprint/issues/194) for more details.
 
 ## Install
 
@@ -45,16 +51,16 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             useBraces: "preferNone",
-            "tryStatement.nextControlFlowPosition": "sameLine"
+            "tryStatement.nextControlFlowPosition": "sameLine",
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     // this could also be specified as a command line argument
     includes: ["**/*.{ts,tsx,json,js,jsx}"],
     // optionally specify file globs for files to ignore
-    excludes: []
+    excludes: [],
 };
 ```
 
@@ -76,8 +82,3 @@ yarn format
 # or
 npm run format
 ```
-
-## Links
-
-* [Playground](https://dprint.dev/playground)
-* [Algorithm overview](docs/overview.md)

@@ -1,8 +1,12 @@
 ~~ semiColons: asi ~~
 == should use semi-colons regardless ==
 for (var i = 5; i < 5; i++) {
+    var t = 4;
+    test;
 }
 
 [expect]
 for (var i = 5; i < 5; i++) {
+    var t = 4
+    test
 }

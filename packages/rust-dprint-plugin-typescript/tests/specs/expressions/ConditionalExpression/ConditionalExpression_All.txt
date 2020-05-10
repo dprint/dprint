@@ -21,34 +21,6 @@ testingThis
     ? test2
     : testingThis;
 
-== should use newlines when both are newlines ==
-test
-    ? 1
-    : 2;
-
-[expect]
-test
-    ? 1
-    : 2;
-
-== should use newlines when only the first is ==
-test
-    ? 1 : 2;
-
-[expect]
-test
-    ? 1
-    : 2;
-
-== should use newlines when only the second is ==
-test ? 1
-    : 2;
-
-[expect]
-test
-    ? 1
-    : 2;
-
 == should not use newlines when the first and second start on the same line, but the second goes onto multiple lines ==
 test ? test : a.b(m => {
     return 5;
@@ -59,24 +31,82 @@ test ? test : a.b(m => {
     return 5;
 });
 
-== should handle nested conditionals ==
+== should handle multi-line nested conditionals ==
 test
-    ? 1
+    ? testtttt
     : test
     ? 3
     : 4;
 
 [expect]
 test
+    ? testtttt
+    : test
+    ? 3
+    : 4;
+
+== should handle single line nested conditionals ==
+test ? 1 : test ? 3 : 46666666;
+
+[expect]
+test
     ? 1
     : test
-        ? 3
-        : 4;
+    ? 3
+    : 46666666;
+
+== should handle single line nested conditionals that exceed line width twice ==
+test ? 1 : test ? 3 : 466666666666666666666;
+
+[expect]
+test
+    ? 1
+    : test
+    ? 3
+    : 466666666666666666666;
+
+== additional nested condition test (from Deno's code) ==
+function test() {
+    return c === 0x30 /* 0 */
+        ? "\x00"
+        : c === 0x61 /* a */
+        ? "\x07"
+        : c === 0x62 /* b */
+        ? "\x08"
+        : "";
+}
+
+[expect]
+function test() {
+    return c === 0x30 /* 0 */
+        ? "\x00"
+        : c === 0x61 /* a */
+        ? "\x07"
+        : c === 0x62 /* b */
+        ? "\x08"
+        : "";
+}
+
+== should handle nested conditionals with the nested conditional being after the question mark ==
+test
+    ? 1
+    : test
+    ? 3 ? 5555555555555555555555555555 : 44444444444444
+    : 4;
+
+[expect]
+test
+    ? 1
+    : test
+    ? 3
+        ? 5555555555555555555555555555
+        : 44444444444444
+    : 4;
 
 == should handle when the semi-colon falls exactly on the line width ==
-test ? testingThis : outABit1;
+test ? testingThis : outABittt;
 
 [expect]
 test
     ? testingThis
-    : outABit1;
+    : outABittt;

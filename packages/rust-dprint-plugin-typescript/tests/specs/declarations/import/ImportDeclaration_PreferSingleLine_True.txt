@@ -1,0 +1,34 @@
+~~ lineWidth: 40, importDeclaration.preferSingleLine: true ~~
+== should format on a single line when short enough ==
+import {
+    n1,
+    n2,
+    n3,
+} from "test";
+
+[expect]
+import { n1, n2, n3 } from "test";
+
+== should format on multiple lines when long enough ==
+import {
+    testing,
+    thisOut,
+    aBit,
+} from "test";
+
+[expect]
+import {
+    testing,
+    thisOut,
+    aBit,
+} from "test";
+
+== should format on multiple lines when short enough, but there's a comment ==
+import {
+    testing, // 1
+} from "test";
+
+[expect]
+import {
+    testing, // 1
+} from "test";

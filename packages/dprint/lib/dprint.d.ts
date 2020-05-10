@@ -26,6 +26,9 @@ export declare class CliEnvironment extends CliLoggingEnvironment implements Env
     exists(filePath: string): Promise<boolean>;
     glob(patterns: string[]): Promise<string[]>;
     require(filePath: string): Promise<unknown>;
+    rename(oldFilePath: string, newFilePath: string): Promise<void>;
+    unlink(filePath: string): Promise<void>;
+    unlinkSync(filePath: string): void;
 }
 
 /** Represents an execution environment. */
@@ -37,4 +40,7 @@ export interface Environment extends LoggingEnvironment {
     exists(filePath: string): Promise<boolean>;
     glob(patterns: string[]): Promise<string[]>;
     require(path: string): Promise<unknown>;
+    rename(oldFilePath: string, newFilePath: string): Promise<void>;
+    unlink(filePath: string): void;
+    unlinkSync(filePath: string): void;
 }

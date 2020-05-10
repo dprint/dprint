@@ -1,0 +1,19 @@
+~~ parameters.preferHanging: true, lineWidth: 80 ~~
+== should format params with a hanging indent by default ==
+const t = (here, are, some, parens, that, will, go, over, the, limit, off, width, source, file) => {
+}
+
+[expect]
+const t = (here, are, some, parens, that, will, go, over, the, limit, off,
+    width, source, file) =>
+{
+};
+
+== should revert a hanging indent to a single line if short enough ==
+const t = (p1, p2,
+    p3) => {
+}
+
+[expect]
+const t = (p1, p2, p3) => {
+};

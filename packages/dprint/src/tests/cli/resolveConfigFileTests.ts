@@ -24,7 +24,7 @@ describe(nameof(resolveConfigFile), () => {
         expect(err.message).to.equal(
             "[dprint]: Could not find configuration file at '/dprint.config.js'. "
                 + "Did you mean to create one (dprint --init) or specify a --config option?\n\n"
-                + "Error: File not found."
+                + "Error: File not found.",
         );
     });
 
@@ -35,7 +35,7 @@ describe(nameof(resolveConfigFile), () => {
         expect(err.message).to.equal(
             "[dprint]: Could not find specified configuration file at '/file.test.js'. "
                 + "Did you mean to create it?\n\n"
-                + "Error: File not found."
+                + "Error: File not found.",
         );
     });
 
@@ -43,8 +43,8 @@ describe(nameof(resolveConfigFile), () => {
         const environment = new TestEnvironment();
         environment.setRequireObject("/dprint.config.js", {
             config: {
-                semiColons: true
-            }
+                semiColons: true,
+            },
         });
         const config = await resolveConfigFile(undefined, environment);
 
@@ -56,8 +56,8 @@ describe(nameof(resolveConfigFile), () => {
         const environment = new TestEnvironment();
         environment.setRequireObject("/file.js", {
             config: {
-                semiColons: true
-            }
+                semiColons: true,
+            },
         });
         const config = await resolveConfigFile("file.js", environment);
 
@@ -71,7 +71,7 @@ describe(nameof(resolveConfigFile), () => {
         const err = await getError("file.js", environment);
 
         expect(err.message).to.equal(
-            "[dprint]: Expected an object to be exported on the 'config' named export of the configuration at '/file.js'."
+            "[dprint]: Expected an object to be exported on the 'config' named export of the configuration at '/file.js'.",
         );
     });
 });

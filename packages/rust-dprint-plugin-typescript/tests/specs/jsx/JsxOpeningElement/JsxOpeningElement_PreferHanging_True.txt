@@ -1,0 +1,44 @@
+-- filePath: file.tsx --
+~~ lineWidth: 50, jsxAttributes.preferHanging: true ~~
+== should format when has attributes below line width ==
+const t = <Test    attrib={5}    other="test"  > < /  Test  > ;
+
+[expect]
+const t = <Test attrib={5} other="test"></Test>;
+
+== should make the body multi-line when the header is hanging ==
+const t = <Test attrib={5} otherAttrib="test" anotherVeryLongAttrib={234234}>Test</Test>;
+
+[expect]
+const t = <Test attrib={5} otherAttrib="test"
+    anotherVeryLongAttrib={234234}
+>
+    Test
+</Test>;
+
+== should make the body multi-line when the header is hanging and inside parens ==
+const t = (
+    <Test attrib={5} otherVeryLongAttrib="test" anotherVeryLongAttrib={234234}>Test</Test>
+);
+
+[expect]
+const t = (
+    <Test attrib={5} otherVeryLongAttrib="test"
+        anotherVeryLongAttrib={234234}
+    >
+        Test
+    </Test>
+);
+
+== should make the attribs multi-line when first is on a different line ==
+const t = <Test
+attrib={5} other={6}><Test /><Test /></Test>;
+
+[expect]
+const t = <Test
+    attrib={5}
+    other={6}
+>
+    <Test />
+    <Test />
+</Test>;

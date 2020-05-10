@@ -1,0 +1,32 @@
+~~ lineWidth: 40, binaryExpression.linePerExpression: true ~~
+== should go full multi-line when exceeding the width ==
+testing + asdf + out + asdf + when + it + passes + thelineWidth + someMore;
+
+[expect]
+testing
+    + asdf
+    + out
+    + asdf
+    + when
+    + it
+    + passes
+    + thelineWidth
+    + someMore;
+
+== should maintain single line when below the width ==
+testing + asdf + out;
+
+[expect]
+testing + asdf + out;
+
+== should go multi-line when the first and second are on different lines ==
+testing
+    + asdf + out;
+testing + asdf
+    + out;
+
+[expect]
+testing
+    + asdf
+    + out;
+testing + asdf + out;

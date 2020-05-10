@@ -1,0 +1,44 @@
+~~ parameters.preferHanging: true, lineWidth: 40 ~~
+== should format params with a hanging indent ==
+function test(here, are, some, parens, thatGoLong) {
+}
+
+[expect]
+function test(here, are, some, parens,
+    thatGoLong)
+{
+}
+
+== should revert a hanging indent to a single line if short enough ==
+function test(p1, p2,
+    p3) {
+}
+
+[expect]
+function test(p1, p2, p3) {
+}
+
+== should format the return type on the same line when the rest of the header is hanging ==
+function testing(param: string, other: number): testing | this {
+}
+
+[expect]
+function testing(param: string,
+    other: number): testing | this
+{
+}
+
+== should format the return type on a new line when it's multi-line and the rest of the header is hanging ==
+function testing(param: string, other: number): testing | other | other | testingThis {
+}
+
+[expect]
+function testing(param: string,
+    other: number
+):
+    | testing
+    | other
+    | other
+    | testingThis
+{
+}

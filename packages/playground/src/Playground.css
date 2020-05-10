@@ -1,9 +1,4 @@
 /* header */
-body {
-  background-color: #000;
-  color: white;
-}
-
 .appHeader {
   background-color: #282c34;
   display: flex;
@@ -25,9 +20,8 @@ a {
 }
 
 #headerRight {
-  /* todo: this should not do this (requires duplicating right value with above padding) */
-  position: absolute;
-  right: 15px;
+  flex: 1;
+  text-align: right;
 }
 
 #headerRight a:not(:first-child) {

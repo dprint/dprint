@@ -9,14 +9,18 @@
 564585555 as string | number | other | other;
 
 [expect]
-564585555 as string | number | other
+564585555 as
+    | string
+    | number
+    | other
     | other;
 
-== should indent the as expression when initial expression is hanging and the as expression is hanging ==
+== should indent the as expression when initial expression is hanging and the as expression is multi-line ==
 testingtesting()
     .find(p => p.testing) as string | undefined;
 
 [expect]
 testingtesting()
-    .find(p => p.testing) as string
+    .find(p => p.testing) as
+        | string
         | undefined;

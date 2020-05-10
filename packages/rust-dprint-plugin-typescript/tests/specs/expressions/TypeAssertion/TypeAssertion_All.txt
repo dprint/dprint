@@ -9,5 +9,9 @@
 <string | number | other | other>5;
 
 [expect]
-<string | number | other
-    | other> 5;
+<
+    | string
+    | number
+    | other
+    | other
+> 5;

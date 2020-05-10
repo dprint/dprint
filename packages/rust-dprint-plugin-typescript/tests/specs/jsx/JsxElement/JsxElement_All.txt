@@ -79,7 +79,8 @@ const t = <Test>
 const t = <Test testingThisOut={5} other={longVariable}><Test /></Test>;
 
 [expect]
-const t = <Test testingThisOut={5}
+const t = <Test
+    testingThisOut={5}
     other={longVariable}
 >
     <Test />
@@ -107,7 +108,7 @@ const t = <Element>
     {other}
 </Element>;
 
-== should keep jsx text on the same line for a preceeding text with and without a space ==
+== should keep jsx text on the same line for a preceding text with and without a space ==
 const t = <Element>
     Test: {title}
     Test{other}

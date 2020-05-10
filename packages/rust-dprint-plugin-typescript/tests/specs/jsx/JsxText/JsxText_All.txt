@@ -1,4 +1,5 @@
 -- filePath: file.tsx --
+~~ lineWidth: 50 ~~
 == should format when single line ==
 const t = <>  Testing this out  </>;
 
@@ -12,7 +13,7 @@ const t = <>
 some text
 
 
-that has many blank lines between
+that has many blank lines
 and a single line
     </>;
 
@@ -22,8 +23,7 @@ const t = <>
 
     some text
 
-    that has many blank lines between
-    and a single line
+    that has many blank lines and a single line
 </>;
 
 == should keep character entities ==
@@ -31,3 +31,14 @@ const t = <span>&nbsp;|&nbsp;</span>;
 
 [expect]
 const t = <span>&nbsp;|&nbsp;</span>;
+
+== should wrap a single line to multiple lines ==
+const t = <>
+    Here is some text that will exceed the line width, but will be wrapped because of it.
+</>;
+
+[expect]
+const t = <>
+    Here is some text that will exceed the line
+    width, but will be wrapped because of it.
+</>;

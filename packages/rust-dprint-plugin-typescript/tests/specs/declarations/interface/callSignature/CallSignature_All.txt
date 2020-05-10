@@ -4,11 +4,10 @@ interface T {
     (): void;
     <T>(a: T): T;
     <T, U, V>(): string;
+    <TestingThisOut, WithSomeTypeParams>(): string;
     (a: string, b: number): string;
     (param: string, otherParameter: number): str;
-    (
-    param: string
-    ): number;
+    (  param: string    ): number;
 }
 
 [expect]
@@ -16,25 +15,29 @@ interface T {
     (): void;
     <T>(a: T): T;
     <T, U, V>(): string;
+    <
+        TestingThisOut,
+        WithSomeTypeParams,
+    >(): string;
     (a: string, b: number): string;
     (
         param: string,
-        otherParameter: number
+        otherParameter: number,
     ): str;
-    (
-        param: string
-    ): number;
+    (param: string): number;
 }
 
-== should format the return type as hanging when it's hanging ==
+== should format the params as multi-line when the return type exceeds the line width ==
 interface T {
     (param: string, p2: 5): testing | number;
 }
 
 [expect]
 interface T {
-    (param: string, p2: 5): testing
-        | number;
+    (
+        param: string,
+        p2: 5,
+    ): testing | number;
 }
 
 == should force multi-line parameters when exceeding the line width ==
@@ -48,7 +51,7 @@ interface T {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ): void;
 }
 

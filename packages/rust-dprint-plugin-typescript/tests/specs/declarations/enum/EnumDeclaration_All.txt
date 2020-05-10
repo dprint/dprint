@@ -26,7 +26,7 @@ declare enum Test
 [expect]
 declare enum Test {
     member1,
-    member2
+    member2,
 }
 
 == should format with only comments ==
@@ -54,7 +54,7 @@ enum Test {
     /* test */
     member3,
     /** test */
-    member4
+    member4,
 }
 
 [expect]
@@ -66,5 +66,5 @@ enum Test {
     /* test */
     member3,
     /** test */
-    member4
+    member4,
 }

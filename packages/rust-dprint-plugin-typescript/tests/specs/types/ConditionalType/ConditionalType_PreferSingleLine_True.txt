@@ -1,0 +1,17 @@
+~~ lineWidth: 55, conditionalType.preferSingleLine: true ~~
+== should collapse to one line when able ==
+type Type<T> = T   extends  string ?
+    number
+    : boolean;
+
+[expect]
+type Type<T> = T extends string ? number : boolean;
+
+== should format all as "multi-line" when going past line width ==
+type Type<T> = T extends string ? number : T extends number ? boolean : T extends other ? string : boolean;
+
+[expect]
+type Type<T> = T extends string ? number
+    : T extends number ? boolean
+    : T extends other ? string
+    : boolean;

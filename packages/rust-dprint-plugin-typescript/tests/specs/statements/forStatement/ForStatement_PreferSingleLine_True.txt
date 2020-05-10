@@ -1,0 +1,16 @@
+~~ lineWidth: 40, forStatement.preferSingleLine: true ~~
+== should go back to single line when fits on one line -- remember, parentheses.preferSingleLine is false here ==
+for (
+    let i = 0;
+    i < 5;
+    i++
+) {
+    a;
+}
+
+[expect]
+for (
+    let i = 0; i < 5; i++
+) {
+    a;
+}

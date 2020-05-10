@@ -1,4 +1,4 @@
-~~ functionExpression.bracePosition: sameLine, functionExpression.preferHangingParameters: true, lineWidth: 35 ~~
+~~ functionExpression.bracePosition: sameLine, parameters.preferHanging: true, lineWidth: 35 ~~
 == should use the same line for the brace position ==
 const t = function()
 {

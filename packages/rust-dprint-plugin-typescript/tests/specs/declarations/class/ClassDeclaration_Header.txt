@@ -153,7 +153,7 @@ export class Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 export class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > {
 }
 
@@ -165,7 +165,7 @@ export class Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Test 
 export class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > extends Test {
 }
 
@@ -178,7 +178,7 @@ TestingThisOut, WithVeryLong, TypeParameterList> {
 export class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > {
 }
 
@@ -191,7 +191,7 @@ export class Test<
 export class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > extends Test {
 }
 

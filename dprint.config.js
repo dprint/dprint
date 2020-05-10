@@ -11,16 +11,18 @@ module.exports.config = {
             useBraces: "preferNone",
             singleBodyPosition: "nextLine",
             preferHanging: true,
+            preferSingleLine: false,
             nextControlFlowPosition: "nextLine",
-            "arrowFunctionExpression.useParentheses": "preferNone",
-            "tryStatement.nextControlFlowPosition": "sameLine"
+            semiColons: "always",
+            "arrowFunction.useParentheses": "preferNone",
+            "tryStatement.nextControlFlowPosition": "sameLine",
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     includes: [
-        "**/*.{ts,tsx,json,js,jsx}"
+        "**/*.{ts,tsx,js,jsx,json}",
     ],
     excludes: [
         "packages/playground/public/vs/**/*.*",
@@ -28,6 +30,6 @@ module.exports.config = {
         "build-website/**/*.*",
         "**/dist/**/*.*",
         "**/target/**/*.*",
-        "**/wasm/**/*.*"
-    ]
+        "**/wasm/**/*.*",
+    ],
 };

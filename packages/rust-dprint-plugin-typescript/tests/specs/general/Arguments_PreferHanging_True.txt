@@ -1,0 +1,48 @@
+~~ lineWidth: 80, arguments.preferHanging: true ~~
+== should use the parenthesis before the argument for deciding whether to use multiple lines ==
+function test() {
+    call(fileNames).then(() => {
+    }).catch(/*istanbul ignore next*/ err => {
+        onFinished(err);
+    });
+}
+
+[expect]
+function test() {
+    call(fileNames).then(() => {
+    }).catch(/*istanbul ignore next*/ err => {
+        onFinished(err);
+    });
+}
+
+== should put the argument that goes over the width on a newline rather than the property value start ==
+const obj = {
+    "testing": call(asdfasdfkjasdfasdfasdf, asdfasdfasdfasdfasdfasdfasdfasdfsadfas)
+};
+
+[expect]
+const obj = {
+    "testing": call(asdfasdfkjasdfasdfasdf,
+        asdfasdfasdfasdfasdfasdfasdfasdfsadfas),
+};
+
+== should not indent within object literal ==
+export function test() {
+    const obj = new Test({
+        prop: ""
+    });
+}
+
+[expect]
+export function test() {
+    const obj = new Test({
+        prop: "",
+    });
+}
+
+== should not split up within an argument that exceeds the line width ==
+test(param1, testingThisOut, testingThisOut, moreAndMoreAndMore, test * other * 1000);
+
+[expect]
+test(param1, testingThisOut, testingThisOut, moreAndMoreAndMore,
+    test * other * 1000);

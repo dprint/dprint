@@ -5,21 +5,36 @@ const fs = require("fs");
 const { minify } = require("html-minifier");
 const CleanCss = require("clean-css");
 
-// update index.html
 initCodeHighlightExtension();
+
+const templateHtmlPageFilePath = "build-website/template.html";
+const templateHtmlPageText = fs.readFileSync(templateHtmlPageFilePath, { encoding: "utf8" });
 
 const converter = new showdown.Converter({ extensions: ["codehighlight"] });
 converter.setFlavor("github");
-const markdownAsHtml = converter.makeHtml(fs.readFileSync("docs/home.md", { encoding: "utf8" }));
 
-const indexPageFilePath = "build-website/index.html";
-const indexPageText = fs.readFileSync(indexPageFilePath, { encoding: "utf8" });
-fs.writeFileSync(indexPageFilePath, minify(indexPageText.replace("<!-- inject -->", markdownAsHtml), { collapseWhitespace: true }));
+// index.html
+const indexMd = fs.readFileSync("docs/home.md", { encoding: "utf8" });
+fs.writeFileSync("build-website/index.html", processMarkdown(indexMd));
+
+// sponsor/index.html
+const sponsorMd = fs.readFileSync("docs/sponsor.md", { encoding: "utf8" });
+fs.mkdirSync("build-website/sponsor");
+fs.writeFileSync("build-website/sponsor/index.html", processMarkdown(sponsorMd));
 
 // minify index.css
-const indexCssPageFilePath = "build-website/index.css";
-const indexCssPageText = fs.readFileSync(indexCssPageFilePath, { encoding: "utf8" });
-fs.writeFileSync(indexCssPageFilePath, new CleanCss().minify(indexCssPageText).styles);
+const styleCssPageFilePath = "build-website/style.css";
+const indexCssPageText = fs.readFileSync(styleCssPageFilePath, { encoding: "utf8" });
+fs.writeFileSync(styleCssPageFilePath, new CleanCss().minify(indexCssPageText).styles);
+
+// cleanup
+fs.unlinkSync(templateHtmlPageFilePath);
+
+/** @param {string} [mdText] - Markdown to format. */
+function processMarkdown(mdText) {
+    const innerHtml = converter.makeHtml(mdText);
+    return minify(templateHtmlPageText.replace("<!-- inject -->", innerHtml), { collapseWhitespace: true });
+}
 
 function initCodeHighlightExtension() {
     // from https://github.com/showdownjs/showdown/issues/215#issuecomment-168679324
@@ -37,7 +52,7 @@ function initCodeHighlightExtension() {
                     return left + hljs.highlight(getLanguage(left), match).value + right;
                 };
                 return showdown.helper.replaceRecursiveRegExp(text, replacement, left, right, flags);
-            }
+            },
         }];
 
         function getLanguage(left) {

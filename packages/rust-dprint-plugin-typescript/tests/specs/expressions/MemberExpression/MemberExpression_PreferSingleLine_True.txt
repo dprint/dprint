@@ -1,0 +1,20 @@
+~~ lineWidth: 40, memberExpression.preferSingleLine: true ~~
+== should move expressions to be single line when able ==
+obj.prop.otherProp;
+obj
+    .prop[ "computed"   ]
+    .test;
+testing
+    .this
+    .out
+    .a.lot
+    .more;
+testing.this.out.for.when.it.passes.thelineWidth
+    .someMore;
+
+[expect]
+obj.prop.otherProp;
+obj.prop["computed"].test;
+testing.this.out.a.lot.more;
+testing.this.out.for.when.it.passes
+    .thelineWidth.someMore;

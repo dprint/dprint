@@ -1,13 +1,14 @@
 import { expect } from "chai";
 import * as os from "os";
-import { Configuration, resolveConfiguration, ConfigurationDiagnostic, ResolvedConfiguration } from "../../configuration";
+import { Configuration, ResolvedConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { resolveConfiguration } from "../../configuration";
 
 describe(nameof(resolveConfiguration), () => {
     function doTest(
         config: Partial<Configuration>,
         expectedConfig: Partial<ResolvedConfiguration>,
         propertyFilter: (propName: keyof ResolvedConfiguration) => boolean,
-        expectedDiagnostics: ConfigurationDiagnostic[] = []
+        expectedDiagnostics: ConfigurationDiagnostic[] = [],
     ) {
         const resolvedConfig = resolveConfiguration(config);
         for (const propName in resolvedConfig.config) {
@@ -23,21 +24,21 @@ describe(nameof(resolveConfiguration), () => {
         it("should do a diagnostic when providing an incorrect number value", () => {
             doTest({ lineWidth: false as any as number }, {}, () => false, [{
                 message: "Expected the configuration for 'lineWidth' to be a number, but its value was: false",
-                propertyName: "lineWidth"
+                propertyName: "lineWidth",
             }]);
         });
 
         it("should do a diagnostic when providing an incorrect boolean value", () => {
             doTest({ useTabs: 5 as any as boolean }, {}, () => false, [{
                 message: "Expected the configuration for 'useTabs' to be a boolean, but its value was: 5",
-                propertyName: "useTabs"
+                propertyName: "useTabs",
             }]);
         });
 
         it("should do a diagnostic when providing an excess property", () => {
             doTest({ asdf: 5 } as any, {}, () => false, [{
                 message: "Unknown property in configuration: asdf",
-                propertyName: "asdf"
+                propertyName: "asdf",
             }]);
         });
     });
@@ -47,8 +48,8 @@ describe(nameof(resolveConfiguration), () => {
             doTest({}, {
                 indentWidth: 4,
                 lineWidth: 120,
-                newLineKind: "auto",
-                useTabs: false
+                newLineKind: "lf",
+                useTabs: false,
             }, () => true);
         });
 
@@ -57,12 +58,12 @@ describe(nameof(resolveConfiguration), () => {
                 indentWidth: 2,
                 lineWidth: 80,
                 newLineKind: "crlf",
-                useTabs: true
+                useTabs: true,
             }, {
                 indentWidth: 2,
                 lineWidth: 80,
-                newLineKind: "\r\n",
-                useTabs: true
+                newLineKind: "crlf",
+                useTabs: true,
             }, () => true);
         });
     });
@@ -73,7 +74,7 @@ describe(nameof(resolveConfiguration), () => {
         }
 
         it("should set when not set", () => {
-            doSpecificTest(undefined, "auto");
+            doSpecificTest(undefined, "lf");
         });
 
         it("should set when set to auto", () => {
@@ -81,21 +82,21 @@ describe(nameof(resolveConfiguration), () => {
         });
 
         it("should set when set to crlf", () => {
-            doSpecificTest("crlf", "\r\n");
+            doSpecificTest("crlf", "crlf");
         });
 
         it("should set when set to lf", () => {
-            doSpecificTest("lf", "\n");
+            doSpecificTest("lf", "lf");
         });
 
         it("should resolve when set to system", () => {
-            doSpecificTest("system", os.EOL === "\r\n" ? "\r\n" : "\n");
+            doSpecificTest("system", os.EOL === "\r\n" ? "crlf" : "lf");
         });
 
         it("should do a diagnostic when providing an incorrect value", () => {
             doTest({ newLineKind: "asdf" as any }, {}, () => false, [{
                 message: "Unknown configuration specified for 'newLineKind': asdf",
-                propertyName: "newLineKind"
+                propertyName: "newLineKind",
             }]);
         });
     });

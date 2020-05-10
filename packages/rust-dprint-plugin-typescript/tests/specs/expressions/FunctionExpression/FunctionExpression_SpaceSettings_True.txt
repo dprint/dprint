@@ -1,0 +1,33 @@
+~~ functionExpression.spaceBeforeParentheses: true, functionExpression.spaceAfterFunctionKeyword: true, lineWidth: 40 ~~
+== should format with a space before the parens ==
+const t = function(p, u) {};
+const u = function<T>(p, u) {};
+const v = function test<T>(p, u) {};
+const w = function test<T>(testing, thisOut) {
+};
+const x = function*() {}; // prettier does this
+const y = function ident() {};
+
+function test() {
+}
+
+function test<T>() {
+}
+
+[expect]
+const t = function (p, u) {};
+const u = function <T> (p, u) {};
+const v = function test<T> (p, u) {};
+const w = function test<T> (
+    testing,
+    thisOut,
+) {
+};
+const x = function* () {}; // prettier does this
+const y = function ident () {};
+
+function test() {
+}
+
+function test<T>() {
+}

@@ -1,0 +1,58 @@
+-- filePath: file.tsx --
+~~ lineWidth: 50, jsxElement.preferSingleLine: true ~~
+== should format when single line ==
+const t = <Test>Test</Test>;
+
+[expect]
+const t = <Test>Test</Test>;
+
+== should revert back to single line when below the line width with text ==
+const t = <Test>
+    Test
+</Test>;
+
+[expect]
+const t = <Test>Test</Test>;
+
+== should go multi-line when exceeding the line width with text ==
+const t = <Test>This is a test for going over the width.</Test>;
+
+[expect]
+const t =
+    <Test>
+        This is a test for going over the width.
+    </Test>;
+
+== should go multi-line when exceeding the line width twice with text ==
+const t = <Test>This is a test for going over the width. This is another test.</Test>;
+
+[expect]
+const t =
+    <Test>
+        This is a test for going over the width.
+        This is another test.
+    </Test>;
+
+== should handle multiple nested elements going multi-line ==
+const t = <Test><Test><Test><Test>Asdf</Test></Test></Test></Test>;
+
+[expect]
+const t = <Test>
+    <Test>
+        <Test>
+            <Test>Asdf</Test>
+        </Test>
+    </Test>
+</Test>;
+
+== should handle multiple nested elements going single-line ==
+const t = <A>
+    <B>
+        <C>
+            <D>Asdf</D>
+        </C>
+    </B>
+</A>;
+
+[expect]
+const t = <A><B><C><D>Asdf</D></C></B></A>;

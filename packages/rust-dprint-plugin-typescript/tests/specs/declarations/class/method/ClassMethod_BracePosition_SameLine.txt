@@ -12,7 +12,7 @@ class Test {
     }
 }
 
-== should use the same line for the brace position when hanging ==
+== should use the same line for the brace position when going multi-line ==
 class Test {
     method(): string | number | otherTextThatGoesOver
     {
@@ -21,7 +21,9 @@ class Test {
 
 [expect]
 class Test {
-    method(): string | number
+    method():
+        | string
+        | number
         | otherTextThatGoesOver {
     }
 }

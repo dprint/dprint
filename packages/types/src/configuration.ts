@@ -1,3 +1,5 @@
+import { Plugin } from "./plugins";
+
 /**
  * Dprint's configuration.
  */
@@ -5,8 +7,8 @@ export interface Configuration {
     /**
      * Specify the type of project this is. You may specify any of the allowed values here according to your conscience.
      * @value "openSource" - Dprint is formatting an open source project.
-     * @value "commercialSponsored" - Dprint is formatting a closed source commercial project and your company sponsored dprint.
-     * @value "commercialDidNotSponsor" - Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this.
+     * @value "commercialSponsored" - Dprint is formatting a commercial project and your company sponsored dprint.
+     * @value "commercialDidNotSponsor" - Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this.
      */
     projectType: "openSource" | "commercialSponsored" | "commercialDidNotSponsor";
     /**
@@ -26,7 +28,7 @@ export interface Configuration {
     useTabs?: boolean;
     /**
      * The kind of newline to use.
-     * @default "auto"
+     * @default "lf"
      * @value "auto" - For each file, uses the newline kind found at the end of the last line.
      * @value "crlf" - Uses carriage return, line feed.
      * @value "lf" - Uses line feed.
@@ -46,7 +48,7 @@ export interface BaseResolvedConfiguration {
     readonly lineWidth: number;
     readonly indentWidth: number;
     readonly useTabs: boolean;
-    readonly newLineKind: "auto" | "\r\n" | "\n";
+    readonly newLineKind: "auto" | "crlf" | "lf";
 }
 
 /** Represents a problem with a configuration. */

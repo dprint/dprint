@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Configuration as GlobalConfiguration, ConfigurationDiagnostic } from "@dprint/types";
+import { Configuration as GlobalConfiguration, ConfigurationDiagnostic, Configuration } from "@dprint/types";
 import { resolveConfiguration as resolveGlobalConfiguration, CliLoggingEnvironment } from "@dprint/core";
 import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "../Configuration";
 import { TypeScriptPlugin } from "../Plugin";
@@ -10,7 +10,7 @@ describe("configuration", () => {
         expectedConfig: Partial<ResolvedTypeScriptConfiguration>,
         propertyFilter: (propName: keyof ResolvedTypeScriptConfiguration) => boolean,
         expectedDiagnostics: ConfigurationDiagnostic[] = [],
-        globalConfig: Partial<GlobalConfiguration> = {}
+        globalConfig: Partial<GlobalConfiguration> = {},
     ) {
         const resolvedGlobalConfig = resolveGlobalConfiguration(globalConfig).config;
         const resolvedConfigResult = resolveConfiguration();
@@ -29,11 +29,11 @@ describe("configuration", () => {
             try {
                 plugin.initialize({
                     environment: new CliLoggingEnvironment(),
-                    globalConfig: resolvedGlobalConfig
+                    globalConfig: resolvedGlobalConfig,
                 });
                 return {
                     config: plugin.getConfiguration(),
-                    diagnostics: plugin.getConfigurationDiagnostics()
+                    diagnostics: plugin.getConfigurationDiagnostics(),
                 };
             } finally {
                 plugin.dispose();
@@ -45,21 +45,21 @@ describe("configuration", () => {
         it("should do a diagnostic when providing an incorrect number value", () => {
             doTest({ lineWidth: false as any as number }, {}, () => false, [{
                 message: "Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string",
-                propertyName: "lineWidth"
+                propertyName: "lineWidth",
             }]);
         });
 
         it("should do a diagnostic when providing an incorrect boolean value", () => {
             doTest({ "setAccessor.spaceBeforeParentheses": 5 as any as boolean }, {}, () => false, [{
                 message: "Error parsing configuration value for 'setAccessor.spaceBeforeParentheses'. Message: provided string was not `true` or `false`",
-                propertyName: "setAccessor.spaceBeforeParentheses"
+                propertyName: "setAccessor.spaceBeforeParentheses",
             }]);
         });
 
         it("should do a diagnostic when providing an excess property", () => {
             doTest({ asdf: 5 } as any, {}, () => false, [{
                 message: "Unknown property in configuration: asdf",
-                propertyName: "asdf"
+                propertyName: "asdf",
             }]);
         });
     });
@@ -89,15 +89,15 @@ describe("configuration", () => {
         }
 
         it("should set when not set", () => {
-            doSpecificTest(undefined, "preferDouble");
+            doSpecificTest(undefined, "alwaysDouble");
         });
 
         it("should use when set to the default", () => {
-            doSpecificTest("preferDouble", "preferDouble");
+            doSpecificTest("alwaysDouble", "alwaysDouble");
         });
 
         it("should use when not set to the default", () => {
-            doSpecificTest("alwaysDouble", "alwaysDouble");
+            doSpecificTest("preferDouble", "preferDouble");
             doSpecificTest("alwaysSingle", "alwaysSingle");
             doSpecificTest("preferSingle", "preferSingle");
         });
@@ -133,7 +133,7 @@ describe("configuration", () => {
                 "forOfStatement.useBraces": value,
                 "forStatement.useBraces": value,
                 "ifStatement.useBraces": value,
-                "whileStatement.useBraces": value
+                "whileStatement.useBraces": value,
             };
         }
     });
@@ -164,7 +164,7 @@ describe("configuration", () => {
 
         function getObject(value: NonNullable<TypeScriptConfiguration["bracePosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "arrowFunctionExpression.bracePosition": value,
+                "arrowFunction.bracePosition": value,
                 "classDeclaration.bracePosition": value,
                 "classExpression.bracePosition": value,
                 "constructor.bracePosition": value,
@@ -184,7 +184,7 @@ describe("configuration", () => {
                 "switchStatement.bracePosition": value,
                 "switchCase.bracePosition": value,
                 "tryStatement.bracePosition": value,
-                "whileStatement.bracePosition": value
+                "whileStatement.bracePosition": value,
             };
         }
     });
@@ -219,7 +219,7 @@ describe("configuration", () => {
                 "forOfStatement.singleBodyPosition": value,
                 "forStatement.singleBodyPosition": value,
                 "ifStatement.singleBodyPosition": value,
-                "whileStatement.singleBodyPosition": value
+                "whileStatement.singleBodyPosition": value,
             };
         }
     });
@@ -254,7 +254,7 @@ describe("configuration", () => {
         function getObject(value: NonNullable<TypeScriptConfiguration["nextControlFlowPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
                 "ifStatement.nextControlFlowPosition": value,
-                "tryStatement.nextControlFlowPosition": value
+                "tryStatement.nextControlFlowPosition": value,
             };
         }
     });
@@ -286,7 +286,7 @@ describe("configuration", () => {
         function getObject(value: NonNullable<TypeScriptConfiguration["operatorPosition"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
                 "binaryExpression.operatorPosition": value,
-                "conditionalExpression.operatorPosition": value
+                "conditionalExpression.operatorPosition": value,
             };
         }
     });
@@ -297,11 +297,11 @@ describe("configuration", () => {
         }
 
         it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject("never"));
+            doSpecificTest({}, getObject("onlyMultiLine"));
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ trailingCommas: "never" }, getObject("never"));
+            doSpecificTest({ trailingCommas: "onlyMultiLine" }, getObject("onlyMultiLine"));
         });
 
         it("should set all the values when set to a non-default", () => {
@@ -311,17 +311,23 @@ describe("configuration", () => {
         it("should allow setting specific values when not the default", () => {
             const expectedConfig = getObject("always");
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.trailingCommas = "never";
+            config.trailingCommas = "onlyMultiLine";
             doSpecificTest(config, expectedConfig);
         });
 
         function getObject(value: NonNullable<TypeScriptConfiguration["trailingCommas"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
+                "arguments.trailingCommas": value,
+                "parameters.trailingCommas": value,
                 "arrayExpression.trailingCommas": value,
                 "arrayPattern.trailingCommas": value,
                 "enumDeclaration.trailingCommas": value,
+                "exportDeclaration.trailingCommas": value,
+                "importDeclaration.trailingCommas": value,
                 "objectExpression.trailingCommas": value,
-                "tupleType.trailingCommas": value
+                "objectPattern.trailingCommas": value,
+                "typeParameters.trailingCommas": value,
+                "tupleType.trailingCommas": value,
             };
         }
     });
@@ -352,8 +358,9 @@ describe("configuration", () => {
             doSpecificTest(config, expectedConfig);
         });
 
-        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
+        function getObject(value: NonNullable<TypeScriptConfiguration["preferHanging"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
+                "arguments.preferHanging": value,
                 "arrayExpression.preferHanging": value,
                 "arrayPattern.preferHanging": value,
                 "doWhileStatement.preferHanging": value,
@@ -365,35 +372,25 @@ describe("configuration", () => {
                 "forStatement.preferHanging": value,
                 "ifStatement.preferHanging": value,
                 "importDeclaration.preferHanging": value,
+                "jsxAttributes.preferHanging": value,
                 "objectExpression.preferHanging": value,
                 "objectPattern.preferHanging": value,
+                "parameters.preferHanging": value,
                 "sequenceExpression.preferHanging": value,
                 "switchStatement.preferHanging": value,
                 "tupleType.preferHanging": value,
                 "typeLiteral.preferHanging": value,
-                "typeParameterDeclaration.preferHanging": value,
+                "typeParameters.preferHanging": value,
+                "unionAndIntersectionType.preferHanging": value,
+                "variableStatement.preferHanging": value,
                 "whileStatement.preferHanging": value,
-                "callExpression.preferHangingArguments": value,
-                "newExpression.preferHangingArguments": value,
-                "arrowFunctionExpression.preferHangingParameters": value,
-                "callSignature.preferHangingParameters": value,
-                "constructor.preferHangingParameters": value,
-                "constructSignature.preferHangingParameters": value,
-                "constructorType.preferHangingParameters": value,
-                "functionDeclaration.preferHangingParameters": value,
-                "functionExpression.preferHangingParameters": value,
-                "functionType.preferHangingParameters": value,
-                "getAccessor.preferHangingParameters": value,
-                "method.preferHangingParameters": value,
-                "methodSignature.preferHangingParameters": value,
-                "setAccessor.preferHangingParameters": value
             };
         }
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c.preferHangingArguments), () => {
+    describe(nameof<TypeScriptConfiguration>(c => c.preferSingleLine), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("preferHangingArguments"));
+            doTest(config, expectedConfig, prop => prop.includes("preferSingleLine"));
         }
 
         let defaultValue = false;
@@ -403,73 +400,51 @@ describe("configuration", () => {
         });
 
         it("should set all the values when using the default", () => {
-            doSpecificTest({ preferHangingArguments: defaultValue }, getObject(defaultValue));
+            doSpecificTest({ preferSingleLine: defaultValue }, getObject(defaultValue));
         });
 
         it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ preferHangingArguments: !defaultValue }, getObject(!defaultValue));
+            doSpecificTest({ preferSingleLine: !defaultValue }, getObject(!defaultValue));
         });
 
         it("should allow setting specific values when not the default", () => {
             const expectedConfig = getObject(defaultValue);
             const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.preferHangingArguments = !defaultValue;
+            config.preferSingleLine = !defaultValue;
             doSpecificTest(config, expectedConfig);
         });
 
-        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingArguments"]>): Partial<ResolvedTypeScriptConfiguration> {
+        function getObject(value: NonNullable<TypeScriptConfiguration["preferSingleLine"]>): Partial<ResolvedTypeScriptConfiguration> {
             return {
-                "callExpression.preferHangingArguments": value,
-                "newExpression.preferHangingArguments": value
+                "arrayExpression.preferSingleLine": value,
+                "arrayPattern.preferSingleLine": value,
+                "arguments.preferSingleLine": value,
+                "binaryExpression.preferSingleLine": value,
+                "computed.preferSingleLine": value,
+                "conditionalExpression.preferSingleLine": value,
+                "conditionalType.preferSingleLine": value,
+                "decorators.preferSingleLine": value,
+                "exportDeclaration.preferSingleLine": value,
+                "forStatement.preferSingleLine": value,
+                "importDeclaration.preferSingleLine": value,
+                "jsxAttributes.preferSingleLine": value,
+                "jsxElement.preferSingleLine": value,
+                "mappedType.preferSingleLine": value,
+                "memberExpression.preferSingleLine": value,
+                "objectExpression.preferSingleLine": value,
+                "objectPattern.preferSingleLine": value,
+                "parameters.preferSingleLine": value,
+                "parentheses.preferSingleLine": value,
+                "tupleType.preferSingleLine": value,
+                "typeLiteral.preferSingleLine": value,
+                "typeParameters.preferSingleLine": value,
+                "unionAndIntersectionType.preferSingleLine": value,
+                "variableStatement.preferSingleLine": value,
             };
         }
     });
 
-    describe(nameof<TypeScriptConfiguration>(c => c.preferHangingParameters), () => {
-        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop.endsWith("preferHangingParameters"));
-        }
-
-        let defaultValue = false;
-
-        it("should set all the values using the default", () => {
-            doSpecificTest({}, getObject(defaultValue));
-        });
-
-        it("should set all the values when using the default", () => {
-            doSpecificTest({ preferHangingParameters: defaultValue }, getObject(defaultValue));
-        });
-
-        it("should set all the values when set to a non-default", () => {
-            doSpecificTest({ preferHangingParameters: !defaultValue }, getObject(!defaultValue));
-        });
-
-        it("should allow setting specific values when not the default", () => {
-            const expectedConfig = getObject(defaultValue);
-            const config: TypeScriptConfiguration = { ...expectedConfig } as any;
-            config.preferHangingParameters = !defaultValue;
-            doSpecificTest(config, expectedConfig);
-        });
-
-        function getObject(value: NonNullable<TypeScriptConfiguration["preferHangingParameters"]>): Partial<ResolvedTypeScriptConfiguration> {
-            return {
-                "arrowFunctionExpression.preferHangingParameters": value,
-                "callSignature.preferHangingParameters": value,
-                "constructor.preferHangingParameters": value,
-                "constructSignature.preferHangingParameters": value,
-                "constructorType.preferHangingParameters": value,
-                "functionDeclaration.preferHangingParameters": value,
-                "functionExpression.preferHangingParameters": value,
-                "functionType.preferHangingParameters": value,
-                "getAccessor.preferHangingParameters": value,
-                "method.preferHangingParameters": value,
-                "methodSignature.preferHangingParameters": value,
-                "setAccessor.preferHangingParameters": value
-            };
-        }
-    });
-
-    describe("enumDeclaration.memberSpacing", () => {
+    describe(nameof<TypeScriptConfiguration>(c => c["enumDeclaration.memberSpacing"]), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
             doTest(config, expectedConfig, prop => prop === "enumDeclaration.memberSpacing");
         }
@@ -481,24 +456,92 @@ describe("configuration", () => {
         it("should get the property when set", () => {
             doSpecificTest(
                 { "enumDeclaration.memberSpacing": "blankline" },
-                { "enumDeclaration.memberSpacing": "blankline" }
+                { "enumDeclaration.memberSpacing": "blankline" },
             );
         });
     });
 
-    describe("arrowFunctionExpression.useParentheses", () => {
+    describe(nameof<TypeScriptConfiguration>(c => c["arrowFunction.useParentheses"]), () => {
         function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
-            doTest(config, expectedConfig, prop => prop === "arrowFunctionExpression.useParentheses");
+            doTest(config, expectedConfig, prop => prop === "arrowFunction.useParentheses");
         }
 
         it("should get the default property", () => {
-            doSpecificTest({}, { "arrowFunctionExpression.useParentheses": "maintain" });
+            doSpecificTest({}, { "arrowFunction.useParentheses": "maintain" });
         });
 
         it("should get the property when set", () => {
             doSpecificTest(
-                { "arrowFunctionExpression.useParentheses": "preferNone" },
-                { "arrowFunctionExpression.useParentheses": "preferNone" }
+                { "arrowFunction.useParentheses": "preferNone" },
+                { "arrowFunction.useParentheses": "preferNone" },
+            );
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c["binaryExpression.linePerExpression"]), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "binaryExpression.linePerExpression");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "binaryExpression.linePerExpression": false });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "binaryExpression.linePerExpression": true },
+                { "binaryExpression.linePerExpression": true },
+            );
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c["memberExpression.linePerExpression"]), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "memberExpression.linePerExpression");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "memberExpression.linePerExpression": false });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "memberExpression.linePerExpression": true },
+                { "memberExpression.linePerExpression": true },
+            );
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c["ignoreNodeCommentText"]), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "ignoreNodeCommentText");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "ignoreNodeCommentText": "dprint-ignore" });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "ignoreNodeCommentText": "other-ignore" },
+                { "ignoreNodeCommentText": "other-ignore" },
+            );
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c["ignoreFileCommentText"]), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => prop === "ignoreFileCommentText");
+        }
+
+        it("should get the default property", () => {
+            doSpecificTest({}, { "ignoreFileCommentText": "dprint-ignore-file" });
+        });
+
+        it("should get the property when set", () => {
+            doSpecificTest(
+                { "ignoreFileCommentText": "other-ignore" },
+                { "ignoreFileCommentText": "other-ignore" },
             );
         });
     });
@@ -530,6 +573,7 @@ describe("configuration", () => {
                 "forStatement.spaceAfterSemiColons",
                 "functionDeclaration.spaceBeforeParentheses",
                 "functionExpression.spaceBeforeParentheses",
+                "functionExpression.spaceAfterFunctionKeyword",
                 "getAccessor.spaceBeforeParentheses",
                 "ifStatement.spaceAfterIfKeyword",
                 "importDeclaration.spaceSurroundingNamedImports",
@@ -539,11 +583,38 @@ describe("configuration", () => {
                 "taggedTemplate.spaceBeforeLiteral",
                 "typeAnnotation.spaceBeforeColon",
                 "typeAssertion.spaceBeforeExpression",
-                "whileStatement.spaceAfterWhileKeyword"
+                "whileStatement.spaceAfterWhileKeyword",
             ];
 
             doSpecificTest(createConfigWithValue(keys, true), createConfigWithValue(keys, true) as any);
             doSpecificTest(createConfigWithValue(keys, false), createConfigWithValue(keys, false) as any);
+        });
+    });
+
+    describe(nameof<TypeScriptConfiguration>(c => c.deno), () => {
+        function doSpecificTest(config: TypeScriptConfiguration, expectedConfig: Partial<ResolvedTypeScriptConfiguration>) {
+            doTest(config, expectedConfig, prop => expectedConfig.hasOwnProperty(prop));
+        }
+
+        it("should set some of the configuration", () => {
+            doSpecificTest({
+                deno: true,
+            }, {
+                lineWidth: 80,
+                indentWidth: 2,
+                "ifStatement.nextControlFlowPosition": "sameLine",
+                "ifStatement.bracePosition": "sameLine",
+                "commentLine.forceSpaceAfterSlashes": false,
+                "constructSignature.spaceAfterNewKeyword": true,
+                "constructorType.spaceAfterNewKeyword": true,
+                "arrowFunction.useParentheses": "force",
+                "newLineKind": "lf",
+                "functionExpression.spaceAfterFunctionKeyword": true,
+                "taggedTemplate.spaceBeforeLiteral": false,
+                "ignoreNodeCommentText": "deno-fmt-ignore",
+                "ignoreFileCommentText": "deno-fmt-ignore-file",
+                "quoteStyle": "preferDouble",
+            });
         });
     });
 });

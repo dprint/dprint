@@ -1,7 +1,7 @@
 # dprint
 
 [![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
-[![Build Status](https://travis-ci.org/dsherret/dprint.svg?branch=master)](https://travis-ci.org/dsherret/dprint)
+[![Build Status](https://travis-ci.com/dprint/dprint.svg?branch=master)](https://travis-ci.com/dprint/dprint)
 
 TypeScript and JSONC code formatter.
 
@@ -48,7 +48,7 @@ Add a format script to your *package.json*'s "scripts" section (see `npx dprint 
 {
   "name": "your-package-name",
   "scripts": {
-    "format": "dprint \"**/*.{ts,tsx,json,js,jsx}\""
+    "format": "dprint \"**/*.{ts,tsx,js,jsx,json}\""
   }
 }
 ```

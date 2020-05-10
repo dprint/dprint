@@ -1,0 +1,38 @@
+~~ lineWidth: 40, objectExpression.preferSingleLine: true ~~
+== should maintain blank lines when above line width ==
+const obj = {
+    test: 6,
+
+    testing: 5,
+
+    testing: 80
+};
+
+[expect]
+const obj = {
+    test: 6,
+
+    testing: 5,
+
+    testing: 80,
+};
+
+== should collapse to a single line when below the line width ==
+const obj = {
+    test: 6,
+};
+
+[expect]
+const obj = { test: 6 };
+
+== should force using multiple lines when there's a comment ==
+const obj = {
+    test: 6, // 4
+    testing: 5,
+};
+
+[expect]
+const obj = {
+    test: 6, // 4
+    testing: 5,
+};

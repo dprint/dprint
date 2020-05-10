@@ -29,7 +29,7 @@ class T {
     testing,
     this,
     out,
-    toSee
+    toSee,
 )
 class T {
 }

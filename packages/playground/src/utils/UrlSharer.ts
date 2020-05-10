@@ -7,7 +7,7 @@ export class UrlSaver {
 
         return {
             text: getText(),
-            config: getConfig()
+            config: getConfig(),
         };
 
         function getText() {
@@ -37,7 +37,7 @@ export class UrlSaver {
 
             function getDefaultConfig(): TypeScriptConfiguration {
                 return {
-                    lineWidth: 80
+                    lineWidth: 80,
                 };
             }
         }
@@ -47,7 +47,7 @@ export class UrlSaver {
         window.history.replaceState(
             undefined,
             "",
-            `#code/${compressToEncodedURIComponent(text)}/config/${compressToEncodedURIComponent(JSON.stringify(config))}`
+            `#code/${compressToEncodedURIComponent(text)}/config/${compressToEncodedURIComponent(JSON.stringify(config))}`,
         );
     }
 }

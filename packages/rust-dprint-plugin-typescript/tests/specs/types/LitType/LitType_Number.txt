@@ -1,0 +1,9 @@
+== should format a number lit type ==
+type t = -1;
+type u = 1;
+type v = 100;
+
+[expect]
+type t = -1;
+type u = 1;
+type v = 100;

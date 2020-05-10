@@ -1,0 +1,12 @@
+~~ indentWidth: 2 ~~
+== should format as-is ==
+await assertThrowsAsync(
+  // (): Promise<void> => copy(srcLink, destLink),
+  (): Promise<void> => ensureSymlink(srcLink, destLink),
+);
+
+[expect]
+await assertThrowsAsync(
+  // (): Promise<void> => copy(srcLink, destLink),
+  (): Promise<void> => ensureSymlink(srcLink, destLink),
+);

@@ -1,4 +1,4 @@
-~~ arrowFunctionExpression.useParentheses: preferNone ~~
+~~ arrowFunction.useParentheses: preferNone ~~
 == should not use parens when there is only an identifier and a single param ==
 const t = a => 5;
 

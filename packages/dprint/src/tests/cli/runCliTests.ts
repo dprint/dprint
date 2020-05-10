@@ -22,8 +22,8 @@ describe(nameof(runCliWithOptions), () => {
                 newLineKind: "lf",
                 plugins: opts.plugins || [new TestPlugin() as Plugin],
                 includes: opts.includes,
-                excludes: opts.excludes
-            }
+                excludes: opts.excludes,
+            },
         };
     }
 
@@ -56,10 +56,9 @@ Options:
 -c, --config            Configuration file to use (default: dprint.config.js)
 --outputFilePaths       Outputs the list of file paths found for formatting without formatting the files.
 --outputResolvedConfig  Outputs the resolved configuration from the configuration file.
---duration              Outputs how long the format took.
 --allowNodeModuleFiles  Allows including files that have a node_modules directory in their path.
 Plugins:
-* dprint-plugin-test v0.1.0`
+* dprint-plugin-test v0.1.0`,
         ]);
     });
 
@@ -75,7 +74,7 @@ Plugins:
         const logs = await getLogs({ showVersion: true });
         expect(logs).to.deep.equal([
             `dprint vPACKAGE_VERSION
-dprint-plugin-test v0.1.0`
+dprint-plugin-test v0.1.0`,
         ]);
     });
 
@@ -103,12 +102,12 @@ module.exports.config = {
         new TypeScriptPlugin({
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     includes: [
-        "**/*.{ts,tsx,json,js,jsx}"
-    ]
+        "**/*.{ts,tsx,js,jsx,json}",
+    ],
 };
 `);
     });
@@ -150,7 +149,7 @@ module.exports.config = {
         environment.addFile("file.asdf", "test");
         await handleOptions({ filePatterns: ["**/*.asdf"] }, environment);
         expect(environment.getErrors()).to.deep.equal([
-            "Error formatting file: file.asdf\n\nError: Could not find a plugin that would parse the file at path: file.asdf"
+            "Error formatting file: file.asdf\n\nError: Could not find a plugin that would format the file at path: file.asdf",
         ]);
     });
 
@@ -166,18 +165,19 @@ module.exports.config = {
     });
 
     const projectTypeMissingWarningText = `[dprint.config.js]: The "projectType" field is missing. You may specify any of the following possible values `
-        + `in the configuration file according to your conscience and that will supress this warning.\n\n`
+        + `in the configuration file according to your conscience and that will suppress this warning.\n\n`
         + ` * openSource              Dprint is formatting an open source project.\n`
-        + ` * commercialSponsored     Dprint is formatting a closed source commercial project and your company sponsored dprint.\n`
-        + ` * commercialDidNotSponsor Dprint is formatting a closed source commercial project and you want to forever enshrine your name `
-        + `in source control for having specified this.`;
+        + ` * commercialSponsored     Dprint is formatting a commercial project and your company sponsored dprint.\n`
+        + ` * commercialDidNotSponsor Dprint is formatting a commercial project and you want to forever enshrine your name `
+        + `in source control for having specified this.\n\n`
+        + `Donate at: https://dprint.dev/sponsor`;
 
     it("should warn when not specifying a project type field", async () => {
         const environment = createTestEnvironment();
         environment.setRequireObject("/dprint.config.js", {
             config: {
-                newLineKind: "lf"
-            }
+                newLineKind: "lf",
+            },
         });
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
         expect(warns.length).to.equal(1);
@@ -189,8 +189,8 @@ module.exports.config = {
         environment.setRequireObject("/dprint.config.js", {
             config: {
                 projectType: "asdf",
-                newLineKind: "lf"
-            }
+                newLineKind: "lf",
+            },
         });
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
         expect(warns.length).to.equal(1);
@@ -202,22 +202,28 @@ module.exports.config = {
         environment.setRequireObject("/dprint.config.js", {
             config: {
                 projectType: "openSource",
-                newLineKind: "lf"
-            }
+                newLineKind: "lf",
+            },
         });
         const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
         expect(warns.length).to.equal(0);
     });
 
-    it("should output the duration when specifying to", async () => {
-        const logs = await getLogs({ duration: true });
-        expect(logs.length).to.equal(1);
-        expect(/^Duration: [0-9]+\.[0-9][0-9]s$/.test(logs[0])).to.be.true;
+    it("should not warn when specifying an incorrectly cased project type field", async () => {
+        const environment = createTestEnvironment();
+        environment.setRequireObject("/dprint.config.js", {
+            config: {
+                projectType: "opensource",
+                newLineKind: "lf",
+            },
+        });
+        const warns = await getWarns({ filePatterns: ["**/*.ts"] }, environment);
+        expect(warns.length).to.equal(0);
     });
 
     it("should format the files specified in the includes", async () => {
         const config = createConfig({
-            includes: ["/file1.ts"]
+            includes: ["/file1.ts"],
         });
         const environment = createTestEnvironment({ config });
         const logs = await getLogs({ outputFilePaths: true }, environment);
@@ -227,7 +233,7 @@ module.exports.config = {
     it("should format the files specified in the includes and exclude the ones in the excludes", async () => {
         const config = createConfig({
             includes: ["**/*.ts"],
-            excludes: ["/file1.ts"]
+            excludes: ["/file1.ts"],
         });
         const environment = createTestEnvironment({ config });
         const logs = await getLogs({ outputFilePaths: true }, environment);
@@ -238,7 +244,7 @@ module.exports.config = {
     it("should exclude the ones in the excludes even when already negated", async () => {
         const config = createConfig({
             includes: ["**/*.ts"],
-            excludes: ["!/file1.ts"]
+            excludes: ["!/file1.ts"],
         });
         const environment = createTestEnvironment({ config });
         const logs = await getLogs({ outputFilePaths: true }, environment);
@@ -248,7 +254,7 @@ module.exports.config = {
 
     it("should format the files specified in the command args and exclude the ones in the excludes", async () => {
         const config = createConfig({
-            excludes: ["/file1.ts"]
+            excludes: ["/file1.ts"],
         });
         const environment = createTestEnvironment({ config });
         const logs = await getLogs({ outputFilePaths: true, filePatterns: ["**/*.ts"] }, environment);
@@ -258,7 +264,7 @@ module.exports.config = {
 
     it("should use file patterns when both cli args and includes are specified", async () => {
         const config = createConfig({
-            includes: ["/file1.ts"]
+            includes: ["/file1.ts"],
         });
         const environment = createTestEnvironment({ config });
         const logs = await getLogs({ outputFilePaths: true, filePatterns: ["/file2.ts"] }, environment);
@@ -268,13 +274,13 @@ module.exports.config = {
 
     it("should warn when both cli args and includes are specified", async () => {
         const config = createConfig({
-            includes: ["/file1.ts"]
+            includes: ["/file1.ts"],
         });
         const environment = createTestEnvironment({ config });
         const logs = await getLogs({ filePatterns: ["/file2.ts"] }, environment);
         expect(logs).to.deep.equal([]);
         expect(environment.getWarns()).to.deep.equal([
-            "Ignoring the configuration file's includes because file patterns were provided to the command line."
+            "Ignoring the configuration file's includes because file patterns were provided to the command line.",
         ]);
     });
 });

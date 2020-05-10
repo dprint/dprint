@@ -1,3 +1,4 @@
+~~ lineWidth: 40 ~~
 == should format ==
 type T = Ref;
 
@@ -6,6 +7,14 @@ type T = Ref;
 
 == should format with type parameters ==
 type T = Ref< string   , number >;
+// trailing comma not allowed by TS here :(
+type U = Ref< string   , number, ottttthhheerr >;
 
 [expect]
 type T = Ref<string, number>;
+// trailing comma not allowed by TS here :(
+type U = Ref<
+    string,
+    number,
+    ottttthhheerr
+>;

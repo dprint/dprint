@@ -1,6 +1,3 @@
-use super::StringTrait;
-use super::InfoTrait;
-use super::ConditionTrait;
 use super::printer::*;
 use super::PrintItems;
 use super::WriteItem;
@@ -14,10 +11,7 @@ pub struct GetWriteItemsOptions {
 }
 
 /// Gets write items from the print items.
-pub fn get_write_items<TString, TInfo, TCondition>(
-    print_items: &PrintItems<TString, TInfo, TCondition>,
-    options: GetWriteItemsOptions
-) -> impl Iterator<Item = WriteItem<TString>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+pub fn get_write_items(print_items: &PrintItems, options: GetWriteItemsOptions) -> impl Iterator<Item = WriteItem> {
     let printer = Printer::new(print_items.first_node.clone(), options);
     printer.print()
 }

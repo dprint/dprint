@@ -17,17 +17,21 @@ class Loader extends React.Component<{}, LoaderState> {
 
         this.state = {
             formatText: undefined,
-            resolveConfig: undefined
+            resolveConfig: undefined,
         };
 
         import("./wasm").then(wasmPkg => {
             this.setState({
                 formatText: (text, config) => {
-                    return wasmPkg.format_text(text, getConfigAsMap(config));
+                    try {
+                        return wasmPkg.format_text(text, getConfigAsMap(config));
+                    } catch (err) {
+                        return "Panic formatting file. Check console for details and report this bug.";
+                    }
                 },
                 resolveConfig: config => {
                     return JSON.parse(wasmPkg.resolve_config(getConfigAsMap(config))) as ResolvedTypeScriptConfiguration;
-                }
+                },
             });
         }).catch(console.error);
     }

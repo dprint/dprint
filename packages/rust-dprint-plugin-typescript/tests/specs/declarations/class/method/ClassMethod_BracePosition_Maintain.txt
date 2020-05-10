@@ -25,7 +25,7 @@ class Test {
     }
 }
 
-== should maintain the position for the brace position when hanging and on the same line ==
+== should maintain the position for the brace position when multi-line and on the same line ==
 class Test {
     method(): string | number | testingthis {
     }
@@ -33,12 +33,14 @@ class Test {
 
 [expect]
 class Test {
-    method(): string | number
+    method():
+        | string
+        | number
         | testingthis {
     }
 }
 
-== should maintain the position for the brace position when hanging and on the next line ==
+== should maintain the position for the brace position when multi-line and on the next line ==
 class Test {
     method(): string | number | testingthis
     {
@@ -47,7 +49,9 @@ class Test {
 
 [expect]
 class Test {
-    method(): string | number
+    method():
+        | string
+        | number
         | testingthis
     {
     }

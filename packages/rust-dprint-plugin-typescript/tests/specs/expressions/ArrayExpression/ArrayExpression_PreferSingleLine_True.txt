@@ -1,0 +1,51 @@
+~~ lineWidth: 40, arrayExpression.preferSingleLine: true ~~
+== should format on a single line when below the line width ==
+const t = [
+    5   ,
+
+    6
+];
+
+[expect]
+const t = [5, 6];
+
+== should do multiple lines if one ends with a line comment even if it could fit on one line ==
+const t = [5, // testing
+    6];
+
+[expect]
+const t = [
+    5, // testing
+    6,
+];
+
+== should not be multi line if the objects are allowed to be inline multi-line ==
+const t = [{
+    prop: 5
+}, {
+    other: "string"
+}];
+
+[expect]
+const t = [{
+    prop: 5,
+}, {
+    other: "string",
+}];
+
+== should maintain blank lines when exceeding the line width ==
+const t = [
+    testint,
+
+    thisOutWithSomeLong,
+
+    text];
+
+[expect]
+const t = [
+    testint,
+
+    thisOutWithSomeLong,
+
+    text,
+];

@@ -53,3 +53,15 @@ type Test = {
 
     prop: string;
 };
+
+== should not be on separate line within a type argument when multi-line ==
+type Test = Array<{
+    frame: WebSocketFrame;
+    d: Deferred<void>;
+}>;
+
+[expect]
+type Test = Array<{
+    frame: WebSocketFrame;
+    d: Deferred<void>;
+}>;

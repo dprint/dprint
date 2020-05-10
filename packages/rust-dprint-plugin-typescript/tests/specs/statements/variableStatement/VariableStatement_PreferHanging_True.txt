@@ -1,0 +1,32 @@
+~~ lineWidth: 40, variableStatement.preferHanging: true ~~
+== should format hanging ==
+let f = 2, g = 3, testingTheLimitOut = 4;
+
+function test() {
+    let f = 2, g = 3, testingTheLimitOut = 4;
+}
+
+[expect]
+let f = 2, g = 3,
+    testingTheLimitOut = 4;
+
+function test() {
+    let f = 2, g = 3,
+        testingTheLimitOut = 4;
+}
+
+== should format multi-line when the first and second are on different lines ==
+let f = 2,
+    g = 3, testingTheLimitOut = 4;
+
+[expect]
+let f = 2,
+    g = 3,
+    testingTheLimitOut = 4;
+
+== should not wrap within a variable declaration ==
+const t: Testing, testingThis: outALittleBit;
+
+[expect]
+const t: Testing,
+    testingThis: outALittleBit;

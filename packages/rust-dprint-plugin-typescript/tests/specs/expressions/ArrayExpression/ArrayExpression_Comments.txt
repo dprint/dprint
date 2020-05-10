@@ -6,7 +6,7 @@ const u = [ // testing
 
 [expect]
 const u = [ // testing
-    test
+    test,
 ];
 
 == should format any comments inside when single line ==
@@ -14,6 +14,12 @@ const t = [/*1*/];
 
 [expect]
 const t = [/*1*/];
+
+== multiple block comments should have a space separator ==
+[/*1*//*2*/]
+
+[expect]
+[/*1*/ /*2*/];
 
 == should format multi-line when the comment extends past the line width ==
 const t = [/*testing this out with a long comment*/];
@@ -54,13 +60,13 @@ const u = [
 
 == should format trailing comments of the last member ==
 const u = [
-    test
+    test,
 // 5
 /*test*/]
 
 [expect]
 const u = [
-    test
+    test,
     // 5
     /*test*/
 ];

@@ -1,0 +1,70 @@
+~~ ignoreNodeCommentText: my-ignore-comment, ignoreFileCommentText: my-ignore-file-comment ~~
+== should ignore formatting a node marked with a custom ignore comment ==
+// my-ignore-comment
+call(5, 6, 7,
+    8, 9, 10);
+
+[expect]
+// my-ignore-comment
+call(5, 6, 7,
+    8, 9, 10);
+
+== should not ignore when a comment block ==
+/* my-ignore-comment */
+[
+    5, 6, 7,
+    8, 9, 10,
+    11, 12, 13
+];
+
+[expect]
+/* my-ignore-comment */
+[
+    5, 6, 7,
+    8, 9, 10,
+    11, 12, 13
+];
+
+== should not ignore when ignore word has extra characters on the end ==
+/* my-ignore-commente */
+[
+    5, 6, 7
+]
+
+[expect]
+/* my-ignore-commente */
+[
+    5,
+    6,
+    7,
+];
+
+== should ignore when there is a colon after (or some other non word character) ==
+/* my-ignore-comment: Some explanation */
+[
+    5, 6, 7
+]
+
+[expect]
+/* my-ignore-comment: Some explanation */
+[
+    5, 6, 7
+]
+
+== should ignore a custom file ignore comment ==
+// my-ignore-file-comment
+// test
+[
+    5, 6
+];
+[1,
+9]
+
+[expect]
+// my-ignore-file-comment
+// test
+[
+    5, 6
+];
+[1,
+9]

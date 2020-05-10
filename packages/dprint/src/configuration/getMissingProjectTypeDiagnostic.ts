@@ -3,15 +3,15 @@ import { Configuration, ConfigurationDiagnostic } from "@dprint/types";
 const projectTypeInfo = {
     values: [{
         name: "openSource",
-        description: "Dprint is formatting an open source project."
+        description: "Dprint is formatting an open source project.",
     }, {
         name: "commercialSponsored",
-        description: "Dprint is formatting a closed source commercial project and your company sponsored dprint."
+        description: "Dprint is formatting a commercial project and your company sponsored dprint.",
     }, {
         name: "commercialDidNotSponsor",
-        description: "Dprint is formatting a closed source commercial project and you want to forever enshrine your name "
-            + "in source control for having specified this."
-    }]
+        description: "Dprint is formatting a commercial project and you want to forever enshrine your name "
+            + "in source control for having specified this.",
+    }],
 };
 
 /**
@@ -23,9 +23,9 @@ const projectTypeInfo = {
  * but would like to see companies support it financially even if it's only in a small way.
  */
 export function getMissingProjectTypeDiagnostic(config: Configuration): ConfigurationDiagnostic | undefined {
-    const validProjectTypes = projectTypeInfo.values.map(v => v.name);
+    const validProjectTypes = projectTypeInfo.values.map(v => v.name.toLowerCase());
 
-    if (validProjectTypes.includes(config.projectType || ""))
+    if (validProjectTypes.includes(config.projectType?.toLowerCase() ?? ""))
         return undefined;
 
     const propertyName: keyof Configuration = "projectType";
@@ -34,7 +34,8 @@ export function getMissingProjectTypeDiagnostic(config: Configuration): Configur
     return {
         propertyName,
         message: `The "${propertyName}" field is missing. You may specify any of the following possible values in the configuration file according to your `
-            + `conscience and that will supress this warning.\n\n`
+            + `conscience and that will suppress this warning.\n\n`
             + projectTypeInfo.values.map(value => ` * ${value.name} ${" ".repeat(largestValueName - value.name.length)}${value.description}`).join("\n")
+            + "\n\nDonate at: https://dprint.dev/sponsor",
     };
 }

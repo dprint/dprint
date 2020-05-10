@@ -9,7 +9,6 @@ export interface Spec {
     fileText: string;
     expectedText: string;
     isOnly: boolean;
-    showTree: boolean;
     skip: boolean;
     config: UnknownConfiguration;
 }
@@ -99,7 +98,7 @@ export function parseSpecs(fileText: string, options: ParseSpecsOptions) {
 
         return {
             fileText: fileText.substring(lastIndex + 3),
-            config
+            config,
         };
 
         function parseValue(value: string) {
@@ -132,8 +131,7 @@ function parseSingleSpec(filePath: string, messageLine: string, lines: string[],
         expectedText,
         isOnly: lowerCaseMessageLine.includes("(only)"),
         skip: lowerCaseMessageLine.includes("(skip)"),
-        showTree: lowerCaseMessageLine.includes("(tree)"),
-        config
+        config,
     };
 
     function parseMessage() {

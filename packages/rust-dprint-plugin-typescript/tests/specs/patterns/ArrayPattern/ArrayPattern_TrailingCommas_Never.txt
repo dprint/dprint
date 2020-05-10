@@ -1,0 +1,22 @@
+~~ arrayPattern.trailingCommas: never ~~
+== should not format with trailing commas when multiline ==
+function test([
+    a    ,
+    b
+]) {
+}
+
+[expect]
+function test([
+    a,
+    b
+]) {
+}
+
+== should not format with trailing commas when single line ==
+function test([a, b]) {
+}
+
+[expect]
+function test([a, b]) {
+}

@@ -1,0 +1,56 @@
+~~ parameters.preferHanging: true, lineWidth: 50 ~~
+== should format the return type on the same line when the rest of the header is hanging ==
+class Test {
+    method(param: string, otherTestinginging: string): test | other {
+    }
+}
+
+[expect]
+class Test {
+    method(param: string,
+        otherTestinginging: string): test | other
+    {
+    }
+}
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+class Test {
+    method(param: string, otherTestinginging: string): test | other | testing {
+    }
+}
+
+[expect]
+class Test {
+    method(param: string,
+        otherTestinginging: string
+    ): test | other | testing {
+    }
+}
+
+== should format the return type on the same line when the rest of the header is hanging ==
+class Test {
+    method(param: string, otherTestinginging: string): test | other {
+    }
+}
+
+[expect]
+class Test {
+    method(param: string,
+        otherTestinginging: string): test | other
+    {
+    }
+}
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+class Test {
+    method(param: string, otherTestinginging: string): test | other | testing {
+    }
+}
+
+[expect]
+class Test {
+    method(param: string,
+        otherTestinginging: string
+    ): test | other | testing {
+    }
+}

@@ -13,5 +13,5 @@ import { testing, thisOut, aBit } from "test";
 import {
     testing,
     thisOut,
-    aBit
+    aBit,
 } from "test";

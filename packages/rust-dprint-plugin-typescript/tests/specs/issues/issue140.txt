@@ -1,0 +1,47 @@
+== should handle comment on line after assignment ==
+const test =
+    // test
+    [
+        test,
+        test2
+    ];
+
+[expect]
+const test =
+    // test
+    [
+        test,
+        test2,
+    ];
+
+== should allow comment on same line as assignment ==
+const test = // test
+    [
+        test,
+        test2
+    ];
+
+[expect]
+const test = // test
+    [
+        test,
+        test2,
+    ];
+
+== should handle comment on line after property assignment token ==
+const test = {
+    test:
+        // testing
+        [
+            testing
+        ]
+};
+
+[expect]
+const test = {
+    test:
+        // testing
+        [
+            testing,
+        ],
+};

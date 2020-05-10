@@ -1,0 +1,40 @@
+== should format ==
+const o = {
+    [   test
+
+    ]: 5,
+};
+
+[expect]
+const o = {
+    [test]: 5,
+};
+
+== should make multi-line when inner node is on newline ==
+const o = {
+    [
+        test]: 5
+};
+
+[expect]
+const o = {
+    [
+        test
+    ]: 5,
+};
+
+== should allow comments inside ==
+const o = {
+    [
+        // testing
+        test
+    ]: 5,
+};
+
+[expect]
+const o = {
+    [
+        // testing
+        test
+    ]: 5,
+};

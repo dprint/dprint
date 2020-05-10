@@ -1,0 +1,30 @@
+~~ parameters.preferSingleLine: false ~~
+== should keep parameters on multiple lines on multiple lines when below the line width ==
+const t = (
+    p1,
+    p2
+) =>
+{
+}
+
+[expect]
+const t = (
+    p1,
+    p2,
+) => {
+};
+
+== should make multi-line when first param is on a new line ==
+const t = (
+    p1, p2,
+    p3) =>
+{
+}
+
+[expect]
+const t = (
+    p1,
+    p2,
+    p3,
+) => {
+};

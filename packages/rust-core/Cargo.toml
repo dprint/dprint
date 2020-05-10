@@ -2,12 +2,12 @@
 name = "dprint-core"
 description = "Core rust library for dprint."
 keywords = ["formatting", "formatter"]
-version = "0.11.0"
+version = "0.19.1"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
-homepage = "https://github.com/dsherret/dprint/tree/master/packages/rust-core"
-repository = "https://github.com/dsherret/dprint"
+homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-core"
+repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 serde = { version = "1.0.88", features = ["derive"] }

@@ -99,7 +99,7 @@ const t = class Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 const t = class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > {
 };
 
@@ -111,7 +111,7 @@ const t = class Test<TestingThisOut, WithVeryLong, TypeParameterList> extends Te
 const t = class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > extends Test {
 };
 
@@ -124,7 +124,7 @@ const t = class Test<
 const t = class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > {
 };
 
@@ -137,7 +137,7 @@ const t = class Test<
 const t = class Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > extends Test {
 };
 

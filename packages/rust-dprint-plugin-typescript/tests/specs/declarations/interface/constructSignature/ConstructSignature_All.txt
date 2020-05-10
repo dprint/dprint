@@ -3,6 +3,7 @@
 type Test = {
     new(): string;
     new<T>(param: string): string;
+    new<TestingThisOut, WithSomeTypeParams>(): string;
     new(param: string, otherParam: number): string;
     new();
 };
@@ -11,22 +12,40 @@ type Test = {
 type Test = {
     new(): string;
     new<T>(param: string): string;
+    new<
+        TestingThisOut,
+        WithSomeTypeParams,
+    >(): string;
     new(
         param: string,
-        otherParam: number
+        otherParam: number,
     ): string;
     new();
 };
 
-== should format the return type as hanging when it's hanging ==
+== should format the param as multi-line when the return type exceeds the line width ==
 interface T {
     new(param: string): testing | number;
 }
 
 [expect]
 interface T {
-    new(param: string): testing
-        | number;
+    new(
+        param: string,
+    ): testing | number;
+}
+
+== should format the params as multi-line when the return type exceeds the line width ==
+interface T {
+    new(param: string, p2): testing | number;
+}
+
+[expect]
+interface T {
+    new(
+        param: string,
+        p2,
+    ): testing | number;
 }
 
 == should force multi-line parameters when exceeding the line width ==
@@ -40,7 +59,7 @@ interface T {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ): void;
 }
 

@@ -1,6 +1,6 @@
 # dprint
 
-dprint is a configurable and plugable code formatter.
+dprint is a configurable and pluggable code formatting platform.
 
 Currently only TypeScript, JavaScript, and JSONC are supported.
 
@@ -32,18 +32,19 @@ module.exports.config = {
     projectType: "openSource",
     lineWidth: 160,
     plugins: [
+        // use this for JS and TS formatting
         new TypeScriptPlugin({
             useBraces: "preferNone",
-            "tryStatement.nextControlFlowPosition": "sameLine"
+            "tryStatement.nextControlFlowPosition": "sameLine",
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     // this could also be specified as a command line argument
-    includes: ["**/*.{ts,tsx,json,js,jsx}"],
+    includes: ["**/*.{ts,tsx,js,jsx,json}"],
     // optionally specify file globs for files to ignore
-    excludes: []
+    excludes: [],
 };
 ```
 
@@ -79,13 +80,13 @@ module.exports.config = {
     useTabs: true,
     plugins: [
         new TypeScriptPlugin({
-            lineWidth: 80
+            lineWidth: 80,
         }),
         new JsoncPlugin({
             indentWidth: 2,
-            useTabs: false
-        })
-    ]
+            useTabs: false,
+        }),
+    ],
 };
 ```
 
@@ -96,8 +97,10 @@ Specify the type of project dprint is formatting. This is required when using th
 You may specify any of the following values according to your conscience:
 
 * `"openSource"` - Dprint is formatting an open source project.
-* `"commercialSponsored"` - Dprint is formatting a closed source commercial project and your company sponsored dprint.
-* `"commercialDidNotSponsor"` - Dprint is formatting a closed source commercial project and you want to forever enshrine your name in source control for having specified this.
+* `"commercialSponsored"` - Dprint is formatting a commercial project and your company sponsored dprint.
+* `"commercialDidNotSponsor"` - Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this.
+
+[Sponsoring](https://dprint.dev/sponsor)
 
 ### `lineWidth`
 
@@ -139,15 +142,15 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             // Specify TypeScript config here. For example...
-            semiColons: false
-        })
-    ]
+            semiColons: false,
+        }),
+    ],
 };
 ```
 
 Links:
 
-* [Type Declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts)
+* [Type Declarations](https://github.com/dprint/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts)
 
 ### `semiColons`
 
@@ -170,9 +173,9 @@ How to decide to use single or double quotes.
 
 The kind of newline to use.
 
-* `"auto"` - For each file, uses the newline kind found at the end of the last line (default).
+* `"auto"` - For each file, uses the newline kind found at the end of the last line.
 * `"crlf"` - Uses carriage return, line feed.
-* `"lf"` - Uses line feed.
+* `"lf"` - Uses line feed (default).
 * `"system"` - Uses the system standard (ex. crlf on Windows).
 
 ### `useBraces`
@@ -231,22 +234,77 @@ Where to place the operator for expressions that span multiple lines.
 
 If trailing commas should be used.
 
-* `"never"` - Trailing commas should not be used (default).
+* `"never"` - Trailing commas should not be used.
 * `"always"` - Trailing commas should always be used.
-* `"onlyMultiLine"` - Trailing commas should only be used in multi-line scenarios.
+* `"onlyMultiLine"` - Trailing commas should only be used in multi-line scenarios (default).
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBLC8MDaBYAUDTMCsAadWMALPmgLoDc66oksSArrjAG5kyIgBGAVlWuigBPAA4BTGABUx0DsjAMAtlzEAnZtFUBLMAHNK1NLVncecgN4wQUABZrmUGbAC+-Y7FMAmCwSwQQimKkhI7QpK7oQA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
 ### `preferHanging`
 
-When true, will prefer hanging indentation instead of making the code become split up on a line per item.
+When `true` (non-default), Dprint will prefer hanging indentation instead of making code split up on multiple lines.
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBApgDwIYFsAOAbOMC8MDeMEIKcAanAE4CeAMuAOYBcMArKwMwAsAHKwJwB2bgBoYIAEYArOMCi0AllCpIMAUQRpKcCBAXgWrLhyPdWANhgBfALAAoe6EixipAIKVKSarhgBtY04ufgAGVh5+DhD+LnDuELEAJjNoiLCeWOjRGA4Y9NyQ2J5crnzYgF17R1V1TUoACmVoBTAGABUACwUIAHkAVygxAHclDoBlEjgAJTgaukY2xEGYJuXVsXWVnWWQKA6qRegASgBuaoxarXr7GFut6BEbu939yke7O-EB+1Pzy4bWGJzGJBL8HHYnNAYChqABJZxIMDAbB4MBwIYwADCGCQuka2xa7S6vQGw1G9CgvQAZh4GBAxFSQJRYVA2iAAOIgHoANwO+0xHSQlEUKCUYMhsBh8OgiORiV8aIx2NxEGuHzuq0JnW6-WWIz2FOptPpMEZzNZHK5vMonTgAqFIrFZwh4ChUoRSLgHAV6KxOLxmta2pJetGE3clDpACE4BgQENHVAwfYqX0kVB9GB7lAAIz45pB4m6sl7GZzeitAAKQtQJr2SCgnJ5fLgiY2BNaRwI9ls4NT6cz2cSas+gYYGyLAy7+B7VTs-bkg9WHHzGdaE51U+7disQA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2d9CyCMEXxBGIADs4syGJy0+1z9jAFKwnrcjBczhVVFpjyigQktIIAIjDeYCxeBwB0S4I2M5wusfNVOt1SH0Et9RgExrQoN4DgBRPLnPQZKS-BgwFLfEhoPR+CF9XrQEAAXyAA)
 
-Sub configuration:
+### `preferSingleLine`
 
-* `preferHangingArguments`
-* `preferHangingParameters`
+**Note:** This configuration option was recently added and is still undergoing lots of changes.
+
+When `false` (default), certain code will be allowed to span multiple lines even when it could possibly fit on a single line.
+
+For example, if the first parameter or argument is placed on a different line than the open parenthesis then the entire argument or parameter list will become multi-line.
+
+```ts
+callExpr(1, 2, 3);
+// formats as
+callExpr(1, 2, 3);
+
+// but...
+callExpr(
+    1, 2, 3);
+// formats as
+callExpr(
+    1,
+    2,
+    3,
+);
+```
+
+To switch back to a single line, place the first argument or parameter on the same line as the open parenthesis:
+
+```ts
+callExpr(1,
+    2,
+    3,
+);
+// formats as
+callExpr(1, 2, 3);
+```
+
+However, when `preferSingleLine` is `true`, then...
+
+```ts
+callExpr(
+    1,
+    2,
+    3,
+);
+// formats as
+callExpr(1, 2, 3);
+```
+
+If you would like to force something to be multi-line when `preferSingleLine` is `true`, then add a comment to the front or beside an item:
+
+```ts
+call(
+    // force multi-line
+    1,
+    2,
+    3,
+);
+```
+
+Note: Turning `preferSingleLine` on might cause more code to prefer being on a single line than you are used to. You may want to disable this feature on a per-node basis (ex. `"objectExpression.preferSingleLine": false`).
 
 ### Space separators
 
@@ -257,9 +315,9 @@ module.exports.config = {
     projectType: "openSource",
     plugins: [
         new TypeScriptPlugin({
-            "constructorType.spaceAfterNewKeyword": true
-        })
-    ]
+            "constructorType.spaceAfterNewKeyword": true,
+        }),
+    ],
 };
 ```
 
@@ -270,9 +328,9 @@ type CtorOf<T> = new(...args) => T;
 type CtorOf<T> = new (...args) => T;
 ```
 
-See the `TypeScriptConfiguration` interface in the [type declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts) and search for options that begin with the word "space" to see all the possibilities.
+See the `TypeScriptConfiguration` interface in the [type declarations](https://github.com/dprint/dprint/blob/master/packages/dprint-plugin-typescript/lib/dprint-plugin-typescript.d.ts) and search for options that begin with the word "space" to see all the possibilities.
 
-### `"arrowFunctionExpression​.useParentheses"`
+### `"arrowFunction.useParentheses"`
 
 Whether to use parentheses around a single parameter in an arrow function.
 
@@ -296,7 +354,7 @@ How to space the members of an enum.
 
 In most situations, configuration can be set for specific kinds of declarations, statements, and expressions.
 
-For example, you can specify the general `nextControlFlowPosition`, but you can also specify a more specific `"ifStatement.nextControlFlowPosition"` option that will be used for that statement.
+For example, you can specify the general `nextControlFlowPosition`, but you can also specify a more specific `"tryStatement.nextControlFlowPosition"` option that will be used for that statement.
 
 ```ts
 module.exports.config = {
@@ -304,16 +362,15 @@ module.exports.config = {
     plugins: [
         new TypeScriptPlugin({
             nextControlFlowPosition: "maintain",
-            "ifStatement.nextControlFlowPosition": "sameLine",
-            "returnStatement.semiColon": false
-        })
-    ]
+            "tryStatement.nextControlFlowPosition": "sameLine"
+        }),
+    ],
 };
 ```
 
 ### Ignoring Files
 
-Add an ignore file comment as one of the first comments in the file:
+Add an ignore file comment as the **first** comment in the file:
 
 ```ts
 // dprint-ignore-file
@@ -321,16 +378,16 @@ Add an ignore file comment as one of the first comments in the file:
 
 [Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTZAzWAGxwFgAoAY03gGdFRZwclZEBPUAXlAG0LQg0AEYANKAAM4qQKFSR00bMHz5wigF0A3BQrU6DJi0Rt2AJm59lCyYutq75IbZfry2oA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
-### Ignoring Nodes
+### Ignore Comments
 
-Add an ignore comment before the node:
+Add an ignore comment before the code:
 
 ```ts
 // dprint-ignore
 const identity = [
     1, 0, 0,
     0, 1, 0,
-    0, 0, 1
+    0, 0, 1,
 ];
 
 // or even...
@@ -338,48 +395,15 @@ const identity = [
 const identity = /* dprint-ignore */ [
     1, 0, 0,
     0, 1, 0,
-    0, 0, 1
+    0, 0, 1,
 ];
 ```
 
 [Playground](https://dprint.dev/playground/#code/PTAEBMAcCcEsDsAuBaWBzeB7aBTAsAFADGm8AzoqLODkrIgJ6gC8oA2oaF6AIwA0oAAwDhnbsN4i+YrhIk9CAXQDchQiFDZQOAG60AdIbXFSFblRp1GAJm6tgAKggwEKdFlygHYDgXP8hKRlAyUDguQEFAhUgA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
-### Multi-line arguments and parameters
-
-When the first parameter or argument is placed on a different line than the open parenthesis, the entire argument or parameter list will become multi-line.
-
-For example:
-
-```ts
-callExpr(1, 2, 3);
-// formats as
-callExpr(1, 2, 3);
-
-// but...
-callExpr(
-    1, 2, 3);
-// formats as
-callExpr(
-    1,
-    2,
-    3
-);
-```
-
-To switch back to a single line, place the first argument or parameter on the same line as the open parenthesis:
-
-```ts
-callExpr(1,
-    2,
-    3
-);
-// formats as
-callExpr(1, 2, 3);
-```
-
 ### Explicit Newlines
 
-For the most part, dprint allows you to place certain nodes like binary, logical, and property access expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.
+For the most part, dprint allows you to place certain nodes like binary, logical, and member expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.
 
 ```ts
 // formats this as-is
@@ -416,6 +440,49 @@ if (
 
 [Playground](https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4IgNglgdgpg6hAJgFwBYgFwA4AMAaEaRGKZBFdDAFgIFcBnGAFQEMAjezAMxbEYMYBbCAGEA9mDFROGZACdaMAdADmYGAEVaY5DBk8+SkPJYRIUFeMGCWMkLABuMOSDqMAQnJYBjPZhAA7qgkAHI6AMqq6gAy0DCuIGxevgAKYvQQyBBS-rAAHsixsACSXAASLBaqCRkW6u5iiACeaRlZORggNtDIplAJ+cjipHISAGKSAa2Z2f2dg0XxBFxicr4AsrRgWYsAgnIqtIIkyPq8-CArazCb2xCLKSxex7pyZ4YEJEcAIjDeYE8WO0oAA6Y6CNjOcIABx81U63VIfQST1GATGtCg3mBAFE8tC5HoMlIQQwYI9CaRgow7IjetAQABfIA)
 
+#### Forcing a Line Per Expression
+
+By default, dprint will leave line breaks between expressions in member expressions (ex. `myObj.prop`) and binary expressions (ex. `value + other`). If you don't want this behaviour, you can disable it by setting the following configuration:
+
+* `"memberExpression.linePerExpression": true`
+* `"binaryExpression.linePerExpression": true`
+
+Example:
+
+```ts
+myObject.accessing.someProperty;
+myObject
+    .accessing.some
+    .other.prop;
+myObject.myLooooooooooonnnnnggggggg.propAccess;
+// formats as (when line width is 40)
+myObject.accessing.someProperty;
+myObject
+    .accessing
+    .some
+    .other
+    .prop;
+myObject
+    .myLooooooooooonnnnnggggggg
+    .propAccess;
+```
+
+You may want to use both `"preferSingleLine": true` in combination with this option:
+
+```ts
+myObject.accessing.someProperty;
+myObject
+    .accessing.some
+    .other.prop;
+myObject.myLooooooooooonnnnnggggggg.propAccess;
+// formats as (when line width is 40)
+myObject.accessing.someProperty;
+myObject.accessing.some.other.prop;
+myObject
+    .myLooooooooooonnnnnggggggg
+    .propAccess;
+```
+
 ### Statement & Member Spacing
 
 Line breaks are maintained, but not when they are consecutive or if they are at the beginning or end of a block.
@@ -444,8 +511,8 @@ const { JsoncPlugin } = require("dprint-plugin-jsonc");
 module.exports.config = {
     projectType: "openSource",
     plugins: [
-        new JsoncPlugin({})
-    ]
+        new JsoncPlugin({}),
+    ],
 };
 ```
 
@@ -455,4 +522,4 @@ There is currently no JSONC specific configuration beyond the global configurati
 
 Links:
 
-* [Type Declarations](https://github.com/dsherret/dprint/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)
+* [Type Declarations](https://github.com/dprint/dprint/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)

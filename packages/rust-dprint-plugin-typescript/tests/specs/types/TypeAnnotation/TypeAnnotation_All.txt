@@ -7,3 +7,21 @@ class Test {
 class Test {
     prop: number;
 }
+
+== should handle comment on line before ==
+const t: // test
+    string;
+
+[expect]
+const t: // test
+    string;
+
+== should handle comment on line after ==
+const t:
+    // test
+    string;
+
+[expect]
+const t:
+    // test
+    string;

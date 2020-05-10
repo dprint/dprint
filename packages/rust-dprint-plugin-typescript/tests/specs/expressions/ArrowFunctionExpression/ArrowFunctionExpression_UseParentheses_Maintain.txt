@@ -1,4 +1,4 @@
-~~ arrowFunctionExpression.useParentheses: maintain ~~
+~~ arrowFunction.useParentheses: maintain ~~
 == should allow arrow functions without parens ==
 const t = a => 5;
 

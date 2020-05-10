@@ -1,0 +1,11 @@
+== should have comment before period ==
+checker
+    .getExportsOfModule(mainSymbol)
+    // .getExportsOfModule includes type only symbols which are exported from
+    .filter();
+
+[expect]
+checker
+    .getExportsOfModule(mainSymbol)
+    // .getExportsOfModule includes type only symbols which are exported from
+    .filter();

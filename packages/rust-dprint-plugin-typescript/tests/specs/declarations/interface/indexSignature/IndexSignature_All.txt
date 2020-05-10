@@ -9,7 +9,9 @@ interface T {
 [expect]
 interface T {
     [index: number]: string;
-    [index: number]: string | number
+    [index: number]:
+        | string
+        | number
         | boolean;
     readonly [index]: string;
 }

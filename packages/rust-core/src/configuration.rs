@@ -80,7 +80,7 @@ pub const DEFAULT_GLOBAL_CONFIGURATION: DefaultGlobalConfiguration = DefaultGlob
     line_width: 120,
     indent_width: 4,
     use_tabs: false,
-    new_line_kind: NewLineKind::Auto,
+    new_line_kind: NewLineKind::LineFeed,
 };
 
 pub struct DefaultGlobalConfiguration {
@@ -102,9 +102,9 @@ pub struct ResolveConfigurationResult<T> where T : Clone + Serialize {
 }
 
 /// Resolves a collection of key value pairs to a GlobalConfiguration.
-pub fn resolve_global_config(config: &HashMap<String, String>) -> ResolveConfigurationResult<GlobalConfiguration> {
+pub fn resolve_global_config(config: HashMap<String, String>) -> ResolveConfigurationResult<GlobalConfiguration> {
+    let mut config = config;
     let mut diagnostics = Vec::new();
-    let mut config = config.clone();
 
     let resolved_config = GlobalConfiguration {
         line_width: get_nullable_value(&mut config, "lineWidth", &mut diagnostics),
@@ -167,7 +167,7 @@ fn get_nullable_value<T>(
 }
 
 /// Resolves the `NewLineKind` text from the provided file text and `NewLineKind`.
-pub fn resolve_new_line_kind(file_text: &str, new_line_kind: &NewLineKind) -> &'static str {
+pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'static str {
     match new_line_kind {
         NewLineKind::LineFeed => "\n",
         NewLineKind::CarriageReturnLineFeed => "\r\n",

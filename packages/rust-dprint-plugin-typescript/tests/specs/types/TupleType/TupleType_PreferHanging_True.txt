@@ -14,7 +14,7 @@ type T = [
 type T = [
     string, // test
     number,
-    other
+    other,
 ];
 
 == should hang when exceeding line width ==

@@ -1,0 +1,53 @@
+~~ arguments.preferHanging: false, lineWidth: 40 ~~
+== should force multi-line arguments when exceeding the line width ==
+call(testing, thisOut, byExceeding, theLineWidth);
+
+[expect]
+call(
+    testing,
+    thisOut,
+    byExceeding,
+    theLineWidth,
+);
+
+== should not be multi-line when not exceeding the line width ==
+call(testing, this);
+
+[expect]
+call(testing, this);
+
+== should not move a function expression onto multiple lines when there only exists one ==
+
+call(function test() {
+});
+
+[expect]
+call(function test() {
+});
+
+== should not move an arrow function expression onto multiple lines when there only exists one ==
+
+call(() => {
+});
+
+[expect]
+call(() => {
+});
+
+== should not do a newline when the call expr's identifier and paren is below the indent width ==
+cal(tttttttttttttttttttttttttttttttttttttttt);
+
+[expect]
+cal(tttttttttttttttttttttttttttttttttttttttt);
+
+== should do a newline when the call expr's identifier and paren is at or above the indent width ==
+call(tttttttttttttttttttttttttttttttttttttttt);
+calltttttt(tttttttttttttttttttttttttttttttttttttttt);
+
+[expect]
+call(
+    tttttttttttttttttttttttttttttttttttttttt,
+);
+calltttttt(
+    tttttttttttttttttttttttttttttttttttttttt,
+);

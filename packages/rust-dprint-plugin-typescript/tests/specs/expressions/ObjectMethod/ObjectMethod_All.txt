@@ -11,7 +11,11 @@ const obj = {
         return "";
     },
     set test (value: string) {
-    }
+    },
+    method3<T>(): string {
+    },
+    method4<TestingThisOut, Testinggggggggggggggg>(): string {
+    },
 };
 
 [expect]
@@ -26,7 +30,14 @@ const obj = {
         return "";
     },
     set test(value: string) {
-    }
+    },
+    method3<T>(): string {
+    },
+    method4<
+        TestingThisOut,
+        Testinggggggggggggggg,
+    >(): string {
+    },
 };
 
 == should force multi-line parameters when exceeding the line width ==
@@ -41,9 +52,9 @@ const o = {
         testing,
         thisOut,
         byExceeding,
-        theLineWidth
+        theLineWidth,
     ) {
-    }
+    },
 };
 
 == should not be multi-line when not exceeding the line width ==
@@ -55,19 +66,19 @@ const o = {
 [expect]
 const o = {
     test(testing, this) {
-    }
+    },
 };
 
-== should format the return type as hanging when it's hanging ==
+== should format the params as multi-line when the return type exceeds the line width ==
 const obj = {
-    method(param: string): test | other | number {
+    method(param: string): test | otherr | number {
     }
 }
 
 [expect]
 const obj = {
-    method(param: string): test | other
-        | number
-    {
-    }
+    method(
+        param: string,
+    ): test | otherr | number {
+    },
 };

@@ -1,12 +1,13 @@
 import { Environment } from "../environment";
-import { ConfigurationDiagnostic, WebAssemblyPlugin } from "@dprint/types";
+import { ConfigurationDiagnostic } from "@dprint/types";
 import { formatFileText, resolveConfiguration } from "@dprint/core";
+import { getMissingProjectTypeDiagnostic } from "../configuration";
 import { parseCommandLineArgs } from "./parseCommandLineArgs";
 import { getHelpText } from "./getHelpText";
 import { getVersionText } from "./getVersionText";
 import { CommandLineOptions } from "./CommandLineOptions";
+import { KillSafeFileWriter } from "./fileSystem";
 import { resolveConfigFile, resolveConfigFilePath } from "./resolveConfigFile";
-import { getMissingProjectTypeDiagnostic } from "../configuration";
 
 /**
  * Function used by the cli to format files.
@@ -19,8 +20,6 @@ export async function runCli(args: string[], environment: Environment) {
 }
 
 export async function runCliWithOptions(options: CommandLineOptions, environment: Environment) {
-    const startDate = new Date();
-
     if (options.showHelp) {
         environment.log(getHelpText(await safeGetPlugins()));
         return;
@@ -38,12 +37,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
     try {
         await runCliWithPlugins();
     } finally {
-        plugins.forEach(p => (p as WebAssemblyPlugin).dispose?.());
-    }
-
-    if (options.duration) {
-        const durationInSeconds = ((new Date()).getTime() - startDate.getTime()) / 1000;
-        environment.log(`Duration: ${durationInSeconds.toFixed(2)}s`);
+        plugins.forEach(p => p.dispose?.());
     }
 
     async function runCliWithPlugins() {
@@ -67,30 +61,34 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         }
 
         const promises: Promise<void>[] = [];
-
-        for (const filePath of filePaths) {
-            const promise = environment.readFile(filePath).then(fileText => {
-                const result = formatFileText({
-                    filePath,
-                    fileText,
-                    plugins
+        const killSafeFileWriter = new KillSafeFileWriter(environment);
+        try {
+            for (const filePath of filePaths) {
+                const promise = environment.readFile(filePath).then(fileText => {
+                    const result = formatFileText({
+                        filePath,
+                        fileText,
+                        plugins,
+                    });
+                    // skip writing the file if it hasn't changed
+                    return result === false ? Promise.resolve() : killSafeFileWriter.writeFile(filePath, result);
+                }).catch(err => {
+                    const errorText = err.toString().replace("[dprint]: ", "");
+                    environment.error(`Error formatting file: ${filePath}\n\n${errorText}`);
                 });
-                // skip writing the file if it hasn't changed
-                return result === fileText ? Promise.resolve() : environment.writeFile(filePath, result);
-            }).catch(err => {
-                const errorText = err.toString().replace("[dprint]: ", "");
-                environment.error(`Error formatting file: ${filePath}\n\n${errorText}`);
-            });
-            promises.push(promise);
-        }
+                promises.push(promise);
+            }
 
-        await Promise.all(promises);
+            await Promise.all(promises);
+        } finally {
+            await killSafeFileWriter.dispose();
+        }
 
         function updatePluginsWithConfiguration() {
             for (const plugin of plugins) {
                 plugin.initialize({
                     environment,
-                    globalConfig
+                    globalConfig,
                 });
 
                 for (const diagnostic of plugin.getConfigurationDiagnostics())
@@ -139,9 +137,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         const isInNodeModules = /[\/|\\]node_modules[\/|\\]/i;
         const allFilePaths = await environment.glob(getFileGlobs());
 
-        return options.allowNodeModuleFiles
-            ? allFilePaths
-            : allFilePaths.filter(filePath => !isInNodeModules.test(filePath));
+        return options.allowNodeModuleFiles ? allFilePaths : allFilePaths.filter(filePath => !isInNodeModules.test(filePath));
 
         function getFileGlobs() {
             return [...getIncludes(), ...getExcludes()];
@@ -188,7 +184,7 @@ export async function runCliWithOptions(options: CommandLineOptions, environment
         return {
             unresolvedConfiguration,
             configFilePath,
-            plugins: unresolvedConfiguration.plugins || []
+            plugins: unresolvedConfiguration.plugins || [],
         };
     }
 }
@@ -215,12 +211,12 @@ module.exports.config = {
         new TypeScriptPlugin({
         }),
         new JsoncPlugin({
-            indentWidth: 2
-        })
+            indentWidth: 2,
+        }),
     ],
     includes: [
-        "**/*.{ts,tsx,json,js,jsx}"
-    ]
+        "**/*.{ts,tsx,js,jsx,json}",
+    ],
 };
 `;
     }

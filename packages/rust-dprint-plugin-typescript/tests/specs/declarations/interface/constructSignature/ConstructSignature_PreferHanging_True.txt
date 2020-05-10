@@ -1,0 +1,23 @@
+~~ parameters.preferHanging: true, lineWidth: 40 ~~
+== should format the return type on the same line when the rest of the header is hanging ==
+interface T {
+    new (param: string, otherTest: string): te | st;
+}
+
+[expect]
+interface T {
+    new(param: string,
+        otherTest: string): te | st;
+}
+
+== should format the return type on a new line when it's hanging and the rest of the header is hanging ==
+interface T {
+    new (param: string, otherTest: string): test | other | other;
+}
+
+[expect]
+interface T {
+    new(param: string,
+        otherTest: string
+    ): test | other | other;
+}

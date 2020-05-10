@@ -1,14 +1,15 @@
+~~ lineWidth: 40 ~~
 == should format ==
 import t = require(   "test"   );
 
 [expect]
 import t = require("test");
 
-== should use new lines if first param is on different line ==
+== should always keep on one line ==
 import t = require(
     "test");
+import t = require("ttttttttttttttttttttttttttttttttttttttttt");
 
 [expect]
-import t = require(
-    "test"
-);
+import t = require("test");
+import t = require("ttttttttttttttttttttttttttttttttttttttttt");

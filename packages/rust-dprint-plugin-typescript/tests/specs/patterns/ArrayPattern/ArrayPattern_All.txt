@@ -32,7 +32,17 @@ function t(
     [
         testing,
         thisOutWhere,
-        itGoesOverTheLineWidth
-    ]
+        itGoesOverTheLineWidth,
+    ],
 ) {
+}
+
+== should format when optional ==
+export declare class EventInit {
+    constructor([t]?: string[]);
+}
+
+[expect]
+export declare class EventInit {
+    constructor([t]?: string[]);
 }

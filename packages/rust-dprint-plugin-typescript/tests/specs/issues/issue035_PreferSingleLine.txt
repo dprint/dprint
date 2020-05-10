@@ -1,0 +1,9 @@
+~~ lineWidth: 40, arguments.preferHanging: true, preferSingleLine: true ~~
+== should not throw error about finishIndent being called without a corresponding startIndent ==
+t(u, tbdstdddddbbSftt ? dddddmdd : testt);
+
+[expect]
+t(u,
+    tbdstdddddbbSftt
+        ? dddddmdd
+        : testt);

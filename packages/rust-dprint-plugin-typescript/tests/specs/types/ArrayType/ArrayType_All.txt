@@ -9,5 +9,6 @@ type T = string[];
 type Test = test | (string | number | other)[ ];
 
 [expect]
-type Test = test
+type Test =
+    | test
     | (string | number | other)[];

@@ -4,64 +4,32 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem;
 
-/* Traits -- This allows implementing these for Wasm objects. */
-
-pub trait StringTrait {
-    fn get_length(&self) -> usize;
-    fn get_text<'a>(&'a self) -> &'a str;
-}
-
-impl StringTrait for String {
-    fn get_length(&self) -> usize {
-        self.chars().count()
-    }
-
-    fn get_text<'a>(&'a self) -> &'a str {
-        self
-    }
-}
-
-pub trait InfoTrait {
-    fn get_unique_id(&self) -> usize;
-    fn get_name(&self) -> &'static str;
-}
-
-pub trait ConditionTrait<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    fn get_unique_id(&self) -> usize;
-    fn get_is_stored(&self) -> bool;
-    fn get_name(&self) -> &'static str;
-    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>;
-    fn get_true_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
-    fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>>;
-    fn get_dependent_infos<'a>(&'a self) -> &'a Option<Vec<TInfo>>;
-}
-
 /** Print Items */
 
-pub struct PrintItems<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    pub(super) first_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
-    last_node: Option<PrintItemPath<TString, TInfo, TCondition>>,
+pub struct PrintItems {
+    pub(super) first_node: Option<PrintItemPath>,
+    last_node: Option<PrintItemPath>,
 }
 
-impl<TString, TInfo, TCondition> PrintItems<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    pub fn new() -> PrintItems<TString, TInfo, TCondition> {
+impl PrintItems {
+    pub fn new() -> PrintItems {
         PrintItems {
             first_node: None,
             last_node: None,
         }
     }
 
-    pub fn into_rc_path(self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+    pub fn into_rc_path(self) -> Option<PrintItemPath> {
         self.first_node
     }
 
-    pub fn push_item(&mut self, item: PrintItem<TString, TInfo, TCondition>) {
+    pub fn push_item(&mut self, item: PrintItem) {
         self.push_item_internal(item);
     }
 
     // seems marginally faster to inline this? probably not worth it
     #[inline]
-    fn push_item_internal(&mut self, item: PrintItem<TString, TInfo, TCondition>) {
+    fn push_item_internal(&mut self, item: PrintItem) {
         let node = Rc::new(PrintNodeCell::new(item));
         if let Some(first_node) = &self.first_node {
             let new_last_node = node.get_last_next().unwrap_or(node.clone());
@@ -132,11 +100,11 @@ impl PrintItems {
                     PrintItem::Info(info) => text.push_str(&get_line(format!("Info: {}", info.name), &indent_text)),
                     PrintItem::Condition(condition) => {
                         text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
-                        if let Some(true_path) = condition.get_true_path() {
+                        if let Some(true_path) = &condition.true_path {
                             text.push_str(&get_line(String::from("  true:"), &indent_text));
                             text.push_str(&get_items_as_text(true_path.clone(), format!("{}    ", &indent_text)));
                         }
-                        if let Some(false_path) = condition.get_false_path() {
+                        if let Some(false_path) = &condition.false_path {
                             text.push_str(&get_line(String::from("  false:"), &indent_text));
                             text.push_str(&get_items_as_text(false_path.clone(), format!("{}    ", &indent_text)));
                         }
@@ -241,12 +209,12 @@ impl Into<PrintItems> for Option<PrintItemPath> {
 
 /** Print Node */
 
-pub struct PrintNode<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    pub(super) next: Option<PrintItemPath<TString, TInfo, TCondition>>,
-    pub(super) item: PrintItem<TString, TInfo, TCondition>,
+pub struct PrintNode {
+    pub(super) next: Option<PrintItemPath>,
+    pub(super) item: PrintItem,
 }
 
-impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
+impl Drop for PrintNode {
     // Implement a custom drop in order to prevent a stack overflow error when dropping objects of this type
     fn drop(&mut self) {
         let mut next = mem::replace(&mut self.next, None);
@@ -263,15 +231,15 @@ impl<TString, TInfo, TCondition> Drop for PrintNode<TString, TInfo, TCondition> 
     }
 }
 
-impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    fn new(item: PrintItem<TString, TInfo, TCondition>) -> PrintNode<TString, TInfo, TCondition> {
+impl PrintNode {
+    fn new(item: PrintItem) -> PrintNode {
         PrintNode {
             item,
             next: None,
         }
     }
 
-    fn set_next(&mut self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>) {
+    fn set_next(&mut self, new_next: Option<PrintItemPath>) {
         let past_next = mem::replace(&mut self.next, new_next.clone());
 
         if let Some(past_next) = past_next {
@@ -283,40 +251,40 @@ impl<TString, TInfo, TCondition> PrintNode<TString, TInfo, TCondition> where TSt
 }
 
 /// A fast implementation of RefCell<PrintNode> that avoids runtime checks on borrows.
-pub struct PrintNodeCell<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    value: UnsafeCell<PrintNode<TString, TInfo, TCondition>>,
+pub struct PrintNodeCell {
+    value: UnsafeCell<PrintNode>,
 }
 
-impl<TString, TInfo, TCondition> PrintNodeCell<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    pub(super) fn new(item: PrintItem<TString, TInfo, TCondition>) -> PrintNodeCell<TString, TInfo, TCondition> {
+impl PrintNodeCell {
+    pub(super) fn new(item: PrintItem) -> PrintNodeCell {
         PrintNodeCell {
             value: UnsafeCell::new(PrintNode::new(item))
         }
     }
 
     #[inline]
-    pub(super) fn get_item(&self) -> PrintItem<TString, TInfo, TCondition> {
+    pub(super) fn get_item(&self) -> PrintItem {
         unsafe {
             (*self.value.get()).item.clone()
         }
     }
 
     #[inline]
-    pub(super) fn get_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+    pub(super) fn get_next(&self) -> Option<PrintItemPath> {
         unsafe {
             (*self.value.get()).next.clone()
         }
     }
 
     #[inline]
-    pub(super) fn set_next(&self, new_next: Option<PrintItemPath<TString, TInfo, TCondition>>) {
+    pub(super) fn set_next(&self, new_next: Option<PrintItemPath>) {
         unsafe {
             (*self.value.get()).set_next(new_next);
         }
     }
 
     #[inline]
-    pub(super) fn get_last_next(&self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+    pub(super) fn get_last_next(&self) -> Option<PrintItemPath> {
         let mut current = self.get_next();
         loop {
             if let Some(last) = &current {
@@ -334,39 +302,28 @@ impl<TString, TInfo, TCondition> PrintNodeCell<TString, TInfo, TCondition> where
     /// Gets the node unsafely. Be careful when using this and ensure no mutation is
     /// happening during the borrow.
     #[inline]
-    pub(super) unsafe fn get_node(&self) -> *mut PrintNode<TString, TInfo, TCondition> {
+    pub(super) unsafe fn get_node(&self) -> *mut PrintNode {
         self.value.get()
     }
 
     #[inline]
-    pub fn take_next(self) -> Option<PrintItemPath<TString, TInfo, TCondition>> {
+    pub fn take_next(self) -> Option<PrintItemPath> {
         self.value.into_inner().next.take()
     }
 }
 
-pub type PrintItemPath<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> = Rc<PrintNodeCell<TString, TInfo, TCondition>>;
+pub type PrintItemPath = Rc<PrintNodeCell>;
 
 /* Print item and kinds */
 
 /// The different items the printer could encounter.
-pub enum PrintItem<TString = String, TInfo = Info, TCondition = Condition<TString, TInfo>> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    String(Rc<StringContainer<TString>>),
-    Condition(Rc<TCondition>),
-    Info(Rc<TInfo>),
+#[derive(Clone)]
+pub enum PrintItem {
+    String(Rc<StringContainer>),
+    Condition(Rc<Condition>),
+    Info(Rc<Info>),
     Signal(Signal),
-    RcPath(PrintItemPath<TString, TInfo, TCondition>),
-}
-
-impl<TString, TInfo, TCondition> Clone for PrintItem<TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    fn clone(&self) -> PrintItem<TString, TInfo, TCondition> {
-        match self {
-            PrintItem::String(text) => PrintItem::String(text.clone()),
-            PrintItem::Condition(condition) => PrintItem::Condition(condition.clone()),
-            PrintItem::Info(info) => PrintItem::Info(info.clone()),
-            PrintItem::Signal(signal) => PrintItem::Signal(*signal),
-            PrintItem::RcPath(path) => PrintItem::RcPath(path.clone()),
-        }
-    }
+    RcPath(PrintItemPath),
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
@@ -383,6 +340,8 @@ pub enum Signal {
     SpaceOrNewLine,
     /// Expect the next character to be a newline. If it's not, force a newline.
     ExpectNewLine,
+    /// Queue a start indent to be set after the next written item.
+    QueueStartIndent,
     /// Signal the start of a section that should be indented.
     StartIndent,
     /// Signal the end of a section that should be indented.
@@ -402,6 +361,8 @@ pub enum Signal {
     StartForceNoNewLines,
     /// Signal to the printer that it should finish not printing any new lines.
     FinishForceNoNewLines,
+    /// Signal that a space should occur if not trailing.
+    SpaceIfNotTrailing,
 }
 
 /// Can be used to get information at a certain location being printed. These
@@ -412,27 +373,32 @@ pub struct Info {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
+    #[cfg(debug_assertions)]
     name: &'static str,
-}
-
-impl InfoTrait for Info {
-    fn get_unique_id(&self) -> usize {
-        self.id
-    }
-
-    fn get_name(&self) -> &'static str {
-        self.name
-    }
 }
 
 static INFO_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl Info {
-    pub fn new(name: &'static str) -> Info {
+    pub fn new(_name: &'static str) -> Info {
         Info {
             id: INFO_COUNTER.fetch_add(1, Ordering::SeqCst),
-            name
+            #[cfg(debug_assertions)]
+            name: _name
         }
+    }
+
+    #[inline]
+    pub fn get_unique_id(&self) -> usize {
+        self.id
+    }
+
+    #[inline]
+    pub fn get_name(&self) -> &'static str {
+        #[cfg(debug_assertions)]
+        return self.name;
+        #[cfg(not(debug_assertions))]
+        return "";
     }
 }
 
@@ -440,93 +406,123 @@ impl Info {
 ///
 /// These conditions are extremely flexible and can even be resolved based on
 /// information found later on in the file.
-pub struct Condition<TString = String, TInfo = Info> where TString : StringTrait, TInfo : InfoTrait {
+#[derive(Clone)]
+pub struct Condition {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
+    #[cfg(debug_assertions)]
     name: &'static str,
     /// If a reference has been created for the condition via `get_reference()`. If so, the printer
     /// will store the condition and it will be retrievable via a condition resolver.
-    is_stored: bool,
+    pub(super) is_stored: bool,
     /// The condition to resolve.
-    pub condition: Rc<Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>>,
+    pub(super) condition: Rc<Box<ConditionResolver>>,
     /// The items to print when the condition is true.
-    pub true_path: Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>>,
+    pub(super) true_path: Option<PrintItemPath>,
     /// The items to print when the condition is false or undefined (not yet resolved).
-    pub false_path: Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>>,
+    pub(super) false_path: Option<PrintItemPath>,
     /// Any infos that should cause the re-evaluation of this condition.
     /// This is only done on request for performance reasons.
-    pub(super) dependent_infos: Option<Vec<TInfo>>,
-}
-
-impl Clone for Condition {
-    fn clone(&self) -> Condition {
-        return Condition {
-            id: self.id,
-            is_stored: self.is_stored,
-            name: self.name,
-            condition: self.condition.clone(),
-            true_path: self.true_path.clone(),
-            false_path: self.false_path.clone(),
-            dependent_infos: self.dependent_infos.clone(),
-        };
-    }
+    pub(super) dependent_infos: Option<Vec<Info>>,
 }
 
 static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-impl<TString, TInfo> Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
-    pub fn new(name: &'static str, properties: ConditionProperties<TString, TInfo>) -> Condition<TString, TInfo> {
+impl Condition {
+    pub fn new(name: &'static str, properties: ConditionProperties) -> Condition {
         Condition::new_internal(name, properties, None)
     }
 
-    pub fn new_true() -> Condition<TString, TInfo> {
+    pub fn new_true() -> Condition {
         Condition::new_internal("trueCondition", ConditionProperties {
-            condition: Box::new(|_| Some(true)),
+            condition: Rc::new(Box::new(|_| Some(true))),
             true_path: None,
             false_path: None,
         }, None)
     }
 
-    pub fn new_false() -> Condition<TString, TInfo> {
+    pub fn new_false() -> Condition {
         Condition::new_internal("falseCondition", ConditionProperties {
-            condition: Box::new(|_| Some(false)),
+            condition: Rc::new(Box::new(|_| Some(false))),
             true_path: None,
             false_path: None,
         }, None)
     }
 
-    pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties<TString, TInfo>, dependent_infos: Vec<TInfo>) -> Condition<TString, TInfo> {
+    pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties, dependent_infos: Vec<Info>) -> Condition {
         Condition::new_internal(name, properties, Some(dependent_infos))
     }
 
-    fn new_internal(name: &'static str, properties: ConditionProperties<TString, TInfo>, dependent_infos: Option<Vec<TInfo>>) -> Condition<TString, TInfo> {
+    fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
         Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
             is_stored: dependent_infos.is_some(),
-            name,
-            condition: Rc::new(properties.condition),
+            #[cfg(debug_assertions)]
+            name: _name,
+            condition: properties.condition,
             true_path: properties.true_path.map(|x| x.first_node).flatten(),
             false_path: properties.false_path.map(|x| x.first_node).flatten(),
             dependent_infos,
         }
     }
 
+    #[inline]
+    pub fn get_unique_id(&self) -> usize {
+        self.id
+    }
+
+    #[inline]
+    pub fn get_name(&self) -> &'static str {
+        #[cfg(debug_assertions)]
+        return self.name;
+        #[cfg(not(debug_assertions))]
+        return "condition";
+    }
+
+    #[inline]
+    pub fn get_true_path(&self) -> &Option<PrintItemPath> {
+        &self.true_path
+    }
+
+    #[inline]
+    pub fn get_false_path(&self) -> &Option<PrintItemPath> {
+        &self.false_path
+    }
+
+    #[inline]
+    pub(super) fn resolve(&self, context: &mut ConditionResolverContext) -> Option<bool> {
+        (self.condition)(context)
+    }
+
     pub fn get_reference(&mut self) -> ConditionReference {
         self.is_stored = true;
-        ConditionReference::new(self.name, self.id)
+        ConditionReference::new(self.get_name(), self.id)
     }
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
 pub struct ConditionReference {
+    #[cfg(debug_assertions)]
     pub(super) name: &'static str,
     pub(super) id: usize,
 }
 
 impl ConditionReference {
-    pub fn new(name: &'static str, id: usize) -> ConditionReference {
-        ConditionReference { name, id }
+    pub(super) fn new(_name: &'static str, id: usize) -> ConditionReference {
+        ConditionReference {
+            #[cfg(debug_assertions)]
+            name: _name,
+            id,
+        }
+    }
+
+    #[inline]
+    pub(super) fn get_name(&self) -> &'static str {
+        #[cfg(debug_assertions)]
+        return self.name;
+        #[cfg(not(debug_assertions))]
+        return "conditionRef";
     }
 
     /// Creates a condition resolver that checks the value of the condition this references.
@@ -538,66 +534,28 @@ impl ConditionReference {
     }
 }
 
-impl<TString, TInfo> ConditionTrait<TString, TInfo, Condition<TString, TInfo>> for Condition<TString, TInfo> where TString : StringTrait, TInfo : InfoTrait {
-    #[inline]
-    fn get_unique_id(&self) -> usize {
-        self.id
-    }
-
-    #[inline]
-    fn get_name(&self) -> &'static str {
-        self.name
-    }
-
-    #[inline]
-    fn get_is_stored(&self) -> bool {
-        self.is_stored
-    }
-
-    #[inline]
-    fn resolve(&self, context: &mut ConditionResolverContext<TString, TInfo, Self>) -> Option<bool> {
-        (self.condition)(context)
-    }
-
-    #[inline]
-    fn get_true_path(&self) -> Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>> {
-        self.true_path.clone()
-    }
-
-    #[inline]
-    fn get_false_path(&self) -> Option<PrintItemPath<TString, TInfo, Condition<TString, TInfo>>> {
-        self.false_path.clone()
-    }
-
-    #[inline]
-    fn get_dependent_infos<'a>(&'a self) -> &'a Option<Vec<TInfo>> {
-        &self.dependent_infos
-    }
-}
-
 /// Properties for the condition.
-pub struct ConditionProperties<TString = String, TInfo = Info> where TString : StringTrait, TInfo : InfoTrait {
+pub struct ConditionProperties {
     /// The condition to resolve.
-    pub condition: Box<ConditionResolver<TString, TInfo, Condition<TString, TInfo>>>,
+    pub condition: Rc<Box<ConditionResolver>>,
     /// The items to print when the condition is true.
-    pub true_path: Option<PrintItems<TString, TInfo, Condition<TString, TInfo>>>,
+    pub true_path: Option<PrintItems>,
     /// The items to print when the condition is false or undefined (not yet resolved).
-    pub false_path: Option<PrintItems<TString, TInfo, Condition<TString, TInfo>>>,
+    pub false_path: Option<PrintItems>,
 }
 
 /// Function used to resolve a condition.
-pub type ConditionResolver<TString = String, TInfo = Info, TCondition = Condition> = dyn Fn(&mut ConditionResolverContext<TString, TInfo, TCondition>) -> Option<bool>; // todo: impl Fn(etc) -> etc; once supported
+pub type ConditionResolver = dyn Fn(&mut ConditionResolverContext) -> Option<bool>;
 
 /// Context used when resolving a condition.
-pub struct ConditionResolverContext<'a, TString = String, TInfo = Info, TCondition = Condition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    printer: &'a mut Printer<TString, TInfo, TCondition>,
+pub struct ConditionResolverContext<'a> {
+    printer: &'a mut Printer,
     /// Gets the writer info at the condition's location.
     pub writer_info: WriterInfo,
 }
 
-impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo, TCondition> where TString : StringTrait, TInfo : InfoTrait, TCondition : ConditionTrait<TString, TInfo, TCondition> {
-    pub fn new(printer: &'a mut Printer<TString, TInfo, TCondition>) -> Self {
-        let writer_info = printer.get_writer_info();
+impl<'a> ConditionResolverContext<'a> {
+    pub(super) fn new(printer: &'a mut Printer, writer_info: WriterInfo) -> Self {
         ConditionResolverContext {
             printer,
             writer_info,
@@ -611,25 +569,36 @@ impl<'a, TString, TInfo, TCondition> ConditionResolverContext<'a, TString, TInfo
     }
 
     /// Gets the writer info at a specified info or returns undefined when not yet resolved.
-    pub fn get_resolved_info(&self, info: &TInfo) -> Option<&WriterInfo> {
+    pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
         self.printer.get_resolved_info(info)
+    }
+
+    /// Clears the info result from being stored.
+    pub fn clear_info(&mut self, info: &Info) {
+        self.printer.clear_info(info)
+    }
+
+    /// Gets if the provided info has moved positions since the last check.
+    /// Returns None when the info can't be resolved. Returns Some(false) the first time this is called.
+    pub fn has_info_moved(&mut self, info: &Info) -> Option<bool> {
+        self.printer.has_info_moved(info)
     }
 }
 
 /// A container that holds the string's value and character count.
 #[derive(Clone)]
-pub struct StringContainer<TString> where TString : StringTrait {
+pub struct StringContainer {
     /// The string value.
-    pub text: TString,
+    pub text: String,
     /// The cached character count.
     /// It is much faster to cache this than to recompute it all the time.
     pub(super) char_count: u32,
 }
 
-impl<TString> StringContainer<TString> where TString : StringTrait {
+impl StringContainer {
     /// Creates a new string container.
-    pub fn new(text: TString) -> StringContainer<TString> {
-        let char_count = text.get_length() as u32;
+    pub fn new(text: String) -> StringContainer {
+        let char_count = text.chars().count() as u32;
         StringContainer {
             text,
             char_count
@@ -651,5 +620,10 @@ impl WriterInfo {
     /// Gets if the current column number equals the line start column number.
     pub fn is_start_of_line(&self) -> bool {
         self.column_number == self.line_start_column_number
+    }
+
+    /// Gets the line and column number.
+    pub fn get_line_and_column(&self) -> (u32, u32) {
+        (self.line_number, self.column_number)
     }
 }

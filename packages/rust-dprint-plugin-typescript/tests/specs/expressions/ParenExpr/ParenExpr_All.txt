@@ -1,0 +1,21 @@
+== should format allowing comment on header line ==
+const test = ( // test
+    test
+);
+
+[expect]
+const test = ( // test
+    test
+);
+
+== should keep comment inside ==
+const test = (
+    // test
+    test
+);
+
+[expect]
+const test = (
+    // test
+    test
+);

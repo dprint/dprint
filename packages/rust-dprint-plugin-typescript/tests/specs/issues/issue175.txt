@@ -1,0 +1,11 @@
+== should not double indent ==
+type Test =
+    // test
+    // test
+    test;
+
+[expect]
+type Test =
+    // test
+    // test
+    test;

@@ -7,9 +7,16 @@ const t = tag `testing`;
 
 == should format with type parameters ==
 const t = tag<T, U> `testing`;
+// trailing comma not allowed by TS here :(
+const u = tag<Testitttnnngg, ThisOutttttt> `testing`;
 
 [expect]
 const t = tag<T, U> `testing`;
+// trailing comma not allowed by TS here :(
+const u = tag<
+    Testitttnnngg,
+    ThisOutttttt
+> `testing`;
 
 == should move the template literal to the next line when exceeding the width ==
 const t = tag<Testing, Other> `testing this out`;

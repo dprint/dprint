@@ -1,7 +1,13 @@
 use super::print_items::*;
 
+// todo: the condition resolvers that only accept a condition_context should be lazy static and of type Rc<Box<ConditionResolver>>
+
 pub fn is_start_of_line(condition_context: &ConditionResolverContext) -> bool {
     condition_context.writer_info.is_start_of_line()
+}
+
+pub fn is_start_of_line_indented(condition_context: &ConditionResolverContext) -> bool {
+    condition_context.writer_info.line_start_indent_level > condition_context.writer_info.indent_level
 }
 
 pub fn is_multiple_lines(condition_context: &mut ConditionResolverContext, start_info: &Info, end_info: &Info) -> Option<bool> {

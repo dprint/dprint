@@ -12,24 +12,28 @@ const t = <Test    attrib={5}    other="test"  > < /  Test  > ;
 [expect]
 const t = <Test attrib={5} other="test"></Test>;
 
-== should make the body multi-line when the header is hanging ==
+== should make the body multi-line when the header is multiple lines ==
 const t = <Test attrib={5} otherAttrib="test" anotherVeryLongAttrib={234234}>Test</Test>;
 
 [expect]
-const t = <Test attrib={5} otherAttrib="test"
+const t = <Test
+    attrib={5}
+    otherAttrib="test"
     anotherVeryLongAttrib={234234}
 >
     Test
 </Test>;
 
-== should make the body multi-line when the header is hanging and inside parens ==
+== should make the body multi-line when the header is multiple lines and inside parens ==
 const t = (
     <Test attrib={5} otherVeryLongAttrib="test" anotherVeryLongAttrib={234234}>Test</Test>
 );
 
 [expect]
 const t = (
-    <Test attrib={5} otherVeryLongAttrib="test"
+    <Test
+        attrib={5}
+        otherVeryLongAttrib="test"
         anotherVeryLongAttrib={234234}
     >
         Test

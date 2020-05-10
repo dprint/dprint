@@ -27,6 +27,15 @@ impl<T> GraphNode<T> {
 
         (item, previous)
     }
+
+    #[cfg(debug_assertions)]
+    pub fn borrow_item<'a>(&'a self) -> &'a T {
+        &self.item
+    }
+
+    pub fn borrow_previous<'a>(&'a self) -> &'a Option<Rc<GraphNode<T>>> {
+        &self.previous
+    }
 }
 
 // Drop needs to be manually implemented because otherwise it

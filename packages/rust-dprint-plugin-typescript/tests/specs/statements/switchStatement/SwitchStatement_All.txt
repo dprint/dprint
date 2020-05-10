@@ -18,13 +18,13 @@ switch (
 }
 
 == should handle exceeding line width twice ==
-switch (expr.testing.testing.testing.testing) {
+switch (expr.testing.testing.testing.testingg) {
 }
 
 [expect]
 switch (
     expr.testing.testing.testing
-        .testing
+        .testingg
 ) {
 }
 

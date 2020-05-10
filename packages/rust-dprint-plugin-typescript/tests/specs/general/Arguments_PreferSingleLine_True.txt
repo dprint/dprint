@@ -1,0 +1,39 @@
+~~ arguments.preferSingleLine: true, lineWidth: 40 ~~
+== should not keep multi-line when multi-line and below the line width ==
+call(
+    testing,
+    testing,
+);
+
+[expect]
+call(testing, testing);
+
+== should stay multi-line when a binary expression exists that is multi-line ==
+call(
+    "testing"
+        + "testingttttttttttttttttt"
+);
+
+[expect]
+call(
+    "testing"
+        + "testingttttttttttttttttt",
+);
+
+== should stay multi-line for multiple chained call expressions ==
+call(
+    acc
+        .join("\n")
+        .replace(/"""/g, '"')
+        .replace(/'''/g, `'`)
+        .replace(/\n/g, "\\n")
+);
+
+[expect]
+call(
+    acc
+        .join("\n")
+        .replace(/"""/g, "\"")
+        .replace(/'''/g, `'`)
+        .replace(/\n/g, "\\n"),
+);

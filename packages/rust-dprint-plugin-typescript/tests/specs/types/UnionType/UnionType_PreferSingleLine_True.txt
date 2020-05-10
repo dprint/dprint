@@ -1,0 +1,22 @@
+~~ lineWidth: 40, unionAndIntersectionType.preferSingleLine: true ~~
+== should format ==
+export type T = string|number;
+
+[expect]
+export type T = string | number;
+
+== should be single line when hanging ==
+export type T = string | test
+    | other;
+
+[expect]
+export type T = string | test | other;
+
+== should revert back to single line when below the line width ==
+export type T =
+    | string
+    | test
+    | other;
+
+[expect]
+export type T = string | test | other;

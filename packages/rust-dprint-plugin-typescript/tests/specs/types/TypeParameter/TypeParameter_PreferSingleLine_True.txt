@@ -1,0 +1,11 @@
+~~ lineWidth: 40, typeParameters.preferSingleLine: true ~~
+== should go back to single line when able ==
+class Test<
+    T,
+    TestingThisOut
+> {
+}
+
+[expect]
+class Test<T, TestingThisOut> {
+}

@@ -26,7 +26,7 @@ const obj = {
     prop: 5,
     other: 7,
     ...test,
-    ...other
+    ...other,
 };
 
 == should make multiple lines multi-line ==
@@ -36,7 +36,7 @@ const obj = { prop: 5, other: 6, someName: "testing" };
 const obj = {
     prop: 5,
     other: 6,
-    someName: "testing"
+    someName: "testing",
 };
 
 == should respect blank lines in certain places ==
@@ -45,7 +45,7 @@ const obj = {
     prop: 5,
     other: 7,
 
-    testing: 5
+    testing: 5,
 
 };
 
@@ -54,5 +54,5 @@ const obj = {
     prop: 5,
     other: 7,
 
-    testing: 5
+    testing: 5,
 };

@@ -80,7 +80,7 @@ export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> {
 export interface Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > {
 }
 
@@ -92,7 +92,7 @@ export interface Test<TestingThisOut, WithVeryLong, TypeParameterList> extends T
 export interface Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > extends Test {
 }
 
@@ -105,7 +105,7 @@ export interface Test<
 export interface Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > {
 }
 
@@ -118,6 +118,6 @@ export interface Test<
 export interface Test<
     TestingThisOut,
     WithVeryLong,
-    TypeParameterList
+    TypeParameterList,
 > extends Test {
 }

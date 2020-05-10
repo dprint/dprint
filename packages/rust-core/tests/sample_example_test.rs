@@ -127,20 +127,21 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
     items.push_info(start_info);
 
     items.push_str("[");
-    items.push_condition(parser_helpers::if_true(
+    items.push_condition(conditions::if_true(
         "arrayStartNewLine",
         is_multiple_lines.clone(),
         Signal::NewLine.into()
     ));
 
     let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines).into_rc_path();
-    items.push_condition(Condition::new("indentIfMultipleLines", ConditionProperties {
-        condition: Box::new(is_multiple_lines.clone()),
-        true_path: Some(parser_helpers::with_indent(parsed_elements.clone().into())),
-        false_path: Some(parsed_elements.into()),
-    }).into());
+    items.push_condition(conditions::if_true_or(
+        "indentIfMultipleLines",
+        is_multiple_lines.clone(),
+        parser_helpers::with_indent(parsed_elements.clone().into()),
+        parsed_elements.into(),
+    ));
 
-    items.push_condition(parser_helpers::if_true(
+    items.push_condition(conditions::if_true(
         "arrayEndNewLine",
         is_multiple_lines,
         Signal::NewLine.into()
@@ -163,7 +164,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 
             if i < elements_len - 1 {
                 items.push_str(",");
-                items.push_condition(parser_helpers::if_true_or(
+                items.push_condition(conditions::if_true_or(
                     "afterCommaSeparator",
                     is_multiple_lines.clone(),
                     Signal::NewLine.into(),

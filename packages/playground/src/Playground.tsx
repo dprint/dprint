@@ -40,20 +40,21 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
             quoteStyle: initialConfig.quoteStyle,
             trailingCommas: initialConfig["tupleType.trailingCommas"],
             useBraces: initialConfig["ifStatement.useBraces"],
-            bracePosition: initialConfig["arrowFunctionExpression.bracePosition"],
+            bracePosition: initialConfig["arrowFunction.bracePosition"],
             singleBodyPosition: initialConfig["ifStatement.singleBodyPosition"],
             nextControlFlowPosition: initialConfig["ifStatement.nextControlFlowPosition"],
             operatorPosition: initialConfig["binaryExpression.operatorPosition"],
             preferHanging: initialConfig["arrayExpression.preferHanging"],
+            preferSingleLine: initialConfig["parameters.preferSingleLine"],
             "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
-            "arrowFunctionExpression.useParentheses": initialConfig["arrowFunctionExpression.useParentheses"]
+            "arrowFunction.useParentheses": initialConfig["arrowFunction.useParentheses"],
         };
 
         this.state = {
             text: initialText,
             formattedText: this.formatText(initialText, config),
             scrollTop: 0,
-            config
+            config,
         };
 
         this.onConfigUpdate = this.onConfigUpdate.bind(this);
@@ -70,7 +71,8 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
                         <div id="headerRight">
                             <a href="/">Overview</a>
                             <a href="/playground">Playground</a>
-                            <ExternalLink url="https://github.com/dsherret/dprint" text="View on GitHub" />
+                            <a href="/sponsor">Sponsor</a>
+                            <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
                         </div>
                     </header>
                     {/* Todo: re-enable resizing, but doesn't seem to work well with monaco editor on

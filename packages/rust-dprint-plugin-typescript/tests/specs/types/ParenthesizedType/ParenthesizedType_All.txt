@@ -16,13 +16,37 @@ type Test = (
 == should use indent if on a line with hanging indentation ==
 type Test = test
     | test & (
-        test | test
-& other
+        test
+        | test & other
     );
 
 [expect]
-type Test = test
-    | test & (
-        test | test
-        & other
-    );
+type Test =
+    | test
+    | test
+        & (
+            | test
+            | test & other
+        );
+
+== should allow trailing comment on open paren ==
+type Test = ( // test
+    testing
+);
+
+[expect]
+type Test = ( // test
+    testing
+);
+
+== should keep comment on next line when on next line ==
+type Test = (
+    // test
+    testing
+);
+
+[expect]
+type Test = (
+    // test
+    testing
+);

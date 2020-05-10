@@ -1,0 +1,37 @@
+~~ lineWidth: 30, decorators.preferSingleLine: true ~~
+== should print the decorators on a single line when they fit ==
+@dec
+@otherDec
+@otherDec
+class T {
+}
+
+[expect]
+@dec @otherDec @otherDec
+class T {
+}
+
+== should keep multi-line when they exceed the width ==
+@dec
+@otherDec
+@otherDec @otttheerrr
+class T {
+}
+
+[expect]
+@dec
+@otherDec
+@otherDec
+@otttheerrr
+class T {
+}
+
+== should print decorators on a single line when they fit for class expressions ==
+let t = @d
+@e
+class Test {
+};
+
+[expect]
+let t = @d @e class Test {
+};

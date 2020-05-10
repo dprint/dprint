@@ -1,0 +1,16 @@
+~~ lineWidth: 50, semiColons: always ~~
+== should format with a semi-colon when single line ==
+type Partial<T> = { [P   in  keyof   T]  ? :   T[P];    };
+
+[expect]
+type Partial<T> = { [P in keyof T]?: T[P]; };
+
+== should format with a semi-colon when multi-line ==
+type Partial<T> = {
+    [P in keyof T]?: T[P];
+};
+
+[expect]
+type Partial<T> = {
+    [P in keyof T]?: T[P];
+};

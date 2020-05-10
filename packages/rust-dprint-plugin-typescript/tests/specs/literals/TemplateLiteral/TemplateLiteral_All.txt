@@ -36,20 +36,46 @@ log(`testing ${3} this ${6} out`);
 
 [expect]
 `testing this out a little bit ${[
-    4
+    4,
 ]} testing`;
 
-== should indent properly within the expressions ==
+== should move conditional expressions to the next line when they exceed the line width ==
 function test() {
-    `const t = 5; ${testing ? thisIsATest : testing}`;
+    `const t = 5; ${test ? test : testing}`;
 }
 
 [expect]
 function test() {
-    `const t = 5; ${testing
-        ? thisIsATest
-        : testing}`;
+    `const t = 5; ${
+        test ? test : testing
+    }`;
 }
+
+== should handle conditional expressions that exceed the line width twice ==
+`const t = 5; ${test ? test : testingttttttttttttttttttttttt}`;
+
+[expect]
+`const t = 5; ${
+    test
+        ? test
+        : testingttttttttttttttttttttttt
+}`;
+
+== should handle conditional expr in this scenario ==
+const errMsg = `${name} test ${required === 1 ? "" : "s"}, but only ${length} present`;
+
+[expect]
+const errMsg = `${name} test ${
+    required === 1 ? "" : "s"
+}, but only ${length} present`;
+
+== should handle conditional expr when the conditional expr cons is on the line width and not make the cond expr multi-line ==
+const errMsg = `${testttttttt === 1 ? "" : "s"}, but only ${length} present`;
+
+[expect]
+const errMsg = `${
+    testttttttt === 1 ? "" : "s"
+}, but only ${length} present`;
 
 == should do a tagged template literal ==
 log(myTag `some text`);
@@ -69,3 +95,43 @@ myCustomTag
 
 [expect]
 `tttttttttttttest ${testing.this.out.testing}`;
+
+== should not do newlines for a member expression with a this or super keyword ==
+`tttttttttttttest ${this.this.out.testing} or ${super.test}`;
+
+[expect]
+`tttttttttttttest ${this.this.out.testing} or ${super.test}`;
+
+== should not do newlines for a member expression with a string literal ==
+`tttttttttttttest ${"testing this out".test}`;
+
+[expect]
+`tttttttttttttest ${"testing this out".test}`;
+
+== should not do newlines for a private property name ==
+`tttttttttttttest ${ttttttttttttttt.#test}`;
+
+[expect]
+`tttttttttttttest ${ttttttttttttttt.#test}`;
+
+== should do newlines for a member expression with a computed property ==
+`${days[date.getUTCDay()]}, ${d} ${months[date.getUTCMonth()]} ${y} ${h}:${testtt}:${s} GMT`;
+
+[expect]
+`${days[date.getUTCDay()]}, ${d} ${
+    months[date.getUTCMonth()]
+} ${y} ${h}:${testtt}:${s} GMT`;
+
+== should not break up call expressions with no argument ==
+`${date.getUTCDay()}, ${d} ${date.getUTCMonth()} ${y} ${h}:${testtt}:${s} GMT`;
+
+[expect]
+`${date.getUTCDay()}, ${d} ${date.getUTCMonth()} ${y} ${h}:${testtt}:${s} GMT`;
+
+== should break up call expressions with an argument ==
+`${date.getUTCDay()}, ${d} ${date.getUTCMonth(test)} ${y} ${h}:${testtt}:${s} GMT`;
+
+[expect]
+`${date.getUTCDay()}, ${d} ${
+    date.getUTCMonth(test)
+} ${y} ${h}:${testtt}:${s} GMT`;

@@ -1,4 +1,4 @@
-~~ conditionalExpression.operatorPosition: nextLine ~~
+~~ conditionalExpression.operatorPosition: nextLine, conditionalExpression.preferSingleLine: false ~~
 == should format ==
 test? 1: 2;
 test

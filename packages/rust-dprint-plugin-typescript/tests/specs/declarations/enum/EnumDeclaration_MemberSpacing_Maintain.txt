@@ -7,7 +7,7 @@ declare enum Test {
     member3,
 
     /** test */
-    member4
+    member4,
 }
 
 [expect]
@@ -18,5 +18,5 @@ declare enum Test {
     member3,
 
     /** test */
-    member4
+    member4,
 }

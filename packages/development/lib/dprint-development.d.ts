@@ -1,7 +1,4 @@
-import { PrintItemIterable, Plugin } from "@dprint/types";
-
-/** Prints out a parsed print item iterable for debugging purposes. */
-export declare function getPrintIterableAsFormattedText(item: PrintItemIterable): string;
+import { Plugin } from "@dprint/types";
 
 export declare function runSpecs(options: RunSpecsOptions): void;
 

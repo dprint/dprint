@@ -1,0 +1,19 @@
+~~ lineWidth: 80, parameters.preferHanging: true ~~
+== should format params with a hanging indent ==
+const t = function(here, are, some, parens, that, will, go, over, the, limit, of, width, source, file) {
+}
+
+[expect]
+const t = function(here, are, some, parens, that, will, go, over, the, limit,
+    of, width, source, file)
+{
+};
+
+== should revert a hanging indent to a single line if short enough ==
+const t = function(p1, p2,
+    p3) {
+}
+
+[expect]
+const t = function(p1, p2, p3) {
+};

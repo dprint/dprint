@@ -1,0 +1,69 @@
+~~ lineWidth: 60, parentheses.preferSingleLine: true ~~
+== should not keep multi-line when they are below the line width ==
+if (
+    testing && test
+) {
+}
+
+[expect]
+if (testing && test) {
+}
+
+== should keep multi-line if there is a preceeding comment ==
+if ( // test
+    test
+) {
+}
+
+[expect]
+if (
+    // test
+    test
+) {
+}
+
+== should keep multi-line if there is a following comment ==
+if (
+    test // test
+) {
+}
+
+[expect]
+if (
+    test // test
+) {
+}
+
+== should keep multi-line if there is a comment on the next line ==
+if (
+    test
+    // test
+) {
+}
+
+[expect]
+if (
+    test
+    // test
+) {
+}
+
+== should bring back to single-line when there is a block comment before on the same line and it's below the width ==
+if (
+    /* test */ test
+) {
+}
+
+[expect]
+if (/* test */ test) {
+}
+
+== should bring back to single-line when there is a block comment after on the same line and it's below the width ==
+if (
+    test /* test */
+) {
+}
+
+[expect]
+if (test /* test */) {
+}

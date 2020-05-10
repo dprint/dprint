@@ -1,38 +1,81 @@
-~~ lineWidth: 80 ~~
+~~ lineWidth: 40 ~~
 == should format ==
 export type T = string&number;
 
 [expect]
 export type T = string & number;
 
-== should use hanging indentation by default when a type goes on multiple lines ==
-export type T = string & number & string & number & string & number & string & number;
+== should use multi-lines by default when a type exceeds line width ==
+export type T = string & test & string & test;
 
 [expect]
-export type T = string & number & string & number & string & number & string
-    & number;
+export type T =
+    & string
+    & test
+    & string
+    & test;
 
 == should change back to being a single line when too short ==
-export type T = string & number & other
-    & string;
+export type T = string & test
+    & test;
 
 [expect]
-export type T = string & number & other & string;
+export type T = string & test & test;
 
 == should change to be on multiple lines when the first and second are on different lines ==
 export type T = string
-    & number & other & string;
+    & number;
 
 [expect]
-export type T = string
-    & number
-    & other
-    & string;
+export type T =
+    & string
+    & number;
 
 == should format with comments after the separator ==
 export type T = string
     & /* 2 */ number;
 
 [expect]
-export type T = string
+export type T =
+    & string
     & /* 2 */ number;
+
+== should allow the last node to be on a single line ==
+type Test = testing & {
+    testing: string;
+} & test;
+
+[expect]
+type Test = testing & {
+    testing: string;
+} & test;
+
+== should not allow the last node to be a single line when the second last one isn't ==
+type Test = testing & {
+    testing: string;
+} & test & test;
+
+[expect]
+type Test =
+    & testing
+    & {
+        testing: string;
+    }
+    & test
+    & test;
+
+== should not have a leading amersand if multi-line within a union type ==
+type Test = test
+    | test & (
+        test
+        | test & other
+    );
+
+[expect]
+type Test =
+    | test
+    | test
+        & (
+            | test
+            | test & other
+        );

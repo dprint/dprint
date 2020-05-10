@@ -1,0 +1,32 @@
+~~ lineWidth: 50 ~~
+== should format with a close paren on the same line ==
+const initialFiles = await Promise.all(expectedFiles.map(f =>
+    readFile(f.filePath).then(data => ({
+        filePath: f.filePath,
+        contents: data
+    } as FileInfo))
+));
+
+[expect]
+const initialFiles = await Promise.all(
+    expectedFiles.map(f =>
+        readFile(f.filePath).then(data => ({
+            filePath: f.filePath,
+            contents: data,
+        } as FileInfo))
+    ),
+);
+
+== should format as-is ==
+const namespaces = node.t(t.map(n => ({
+    isExported: true,
+    hasDeclareKeyword: true,
+    name: n.getName(),
+})));
+
+[expect]
+const namespaces = node.t(t.map(n => ({
+    isExported: true,
+    hasDeclareKeyword: true,
+    name: n.getName(),
+})));

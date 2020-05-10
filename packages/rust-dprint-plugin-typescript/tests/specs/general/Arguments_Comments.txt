@@ -6,12 +6,12 @@ call(/*1*/);
 
 == should format a trailing single line comment on the header line ==
 call( // testing
-    testing
+    testing,
 );
 
 [expect]
 call( // testing
-    testing
+    testing,
 );
 
 == should move a trailing comment block on the header line to the next line ==
@@ -22,7 +22,7 @@ call( /*0*/
 [expect]
 call(
     /*0*/
-    testing
+    testing,
 );
 
 == should format multiple comments ==

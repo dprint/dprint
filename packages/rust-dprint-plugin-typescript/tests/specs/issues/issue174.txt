@@ -1,0 +1,28 @@
+~~ lineWidth: 80, preferSingleLine: true, indentWidth: 2 ~~
+== should not end up with argument at zero indent ==
+assertEquals(
+  S("%.324f", Number.MIN_VALUE),
+  // eslint-disable-next-line max-len
+  "0.00000000000000000000000000000000000000000000000000000000"
+);
+
+[expect]
+assertEquals(
+  S("%.324f", Number.MIN_VALUE),
+  // eslint-disable-next-line max-len
+  "0.00000000000000000000000000000000000000000000000000000000",
+);
+
+== should format when there is a preceeding line block ==
+assertEquals(
+  S("%.324f", Number.MIN_VALUE),
+  // eslint-disable-next-line max-len
+  /* 0 */ "0.000000000000000000000000000000000000000000000000"
+);
+
+[expect]
+assertEquals(
+  S("%.324f", Number.MIN_VALUE),
+  // eslint-disable-next-line max-len
+  /* 0 */ "0.000000000000000000000000000000000000000000000000",
+);
