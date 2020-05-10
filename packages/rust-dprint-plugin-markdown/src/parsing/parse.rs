@@ -1,21 +1,7 @@
 use dprint_core::*;
 use dprint_core::{conditions::*, parser_helpers::*, condition_resolvers};
-use super::ast_nodes::*;
+use super::cmark::*;
 use super::parser_types::*;
-
-fn parse_source_file(source_file: &SourceFile, context: &mut Context) -> PrintItems {
-    println!("Children: {}", source_file.children.len());
-
-    let mut items = parse_nodes(&source_file.children, context);
-
-    items.push_condition(if_true(
-        "endOfFileNewLine",
-        |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
-        Signal::NewLine.into()
-    ));
-
-    items
-}
 
 pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
     println!("Text: {:?}", node.text(context));
@@ -44,6 +30,20 @@ pub fn parse_node(node: &Node, context: &mut Context) -> PrintItems {
         Node::HardBreak(_) => Signal::NewLine.into(),
         Node::NotImplemented(_) => parse_raw_string(node.text(context)),
     }
+}
+
+fn parse_source_file(source_file: &SourceFile, context: &mut Context) -> PrintItems {
+    println!("Children: {}", source_file.children.len());
+
+    let mut items = parse_nodes(&source_file.children, context);
+
+    items.push_condition(if_true(
+        "endOfFileNewLine",
+        |context| Some(context.writer_info.column_number > 0 || context.writer_info.line_number > 0),
+        Signal::NewLine.into()
+    ));
+
+    items
 }
 
 fn parse_nodes(nodes: &Vec<Node>, context: &mut Context) -> PrintItems {

@@ -2,9 +2,7 @@ use dprint_core::*;
 use dprint_core::configuration::{resolve_new_line_kind};
 
 use super::configuration::Configuration;
-use super::parse_cmark_ast;
-use super::parser::parse_node;
-use super::parser_types::Context;
+use super::parsing::{parse_cmark_ast, parse_node, Context};
 
 /// Formats a file.
 ///

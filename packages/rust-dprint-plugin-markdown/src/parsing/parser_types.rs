@@ -1,4 +1,4 @@
-use super::configuration::Configuration;
+use super::super::configuration::Configuration;
 
 pub struct Context<'a> {
     pub file_text: &'a str,
