@@ -6,12 +6,17 @@ use super::parsing::{parse_cmark_ast, parse_node, Context};
 
 /// Formats a file.
 ///
-/// Returns the file text when the file was formatted, `None` when the file had an ignore comment, and
-/// an error when it failed to parse.
+/// Returns the file text or an error when it failed to parse.
 pub fn format_text(file_text: &str, config: &Configuration) -> Result<String, String> {
     let source_file = match parse_cmark_ast(file_text) {
         Ok(source_file) => source_file,
-        Err(error) => return Err(error.message), // todo: inspect range for line and column
+        Err(error) => {
+            return Err(dprint_core::utils::string_utils::format_diagnostic(
+                Some((error.range.start, error.range.end)),
+                &error.message,
+                file_text
+            ));
+        }
     };
     let print_items = parse_node(&source_file.into(), &mut Context::new(file_text, config));
 
