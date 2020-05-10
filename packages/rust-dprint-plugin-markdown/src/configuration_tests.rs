@@ -12,7 +12,7 @@ fn check_all_values_set() {
 
     let inner_config = config.get_inner_config();
     assert_eq!(inner_config.len(), 4);
-    let diagnostics = resolve_config(&inner_config, &resolve_global_config(&HashMap::new()).config).diagnostics;
+    let diagnostics = resolve_config(inner_config, &resolve_global_config(HashMap::new()).config).diagnostics;
     assert_eq!(diagnostics.len(), 0);
 }
 
@@ -23,7 +23,7 @@ fn handle_global_config() {
     global_config.insert(String::from("indentWidth"), String::from("8"));
     global_config.insert(String::from("newLineKind"), String::from("crlf"));
     global_config.insert(String::from("useTabs"), String::from("true"));
-    let global_config = resolve_global_config(&global_config).config;
+    let global_config = resolve_global_config(global_config).config;
     let mut config_builder = ConfigurationBuilder::new();
     let config = config_builder.global_config(global_config).build();
     assert_eq!(config.line_width, 90);
@@ -34,11 +34,11 @@ fn handle_global_config() {
 
 #[test]
 fn use_markdown_defaults_when_global_not_set() {
-    let global_config = resolve_global_config(&HashMap::new()).config;
+    let global_config = resolve_global_config(HashMap::new()).config;
     let mut config_builder = ConfigurationBuilder::new();
     let config = config_builder.global_config(global_config).build();
     assert_eq!(config.line_width, 80); // this is different
     assert_eq!(config.indent_width, 4);
-    assert_eq!(config.new_line_kind == NewLineKind::Auto, true);
+    assert_eq!(config.new_line_kind == NewLineKind::LineFeed, true);
     assert_eq!(config.use_tabs, false);
 }

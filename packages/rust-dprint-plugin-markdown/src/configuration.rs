@@ -30,10 +30,10 @@ impl ConfigurationBuilder {
     /// Gets the final configuration that can be used to format a file.
     pub fn build(&self) -> Configuration {
         if let Some(global_config) = &self.global_config {
-            resolve_config(&self.config, global_config).config
+            resolve_config(self.config.clone(), global_config).config
         } else {
-            let global_config = resolve_global_config(&HashMap::new()).config;
-            resolve_config(&self.config, &global_config).config
+            let global_config = resolve_global_config(HashMap::new()).config;
+            resolve_config(self.config.clone(), &global_config).config
         }
     }
 
@@ -88,21 +88,21 @@ impl ConfigurationBuilder {
 /// use dprint_plugin_markdown::configuration::{resolve_config};
 ///
 /// let config_map = HashMap::new(); // get a collection of key value pairs from somewhere
-/// let global_config_result = resolve_global_config(&config_map);
+/// let global_config_result = resolve_global_config(config_map);
 ///
 /// // check global_config_result.diagnostics here...
 ///
 /// let markdown_config_map = HashMap::new(); // get a collection of k/v pairs from somewhere
 /// let config_result = resolve_config(
-///     &markdown_config_map,
+///     markdown_config_map,
 ///     &global_config_result.config
 /// );
 ///
 /// // check config_result.diagnostics here and use config_result.config
 /// ```
-pub fn resolve_config(config: &HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut diagnostics = Vec::new();
-    let mut config = config.clone();
+    let mut config = config;
 
     let resolved_config = Configuration {
         line_width: get_value(&mut config, "lineWidth", global_config.line_width.unwrap_or(80), &mut diagnostics),

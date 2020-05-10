@@ -1,5 +1,5 @@
 use dprint_core::*;
-use dprint_core::{parser_helpers::*, condition_resolvers};
+use dprint_core::{conditions::*, parser_helpers::*, condition_resolvers};
 use super::ast_nodes::*;
 use super::parser_types::*;
 
@@ -131,20 +131,21 @@ fn parse_block_quote(block_quote: &BlockQuote, context: &mut Context) -> PrintIt
     for print_item in parse_nodes(&block_quote.children, context).iter() {
         match print_item {
             PrintItem::String(text) => {
-                items.push_condition(Condition::new("isStartOfLine", ConditionProperties {
-                    condition: Box::new(|context| Some(context.writer_info.is_start_of_line())),
-                    true_path: Some({
+                items.push_condition(if_true_or(
+                    "isStartOfLine",
+                    |context| Some(context.writer_info.is_start_of_line()),
+                    {
                         let mut items = PrintItems::new();
                         items.push_str("> ");
                         items.push_item(PrintItem::String(text.clone()));
                         items
-                    }),
-                    false_path: Some({
+                    },
+                    {
                         let mut items = PrintItems::new();
                         items.push_item(PrintItem::String(text));
                         items
-                    }),
-                }));
+                    },
+                ));
             },
             _ => items.push_item(print_item),
         }
