@@ -1,6 +1,6 @@
 {
   "name": "dprint-plugin-jsonc",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "JSONC plugin for dprint.",
   "main": "dist/dprint-plugin-jsonc.js",
   "types": "lib/dprint-plugin-jsonc.d.ts",

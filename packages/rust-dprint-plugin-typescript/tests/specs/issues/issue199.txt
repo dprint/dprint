@@ -1,0 +1,17 @@
+== should format ==
+export function checkNode(node: Node) {
+    if (typeof node.isBound === "boolean") {
+        it(`should${node.isBound ? " " : " not "}have a bound node`, () => {
+            getContainerElement("id").should(node.isBound ? "exist" : "not.exist");
+        });
+    }
+}
+
+[expect]
+export function checkNode(node: Node) {
+    if (typeof node.isBound === "boolean") {
+        it(`should${node.isBound ? " " : " not "}have a bound node`, () => {
+            getContainerElement("id").should(node.isBound ? "exist" : "not.exist");
+        });
+    }
+}
