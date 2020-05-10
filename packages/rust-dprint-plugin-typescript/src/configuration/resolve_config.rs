@@ -48,7 +48,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         use_tabs: get_value(&mut config, "useTabs", global_config.use_tabs.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.use_tabs), &mut diagnostics),
         indent_width: get_value(&mut config, "indentWidth", global_config.indent_width.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.indent_width), &mut diagnostics),
         new_line_kind: get_value(&mut config, "newLineKind", global_config.new_line_kind.unwrap_or(DEFAULT_GLOBAL_CONFIGURATION.new_line_kind), &mut diagnostics),
-        quote_style: get_value(&mut config, "quoteStyle", QuoteStyle::PreferDouble, &mut diagnostics),
+        quote_style: get_value(&mut config, "quoteStyle", QuoteStyle::AlwaysDouble, &mut diagnostics),
         semi_colons,
         /* situational */
         arrow_function_use_parentheses: get_value(&mut config, "arrowFunction.useParentheses", UseParentheses::Maintain, &mut diagnostics),

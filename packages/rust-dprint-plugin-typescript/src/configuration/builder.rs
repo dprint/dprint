@@ -63,6 +63,7 @@ impl ConfigurationBuilder {
             .function_expression_space_after_function_keyword(true)
             .tagged_template_space_before_literal(false)
             .conditional_expression_prefer_single_line(true)
+            .quote_style(QuoteStyle::PreferDouble)
             .ignore_node_comment_text("deno-fmt-ignore")
             .ignore_file_comment_text("deno-fmt-ignore-file")
     }
@@ -97,7 +98,7 @@ impl ConfigurationBuilder {
 
     /// The quote style to use.
     ///
-    /// Default: `QuoteStyle::PreferDouble`
+    /// Default: `QuoteStyle::AlwaysDouble`
     pub fn quote_style(&mut self, value: QuoteStyle) -> &mut Self {
         self.insert("quoteStyle", value)
     }
@@ -363,6 +364,8 @@ impl ConfigurationBuilder {
     /* situational */
 
     /// Whether to use parentheses for arrow functions.
+    ///
+    /// Default: `UseParentheses::Maintain`
     pub fn arrow_function_use_parentheses(&mut self, value: UseParentheses) -> &mut Self {
         self.insert("arrowFunction.useParentheses", value)
     }

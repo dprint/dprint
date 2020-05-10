@@ -33,7 +33,7 @@ call(
 call(
     acc
         .join("\n")
-        .replace(/"""/g, '"')
+        .replace(/"""/g, "\"")
         .replace(/'''/g, `'`)
         .replace(/\n/g, "\\n"),
 );

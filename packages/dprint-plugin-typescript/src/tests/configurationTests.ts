@@ -89,15 +89,15 @@ describe("configuration", () => {
         }
 
         it("should set when not set", () => {
-            doSpecificTest(undefined, "preferDouble");
+            doSpecificTest(undefined, "alwaysDouble");
         });
 
         it("should use when set to the default", () => {
-            doSpecificTest("preferDouble", "preferDouble");
+            doSpecificTest("alwaysDouble", "alwaysDouble");
         });
 
         it("should use when not set to the default", () => {
-            doSpecificTest("alwaysDouble", "alwaysDouble");
+            doSpecificTest("preferDouble", "preferDouble");
             doSpecificTest("alwaysSingle", "alwaysSingle");
             doSpecificTest("preferSingle", "preferSingle");
         });
@@ -613,6 +613,7 @@ describe("configuration", () => {
                 "taggedTemplate.spaceBeforeLiteral": false,
                 "ignoreNodeCommentText": "deno-fmt-ignore",
                 "ignoreFileCommentText": "deno-fmt-ignore-file",
+                "quoteStyle": "preferDouble",
             });
         });
     });

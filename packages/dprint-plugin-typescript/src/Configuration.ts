@@ -31,7 +31,7 @@ export interface TypeScriptConfiguration {
     semiColons?: "always" | "prefer" | "asi";
     /**
      * How to decide to use single or double quotes.
-     * @default "preferDouble"
+     * @default "alwaysDouble"
      * @value "alwaysDouble" - Always use double quotes.
      * @value "alwaysSingle" - Always use single quotes.
      * @value "preferDouble" - Prefer using double quotes except in scenarios where the string
