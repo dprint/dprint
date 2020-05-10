@@ -132,7 +132,7 @@ impl Printer {
 
     pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
         if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
-            let save_point = self.get_save_point_for_restoring_condition(&condition_reference.name);
+            let save_point = self.get_save_point_for_restoring_condition(&condition_reference.get_name());
             self.look_ahead_condition_save_points.insert(condition_reference.id, save_point);
         }
 

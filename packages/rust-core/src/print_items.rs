@@ -373,16 +373,18 @@ pub struct Info {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
+    #[cfg(debug_assertions)]
     name: &'static str,
 }
 
 static INFO_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl Info {
-    pub fn new(name: &'static str) -> Info {
+    pub fn new(_name: &'static str) -> Info {
         Info {
             id: INFO_COUNTER.fetch_add(1, Ordering::SeqCst),
-            name
+            #[cfg(debug_assertions)]
+            name: _name
         }
     }
 
@@ -393,7 +395,10 @@ impl Info {
 
     #[inline]
     pub fn get_name(&self) -> &'static str {
-        self.name
+        #[cfg(debug_assertions)]
+        return self.name;
+        #[cfg(not(debug_assertions))]
+        return "";
     }
 }
 
@@ -406,6 +411,7 @@ pub struct Condition {
     /// Unique identifier.
     id: usize,
     /// Name for debugging purposes.
+    #[cfg(debug_assertions)]
     name: &'static str,
     /// If a reference has been created for the condition via `get_reference()`. If so, the printer
     /// will store the condition and it will be retrievable via a condition resolver.
@@ -448,11 +454,12 @@ impl Condition {
         Condition::new_internal(name, properties, Some(dependent_infos))
     }
 
-    fn new_internal(name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
+    fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
         Condition {
             id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
             is_stored: dependent_infos.is_some(),
-            name,
+            #[cfg(debug_assertions)]
+            name: _name,
             condition: properties.condition,
             true_path: properties.true_path.map(|x| x.first_node).flatten(),
             false_path: properties.false_path.map(|x| x.first_node).flatten(),
@@ -467,7 +474,10 @@ impl Condition {
 
     #[inline]
     pub fn get_name(&self) -> &'static str {
-        self.name
+        #[cfg(debug_assertions)]
+        return self.name;
+        #[cfg(not(debug_assertions))]
+        return "condition";
     }
 
     #[inline]
@@ -487,19 +497,32 @@ impl Condition {
 
     pub fn get_reference(&mut self) -> ConditionReference {
         self.is_stored = true;
-        ConditionReference::new(self.name, self.id)
+        ConditionReference::new(self.get_name(), self.id)
     }
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
 pub struct ConditionReference {
+    #[cfg(debug_assertions)]
     pub(super) name: &'static str,
     pub(super) id: usize,
 }
 
 impl ConditionReference {
-    pub(super) fn new(name: &'static str, id: usize) -> ConditionReference {
-        ConditionReference { name, id }
+    pub(super) fn new(_name: &'static str, id: usize) -> ConditionReference {
+        ConditionReference {
+            #[cfg(debug_assertions)]
+            name: _name,
+            id,
+        }
+    }
+
+    #[inline]
+    pub(super) fn get_name(&self) -> &'static str {
+        #[cfg(debug_assertions)]
+        return self.name;
+        #[cfg(not(debug_assertions))]
+        return "conditionRef";
     }
 
     /// Creates a condition resolver that checks the value of the condition this references.
