@@ -5,6 +5,7 @@
 *.js.map
 npm-debug.log
 yarn-error.log
+yarn.lock
 package-lock.json
 /lerna-debug.log
 /packages/core/wasm/target
