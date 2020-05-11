@@ -247,4 +247,4 @@ function makeRepeatable(items: PrintItemIterable) {
 
 ### Rust IR Generation Example
 
-See the example in the [dprint-core](../packages/rust-core) Rust crate.
+See the example in the [dprint-core](../crates/core) Rust crate.
