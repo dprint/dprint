@@ -6,7 +6,7 @@ version = "0.19.1"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
-homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-core"
+homepage = "https://github.com/dprint/dprint/tree/master/crates/core"
 repository = "https://github.com/dprint/dprint"
 
 [dependencies]

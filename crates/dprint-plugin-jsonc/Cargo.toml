@@ -6,15 +6,15 @@ version = "0.2.3"
 authors = ["David Sherret <dsherret@gmail.com>"]
 license = "MIT"
 edition = "2018"
-homepage = "https://github.com/dprint/dprint/tree/master/packages/rust-dprint-plugin-jsonc"
+homepage = "https://github.com/dprint/dprint/tree/master/crates/dprint-plugin-jsonc"
 repository = "https://github.com/dprint/dprint"
 
 [dependencies]
-dprint-core = { path = "../rust-core", version = "0.19.1" }
+dprint-core = { path = "../core", version = "0.19.1" }
 jsonc-parser = { version = "0.5.0" }
 serde = { version = "1.0.88", features = ["derive"] }
 serde_json = "1.0"
 
 [dev-dependencies]
-dprint-development = { path = "../rust-development" }
+dprint-development = { path = "../development" }
 debug-here = "0.2"

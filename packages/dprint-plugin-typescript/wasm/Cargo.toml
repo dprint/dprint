@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 console_error_panic_hook = "0.1.6"
 wasm-bindgen = "0.2.58"
 js-sys = "0.3.29"
-dprint-core = { path = "../../rust-core" }
-dprint-plugin-typescript = { path = "../../rust-dprint-plugin-typescript" }
+dprint-core = { path = "../../../crates/core" }
+dprint-plugin-typescript = { path = "../../../crates/dprint-plugin-typescript" }
 serde = { version = "1.0.88", features = ["derive"] }
 serde_json = "1.0"
