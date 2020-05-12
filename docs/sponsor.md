@@ -14,21 +14,36 @@ Think about the cost savings from the following:
 
 If you see the benefit, please spend the time to pass along a small fraction of that cost savings to support this project.
 
-## Donate
+## Options
 
 ### GitHub Sponsors
 
-I'm in the process of setting up a GitHub sponsors account for [dprint](https://github.com/dprint). If you would like to donate this way then please wait.
+I'm in the process of setting up a GitHub sponsors account for [dprint](https://github.com/dprint). If you would like to sponsor this way then please wait.
 
 ### PayPal
 
-[Donate Now](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=Z2LLZ62KCCAXW&source=url)
+<form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_top">
+<input type="hidden" name="cmd" value="_s-xclick">
+<input type="hidden" name="hosted_button_id" value="J6D5Z6JEGRHMJ">
+<table>
+<tr><td><input type="hidden" name="on0" value=""></td></tr><tr><td><select name="os0">
+	<option value="Individual Professional">Individual Professional : $10.00 USD - monthly</option>
+	<option value="Small Team (2-15)">Small Team (2-15) : $25.00 USD - monthly</option>
+	<option value="Medium Team (16-25)">Medium Team (16-25) : $75.00 USD - monthly</option>
+	<option value="Large Team">Large Team : $150.00 USD - monthly</option>
+	<option value="Large Company">Large Company : $500.00 USD - monthly</option>
+</select> </td></tr>
+</table>
+<input type="hidden" name="currency_code" value="USD">
+<input type="image" src="https://raw.githubusercontent.com/dprint/dprint/gh-pages/images/subscribe.png" border="0" name="submit" alt="PayPal - The safer, easier way to pay online!">
+<img alt="" border="0" src="https://www.paypalobjects.com/en_US/i/scr/pixel.gif" width="1" height="1">
+</form>
 
-(Recurring donation strongly recommended)
+If you don't like these options then please pay what you can or specify a different amount [here](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=Z2LLZ62KCCAXW&source=url) (Recurring donation strongly recommended for companies)
 
-## After Donating
+## After Sponsoring
 
-After donating, you should update the project type property in your configuration to be `commercialSponsored`.
+After sponsoring, you should update the project type property in your configuration to be `commercialSponsored`.
 
 ```js
 module.exports.config = {
