@@ -9,10 +9,10 @@ install:
   - yarn install
   - yarn bootstrap
 script:
-  - travis_wait 30 yarn build
+  - yarn build
   - yarn test
 before_deploy:
-  - travis_wait 20 yarn build-website
+  - yarn build-website
 env:
   - CI=true
 deploy:
