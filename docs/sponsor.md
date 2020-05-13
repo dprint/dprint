@@ -1,8 +1,6 @@
 # Sponsor
 
-A lot of time and effort has gone into creating dprint.
-
-If you are using it in a commercial environment then it is strongly recommended you support the project financially.
+If you are using dprint in a commercial environment then it is strongly recommended you support the project financially in order to help accelerate it forward.
 
 ## How much is dprint worth to your company?
 
@@ -18,7 +16,7 @@ If you see the benefit, please spend the time to pass along a small fraction of 
 
 ### GitHub Sponsors
 
-I'm in the process of setting up a GitHub sponsors account for [dprint](https://github.com/dprint). If you would like to sponsor this way then please wait.
+I'm in the process of setting up a GitHub sponsors account for [dprint](https://github.com/dprint). If you would like to sponsor this way then please wait and subscribe to updates on [this issue](https://github.com/dprint/dprint/issues/204).
 
 ### PayPal
 
@@ -52,4 +50,4 @@ module.exports.config = {
 };
 ```
 
-Thank you for your donation!
+Thank you for sponsoring!
