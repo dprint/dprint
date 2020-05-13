@@ -4,6 +4,12 @@ dprint is a configurable and pluggable code formatting platform.
 
 Currently only TypeScript, JavaScript, and JSONC are supported.
 
+## Future - Moving away from the Node CLI
+
+This project is slowly moving towards a Rust-only CLI independent of any language specific ecosystem.
+
+The configuration, install, and setup instructions below will change. See issue [#194](https://github.com/dprint/dprint/issues/194) for more details.
+
 ## Install
 
 Install dprint and the plugins you want to use as a dev dependency.
