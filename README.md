@@ -5,7 +5,7 @@
 
 Mono-repo for dprint—a configurable and pluggable code formatter.
 
-This library is under active early development. I recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
+This project is under active early development. I recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
 
 Currently only TypeScript, Javascript, and JSONC are supported.
 
@@ -15,7 +15,7 @@ Currently only TypeScript, Javascript, and JSONC are supported.
 * [Playground](https://dprint.dev/playground)
 * [Algorithm overview](docs/overview.md)
 
-## Future
+## Future - Moving away from the Node CLI
 
 This project is slowly moving towards a Rust-only CLI independent of any language specific ecosystem.
 
