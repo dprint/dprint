@@ -7,7 +7,7 @@ pub struct CommentCollection<'a> {
     leading: &'a HashMap<BytePos, Vec<Comment>>,
     trailing: &'a HashMap<BytePos, Vec<Comment>>,
     token_finder: TokenFinder<'a>,
-    file_bytes: &'a Vec<u8>,
+    file_bytes: &'a [u8],
     tokens: &'a Vec<TokenAndSpan>,
     token_index: usize,
 }
@@ -17,7 +17,7 @@ impl<'a> CommentCollection<'a> {
         leading: &'a HashMap<BytePos, Vec<Comment>>,
         trailing: &'a HashMap<BytePos, Vec<Comment>>,
         tokens: &'a Vec<TokenAndSpan>,
-        file_bytes: &'a Vec<u8>
+        file_bytes: &'a [u8],
     ) -> CommentCollection<'a> {
         // println!("Leading: {:?}", leading);
         // println!("Trailing: {:?}", trailing);

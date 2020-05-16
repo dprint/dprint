@@ -12,7 +12,7 @@ use super::super::swc::ParsedSourceFile;
 use super::super::utils;
 use super::swc::{get_flattened_bin_expr};
 
-pub fn parse(source_file: ParsedSourceFile, config: &Configuration) -> PrintItems {
+pub fn parse<'a>(source_file: &'a ParsedSourceFile, config: &Configuration) -> PrintItems {
     let module = Node::Module(&source_file.module);
     let mut context = Context::new(
         config,
@@ -21,7 +21,7 @@ pub fn parse(source_file: ParsedSourceFile, config: &Configuration) -> PrintItem
         &source_file.tokens,
         &source_file.file_bytes,
         module,
-        source_file.info
+        &source_file.info
     );
     let mut items = parse_node(Node::Module(&source_file.module), &mut context);
     items.push_condition(if_true(

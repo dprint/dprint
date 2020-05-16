@@ -6,11 +6,11 @@ use dprint_core::tokens::{TokenFinder as CoreTokenFinder, TokenCollection};
 
 pub struct TokenFinder<'a> {
     inner: CoreTokenFinder<LocalTokenCollection<'a>>,
-    file_bytes: &'a Vec<u8>,
+    file_bytes: &'a [u8],
 }
 
 impl<'a> TokenFinder<'a> {
-    pub fn new(tokens: &'a Vec<TokenAndSpan>, file_bytes: &'a Vec<u8>) -> TokenFinder<'a> {
+    pub fn new(tokens: &'a Vec<TokenAndSpan>, file_bytes: &'a [u8]) -> TokenFinder<'a> {
         TokenFinder {
             inner: CoreTokenFinder::new(LocalTokenCollection(tokens)),
             file_bytes,
@@ -191,7 +191,7 @@ impl<'a> TokenFinder<'a> {
     }
 }
 
-fn get_text<'a>(file_bytes: &'a Vec<u8>, span_data: &SpanData) -> &'a str {
+fn get_text<'a>(file_bytes: &'a [u8], span_data: &SpanData) -> &'a str {
     let bytes = &file_bytes[(span_data.lo.0 as usize)..(span_data.hi.0 as usize)];
     str::from_utf8(&bytes).unwrap()
 }

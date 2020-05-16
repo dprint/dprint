@@ -7,16 +7,16 @@ use swc_common::{
 use swc_ecma_ast::{Module};
 use swc_ecma_parser::{Parser, Session, SourceFileInput, Syntax, lexer::Lexer, Capturing, JscTarget, token::{TokenAndSpan}};
 
-pub struct ParsedSourceFile {
+pub struct ParsedSourceFile<'a> {
     pub module: Module,
     pub info: SourceFile,
-    pub file_bytes: Vec<u8>,
+    pub file_bytes: &'a [u8],
     pub tokens: Vec<TokenAndSpan>,
     pub leading_comments: HashMap<BytePos, Vec<Comment>>,
     pub trailing_comments: HashMap<BytePos, Vec<Comment>>,
 }
 
-pub fn parse_swc_ast(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourceFile, String> {
+pub fn parse_swc_ast<'a>(file_path: &PathBuf, file_text: &'a str) -> Result<ParsedSourceFile<'a>, String> {
     match parse_inner(file_path, file_text) {
         Ok(result) => Ok(result),
         Err(err) => {
@@ -34,11 +34,11 @@ pub fn parse_swc_ast(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourc
     }
 }
 
-fn parse_inner(file_path: &PathBuf, file_text: &str) -> Result<ParsedSourceFile, String> {
+fn parse_inner<'a>(file_path: &PathBuf, file_text: &'a str) -> Result<ParsedSourceFile<'a>, String> {
     let handler = Handler::with_emitter(false, false, Box::new(EmptyEmitter {}));
     let session = Session { handler: &handler };
 
-    let file_bytes = file_text.as_bytes().to_vec(); // todo: I think remove to_vec()
+    let file_bytes = file_text.as_bytes();
     let source_file = SourceFile::new(
         FileName::Custom(file_path.to_string_lossy().into()),
         false,

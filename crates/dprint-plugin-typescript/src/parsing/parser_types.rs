@@ -1,5 +1,4 @@
 use std::str;
-use std::rc::Rc;
 use std::collections::{HashSet, HashMap};
 use dprint_core::{Info, ConditionReference};
 use swc_common::{SpanData, BytePos, comments::{Comment, CommentKind}, SourceFile, Spanned, Span};
@@ -13,11 +12,11 @@ pub struct Context<'a> {
     pub config: &'a Configuration,
     pub comments: CommentCollection<'a>,
     pub token_finder: TokenFinder<'a>,
-    pub file_bytes: &'a Vec<u8>,
+    pub file_bytes: &'a [u8],
     pub current_node: Node<'a>,
     pub parent_stack: Stack<Node<'a>>,
     handled_comments: HashSet<BytePos>,
-    pub info: Rc<SourceFile>,
+    pub info: &'a SourceFile,
     stored_infos: HashMap<(BytePos, BytePos), Info>,
     stored_info_ranges: HashMap<(BytePos, BytePos), (Info, Info)>,
     pub end_statement_or_member_infos: Stack<Info>,
@@ -33,9 +32,9 @@ impl<'a> Context<'a> {
         leading_comments: &'a HashMap<BytePos, Vec<Comment>>,
         trailing_comments: &'a HashMap<BytePos, Vec<Comment>>,
         tokens: &'a Vec<TokenAndSpan>,
-        file_bytes: &'a Vec<u8>,
+        file_bytes: &'a [u8],
         current_node: Node<'a>,
-        info: SourceFile
+        info: &'a SourceFile
     ) -> Context<'a> {
         Context {
             config,
@@ -45,7 +44,7 @@ impl<'a> Context<'a> {
             current_node,
             parent_stack: Stack::new(),
             handled_comments: HashSet::new(),
-            info: Rc::new(info),
+            info,
             stored_infos: HashMap::new(),
             stored_info_ranges: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),

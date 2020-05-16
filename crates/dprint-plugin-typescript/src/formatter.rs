@@ -58,7 +58,7 @@ impl Formatter {
             }
 
             let parsed_source_file = parse_swc_ast(&file_path, &file_text)?;
-            let print_items = parse(parsed_source_file, &self.config);
+            let print_items = parse(&parsed_source_file, &self.config);
 
             // println!("{}", print_items.get_as_text());
 
