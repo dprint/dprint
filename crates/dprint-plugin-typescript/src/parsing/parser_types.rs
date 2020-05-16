@@ -349,6 +349,7 @@ generate_node! [
     ExportDefaultExpr,
     FnDecl,
     Function,
+    Param,
     NamedExport,
     ImportDecl,
     TsEnumDecl,
@@ -567,7 +568,7 @@ generate_traits![ModuleItem, Stmt, ModuleDecl];
 generate_traits![ObjectPatProp, KeyValue, Assign, Rest];
 generate_traits![PatOrExpr, Pat, Expr];
 generate_traits![TsEnumMemberId, Ident, Str];
-generate_traits![TsLit, Number, Str, Bool];
+generate_traits![TsLit, Number, Str, Bool, Tpl];
 generate_traits![TsTypeElement, TsCallSignatureDecl, TsConstructSignatureDecl, TsPropertySignature, TsMethodSignature, TsIndexSignature];
 generate_traits![TsFnParam, Ident, Array, Rest, Object];
 generate_traits![Expr, This, Array, Object, Fn, Unary, Update, Bin, Assign, Member, Cond, Call, New, Seq, Ident, Lit, Tpl, TaggedTpl, Arrow,
@@ -592,7 +593,7 @@ generate_traits![TsModuleName, Ident, Str];
 generate_traits![VarDeclOrPat, VarDecl, Pat];
 generate_traits![VarDeclOrExpr, VarDecl, Expr];
 generate_traits![TsNamespaceBody, TsModuleBlock, TsNamespaceDecl];
-generate_traits![PatOrTsParamProp, Pat, TsParamProp];
+generate_traits![ParamOrTsParamProp, Param, TsParamProp];
 generate_traits![ModuleDecl, Import, ExportDecl, ExportNamed, ExportDefaultDecl, ExportDefaultExpr, ExportAll, TsImportEquals, TsExportAssignment,
     TsNamespaceExport];
 generate_traits![TsModuleRef, TsEntityName, TsExternalModuleRef];

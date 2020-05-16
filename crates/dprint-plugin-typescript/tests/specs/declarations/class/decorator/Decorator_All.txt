@@ -65,3 +65,15 @@ export default class Test {
 @dec3
 export default class Test {
 }
+
+== should allow decorators on parameters ==
+export class Test {
+    method(@param test) {
+    }
+}
+
+[expect]
+export class Test {
+    method(@param test) {
+    }
+}

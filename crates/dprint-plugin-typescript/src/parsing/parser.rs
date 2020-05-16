@@ -116,6 +116,7 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::FnDecl(node) => parse_function_decl(node, context),
             Node::ImportDecl(node) => parse_import_decl(node, context),
             Node::NamedExport(node) => parse_export_named_decl(node, context),
+            Node::Param(node) => parse_param(node, context),
             Node::TsEnumDecl(node) => parse_enum_decl(node, context),
             Node::TsEnumMember(node) => parse_enum_member(node, context),
             Node::TsImportEqualsDecl(node) => parse_import_equals_decl(node, context),
@@ -885,6 +886,13 @@ fn parse_function_decl_or_expr<'a>(node: FunctionDeclOrExprNode<'a>, context: &m
             context.config.function_expression_space_before_parentheses
         }
     }
+}
+
+fn parse_param<'a>(node: &'a Param, context: &mut Context<'a>) -> PrintItems {
+    let mut items = PrintItems::new();
+    items.extend(parse_decorators(&node.decorators, true, context));
+    items.extend(parse_node((&node.pat).into(), context));
+    items
 }
 
 fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> PrintItems {
@@ -4769,9 +4777,9 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     }, context);
 
     fn get_trailing_commas(nodes: &Vec<Node>, is_parameters: bool, context: &mut Context) -> TrailingCommas {
-        if let Some(last) = nodes.last() {
+        if let Some(Node::Param(last)) = nodes.last() {
             // this would be a syntax error
-            if last.kind() == NodeKind::RestPat {
+            if last.pat.kind() == NodeKind::RestPat {
                 return TrailingCommas::Never;
             }
         }
@@ -6329,6 +6337,10 @@ fn is_arrow_function_with_expr_body(node: &Node) -> bool {
 }
 
 fn allows_inline_multi_line(node: &Node, has_siblings: bool) -> bool {
+    if let Node::Param(param) = node {
+        return allows_inline_multi_line(&(&param.pat).into(), has_siblings);
+    }
+
     return match node {
         Node::FnExpr(_) | Node::ArrowExpr(_) | Node::ObjectLit(_) | Node::ArrayLit(_)
             | Node::ObjectPat(_) | Node::ArrayPat(_)
