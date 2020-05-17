@@ -160,12 +160,12 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
             Node::UpdateExpr(node) => parse_update_expr(node, context),
             Node::YieldExpr(node) => parse_yield_expr(node, context),
             /* exports */
-            Node::NamedExportSpecifier(node) => parse_export_named_specifier(node, context),
-            Node::NamespaceExportSpecifier(node) => parse_namespace_export_specifier(node, context),
+            Node::ExportNamedSpecifier(node) => parse_export_named_specifier(node, context),
+            Node::ExportNamespaceSpecifier(node) => parse_namespace_export_specifier(node, context),
             /* imports */
-            Node::ImportSpecific(node) => parse_import_named_specifier(node, context),
-            Node::ImportStarAs(node) => parse_import_namespace_specifier(node, context),
-            Node::ImportDefault(node) => parse_node((&node.local).into(), context),
+            Node::ImportNamedSpecifier(node) => parse_import_named_specifier(node, context),
+            Node::ImportStarAsSpecifier(node) => parse_import_namespace_specifier(node, context),
+            Node::ImportDefaultSpecifier(node) => parse_node((&node.local).into(), context),
             Node::TsExternalModuleRef(node) => parse_external_module_ref(node, context),
             /* interface / type element */
             Node::TsCallSignatureDecl(node) => parse_call_signature_decl(node, context),
@@ -749,9 +749,9 @@ fn parse_enum_member<'a>(node: &'a TsEnumMember, context: &mut Context<'a>) -> P
 
 fn parse_export_named_decl<'a>(node: &'a NamedExport, context: &mut Context<'a>) -> PrintItems {
     // fill specifiers
-    let mut default_export: Option<&DefaultExportSpecifier> = None;
-    let mut namespace_export: Option<&NamespaceExportSpecifier> = None;
-    let mut named_exports: Vec<&NamedExportSpecifier> = Vec::new();
+    let mut default_export: Option<&ExportDefaultSpecifier> = None;
+    let mut namespace_export: Option<&ExportNamespaceSpecifier> = None;
+    let mut named_exports: Vec<&ExportNamedSpecifier> = Vec::new();
 
     for specifier in &node.specifiers {
         match specifier {
@@ -897,15 +897,15 @@ fn parse_param<'a>(node: &'a Param, context: &mut Context<'a>) -> PrintItems {
 
 fn parse_import_decl<'a>(node: &'a ImportDecl, context: &mut Context<'a>) -> PrintItems {
     // fill specifiers
-    let mut default_import: Option<&ImportDefault> = None;
-    let mut namespace_import: Option<&ImportStarAs> = None;
-    let mut named_imports: Vec<&ImportSpecific> = Vec::new();
+    let mut default_import: Option<&ImportDefaultSpecifier> = None;
+    let mut namespace_import: Option<&ImportStarAsSpecifier> = None;
+    let mut named_imports: Vec<&ImportNamedSpecifier> = Vec::new();
 
     for specifier in &node.specifiers {
         match specifier {
             ImportSpecifier::Default(node) => default_import = Some(node),
             ImportSpecifier::Namespace(node) => namespace_import = Some(node),
-            ImportSpecifier::Specific(node) => named_imports.push(node),
+            ImportSpecifier::Named(node) => named_imports.push(node),
         }
     }
 
@@ -2151,7 +2151,7 @@ fn parse_yield_expr<'a>(node: &'a YieldExpr, context: &mut Context<'a>) -> Print
 
 /* exports */
 
-fn parse_export_named_specifier<'a>(node: &'a NamedExportSpecifier, context: &mut Context<'a>) -> PrintItems {
+fn parse_export_named_specifier<'a>(node: &'a ExportNamedSpecifier, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
 
     items.extend(parse_node((&node.orig).into(), context));
@@ -2168,7 +2168,7 @@ fn parse_export_named_specifier<'a>(node: &'a NamedExportSpecifier, context: &mu
     items
 }
 
-fn parse_namespace_export_specifier<'a>(node: &'a NamespaceExportSpecifier, context: &mut Context<'a>) -> PrintItems {
+fn parse_namespace_export_specifier<'a>(node: &'a ExportNamespaceSpecifier, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str("* as ");
     items.extend(parse_node((&node.name).into(), context));
@@ -2177,7 +2177,7 @@ fn parse_namespace_export_specifier<'a>(node: &'a NamespaceExportSpecifier, cont
 
 /* imports */
 
-fn parse_import_named_specifier<'a>(node: &'a ImportSpecific, context: &mut Context<'a>) -> PrintItems {
+fn parse_import_named_specifier<'a>(node: &'a ImportNamedSpecifier, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
 
     if let Some(imported) = &node.imported {
@@ -2196,7 +2196,7 @@ fn parse_import_named_specifier<'a>(node: &'a ImportSpecific, context: &mut Cont
     items
 }
 
-fn parse_import_namespace_specifier<'a>(node: &'a ImportStarAs, context: &mut Context<'a>) -> PrintItems {
+fn parse_import_namespace_specifier<'a>(node: &'a ImportStarAsSpecifier, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str("* as ");
     items.extend(parse_node((&node.local).into(), context));

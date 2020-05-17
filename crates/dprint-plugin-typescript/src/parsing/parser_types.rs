@@ -360,9 +360,9 @@ generate_node! [
     TsModuleBlock,
     TsNamespaceDecl,
     /* exports */
-    DefaultExportSpecifier,
-    NamespaceExportSpecifier,
-    NamedExportSpecifier,
+    ExportDefaultSpecifier,
+    ExportNamespaceSpecifier,
+    ExportNamedSpecifier,
     /* expressions */
     ArrayLit,
     ArrowExpr,
@@ -402,9 +402,9 @@ generate_node! [
     UpdateExpr,
     YieldExpr,
     /* imports */
-    ImportDefault,
-    ImportSpecific,
-    ImportStarAs,
+    ImportDefaultSpecifier,
+    ImportNamedSpecifier,
+    ImportStarAsSpecifier,
     TsExternalModuleRef,
     /* interface / type element */
     TsInterfaceBody,
@@ -562,7 +562,7 @@ generate_traits![BlockStmtOrExpr, BlockStmt, Expr];
 generate_traits![ClassMember, Constructor, Method, PrivateMethod, ClassProp, PrivateProp, TsIndexSignature];
 generate_traits![Decl, Class, Fn, Var, TsInterface, TsTypeAlias, TsEnum, TsModule];
 generate_traits![Lit, BigInt, Bool, JSXText, Null, Num, Regex, Str];
-generate_traits![ImportSpecifier, Specific, Default, Namespace];
+generate_traits![ImportSpecifier, Named, Default, Namespace];
 generate_traits![ModuleItem, Stmt, ModuleDecl];
 generate_traits![ObjectPatProp, KeyValue, Assign, Rest];
 generate_traits![PatOrExpr, Pat, Expr];
