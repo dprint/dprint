@@ -36,3 +36,21 @@ const ttttesssttt = import("testttttttt");
 const ttttesssttt = import(
     "testttttttt"
 );
+
+== should not use trailing commas in a rest param in arrow functions ==
+const test = (
+    a: A,
+    b: B,
+    ...c: C
+): void => {
+    test;
+};
+
+[expect]
+const test = (
+    a: A,
+    b: B,
+    ...c: C
+): void => {
+    test;
+};

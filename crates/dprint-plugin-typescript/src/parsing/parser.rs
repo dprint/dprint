@@ -4777,9 +4777,9 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
     }, context);
 
     fn get_trailing_commas(nodes: &Vec<Node>, is_parameters: bool, context: &mut Context) -> TrailingCommas {
-        if let Some(Node::Param(last)) = nodes.last() {
+        if let Some(last) = nodes.last() {
             // this would be a syntax error
-            if last.pat.kind() == NodeKind::RestPat {
+            if is_param_rest_pat(last) {
                 return TrailingCommas::Never;
             }
         }
@@ -4804,6 +4804,15 @@ fn parse_parameters_or_arguments<'a, F>(opts: ParseParametersOrArgumentsOptions<
             }
 
             false
+        }
+
+        fn is_param_rest_pat(param: &Node) -> bool {
+            if let Node::Param(param) = param {
+                param.pat.kind() == NodeKind::RestPat
+            } else {
+                // arrow functions will not be a Param
+                param.kind() == NodeKind::RestPat
+            }
         }
     }
 }
