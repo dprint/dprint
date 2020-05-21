@@ -76,11 +76,12 @@ fn parse_node_with_inner_parse<'a>(node: Node<'a>, context: &mut Context<'a>, in
     }
 
     // parse the node
-    items.extend(if has_ignore_comment {
-        parser_helpers::parse_raw_string(&node.text(context))
+    if has_ignore_comment {
+        items.push_str(""); // force the current line indentation
+        items.extend(parser_helpers::parse_raw_string(&node.text(context)));
     } else {
-        inner_parse(parse_node_inner(node, context), context)
-    });
+        items.extend(inner_parse(parse_node_inner(node, context), context));
+    }
 
     // get the trailing comments
     if node_hi != parent_hi || context.parent().kind() == NodeKind::Module {

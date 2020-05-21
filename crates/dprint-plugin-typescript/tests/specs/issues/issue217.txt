@@ -1,0 +1,15 @@
+== should not get rid of leading indentation after ignore comment ==
+function test() {
+    // dprint-ignore
+    switch (char) {
+        case "A": return 1;
+    }
+}
+
+[expect]
+function test() {
+    // dprint-ignore
+    switch (char) {
+        case "A": return 1;
+    }
+}
