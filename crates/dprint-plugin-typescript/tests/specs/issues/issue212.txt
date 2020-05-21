@@ -1,0 +1,12 @@
+== should not panic when new expr has no parens ==
+try {
+    throw new TypeError
+}
+catch {
+}
+
+[expect]
+try {
+    throw new TypeError();
+} catch {
+}

@@ -2777,7 +2777,7 @@ fn parse_method_prop<'a>(node: &'a MethodProp, context: &mut Context<'a>) -> Pri
 }
 
 struct ClassOrObjectMethod<'a> {
-    parameters_span_data: SpanData,
+    parameters_span_data: Option<SpanData>,
     decorators: Option<&'a Vec<Decorator>>,
     accessibility: Option<Accessibility>,
     is_static: bool,
@@ -2905,7 +2905,7 @@ fn parse_block_stmt<'a>(node: &'a BlockStmt, context: &mut Context<'a>) -> Print
             context
         )
     }, ParseBlockOptions {
-        span_data: node.span.data(),
+        span_data: Some(node.span.data()),
         children: node.stmts.iter().map(|x| x.into()).collect(),
     }, context)
 }
@@ -4524,7 +4524,7 @@ fn parse_array_like_nodes<'a>(opts: ParseArrayLikeNodesOptions<'a>, context: &mu
     }, |_| None, ParseSurroundedByTokensOptions {
         open_token: "[",
         close_token: "]",
-        span_data: parent_span_data,
+        span_data: Some(parent_span_data),
         first_member,
         prefer_single_line_when_empty: true,
         allow_open_token_trailing_comments: true,
@@ -4579,6 +4579,7 @@ fn parse_membered_body<'a, FShouldUseBlankLine>(
     where FShouldUseBlankLine : Fn(&Node, &Node, &mut Context) -> bool
 {
     let mut items = PrintItems::new();
+    // todo: no expect here
     let open_brace_token = context.token_finder.get_first_open_brace_token_before(&if opts.members.is_empty() { opts.span_data.hi } else { opts.members[0].lo() })
         .expect("Expected to find an open brace token.");
     let close_brace_token_pos = BytePos(opts.span_data.hi.0 - 1); // todo: assert this is correct
@@ -4604,7 +4605,7 @@ fn parse_membered_body<'a, FShouldUseBlankLine>(
             semi_colons,
         }, context)
     }, ParseBlockOptions {
-        span_data: create_span_data(open_brace_token.lo(), BytePos(close_brace_token_pos.hi().0 + 1)),
+        span_data: Some(create_span_data(open_brace_token.lo(), BytePos(close_brace_token_pos.hi().0 + 1))),
         children: opts.members,
     }, context));
 
@@ -4714,7 +4715,7 @@ fn parse_statements_or_members<'a, FShouldUseBlankLine>(
 }
 
 struct ParseParametersOrArgumentsOptions<'a, F> where F : FnOnce(&mut Context<'a>) -> Option<PrintItems> {
-    span_data: SpanData,
+    span_data: Option<SpanData>,
     nodes: Vec<Node<'a>>,
     custom_close_paren: F,
     is_parameters: bool,
@@ -5122,11 +5123,9 @@ fn parse_node_in_parens<'a>(
 ) -> PrintItems {
     let inner_span = opts.inner_span;
     let paren_span = get_paren_span(&inner_span, context);
-    let force_use_new_lines = !context.config.parentheses_prefer_single_line
-        && node_helpers::get_use_new_lines_for_nodes(&paren_span.lo(), &inner_span, context)
-        || has_any_node_comment_on_different_line(&vec![inner_span], context);
+    let force_use_new_lines = get_force_use_new_lines(inner_span, &paren_span, context);
 
-    parse_surrounded_by_tokens(|context| {
+    return parse_surrounded_by_tokens(|context| {
         let parsed_node = parse_node(context);
         if force_use_new_lines {
             surround_with_new_lines(with_indent(parsed_node))
@@ -5142,20 +5141,32 @@ fn parse_node_in_parens<'a>(
         first_member: Some(inner_span),
         prefer_single_line_when_empty: true,
         allow_open_token_trailing_comments: opts.allow_open_paren_trailing_comments,
-    }, context)
+    }, context);
+
+    fn get_force_use_new_lines(inner_span: SpanData, paren_span: &Option<SpanData>, context: &mut Context) -> bool {
+        if !context.config.parentheses_prefer_single_line {
+            if let Some(paren_span) = &paren_span {
+                if node_helpers::get_use_new_lines_for_nodes(&paren_span.lo(), &inner_span, context) {
+                    return true;
+                }
+            }
+        }
+
+        has_any_node_comment_on_different_line(&vec![inner_span], context)
+    }
 }
 
-fn get_paren_span<'a>(inner_span: &SpanData, context: &mut Context<'a>) -> SpanData {
+fn get_paren_span<'a>(inner_span: &SpanData, context: &mut Context<'a>) -> Option<SpanData> {
     let open_paren = context.token_finder.get_previous_token_if_open_paren(inner_span);
     let close_paren = context.token_finder.get_next_token_if_close_paren(inner_span);
 
     if let Some(open_paren) = open_paren {
         if let Some(close_paren) = close_paren {
-            return create_span_data(open_paren.lo(), close_paren.hi());
+            return Some(create_span_data(open_paren.lo(), close_paren.hi()));
         }
     }
 
-    inner_span.clone()
+    None
 }
 
 struct ParseExtendsOrImplementsOptions<'a> {
@@ -5213,12 +5224,16 @@ struct ParseObjectLikeNodeOptions<'a> {
 fn parse_object_like_node<'a>(opts: ParseObjectLikeNodeOptions<'a>, context: &mut Context<'a>) -> PrintItems {
     let mut items = PrintItems::new();
 
-    let open_brace_token = context.token_finder.get_first_open_brace_token_within(&opts.node_span_data).expect("Expected to find an open brace token.");
-    let close_brace_token = context.token_finder.get_last_close_brace_token_within(&opts.node_span_data).expect("Expected to find a close brace token.");
+    let open_brace_token = context.token_finder.get_first_open_brace_token_within(&opts.node_span_data);
+    let close_brace_token = context.token_finder.get_last_close_brace_token_within(&opts.node_span_data);
     let force_multi_line = get_use_new_lines_for_nodes_with_preceeding_token("{", &opts.members, opts.prefer_single_line, context);
 
     let first_member_span_data = opts.members.get(0).map(|x| x.span_data());
-    let obj_span_data = create_span_data(open_brace_token.lo(), close_brace_token.hi());
+    let obj_span_data = if let (Some(open_brace_token), Some(close_brace_token)) = (open_brace_token, close_brace_token) {
+        Some(create_span_data(open_brace_token.lo(), close_brace_token.hi()))
+    } else {
+        None
+    };
 
     items.extend(parse_surrounded_by_tokens(|context| {
         let mut items = PrintItems::new();
@@ -5381,7 +5396,11 @@ fn parse_computed_prop_like<'a>(opts: ParseComputedPropLikeOptions, context: &mu
     let inner_items = opts.inner_items;
     let span_data = get_bracket_span(&inner_node_span_data, context);
     let force_use_new_lines = !context.config.computed_prefer_single_line
-        && node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context);
+        && if let Some(span_data) = &span_data {
+            node_helpers::get_use_new_lines_for_nodes(&span_data.lo(), &inner_node_span_data.lo(), context)
+        } else {
+            false
+        };
 
     return new_line_group(parse_surrounded_by_tokens(|context| {
         if force_use_new_lines {
@@ -5398,16 +5417,16 @@ fn parse_computed_prop_like<'a>(opts: ParseComputedPropLikeOptions, context: &mu
         allow_open_token_trailing_comments: true,
     }, context));
 
-    fn get_bracket_span(node: &dyn Ranged, context: &mut Context) -> SpanData {
+    fn get_bracket_span(node: &dyn Ranged, context: &mut Context) -> Option<SpanData> {
         let open_bracket = context.token_finder.get_previous_token_if_open_bracket(node);
         let close_bracket = context.token_finder.get_next_token_if_close_bracket(node);
         if let Some(open_bracket) = open_bracket {
             if let Some(close_bracket) = close_bracket {
-                return create_span_data(open_bracket.lo(), close_bracket.hi());
+                return Some(create_span_data(open_bracket.lo(), close_bracket.hi()));
             }
         }
 
-        node.span_data()
+        None
     }
 }
 
@@ -6122,7 +6141,7 @@ fn parse_assignment_like_with_token<'a>(expr: Node<'a>, op: &str, op_token: Opti
 }
 
 struct ParseBlockOptions<'a> {
-    span_data: SpanData,
+    span_data: Option<SpanData>,
     children: Vec<Node<'a>>,
 }
 
@@ -6140,7 +6159,9 @@ fn parse_block<'a>(
         let mut items = PrintItems::new();
         let start_inner_info = Info::new("startStatementsInfo");
         let end_inner_info = Info::new("endStatementsInfo");
-        let is_tokens_same_line_and_empty = span_data.start_line(context) == span_data.end_line(context) && opts.children.is_empty();
+        let is_tokens_same_line_and_empty = if let Some(span_data) = &span_data {
+             span_data.start_line(context) == span_data.end_line(context) && opts.children.is_empty()
+        } else { true };
         if !is_tokens_same_line_and_empty {
             items.push_signal(Signal::NewLine);
         }
@@ -6176,7 +6197,8 @@ fn parse_block<'a>(
 struct ParseSurroundedByTokensOptions {
     open_token: &'static str,
     close_token: &'static str,
-    span_data: SpanData,
+    /// When `None`, means the tokens are missing
+    span_data: Option<SpanData>,
     first_member: Option<SpanData>,
     prefer_single_line_when_empty: bool,
     allow_open_token_trailing_comments: bool,
@@ -6188,89 +6210,95 @@ fn parse_surrounded_by_tokens<'a>(
     opts: ParseSurroundedByTokensOptions,
     context: &mut Context<'a>
 ) -> PrintItems {
-    let open_token_end = BytePos(opts.span_data.lo.0 + (opts.open_token.len() as u32));
-    let close_token_start = BytePos(opts.span_data.hi.0 - (opts.close_token.len() as u32));
-
-    // assert the tokens are in the place the caller says they are
-    #[cfg(debug_assertions)]
-    context.assert_text(opts.span_data.lo, open_token_end.lo(), opts.open_token);
-    #[cfg(debug_assertions)]
-    context.assert_text(close_token_start.lo(), opts.span_data.hi, opts.close_token);
-
-    // parse
     let mut items = PrintItems::new();
-    let open_token_start_line = open_token_end.start_line(context);
+    if let Some(span_data) = opts.span_data {
+        let open_token_end = BytePos(span_data.lo.0 + (opts.open_token.len() as u32));
+        let close_token_start = BytePos(span_data.hi.0 - (opts.close_token.len() as u32));
 
-    items.push_str(opts.open_token);
-    if let Some(first_member) = opts.first_member {
-        let first_member_start_line = first_member.start_line(context);
-        if opts.allow_open_token_trailing_comments && open_token_start_line < first_member_start_line {
-            items.extend(parse_first_line_trailing_comment(open_token_start_line, open_token_end.trailing_comments(context), context));
-        }
-        items.extend(parse_inner(context));
+        // assert the tokens are in the place the caller says they are
+        #[cfg(debug_assertions)]
+        context.assert_text(span_data.lo, open_token_end.lo(), opts.open_token);
+        #[cfg(debug_assertions)]
+        context.assert_text(close_token_start.lo(), span_data.hi, opts.close_token);
 
-        let before_trailing_comments_info = Info::new("beforeTrailingComments");
-        items.push_info(before_trailing_comments_info);
-        items.extend(with_indent(parse_trailing_comments_as_statements(&open_token_end, context)));
-        items.extend(with_indent(parse_comments_as_statements(close_token_start.leading_comments(context), None, context)));
-        items.push_condition(if_true(
-            "newLineIfHasCommentsAndNotStartOfNewLine",
-            move |context| {
-                let had_comments = !condition_resolvers::is_at_same_position(context, &before_trailing_comments_info)?;
-                return Some(had_comments && !context.writer_info.is_start_of_line())
-            },
-            Signal::NewLine.into()
-        ));
-    } else {
-        let comments = open_token_end.trailing_comments(context);
-        let is_single_line = open_token_start_line == close_token_start.start_line(context);
-        if !comments.is_empty() {
-            // parse the trailing comment on the first line only if multi-line and if a comment line
-            if !is_single_line {
-                items.extend(parse_first_line_trailing_comment(open_token_start_line, comments.clone(), context));
+        // parse
+        let open_token_start_line = open_token_end.start_line(context);
+
+        items.push_str(opts.open_token);
+        if let Some(first_member) = opts.first_member {
+            let first_member_start_line = first_member.start_line(context);
+            if opts.allow_open_token_trailing_comments && open_token_start_line < first_member_start_line {
+                items.extend(parse_first_line_trailing_comment(open_token_start_line, open_token_end.trailing_comments(context), context));
             }
+            items.extend(parse_inner(context));
 
-            // parse the comments
-            if comments.has_unhandled_comment(context) {
-                if is_single_line {
-                    let indent_width = context.config.indent_width;
-                    items.extend(parser_helpers::parse_separated_values(|_| {
-                        let mut parsed_comments = Vec::new();
-                        for c in comments {
-                            let start_line = c.start_line(context);
-                            let end_line = c.end_line(context);
-                            if let Some(items) = parse_comment(c, context) {
-                                parsed_comments.push(parser_helpers::ParsedValue {
-                                    items,
-                                    lines_span: Some(parser_helpers::LinesSpan { start_line, end_line }),
-                                    allow_inline_multi_line: false,
-                                    allow_inline_single_line: false,
-                                });
+            let before_trailing_comments_info = Info::new("beforeTrailingComments");
+            items.push_info(before_trailing_comments_info);
+            items.extend(with_indent(parse_trailing_comments_as_statements(&open_token_end, context)));
+            items.extend(with_indent(parse_comments_as_statements(close_token_start.leading_comments(context), None, context)));
+            items.push_condition(if_true(
+                "newLineIfHasCommentsAndNotStartOfNewLine",
+                move |context| {
+                    let had_comments = !condition_resolvers::is_at_same_position(context, &before_trailing_comments_info)?;
+                    return Some(had_comments && !context.writer_info.is_start_of_line())
+                },
+                Signal::NewLine.into()
+            ));
+        } else {
+            let comments = open_token_end.trailing_comments(context);
+            let is_single_line = open_token_start_line == close_token_start.start_line(context);
+            if !comments.is_empty() {
+                // parse the trailing comment on the first line only if multi-line and if a comment line
+                if !is_single_line {
+                    items.extend(parse_first_line_trailing_comment(open_token_start_line, comments.clone(), context));
+                }
+
+                // parse the comments
+                if comments.has_unhandled_comment(context) {
+                    if is_single_line {
+                        let indent_width = context.config.indent_width;
+                        items.extend(parser_helpers::parse_separated_values(|_| {
+                            let mut parsed_comments = Vec::new();
+                            for c in comments {
+                                let start_line = c.start_line(context);
+                                let end_line = c.end_line(context);
+                                if let Some(items) = parse_comment(c, context) {
+                                    parsed_comments.push(parser_helpers::ParsedValue {
+                                        items,
+                                        lines_span: Some(parser_helpers::LinesSpan { start_line, end_line }),
+                                        allow_inline_multi_line: false,
+                                        allow_inline_single_line: false,
+                                    });
+                                }
                             }
-                        }
-                        parsed_comments
-                    }, parser_helpers::ParseSeparatedValuesOptions {
-                        prefer_hanging: false,
-                        force_use_new_lines: !is_single_line,
-                        allow_blank_lines: true,
-                        single_line_space_at_start: false,
-                        single_line_space_at_end: false,
-                        single_line_separator: Signal::SpaceOrNewLine.into(),
-                        indent_width,
-                        multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
-                        force_possible_newline_at_start: false,
-                    }).items);
-                } else {
-                    items.push_signal(Signal::NewLine);
-                    items.extend(with_indent(parse_comments_as_statements(comments, None, context)));
+                            parsed_comments
+                        }, parser_helpers::ParseSeparatedValuesOptions {
+                            prefer_hanging: false,
+                            force_use_new_lines: !is_single_line,
+                            allow_blank_lines: true,
+                            single_line_space_at_start: false,
+                            single_line_space_at_end: false,
+                            single_line_separator: Signal::SpaceOrNewLine.into(),
+                            indent_width,
+                            multi_line_options: parser_helpers::MultiLineOptions::surround_newlines_indented(),
+                            force_possible_newline_at_start: false,
+                        }).items);
+                    } else {
+                        items.push_signal(Signal::NewLine);
+                        items.extend(with_indent(parse_comments_as_statements(comments, None, context)));
+                        items.push_signal(Signal::NewLine);
+                    }
+                }
+            } else {
+                if !is_single_line && !opts.prefer_single_line_when_empty {
                     items.push_signal(Signal::NewLine);
                 }
             }
-        } else {
-            if !is_single_line && !opts.prefer_single_line_when_empty {
-                items.push_signal(Signal::NewLine);
-            }
         }
+    } else {
+        // todo: have a warning here when this happens
+        items.push_str(opts.open_token);
+        items.extend(parse_inner(context));
     }
 
     if let Some(parsed_close_token) = (custom_close_token)(context) {

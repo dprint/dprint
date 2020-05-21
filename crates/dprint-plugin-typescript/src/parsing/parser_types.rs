@@ -642,12 +642,13 @@ fn get_inner_span_for_object_like(span: &Span) -> SpanData {
 /* ParametersSpanned */
 
 pub trait ParametersSpanned {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData;
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData>;
 }
 
 impl ParametersSpanned for Function {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.return_type.as_ref().map(|t| t.lo())
                 .or(self.body.as_ref().map(|b| b.lo()))
@@ -658,14 +659,15 @@ impl ParametersSpanned for Function {
 }
 
 impl ParametersSpanned for ClassMethod {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         self.function.get_parameters_span_data(context)
     }
 }
 
 impl ParametersSpanned for Constructor {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.body.as_ref().map(|t| t.lo())
                 .unwrap_or(self.span.hi()),
@@ -675,14 +677,15 @@ impl ParametersSpanned for Constructor {
 }
 
 impl ParametersSpanned for MethodProp {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         self.function.get_parameters_span_data(context)
     }
 }
 
 impl ParametersSpanned for GetterProp {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             vec![],
             self.type_ann.as_ref().map(|t| t.lo())
                 .or(self.body.as_ref().map(|t| t.lo()))
@@ -693,8 +696,9 @@ impl ParametersSpanned for GetterProp {
 }
 
 impl ParametersSpanned for SetterProp {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             vec![self.param.span_data()],
             self.body.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
@@ -703,8 +707,9 @@ impl ParametersSpanned for SetterProp {
 }
 
 impl ParametersSpanned for ArrowExpr {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.return_type.as_ref().map(|t| t.lo()).unwrap_or(self.body.lo()),
             context
@@ -713,8 +718,9 @@ impl ParametersSpanned for ArrowExpr {
 }
 
 impl ParametersSpanned for CallExpr {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.args.iter().map(|a| a.span_data()).collect(),
             self.hi(),
             context
@@ -723,8 +729,9 @@ impl ParametersSpanned for CallExpr {
 }
 
 impl ParametersSpanned for NewExpr {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.args.as_ref().map(|args| args.iter().map(|a| a.span_data()).collect()).unwrap_or_default(),
             self.hi(),
             context
@@ -733,8 +740,9 @@ impl ParametersSpanned for NewExpr {
 }
 
 impl ParametersSpanned for TsCallSignatureDecl {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
@@ -743,8 +751,9 @@ impl ParametersSpanned for TsCallSignatureDecl {
 }
 
 impl ParametersSpanned for TsConstructSignatureDecl {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
@@ -753,8 +762,9 @@ impl ParametersSpanned for TsConstructSignatureDecl {
 }
 
 impl ParametersSpanned for TsMethodSignature {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.as_ref().map(|t| t.lo()).unwrap_or(self.hi()),
             context
@@ -763,8 +773,9 @@ impl ParametersSpanned for TsMethodSignature {
 }
 
 impl ParametersSpanned for TsConstructorType {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.lo(),
             context
@@ -773,8 +784,9 @@ impl ParametersSpanned for TsConstructorType {
 }
 
 impl ParametersSpanned for TsFnType {
-    fn get_parameters_span_data(&self, context: &mut Context) -> SpanData {
+    fn get_parameters_span_data(&self, context: &mut Context) -> Option<SpanData> {
         get_params_or_args_span_data(
+            self.lo(),
             self.params.iter().map(|x| x.span_data()).collect(),
             self.type_ann.lo(),
             context
@@ -782,24 +794,48 @@ impl ParametersSpanned for TsFnType {
     }
 }
 
-fn get_params_or_args_span_data(params: Vec<SpanData>, following_pos: BytePos, context: &mut Context) -> SpanData {
+fn get_params_or_args_span_data(start_pos: BytePos, params: Vec<SpanData>, following_pos: BytePos, context: &mut Context) -> Option<SpanData> {
     let close_token_end = {
-        if let Some(last_param) = params.last() {
+        let close_paren = if let Some(last_param) = params.last() {
             context.token_finder.get_first_close_paren_after(last_param)
         } else {
             context.token_finder.get_first_close_paren_before(&following_pos)
-        }.expect("Expected to find a close paren token.").hi()
-    };
-
-    SpanData {
-        lo: context.token_finder.get_first_open_paren_before(&{
+        };
+        if let Some(close_paren) = close_paren {
+            let end = close_paren.hi();
+            if end > start_pos {
+                Some(end)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }?;
+    let close_token_start = {
+        let open_paren = context.token_finder.get_first_open_paren_before(&{
             if let Some(first_param) = params.first() {
                 first_param.lo()
             } else {
                 close_token_end
             }
-        }).expect("Expected to find an close paren token.").lo(),
+        });
+
+        if let Some(open_paren) = open_paren {
+            let pos = open_paren.lo();
+            if pos >= start_pos {
+                Some(pos)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }?;
+
+    Some(SpanData {
+        lo: close_token_start,
         hi: close_token_end,
         ctxt: Default::default(),
-    }
+    })
 }
