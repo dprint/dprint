@@ -6393,14 +6393,17 @@ fn is_arrow_function_with_expr_body(node: &Node) -> bool {
 }
 
 fn allows_inline_multi_line(node: &Node, has_siblings: bool) -> bool {
-    if let Node::Param(param) = node {
-        return allows_inline_multi_line(&(&param.pat).into(), has_siblings);
-    }
-
     return match node {
+        Node::Param(param) => allows_inline_multi_line(&(&param.pat).into(), has_siblings),
+        Node::TsAsExpr(as_expr) => allows_inline_multi_line(&(&as_expr.expr).into(), has_siblings)
+            && match &*as_expr.type_ann {
+                TsType::TsTypeRef(_) | TsType::TsKeywordType(_) => true,
+                _ => allows_inline_multi_line(&(&as_expr.type_ann).into(), has_siblings)
+            },
         Node::FnExpr(_) | Node::ArrowExpr(_) | Node::ObjectLit(_) | Node::ArrayLit(_)
             | Node::ObjectPat(_) | Node::ArrayPat(_)
-            | Node::TsTypeLit(_) | Node::TsTupleType(_) => true,
+            | Node::TsTypeLit(_) | Node::TsTupleType(_)
+            | Node::TsArrayType(_) => true,
         Node::ExprOrSpread(node) => allows_inline_multi_line(&(&*node.expr).into(), has_siblings),
         Node::TaggedTpl(_) | Node::Tpl(_) => !has_siblings,
         Node::CallExpr(node) => !has_siblings && allow_inline_for_call_expr(node),

@@ -1,0 +1,33 @@
+== should format as expr inline for keyword type ==
+something({
+    text: "text",
+} as any);
+
+[expect]
+something({
+    text: "text",
+} as any);
+
+== should format as expr inline for type reference ==
+something({
+    text: "text",
+} as Testing);
+
+[expect]
+something({
+    text: "text",
+} as Testing);
+
+== should format as expr inline for object type ==
+something({
+    text: "text",
+} as {
+    testing: this;
+});
+
+[expect]
+something({
+    text: "text",
+} as {
+    testing: this;
+});
