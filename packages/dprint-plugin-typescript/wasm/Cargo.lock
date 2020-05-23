@@ -2,15 +2,6 @@
 # It is not intended for manual editing.
 [[package]]
 name = "ahash"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f33b5018f120946c1dcf279194f238a9f146725593ead1c08fa47ff22b0b5d3"
-dependencies = [
- "const-random",
-]
-
-[[package]]
-name = "ahash"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35b909d1c126f78ace756fc337133356c499eebeefcce930fa5fb018823f2b2d"
@@ -177,7 +168,7 @@ version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93b8a57df1b6a3f0a96df85297d506a871b31252df23f969b9837ccb5d07455c"
 dependencies = [
- "ahash 0.3.3",
+ "ahash",
  "cfg-if",
  "num_cpus",
 ]
@@ -191,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.18.0"
+version = "0.18.6"
 dependencies = [
  "dprint-core",
  "serde",
@@ -261,16 +252,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "wasi",
-]
-
-[[package]]
-name = "hashbrown"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e6073d0ca812575946eb5f35ff68dbe519907b25c42530389ff946dc84c6ead"
-dependencies = [
- "ahash 0.2.18",
- "autocfg 0.1.7",
 ]
 
 [[package]]
@@ -882,9 +863,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "0.5.9"
+version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f17c61920fa7307f5ea35ecf5f05d455a2610cdb2582dbcf81dbeaa361a3788"
+checksum = "ac5dc408a5004d6d82914e8c415f4c2a8c716b53ff766ab13af9bf0e5a286d98"
 dependencies = [
  "ast_node",
  "atty",
@@ -893,7 +874,6 @@ dependencies = [
  "either",
  "from_variant",
  "fxhash",
- "hashbrown",
  "log",
  "parking_lot",
  "scoped-tls",
@@ -906,9 +886,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08e034fd0f2a837f23fee9e7f92d0b2bd916638fde7d40dddbddcb37389b5c5d"
+checksum = "cb6105718e50b118ff100acda244b6df4f3f46de76b03e5d1baeaa3e69f97a6a"
 dependencies = [
  "enum_kind",
  "num-bigint",
@@ -920,9 +900,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.22.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78964f597535cfe7668bc1fb5043078656d151fe94e4b552114cc9e99bebca97"
+checksum = "6ddb997ff7671faf7e55040233ed814bed1f69b6d1ad7a0fe78948ebf42d3d6a"
 dependencies = [
  "either",
  "enum_kind",
