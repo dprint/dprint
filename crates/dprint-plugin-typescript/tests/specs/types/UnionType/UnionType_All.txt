@@ -70,7 +70,8 @@ export type T =
     test | test;
 
 [expect]
-export type T = /* test */
+export type T =
+    /* test */
     test | test;
 
 == should handle block comment on next line when multi-line ==
@@ -79,7 +80,8 @@ export type T =
     test | test | test | tttttttttttttttt;
 
 [expect]
-export type T = /* test */
+export type T =
+    /* test */
     | test
     | test
     | test

@@ -1,0 +1,17 @@
+== should format as-is with async keyword below comment ==
+class Test {
+    @A()
+    // something
+    async abc(){
+        console.log("a");
+    }
+}
+
+[expect]
+class Test {
+    @A()
+    // something
+    async abc() {
+        console.log("a");
+    }
+}

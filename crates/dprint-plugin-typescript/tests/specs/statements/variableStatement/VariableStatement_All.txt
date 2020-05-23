@@ -55,7 +55,7 @@ const varA = {
 
 == should handle multiple declarations that span multiple lines with comments in between ==
 const varA = /* test*/
-    // not ideal, but ok
+    // indents this twice since in var decl
     {
         testttttttttttttttttttttttttttt,
     }, // test
@@ -65,7 +65,7 @@ const varA = /* test*/
 
 [expect]
 const varA = /* test*/
-    // not ideal, but ok
+        // indents this twice since in var decl
         {
             testttttttttttttttttttttttttttt,
         }, // test

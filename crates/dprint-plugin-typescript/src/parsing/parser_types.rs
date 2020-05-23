@@ -20,6 +20,7 @@ pub struct Context<'a> {
     stored_infos: HashMap<(BytePos, BytePos), Info>,
     stored_info_ranges: HashMap<(BytePos, BytePos), (Info, Info)>,
     pub end_statement_or_member_infos: Stack<Info>,
+    before_comments_start_info_stack: Stack<(SpanData, Info)>,
     if_stmt_last_brace_condition_ref: Option<ConditionReference>,
     /// Used for ensuring nodes are parsed in order.
     #[cfg(debug_assertions)]
@@ -48,6 +49,7 @@ impl<'a> Context<'a> {
             stored_infos: HashMap::new(),
             stored_info_ranges: HashMap::new(),
             end_statement_or_member_infos: Stack::new(),
+            before_comments_start_info_stack: Stack::new(),
             if_stmt_last_brace_condition_ref: None,
             #[cfg(debug_assertions)]
             last_parsed_node_pos: 0,
@@ -93,6 +95,42 @@ impl<'a> Context<'a> {
 
     pub fn take_if_stmt_last_brace_condition_ref(&mut self) -> Option<ConditionReference> {
         self.if_stmt_last_brace_condition_ref.take()
+    }
+
+    pub fn get_or_create_current_before_comments_start_info(&mut self) -> Info {
+        let current_span_data = self.current_node.span_data();
+        if let Some((span_data, info)) = self.before_comments_start_info_stack.peek() {
+            if *span_data == current_span_data {
+                return *info;
+            }
+        }
+
+        let new_info = Info::new("beforeComments");
+        self.before_comments_start_info_stack.push((current_span_data, new_info));
+        new_info
+    }
+
+    pub fn take_current_before_comments_start_info(&mut self) -> Option<Info> {
+        let mut had_span_data = false;
+        if let Some((span_data, _)) = self.before_comments_start_info_stack.peek() {
+            if *span_data == self.current_node.span_data() {
+                had_span_data = true;
+            }
+        }
+
+        if had_span_data {
+            Some(self.before_comments_start_info_stack.pop().1)
+        } else {
+            None
+        }
+    }
+
+    // do any assertions for how the state of this context should be at the end of the file
+    #[cfg(debug_assertions)]
+    pub fn assert_end_of_file_state(&self) {
+        if self.before_comments_start_info_stack.iter().next().is_some() {
+            panic!("There were infos in the before comments start info stack.");
+        }
     }
 
     #[cfg(debug_assertions)]

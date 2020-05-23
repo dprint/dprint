@@ -156,3 +156,36 @@ const t = class Test extends MyMixin(OtherMixin())<string> {
 [expect]
 const t = class Test extends MyMixin(OtherMixin())<string> {
 };
+
+== should handle comments before expression ==
+const t = /* test */
+    // testing
+    class Test extends MyMixin(OtherMixin())<string> {
+    };
+
+[expect]
+const t = /* test */
+    // testing
+    class Test extends MyMixin(OtherMixin())<string> {
+    };
+
+== should handle comment that starts on assignment and ends on same line before expression on different line ==
+const t = /* starting here
+    and ending here */ class Test {
+    };
+
+[expect]
+const t = /* starting here
+    and ending here */
+    class Test {
+    };
+
+== should handle comments before with comment block on same line as expr ==
+const t = // test
+    /* test */ class Test {
+    };
+
+[expect]
+const t = // test
+    /* test */ class Test {
+    };

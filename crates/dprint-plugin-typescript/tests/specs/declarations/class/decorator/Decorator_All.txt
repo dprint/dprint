@@ -77,3 +77,28 @@ export class Test {
     method(@param test) {
     }
 }
+
+== should handle mutli-line decorators on parameter ==
+export class Test {
+    method(@param @param2 test) {
+    }
+
+    method2(@param @param2 @param3 test) {
+    }
+}
+
+[expect]
+export class Test {
+    method(
+        @param @param2 test,
+    ) {
+    }
+
+    method2(
+        @param
+        @param2
+        @param3
+        test,
+    ) {
+    }
+}
