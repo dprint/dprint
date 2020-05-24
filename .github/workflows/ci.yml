@@ -1,0 +1,91 @@
+# Made with the help of:
+# https://github.com/denoland/deno/blob/master/.github/workflows/ci.yml
+
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: ${{ matrix.config.kind }} ${{ matrix.config.os }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      matrix:
+        config:
+          - os: macOS-latest
+            kind: test_release
+          - os: windows-2019
+            kind: test_release
+          - os: ubuntu-16.04
+            kind: test_release
+          - os: ubuntu-16.04
+            kind: test_debug
+
+    env:
+      CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: full
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install wasm32 target
+      run: rustup target add wasm32-unknown-unknown
+
+    - name: Cache cargo registry
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo index
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo build
+      uses: actions/cache@v1
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build test plugin
+      run: cargo build --manifest-path=crates/test-plugin/Cargo.toml --release --target=wasm32-unknown-unknown
+
+    - name: Build debug
+      if: matrix.config.kind == 'test_debug'
+      run: cargo build --verbose
+    - name: Build release
+      if: matrix.config.kind == 'test_release'
+      run: cargo build --release --locked --all-targets --verbose
+      
+    - name: Test debug
+      if: matrix.config.kind == 'test_debug'
+      run: cargo test --verbose
+    - name: Test release
+      if: matrix.config.kind == 'test_release'
+      run: cargo test --release --locked --all-targets --verbose
+      
+    - name: Pre-release (Linux)
+      if: startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release'
+      run: |
+          cd target/release
+          zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
+    - name: Pre-release (Mac)
+      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release'
+      run: |
+          cd target/release
+          zip -r dprint-x86_64-apple-darwin.zip dprint
+    - name: Pre-release (Windows)
+      if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release'
+      run: |
+          Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip
+          
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        files: |
+          target/release/dprint-x86_64-pc-windows-msvc.zip
+          target/release/dprint-x86_64-unknown-linux-gnu.zip
+          target/release/dprint-x86_64-apple-darwin.zip
+        draft: true
