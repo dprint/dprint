@@ -14,6 +14,5 @@ target
 /packages/dprint-plugin-typescript/wasm/target
 /packages/playground/wasm/target
 /packages/dprint-plugin-jsonc/wasm/target
-/crates/dprint/test/plugin/target
-/crates/dprint/test/plugin/Cargo.lock
-/crates/dprint/test/test_plugin.wasm
+/crates/test-plugin/target
+/crates/test-plugin/Cargo.lock
