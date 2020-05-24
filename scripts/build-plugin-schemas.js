@@ -24,7 +24,8 @@ function buildText(pluginName, interfaceName, schemaFileName) {
         writer.quote("type").write(": ").quote("object").write(",").newLine();
         writer.quote("definitions").write(": ").inlineBlock(() => {
             for (const [index, prop] of propDefinitions.filter(p => p.type === "union" || p.type === "boolean").entries()) {
-                if (index > 0) writer.write(",").newLine();
+                if (index > 0)
+                    writer.write(",").newLine();
                 writer.quote(prop.name).write(": ").inlineBlock(() => {
                     writer.quote("description").write(": ").quote(santizeDescription(prop.description)).write(",").newLine();
                     writer.quote("type").write(": ").quote(prop.type === "union" ? "string" : "boolean").write(",").newLine();
@@ -53,19 +54,20 @@ function buildText(pluginName, interfaceName, schemaFileName) {
             }).write(",").newLine();
 
             for (const [index, prop] of propDefinitions.entries()) {
-                if (index > 0) writer.write(",").newLine();
+                if (index > 0)
+                    writer.write(",").newLine();
                 const name = prop.name;
                 writer.quote(name).write(": ").inlineBlock(() => {
-                    if (prop.type === "union" || prop.type === "boolean") {
+                    if (prop.type === "union" || prop.type === "boolean")
                         writer.quote("$ref").write(": ").quote(`#/definitions/${name}`);
-                    } else if (prop.type === "string" || prop.type === "number") {
+                    else if (prop.type === "string" || prop.type === "number") {
                         writer.quote("description").write(": ").quote(santizeDescription(prop.description)).write(",").newLine();
                         writer.quote("type").write(": ").quote(prop.type);
-                    } else if (prop.type === "ref") {
-                        writer.quote("$ref").write(": ").quote(`#/definitions/${prop.reference}`);
-                    } else {
-                        throw new Error("Not handled. " + prop.type);
                     }
+                    else if (prop.type === "ref")
+                        writer.quote("$ref").write(": ").quote(`#/definitions/${prop.reference}`);
+                    else
+                        throw new Error("Not handled. " + prop.type);
                 });
             }
         });
@@ -87,28 +89,31 @@ function getPropertyDefinition(prop) {
     if (Node.isUnionTypeNode(typeNode)) {
         values = getUnionValues(prop, typeNode);
         type = "union";
-    } else if (Node.isBooleanKeyword(typeNode)) {
+    }
+    else if (Node.isBooleanKeyword(typeNode)) {
         values = getBoolValues(prop);
         type = "boolean";
-    } else if (Node.isStringKeyword(typeNode)) {
+    }
+    else if (Node.isStringKeyword(typeNode))
         type = "string";
-    } else if (Node.isNumberKeyword(typeNode)) {
+    else if (Node.isNumberKeyword(typeNode))
         type = "number";
-    } else if (Node.isIndexedAccessTypeNode(typeNode)) {
+    else if (Node.isIndexedAccessTypeNode(typeNode)) {
         type = "ref";
         const indexTypeNode = typeNode.getIndexTypeNode();
         if (Node.isLiteralTypeNode(indexTypeNode)) {
             const literal = indexTypeNode.getLiteral();
-            if (Node.isStringLiteral(literal)) {
+            if (Node.isStringLiteral(literal))
                 reference = literal.getLiteralValue();
-            } else {
+            else
                 throw new Error("Unhandled literal value kind.");
-            }
-        } else {
+        }
+        else {
             throw new Error("Not handled index type node.");
         }
-    } else {
-        throw new Error("Not handled: " + typeNode.getKindName())
+    }
+    else {
+        throw new Error("Not handled: " + typeNode.getKindName());
     }
 
     return {
@@ -116,7 +121,7 @@ function getPropertyDefinition(prop) {
         type,
         description,
         values,
-        reference
+        reference,
     };
 }
 
@@ -137,12 +142,14 @@ function getUnionValues(prop, typeNode) {
 
                 items.push({
                     name,
-                    description: tag.getComment().replace(`"${name}" - `, "")
+                    description: tag.getComment().replace(`"${name}" - `, ""),
                 });
-            } else {
+            }
+            else {
                 throw new Error("Not expected.");
             }
-        } else {
+        }
+        else {
             throw new Error("Not expected.");
         }
     }
@@ -168,7 +175,7 @@ function getBoolValues(prop) {
 
         return {
             name: value.toString(),
-            description: tag && tag.getComment().replace(`${value} - `, "").trim()
+            description: tag && tag.getComment().replace(`${value} - `, "").trim(),
         };
     }
 }
