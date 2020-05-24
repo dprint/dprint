@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/development",
+    "crates/dprint",
+    "crates/dprint-plugin-jsonc",
+    "crates/dprint-plugin-typescript"
+]
