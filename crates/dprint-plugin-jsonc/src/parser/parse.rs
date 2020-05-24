@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use dprint_core::*;
-use jsonc_parser::parse_text as parse_jsonc_ast;
+use jsonc_parser::{parse_to_ast, ParseOptions};
 use jsonc_parser::ast::*;
 use jsonc_parser::common::{Position, Ranged, Range};
 use jsonc_parser::tokens::{TokenAndRange};
@@ -9,7 +9,7 @@ use super::context::Context;
 use super::token_finder::TokenFinder;
 
 pub fn parse_items(text: &str, config: &Configuration) -> Result<PrintItems, String> {
-    let parse_result = parse_jsonc_ast(text);
+    let parse_result = parse_to_ast(text, &ParseOptions { comments: true, tokens: true });
     let parse_result = match parse_result {
         Ok(result) => result,
         Err(err) => return Err(dprint_core::utils::string_utils::format_diagnostic(
@@ -18,6 +18,8 @@ pub fn parse_items(text: &str, config: &Configuration) -> Result<PrintItems, Str
             text
         )),
     };
+    let comments = parse_result.comments.unwrap();
+    let tokens = parse_result.tokens.unwrap();
     let node_value = parse_result.value;
     let mut context = Context {
         config,
@@ -25,8 +27,8 @@ pub fn parse_items(text: &str, config: &Configuration) -> Result<PrintItems, Str
         handled_comments: HashSet::new(),
         parent_stack: Vec::new(),
         current_node: None,
-        comments: &parse_result.comments,
-        token_finder: TokenFinder::new(&parse_result.tokens),
+        comments: &comments,
+        token_finder: TokenFinder::new(&tokens),
     };
 
     let mut items = PrintItems::new();
@@ -34,7 +36,7 @@ pub fn parse_items(text: &str, config: &Configuration) -> Result<PrintItems, Str
         items.extend(parse_node(node_value.into(), &mut context));
         items.extend(parse_trailing_comments_as_statements(node_value, &mut context));
     } else {
-        if let Some(comments) = parse_result.comments.get(&0) {
+        if let Some(comments) = comments.get(&0) {
             items.extend(parse_comments_as_statements(comments.iter(), None, &mut context));
         }
     }

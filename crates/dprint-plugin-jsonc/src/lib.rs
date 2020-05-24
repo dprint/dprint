@@ -1,7 +1,11 @@
 pub mod configuration;
 mod format_text;
 mod parser;
-mod plugin;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod wasm_plugin;
 
 pub use format_text::format_text;
-pub use plugin::JsoncPlugin;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub use wasm_plugin::*;

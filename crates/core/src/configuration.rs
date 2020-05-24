@@ -33,7 +33,7 @@ macro_rules! generate_str_to_from {
     };
 }
 
-#[derive(Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Copy, Serialize, Deserialize)]
 pub enum NewLineKind {
     /// Decide which newline kind to use based on the last newline in the file.
     #[serde(rename = "auto")]
@@ -58,7 +58,7 @@ generate_str_to_from![
 ];
 
 /// Represents a problem within the configuration.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigurationDiagnostic {
     /// The property name the problem occurred on.
@@ -67,7 +67,7 @@ pub struct ConfigurationDiagnostic {
     pub message: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalConfiguration {
     pub line_width: Option<u32>,
@@ -113,12 +113,7 @@ pub fn resolve_global_config(config: HashMap<String, String>) -> ResolveConfigur
         new_line_kind: get_nullable_value(&mut config, "newLineKind", &mut diagnostics),
     };
 
-    for (key, _) in config.iter() {
-        diagnostics.push(ConfigurationDiagnostic {
-            property_name: String::from(key),
-            message: format!("Unknown property in configuration: {}", key),
-        });
-    }
+    diagnostics.extend(get_unknown_property_diagnostics(config));
 
     ResolveConfigurationResult {
         config: resolved_config,
@@ -197,4 +192,18 @@ pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'s
             }
         }
     }
+}
+
+/// Gets a diagnostic for each remaining key value pair in the hash map.
+///
+/// This should be done last, so it swallows the hashmap.
+pub fn get_unknown_property_diagnostics(config: HashMap<String, String>) -> Vec<ConfigurationDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for (key, _) in config.iter() {
+        diagnostics.push(ConfigurationDiagnostic {
+            property_name: String::from(key),
+            message: format!("Unknown property in configuration: {}", key),
+        });
+    }
+    diagnostics
 }

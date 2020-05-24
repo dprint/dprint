@@ -1,56 +1,56 @@
 use std::collections::HashMap;
-use jsonc_parser::ast as json_ast;
+use jsonc_parser::{JsonValue, JsonArray, JsonObject};
 use super::{ConfigMapValue, ConfigMap};
 
 pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, String> {
-    let config_json_ast = match jsonc_parser::parse_text(&config_file_text) {
+    let value = match jsonc_parser::parse_to_value(&config_file_text) {
         Ok(c) => c,
         Err(e) => return Err(e.get_message_with_range(&config_file_text)),
     };
 
-    let root_object_node = match config_json_ast.value {
-        Some(json_ast::Value::Object(obj)) => obj,
+    let root_object_node = match value {
+        Some(JsonValue::Object(obj)) => obj,
         _ => return Err(String::from("Expected a root object in the json")),
     };
 
     let mut properties = HashMap::new();
 
-    for property in root_object_node.properties {
-        let property_name = property.name.value.as_ref();
-        let property_value = match &property.value {
-            json_ast::Value::Object(node) => ConfigMapValue::HashMap(json_obj_to_hash_map(property_name, node)?),
-            json_ast::Value::Array(node) => ConfigMapValue::Vec(json_array_to_vec(property_name, node)?),
-            json_ast::Value::BooleanLit(node) => ConfigMapValue::String(node.value.to_string()),
-            json_ast::Value::StringLit(node) => ConfigMapValue::String(String::from(node.value.as_ref())),
-            json_ast::Value::NumberLit(node) => ConfigMapValue::String(String::from(node.value.as_ref())),
+    for (key, value) in root_object_node.into_iter() {
+        let property_name = key;
+        let property_value = match value {
+            JsonValue::Object(obj) => ConfigMapValue::HashMap(json_obj_to_hash_map(&property_name, obj)?),
+            JsonValue::Array(arr) => ConfigMapValue::Vec(json_array_to_vec(&property_name, arr)?),
+            JsonValue::Boolean(value) => ConfigMapValue::String(value.to_string()),
+            JsonValue::String(value) => ConfigMapValue::String(value),
+            JsonValue::Number(value) => ConfigMapValue::String(value),
             _ => return Err(format!("Expected an object, boolean, string, or number in root object property '{}'", property_name)),
         };
-        properties.insert(String::from(property_name), property_value);
+        properties.insert(property_name, property_value);
     }
 
     Ok(properties)
 }
 
-fn json_obj_to_hash_map(parent_prop_name: &str, obj: &json_ast::Object) -> Result<HashMap<String, String>, String> {
+fn json_obj_to_hash_map(parent_prop_name: &str, obj: JsonObject) -> Result<HashMap<String, String>, String> {
     let mut properties = HashMap::new();
 
-    for property in obj.properties.iter() {
-        let property_name = property.name.value.as_ref();
-        let property_value = match value_to_string(&property.value) {
+    for (key, value) in obj.into_iter() {
+        let property_name = key;
+        let property_value = match value_to_string(value) {
             Ok(result) => result,
             Err(err) => return Err(format!("{} in object property '{} -> {}'", err, parent_prop_name, property_name)),
         };
-        properties.insert(String::from(property_name), property_value);
+        properties.insert(property_name, property_value);
     }
 
     Ok(properties)
 }
 
-fn json_array_to_vec(parent_prop_name: &str, array: &json_ast::Array) -> Result<Vec<String>, String> {
+fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<String>, String> {
     let mut elements = Vec::new();
 
-    for element in array.elements.iter() {
-        let value = match value_to_string(&element) {
+    for element in array.into_iter() {
+        let value = match value_to_string(element) {
             Ok(result) => result,
             Err(err) => return Err(format!("{} in array '{}'", err, parent_prop_name)),
         };
@@ -60,11 +60,10 @@ fn json_array_to_vec(parent_prop_name: &str, array: &json_ast::Array) -> Result<
     Ok(elements)
 }
 
-fn value_to_string(value: &json_ast::Value) -> Result<String, String> {
+fn value_to_string(value: JsonValue) -> Result<String, String> {
     match value {
-        json_ast::Value::BooleanLit(node) => Ok(node.value.to_string()),
-        json_ast::Value::StringLit(node) => Ok(String::from(node.value.as_ref())),
-        json_ast::Value::NumberLit(node) => Ok(String::from(node.value.as_ref())),
+        JsonValue::Boolean(value) => Ok(value.to_string()),
+        JsonValue::String(value) | JsonValue::Number(value) => Ok(value),
         _ => return Err(String::from("Expected a boolean, string, or number")),
     }
 }

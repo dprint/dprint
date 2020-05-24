@@ -36,12 +36,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         comment_line_force_space_after_slashes: get_value(&mut config, "commentLine.forceSpaceAfterSlashes", true, &mut diagnostics),
     };
 
-    for (key, _) in config.iter() {
-        diagnostics.push(ConfigurationDiagnostic {
-            property_name: String::from(key),
-            message: format!("Unknown property in configuration: {}", key),
-        });
-    }
+    diagnostics.extend(get_unknown_property_diagnostics(config));
 
     ResolveConfigurationResult {
         config: resolved_config,

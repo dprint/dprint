@@ -1,7 +1,7 @@
 [package]
 name = "dprint"
-version = "0.3.2"
-authors = ["Bartek Iwańczuk <biwanczuk@gmail.com>", "David Sherret<dsherret@gmail.com>"]
+version = "0.4.0-beta"
+authors = ["David Sherret <dsherret@gmail.com>", "Bartek Iwańczuk <biwanczuk@gmail.com>"]
 edition = "2018"
 license = "MIT"
 description = "Binary for dprint."
@@ -9,12 +9,23 @@ repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 clap = "2.33.0"
-dprint-core = { path = "../core", version = "0.19.1" }
-dprint-plugin-typescript = { path = "../dprint-plugin-typescript", version = "0.17.2" }
-dprint-plugin-jsonc = { path = "../dprint-plugin-jsonc", version = "0.2.3" }
+dprint-core = { path = "../core", version = "0.20.0-alpha3" }
+dialoguer = "0.6.2"
 globwalk = "0.8.0"
-jsonc-parser = { version = "0.5.0" }
-rayon = "1.1"
+jsonc-parser = { version = "0.9.0" }
+indicatif = "0.14.0"
+reqwest = { version = "0.10.4" }
+bytes = "0.5.4"
+futures = { version = "0.3.4", features = ["compat", "io-compat"] }
+tokio = { version = "0.2", features = ["full", "blocking"] }
+async-trait = "0.1.30"
+app_dirs = "1.2.1"
+serde = { version = "1.0.88", features = ["derive"] }
+serde_json = "1.0"
+wasmer-runtime = "0.17.0"
+wasmer-runtime-core="0.17.0"
 
 [dev-dependencies]
 globset = "0.4.5"
+lazy_static = "1.4.0"
+pretty_assertions = "0.6.1"

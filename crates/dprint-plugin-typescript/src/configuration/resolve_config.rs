@@ -188,12 +188,7 @@ pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalCon
         while_statement_space_after_while_keyword: get_value(&mut config, "whileStatement.spaceAfterWhileKeyword", true, &mut diagnostics),
     };
 
-    for (key, _) in config.iter() {
-        diagnostics.push(ConfigurationDiagnostic {
-            property_name: String::from(key),
-            message: format!("Unknown property in configuration: {}", key),
-        });
-    }
+    diagnostics.extend(get_unknown_property_diagnostics(config));
 
     return ResolveConfigurationResult {
         config: resolved_config,

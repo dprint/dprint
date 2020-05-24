@@ -8,8 +8,7 @@
     "clean": "lerna clean",
     "test": "lerna run test",
     "format": "node packages/dprint/dist/cli-bin.js",
-    "build-website": "rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 2 \"scripts/website-assets/**/*.*\" \"build-website\" && node scripts/build-homepage.js",
-    "to-local-source": "node scripts/to-local-source.js"
+    "build-website": "rimraf build-website && mkdir build-website && mkdir \"build-website/playground\" && copyfiles -u 3 \"packages/playground/build/**/*.*\" \"build-website/playground\" && copyfiles -u 2 \"scripts/website-assets/**/*.*\" \"build-website\" && node scripts/build-homepage.js"
   },
   "repository": {
     "type": "git",
@@ -19,6 +18,7 @@
     "code",
     "formatter",
     "typescript",
+    "javascript",
     "jsonc"
   ],
   "author": "David Sherret",

@@ -3,12 +3,15 @@ extern crate dprint_core;
 pub mod configuration;
 mod parsing;
 mod formatter;
-mod plugin;
 mod swc;
 mod utils;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod wasm_plugin;
 
 pub use formatter::Formatter;
-pub use plugin::TypeScriptPlugin;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub use wasm_plugin::*;
 
 // Re-export swc for use in Deno
 #[doc(hidden)]

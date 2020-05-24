@@ -9,8 +9,11 @@ license = "MIT"
 homepage = "https://github.com/dprint/dprint/tree/master/crates/dprint-plugin-typescript"
 repository = "https://github.com/dprint/dprint"
 
+[lib]
+crate-type = ["lib", "cdylib"]
+
 [dependencies]
-dprint-core = { path = "../core", version = "0.19.1" }
+dprint-core = { path = "../core", version = "0.20.0-alpha3" }
 swc_common = "=0.5.12"
 swc_ecma_ast = "=0.20.0"
 swc_ecma_parser = "=0.23.0"

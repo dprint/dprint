@@ -18,9 +18,12 @@ const indexMd = fs.readFileSync("docs/home.md", { encoding: "utf8" });
 fs.writeFileSync("build-website/index.html", processMarkdown(indexMd));
 
 // sponsor/index.html
-const sponsorMd = fs.readFileSync("docs/sponsor.md", { encoding: "utf8" });
-fs.mkdirSync("build-website/sponsor");
-fs.writeFileSync("build-website/sponsor/index.html", processMarkdown(sponsorMd));
+buildForPath("sponsor");
+// plugins/typescript/index.html
+fs.mkdirSync("build-website/plugins");
+buildForPath("plugins/typescript");
+// plugins/json/index.html
+buildForPath("plugins/json");
 
 // minify index.css
 const styleCssPageFilePath = "build-website/style.css";
@@ -29,6 +32,13 @@ fs.writeFileSync(styleCssPageFilePath, new CleanCss().minify(indexCssPageText).s
 
 // cleanup
 fs.unlinkSync(templateHtmlPageFilePath);
+
+/** @param {string} [filePath] - Relative path to the file without extension. */
+function buildForPath(filePath) {
+    const sponsorMd = fs.readFileSync("docs/" + filePath + ".md", { encoding: "utf8" });
+    fs.mkdirSync("build-website/" + filePath);
+    fs.writeFileSync("build-website/" + filePath + "/index.html", processMarkdown(sponsorMd));
+}
 
 /** @param {string} [mdText] - Markdown to format. */
 function processMarkdown(mdText) {
