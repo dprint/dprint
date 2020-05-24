@@ -31,8 +31,9 @@ pub async fn run_cli(args: CliArgs, environment: &impl Environment, plugin_resol
     }
 
     if args.init {
-        init_config_file(environment).await?;
-        environment.log("Created dprint.config.json");
+        let config_file_path = get_config_file_path_from_args(&args);
+        init_config_file(environment, &config_file_path).await?;
+        environment.log(&format!("Created {}", config_file_path.to_string_lossy()));
         return Ok(());
     }
 
@@ -176,12 +177,11 @@ fn output_resolved_config(
     Ok(())
 }
 
-async fn init_config_file(environment: &impl Environment) -> Result<(), ErrBox> {
-    let config_file_path = PathBuf::from("./dprint.config.json");
-    if !environment.path_exists(&config_file_path) {
-        environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment).await?)
+async fn init_config_file(environment: &impl Environment, config_file_path: &PathBuf) -> Result<(), ErrBox> {
+    if !environment.path_exists(config_file_path) {
+        environment.write_file(config_file_path, &configuration::get_init_config_file_text(environment).await?)
     } else {
-        err!("Configuration file 'dprint.config.json' already exists in current working directory.")
+        err!("Configuration file '{}' already exists.", config_file_path.to_string_lossy())
     }
 }
 
@@ -377,12 +377,12 @@ fn resolve_file_paths(config_map: &mut ConfigMap, args: &CliArgs, environment: &
 }
 
 fn get_config_map_from_args(args: &CliArgs, environment: &impl Environment) -> Result<ConfigMap, ErrBox> {
-    let config_path = PathBuf::from(args.config.as_ref().map(|x| x.to_owned()).unwrap_or(String::from("./dprint.config.json")));
-    let config_file_text = match environment.read_file(&config_path) {
+    let config_file_path = get_config_file_path_from_args(args);
+    let config_file_text = match environment.read_file(&config_file_path) {
         Ok(file_text) => file_text,
         Err(err) => {
             // allow no config file when plugins are specified
-            if !args.plugin_urls.is_empty() && !environment.path_exists(&config_path) {
+            if !args.plugin_urls.is_empty() && !environment.path_exists(&config_file_path) {
                 let mut config_map = HashMap::new();
                 // hack: easy way to supress project type diagnostic check
                 config_map.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
@@ -391,7 +391,7 @@ fn get_config_map_from_args(args: &CliArgs, environment: &impl Environment) -> R
 
             return err!(
                 "No config file found at {}. Did you mean to create (dprint --init) or specify one (dprint --config <path>)?\n  Error: {}",
-                config_path.to_string_lossy(),
+                config_file_path.to_string_lossy(),
                 err.to_string(),
             )
         },
@@ -403,6 +403,10 @@ fn get_config_map_from_args(args: &CliArgs, environment: &impl Environment) -> R
     };
 
     Ok(result)
+}
+
+fn get_config_file_path_from_args(args: &CliArgs) -> PathBuf {
+    PathBuf::from(args.config.as_ref().map(|x| x.to_owned()).unwrap_or(String::from("./dprint.config.json")))
 }
 
 // todo: move somewhere else (maybe make a wrapper around ConfigMap)
@@ -912,9 +916,32 @@ mod tests {
         run_test_cli(vec!["--init"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
             "What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n",
-            "Created dprint.config.json"
+            "Created ./dprint.config.json"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./dprint.config.json")).unwrap(), expected_text);
+    }
+
+    #[tokio::test]
+    async fn it_should_initialize_with_specified_config_path() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file(crate::plugins::REMOTE_INFO_URL, r#"{
+            "schemaVersion": 1,
+            "pluginSystemSchemaVersion": 1,
+            "latest": [{
+                "name": "dprint-plugin-typescript",
+                "version": "0.17.2",
+                "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
+                "configKey": "typescript"
+            }]
+        }"#.as_bytes());
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        run_test_cli(vec!["--init", "--config", "./test.config.json"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![
+            "What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n",
+            "Created ./test.config.json"
+        ]);
+        assert_eq!(environment.read_file(&PathBuf::from("./test.config.json")).unwrap(), expected_text);
     }
 
     #[tokio::test]
@@ -922,7 +949,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("./dprint.config.json"), "{}").unwrap();
         let error_message = run_test_cli(vec!["--init"], &environment).await.err().unwrap();
-        assert_eq!(error_message.to_string(), "Configuration file 'dprint.config.json' already exists in current working directory.");
+        assert_eq!(error_message.to_string(), "Configuration file './dprint.config.json' already exists.");
     }
 
     #[tokio::test]
