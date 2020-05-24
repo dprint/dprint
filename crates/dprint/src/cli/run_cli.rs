@@ -1011,8 +1011,8 @@ EXAMPLES:
       dprint --config formatting.config.json "**/*.{ts,tsx,js,jsx,json}""#)
     }
 
-    // If this file doesn't exist, run `./build.ps1` in test/plugin. (Please consider helping me do something better here :))
-    static PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test/test_plugin.wasm");
+    // If this file doesn't exist, run `./build.sh` in /crates/test-plugin. (Please consider helping me do something better here :))
+    static PLUGIN_BYTES: &'static [u8] = include_bytes!("../../../test-plugin/target/wasm32-unknown-unknown/release/test_plugin.wasm");
     lazy_static! {
         // cache the compilation so this only has to be done once across all tests
         static ref COMPILATION_RESULT: CompilationResult = {
