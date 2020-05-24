@@ -27,7 +27,7 @@
     "**/wasm"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.18.5.wasm",
-    "https://plugins.dprint.dev/json-0.2.3.wasm"
+    "https://plugins.dprint.dev/typescript-0.19.0.wasm",
+    "https://plugins.dprint.dev/json-0.3.0.wasm"
   ]
 }
