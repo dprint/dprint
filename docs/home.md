@@ -76,7 +76,7 @@ npm run format
 ## Plugins
 
 * [TypeScript/JavaScript](https://dprint.dev/plugins/typescript)
-* [JSON/JSONC](https://dprint.dev/plugins/jsonc)
+* [JSON/JSONC](https://dprint.dev/plugins/json)
 
 ## Global Configuration
 
