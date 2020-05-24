@@ -1,4 +1,5 @@
 use dprint_core::configuration::ConfigurationDiagnostic;
+use crate::utils::get_table_text;
 use super::{ConfigMapValue, ConfigMap};
 
 /// Checks if the configuration has a missing "projectType" property.
@@ -11,7 +12,7 @@ pub fn handle_project_type_diagnostic(config: &mut ConfigMap) -> Option<Configur
     let project_type_infos = get_project_type_infos();
     let property_name = "projectType";
     let has_project_type_config = match config.get(property_name) {
-        Some(ConfigMapValue::String(project_type)) => project_type_infos.iter().any(|(k, _)| k.to_lowercase() == project_type.to_lowercase()),
+        Some(ConfigMapValue::String(project_type)) => project_type_infos.iter().any(|info| info.name.to_lowercase() == project_type.to_lowercase()),
         _ => false,
     };
 
@@ -27,35 +28,40 @@ pub fn handle_project_type_diagnostic(config: &mut ConfigMap) -> Option<Configur
     }
 }
 
-fn build_message(project_type_infos: &Vec<(&'static str, &'static str)>, property_name: &str) -> String {
-    let largest_name_len = {
-        let mut key_lens = project_type_infos.iter().map(|(k, _)| k.len()).collect::<Vec<_>>();
-        key_lens.sort();
-        key_lens.pop().unwrap_or(0)
-    };
+fn build_message(project_type_infos: &Vec<ProjectTypeInfo>, property_name: &str) -> String {
     let mut message = String::new();
-    message.push_str(&format!("The '{}' property is missing in the configuration file. ", property_name));
-    message.push_str("You may specify any of the following possible values according to your conscience and that will suppress this warning.\n");
-    for project_type_info in project_type_infos {
-        message.push_str(&format!("\n * {}", project_type_info.0));
-        message.push_str(&" ".repeat(largest_name_len - project_type_info.0.len() + 1));
-        message.push_str(project_type_info.1);
+    message.push_str(&format!("The '{}' property is missing in the configuration file.\n\n", property_name));
+    message.push_str("You may specify any of the following values and that will suppress this error.\n");
+    let option_texts = get_table_text(project_type_infos.iter().map(|info| (info.name, info.description)).collect(), 3);
+    for option_text in option_texts {
+        message.push_str(&format!("\n * {}", option_text))
     }
-    message.push_str("\n\nDonate at: https://dprint.dev/sponsor");
+    message.push_str("\n\nSponsor at: https://dprint.dev/sponsor");
     message
 }
 
-fn get_project_type_infos() -> Vec<(&'static str, &'static str)> {
-    vec![(
-        "openSource",
-        "Dprint is formatting an open source project."
-    ), (
-        "commercialSponsored",
-        "Dprint is formatting a commercial project and your company sponsored dprint."
-    ), (
-        "commercialDidNotSponsor",
-        "Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this."
-    )]
+pub struct ProjectTypeInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
+pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
+    vec![ProjectTypeInfo {
+        name: "openSource",
+        description: "Dprint is formatting an open source project.",
+    }, ProjectTypeInfo {
+        name: "commercialSponsored",
+        description: concat!(
+            "Dprint is formatting a commercial project and your company sponsored dprint.\n",
+            "Thank you for being part of moving this project forward!"
+        ),
+    }, ProjectTypeInfo {
+        name: "commercialDidNotSponsor",
+        description: concat!(
+            "Dprint is formatting a commercial project and you are just trying it out or don't want to sponsor.\n",
+            "If you are in the financial position to do so, please take the time to sponsor.\n"
+        ),
+    }]
 }
 
 #[cfg(test)]
@@ -90,13 +96,17 @@ mod tests {
         assert_eq!(result.is_some(), true);
         let result = result.unwrap();
         assert_eq!(result.property_name, "projectType");
-        assert_eq!(result.message, r#"The 'projectType' property is missing in the configuration file. You may specify any of the following possible values according to your conscience and that will suppress this warning.
+        assert_eq!(result.message, r#"The 'projectType' property is missing in the configuration file.
+
+You may specify any of the following values and that will suppress this error.
 
  * openSource              Dprint is formatting an open source project.
  * commercialSponsored     Dprint is formatting a commercial project and your company sponsored dprint.
- * commercialDidNotSponsor Dprint is formatting a commercial project and you want to forever enshrine your name in source control for having specified this.
+                           Thank you for being part of moving this project forward!
+ * commercialDidNotSponsor Dprint is formatting a commercial project and you are just trying it out or don't want to sponsor.
+                           If you are in the financial position to do so, please take the time to sponsor.
 
-Donate at: https://dprint.dev/sponsor"#);
+Sponsor at: https://dprint.dev/sponsor"#);
     }
 
     #[test]

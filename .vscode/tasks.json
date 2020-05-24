@@ -1,11 +1,11 @@
 {
-    "tasks": [{
-        "type": "shell",
-        "label": "cargo test build",
-        "command": "cargo",
-        "args": ["test", "--no-run", "--manifest-path=crates/core/Cargo.toml"],
-        "problemMatcher": [
-            "$rustc"
-        ],
-    }]
+  "tasks": [{
+    "type": "shell",
+    "label": "cargo test build",
+    "command": "cargo",
+    "args": ["test", "--no-run", "--manifest-path=crates/core/Cargo.toml"],
+    "problemMatcher": [
+      "$rustc"
+    ]
+  }]
 }
