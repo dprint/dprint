@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use dprint_core::configuration::GlobalConfiguration;
-use super::{CliArgs, FormatContext, FormatContexts};
+use super::{CliArgs, SubCommand, FormatContext, FormatContexts};
 use crate::environment::Environment;
 use crate::configuration::{self, ConfigMap, ConfigMapValue, get_global_config, get_plugin_config_map};
 use crate::plugins::{initialize_plugin, Plugin, InitializedPlugin, PluginResolver};
@@ -19,18 +19,18 @@ pub async fn run_cli(args: CliArgs, environment: &impl Environment, plugin_resol
     if args.help_text.is_some() {
         return output_help(&args, environment, plugin_resolver).await;
     }
-    if args.version {
+    if args.sub_command == SubCommand::Version {
         return output_version(&args, environment, plugin_resolver).await;
     }
 
-    if args.clear_cache {
+    if args.sub_command == SubCommand::ClearCache {
         let cache_dir = environment.get_cache_dir()?; // this actually creates the directory, but whatever
         environment.remove_dir_all(&cache_dir)?;
         environment.log(&format!("Deleted {}", cache_dir.to_string_lossy()));
         return Ok(());
     }
 
-    if args.init {
+    if args.sub_command == SubCommand::Init {
         let config_file_path = get_config_file_path_from_args(&args);
         init_config_file(environment, &config_file_path).await?;
         environment.log(&format!("Created {}", config_file_path.to_string_lossy()));
@@ -48,28 +48,30 @@ pub async fn run_cli(args: CliArgs, environment: &impl Environment, plugin_resol
     let project_type_result = check_project_type_diagnostic(&mut config_map);
     let global_config = get_global_config(config_map, environment)?;
 
-    if args.output_resolved_config {
+    if args.sub_command == SubCommand::OutputResolvedConfig {
         return output_resolved_config(plugins, &global_config, environment);
     }
 
     let format_contexts = get_plugin_format_contexts(plugins, file_paths);
 
-    if args.output_file_paths {
+    if args.sub_command == SubCommand::OutputFilePaths {
         output_file_paths(format_contexts.iter().flat_map(|x| x.file_paths.iter()), environment);
         return Ok(());
     }
 
     if format_contexts.is_empty() {
-        return err!("No files found to format with the specified plugins. You may want to try using `--output-file-paths` to see which files it's finding.");
+        return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
     }
 
     // surface the project type error at this point
     project_type_result?;
 
-    if args.check {
+    if args.sub_command == SubCommand::Check {
         check_files(format_contexts, global_config, environment).await
-    } else {
+    } else if args.sub_command == SubCommand::Fmt {
         format_files(format_contexts, global_config, environment).await
+    } else {
+        unreachable!()
     }
 }
 
@@ -390,7 +392,7 @@ fn get_config_map_from_args(args: &CliArgs, environment: &impl Environment) -> R
             }
 
             return err!(
-                "No config file found at {}. Did you mean to create (dprint --init) or specify one (dprint --config <path>)?\n  Error: {}",
+                "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
                 config_file_path.to_string_lossy(),
                 err.to_string(),
             )
@@ -486,6 +488,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_should_output_help_no_sub_commands() {
+        let environment = TestEnvironment::new();
+        run_test_cli(vec![], &environment).await.unwrap();
+        let logged_messages = environment.get_logged_messages();
+        assert_eq!(logged_messages, vec![get_expected_help_text()]);
+    }
+
+    #[tokio::test]
     async fn it_should_output_help_text_with_plugins() {
         let environment = get_test_environment_with_remote_plugin();
         environment.write_file(&PathBuf::from("./dprint.config.json"), r#"{
@@ -510,7 +520,7 @@ mod tests {
     #[tokio::test]
     async fn it_should_output_resolve_config() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
-        run_test_cli(vec!["--output-resolved-config"], &environment).await.unwrap();
+        run_test_cli(vec!["output-resolved-config"], &environment).await.unwrap();
         let logged_messages = environment.get_logged_messages();
         assert_eq!(logged_messages, vec!["test-plugin: {\n  \"ending\": \"formatted\"\n}"]);
     }
@@ -520,7 +530,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
         environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
-        run_test_cli(vec!["--output-file-paths", "**/*.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["output-file-paths", "**/*.txt"], &environment).await.unwrap();
         let mut logged_messages = environment.get_logged_messages();
         logged_messages.sort();
         assert_eq!(logged_messages, vec!["/file.txt", "/file2.txt"]);
@@ -531,7 +541,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file.ts"), "const t=4;").unwrap();
         environment.write_file(&PathBuf::from("/file2.ts"), "const t=4;").unwrap();
-        run_test_cli(vec!["--output-file-paths", "**/*.ts"], &environment).await.unwrap();
+        run_test_cli(vec!["output-file-paths", "**/*.ts"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
     }
 
@@ -540,7 +550,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text").unwrap();
-        run_test_cli(vec!["/file.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
@@ -551,7 +561,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text").unwrap();
-        run_test_cli(vec!["./file.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "./file.txt"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
@@ -564,7 +574,7 @@ mod tests {
         environment.write_file(&file_path, "text").unwrap();
         let file_path2 = PathBuf::from("/file2.txt");
         environment.write_file(&file_path2, "text").unwrap();
-        run_test_cli(vec!["./**/*.txt", "--excludes", "./file2.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "./**/*.txt", "--excludes", "./file2.txt"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
@@ -577,7 +587,7 @@ mod tests {
         environment.write_file(&PathBuf::from("/node_modules/file.txt"), "").unwrap();
         environment.write_file(&PathBuf::from("/test/node_modules/file.txt"), "").unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
-        run_test_cli(vec!["**/*.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "**/*.txt"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
@@ -587,7 +597,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/node_modules/file.txt"), "const t=4;").unwrap();
         environment.write_file(&PathBuf::from("/test/node_modules/file.txt"), "const t=4;").unwrap();
-        run_test_cli(vec!["--allow-node-modules", "**/*.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "--allow-node-modules", "**/*.txt"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 2 files."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
@@ -607,7 +617,7 @@ mod tests {
         environment.write_file(&file_path1, "text").unwrap();
         environment.write_file(&file_path2, "text2").unwrap();
 
-        run_test_cli(vec!["--config", "/config.json", "/file1.txt", "/file2.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "--config", "/config.json", "/file1.txt", "/file2.txt"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 2 files."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -626,7 +636,7 @@ mod tests {
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
 
-        run_test_cli(vec!["-c", "/config.json", "/file1.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "-c", "/config.json", "/file1.txt"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -638,12 +648,12 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
 
-        let error_message = run_test_cli(vec!["**/*.txt"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).await.err().unwrap();
 
         assert_eq!(
             error_message.to_string(),
             concat!(
-                "No config file found at ./dprint.config.json. Did you mean to create (dprint --init) or specify one (dprint --config <path>)?\n",
+                "No config file found at ./dprint.config.json. Did you mean to create (dprint init) or specify one (--config <path>)?\n",
                 "  Error: Could not find file at path ./dprint.config.json"
             )
         );
@@ -661,7 +671,7 @@ mod tests {
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
 
-        let error_message = run_test_cli(vec!["**/*.txt"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).await.err().unwrap();
 
         assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
         assert_eq!(environment.get_logged_messages().len(), 0);
@@ -680,7 +690,7 @@ mod tests {
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
 
-        let error_message = run_test_cli(vec!["**/*.txt"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).await.err().unwrap();
 
         assert_eq!(error_message.to_string(), "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
         assert_eq!(environment.get_logged_messages().len(), 0);
@@ -696,7 +706,7 @@ mod tests {
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
 
-        run_test_cli(vec!["**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -708,7 +718,7 @@ mod tests {
         environment.remove_file(&PathBuf::from("./dprint.config.json")).unwrap();
         environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
 
-        run_test_cli(vec!["**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -717,13 +727,13 @@ mod tests {
     #[tokio::test]
     async fn it_should_error_when_no_files_match_glob() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
-        let error_message = run_test_cli(vec!["**/*.txt"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).await.err().unwrap();
 
         assert_eq!(
             error_message.to_string(),
             concat!(
                 "No files found to format with the specified plugins. ",
-                "You may want to try using `--output-file-paths` to see which files it's finding."
+                "You may want to try using `dprint output-file-paths` to see which files it's finding."
             )
         );
         assert_eq!(environment.get_logged_messages().len(), 0);
@@ -743,7 +753,7 @@ mod tests {
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
 
-        run_test_cli(vec![], &environment).await.unwrap();
+        run_test_cli(vec!["fmt"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 2 files."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -764,7 +774,7 @@ mod tests {
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
 
-        run_test_cli(vec!["/file1.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "/file1.txt"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -786,7 +796,7 @@ mod tests {
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
 
-        run_test_cli(vec!["--excludes", "/file2.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "--excludes", "/file2.txt"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -809,7 +819,7 @@ mod tests {
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
 
-        run_test_cli(vec!["/file1.txt", "--excludes", "/file2.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "/file1.txt", "--excludes", "/file2.txt"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -831,7 +841,7 @@ mod tests {
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
 
-        run_test_cli(vec![], &environment).await.unwrap();
+        run_test_cli(vec!["fmt"], &environment).await.unwrap();
 
         assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -846,7 +856,7 @@ mod tests {
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/file1.txt"), "text1_formatted").unwrap();
-        let error_message = run_test_cli(vec!["/file1.txt"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["fmt", "/file1.txt"], &environment).await.err().unwrap();
         assert_eq!(error_message.to_string().find("The 'projectType' property").is_some(), true);
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -856,7 +866,7 @@ mod tests {
     async fn it_should_not_output_when_no_files_need_formatting() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "text_formatted").unwrap();
-        run_test_cli(vec!["/file.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
@@ -866,7 +876,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text_formatted").unwrap();
-        run_test_cli(vec!["--check", "/file.txt"], &environment).await.unwrap();
+        run_test_cli(vec!["check", "/file.txt"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
@@ -875,7 +885,7 @@ mod tests {
     async fn it_should_output_when_a_file_need_formatting_for_check() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
-        let error_message = run_test_cli(vec!["--check", "/file.txt"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["check", "/file.txt"], &environment).await.err().unwrap();
         assert_eq!(error_message.to_string(), "Found 1 not formatted file.");
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -887,7 +897,7 @@ mod tests {
         environment.write_file(&PathBuf::from("/file1.txt"), "const t=4;").unwrap();
         environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
 
-        let error_message = run_test_cli(vec!["--check", "/file1.txt", "/file2.txt"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["check", "/file1.txt", "/file2.txt"], &environment).await.err().unwrap();
         assert_eq!(error_message.to_string(), "Found 2 not formatted files.");
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -913,7 +923,7 @@ mod tests {
         }"#.as_bytes());
         let expected_text = get_init_config_file_text(&environment).await.unwrap();
         environment.clear_logs();
-        run_test_cli(vec!["--init"], &environment).await.unwrap();
+        run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
             "What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n",
             "Created ./dprint.config.json"
@@ -936,7 +946,7 @@ mod tests {
         }"#.as_bytes());
         let expected_text = get_init_config_file_text(&environment).await.unwrap();
         environment.clear_logs();
-        run_test_cli(vec!["--init", "--config", "./test.config.json"], &environment).await.unwrap();
+        run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
             "What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n",
             "Created ./test.config.json"
@@ -948,14 +958,14 @@ mod tests {
     async fn it_should_error_when_config_file_exists_on_initialize() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("./dprint.config.json"), "{}").unwrap();
-        let error_message = run_test_cli(vec!["--init"], &environment).await.err().unwrap();
+        let error_message = run_test_cli(vec!["init"], &environment).await.err().unwrap();
         assert_eq!(error_message.to_string(), "Configuration file './dprint.config.json' already exists.");
     }
 
     #[tokio::test]
     async fn it_should_clear_cache_directory() {
         let environment = TestEnvironment::new();
-        run_test_cli(vec!["--clear-cache"], &environment).await.unwrap();
+        run_test_cli(vec!["clear-cache"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec!["Deleted /cache"]);
         assert_eq!(environment.is_dir_deleted(&PathBuf::from("/cache")), true);
     }
@@ -967,48 +977,50 @@ Copyright 2020 by David Sherret
 Auto-formats source code based on the specified plugins.
 
 USAGE:
-    dprint [OPTIONS] [--] [file patterns]...
+    dprint <SUBCOMMAND> [OPTIONS] [--] [files]...
+
+SUBCOMMANDS:
+    init                      Initializes a configuration file in the current directory.
+    fmt                       Formats the source files and writes the result to the file system.
+    check                     Checks for any files that haven't been formatted.
+    output-file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
+    output-resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
+    clear-cache               Deletes the plugin cache directory.
 
 OPTIONS:
+    -c, --config <config>           Path to JSON configuration file. Defaults to ./dprint.config.json when not provided.
+        --excludes <patterns>...    List of files or directories or globs in quotes to exclude when formatting. This
+                                    overrides what is specified in the config file.
         --allow-node-modules        Allows traversing node module directories (unstable - This flag will be renamed to
                                     be non-node specific in the future).
-        --check                     Checks for any files that haven't been formatted.
-        --clear-cache               Deletes the plugin cache directory.
-    -c, --config <config>           Path to JSON configuration file. Defaults to ./dprint.config.json when not provided.
-        --excludes <patterns>...    List of patterns to exclude files or directories when formatting (globs in quotes
-                                    separated by spaces). This overrides what is specified in the config file.
-        --init                      Initializes a configuration file in the current directory.
-        --output-file-paths         Prints the resolved file paths.
-        --output-resolved-config    Prints the resolved configuration.
         --plugins <urls>...         List of urls of plugins to use (urls separated by spaces). This overrides what is
                                     specified in the config file.
         --verbose                   Prints additional diagnostic information.
     -v, --version                   Prints the version.
 
 ARGS:
-    <file patterns>...    List of patterns used to find files to format (globs in quotes separated by spaces). This
-                          overrides what is specified in the config file.
+    <files>...    List of files or globs in quotes to format. This overrides what is specified in the config file.
 
 EXAMPLES:
     Create a dprint.config.json file:
 
-      dprint --init
+      dprint init
 
     Write formatted files to file system using the config file at ./dprint.config.json:
 
-      dprint
+      dprint fmt
 
     Check for any files that haven't been formatted:
 
-      dprint --check
+      dprint check
 
     Specify path to config file other than the default:
 
-      dprint --config configs/dprint.config.json
+      dprint fmt --config configs/dprint.config.json
 
     Write using the specified config and file paths:
 
-      dprint --config formatting.config.json "**/*.{ts,tsx,js,jsx,json}""#)
+      dprint fmt --config formatting.config.json "**/*.{ts,tsx,js,jsx,json}""#)
     }
 
     // If this file doesn't exist, run `./build.sh` in /crates/test-plugin. (Please consider helping me do something better here :))
