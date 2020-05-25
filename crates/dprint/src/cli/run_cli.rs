@@ -993,8 +993,7 @@ OPTIONS:
                                     overrides what is specified in the config file.
         --allow-node-modules        Allows traversing node module directories (unstable - This flag will be renamed to
                                     be non-node specific in the future).
-        --plugins <urls>...         List of urls of plugins to use (urls separated by spaces). This overrides what is
-                                    specified in the config file.
+        --plugins <urls>...         List of urls of plugins to use. This overrides what is specified in the config file.
         --verbose                   Prints additional diagnostic information.
     -v, --version                   Prints the version.
 

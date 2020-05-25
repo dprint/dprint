@@ -184,7 +184,7 @@ ARGS:
             Arg::with_name("plugins")
                 .long("plugins")
                 .value_name("urls")
-                .help("List of urls of plugins to use (urls separated by spaces). This overrides what is specified in the config file.")
+                .help("List of urls of plugins to use. This overrides what is specified in the config file.")
                 .global(true)
                 .takes_value(true)
                 .multiple(true),
