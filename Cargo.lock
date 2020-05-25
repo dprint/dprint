@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-jsonc"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "debug-here",
  "dprint-core",
@@ -1080,9 +1080,9 @@ dependencies = [
 
 [[package]]
 name = "jsonc-parser"
-version = "0.9.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b0daf2b37d41211835b0a7f5dc4d3312bc083077a64fbbc36ec33fbc5438bce"
+checksum = "793282be8bf32d41acf0aa97a0246e712d0ec9be89b30286ae1e709544db35c6"
 
 [[package]]
 name = "kernel32-sys"

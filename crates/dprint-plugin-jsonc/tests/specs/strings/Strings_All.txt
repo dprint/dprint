@@ -9,3 +9,9 @@
 
 [expect]
 "test\"test"
+
+== should maintain escaped characters ==
+"asdf\tasdf\f\b\u0020\r\n\r\r"
+
+[expect]
+"asdf\tasdf\f\b\u0020\r\n\r\r"

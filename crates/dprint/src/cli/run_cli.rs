@@ -190,7 +190,7 @@ async fn init_config_file(environment: &impl Environment, config_file_path: &Pat
 async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfiguration, environment: &impl Environment) -> Result<(), ErrBox> {
     let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-    let result = run_parallelized(format_contexts, global_config, environment, {
+    run_parallelized(format_contexts, global_config, environment, {
         let not_formatted_files_count = not_formatted_files_count.clone();
         move |plugin, file_path, file_text, _| {
             let formatted_text = plugin.format_text(&file_path, &file_text)?;
@@ -199,14 +199,7 @@ async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfi
             }
             Ok(())
         }
-    }).await;
-
-    if let Err(err) = result {
-        return err!(
-            "A panic occurred in a Dprint plugin. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a.\n  Error: {}",
-            err.to_string()
-        );
-    }
+    }).await?;
 
     let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
     if not_formatted_files_count == 0 {
@@ -265,7 +258,13 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         })
     });
 
-    futures::future::try_join_all(handles).await?;
+    let result = futures::future::try_join_all(handles).await;
+    if let Err(err) = result {
+        return err!(
+            "A panic occurred in a Dprint plugin. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.\n  Error: {}",
+            err.to_string()
+        );
+    }
 
     let error_count = error_count.load(Ordering::SeqCst);
     return if error_count == 0 {
@@ -761,6 +760,25 @@ mod tests {
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
     }
 
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn it_should_format_files_with_config_includes_when_using_back_slashes() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        environment.write_file(&file_path1, "text1").unwrap();
+        environment.write_file(&PathBuf::from("./dprint.config.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**\\*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+
+        run_test_cli(vec!["fmt"], &environment).await.unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+    }
+
     #[tokio::test]
     async fn it_should_override_config_includes_with_cli_includes() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
@@ -803,7 +821,6 @@ mod tests {
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
     }
-
 
     #[tokio::test]
     async fn it_should_override_config_includes_and_excludes_with_cli() {

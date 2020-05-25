@@ -104,6 +104,7 @@ fn parse_node_with_inner<'a>(
             Node::Object(node) => parse_object(node, context),
             Node::ObjectProp(node) => parse_object_prop(node, context),
             Node::StringLit(node) => parse_string_lit(node, context),
+            Node::WordLit(node) => parse_word_lit(node, context),
         }
     }
 }
@@ -169,10 +170,23 @@ fn parse_object_prop<'a>(node: &'a ObjectProp, context: &mut Context<'a>) -> Pri
     items
 }
 
-fn parse_string_lit<'a>(node: &'a StringLit, _: &mut Context<'a>) -> PrintItems {
+fn parse_string_lit<'a>(node: &'a StringLit, context: &mut Context<'a>) -> PrintItems {
+    let text = node.text(context.text);
+    let is_double_quotes = text.chars().next().unwrap() == '"';
+    let mut items = PrintItems::new();
+    let text = &text[1..text.len() - 1];
+    let text = if is_double_quotes { text.replace("\\\"", "\"") } else { text.replace("\\'", "'") };
+    items.push_str("\"");
+    items.push_str(&text.replace("\"", "\\\""));
+    items.push_str("\"");
+    items
+}
+
+fn parse_word_lit<'a>(node: &'a WordLit, _: &mut Context<'a>) -> PrintItems {
+    // this will be a property name that's not a string literal
     let mut items = PrintItems::new();
     items.push_str("\"");
-    items.push_str(&node.value.as_ref().replace("\"", "\\\""));
+    items.push_str(&node.value.as_ref());
     items.push_str("\"");
     items
 }
