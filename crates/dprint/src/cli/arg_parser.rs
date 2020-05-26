@@ -157,16 +157,18 @@ ARGS:
 
 {after-help}"#)
         .after_help(
-            r#"EXAMPLES:
-    Create a dprint.config.json file:
+            r#"GETTING STARTED:
+    1. Navigate to the root directory of a code repository
+    2. Run `dprint init` to create a dprint.config.json file in that directory
+    3. Modify configuration file if necessary
+    4. Run `dprint fmt` or `dprint check`
 
-      dprint init
-
-    Write formatted files to file system using the config file at ./dprint.config.json:
+EXAMPLES:
+    Write formatted files to file system:
 
       dprint fmt
 
-    Check for any files that haven't been formatted:
+    Check for files that haven't been formatted:
 
       dprint check
 
@@ -174,9 +176,9 @@ ARGS:
 
       dprint fmt --config configs/dprint.config.json
 
-    Write using the specified config and file paths:
+    Search for files using the specified file patterns:
 
-      dprint fmt --config formatting.config.json "**/*.{ts,tsx,js,jsx,json}""#,
+      dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
         )
         .subcommand(
             SubCommand::with_name("init")
