@@ -10,6 +10,8 @@ use crate::plugins::{initialize_plugin, Plugin, InitializedPlugin, PluginResolve
 use crate::utils::get_table_text;
 use crate::types::ErrBox;
 
+const BOM_CHAR: char = '\u{FEFF}';
+
 struct PluginWithConfig {
     pub plugin: Box<dyn Plugin>,
     pub config: HashMap<String, String>,
@@ -208,8 +210,8 @@ async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfi
 
     run_parallelized(format_contexts, global_config, environment, {
         let not_formatted_files_count = not_formatted_files_count.clone();
-        move |plugin, file_path, file_text, _| {
-            let formatted_text = plugin.format_text(&file_path, &file_text)?;
+        move |plugin, file_path, file_text, _, _| {
+            let formatted_text = plugin.format_text(file_path, file_text)?;
             if formatted_text != file_text {
                 not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
             }
@@ -232,9 +234,13 @@ async fn format_files(format_contexts: FormatContexts, global_config: GlobalConf
 
     run_parallelized(format_contexts, global_config, environment, {
         let formatted_files_count = formatted_files_count.clone();
-        move |plugin, file_path, file_text, environment| {
-            let formatted_text = plugin.format_text(&file_path, &file_text)?;
+        move |plugin, file_path, file_text, had_bom, environment| {
+            let mut formatted_text = plugin.format_text(file_path, file_text)?;
             if formatted_text != file_text {
+                if had_bom {
+                    // add back the BOM
+                    formatted_text = format!("{}{}", BOM_CHAR, formatted_text);
+                }
                 environment.write_file(&file_path, &formatted_text)?;
                 formatted_files_count.fetch_add(1, Ordering::SeqCst);
             }
@@ -256,7 +262,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     global_config: GlobalConfiguration,
     environment: &TEnvironment,
     f: F,
-) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, String, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
+) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
     // At the moment this is parallelized across plugins because Wasmer instances can't be shared or sent between threads.
     let error_count = Arc::new(AtomicUsize::new(0));
     let handles = format_contexts.into_iter().map(|format_context| {
@@ -295,7 +301,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         global_config: GlobalConfiguration,
         environment: &TEnvironment,
         f: F
-    ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, String, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
+    ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let initialized_plugin = initialize_plugin(
             format_context.plugin,
             format_context.config,
@@ -319,9 +325,17 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         environment: &TEnvironment,
         initialized_plugin: &Box<dyn InitializedPlugin>,
         f: &F
-    ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, String, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
+    ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let file_text = environment.read_file(&file_path)?;
-        f(initialized_plugin, &file_path, file_text, &environment)
+        let had_bom = file_text.chars().next() == Some(BOM_CHAR);
+        let file_text = if had_bom {
+            // strip BOM
+            &file_text[BOM_CHAR.len_utf8()..]
+        } else {
+            &file_text
+        };
+
+        f(initialized_plugin, &file_path, file_text, had_bom, &environment)
     }
 }
 
@@ -1014,6 +1028,17 @@ mod tests {
         run_test_cli(vec!["clear-cache"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec!["Deleted /cache"]);
         assert_eq!(environment.is_dir_deleted(&PathBuf::from("/cache")), true);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_bom() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path = PathBuf::from("/file.txt");
+        environment.write_file(&file_path, "\u{FEFF}text").unwrap();
+        run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "\u{FEFF}text_formatted");
     }
 
     fn get_expected_help_text() -> &'static str {
