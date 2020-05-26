@@ -141,13 +141,20 @@ async fn output_help(args: &CliArgs, environment: &impl Environment, plugin_reso
     environment.log(args.help_text.as_ref().unwrap());
 
     // now check for the plugins
-    let plugins = get_plugins_from_args(args, environment, plugin_resolver).await?;
-    if !plugins.is_empty() {
-        let plugin_texts = get_table_text(plugins.iter().map(|plugin| (plugin.name(), plugin.help_url())).collect(), 4);
-        environment.log("\nPLUGINS HELP:");
-        for plugin_text in plugin_texts {
-            // output their names and help urls
-            environment.log(&format!("    {}", plugin_text));
+    let plugins_result = get_plugins_from_args(args, environment, plugin_resolver).await;
+    match plugins_result {
+        Ok(plugins) => {
+            if !plugins.is_empty() {
+                let plugin_texts = get_table_text(plugins.iter().map(|plugin| (plugin.name(), plugin.help_url())).collect(), 4);
+                environment.log("\nPLUGINS HELP:");
+                for plugin_text in plugin_texts {
+                    // output their names and help urls
+                    environment.log(&format!("    {}", plugin_text));
+                }
+            }
+        }
+        Err(err) => {
+            environment.log_verbose(&format!("Error getting plugins for help. {:?}", err))
         }
     }
 
@@ -327,7 +334,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         f: &F
     ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let file_text = environment.read_file(&file_path)?;
-        let had_bom = file_text.chars().next() == Some(BOM_CHAR);
+        let had_bom = file_text.starts_with(BOM_CHAR);
         let file_text = if had_bom {
             // strip BOM
             &file_text[BOM_CHAR.len_utf8()..]
@@ -1071,16 +1078,18 @@ OPTIONS:
 ARGS:
     <files>...    List of files or globs in quotes to format. This overrides what is specified in the config file.
 
+GETTING STARTED:
+    1. Navigate to the root directory of a code repository
+    2. Run `dprint init` to create a dprint.config.json file in that directory
+    3. Modify configuration file if necessary
+    4. Run `dprint fmt` or `dprint check`
+
 EXAMPLES:
-    Create a dprint.config.json file:
-
-      dprint init
-
-    Write formatted files to file system using the config file at ./dprint.config.json:
+    Write formatted files to file system:
 
       dprint fmt
 
-    Check for any files that haven't been formatted:
+    Check for files that haven't been formatted:
 
       dprint check
 
@@ -1088,9 +1097,9 @@ EXAMPLES:
 
       dprint fmt --config configs/dprint.config.json
 
-    Write using the specified config and file paths:
+    Search for files using the specified file patterns:
 
-      dprint fmt --config formatting.config.json "**/*.{ts,tsx,js,jsx,json}""#)
+      dprint fmt "**/*.{ts,tsx,js,jsx,json}""#)
     }
 
     // If this file doesn't exist, run `./build.sh` in /crates/test-plugin. (Please consider helping me do something better here :))
