@@ -16,13 +16,21 @@ struct PluginWithConfig {
 }
 
 pub async fn run_cli(args: CliArgs, environment: &impl Environment, plugin_resolver: &impl PluginResolver) -> Result<(), ErrBox> {
+    // initialize args with config file path
+    let mut args = args;
+    args.initialize_with_environment(environment);
+
+    // help
     if args.help_text.is_some() {
         return output_help(&args, environment, plugin_resolver).await;
     }
+
+    //version
     if args.sub_command == SubCommand::Version {
         return output_version(&args, environment, plugin_resolver).await;
     }
 
+    // clear cache
     if args.sub_command == SubCommand::ClearCache {
         let cache_dir = environment.get_cache_dir()?; // this actually creates the directory, but whatever
         environment.remove_dir_all(&cache_dir)?;
@@ -30,35 +38,42 @@ pub async fn run_cli(args: CliArgs, environment: &impl Environment, plugin_resol
         return Ok(());
     }
 
+    // init
     if args.sub_command == SubCommand::Init {
-        let config_file_path = get_config_file_path_from_args(&args);
-        init_config_file(environment, &config_file_path).await?;
+        let config_file_path = args.get_config_file_path();
+        init_config_file(environment, config_file_path).await?;
         environment.log(&format!("Created {}", config_file_path.to_string_lossy()));
         return Ok(());
     }
 
+    // resolve file paths
     let mut config_map = get_config_map_from_args(&args, environment)?;
     let file_paths = resolve_file_paths(&mut config_map, &args, environment)?;
 
+    // resolve plugins
     let plugins = resolve_plugins(&mut config_map, &args, plugin_resolver).await?;
     if plugins.is_empty() {
         return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
     }
 
+    // get project type diagnostic and global config
     let project_type_result = check_project_type_diagnostic(&mut config_map);
     let global_config = get_global_config(config_map, environment)?;
 
+    // output resolved config
     if args.sub_command == SubCommand::OutputResolvedConfig {
         return output_resolved_config(plugins, &global_config, environment);
     }
 
     let format_contexts = get_plugin_format_contexts(plugins, file_paths);
 
+    // output resolved file paths
     if args.sub_command == SubCommand::OutputFilePaths {
         output_file_paths(format_contexts.iter().flat_map(|x| x.file_paths.iter()), environment);
         return Ok(());
     }
 
+    // error if no file paths
     if format_contexts.is_empty() {
         return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
     }
@@ -66,6 +81,7 @@ pub async fn run_cli(args: CliArgs, environment: &impl Environment, plugin_resol
     // surface the project type error at this point
     project_type_result?;
 
+    // check and format
     if args.sub_command == SubCommand::Check {
         check_files(format_contexts, global_config, environment).await
     } else if args.sub_command == SubCommand::Fmt {
@@ -374,16 +390,16 @@ fn resolve_file_paths(config_map: &mut ConfigMap, args: &CliArgs, environment: &
         }
     }
 
-    environment.glob(&file_patterns)
+    environment.glob(args.get_base_directory_path(), &file_patterns)
 }
 
 fn get_config_map_from_args(args: &CliArgs, environment: &impl Environment) -> Result<ConfigMap, ErrBox> {
-    let config_file_path = get_config_file_path_from_args(args);
-    let config_file_text = match environment.read_file(&config_file_path) {
+    let config_file_path = args.get_config_file_path();
+    let config_file_text = match environment.read_file(config_file_path) {
         Ok(file_text) => file_text,
         Err(err) => {
             // allow no config file when plugins are specified
-            if !args.plugin_urls.is_empty() && !environment.path_exists(&config_file_path) {
+            if !args.plugin_urls.is_empty() && !environment.path_exists(config_file_path) {
                 let mut config_map = HashMap::new();
                 // hack: easy way to supress project type diagnostic check
                 config_map.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
@@ -404,10 +420,6 @@ fn get_config_map_from_args(args: &CliArgs, environment: &impl Environment) -> R
     };
 
     Ok(result)
-}
-
-fn get_config_file_path_from_args(args: &CliArgs) -> PathBuf {
-    PathBuf::from(args.config.as_ref().map(|x| x.to_owned()).unwrap_or(String::from("./dprint.config.json")))
 }
 
 // todo: move somewhere else (maybe make a wrapper around ConfigMap)
@@ -864,6 +876,23 @@ mod tests {
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
+    }
+
+    #[tokio::test]
+    async fn it_should_format_using_config_in_ancestor_directory() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        environment.write_file(&PathBuf::from("./dprint.config.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.set_cwd("/test/other/");
+        let file_path = PathBuf::from("/test/other/file.txt");
+        environment.write_file(&file_path, "text").unwrap();
+        run_test_cli(vec!["fmt"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
     }
 
     #[tokio::test]

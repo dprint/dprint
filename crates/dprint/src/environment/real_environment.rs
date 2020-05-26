@@ -109,9 +109,9 @@ impl Environment for RealEnvironment {
         Ok(final_bytes.freeze())
     }
 
-    fn glob(&self, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         log_verbose!(self, "Globbing: {:?}", file_patterns);
-        let walker = globwalk::GlobWalkerBuilder::from_patterns(&PathBuf::from("."), file_patterns)
+        let walker = globwalk::GlobWalkerBuilder::from_patterns(base, file_patterns)
             .follow_links(false)
             .file_type(globwalk::FileType::FILE)
             .build();
@@ -136,6 +136,10 @@ impl Environment for RealEnvironment {
         file_path.exists()
     }
 
+    fn cwd(&self) -> Result<PathBuf, ErrBox> {
+        Ok(std::env::current_dir()?)
+    }
+
     fn log(&self, text: &str) {
         let _g = self.output_lock.lock().unwrap();
         println!("{}", text);
@@ -144,6 +148,10 @@ impl Environment for RealEnvironment {
     fn log_error(&self, text: &str) {
         let _g = self.output_lock.lock().unwrap();
         eprintln!("{}", text);
+    }
+
+    fn log_verbose(&self, text: &str) {
+        log_verbose!(self, "{}", text);
     }
 
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {

@@ -9,6 +9,7 @@ use bytes::Bytes;
 
 #[derive(Clone)]
 pub struct TestEnvironment {
+    cwd: Arc<Mutex<String>>,
     files: Arc<Mutex<HashMap<PathBuf, Bytes>>>,
     logged_messages: Arc<Mutex<Vec<String>>>,
     logged_errors: Arc<Mutex<Vec<String>>>,
@@ -20,6 +21,7 @@ pub struct TestEnvironment {
 impl TestEnvironment {
     pub fn new() -> TestEnvironment {
         TestEnvironment {
+            cwd: Arc::new(Mutex::new(String::from("/"))),
             files: Arc::new(Mutex::new(HashMap::new())),
             logged_messages: Arc::new(Mutex::new(Vec::new())),
             logged_errors: Arc::new(Mutex::new(Vec::new())),
@@ -28,9 +30,7 @@ impl TestEnvironment {
             selection_result: Arc::new(Mutex::new(0)),
         }
     }
-}
 
-impl TestEnvironment {
     pub fn get_logged_messages(&self) -> Vec<String> {
         self.logged_messages.lock().unwrap().clone()
     }
@@ -57,6 +57,11 @@ impl TestEnvironment {
     pub fn set_selection_result(&self, index: usize) {
         let mut selection_result = self.selection_result.lock().unwrap();
         *selection_result = index;
+    }
+
+    pub fn set_cwd(&self, new_path: &str) {
+        let mut cwd = self.cwd.lock().unwrap();
+        *cwd = String::from(new_path);
     }
 }
 
@@ -105,7 +110,8 @@ impl Environment for TestEnvironment {
         }
     }
 
-    fn glob(&self, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    fn glob(&self, _: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+        // todo: would be nice to test the base parameter here somehow...
         let mut file_paths = Vec::new();
         let includes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| !p.starts_with("!")).map(|p| p.to_owned()))?;
         let excludes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| p.starts_with("!")).map(|p| String::from(&p[1..])))?;
@@ -139,12 +145,21 @@ impl Environment for TestEnvironment {
         files.contains_key(file_path)
     }
 
+    fn cwd(&self) -> Result<PathBuf, ErrBox> {
+        let cwd = self.cwd.lock().unwrap();
+        Ok(PathBuf::from(cwd.to_owned()))
+    }
+
     fn log(&self, text: &str) {
         self.logged_messages.lock().unwrap().push(String::from(text));
     }
 
     fn log_error(&self, text: &str) {
         self.logged_errors.lock().unwrap().push(String::from(text));
+    }
+
+    fn log_verbose(&self, _: &str) {
+        // don't bother
     }
 
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {
@@ -168,8 +183,8 @@ fn file_patterns_to_glob_set(file_patterns: impl Iterator<Item = String>) -> Res
             Err(err) => return err!("Error parsing glob {}: {}", file_pattern, err),
         }
     }
-    match builder.build() {
+    return match builder.build() {
         Ok(glob_set) => Ok(glob_set),
         Err(err) => err!("Error building glob set: {}", err),
-    }
+    };
 }

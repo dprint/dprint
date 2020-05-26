@@ -11,10 +11,12 @@ pub trait Environment : Clone + std::marker::Send + 'static {
     fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox>;
     fn remove_file(&self, file_path: &PathBuf) -> Result<(), ErrBox>;
     fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox>;
-    fn glob(&self, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox>;
+    fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox>;
     fn path_exists(&self, file_path: &PathBuf) -> bool;
+    fn cwd(&self) -> Result<PathBuf, ErrBox>;
     fn log(&self, text: &str);
     fn log_error(&self, text: &str);
+    fn log_verbose(&self, text: &str);
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox>;
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;
     fn get_time_secs(&self) -> u64;
