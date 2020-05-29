@@ -247,6 +247,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "colored"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4ffc801dacf156c5854b9df4f425a626539c3a6ef7893cc0c5084a23f0b6c59"
+dependencies = [
+ "atty",
+ "lazy_static",
+ "winapi 0.3.8",
+]
+
+[[package]]
 name = "console"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -516,6 +527,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dissimilar"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39de161cd2ebbd6e5783db53a82a47b6a47dcfef754130839603561745528b94"
+
+[[package]]
 name = "dprint"
 version = "0.4.0-beta3"
 dependencies = [
@@ -523,7 +540,9 @@ dependencies = [
  "async-trait",
  "bytes 0.5.4",
  "clap",
+ "colored",
  "dialoguer",
+ "dissimilar",
  "dprint-core",
  "futures 0.3.5",
  "globset",

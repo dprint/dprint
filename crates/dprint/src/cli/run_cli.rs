@@ -2,12 +2,13 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use colored::Colorize;
 use dprint_core::configuration::GlobalConfiguration;
 use super::{CliArgs, SubCommand, FormatContext, FormatContexts};
 use crate::environment::Environment;
 use crate::configuration::{self, ConfigMap, ConfigMapValue, get_global_config, get_plugin_config_map};
 use crate::plugins::{initialize_plugin, Plugin, InitializedPlugin, PluginResolver};
-use crate::utils::get_table_text;
+use crate::utils::{get_table_text, get_difference};
 use crate::types::ErrBox;
 
 const BOM_CHAR: char = '\u{FEFF}';
@@ -217,10 +218,16 @@ async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfi
 
     run_parallelized(format_contexts, global_config, environment, {
         let not_formatted_files_count = not_formatted_files_count.clone();
-        move |plugin, file_path, file_text, _, _| {
+        move |plugin, file_path, file_text, _, environment| {
             let formatted_text = plugin.format_text(file_path, file_text)?;
             if formatted_text != file_text {
                 not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+                environment.log(&format!(
+                    "{} {}:\n{}\n--",
+                    "from".bold().red().to_string(),
+                    file_path.display().to_string(),
+                    get_difference(&file_text, &formatted_text),
+                ));
             }
             Ok(())
         }
@@ -231,7 +238,7 @@ async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfi
         Ok(())
     } else {
         let f = if not_formatted_files_count == 1 { "file" } else { "files" };
-        err!("Found {} not formatted {}.", not_formatted_files_count, f)
+        err!("Found {} not formatted {}.", not_formatted_files_count.to_string().bold().to_string(), f)
     }
 }
 
@@ -258,7 +265,7 @@ async fn format_files(format_contexts: FormatContexts, global_config: GlobalConf
     let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
     if formatted_files_count > 0 {
         let suffix = if files_count == 1 { "file" } else { "files" };
-        environment.log(&format!("Formatted {} {}.", formatted_files_count, suffix));
+        environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold().to_string(), suffix));
     }
 
     Ok(())
@@ -459,6 +466,7 @@ fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -
 
 #[cfg(test)]
 mod tests {
+    use colored::Colorize;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
     use crate::environment::{Environment, TestEnvironment};
@@ -466,6 +474,7 @@ mod tests {
     use crate::plugins::wasm::WasmPluginResolver;
     use crate::plugins::CompilationResult;
     use crate::types::ErrBox;
+    use crate::utils::get_difference;
 
     use super::run_cli;
     use super::super::parse_args;
@@ -583,7 +592,7 @@ mod tests {
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text").unwrap();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
     }
@@ -594,7 +603,7 @@ mod tests {
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text").unwrap();
         run_test_cli(vec!["fmt", "./file.txt"], &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
     }
@@ -607,7 +616,7 @@ mod tests {
         let file_path2 = PathBuf::from("/file2.txt");
         environment.write_file(&file_path2, "text").unwrap();
         run_test_cli(vec!["fmt", "./**/*.txt", "--excludes", "./file2.txt"], &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
@@ -620,7 +629,7 @@ mod tests {
         environment.write_file(&PathBuf::from("/test/node_modules/file.txt"), "").unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         run_test_cli(vec!["fmt", "**/*.txt"], &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
@@ -630,7 +639,7 @@ mod tests {
         environment.write_file(&PathBuf::from("/node_modules/file.txt"), "const t=4;").unwrap();
         environment.write_file(&PathBuf::from("/test/node_modules/file.txt"), "const t=4;").unwrap();
         run_test_cli(vec!["fmt", "--allow-node-modules", "**/*.txt"], &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 2 files."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_plural_formatted_text(2)]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
@@ -651,7 +660,7 @@ mod tests {
 
         run_test_cli(vec!["fmt", "--config", "/config.json", "/file1.txt", "/file2.txt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 2 files."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_plural_formatted_text(2)]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted");
@@ -670,7 +679,7 @@ mod tests {
 
         run_test_cli(vec!["fmt", "-c", "/config.json", "/file1.txt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
     }
@@ -740,7 +749,7 @@ mod tests {
 
         run_test_cli(vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
@@ -752,7 +761,7 @@ mod tests {
 
         run_test_cli(vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
@@ -787,7 +796,7 @@ mod tests {
 
         run_test_cli(vec!["fmt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 2 files."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_plural_formatted_text(2)]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
@@ -807,7 +816,7 @@ mod tests {
 
         run_test_cli(vec!["fmt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
     }
@@ -827,7 +836,7 @@ mod tests {
 
         run_test_cli(vec!["fmt", "/file1.txt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
@@ -849,7 +858,7 @@ mod tests {
 
         run_test_cli(vec!["fmt", "--excludes", "/file2.txt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
@@ -871,7 +880,7 @@ mod tests {
 
         run_test_cli(vec!["fmt", "/file1.txt", "--excludes", "/file2.txt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
@@ -893,7 +902,7 @@ mod tests {
 
         run_test_cli(vec!["fmt"], &environment).await.unwrap();
 
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
@@ -911,7 +920,7 @@ mod tests {
         let file_path = PathBuf::from("/test/other/file.txt");
         environment.write_file(&file_path, "text").unwrap();
         run_test_cli(vec!["fmt"], &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
     }
@@ -953,8 +962,14 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
         let error_message = run_test_cli(vec!["check", "/file.txt"], &environment).await.err().unwrap();
-        assert_eq!(error_message.to_string(), "Found 1 not formatted file.");
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(error_message.to_string(), get_singular_check_text());
+        assert_eq!(environment.get_logged_messages(), vec![
+            format!(
+                "{}\n{}\n--",
+                format!("{} /file.txt:", "from".bold().red().to_string()),
+                get_difference("const t=4;", "const t=4;_formatted"),
+            ),
+        ]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
@@ -962,11 +977,24 @@ mod tests {
     async fn it_should_output_when_files_need_formatting_for_check() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file1.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
+        environment.write_file(&PathBuf::from("/file2.txt"), "const t=5;").unwrap();
 
         let error_message = run_test_cli(vec!["check", "/file1.txt", "/file2.txt"], &environment).await.err().unwrap();
-        assert_eq!(error_message.to_string(), "Found 2 not formatted files.");
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(error_message.to_string(), get_plural_check_text(2));
+        let mut logged_messages = environment.get_logged_messages();
+        logged_messages.sort(); // seems like the order is not deterministic
+        assert_eq!(logged_messages, vec![
+            format!(
+                "{}\n{}\n--",
+                format!("{} /file1.txt:", "from".bold().red().to_string()),
+                get_difference("const t=4;", "const t=4;_formatted"),
+            ),
+            format!(
+                "{}\n{}\n--",
+                format!("{} /file2.txt:", "from".bold().red().to_string()),
+                get_difference("const t=5;", "const t=5;_formatted"),
+            ),
+        ]);
         assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
@@ -1043,9 +1071,25 @@ mod tests {
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "\u{FEFF}text").unwrap();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec!["Formatted 1 file."]);
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "\u{FEFF}text_formatted");
+    }
+
+    fn get_singular_formatted_text() -> String {
+        format!("Formatted {} file.", "1".bold().to_string())
+    }
+
+    fn get_plural_formatted_text(count: usize) -> String {
+        format!("Formatted {} files.", count.to_string().bold().to_string())
+    }
+
+    fn get_singular_check_text() -> String {
+        format!("Found {} not formatted file.", "1".bold().to_string())
+    }
+
+    fn get_plural_check_text(count: usize) -> String {
+        format!("Found {} not formatted files.", count.to_string().bold().to_string())
     }
 
     fn get_expected_help_text() -> &'static str {
