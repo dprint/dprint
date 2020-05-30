@@ -69,7 +69,7 @@ pub fn get_difference(text1: &str, text2: &str) -> String {
             }
         }
 
-        text.push_str(get_line_end_text(&text1, grouped_change.end_index));
+        text.push_str(&annotate_whitespace(&get_line_end_text(&text1, grouped_change.end_index)));
     }
 
     text
@@ -401,6 +401,17 @@ mod test {
                 "{}\n...\n{}",
                 format!("1| let\u{00B7}t{};", get_removal_text("\u{00B7}")),
                 format!("3| let\u{00B7}u{};", get_removal_text("\u{00B7}")),
+            )
+        );
+    }
+
+    #[test]
+    fn it_should_annotate_whitespace_end_line_text() {
+        assert_eq!(
+            get_difference("t t t\n", "tt t\n"),
+            format!(
+                "1| t{}t\u{00B7}t",
+                get_removal_text("\u{00B7}")
             )
         );
     }
