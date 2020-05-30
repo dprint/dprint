@@ -5,6 +5,7 @@ use std::sync::Arc;
 use colored::Colorize;
 use dprint_core::configuration::GlobalConfiguration;
 use super::{CliArgs, SubCommand, FormatContext, FormatContexts};
+use crate::cache::Cache;
 use crate::environment::Environment;
 use crate::configuration::{self, ConfigMap, ConfigMapValue, get_global_config, get_plugin_config_map};
 use crate::plugins::{initialize_plugin, Plugin, InitializedPlugin, PluginResolver};
@@ -18,10 +19,15 @@ struct PluginWithConfig {
     pub config: HashMap<String, String>,
 }
 
-pub async fn run_cli(args: CliArgs, environment: &impl Environment, plugin_resolver: &impl PluginResolver) -> Result<(), ErrBox> {
+pub async fn run_cli<'a, TEnvironment : Environment>(
+    args: CliArgs,
+    environment: &TEnvironment,
+    cache: &Cache<'a, TEnvironment>,
+    plugin_resolver: &impl PluginResolver,
+) -> Result<(), ErrBox> {
     // initialize args with config file path
     let mut args = args;
-    args.initialize_with_environment(environment);
+    args.initialize(cache, environment).await?;
 
     // help
     if args.help_text.is_some() {
@@ -487,7 +493,7 @@ mod tests {
         let plugin_cache = PluginCache::new(environment, &cache, &quick_compile);
         let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache);
         let args = parse_args(args)?;
-        run_cli(args, environment, &plugin_resolver).await
+        run_cli(args, environment, &cache, &plugin_resolver).await
     }
 
     #[tokio::test]
@@ -703,6 +709,29 @@ mod tests {
         );
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn it_should_support_config_file_urls() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        let file_path2 = PathBuf::from("/file2.txt");
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "test-plugin": {
+                "ending": "custom-formatted"
+            },
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#.as_bytes());
+        environment.write_file(&file_path1, "text").unwrap();
+        environment.write_file(&file_path2, "text2").unwrap();
+
+        run_test_cli(vec!["fmt", "--config", "https://dprint.dev/test.json", "/file1.txt", "/file2.txt"], &environment).await.unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec![get_plural_formatted_text(2)]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
+        assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted");
     }
 
     #[tokio::test]
@@ -1113,7 +1142,8 @@ SUBCOMMANDS:
     clear-cache               Deletes the plugin cache directory.
 
 OPTIONS:
-    -c, --config <config>           Path to JSON configuration file. Defaults to ./dprint.config.json when not provided.
+    -c, --config <config>           Path or url to JSON configuration file. Defaults to dprint.config.json in current or
+                                    ancestor directory when not provided.
         --excludes <patterns>...    List of files or directories or globs in quotes to exclude when formatting. This
                                     overrides what is specified in the config file.
         --allow-node-modules        Allows traversing node module directories (unstable - This flag will be renamed to

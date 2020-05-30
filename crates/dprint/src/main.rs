@@ -37,6 +37,6 @@ async fn run() -> Result<(), types::ErrBox> {
     let plugin_cache = plugins::PluginCache::new(&environment, &cache, &crate::plugins::wasm::compile);
     let plugin_resolver = plugins::wasm::WasmPluginResolver::new(&environment, &plugin_cache);
 
-    cli::run_cli(args, &environment, &plugin_resolver).await
+    cli::run_cli(args, &environment, &cache, &plugin_resolver).await
 }
 

@@ -555,6 +555,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "url 2.1.1",
  "wasmer-runtime",
  "wasmer-runtime-core",
 ]

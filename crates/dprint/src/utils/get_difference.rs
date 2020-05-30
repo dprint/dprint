@@ -357,6 +357,11 @@ mod test {
     use super::*;
 
     #[test]
+    fn it_should_get_when_differs_by_line_endings() {
+        assert_eq!(get_difference("test\r\n", "test\n"), " | Text differed by line endings.");
+    }
+
+    #[test]
     fn it_should_get_difference_on_one_line() {
         assert_eq!(get_difference("test1\n", "test2\n"), format!("1| test{}{}", get_removal_text("1"), get_addition_text("2")));
     }

@@ -1,6 +1,8 @@
 use std::path::PathBuf;
+use crate::cache::Cache;
 use crate::environment::Environment;
 use crate::types::ErrBox;
+use crate::utils::resolve_url_or_file_path;
 
 pub struct CliArgs {
     pub sub_command: SubCommand,
@@ -19,14 +21,21 @@ pub struct CliArgs {
 const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.config.json";
 
 impl CliArgs {
-    pub fn initialize_with_environment(&mut self, environment: &impl Environment) {
+    pub async fn initialize<'a, TEnvironment : Environment>(
+        &mut self,
+        cache: &Cache<'a, TEnvironment>,
+        environment: &TEnvironment,
+    ) -> Result<(), ErrBox> {
         let (file_path, base_directory) = if let Some(config) = self.config.take() {
+            let config = resolve_url_or_file_path(&config, cache, environment).await?;
             (PathBuf::from(config), PathBuf::from("./")) // use cwd as base path
         } else {
             get_default_paths(environment)
         };
         self.config_file_path.replace(file_path);
         self.base_directory_path.replace(base_directory);
+
+        return Ok(());
 
         fn get_default_paths(environment: &impl Environment) -> (PathBuf, PathBuf) {
             let config_file_path = PathBuf::from(format!("./{}", DEFAULT_CONFIG_FILE_NAME));
@@ -215,7 +224,7 @@ EXAMPLES:
             Arg::with_name("config")
                 .long("config")
                 .short("c")
-                .help("Path to JSON configuration file. Defaults to ./dprint.config.json when not provided.")
+                .help("Path or url to JSON configuration file. Defaults to dprint.config.json in current or ancestor directory when not provided.")
                 .global(true)
                 .takes_value(true),
         )
