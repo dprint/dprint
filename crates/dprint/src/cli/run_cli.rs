@@ -469,10 +469,11 @@ mod tests {
     use colored::Colorize;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
+    use crate::cache::Cache;
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
     use crate::plugins::wasm::WasmPluginResolver;
-    use crate::plugins::CompilationResult;
+    use crate::plugins::{PluginCache, CompilationResult};
     use crate::types::ErrBox;
     use crate::utils::get_difference;
 
@@ -482,7 +483,9 @@ mod tests {
     async fn run_test_cli(args: Vec<&'static str>, environment: &impl Environment) -> Result<(), ErrBox> {
         let mut args: Vec<String> = args.into_iter().map(String::from).collect();
         args.insert(0, String::from(""));
-        let plugin_resolver = WasmPluginResolver::new(environment, &quick_compile);
+        let cache = Cache::new(environment).unwrap();
+        let plugin_cache = PluginCache::new(environment, &cache, &quick_compile);
+        let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache);
         let args = parse_args(args)?;
         run_cli(args, environment, &plugin_resolver).await
     }

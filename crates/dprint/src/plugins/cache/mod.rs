@@ -1,5 +1,3 @@
-mod cache;
-mod manifest;
+mod plugin_cache;
 
-pub use cache::*;
-pub use manifest::*;
+pub use plugin_cache::*;

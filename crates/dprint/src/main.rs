@@ -4,6 +4,7 @@ use environment::RealEnvironment;
 mod types;
 mod environment;
 
+mod cache;
 mod cli;
 mod configuration;
 mod plugins;
@@ -32,7 +33,9 @@ async fn run() -> Result<(), types::ErrBox> {
 
     let args = cli::parse_args(std::env::args().collect())?;
     let environment = RealEnvironment::new(args.verbose);
-    let plugin_resolver = plugins::wasm::WasmPluginResolver::new(&environment, &crate::plugins::wasm::compile);
+    let cache = cache::Cache::new(&environment)?;
+    let plugin_cache = plugins::PluginCache::new(&environment, &cache, &crate::plugins::wasm::compile);
+    let plugin_resolver = plugins::wasm::WasmPluginResolver::new(&environment, &plugin_cache);
 
     cli::run_cli(args, &environment, &plugin_resolver).await
 }
