@@ -1,8 +1,4 @@
-use std::path::PathBuf;
-use crate::cache::Cache;
-use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::utils::resolve_url_or_file_path;
 
 pub struct CliArgs {
     pub sub_command: SubCommand,
@@ -12,70 +8,7 @@ pub struct CliArgs {
     pub exclude_file_patterns: Vec<String>,
     pub plugin_urls: Vec<String>,
     pub help_text: Option<String>,
-    config: Option<String>,
-    config_file_path: Option<PathBuf>,
-    /// The directory to do globbing from.
-    base_directory_path: Option<PathBuf>,
-}
-
-const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.config.json";
-
-impl CliArgs {
-    pub async fn initialize<'a, TEnvironment : Environment>(
-        &mut self,
-        cache: &Cache<'a, TEnvironment>,
-        environment: &TEnvironment,
-    ) -> Result<(), ErrBox> {
-        let (file_path, base_directory) = if let Some(config) = self.config.take() {
-            let config = resolve_url_or_file_path(&config, cache, environment).await?;
-            (PathBuf::from(config), PathBuf::from("./")) // use cwd as base path
-        } else {
-            get_default_paths(environment)
-        };
-        self.config_file_path.replace(file_path);
-        self.base_directory_path.replace(base_directory);
-
-        return Ok(());
-
-        fn get_default_paths(environment: &impl Environment) -> (PathBuf, PathBuf) {
-            let config_file_path = PathBuf::from(format!("./{}", DEFAULT_CONFIG_FILE_NAME));
-
-            if !environment.path_exists(&config_file_path) {
-                if let Some(path_info) = get_default_config_file_in_ancestor_directories(environment) {
-                    return path_info;
-                }
-            }
-
-            // just return this if it doesn't find a config file in the ancestor paths
-            (config_file_path, PathBuf::from("./"))
-        }
-
-        fn get_default_config_file_in_ancestor_directories(environment: &impl Environment) -> Option<(PathBuf, PathBuf)> {
-            match environment.cwd() {
-                Ok(cwd) => {
-                    for ancestor_dir in cwd.ancestors() {
-                        let ancestor_config_path = ancestor_dir.join(DEFAULT_CONFIG_FILE_NAME);
-                        if environment.path_exists(&ancestor_config_path) {
-                            return Some((ancestor_config_path, ancestor_dir.to_owned()));
-                        }
-                    }
-                },
-                Err(err) => {
-                    environment.log_verbose(&format!("Error getting current working directory: {:?}", err));
-                }
-            }
-
-            None
-        }
-    }
-
-    pub fn get_config_file_path(&self) -> &PathBuf {
-        self.config_file_path.as_ref().expect("Should have initialized args with environment first.")
-    }
-
-    pub fn get_base_directory_path(&self) -> &PathBuf {
-        self.base_directory_path.as_ref().expect("Should have initialized args with environment first.")
-    }
+    pub config: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -130,8 +63,6 @@ pub fn parse_args(args: Vec<String>) -> Result<CliArgs, ErrBox> {
         exclude_file_patterns: values_to_vec(matches.values_of("excludes")),
         plugin_urls: values_to_vec(matches.values_of("plugins")),
         help_text,
-        config_file_path: None,
-        base_directory_path: None,
     })
 }
 

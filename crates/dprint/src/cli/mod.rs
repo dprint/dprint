@@ -1,5 +1,6 @@
 mod arg_parser;
 mod format_context;
+mod configuration;
 mod run_cli;
 
 use format_context::*;

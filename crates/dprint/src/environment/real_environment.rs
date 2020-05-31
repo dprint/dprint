@@ -41,37 +41,37 @@ const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "Dprint", author: 
 #[async_trait]
 impl Environment for RealEnvironment {
     fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
-        log_verbose!(self, "Reading file: {}", file_path.to_string_lossy());
+        log_verbose!(self, "Reading file: {}", file_path.display());
         let text = fs::read_to_string(file_path)?;
         Ok(text)
     }
 
     fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox> {
-        log_verbose!(self, "Reading file: {}", file_path.to_string_lossy());
+        log_verbose!(self, "Reading file: {}", file_path.display());
         let bytes = fs::read(file_path)?;
         Ok(Bytes::from(bytes))
     }
 
     fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
-        log_verbose!(self, "Writing file: {}", file_path.to_string_lossy());
+        log_verbose!(self, "Writing file: {}", file_path.display());
         fs::write(file_path, file_text)?;
         Ok(())
     }
 
     fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox> {
-        log_verbose!(self, "Writing file: {}", file_path.to_string_lossy());
+        log_verbose!(self, "Writing file: {}", file_path.display());
         fs::write(file_path, bytes)?;
         Ok(())
     }
 
     fn remove_file(&self, file_path: &PathBuf) -> Result<(), ErrBox> {
-        log_verbose!(self, "Deleting file: {}", file_path.to_string_lossy());
+        log_verbose!(self, "Deleting file: {}", file_path.display());
         fs::remove_file(file_path)?;
         Ok(())
     }
 
     fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox> {
-        log_verbose!(self, "Deleting directory: {}", dir_path.to_string_lossy());
+        log_verbose!(self, "Deleting directory: {}", dir_path.display());
         fs::remove_dir_all(dir_path)?;
         Ok(())
     }
@@ -132,7 +132,7 @@ impl Environment for RealEnvironment {
     }
 
     fn path_exists(&self, file_path: &PathBuf) -> bool {
-        log_verbose!(self, "Checking path exists: {}", file_path.to_string_lossy());
+        log_verbose!(self, "Checking path exists: {}", file_path.display());
         file_path.exists()
     }
 

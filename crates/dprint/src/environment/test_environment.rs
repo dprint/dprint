@@ -76,7 +76,7 @@ impl Environment for TestEnvironment {
         let files = self.files.lock().unwrap();
         match files.get(file_path) {
             Some(text) => Ok(text.clone()),
-            None => err!("Could not find file at path {}", file_path.to_string_lossy()),
+            None => err!("Could not find file at path {}", file_path.display()),
         }
     }
 

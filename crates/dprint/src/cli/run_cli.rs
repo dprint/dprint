@@ -4,13 +4,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use colored::Colorize;
 use dprint_core::configuration::GlobalConfiguration;
-use super::{CliArgs, SubCommand, FormatContext, FormatContexts};
+
 use crate::cache::Cache;
 use crate::environment::Environment;
 use crate::configuration::{self, ConfigMap, ConfigMapValue, get_global_config, get_plugin_config_map};
 use crate::plugins::{initialize_plugin, Plugin, InitializedPlugin, PluginResolver};
 use crate::utils::{get_table_text, get_difference};
 use crate::types::ErrBox;
+
+use super::{CliArgs, SubCommand, FormatContext, FormatContexts};
+use super::configuration::{resolve_config_from_args, ResolvedConfig};
 
 const BOM_CHAR: char = '\u{FEFF}';
 
@@ -25,49 +28,45 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
     cache: &Cache<'a, TEnvironment>,
     plugin_resolver: &impl PluginResolver,
 ) -> Result<(), ErrBox> {
-    // initialize args with config file path
-    let mut args = args;
-    args.initialize(cache, environment).await?;
-
     // help
     if args.help_text.is_some() {
-        return output_help(&args, environment, plugin_resolver).await;
+        return output_help(&args, cache, environment, plugin_resolver).await;
     }
 
     //version
     if args.sub_command == SubCommand::Version {
-        return output_version(&args, environment, plugin_resolver).await;
+        return output_version(&args, cache, environment, plugin_resolver).await;
     }
 
     // clear cache
     if args.sub_command == SubCommand::ClearCache {
         let cache_dir = environment.get_cache_dir()?; // this actually creates the directory, but whatever
         environment.remove_dir_all(&cache_dir)?;
-        environment.log(&format!("Deleted {}", cache_dir.to_string_lossy()));
+        environment.log(&format!("Deleted {}", cache_dir.display()));
         return Ok(());
     }
 
     // init
     if args.sub_command == SubCommand::Init {
-        let config_file_path = args.get_config_file_path();
-        init_config_file(environment, config_file_path).await?;
-        environment.log(&format!("Created {}", config_file_path.to_string_lossy()));
+        let config_file_path = args.config.map(|x| PathBuf::from(x)).unwrap_or(PathBuf::from("./dprint.config.json"));
+        init_config_file(environment, &config_file_path).await?;
+        environment.log(&format!("Created {}", config_file_path.display()));
         return Ok(());
     }
 
     // resolve file paths
-    let mut config_map = get_config_map_from_args(&args, environment)?;
-    let file_paths = resolve_file_paths(&mut config_map, &args, environment)?;
+    let mut config = resolve_config_from_args(&args, cache, environment).await?;
+    let file_paths = resolve_file_paths(&mut config, &args, environment)?;
 
     // resolve plugins
-    let plugins = resolve_plugins(&mut config_map, &args, plugin_resolver).await?;
+    let plugins = resolve_plugins(&mut config.config_map, &args, plugin_resolver).await?;
     if plugins.is_empty() {
         return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
     }
 
     // get project type diagnostic and global config
-    let project_type_result = check_project_type_diagnostic(&mut config_map);
-    let global_config = get_global_config(config_map, environment)?;
+    let project_type_result = check_project_type_diagnostic(&mut config.config_map);
+    let global_config = get_global_config(config.config_map, environment)?;
 
     // output resolved config
     if args.sub_command == SubCommand::OutputResolvedConfig {
@@ -130,12 +129,17 @@ fn get_plugin_format_contexts(plugins_with_config: Vec<PluginWithConfig>, file_p
     format_contexts
 }
 
-async fn output_version(args: &CliArgs, environment: &impl Environment, plugin_resolver: &impl PluginResolver) -> Result<(), ErrBox> {
+async fn output_version<'a, TEnvironment: Environment>(
+    args: &CliArgs,
+    cache: &Cache<'a, TEnvironment>,
+    environment: &TEnvironment,
+    plugin_resolver: &impl PluginResolver
+) -> Result<(), ErrBox> {
     // log the cli's current version first
     environment.log(&format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
 
     // now check for the plugins
-    for plugin in get_plugins_from_args(args, environment, plugin_resolver).await? {
+    for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
         // output their names and versions
         environment.log(&format!("{} v{}", plugin.name(), plugin.version()));
     }
@@ -143,12 +147,17 @@ async fn output_version(args: &CliArgs, environment: &impl Environment, plugin_r
     Ok(())
 }
 
-async fn output_help(args: &CliArgs, environment: &impl Environment, plugin_resolver: &impl PluginResolver) -> Result<(), ErrBox> {
+async fn output_help<'a, TEnvironment: Environment>(
+    args: &CliArgs,
+    cache: &Cache<'a, TEnvironment>,
+    environment: &TEnvironment,
+    plugin_resolver: &impl PluginResolver
+) -> Result<(), ErrBox> {
     // log the cli's help first
     environment.log(args.help_text.as_ref().unwrap());
 
     // now check for the plugins
-    let plugins_result = get_plugins_from_args(args, environment, plugin_resolver).await;
+    let plugins_result = get_plugins_from_args(args, cache, environment, plugin_resolver).await;
     match plugins_result {
         Ok(plugins) => {
             if !plugins.is_empty() {
@@ -168,10 +177,15 @@ async fn output_help(args: &CliArgs, environment: &impl Environment, plugin_reso
     Ok(())
 }
 
-async fn get_plugins_from_args(args: &CliArgs, environment: &impl Environment, plugin_resolver: &impl PluginResolver) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-    match get_config_map_from_args(args, environment) {
-        Ok(config_map) => {
-            let mut config_map = config_map;
+async fn get_plugins_from_args<'a, TEnvironment : Environment>(
+    args: &CliArgs,
+    cache: &Cache<'a, TEnvironment>,
+    environment: &TEnvironment,
+    plugin_resolver: &impl PluginResolver
+) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+    match resolve_config_from_args(args, cache, environment).await {
+        Ok(config) => {
+            let mut config_map = config.config_map;
             let plugins_with_config = resolve_plugins(&mut config_map, args, plugin_resolver).await?;
             Ok(plugins_with_config.into_iter().map(|p| p.plugin).collect())
         },
@@ -184,7 +198,7 @@ async fn get_plugins_from_args(args: &CliArgs, environment: &impl Environment, p
 
 fn output_file_paths<'a>(file_paths: impl Iterator<Item=&'a PathBuf>, environment: &impl Environment) {
     for file_path in file_paths {
-        environment.log(&file_path.to_string_lossy())
+        environment.log(&file_path.display().to_string())
     }
 }
 
@@ -215,7 +229,7 @@ async fn init_config_file(environment: &impl Environment, config_file_path: &Pat
     if !environment.path_exists(config_file_path) {
         environment.write_file(config_file_path, &configuration::get_init_config_file_text(environment).await?)
     } else {
-        err!("Configuration file '{}' already exists.", config_file_path.to_string_lossy())
+        err!("Configuration file '{}' already exists.", config_file_path.display())
     }
 }
 
@@ -231,7 +245,7 @@ async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfi
                 environment.log(&format!(
                     "{} {}:\n{}\n--",
                     "from".bold().red().to_string(),
-                    file_path.display().to_string(),
+                    file_path.display(),
                     get_difference(&file_text, &formatted_text),
                 ));
             }
@@ -332,7 +346,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         for file_path in format_context.file_paths {
             match run_for_file_path(&file_path, environment, &initialized_plugin, &f) {
                 Ok(_) => {},
-                Err(err) => return err!("Error formatting {}. Message: {}", file_path.to_string_lossy(), err.to_string()),
+                Err(err) => return err!("Error formatting {}. Message: {}", file_path.display(), err.to_string()),
             }
         }
 
@@ -392,10 +406,10 @@ fn check_project_type_diagnostic(config_map: &mut ConfigMap) -> Result<(), ErrBo
     Ok(())
 }
 
-fn resolve_file_paths(config_map: &mut ConfigMap, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
+fn resolve_file_paths(config: &mut ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
     let mut file_patterns = Vec::new();
-    let includes = take_array_from_config_map(config_map, "includes")?;
-    let excludes = take_array_from_config_map(config_map, "excludes")?;
+    let includes = take_array_from_config_map(&mut config.config_map, "includes")?;
+    let excludes = take_array_from_config_map(&mut config.config_map, "excludes")?;
 
     file_patterns.extend(if args.file_patterns.is_empty() {
         includes
@@ -424,36 +438,7 @@ fn resolve_file_paths(config_map: &mut ConfigMap, args: &CliArgs, environment: &
         }
     }
 
-    environment.glob(args.get_base_directory_path(), &file_patterns)
-}
-
-fn get_config_map_from_args(args: &CliArgs, environment: &impl Environment) -> Result<ConfigMap, ErrBox> {
-    let config_file_path = args.get_config_file_path();
-    let config_file_text = match environment.read_file(config_file_path) {
-        Ok(file_text) => file_text,
-        Err(err) => {
-            // allow no config file when plugins are specified
-            if !args.plugin_urls.is_empty() && !environment.path_exists(config_file_path) {
-                let mut config_map = HashMap::new();
-                // hack: easy way to supress project type diagnostic check
-                config_map.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
-                return Ok(config_map);
-            }
-
-            return err!(
-                "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
-                config_file_path.to_string_lossy(),
-                err.to_string(),
-            )
-        },
-    };
-
-    let result = match configuration::deserialize_config(&config_file_text) {
-        Ok(map) => map,
-        Err(e) => return err!("Error deserializing. {}", e.to_string()),
-    };
-
-    Ok(result)
+    environment.glob(&config.base_path, &file_patterns)
 }
 
 // todo: move somewhere else (maybe make a wrapper around ConfigMap)
