@@ -6,13 +6,17 @@ use crate::configuration::{ConfigMap, ConfigMapValue, deserialize_config};
 use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::utils::{ResolvedPath, ResolvedPathSource};
+use crate::utils::{ResolvedPath, resolve_url_or_file_path, PathSource};
 
-use super::resolve_config_path;
+use super::resolve_main_config_path;
 
 pub struct ResolvedConfig {
     pub resolved_path: ResolvedPath,
     pub base_path: PathBuf,
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
+    pub plugins: Vec<String>,
+    pub project_type: Option<String>,
     pub config_map: ConfigMap,
 }
 
@@ -21,7 +25,7 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
     cache: &Cache<'a, TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ErrBox> {
-    let resolved_config_path = resolve_config_path(args, cache, environment).await?;
+    let resolved_config_path = resolve_main_config_path(args, cache, environment).await?;
     let config_file_path = &resolved_config_path.resolved_path.file_path;
     let main_config_map = get_config_map_from_path(config_file_path, environment)?;
 
@@ -44,21 +48,150 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
         }
     };
 
-    if resolved_config_path.resolved_path.source != ResolvedPathSource::Local {
-        // Careful! Ensure both of theses are removed.
-        let removed_includes = main_config_map.remove("includes").is_some();
-        let removed_excludes = main_config_map.remove("excludes").is_some();
+    // IMPORTANT
+    // =========
+    // Remove the includes and excludes from remote configuration since
+    // we don't want it specifying something like system or some configuration
+    // files that it could change. Basically, the end user should have 100%
+    // control over what files get formatted.
+    if !resolved_config_path.resolved_path.is_local() {
+        // Careful! Don't be fancy and ensure both of these are removed.
+        let removed_includes = main_config_map.remove("includes").is_some(); // NEVER REMOVE
+        let removed_excludes = main_config_map.remove("excludes").is_some(); // NEVER REMOVE
         let was_removed = removed_includes || removed_excludes;
         if was_removed && resolved_config_path.resolved_path.is_first_download {
             environment.log(&get_warn_includes_excludes_message());
         }
     }
+    // =========
 
-    Ok(ResolvedConfig {
+    let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
+    let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
+    let plugins = take_array_from_config_map(&mut main_config_map, "plugins")?;
+    let project_type = match main_config_map.remove("projectType") {
+        Some(ConfigMapValue::String(project_type)) => Some(project_type),
+        None => None,
+        _ => return err!("The projectType configuration should be a string."),
+    };
+    let extends = take_extends(&mut main_config_map)?;
+    let mut resolved_config = ResolvedConfig {
         resolved_path: resolved_config_path.resolved_path,
         base_path: resolved_config_path.base_path,
         config_map: main_config_map,
-    })
+        includes,
+        excludes,
+        plugins,
+        project_type,
+    };
+
+    // resolve extends
+    let base_source = resolved_config.resolved_path.source.parent();
+    resolve_extends(&mut resolved_config, extends, &base_source, cache, environment).await?;
+
+    Ok(resolved_config)
+}
+
+async fn resolve_extends<'a, TEnvironment : Environment>(
+    resolved_config: &mut ResolvedConfig,
+    extends: Vec<String>,
+    base_path: &PathSource,
+    cache: &Cache<'a, TEnvironment>,
+    environment: &TEnvironment,
+) -> Result<(), ErrBox> {
+    // Rust does not support async recursion without boxing, so this is done to avoid having to do recursion
+    let mut extends_items = extends.into_iter().map(|url_or_file_path| (base_path.clone(), url_or_file_path)).collect::<Vec<_>>();
+
+    let mut index = 0;
+    loop {
+        let (base_path, url_or_file_path) = match extends_items.get(index) {
+            Some(extends_item) => extends_item,
+            None => return Ok(()), // all done
+        };
+
+        let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, cache, environment).await?;
+        let extends = match handle_config_file(&resolved_path, resolved_config, environment).await {
+            Ok(extends) => extends,
+            Err(err) => return err!("Error with '{}'. {}", resolved_path.source.display(), err.to_string())
+        };
+
+        // push the current extends onto the extends items
+        let parent = resolved_path.source.parent();
+        extends_items.splice(index + 1..index + 1, extends.into_iter().map(|url_or_file_path| (parent.clone(), url_or_file_path)));
+
+        index += 1;
+    }
+}
+
+async fn handle_config_file<'a, TEnvironment : Environment>(
+    resolved_path: &ResolvedPath,
+    resolved_config: &mut ResolvedConfig,
+    environment: &TEnvironment,
+) -> Result<Vec<String>, ErrBox> {
+    let config_file_path = &resolved_path.file_path;
+    let mut new_config_map = match get_config_map_from_path(config_file_path, environment)? {
+        Ok(config_map) => config_map,
+        Err(err) => return Err(err),
+    };
+    let extends = take_extends(&mut new_config_map)?;
+
+    // Discard any properties that shouldn't be inherited
+    new_config_map.remove("projectType");
+    // IMPORTANT
+    // =========
+    // Remove the includes and excludes from all referenced configuration since
+    // we don't want it specifying something like system or some configuration
+    // files that it could change. Basically, the end user should have 100%
+    // control over what files get formatted.
+    new_config_map.remove("includes");
+    new_config_map.remove("excludes");
+    // =========
+
+    // combine plugins
+    resolved_config.plugins.extend(take_array_from_config_map(&mut new_config_map, "plugins")?);
+
+    for (key, value) in new_config_map {
+        match value {
+            ConfigMapValue::String(text) => {
+                if !resolved_config.config_map.contains_key(&key) {
+                    resolved_config.config_map.insert(key, ConfigMapValue::String(text));
+                }
+            },
+            ConfigMapValue::Vec(items) => {
+                if !resolved_config.config_map.contains_key(&key) {
+                    resolved_config.config_map.insert(key, ConfigMapValue::Vec(items));
+                }
+            },
+            ConfigMapValue::HashMap(obj) => {
+                if let Some(resolved_config_obj) = resolved_config.config_map.get_mut(&key) {
+                    match resolved_config_obj {
+                        ConfigMapValue::HashMap(resolved_config_obj) => {
+                            for (key, value) in obj {
+                                if !resolved_config_obj.contains_key(&key) {
+                                    resolved_config_obj.insert(key, value);
+                                }
+                            }
+                        },
+                        _ => {
+                            // ignore...
+                        }
+                    }
+                } else {
+                    resolved_config.config_map.insert(key, ConfigMapValue::HashMap(obj));
+                }
+            }
+        }
+    }
+
+    Ok(extends)
+}
+
+fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>, ErrBox> {
+    match config_map.remove("extends") {
+        Some(ConfigMapValue::String(url_or_file_path)) => Ok(vec![url_or_file_path]),
+        Some(ConfigMapValue::Vec(url_or_file_paths)) => Ok(url_or_file_paths),
+        Some(_) => return err!("Extends in configuration must be a string or an array of strings."),
+        None => Ok(Vec::new())
+    }
 }
 
 fn get_config_map_from_path(file_path: &PathBuf, environment: &impl Environment) -> Result<Result<ConfigMap, ErrBox>, ErrBox> {
@@ -69,10 +202,23 @@ fn get_config_map_from_path(file_path: &PathBuf, environment: &impl Environment)
 
     let result = match deserialize_config(&config_file_text) {
         Ok(map) => map,
-        Err(e) => return err!("Error deserializing {}. {}", file_path.display(), e.to_string()),
+        Err(e) => return err!("Error deserializing. {}", e.to_string()),
     };
 
     Ok(Ok(result))
+}
+
+fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>, ErrBox> {
+    let mut result = Vec::new();
+    if let Some(value) = config_map.remove(property_name) {
+        match value {
+            ConfigMapValue::Vec(elements) => {
+                result.extend(elements);
+            },
+            _ => return err!("Expected array in '{}' property.", property_name),
+        }
+    }
+    Ok(result)
 }
 
 fn get_warn_includes_excludes_message() -> String {
@@ -89,7 +235,6 @@ mod tests {
     use crate::cli::parse_args;
     use crate::environment::{Environment, TestEnvironment};
     use crate::types::ErrBox;
-    use crate::utils::ResolvedPathSource;
 
     use super::*;
 
@@ -105,17 +250,19 @@ mod tests {
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
-            "includes": [],
-            "excludes": []
+            "includes": ["test"],
+            "excludes": ["test"]
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
-        assert_eq!(result.resolved_path.source, ResolvedPathSource::Local);
-        assert_eq!(result.config_map.get("projectType").unwrap(), &ConfigMapValue::String(String::from("openSource")));
-        assert_eq!(result.config_map.contains_key("includes"), true);
-        assert_eq!(result.config_map.contains_key("excludes"), true);
+        assert_eq!(result.resolved_path.is_local(), true);
+        assert_eq!(result.project_type, Some(String::from("openSource")));
+        assert_eq!(result.config_map.contains_key("includes"), false);
+        assert_eq!(result.config_map.contains_key("excludes"), false);
+        assert_eq!(result.includes, vec!["test"]);
+        assert_eq!(result.excludes, vec!["test"]);
     }
 
     #[tokio::test]
@@ -129,8 +276,8 @@ mod tests {
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
-        assert_eq!(result.resolved_path.source, ResolvedPathSource::Remote);
-        assert_eq!(result.config_map.get("projectType").unwrap(), &ConfigMapValue::String(String::from("openSource")));
+        assert_eq!(result.resolved_path.is_remote(), true);
+        assert_eq!(result.project_type, Some(String::from("openSource")));
     }
 
     #[tokio::test]
@@ -139,17 +286,17 @@ mod tests {
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
-            "includes": []
+            "includes": ["test"]
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![get_warn_includes_excludes_message()]);
-        assert_eq!(result.config_map.contains_key("includes"), false);
+        assert_eq!(result.includes.len(), 0);
 
         environment.clear_logs();
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0); // no warning this time
-        assert_eq!(result.config_map.contains_key("includes"), false);
+        assert_eq!(result.includes.len(), 0);
     }
 
     #[tokio::test]
@@ -158,17 +305,17 @@ mod tests {
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
-            "excludes": []
+            "excludes": ["test"]
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![get_warn_includes_excludes_message()]);
-        assert_eq!(result.config_map.contains_key("excludes"), false);
+        assert_eq!(result.excludes.len(), 0);
 
         environment.clear_logs();
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0); // no warning this time
-        assert_eq!(result.config_map.contains_key("excludes"), false);
+        assert_eq!(result.excludes.len(), 0);
     }
 
     #[tokio::test]
@@ -183,14 +330,14 @@ mod tests {
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![get_warn_includes_excludes_message()]);
-        assert_eq!(result.config_map.contains_key("includes"), false);
-        assert_eq!(result.config_map.contains_key("excludes"), false);
+        assert_eq!(result.includes.len(), 0);
+        assert_eq!(result.excludes.len(), 0);
 
         environment.clear_logs();
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0); // no warning this time
-        assert_eq!(result.config_map.contains_key("includes"), false);
-        assert_eq!(result.config_map.contains_key("excludes"), false);
+        assert_eq!(result.includes.len(), 0);
+        assert_eq!(result.excludes.len(), 0);
     }
 
     #[tokio::test]
@@ -203,5 +350,311 @@ mod tests {
 
         get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_single_extends() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "plugins": ["https://plugins.dprint.dev/test-plugin2.wasm"],
+            "lineWidth": 4,
+            "otherProp": { "test": 4 }, // should ignore
+            "otherProp2": "a",
+            "test": {
+                "prop": 6,
+                "other": "test"
+            },
+            "test2": {
+                "prop": 2
+            },
+            "includes": ["test"],
+            "excludes": ["test"]
+        }"#.as_bytes());
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "https://dprint.dev/test.json",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
+            "lineWidth": 1,
+            "otherProp": 6,
+            "test": {
+                "prop": 5
+            },
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.base_path, PathBuf::from("./"));
+        assert_eq!(result.resolved_path.is_local(), true);
+        assert_eq!(result.project_type, None); // should always come from main config
+        assert_eq!(result.includes.len(), 0);
+        assert_eq!(result.excludes.len(), 0);
+        assert_eq!(result.plugins, vec![
+            "https://plugins.dprint.dev/test-plugin.wasm",
+            "https://plugins.dprint.dev/test-plugin2.wasm",
+        ]);
+
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("1")));
+        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::String(String::from("6")));
+        expected_config_map.insert(String::from("otherProp2"), ConfigMapValue::String(String::from("a")));
+        expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("5"));
+            obj.insert(String::from("other"), String::from("test"));
+            obj
+        }));
+        expected_config_map.insert(String::from("test2"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("2"));
+            obj
+        }));
+
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_array_extends() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "plugins": ["https://plugins.dprint.dev/test-plugin2.wasm"],
+            "lineWidth": 4,
+            "otherProp": 6,
+            "test": {
+                "prop": 6,
+                "other": "test"
+            },
+            "test2": {
+                "prop": 2
+            }
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/test2.json", r#"{
+            "plugins": ["https://plugins.dprint.dev/test-plugin3.wasm"],
+            "otherProp": 7,
+            "asdf": 4,
+            "test": {
+                "other": "test2"
+            }
+        }"#.as_bytes());
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": [
+                "https://dprint.dev/test.json",
+                "https://dprint.dev/test2.json",
+            ],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
+            "lineWidth": 1,
+            "test": {
+                "prop": 5
+            },
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.project_type, None);
+        assert_eq!(result.includes.len(), 0);
+        assert_eq!(result.excludes.len(), 0);
+        assert_eq!(result.plugins, vec![
+            "https://plugins.dprint.dev/test-plugin.wasm",
+            "https://plugins.dprint.dev/test-plugin2.wasm",
+            "https://plugins.dprint.dev/test-plugin3.wasm",
+        ]);
+
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("1")));
+        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::String(String::from("6")));
+        expected_config_map.insert(String::from("asdf"), ConfigMapValue::String(String::from("4")));
+        expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("5"));
+            obj.insert(String::from("other"), String::from("test"));
+            obj
+        }));
+        expected_config_map.insert(String::from("test2"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("2"));
+            obj
+        }));
+
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_extends_within_an_extends() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "extends": "https://dprint.dev/test2.json",
+            "plugins": ["https://plugins.dprint.dev/test-plugin2.wasm"],
+            "lineWidth": 4,
+            "otherProp": 6,
+            "test": {
+                "prop": 6,
+                "other": "test"
+            },
+            "test2": {
+                "prop": 2
+            }
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/test2.json", r#"{
+            "plugins": ["https://plugins.dprint.dev/test-plugin3.wasm"],
+            "otherProp": 7,
+            "asdf": 4,
+            "test": {
+                "other": "test2"
+            }
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/test3.json", r#"{
+            "asdf": 4,
+            "newProp": "test"
+        }"#.as_bytes());
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": [
+                "https://dprint.dev/test.json"
+                "https://dprint.dev/test3.json" // should have lowest precedence
+            ],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
+            "lineWidth": 1,
+            "test": {
+                "prop": 5
+            },
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.project_type, None);
+        assert_eq!(result.includes.len(), 0);
+        assert_eq!(result.excludes.len(), 0);
+        assert_eq!(result.plugins, vec![
+            "https://plugins.dprint.dev/test-plugin.wasm",
+            "https://plugins.dprint.dev/test-plugin2.wasm",
+            "https://plugins.dprint.dev/test-plugin3.wasm",
+        ]);
+
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("1")));
+        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::String(String::from("6")));
+        expected_config_map.insert(String::from("asdf"), ConfigMapValue::String(String::from("4")));
+        expected_config_map.insert(String::from("newProp"), ConfigMapValue::String(String::from("test")));
+        expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("5"));
+            obj.insert(String::from("other"), String::from("test"));
+            obj
+        }));
+        expected_config_map.insert(String::from("test2"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("2"));
+            obj
+        }));
+
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_relative_remote_extends() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "extends": "dir/test.json",
+            "prop1": 1
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/dir/test.json", r#"{
+            "extends": "../otherDir/test.json",
+            "prop2": 2
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/otherDir/test.json", r#"{
+            "extends": "https://test.dprint.dev/test.json",
+            "prop3": 3
+        }"#.as_bytes());
+        environment.add_remote_file("https://test.dprint.dev/test.json", r#"{
+            "extends": [
+                "other.json",
+                "dir/test.json"
+            ],
+            "prop4": 4,
+        }"#.as_bytes());
+        environment.add_remote_file("https://test.dprint.dev/other.json", r#"{
+            "prop5": 5,
+        }"#.as_bytes());
+        environment.add_remote_file("https://test.dprint.dev/dir/test.json", r#"{
+            "prop6": 6,
+        }"#.as_bytes());
+
+        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
+        expected_config_map.insert(String::from("prop2"), ConfigMapValue::String(String::from("2")));
+        expected_config_map.insert(String::from("prop3"), ConfigMapValue::String(String::from("3")));
+        expected_config_map.insert(String::from("prop4"), ConfigMapValue::String(String::from("4")));
+        expected_config_map.insert(String::from("prop5"), ConfigMapValue::String(String::from("5")));
+        expected_config_map.insert(String::from("prop6"), ConfigMapValue::String(String::from("6")));
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_relative_local_extends() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "https://dprint.dev/dir/test.json",
+            "prop1": 1
+        }"#).unwrap();
+        environment.add_remote_file("https://dprint.dev/dir/test.json", r#"{
+            "extends": "../otherDir/test.json",
+            "prop2": 2
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/otherDir/test.json", r#"{
+            "prop3": 3
+        }"#.as_bytes());
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
+        expected_config_map.insert(String::from("prop2"), ConfigMapValue::String(String::from("2")));
+        expected_config_map.insert(String::from("prop3"), ConfigMapValue::String(String::from("3")));
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_remote_in_local_extends() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "dir/test.json",
+            "prop1": 1
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/dir/test.json"), r#"{
+            "extends": "../otherDir/test.json",
+            "prop2": 2
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/otherDir/test.json"), r#"{
+            "prop3": 3
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
+        expected_config_map.insert(String::from("prop2"), ConfigMapValue::String(String::from("2")));
+        expected_config_map.insert(String::from("prop3"), ConfigMapValue::String(String::from("3")));
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_say_config_file_with_error() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "extends": "dir/test.json",
+            "prop1": 1
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/dir/test.json", r#"{
+            "prop2" 2
+        }"#.as_bytes());
+
+        let result = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
+        assert_eq!(result.to_string(), concat!(
+            "Error with 'https://dprint.dev/dir/test.json'. Error deserializing. ",
+            "Expected a colon after the string or word in an object property on line 2 column 21."
+        ));
     }
 }

@@ -7,7 +7,7 @@ use dprint_core::configuration::GlobalConfiguration;
 
 use crate::cache::Cache;
 use crate::environment::Environment;
-use crate::configuration::{self, ConfigMap, ConfigMapValue, get_global_config, get_plugin_config_map};
+use crate::configuration::{self, get_global_config, get_plugin_config_map};
 use crate::plugins::{initialize_plugin, Plugin, InitializedPlugin, PluginResolver};
 use crate::utils::{get_table_text, get_difference};
 use crate::types::ErrBox;
@@ -59,13 +59,13 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
     let file_paths = resolve_file_paths(&mut config, &args, environment)?;
 
     // resolve plugins
-    let plugins = resolve_plugins(&mut config.config_map, &args, plugin_resolver).await?;
+    let plugins = resolve_plugins(&mut config, &args, plugin_resolver).await?;
     if plugins.is_empty() {
         return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
     }
 
     // get project type diagnostic and global config
-    let project_type_result = check_project_type_diagnostic(&mut config.config_map);
+    let project_type_result = check_project_type_diagnostic(&config);
     let global_config = get_global_config(config.config_map, environment)?;
 
     // output resolved config
@@ -185,8 +185,8 @@ async fn get_plugins_from_args<'a, TEnvironment : Environment>(
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
     match resolve_config_from_args(args, cache, environment).await {
         Ok(config) => {
-            let mut config_map = config.config_map;
-            let plugins_with_config = resolve_plugins(&mut config_map, args, plugin_resolver).await?;
+            let mut config = config;
+            let plugins_with_config = resolve_plugins(&mut config, args, plugin_resolver).await?;
             Ok(plugins_with_config.into_iter().map(|p| p.plugin).collect())
         },
         Err(_) => {
@@ -373,33 +373,33 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     }
 }
 
-async fn resolve_plugins(config_map: &mut ConfigMap, args: &CliArgs, plugin_resolver: &impl PluginResolver) -> Result<Vec<PluginWithConfig>, ErrBox> {
-    let plugin_urls = get_plugin_urls(config_map, args)?;
+async fn resolve_plugins(config: &mut ResolvedConfig, args: &CliArgs, plugin_resolver: &impl PluginResolver) -> Result<Vec<PluginWithConfig>, ErrBox> {
+    let plugin_urls = get_plugin_urls(config, args)?;
     let plugins = plugin_resolver.resolve_plugins(&plugin_urls).await?;
     let mut plugins_with_config = Vec::new();
 
     for plugin in plugins.into_iter() {
         plugins_with_config.push(PluginWithConfig {
-            config: get_plugin_config_map(&plugin, config_map)?,
+            config: get_plugin_config_map(&plugin, &mut config.config_map)?,
             plugin,
         });
     }
 
     return Ok(plugins_with_config);
 
-    fn get_plugin_urls(config_map: &mut ConfigMap, args: &CliArgs) -> Result<Vec<String>, ErrBox> {
-        let plugin_urls_from_config = take_array_from_config_map(config_map, "plugins")?;
+    fn get_plugin_urls<'a>(config: &'a ResolvedConfig, args: &'a CliArgs) -> Result<&'a Vec<String>, ErrBox> {
+        let plugin_urls_from_config = &config.plugins;
 
         Ok(if args.plugin_urls.is_empty() {
             plugin_urls_from_config
         } else {
-            args.plugin_urls.clone()
+            &args.plugin_urls
         })
     }
 }
 
-fn check_project_type_diagnostic(config_map: &mut ConfigMap) -> Result<(), ErrBox> {
-    if let Some(diagnostic) = configuration::handle_project_type_diagnostic(config_map) {
+fn check_project_type_diagnostic(config: &ResolvedConfig) -> Result<(), ErrBox> {
+    if let Some(diagnostic) = configuration::handle_project_type_diagnostic(&config.project_type) {
         return err!("{}", diagnostic.message);
     }
 
@@ -408,17 +408,15 @@ fn check_project_type_diagnostic(config_map: &mut ConfigMap) -> Result<(), ErrBo
 
 fn resolve_file_paths(config: &mut ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
     let mut file_patterns = Vec::new();
-    let includes = take_array_from_config_map(&mut config.config_map, "includes")?;
-    let excludes = take_array_from_config_map(&mut config.config_map, "excludes")?;
 
     file_patterns.extend(if args.file_patterns.is_empty() {
-        includes
+        config.includes.clone()
     } else {
         args.file_patterns.clone()
     });
 
     file_patterns.extend(if args.exclude_file_patterns.is_empty() {
-        excludes
+        config.excludes.clone()
     } else {
         args.exclude_file_patterns.clone()
     }.into_iter().map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }));
@@ -439,20 +437,6 @@ fn resolve_file_paths(config: &mut ResolvedConfig, args: &CliArgs, environment: 
     }
 
     environment.glob(&config.base_path, &file_patterns)
-}
-
-// todo: move somewhere else (maybe make a wrapper around ConfigMap)
-fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>, ErrBox> {
-    let mut result = Vec::new();
-    if let Some(value) = config_map.remove(property_name) {
-        match value {
-            ConfigMapValue::Vec(elements) => {
-                result.extend(elements);
-            },
-            _ => return err!("Expected array in '{}' property.", property_name),
-        }
-    }
-    Ok(result)
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use bytes::Bytes;
 use super::super::types::ErrBox;
 
 #[async_trait]
-pub trait Environment : Clone + std::marker::Send + 'static {
+pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static {
     fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox>;
     fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox>;
     fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox>;
@@ -18,6 +18,7 @@ pub trait Environment : Clone + std::marker::Send + 'static {
     fn log_error(&self, text: &str);
     fn log_verbose(&self, text: &str);
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox>;
+    // async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox>;
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;
     fn get_time_secs(&self) -> u64;
     fn get_selection(&self, items: &Vec<String>) -> Result<usize, ErrBox>;

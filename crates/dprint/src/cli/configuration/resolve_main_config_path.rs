@@ -3,7 +3,7 @@ use crate::cache::Cache;
 use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::utils::{resolve_url_or_file_path, ResolvedPath};
+use crate::utils::{resolve_url_or_file_path, ResolvedPath, PathSource};
 
 const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.config.json";
 
@@ -12,16 +12,17 @@ pub struct ResolvedConfigPath {
     pub base_path: PathBuf,
 }
 
-pub async fn resolve_config_path<'a, TEnvironment : Environment>(
+pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
     args: &CliArgs,
     cache: &Cache<'a, TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<ResolvedConfigPath, ErrBox> {
     return Ok(if let Some(config) = &args.config {
-        let resolved_path = resolve_url_or_file_path(config, cache, environment).await?;
+        let base_path = PathBuf::from("./"); // use cwd as base path
+        let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), cache, environment).await?;
         ResolvedConfigPath {
             resolved_path,
-            base_path: PathBuf::from("./"), // use cwd as base path
+            base_path,
         }
     } else {
         get_default_paths(environment)

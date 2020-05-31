@@ -27,6 +27,19 @@
         }
       ]
     },
+    "extends": {
+      "description": "Configurations to extend.",
+      "anyOf": [{
+        "description": "A file path or url to a configuration file to extend.",
+        "type": "string"
+      }, {
+        "description": "A collection of file paths and/or urls to configuration files to extend.",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }]
+    },
     "lineWidth": {
       "description": "The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.",
       "type": "number",

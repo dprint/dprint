@@ -79,7 +79,6 @@ impl Environment for RealEnvironment {
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox> {
         log_verbose!(self, "Downloading url: {}", url);
 
-        // todo: docs say to use only one client (it has an internal connection pool)
         let client = Client::new();
         let mut resp = client.get(url).send().await?;
         let total_size = {
@@ -90,7 +89,6 @@ impl Environment for RealEnvironment {
             }
         };
 
-        // todo: support multiple progress bars downloading many files at the same time
         self.log(&format!("Downloading {}", url));
         // https://github.com/mitsuhiko/indicatif/blob/master/examples/download.rs
         let pb = ProgressBar::new(total_size.unwrap_or(0));
@@ -108,6 +106,50 @@ impl Environment for RealEnvironment {
 
         Ok(final_bytes.freeze())
     }
+
+    /*
+    async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox> {
+        log_verbose!(self, "Downloading urls: {}", urls.join(", "));
+
+        for url in urls.iter() {
+            self.log(&format!("Downloading {}", url));
+        }
+
+        // https://github.com/mitsuhiko/indicatif/blob/master/examples/multi.rs
+        let m = MultiProgress::new();
+        let sty = ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .progress_chars("#>-");
+
+        let client = Client::new();
+        let mut handles = Vec::with_capacity(urls.len());
+        for url in urls {
+            let mut resp = client.get(url).send().await?;
+            let total_size = {
+                if resp.status().is_success() {
+                    resp.content_length()
+                } else {
+                    return err!("Error downloading: {}. Status: {:?}", url, resp.status());
+                }
+            };
+            let pb = m.add(ProgressBar::new(total_size.unwrap_or(0)));
+            pb.set_style(sty.clone());
+            handles.push(tokio::task::spawn(async move {
+                let mut final_bytes = bytes::BytesMut::new();
+                while let Some(chunk) = resp.chunk().await? {
+                    final_bytes.extend_from_slice(&chunk);
+                    pb.set_position(final_bytes.len() as u64);
+                }
+                pb.finish_with_message("downloaded");
+                Ok(final_bytes.freeze())
+            }));
+        }
+
+        let result = futures::future::try_join_all(handles).await?;
+
+        Ok(result)
+    }
+    */
 
     fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         log_verbose!(self, "Globbing: {:?}", file_patterns);

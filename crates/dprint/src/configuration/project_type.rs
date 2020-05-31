@@ -1,22 +1,19 @@
 use dprint_core::configuration::ConfigurationDiagnostic;
 use crate::utils::get_table_text;
-use super::{ConfigMapValue, ConfigMap};
 
-/// Checks if the configuration has a missing "projectType" property.
+/// Checks if the configuration has a missing "project type" property.
 ///
 /// This is done to encourage companies to support the project. They obviously aren't required to though.
-/// Please discuss this with me if you have strong reservations about this. Note that this library took a lot of
+/// Please discuss this with me if you have strong reservations about this. Note that this application took a lot of
 /// time, effort, and previous built up knowledge and I'm happy to give it away for free to open source projects,
 /// but would like to see companies support it financially even if it's only in a small way.
-pub fn handle_project_type_diagnostic(config: &mut ConfigMap) -> Option<ConfigurationDiagnostic> {
-    let project_type_infos = get_project_type_infos();
+pub fn handle_project_type_diagnostic(project_type: &Option<String>) -> Option<ConfigurationDiagnostic> {
     let property_name = "projectType";
-    let has_project_type_config = match config.get(property_name) {
-        Some(ConfigMapValue::String(project_type)) => project_type_infos.iter().any(|info| info.name.to_lowercase() == project_type.to_lowercase()),
+    let project_type_infos = get_project_type_infos();
+    let has_project_type_config = match project_type {
+        Some(project_type) => project_type_infos.iter().any(|info| info.name.to_lowercase() == project_type.to_lowercase()),
         _ => false,
     };
-
-    config.remove(property_name);
 
     if has_project_type_config {
         None
@@ -66,33 +63,24 @@ pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use super::handle_project_type_diagnostic;
-    use super::super::ConfigMapValue;
 
     #[test]
     fn it_should_handle_when_project_type_exists() {
-        let mut config = HashMap::new();
-        config.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
-        let result = handle_project_type_diagnostic(&mut config);
-        assert_eq!(config.len(), 0); // should remove
+        let result = handle_project_type_diagnostic(&Some(String::from("openSource")));
         assert_eq!(result.is_none(), true);
     }
 
     #[test]
     fn it_should_be_case_insensitive() {
         // don't get people too upset :)
-        let mut config = HashMap::new();
-        config.insert(String::from("projectType"), ConfigMapValue::String(String::from("opensource")));
-        let result = handle_project_type_diagnostic(&mut config);
-        assert_eq!(config.len(), 0); // should remove
+        let result = handle_project_type_diagnostic(&Some(String::from("opensource")));
         assert_eq!(result.is_none(), true);
     }
 
     #[test]
     fn it_should_handle_when_project_type_not_exists() {
-        let mut config = HashMap::new();
-        let result = handle_project_type_diagnostic(&mut config);
+        let result = handle_project_type_diagnostic(&None);
         assert_eq!(result.is_some(), true);
         let result = result.unwrap();
         assert_eq!(result.property_name, "projectType");
@@ -110,20 +98,8 @@ Sponsor at: https://dprint.dev/sponsor"#);
     }
 
     #[test]
-    fn it_should_handle_when_project_type_not_string() {
-        let mut config = HashMap::new();
-        config.insert(String::from("projectType"), ConfigMapValue::HashMap(HashMap::new()));
-        let result = handle_project_type_diagnostic(&mut config);
-        assert_eq!(config.len(), 0); // should remove regardless
-        assert_eq!(result.is_some(), true);
-    }
-
-    #[test]
     fn it_should_handle_when_project_type_not_valid_option() {
-        let mut config = HashMap::new();
-        config.insert(String::from("projectType"), ConfigMapValue::String(String::from("test")));
-        let result = handle_project_type_diagnostic(&mut config);
-        assert_eq!(config.len(), 0); // should remove regardless
+        let result = handle_project_type_diagnostic(&Some(String::from("test")));
         assert_eq!(result.is_some(), true);
     }
 }

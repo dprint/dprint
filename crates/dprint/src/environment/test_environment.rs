@@ -6,6 +6,7 @@ use super::Environment;
 use super::super::types::ErrBox;
 use async_trait::async_trait;
 use bytes::Bytes;
+use path_clean::{PathClean};
 
 #[derive(Clone)]
 pub struct TestEnvironment {
@@ -74,7 +75,9 @@ impl Environment for TestEnvironment {
 
     fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox> {
         let files = self.files.lock().unwrap();
-        match files.get(file_path) {
+        // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
+        let file_path = PathBuf::from(file_path.to_string_lossy().replace("\\", "/"));
+        match files.get(&file_path.clean()) {
             Some(text) => Ok(text.clone()),
             None => err!("Could not find file at path {}", file_path.display()),
         }
@@ -86,13 +89,13 @@ impl Environment for TestEnvironment {
 
     fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox> {
         let mut files = self.files.lock().unwrap();
-        files.insert(file_path.clone(), Bytes::from(bytes.to_vec()));
+        files.insert(file_path.clean(), Bytes::from(bytes.to_vec()));
         Ok(())
     }
 
     fn remove_file(&self, file_path: &PathBuf) -> Result<(), ErrBox> {
         let mut files = self.files.lock().unwrap();
-        files.remove(file_path);
+        files.remove(&file_path.clean());
         Ok(())
     }
 
@@ -109,6 +112,16 @@ impl Environment for TestEnvironment {
             None => err!("Could not find file at url {}", url),
         }
     }
+
+    /*
+    async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox> {
+        let mut result = Vec::with_capacity(urls.len());
+        for url in urls {
+            result.push(self.download_file(url).await);
+        }
+        Ok(result)
+    }
+    */
 
     fn glob(&self, _: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         // todo: would be nice to test the base parameter here somehow...
@@ -142,7 +155,7 @@ impl Environment for TestEnvironment {
 
     fn path_exists(&self, file_path: &PathBuf) -> bool {
         let files = self.files.lock().unwrap();
-        files.contains_key(file_path)
+        files.contains_key(&file_path.clean())
     }
 
     fn cwd(&self) -> Result<PathBuf, ErrBox> {

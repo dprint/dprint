@@ -9,6 +9,9 @@ pub fn load_instance(compiled_module_bytes: &[u8]) -> Result<wasmer_runtime::Ins
     let compiler = wasmer_runtime::compiler_for_backend(wasmer_runtime::Backend::default()).expect("Expect to have a compiler");
     let module = unsafe { wasmer_runtime_core::load_cache_with(artifact, &*compiler).unwrap() };
     let import_object = wasmer_runtime::imports! {};
-    let instance = module.instantiate(&import_object)?;
-    Ok(instance)
+
+    match module.instantiate(&import_object) {
+        Ok(instance) => Ok(instance),
+        Err(err) => err!("Error instantiating module: {}", err),
+    }
 }

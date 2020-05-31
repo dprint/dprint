@@ -1,4 +1,6 @@
-pub type ErrBox = Box<dyn std::error::Error>;
+use std::error::Error as StdError;
+
+pub type ErrBox = Box<dyn StdError + Send + Sync>;
 
 #[derive(std::fmt::Debug)]
 pub struct Error(String);
@@ -15,7 +17,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl StdError for Error {}
 
 macro_rules! err {
     ($($arg:tt)*) => {
