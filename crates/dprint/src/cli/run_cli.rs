@@ -208,7 +208,7 @@ fn output_resolved_config(
     environment: &impl Environment,
 ) -> Result<(), ErrBox> {
     for plugin_with_config in plugins_with_config {
-        let config_keys = plugin_with_config.plugin.config_keys().to_owned();
+        let config_key = String::from(plugin_with_config.plugin.config_key());
         let initialized_plugin = initialize_plugin(
             plugin_with_config.plugin,
             plugin_with_config.config,
@@ -219,7 +219,7 @@ fn output_resolved_config(
 
         let key_values: HashMap<String, String> = serde_json::from_str(&text).unwrap();
         let pretty_text = serde_json::to_string_pretty(&key_values).unwrap();
-        environment.log(&format!("{}: {}", config_keys.join("/"), pretty_text));
+        environment.log(&format!("{}: {}", config_key, pretty_text));
     }
 
     Ok(())

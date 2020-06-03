@@ -8,8 +8,8 @@ pub struct PluginInfo {
     pub name: String,
     /// The version of the plugin.
     pub version: String,
-    /// Gets the possible keys that can be used in the configuration JSON.
-    pub config_keys: Vec<String>,
+    /// Gets the key that can be used in the configuration JSON.
+    pub config_key: String,
     /// The file extensions this plugin supports.
     pub file_extensions: Vec<String>,
     /// A url the user can go to in order to get help information about the plugin.
@@ -84,7 +84,7 @@ pub mod macros {
                 let info_json = serde_json::to_string(&PluginInfo {
                     name: String::from(env!("CARGO_PKG_NAME")),
                     version: String::from(env!("CARGO_PKG_VERSION")),
-                    config_keys: get_plugin_config_keys(),
+                    config_key: get_plugin_config_key(),
                     file_extensions: get_plugin_file_extensions(),
                     help_url: get_plugin_help_url(),
                     config_schema_url: get_plugin_config_schema_url(),

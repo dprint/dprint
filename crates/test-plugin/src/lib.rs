@@ -23,8 +23,8 @@ pub fn resolve_config(config: HashMap<String, String>, _: &GlobalConfiguration) 
     }
 }
 
-fn get_plugin_config_keys() -> Vec<String> {
-    vec![String::from("test-plugin")]
+fn get_plugin_config_key() -> String {
+    String::from("test-plugin")
 }
 
 fn get_plugin_file_extensions() -> Vec<String> {

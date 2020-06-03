@@ -105,7 +105,7 @@ mod test {
         // should have saved the manifest
         assert_eq!(
             environment.read_file(&environment.get_cache_dir().unwrap().join("cache-manifest.json")).unwrap(),
-            r#"{"plugin:https://plugins.dprint.dev/test.wasm":{"fileName":"test.compiled_wasm","createdTime":123456,"metaData":"{\"name\":\"test-plugin\",\"version\":\"0.1.0\",\"configKeys\":[\"test-plugin\"],\"fileExtensions\":[\"txt\",\"dat\"],\"helpUrl\":\"test-url\",\"configSchemaUrl\":\"schema-url\"}"}}"#,
+            r#"{"plugin:https://plugins.dprint.dev/test.wasm":{"fileName":"test.compiled_wasm","createdTime":123456,"metaData":"{\"name\":\"test-plugin\",\"version\":\"0.1.0\",\"configKey\":\"test-plugin\",\"fileExtensions\":[\"txt\",\"dat\"],\"helpUrl\":\"test-url\",\"configSchemaUrl\":\"schema-url\"}"}}"#,
         );
         Ok(())
     }
@@ -143,7 +143,7 @@ mod test {
         PluginInfo {
             name: String::from("test-plugin"),
             version: String::from("0.1.0"),
-            config_keys: vec![String::from("test-plugin")],
+            config_key: String::from("test-plugin"),
             file_extensions: vec![String::from("txt"), String::from("dat")],
             help_url: String::from("test-url"),
             config_schema_url: String::from("schema-url"),

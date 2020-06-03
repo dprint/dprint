@@ -18,26 +18,15 @@ fn get_plugin_config_map_inner(
     plugin: &Box<dyn Plugin>,
     config_map: &mut ConfigMap,
 ) -> Result<HashMap<String, String>, ErrBox> {
-    let mut key_name = None;
-    let config_keys = plugin.config_keys();
-    for config_key in config_keys {
-        if config_map.contains_key(config_key) {
-            if let Some(key_name) = key_name {
-                return err!("Cannot specify both the '{}' and '{}' configurations for {}.", key_name, config_key, plugin.name());
-            } else {
-                key_name = Some(config_key);
-            }
-        }
-    }
+    let config_key = plugin.config_key();
 
-    if let Some(key_name) = key_name {
-        let plugin_config_map = config_map.remove(key_name).unwrap();
+    if let Some(plugin_config_map) = config_map.remove(config_key) {
         if let ConfigMapValue::HashMap(plugin_config_map) = plugin_config_map {
             let mut plugin_config_map = plugin_config_map;
             plugin_config_map.remove("$schema");
             Ok(plugin_config_map)
         } else {
-            return err!("Expected the configuration property '{}' to be an object.", key_name);
+            return err!("Expected the configuration property '{}' to be an object.", config_key);
         }
     } else {
         Ok(HashMap::new())
@@ -69,26 +58,6 @@ mod tests {
     }
 
     #[test]
-    fn it_should_error_when_has_double_plugin_config_keys() {
-        let mut config_map = HashMap::new();
-        config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("80")));
-        config_map.insert(String::from("typescript"), {
-            let mut map = HashMap::new();
-            map.insert(String::from("lineWidth"), String::from("40"));
-            ConfigMapValue::HashMap(map)
-        });
-        config_map.insert(String::from("javascript"), {
-            let mut map = HashMap::new();
-            map.insert(String::from("lineWidth"), String::from("40"));
-            ConfigMapValue::HashMap(map)
-        });
-        assert_errors(
-            &mut config_map,
-            "Cannot specify both the 'typescript' and 'javascript' configurations for dprint-plugin-typescript.",
-        );
-    }
-
-    #[test]
     fn it_should_error_plugin_key_is_not_object() {
         let mut config_map = HashMap::new();
         config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("80")));
@@ -108,7 +77,7 @@ mod tests {
     fn create_plugin() -> TestPlugin {
         TestPlugin::new(
             "dprint-plugin-typescript",
-            vec!["typescript", "javascript"],
+            "typescript",
             vec![".ts"]
         )
     }

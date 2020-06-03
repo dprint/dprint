@@ -10,7 +10,7 @@ pub trait Plugin : std::marker::Send {
     /// The version of the plugin.
     fn version(&self) -> &str;
     /// Gets the possible keys that can be used in the configuration JSON.
-    fn config_keys(&self) -> &Vec<String>;
+    fn config_key(&self) -> &str;
     /// Gets the file extensions.
     fn file_extensions(&self) -> &Vec<String>;
     /// Gets the help url.
@@ -33,17 +33,17 @@ pub trait InitializedPlugin {
 #[cfg(test)]
 pub struct TestPlugin {
     name: &'static str,
-    config_keys: Vec<String>,
+    config_key: String,
     file_extensions: Vec<String>,
     initialized_test_plugin: Option<InitializedTestPlugin>,
 }
 
 #[cfg(test)]
 impl TestPlugin {
-    pub fn new(name: &'static str, config_keys: Vec<&'static str>, file_extensions: Vec<&'static str>) -> TestPlugin {
+    pub fn new(name: &'static str, config_key: &'static str, file_extensions: Vec<&'static str>) -> TestPlugin {
         TestPlugin {
             name,
-            config_keys: config_keys.into_iter().map(String::from).collect(),
+            config_key: String::from(config_key),
             file_extensions: file_extensions.into_iter().map(String::from).collect(),
             initialized_test_plugin: Some(InitializedTestPlugin::new()),
         }
@@ -56,7 +56,7 @@ impl Plugin for TestPlugin {
     fn version(&self) -> &str { "1.0.0" }
     fn help_url(&self) -> &str { "https://dprint.dev/plugins/test" }
     fn config_schema_url(&self) -> &str { "https://plugins.dprint.dev/schemas/test.json" }
-    fn config_keys(&self) -> &Vec<String> { &self.config_keys }
+    fn config_key(&self) -> &str { &self.config_key }
     fn file_extensions(&self) -> &Vec<String> { &self.file_extensions }
     fn initialize(&mut self, _: HashMap<String, String>, _: &GlobalConfiguration) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         Ok(Box::new(self.initialized_test_plugin.take().unwrap()))

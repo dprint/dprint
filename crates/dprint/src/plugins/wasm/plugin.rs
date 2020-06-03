@@ -32,8 +32,8 @@ impl Plugin for WasmPlugin {
         &self.plugin_info.version
     }
 
-    fn config_keys(&self) -> &Vec<String> {
-        &self.plugin_info.config_keys
+    fn config_key(&self) -> &str {
+        &self.plugin_info.config_key
     }
 
     fn file_extensions(&self) -> &Vec<String> {
