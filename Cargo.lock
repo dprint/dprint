@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "debug-here",
  "dprint-core",
@@ -2250,9 +2250,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.23.1"
+version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5824a6d526e19b8efd550af53a74611928b76493410ad9499e94b299f6469dc1"
+checksum = "1efa1c06e10cfb5182396d707fe38cbf3bec4e38ef670277e73643dbcb5245b0"
 dependencies = [
  "either",
  "enum_kind",
