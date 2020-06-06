@@ -4,9 +4,6 @@
   "private": true,
   "homepage": "https://dprint.dev/playground",
   "dependencies": {
-    "@dprint/core": "*",
-    "@dprint/types": "*",
-    "dprint-plugin-typescript": "*",
     "lz-string": "^1.4.4",
     "monaco-editor": "^0.20.0",
     "react": "^16.13.1",

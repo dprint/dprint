@@ -4,11 +4,10 @@ import "./index.css";
 import { Playground } from "./Playground";
 import { Spinner } from "./components";
 import * as serviceWorker from "./serviceWorker";
-import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "dprint-plugin-typescript";
 
 interface LoaderState {
-    formatText: ((text: string, configuration: TypeScriptConfiguration) => string) | undefined;
-    resolveConfig: ((configuration: TypeScriptConfiguration) => ResolvedTypeScriptConfiguration) | undefined;
+    formatText: ((text: string, configuration: any) => string) | undefined;
+    resolveConfig: ((configuration: any) => any) | undefined;
 }
 
 class Loader extends React.Component<{}, LoaderState> {
@@ -30,7 +29,7 @@ class Loader extends React.Component<{}, LoaderState> {
                     }
                 },
                 resolveConfig: config => {
-                    return JSON.parse(wasmPkg.resolve_config(getConfigAsMap(config))) as ResolvedTypeScriptConfiguration;
+                    return JSON.parse(wasmPkg.resolve_config(getConfigAsMap(config)));
                 },
             });
         }).catch(console.error);
@@ -48,7 +47,7 @@ ReactDOM.render(<Loader />, document.getElementById("root"));
 
 serviceWorker.unregister();
 
-function getConfigAsMap(config: TypeScriptConfiguration) {
+function getConfigAsMap(config: any) {
     const map = new Map();
     for (let key of Object.keys(config)) {
         const value = (config as any)[key] as unknown;

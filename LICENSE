@@ -1,0 +1,9 @@
+Copyright (c) 2019-2020 David Sherret
+
+At the moment:
+
+* crates/core - MIT
+* crates/development - MIT
+* All other code - You may not use for any purpose at this time. The above will remain MIT, but the
+  rest will take on a different licensing strategy going forward (will always be completely free
+  for open source use).

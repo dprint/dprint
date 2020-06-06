@@ -1,5 +1,7 @@
 # Overview
 
+**NOTE**: This document is out of date, but outlines the basic idea of how it works.
+
 1. Source code is parsed to an AST (recommended, but not required).
 2. AST is traversed and IR is generated.
 3. IR is printed by printer.

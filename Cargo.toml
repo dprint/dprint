@@ -2,13 +2,9 @@
 members = [
     "crates/core",
     "crates/development",
-    "crates/dprint",
-    "crates/dprint-plugin-jsonc",
-    "crates/dprint-plugin-typescript"
+    "crates/dprint"
 ]
 exclude = [
     "crates/test-plugin",
-    "packages/dprint-plugin-jsonc/wasm",
-    "packages/dprint-plugin-typescript/wasm",
     "packages/playground/wasm"
 ]

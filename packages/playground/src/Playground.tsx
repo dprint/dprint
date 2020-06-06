@@ -1,21 +1,20 @@
 import React from "react";
 import SplitPane from "react-split-pane";
-import { TypeScriptConfiguration, ResolvedTypeScriptConfiguration } from "dprint-plugin-typescript";
 import { CodeEditor, ConfigurationSelection, ExternalLink } from "./components";
 import { UrlSaver } from "./utils";
 import "./Playground.css";
 import "./external/react-splitpane.css";
 
 export interface PlaygroundProps {
-    formatText: (text: string, config: TypeScriptConfiguration) => string;
-    resolveConfig: (config: TypeScriptConfiguration) => ResolvedTypeScriptConfiguration;
+    formatText: (text: string, config: any) => string;
+    resolveConfig: (config: any) => any;
 }
 
 export interface PlaygroundState {
     text: string;
     formattedText: string;
     scrollTop: number;
-    config: TypeScriptConfiguration;
+    config: any;
 }
 
 const initialLineWidth = 80;
@@ -32,7 +31,7 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
 
         const { text: initialText, config: initialUnresolvedConfig } = urlSaver.getUrlInfo();
         const initialConfig = this.resolveConfig(initialUnresolvedConfig);
-        const config: TypeScriptConfiguration = {
+        const config: any = {
             lineWidth: initialConfig.lineWidth,
             indentWidth: initialConfig.indentWidth,
             useTabs: initialConfig.useTabs,
@@ -111,7 +110,7 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
         );
     }
 
-    private onConfigUpdate(config: TypeScriptConfiguration) {
+    private onConfigUpdate(config: any) {
         this.setState({ config, formattedText: this.getFormattedText(config) });
         this.updateUrl({ text: this.state.text, config });
     }
@@ -129,11 +128,11 @@ export class Playground extends React.Component<PlaygroundProps, PlaygroundState
         }, 250);
     }
 
-    private updateUrl(urlInfo: { text: string; config: TypeScriptConfiguration; }) {
+    private updateUrl(urlInfo: { text: string; config: any; }) {
         urlSaver.updateUrl(urlInfo);
     }
 
-    private getFormattedText(config?: TypeScriptConfiguration) {
+    private getFormattedText(config?: any) {
         return this.formatText(this.state.text, config || this.state.config);
     }
 
