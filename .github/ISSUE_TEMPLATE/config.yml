@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Deno fmt bug report
+    url: https://github.com/dprint/dprint-plugin-typescript/issues/new?template=deno-fmt-bug-report.md
+    about: Create a report about a bug with the `deno fmt` command
+  - name: TypeScript/JavaScript formatting feature or bug
+    url: https://github.com/dprint/dprint-plugin-typescript/issues/new/choose
+    about: Please open TypeScript/JavaScript formatting issues here
+  - name: JSON formatting feature or bug
+    url: https://github.com/dprint/dprint-plugin-json/issues/new/choose
+    about: Please open JSON formatting issues here

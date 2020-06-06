@@ -1,6 +1,6 @@
 ---
-name: Bug report
-about: Create a report to help us improve
+name: CLI bug report
+about: Create a report about the CLI to help us improve
 title: ''
 labels: ''
 assignees: ''
@@ -11,17 +11,3 @@ assignees: ''
 
 Version: x.x.x
 
-**Input Code**
-
-```
-```
-
-**Expected Output**
-
-```
-```
-
-**Actual Output**
-
-```
-```
