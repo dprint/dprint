@@ -1,6 +1,6 @@
 # dprint
 
-dprint is a configurable and pluggable code formatting platform.
+dprint is a pluggable and configurable code formatting platform.
 
 Currently only TypeScript, JavaScript, and JSONC are supported.
 
