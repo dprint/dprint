@@ -14,7 +14,7 @@ const converter = new showdown.Converter({ extensions: ["codehighlight"] });
 converter.setFlavor("github");
 
 // index.html
-const indexMd = fs.readFileSync("docs/home.md", { encoding: "utf8" });
+const indexMd = fs.readFileSync("../docs/home.md", { encoding: "utf8" });
 fs.writeFileSync("build-website/index.html", processMarkdown(indexMd));
 
 // sponsor/index.html
@@ -35,7 +35,7 @@ fs.unlinkSync(templateHtmlPageFilePath);
 
 /** @param {string} [filePath] - Relative path to the file without extension. */
 function buildForPath(filePath) {
-    const sponsorMd = fs.readFileSync("docs/" + filePath + ".md", { encoding: "utf8" });
+    const sponsorMd = fs.readFileSync("../docs/" + filePath + ".md", { encoding: "utf8" });
     fs.mkdirSync("build-website/" + filePath);
     fs.writeFileSync("build-website/" + filePath + "/index.html", processMarkdown(sponsorMd));
 }

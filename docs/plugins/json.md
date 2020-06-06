@@ -30,7 +30,7 @@ module.exports.config = {
 
 Links:
 
-* [Type Declarations](https://github.com/dprint/dprint/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)
+* [Type Declarations](https://github.com/dprint/dprint-node/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)
 
 
 ### Configuration

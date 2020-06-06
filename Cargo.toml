@@ -6,5 +6,5 @@ members = [
 ]
 exclude = [
     "crates/test-plugin",
-    "packages/playground/wasm"
+    "website/playground/wasm"
 ]

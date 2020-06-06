@@ -1,12 +1,9 @@
-/build-website
+scripts/build-website
+scripts/node_modules
 /.rpt2_cache
 *.js.map
-npm-debug.log
-yarn-error.log
-yarn.lock
-package-lock.json
 target
 /crates/development/target
 /crates/test-plugin/target
 /crates/test-plugin/Cargo.lock
-/packages/playground/wasm/target
+/website/playground/wasm/target

@@ -1,4 +1,4 @@
-import { TypeScriptConfiguration } from "dprint-plugin-typescript";
+//import { TypeScriptConfiguration } from "dprint-plugin-typescript";
 import { decompressFromEncodedURIComponent, compressToEncodedURIComponent } from "lz-string";
 
 export class UrlSaver {
@@ -23,7 +23,7 @@ export class UrlSaver {
             }
         }
 
-        function getConfig(): TypeScriptConfiguration {
+        function getConfig(): any {
             const matches = /config\/([^/]+)/.exec(locationHash);
             if (matches == null || matches.length !== 2)
                 return getDefaultConfig();
@@ -35,7 +35,7 @@ export class UrlSaver {
                 return getDefaultConfig();
             }
 
-            function getDefaultConfig(): TypeScriptConfiguration {
+            function getDefaultConfig(): any {
                 return {
                     lineWidth: 80,
                 };
@@ -43,7 +43,7 @@ export class UrlSaver {
         }
     }
 
-    updateUrl({ text, config }: { text: string; config: TypeScriptConfiguration; }) {
+    updateUrl({ text, config }: { text: string; config: any; }) {
         window.history.replaceState(
             undefined,
             "",

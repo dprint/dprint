@@ -2,15 +2,6 @@
 # It is not intended for manual editing.
 [[package]]
 name = "ahash"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f33b5018f120946c1dcf279194f238a9f146725593ead1c08fa47ff22b0b5d3"
-dependencies = [
- "const-random",
-]
-
-[[package]]
-name = "ahash"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35b909d1c126f78ace756fc337133356c499eebeefcce930fa5fb018823f2b2d"
@@ -177,14 +168,16 @@ version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93b8a57df1b6a3f0a96df85297d506a871b31252df23f969b9837ccb5d07455c"
 dependencies = [
- "ahash 0.3.3",
+ "ahash",
  "cfg-if",
  "num_cpus",
 ]
 
 [[package]]
 name = "dprint-core"
-version = "0.19.1"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e932279bfbf2e280772f1708be5502d7ff2de6a3afb388d24a38f4fdf9fe91f5"
 dependencies = [
  "serde",
 ]
@@ -203,7 +196,9 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-typescript"
-version = "0.17.2"
+version = "0.19.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50b1a94e7824e2b41a4c7eddd39516070c283bc7f525a76fdc9230efbf2b56b5"
 dependencies = [
  "dprint-core",
  "serde",
@@ -273,16 +268,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "wasi",
-]
-
-[[package]]
-name = "hashbrown"
-version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e6073d0ca812575946eb5f35ff68dbe519907b25c42530389ff946dc84c6ead"
-dependencies = [
- "ahash 0.2.18",
- "autocfg 0.1.7",
 ]
 
 [[package]]
@@ -894,9 +879,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "0.5.9"
+version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f17c61920fa7307f5ea35ecf5f05d455a2610cdb2582dbcf81dbeaa361a3788"
+checksum = "ac5dc408a5004d6d82914e8c415f4c2a8c716b53ff766ab13af9bf0e5a286d98"
 dependencies = [
  "ast_node",
  "atty",
@@ -905,7 +890,6 @@ dependencies = [
  "either",
  "from_variant",
  "fxhash",
- "hashbrown",
  "log",
  "parking_lot",
  "scoped-tls",
@@ -918,9 +902,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "0.18.1"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31fb43e08500984ecb795ac12cc41a7dac3e55cc649a5e576fd808917a35a525"
+checksum = "cb6105718e50b118ff100acda244b6df4f3f46de76b03e5d1baeaa3e69f97a6a"
 dependencies = [
  "enum_kind",
  "num-bigint",
@@ -932,9 +916,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.21.10"
+version = "0.24.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eb9f7ffcb1d0fac1a6002a5775ef56defcc44dff43e333bbe6fe3804062fde1"
+checksum = "3b06bb3791cf307722bb7645f36509217649d36ac21e82493a37a8adcdce1d83"
 dependencies = [
  "either",
  "enum_kind",
