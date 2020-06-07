@@ -136,14 +136,20 @@ pub mod macros {
             pub fn set_global_config() {
                 let text = take_string_from_shared_bytes();
                 let global_config: dprint_core::configuration::GlobalConfiguration = serde_json::from_str(&text).unwrap();
-                unsafe { GLOBAL_CONFIG.replace(global_config); }
+                unsafe {
+                    GLOBAL_CONFIG.replace(global_config);
+                    RESOLVE_CONFIGURATION_RESULT.take(); // clear
+                }
             }
 
             #[no_mangle]
             pub fn set_plugin_config() {
                 let text = take_string_from_shared_bytes();
                 let plugin_config: std::collections::HashMap<String, String> = serde_json::from_str(&text).unwrap();
-                unsafe { PLUGIN_CONFIG.replace(plugin_config); }
+                unsafe {
+                    PLUGIN_CONFIG.replace(plugin_config);
+                    RESOLVE_CONFIGURATION_RESULT.take(); // clear
+                }
             }
 
             // LOW LEVEL SENDING AND RECEIVING

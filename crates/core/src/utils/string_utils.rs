@@ -49,6 +49,9 @@ pub fn format_diagnostic(range: Option<(usize, usize)>, message: &str, file_text
 fn get_range_text_highlight(file_text: &str, range: (usize, usize)) -> String {
     // todo: cleanup... kind of confusing
     let ((text_start, text_end), (error_start, error_end)) = get_text_and_error_range(range, file_text);
+    if text_end > file_text.len() {
+        return format!("Error formatting diagnostic. Position {} was outside the length of the string.", text_end);
+    }
     let sub_text = &file_text[text_start..text_end];
 
     let mut result = String::new();
