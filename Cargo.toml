@@ -5,6 +5,5 @@ members = [
     "crates/dprint"
 ]
 exclude = [
-    "crates/test-plugin",
-    "website/playground/wasm"
+    "crates/test-plugin"
 ]

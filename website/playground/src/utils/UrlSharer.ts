@@ -1,4 +1,4 @@
-//import { TypeScriptConfiguration } from "dprint-plugin-typescript";
+// import { TypeScriptConfiguration } from "dprint-plugin-typescript";
 import { decompressFromEncodedURIComponent, compressToEncodedURIComponent } from "lz-string";
 
 export class UrlSaver {
@@ -7,7 +7,8 @@ export class UrlSaver {
 
         return {
             text: getText(),
-            config: getConfig(),
+            configText: getConfigText(),
+            language: getLanguage(),
         };
 
         function getText() {
@@ -23,32 +24,58 @@ export class UrlSaver {
             }
         }
 
-        function getConfig(): any {
+        function getConfigText(): string | undefined {
             const matches = /config\/([^/]+)/.exec(locationHash);
             if (matches == null || matches.length !== 2)
-                return getDefaultConfig();
+                return undefined;
 
             try {
-                return JSON.parse(decompress(matches[1]));
+                return decompress(matches[1]);
             } catch (err) {
                 console.error(err);
-                return getDefaultConfig();
+                return undefined;
             }
+        }
 
-            function getDefaultConfig(): any {
-                return {
-                    lineWidth: 80,
-                };
+        function getLanguage(): "typescript" | "json" {
+            const matches = /language\/([^/]+)/.exec(locationHash);
+            if (matches == null || matches.length !== 2)
+                return "typescript";
+
+            try {
+                switch (decompress(matches[1])) {
+                    case "json":
+                        return "json";
+                    case "typescript":
+                    default:
+                        return "typescript";
+                }
+            } catch (err) {
+                console.error(err);
+                return "typescript";
             }
         }
     }
 
-    updateUrl({ text, config }: { text: string; config: any; }) {
-        window.history.replaceState(
-            undefined,
-            "",
-            `#code/${compressToEncodedURIComponent(text)}/config/${compressToEncodedURIComponent(JSON.stringify(config))}`,
-        );
+    updateUrl({ text, configText, language }: { text: string; configText?: string; language?: "typescript" | "json"; }) {
+        if (language == null) {
+            window.history.replaceState(
+                undefined,
+                "",
+                ``,
+            );
+        }
+        else {
+            let url = `#code/${compressToEncodedURIComponent(text)}`;
+            if (configText != null)
+                url += `/config/${compressToEncodedURIComponent(configText)}`;
+            url += `/language/${language}`;
+            window.history.replaceState(
+                undefined,
+                "",
+                url,
+            );
+        }
     }
 }
 

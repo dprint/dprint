@@ -28,21 +28,6 @@
       work correctly both with client-side routing and a non-root public URL.
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
-    <!-- monaco editor setup -->
-    <script src="%PUBLIC_URL%/vs/loader.js"></script>
-    <script>
-      require.config({
-        paths: {
-          "vs": "%PUBLIC_URL%/vs"
-        }
-      });
-      window.MonacoEnvironment = {
-        getWorkerUrl: function (workerId, label) {
-          return "vs/base/worker/workerMain.js";
-        }
-      };
-    </script>
-    <!-- end monaco editor setup -->
     <title>Playground - dprint</title>
   </head>
   <body>

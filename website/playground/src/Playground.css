@@ -19,6 +19,11 @@ a {
   color: white;
 }
 
+.container {
+  height: 100%;
+  width: 100%;
+}
+
 #headerRight {
   flex: 1;
   text-align: right;
@@ -28,16 +33,24 @@ a {
   margin-left: 5px;
 }
 
-/* Code Editor */
-
-#codeEditor {
-  height: 100%;
-  position: relative;
+.playgroundSubTitle {
+  background-color: #4d5564;
+  padding: 5px 10px;
+  font-size: 1.2rem;
 }
 
-/* Configuration */
+.row {
+  display: flex;
+}
 
-.Pane.Pane1 {
-  overflow-y: auto;
-  background-color: #322834;
+.column {
+  margin-left: 10px;
+}
+
+/* Code Editor */
+
+.codeEditor {
+  height: 100%;
+  width: 100%;
+  position: relative;
 }

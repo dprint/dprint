@@ -9,7 +9,7 @@
  */
 export function createStreaming(response) {
     return WebAssembly.instantiateStreaming(response)
-        .then(obj => createFormatterFromWasmInstance(obj.instance));
+        .then(obj => createFromInstance(obj.instance));
 }
 
 /**
@@ -42,7 +42,8 @@ export function createFromInstance(wasmInstance) {
         get_wasm_memory_buffer_size,
         add_to_shared_bytes_from_buffer,
         set_buffer_with_shared_bytes,
-        clear_shared_bytes
+        clear_shared_bytes,
+        reset_config,
     } = wasmInstance.exports;
 
     const pluginSchemaVersion = get_plugin_schema_version();
@@ -65,39 +66,25 @@ export function createFromInstance(wasmInstance) {
          * @param {object} pluginConfig - Plugin configuration.
          */
         setConfig(globalConfig, pluginConfig) {
-            sendString(JSON.stringify(globalConfig));
-            set_global_config();
-            sendString(JSON.stringify(getPluginConfigWithStringProps()));
-            set_plugin_config();
-            configSet = true;
-
-            function getPluginConfigWithStringProps() {
-                // Need to convert all the properties to strings so
-                // they will be deserialized to a HashMap<String, String>.
-                const newPluginConfig = {};
-                for (const key of Object.keys(pluginConfig)) {
-                    newPluginConfig[key] = pluginConfig[key].toString();
-                }
-                return newPluginConfig;
-            }
+            setConfig(globalConfig, pluginConfig);
         },
         /**
          * Gets the configuration diagnostics.
          * @returns {{ propertyName: string; message: string; }[]} The configuration diagnostics.
          */
         getConfigDiagnostics() {
-            throwIfConfigNotSet();
+            setConfigIfNotSet();
             const length = get_config_diagnostics();
             return JSON.parse(receiveString(length));
         },
         /**
          * Gets the resolved configuration.
-         * @returns {string} A string representation of the resolved configuration.
+         * @returns {object} An object containing the resolved configuration.
          */
         getResolvedConfig() {
-            throwIfConfigNotSet();
+            setConfigIfNotSet();
             const length = get_resolved_config();
-            return receiveString(length);
+            return JSON.parse(receiveString(length));
         },
         /**
          * Gets the plugin info.
@@ -122,7 +109,7 @@ export function createFromInstance(wasmInstance) {
          * @throws If there is an error formatting.
          */
         formatText(filePath, fileText) {
-            throwIfConfigNotSet();
+            setConfigIfNotSet();
             sendString(filePath);
             set_file_path();
 
@@ -135,13 +122,33 @@ export function createFromInstance(wasmInstance) {
                     return receiveString(get_formatted_text());
                 case 2: // error
                     throw new Error(receiveString(get_error_text()));
+                default:
+                    throw new Error(`Unexpected response code: ${responseCode}`);
             }
-        }
+        },
     };
 
-    function throwIfConfigNotSet() {
-        if (!configSet) {
-            throw new Error("You must call setConfig before calling this function.");
+    function setConfigIfNotSet() {
+        if (!configSet)
+            setConfig({}, {});
+    }
+
+    function setConfig(globalConfig, pluginConfig) {
+        if (reset_config != null)
+            reset_config();
+        sendString(JSON.stringify(globalConfig));
+        set_global_config();
+        sendString(JSON.stringify(getPluginConfigWithStringProps()));
+        set_plugin_config();
+        configSet = true;
+
+        function getPluginConfigWithStringProps() {
+            // Need to convert all the properties to strings so
+            // they will be deserialized to a HashMap<String, String>.
+            const newPluginConfig = {};
+            for (const key of Object.keys(pluginConfig))
+                newPluginConfig[key] = pluginConfig[key].toString();
+            return newPluginConfig;
         }
     }
 
@@ -158,7 +165,8 @@ export function createFromInstance(wasmInstance) {
             const writeCount = Math.min(length - index, bufferSize);
             const pointer = get_wasm_memory_buffer();
             const wasmBuffer = new Uint8Array(wasmInstance.exports.memory.buffer, pointer, writeCount);
-            wasmBuffer.set(encodedText, index);
+            for (let i = 0; i < writeCount; i++)
+                wasmBuffer[i] = encodedText[index + i];
             add_to_shared_bytes_from_buffer(writeCount);
             index += writeCount;
         }
@@ -173,7 +181,8 @@ export function createFromInstance(wasmInstance) {
             set_buffer_with_shared_bytes(index, readCount);
             const pointer = get_wasm_memory_buffer();
             const wasmBuffer = new Uint8Array(wasmInstance.exports.memory.buffer, pointer, readCount);
-            buffer.set(wasmBuffer);
+            for (let i = 0; i < readCount; i++)
+                buffer[index + i] = wasmBuffer[i];
             index += readCount;
         }
         const decoder = new TextDecoder();

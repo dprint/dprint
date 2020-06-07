@@ -12,7 +12,7 @@ function writeFile(pluginName, interfaceName, schemaFileName) {
 }
 
 function buildText(pluginName, interfaceName, schemaFileName) {
-    const project = new Project({ tsConfigFilePath: `./packages/${pluginName}/tsconfig.json` });
+    const project = new Project({ tsConfigFilePath: `V:/dprint-node/packages/${pluginName}/tsconfig.json` });
     const configFile = project.getSourceFileOrThrow("Configuration.ts");
     const configClass = configFile.getInterfaceOrThrow(interfaceName);
     const propDefinitions = configClass.getProperties().map(getPropertyDefinition);
@@ -29,6 +29,8 @@ function buildText(pluginName, interfaceName, schemaFileName) {
                 writer.quote(prop.name).write(": ").inlineBlock(() => {
                     writer.quote("description").write(": ").quote(santizeDescription(prop.description)).write(",").newLine();
                     writer.quote("type").write(": ").quote(prop.type === "union" ? "string" : "boolean").write(",").newLine();
+                    if (prop.defaultValue != null)
+                        writer.quote("default").write(": ").write(prop.defaultValue.toString()).write(",").newLine();
                     writer.quote("oneOf").write(": [");
                     for (const [index, value] of prop.values.entries()) {
                         writer.conditionalWrite(index > 0, ", ");
@@ -62,6 +64,8 @@ function buildText(pluginName, interfaceName, schemaFileName) {
                         writer.quote("$ref").write(": ").quote(`#/definitions/${name}`);
                     else if (prop.type === "string" || prop.type === "number") {
                         writer.quote("description").write(": ").quote(santizeDescription(prop.description)).write(",").newLine();
+                        if (prop.defaultValue != null)
+                            writer.quote("default").write(": ").write(prop.defaultValue.toString()).write(",").newLine();
                         writer.quote("type").write(": ").quote(prop.type);
                     }
                     else if (prop.type === "ref")
@@ -122,6 +126,7 @@ function getPropertyDefinition(prop) {
         description,
         values,
         reference,
+        defaultValue: getDefaultValue(prop),
     };
 }
 
@@ -180,9 +185,35 @@ function getBoolValues(prop) {
     }
 }
 
+/**
+ * @param {import("ts-morph").PropertySignature} [prop]
+ */
+function getDefaultValue(prop) {
+    const jsDoc = prop.getJsDocs()[0];
+    const tags = jsDoc && jsDoc.getTags() || [];
+
+    const defaultTag = tags.find(t => t.getTagName() === "default");
+    let result = defaultTag && defaultTag.getComment().trim();
+    if (result == null)
+        return null;
+    if (result.startsWith("`") && result.endsWith("`"))
+        result = result.substring(1, result.length - 1);
+
+    if (result === "true")
+        return true;
+    else if (result === "false")
+        return false;
+    else if (result.startsWith("\"") && result.endsWith("\""))
+        return result;
+    else if (!isNaN(parseInt(result, 10)))
+        return parseInt(result, 10);
+    else
+        throw new Error("Not handled value: " + result);
+}
+
 /** @param {string} [text] */
 function santizeDescription(text) {
-    text = (text || "").trim().split(/\r?\n/g).join(" ");
+    text = (text || "").trim().split(/\r?\n/g).join(" ").split(/\r/).join(" ");
     text = text.replace(/\\`/g, "`");
     return text;
 }

@@ -1,15 +1,22 @@
 import React from "react";
-import ReactMonacoEditorForTypes from "react-monaco-editor";
-import * as monacoEditorForTypes from "monaco-editor";
+import type ReactMonacoEditorForTypes from "react-monaco-editor";
+import type * as monacoEditorForTypes from "monaco-editor";
 import { Spinner } from "./Spinner";
 
 export interface CodeEditorProps {
     onChange?: (text: string) => void;
     text?: string;
     readonly?: boolean;
-    lineWidth: number;
-    scrollTop: number;
-    onScrollTopChange: (scrollTop: number) => void;
+    lineWidth?: number;
+    scrollTop?: number;
+    jsonSchemaUrl?: string;
+    onScrollTopChange?: (scrollTop: number) => void;
+    language: Language;
+}
+
+export enum Language {
+    TypeScript = "typescript",
+    Json = "json",
 }
 
 export interface CodeEditorState {
@@ -18,6 +25,8 @@ export interface CodeEditorState {
 
 export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState> {
     private editor: monacoEditorForTypes.editor.IStandaloneCodeEditor | undefined;
+    private monacoEditor: typeof monacoEditorForTypes | undefined;
+    private outerContainerRef = React.createRef<HTMLDivElement>();
 
     constructor(props: CodeEditorProps) {
         super(props);
@@ -28,15 +37,19 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
 
         const reactMonacoEditorPromise = import("react-monaco-editor");
         import("monaco-editor").then(monacoEditor => {
-            monacoEditor.languages.typescript.typescriptDefaults.setCompilerOptions({
-                noLib: true,
-                target: monacoEditor.languages.typescript.ScriptTarget.ESNext,
-                allowNonTsExtensions: true,
-            });
-            monacoEditor.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-                noSyntaxValidation: true,
-                noSemanticValidation: true,
-            });
+            this.monacoEditor = monacoEditor;
+            if (this.props.language === Language.TypeScript) {
+                monacoEditor.languages.typescript.typescriptDefaults.setCompilerOptions({
+                    noLib: true,
+                    target: monacoEditor.languages.typescript.ScriptTarget.ESNext,
+                    allowNonTsExtensions: true,
+                });
+                monacoEditor.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+                    noSyntaxValidation: true,
+                    noSemanticValidation: true,
+                });
+            }
+
             monacoEditor.editor.defineTheme("dprint-theme", {
                 base: "vs-dark",
                 inherit: true,
@@ -60,9 +73,10 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
 
     render() {
         this.updateScrollTop();
+        this.updateJsonSchema();
 
         return (
-            <div id="codeEditor">
+            <div className="codeEditor" ref={this.outerContainerRef}>
                 {this.getEditor()}
             </div>
         );
@@ -80,16 +94,16 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
                 height="100%"
                 value={this.props.text}
                 theme="dprint-theme"
-                language="typescript"
+                language={this.props.language}
                 onChange={text => this.props.onChange && this.props.onChange(text)}
                 editorDidMount={this.editorDidMount}
                 options={{
-                    automaticLayout: true,
+                    automaticLayout: false,
                     renderWhitespace: "all",
                     readOnly: this.props.readonly || false,
                     minimap: { enabled: false },
                     quickSuggestions: false,
-                    rulers: [this.props.lineWidth],
+                    rulers: this.props.lineWidth == null ? [] : [this.props.lineWidth],
                 }}
             />
         );
@@ -111,6 +125,25 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
             if (e.scrollTopChanged && this.props.onScrollTopChange)
                 this.props.onScrollTopChange(e.scrollTop);
         });
+
+        // manually refresh the layout of the editor (lightweight compared to monaco editor)
+        let lastHeight = 0;
+        let lastWidth = 0;
+        setInterval(() => {
+            const containerElement = this.outerContainerRef.current;
+            if (containerElement == null)
+                return;
+
+            const width = containerElement.offsetWidth;
+            const height = containerElement.offsetHeight;
+            if (lastHeight === height && lastWidth === width)
+                return;
+
+            editor.layout();
+
+            lastHeight = height;
+            lastWidth = width;
+        }, 500);
     }
 
     private lastScrollTop = 0;
@@ -120,8 +153,26 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
 
         // todo: not sure how to not do this in the render method? I'm not a react/web person.
         setTimeout(() => {
-            this.editor!.setScrollTop(this.props.scrollTop);
-            this.lastScrollTop = this.props.scrollTop;
+            if (this.props.scrollTop != null) {
+                this.editor!.setScrollTop(this.props.scrollTop);
+                this.lastScrollTop = this.props.scrollTop;
+            }
         }, 0);
+    }
+
+    private updateJsonSchema() {
+        if (this.monacoEditor != null && this.props.jsonSchemaUrl != null) {
+            if (this.monacoEditor.languages.json.jsonDefaults.diagnosticsOptions.schemas?.[0]?.uri !== this.props.jsonSchemaUrl) {
+                this.monacoEditor.languages.json.jsonDefaults.setDiagnosticsOptions({
+                    validate: true,
+                    allowComments: true,
+                    enableSchemaRequest: true,
+                    schemas: [{
+                        uri: this.props.jsonSchemaUrl,
+                        fileMatch: ["*"],
+                    }],
+                });
+            }
+        }
     }
 }

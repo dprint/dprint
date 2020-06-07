@@ -19,9 +19,8 @@
     "**/*.{ts,tsx,js,jsx,json}"
   ],
   "excludes": [
-    "packages/playground/public/vs",
-    "packages/playground/build",
-    "build-website",
+    "website/playground/build",
+    "scripts/build-website",
     "**/dist",
     "**/target",
     "**/wasm"

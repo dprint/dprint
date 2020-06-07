@@ -1,142 +1,153 @@
-import React from "react";
+import React, { useState, useCallback, useMemo, useEffect, ChangeEvent } from "react";
 import SplitPane from "react-split-pane";
-import { CodeEditor, ConfigurationSelection, ExternalLink } from "./components";
-import { UrlSaver } from "./utils";
+import { CodeEditor, ExternalLink, Language } from "./components";
+import { Spinner } from "./components";
 import "./Playground.css";
 import "./external/react-splitpane.css";
+import { Formatter } from "./types";
+import { PluginInfo } from "./plugins";
 
 export interface PlaygroundProps {
-    formatText: (text: string, config: any) => string;
-    resolveConfig: (config: any) => any;
-}
-
-export interface PlaygroundState {
+    formatter: Formatter | undefined;
+    configText: string;
+    onConfigTextChanged: (text: string) => void;
     text: string;
-    formattedText: string;
-    scrollTop: number;
-    config: any;
+    onTextChanged: (text: string) => void;
+    selectedPlugin: PluginInfo;
+    plugins: PluginInfo[];
+    onSelectPlugin: (plugin: PluginInfo) => void;
+    isLoading: boolean;
 }
 
-const initialLineWidth = 80;
-const urlSaver = new UrlSaver();
+export function Playground({
+    formatter,
+    configText,
+    onConfigTextChanged,
+    text,
+    onTextChanged,
+    selectedPlugin,
+    plugins,
+    onSelectPlugin,
+    isLoading,
+}: PlaygroundProps) {
+    const [scrollTop, setScrollTop] = useState(0);
+    const [formattedText, setFormattedText] = useState("");
+    const [fileExtension, setFileExtension] = useState<string | undefined>(undefined);
+    const [fileExtensions, setFileExtensions] = useState<string[]>([]);
 
-export class Playground extends React.Component<PlaygroundProps, PlaygroundState> {
-    private readonly formatText: PlaygroundProps["formatText"];
-    private readonly resolveConfig: PlaygroundProps["resolveConfig"];
+    useEffect(() => {
+        setFileExtensions(formatter?.getFileExtensions() ?? []);
+        setFileExtension(formatter?.getFileExtensions()[0]);
+    }, [formatter]);
 
-    constructor(props: PlaygroundProps) {
-        super(props);
-        this.formatText = props.formatText;
-        this.resolveConfig = props.resolveConfig;
-
-        const { text: initialText, config: initialUnresolvedConfig } = urlSaver.getUrlInfo();
-        const initialConfig = this.resolveConfig(initialUnresolvedConfig);
-        const config: any = {
-            lineWidth: initialConfig.lineWidth,
-            indentWidth: initialConfig.indentWidth,
-            useTabs: initialConfig.useTabs,
-            semiColons: initialConfig.semiColons,
-            quoteStyle: initialConfig.quoteStyle,
-            trailingCommas: initialConfig["tupleType.trailingCommas"],
-            useBraces: initialConfig["ifStatement.useBraces"],
-            bracePosition: initialConfig["arrowFunction.bracePosition"],
-            singleBodyPosition: initialConfig["ifStatement.singleBodyPosition"],
-            nextControlFlowPosition: initialConfig["ifStatement.nextControlFlowPosition"],
-            operatorPosition: initialConfig["binaryExpression.operatorPosition"],
-            preferHanging: initialConfig["arrayExpression.preferHanging"],
-            preferSingleLine: initialConfig["parameters.preferSingleLine"],
-            "enumDeclaration.memberSpacing": initialConfig["enumDeclaration.memberSpacing"],
-            "arrowFunction.useParentheses": initialConfig["arrowFunction.useParentheses"],
-        };
-
-        this.state = {
-            text: initialText,
-            formattedText: this.formatText(initialText, config),
-            scrollTop: 0,
-            config,
-        };
-
-        this.onConfigUpdate = this.onConfigUpdate.bind(this);
-        this.onTextChange = this.onTextChange.bind(this);
-        this.onScrollTopChange = this.onScrollTopChange.bind(this);
-    }
-
-    render() {
-        return (
-            <div className="App">
-                <SplitPane split="horizontal" defaultSize={50} allowResize={false}>
-                    <header className="appHeader">
-                        <h1 id="title">dprint - Playground</h1>
-                        <div id="headerRight">
-                            <a href="/">Overview</a>
-                            <a href="/playground">Playground</a>
-                            <a href="/sponsor">Sponsor</a>
-                            <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
-                        </div>
-                    </header>
-                    {/* Todo: re-enable resizing, but doesn't seem to work well with monaco editor on
-                    the right side as it won't reduce its width after being expanded. */}
-                    <SplitPane split="vertical" minSize={50} defaultSize={200} allowResize={false}>
-                        <ConfigurationSelection
-                            config={this.state.config}
-                            onUpdateConfig={this.onConfigUpdate}
-                        />
-                        <SplitPane
-                            split="vertical"
-                            minSize={50}
-                            defaultSize="50%"
-                            allowResize={false}
-                            pane1Style={{ overflowX: "hidden", overflowY: "hidden" }}
-                            pane2Style={{ overflowX: "hidden", overflowY: "hidden" }}
-                        >
-                            <CodeEditor
-                                onChange={this.onTextChange}
-                                text={this.state.text}
-                                lineWidth={this.state.config.lineWidth || initialLineWidth}
-                                onScrollTopChange={this.onScrollTopChange}
-                                scrollTop={this.state.scrollTop}
-                            />
-                            <CodeEditor
-                                text={this.state.formattedText}
-                                readonly={true}
-                                lineWidth={this.state.config.lineWidth || initialLineWidth}
-                                onScrollTopChange={this.onScrollTopChange}
-                                scrollTop={this.state.scrollTop}
-                            />
-                        </SplitPane>
-                    </SplitPane>
-                </SplitPane>
-            </div>
-        );
-    }
-
-    private onConfigUpdate(config: any) {
-        this.setState({ config, formattedText: this.getFormattedText(config) });
-        this.updateUrl({ text: this.state.text, config });
-    }
-
-    private lastUpdateTimeout: NodeJS.Timeout | undefined;
-    private onTextChange(newText: string) {
-        if (this.lastUpdateTimeout != null)
-            clearTimeout(this.lastUpdateTimeout);
-
-        this.setState({ text: newText });
-
-        this.lastUpdateTimeout = setTimeout(() => {
-            this.setState({ formattedText: this.getFormattedText() });
-            this.updateUrl({ text: newText, config: this.state.config });
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            if (formatter == null)
+                setFormattedText("No formatter loaded.");
+            else {
+                formatter.setConfig(configText);
+                setFormattedText(formatter.formatText(
+                    fileExtension ?? "ts",
+                    text,
+                ));
+            }
         }, 250);
-    }
 
-    private updateUrl(urlInfo: { text: string; config: any; }) {
-        urlSaver.updateUrl(urlInfo);
-    }
+        return () => clearTimeout(timeout);
+    }, [fileExtension, text, formatter, configText]);
 
-    private getFormattedText(config?: any) {
-        return this.formatText(this.state.text, config || this.state.config);
-    }
+    const lineWidth = useMemo(() => {
+        try {
+            const lineWidth = parseInt(JSON.parse(configText).lineWidth, 10);
+            if (!isNaN(lineWidth))
+                return lineWidth;
+        } catch (err) {
+            // ignore
+        }
+        return 80;
+    }, [configText]);
+    const onFileExtensionChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+        setFileExtension(event.target.value);
+    }, [setFileExtension]);
 
-    private onScrollTopChange(scrollTop: number) {
-        this.setState({ scrollTop });
-    }
+    return (
+        <div className="App">
+            <SplitPane split="horizontal" defaultSize={50} allowResize={false}>
+                <header className="appHeader">
+                    <h1 id="title">dprint - Playground</h1>
+                    <div id="headerRight">
+                        <a href="/">Overview</a>
+                        <a href="/playground">Playground</a>
+                        <a href="/sponsor">Sponsor</a>
+                        <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
+                    </div>
+                </header>
+                <SplitPane
+                    split="vertical"
+                    minSize={50}
+                    defaultSize="50%"
+                    allowResize={true}
+                    pane1Style={{ overflowX: "hidden", overflowY: "hidden" }}
+                    pane2Style={{ overflowX: "hidden", overflowY: "hidden" }}
+                >
+                    <SplitPane
+                        split="horizontal"
+                        allowResize={true}
+                        defaultSize="60%"
+                        pane1Style={{ overflowX: "hidden", overflowY: "hidden" }}
+                        pane2Style={{ overflowX: "hidden", overflowY: "hidden" }}
+                    >
+                        <div className="container">
+                            <div className="playgroundSubTitle">
+                                <div className="row">
+                                    <div className="column">
+                                        Plugin:
+                                    </div>
+                                    <div className="column" style={{ flex: 1, display: "flex" }}>
+                                        <select onChange={e => onSelectPlugin(plugins[e.target.selectedIndex])} style={{ flex: 1 }}>
+                                            {plugins.map((pluginInfo, i) => <option key={i}>{pluginInfo.url}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="column" style={{ display: "flex" }}>
+                                        <select value={fileExtension} onChange={onFileExtensionChange}>
+                                            {fileExtensions.map((ext, i) => <option key={i} value={ext}>{"."}{ext}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <CodeEditor
+                                language={Language.TypeScript}
+                                onChange={onTextChanged}
+                                text={text}
+                                lineWidth={lineWidth}
+                                onScrollTopChange={setScrollTop}
+                                scrollTop={scrollTop}
+                            />
+                        </div>
+                        <div className="container">
+                            <div className="playgroundSubTitle">
+                                Configuration
+                            </div>
+                            <CodeEditor
+                                language={Language.Json}
+                                onChange={onConfigTextChanged}
+                                jsonSchemaUrl={selectedPlugin.configSchemaUrl}
+                                text={configText}
+                            />
+                        </div>
+                    </SplitPane>
+                    <div className="container">
+                        {isLoading ? <Spinner /> : <CodeEditor
+                            language={Language.TypeScript}
+                            text={formattedText}
+                            readonly={true}
+                            lineWidth={lineWidth}
+                            onScrollTopChange={setScrollTop}
+                            scrollTop={scrollTop}
+                        />}
+                    </div>
+                </SplitPane>
+            </SplitPane>
+        </div>
+    );
 }

@@ -7,4 +7,4 @@ edition = "2018"
 license = "MIT"
 
 [dependencies]
-dprint-core = { path = "../core", version = "0.21.0" }
+dprint-core = { path = "../core", version = "0.21.1" }

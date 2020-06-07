@@ -31,7 +31,7 @@ module.exports.config = {
 Links:
 
 * [Type Declarations](https://github.com/dprint/dprint-node/blob/master/packages/dprint-plugin-jsonc/lib/dprint-plugin-jsonc.d.ts)
-
+* [Playground](https://dprint.dev/playground#language/json)
 
 ### Configuration
 

@@ -1,62 +1,124 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom";
 import "./index.css";
 import { Playground } from "./Playground";
-import { Spinner } from "./components";
 import * as serviceWorker from "./serviceWorker";
+import { Formatter } from "./types";
+import { Spinner } from "./components";
+import { getPluginInfo, PluginInfo, getPluginDefaultConfig } from "./plugins";
+import { UrlSaver } from "./utils";
+import * as formatterModule from "./utils/formatter/v1"; // should be copied by post install script
 
-interface LoaderState {
-    formatText: ((text: string, configuration: any) => string) | undefined;
-    resolveConfig: ((configuration: any) => any) | undefined;
-}
+const urlSaver = new UrlSaver();
+const initialUrl = urlSaver.getUrlInfo();
+let isFirstLoad = true;
 
-class Loader extends React.Component<{}, LoaderState> {
-    constructor(props: {}) {
-        super(props);
+function Loader() {
+    const [plugins, setPlugins] = useState<PluginInfo[]>([]);
+    const [plugin, setPlugin] = useState<PluginInfo | undefined>();
+    const [formatter, setFormatter] = useState<Formatter | undefined>(undefined);
+    const [text, setText] = useState(initialUrl.text);
+    const [configText, setConfigText] = useState(initialUrl.configText ?? "");
+    const [defaultConfigText, setDefaultConfigText] = useState("");
+    const [isLoading, setIsLoading] = useState(true);
 
-        this.state = {
-            formatText: undefined,
-            resolveConfig: undefined,
-        };
+    useEffect(() => {
+        getPluginInfo().then(plugins => {
+            setPlugins(plugins);
+            setPlugin(plugins.find(p => p.language === initialUrl.language ?? "typescript")!);
+        });
+    }, []);
 
-        import("./wasm").then(wasmPkg => {
-            this.setState({
-                formatText: (text, config) => {
-                    try {
-                        return wasmPkg.format_text(text, getConfigAsMap(config));
-                    } catch (err) {
-                        return "Panic formatting file. Check console for details and report this bug.";
-                    }
-                },
-                resolveConfig: config => {
-                    return JSON.parse(wasmPkg.resolve_config(getConfigAsMap(config)));
-                },
+    useEffect(() => {
+        if (formatter == null || plugin == null)
+            return;
+
+        urlSaver.updateUrl({
+            text,
+            configText: configText === defaultConfigText ? undefined : configText,
+            language: plugin.language,
+        });
+    }, [formatter, text, configText, plugin, defaultConfigText]);
+
+    useEffect(() => {
+        setIsLoading(true);
+
+        if (plugin == null)
+            return;
+
+        const defaultConfigPromise = getPluginDefaultConfig(plugin);
+
+        Promise.all([formatterModule.createStreaming(fetch(plugin.url)), defaultConfigPromise])
+            .then(([formatter, defaultConfigText]) => {
+                const pluginInfo = formatter.getPluginInfo();
+                const fileExtensions = [...pluginInfo.fileExtensions];
+                let lastConfigText = "";
+
+                setFormatter({
+                    formatText(fileExtension: string, fileText) {
+                        try {
+                            return formatter.formatText("file." + fileExtension, fileText);
+                        } catch (err) {
+                            console.error(err);
+                            return err.message;
+                        }
+                    },
+                    setConfig(configText) {
+                        if (lastConfigText === configText)
+                            return;
+
+                        let config;
+                        try {
+                            config = JSON.parse(configText);
+                            if (config.lineWidth == null)
+                                config.lineWidth = 80;
+                        } catch (err) {
+                            // ignore for now
+                            return;
+                        }
+                        formatter.setConfig({}, config);
+                        lastConfigText = configText;
+                    },
+                    getFileExtensions() {
+                        return fileExtensions;
+                    },
+                    getConfigSchemaUrl() {
+                        return pluginInfo.configSchemaUrl;
+                    },
+                });
+
+                if (isFirstLoad && initialUrl.configText != null) {
+                    setConfigText(initialUrl.configText);
+                    isFirstLoad = false;
+                }
+                else {
+                    setConfigText(defaultConfigText);
+                }
+                setDefaultConfigText(defaultConfigText);
+                setIsLoading(false);
+            })
+            .catch(err => {
+                console.error(err);
+                alert("There was an error loading the plugin. Check the console or try refreshing the page.");
             });
-        }).catch(console.error);
-    }
+    }, [plugin]);
 
-    render() {
-        if (this.state.formatText == null || this.state.resolveConfig == null)
-            return <Spinner />;
-        else
-            return <Playground formatText={this.state.formatText} resolveConfig={this.state.resolveConfig} />;
-    }
+    if (plugin == null)
+        return <Spinner />;
+
+    return <Playground
+        formatter={formatter}
+        text={text}
+        onTextChanged={setText}
+        configText={configText}
+        onConfigTextChanged={setConfigText}
+        plugins={plugins}
+        selectedPlugin={plugin}
+        onSelectPlugin={setPlugin}
+        isLoading={isLoading}
+    />;
 }
 
 ReactDOM.render(<Loader />, document.getElementById("root"));
 
 serviceWorker.unregister();
-
-function getConfigAsMap(config: any) {
-    const map = new Map();
-    for (let key of Object.keys(config)) {
-        const value = (config as any)[key] as unknown;
-        if (value == null)
-            continue;
-        else if (typeof value === "string" || typeof value === "boolean" || typeof value === "number")
-            map.set(key, value.toString());
-        else
-            throw new Error(`Not supported value type '${typeof value}' for key '${key}'.`);
-    }
-    return map;
-}
