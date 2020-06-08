@@ -43,7 +43,7 @@ export class UrlSaver {
                 return "typescript";
 
             try {
-                switch (decompress(matches[1])) {
+                switch (matches[1]) {
                     case "json":
                         return "json";
                     case "typescript":

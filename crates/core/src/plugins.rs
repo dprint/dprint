@@ -154,7 +154,7 @@ pub mod macros {
 
             // LOW LEVEL SENDING AND RECEIVING
 
-            const WASM_MEMORY_BUFFER_SIZE: usize = 1024;
+            const WASM_MEMORY_BUFFER_SIZE: usize = 4 * 1024;
             static mut WASM_MEMORY_BUFFER: [u8; WASM_MEMORY_BUFFER_SIZE] = [0; WASM_MEMORY_BUFFER_SIZE];
             static mut SHARED_BYTES: Vec<u8> = Vec::new();
 

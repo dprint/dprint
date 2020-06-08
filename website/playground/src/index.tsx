@@ -3,11 +3,10 @@ import ReactDOM from "react-dom";
 import "./index.css";
 import { Playground } from "./Playground";
 import * as serviceWorker from "./serviceWorker";
-import { Formatter } from "./types";
 import { Spinner } from "./components";
 import { getPluginInfo, PluginInfo, getPluginDefaultConfig } from "./plugins";
 import { UrlSaver } from "./utils";
-import * as formatterModule from "./utils/formatter/v1"; // should be copied by post install script
+import * as formatterWorker from "./FormatterWorker";
 
 const urlSaver = new UrlSaver();
 const initialUrl = urlSaver.getUrlInfo();
@@ -16,21 +15,35 @@ let isFirstLoad = true;
 function Loader() {
     const [plugins, setPlugins] = useState<PluginInfo[]>([]);
     const [plugin, setPlugin] = useState<PluginInfo | undefined>();
-    const [formatter, setFormatter] = useState<Formatter | undefined>(undefined);
+    const [fileExtensions, setFileExtensions] = useState<string[]>([]);
     const [text, setText] = useState(initialUrl.text);
     const [configText, setConfigText] = useState(initialUrl.configText ?? "");
     const [defaultConfigText, setDefaultConfigText] = useState("");
+    const [formattedText, setFormattedText] = useState("");
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         getPluginInfo().then(plugins => {
             setPlugins(plugins);
             setPlugin(plugins.find(p => p.language === initialUrl.language ?? "typescript")!);
+        }).catch(err => {
+            console.error(err);
+            alert("There was an error getting the plugins. Try refreshing the page or check the browser console.");
+        });
+    }, []);
+    useEffect(() => {
+        formatterWorker.addOnFormat(text => {
+            setFormattedText(text);
+        });
+
+        formatterWorker.addOnError(err => {
+            console.error(err);
+            alert("There was an error with the formatter worker. Try refreshing the page or check the browser console.");
         });
     }, []);
 
     useEffect(() => {
-        if (formatter == null || plugin == null)
+        if (plugin == null)
             return;
 
         urlSaver.updateUrl({
@@ -38,7 +51,7 @@ function Loader() {
             configText: configText === defaultConfigText ? undefined : configText,
             language: plugin.language,
         });
-    }, [formatter, text, configText, plugin, defaultConfigText]);
+    }, [text, configText, plugin, defaultConfigText]);
 
     useEffect(() => {
         setIsLoading(true);
@@ -48,55 +61,21 @@ function Loader() {
 
         const defaultConfigPromise = getPluginDefaultConfig(plugin);
 
-        Promise.all([formatterModule.createStreaming(fetch(plugin.url)), defaultConfigPromise])
-            .then(([formatter, defaultConfigText]) => {
-                const pluginInfo = formatter.getPluginInfo();
-                const fileExtensions = [...pluginInfo.fileExtensions];
-                let lastConfigText = "";
+        formatterWorker.loadUrl(plugin.url);
 
-                setFormatter({
-                    formatText(fileExtension: string, fileText) {
-                        try {
-                            return formatter.formatText("file." + fileExtension, fileText);
-                        } catch (err) {
-                            console.error(err);
-                            return err.message;
-                        }
-                    },
-                    setConfig(configText) {
-                        if (lastConfigText === configText)
-                            return;
+        defaultConfigPromise.then(defaultConfigText => {
+            setFileExtensions([...plugin.fileExtensions]); // todo: get this from the wasm file (easy to do)
 
-                        let config;
-                        try {
-                            config = JSON.parse(configText);
-                            if (config.lineWidth == null)
-                                config.lineWidth = 80;
-                        } catch (err) {
-                            // ignore for now
-                            return;
-                        }
-                        formatter.setConfig({}, config);
-                        lastConfigText = configText;
-                    },
-                    getFileExtensions() {
-                        return fileExtensions;
-                    },
-                    getConfigSchemaUrl() {
-                        return pluginInfo.configSchemaUrl;
-                    },
-                });
-
-                if (isFirstLoad && initialUrl.configText != null) {
-                    setConfigText(initialUrl.configText);
-                    isFirstLoad = false;
-                }
-                else {
-                    setConfigText(defaultConfigText);
-                }
-                setDefaultConfigText(defaultConfigText);
-                setIsLoading(false);
-            })
+            if (isFirstLoad && initialUrl.configText != null) {
+                setConfigText(initialUrl.configText);
+                isFirstLoad = false;
+            }
+            else {
+                setConfigText(defaultConfigText);
+            }
+            setDefaultConfigText(defaultConfigText);
+            setIsLoading(false);
+        })
             .catch(err => {
                 console.error(err);
                 alert("There was an error loading the plugin. Check the console or try refreshing the page.");
@@ -107,11 +86,12 @@ function Loader() {
         return <Spinner />;
 
     return <Playground
-        formatter={formatter}
         text={text}
         onTextChanged={setText}
         configText={configText}
         onConfigTextChanged={setConfigText}
+        formattedText={formattedText}
+        fileExtensions={fileExtensions}
         plugins={plugins}
         selectedPlugin={plugin}
         onSelectPlugin={setPlugin}

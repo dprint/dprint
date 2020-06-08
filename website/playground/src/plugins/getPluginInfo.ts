@@ -13,10 +13,12 @@ export async function getPluginInfo(): Promise<PluginInfo[]> {
         url: typescriptPlugin.url,
         configSchemaUrl: "https://plugins.dprint.dev/schemas/typescript-v0.json",
         language: "typescript",
+        fileExtensions: typescriptPlugin.fileExtensions,
     }, {
         url: jsonPlugin.url,
         configSchemaUrl: "https://plugins.dprint.dev/schemas/json-v0.json",
         language: "json",
+        fileExtensions: jsonPlugin.fileExtensions,
     }];
 }
 
@@ -24,4 +26,5 @@ export interface PluginInfo {
     url: string;
     configSchemaUrl: string;
     language: "typescript" | "json";
+    fileExtensions: string[];
 }

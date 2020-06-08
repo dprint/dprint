@@ -4,15 +4,16 @@ import { CodeEditor, ExternalLink, Language } from "./components";
 import { Spinner } from "./components";
 import "./Playground.css";
 import "./external/react-splitpane.css";
-import { Formatter } from "./types";
 import { PluginInfo } from "./plugins";
+import * as formatterWorker from "./FormatterWorker";
 
 export interface PlaygroundProps {
-    formatter: Formatter | undefined;
     configText: string;
     onConfigTextChanged: (text: string) => void;
     text: string;
     onTextChanged: (text: string) => void;
+    formattedText: string;
+    fileExtensions: string[];
     selectedPlugin: PluginInfo;
     plugins: PluginInfo[];
     onSelectPlugin: (plugin: PluginInfo) => void;
@@ -20,41 +21,47 @@ export interface PlaygroundProps {
 }
 
 export function Playground({
-    formatter,
     configText,
     onConfigTextChanged,
     text,
     onTextChanged,
+    formattedText,
+    fileExtensions,
     selectedPlugin,
     plugins,
     onSelectPlugin,
     isLoading,
 }: PlaygroundProps) {
     const [scrollTop, setScrollTop] = useState(0);
-    const [formattedText, setFormattedText] = useState("");
     const [fileExtension, setFileExtension] = useState<string | undefined>(undefined);
-    const [fileExtensions, setFileExtensions] = useState<string[]>([]);
 
     useEffect(() => {
-        setFileExtensions(formatter?.getFileExtensions() ?? []);
-        setFileExtension(formatter?.getFileExtensions()[0]);
-    }, [formatter]);
+        setFileExtension(fileExtensions[0]);
+    }, [fileExtensions]);
 
     useEffect(() => {
         const timeout = setTimeout(() => {
-            if (formatter == null)
-                setFormattedText("No formatter loaded.");
-            else {
-                formatter.setConfig(configText);
-                setFormattedText(formatter.formatText(
-                    fileExtension ?? "ts",
-                    text,
-                ));
+            formatterWorker.formatText("file." + fileExtension ?? "ts", text);
+        }, 250);
+
+        return () => clearTimeout(timeout);
+    }, [fileExtension, text]);
+
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            let config;
+            try {
+                config = JSON.parse(configText);
+                if (config.lineWidth == null)
+                    config.lineWidth = 80;
+                formatterWorker.setConfig(config);
+            } catch (err) {
+                // ignore for now
             }
         }, 250);
 
         return () => clearTimeout(timeout);
-    }, [fileExtension, text, formatter, configText]);
+    }, [configText]);
 
     const lineWidth = useMemo(() => {
         try {
@@ -104,8 +111,12 @@ export function Playground({
                                         Plugin:
                                     </div>
                                     <div className="column" style={{ flex: 1, display: "flex" }}>
-                                        <select onChange={e => onSelectPlugin(plugins[e.target.selectedIndex])} style={{ flex: 1 }}>
-                                            {plugins.map((pluginInfo, i) => <option key={i}>{pluginInfo.url}</option>)}
+                                        <select onChange={e => onSelectPlugin(plugins[e.target.selectedIndex])} style={{ flex: 1 }} value={selectedPlugin.url}>
+                                            {plugins.map((pluginInfo, i) => {
+                                                return <option key={i} value={pluginInfo.url}>
+                                                    {pluginInfo.url}
+                                                </option>;
+                                            })}
                                         </select>
                                     </div>
                                     <div className="column" style={{ display: "flex" }}>
