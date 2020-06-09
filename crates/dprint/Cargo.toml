@@ -19,7 +19,7 @@ indicatif = "0.14.0"
 reqwest = { version = "0.10.4" }
 bytes = "0.5.4"
 futures = { version = "0.3.4", features = ["compat", "io-compat"] }
-tokio = { version = "0.2", features = ["full", "blocking"] }
+tokio = { version = "0.2", features = ["full", "blocking", "sync"] }
 async-trait = "0.1.30"
 app_dirs = "1.2.1"
 serde = { version = "1.0.88", features = ["derive"] }

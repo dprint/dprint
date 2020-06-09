@@ -58,7 +58,7 @@ pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
                 }
             },
             Err(err) => {
-                environment.log_verbose(&format!("Error getting current working directory: {:?}", err));
+                log_verbose!(environment, "Error getting current working directory: {:?}", err);
             }
         }
 

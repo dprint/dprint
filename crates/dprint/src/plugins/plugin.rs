@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::types::ErrBox;
 
-pub trait Plugin : std::marker::Send {
+pub trait Plugin : std::marker::Send + std::marker::Sync {
     /// The name of the plugin.
     fn name(&self) -> &str;
     /// The version of the plugin.

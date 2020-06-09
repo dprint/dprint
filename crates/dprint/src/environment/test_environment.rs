@@ -73,6 +73,10 @@ impl Environment for TestEnvironment {
         Ok(String::from_utf8(file_bytes.to_vec()).unwrap())
     }
 
+    async fn read_file_async(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
+        self.read_file(file_path)
+    }
+
     fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox> {
         let files = self.files.lock().unwrap();
         // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
@@ -85,6 +89,10 @@ impl Environment for TestEnvironment {
 
     fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
         self.write_file_bytes(file_path, file_text.as_bytes())
+    }
+
+    async fn write_file_async(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
+        self.write_file(file_path, file_text)
     }
 
     fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox> {
@@ -171,10 +179,6 @@ impl Environment for TestEnvironment {
         self.logged_errors.lock().unwrap().push(String::from(text));
     }
 
-    fn log_verbose(&self, _: &str) {
-        // don't bother
-    }
-
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {
         Ok(PathBuf::from("/cache"))
     }
@@ -185,6 +189,10 @@ impl Environment for TestEnvironment {
 
     fn get_selection(&self, _: &Vec<String>) -> Result<usize, ErrBox> {
         Ok(*self.selection_result.lock().unwrap())
+    }
+
+    fn is_verbose(&self) -> bool {
+        false
     }
 }
 

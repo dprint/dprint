@@ -1,3 +1,4 @@
+#[macro_use]
 mod environment;
 mod real_environment;
 #[cfg(test)]

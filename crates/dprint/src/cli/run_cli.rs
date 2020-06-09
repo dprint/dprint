@@ -7,7 +7,7 @@ use colored::Colorize;
 use crate::cache::Cache;
 use crate::environment::Environment;
 use crate::configuration::{self, get_global_config, get_plugin_config_map};
-use crate::plugins::{initialize_plugin, Plugin, InitializedPlugin, PluginResolver};
+use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool};
 use crate::utils::{get_table_text, get_difference};
 use crate::types::ErrBox;
 
@@ -166,7 +166,7 @@ async fn output_help<'a, TEnvironment: Environment>(
             }
         }
         Err(err) => {
-            environment.log_verbose(&format!("Error getting plugins for help. {:?}", err))
+            log_verbose!(environment, "Error getting plugins for help. {:?}", err);
         }
     }
 
@@ -203,12 +203,12 @@ fn output_resolved_config(
 ) -> Result<(), ErrBox> {
     for plugin in plugins {
         let config_key = String::from(plugin.config_key());
-        let initialized_plugin = initialize_plugin(
-            plugin,
-            environment,
-        )?;
-        let text = initialized_plugin.get_resolved_config();
 
+        // get an initialized plugin and output its diagnostics
+        let initialized_plugin = plugin.initialize()?;
+        output_plugin_config_diagnostics(plugin.name(), &initialized_plugin, environment)?;
+
+        let text = initialized_plugin.get_resolved_config();
         let key_values: HashMap<String, String> = serde_json::from_str(&text).unwrap();
         let pretty_text = serde_json::to_string_pretty(&key_values).unwrap();
         environment.log(&format!("{}: {}", config_key, pretty_text));
@@ -230,8 +230,7 @@ async fn check_files(format_contexts: FormatContexts, environment: &impl Environ
 
     run_parallelized(format_contexts, environment, {
         let not_formatted_files_count = not_formatted_files_count.clone();
-        move |plugin, file_path, file_text, _, environment| {
-            let formatted_text = plugin.format_text(file_path, file_text)?;
+        move |file_path, file_text, formatted_text, _, environment| {
             if formatted_text != file_text {
                 not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
                 environment.log(&format!(
@@ -241,7 +240,7 @@ async fn check_files(format_contexts: FormatContexts, environment: &impl Environ
                     get_difference(&file_text, &formatted_text),
                 ));
             }
-            Ok(())
+            Ok(None)
         }
     }).await?;
 
@@ -260,17 +259,23 @@ async fn format_files(format_contexts: FormatContexts, environment: &impl Enviro
 
     run_parallelized(format_contexts, environment, {
         let formatted_files_count = formatted_files_count.clone();
-        move |plugin, file_path, file_text, had_bom, environment| {
-            let mut formatted_text = plugin.format_text(file_path, file_text)?;
+        move |_, file_text, formatted_text, had_bom, _| {
             if formatted_text != file_text {
-                if had_bom {
+                let new_text = if had_bom {
                     // add back the BOM
-                    formatted_text = format!("{}{}", BOM_CHAR, formatted_text);
-                }
-                environment.write_file(&file_path, &formatted_text)?;
+                    format!("{}{}", BOM_CHAR, formatted_text)
+                } else {
+                    formatted_text
+                };
+
                 formatted_files_count.fetch_add(1, Ordering::SeqCst);
+                 // todo: use environment.write_file_async here...
+                 // It was challenging to figure out how to make this
+                 // closure async so I gave up.
+                Ok(Some(new_text))
+            } else {
+                Ok(None)
             }
-            Ok(())
         }
     }).await?;
 
@@ -287,16 +292,15 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     format_contexts: FormatContexts,
     environment: &TEnvironment,
     f: F,
-) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
-    // At the moment this is parallelized across plugins because Wasmer instances can't be shared or sent between threads.
+) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
     let handles = format_contexts.into_iter().map(|format_context| {
         let environment = environment.to_owned();
         let f = f.clone();
         let error_count = error_count.clone();
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn(async move {
             let plugin_name = format_context.plugin.name().to_string();
-            let result = inner_run(format_context, &environment, f);
+            let result = inner_run(format_context, &environment, f).await;
             if let Err(err) = result {
                 environment.log_error(&format!("[{}]: {}", plugin_name, err.to_string()));
                 error_count.fetch_add(1, Ordering::SeqCst);
@@ -320,34 +324,49 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     };
 
     #[inline]
-    fn inner_run<F, TEnvironment : Environment>(
+    async fn inner_run<F, TEnvironment : Environment>(
         format_context: FormatContext,
         environment: &TEnvironment,
         f: F
-    ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
-        let initialized_plugin = initialize_plugin(
-            format_context.plugin,
-            environment,
-        )?;
+    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
+        let plugin_name = String::from(format_context.plugin.name());
+        let plugin_pool = InitializedPluginPool::new(format_context.plugin, environment.to_owned());
 
-        for file_path in format_context.file_paths {
-            match run_for_file_path(&file_path, environment, &initialized_plugin, &f) {
-                Ok(_) => {},
-                Err(err) => return err!("Error formatting {}. Message: {}", file_path.display(), err.to_string()),
-            }
-        }
+        // todo: check the diagnostics once below in run_for_file_path so that multiple plugins can be initiated at once
 
-        return Ok(());
+        // get a plugin from the pool then propagate up its configuration diagnostics if necessary
+        let plugin = plugin_pool.initialize_first().await?;
+        output_plugin_config_diagnostics(&plugin_name, &plugin, environment)?;
+        plugin_pool.release(plugin).await;
+
+        let plugin_pool = Arc::new(plugin_pool);
+
+        let handles = format_context.file_paths.into_iter().map(|file_path| {
+            let environment = environment.to_owned();
+            let f = f.clone();
+            let plugin_pool = plugin_pool.clone();
+
+            tokio::task::spawn(async move {
+                match run_for_file_path(&file_path, environment, plugin_pool, f).await {
+                    Ok(_) => Ok(()),
+                    Err(err) => return err!("Error formatting {}. Message: {}", file_path.display(), err.to_string()),
+                }
+            })
+        }).collect::<Vec<_>>();
+
+        futures::future::try_join_all(handles).await?;
+
+        Ok(())
     }
 
     #[inline]
-    fn run_for_file_path<F, TEnvironment : Environment>(
+    async fn run_for_file_path<F, TEnvironment : Environment>(
         file_path: &PathBuf,
-        environment: &TEnvironment,
-        initialized_plugin: &Box<dyn InitializedPlugin>,
-        f: &F
-    ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
-        let file_text = environment.read_file(&file_path)?;
+        environment: TEnvironment,
+        plugin_pool: Arc<InitializedPluginPool<TEnvironment>>,
+        f: F
+    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
+        let file_text = environment.read_file_async(&file_path).await?;
         let had_bom = file_text.starts_with(BOM_CHAR);
         let file_text = if had_bom {
             // strip BOM
@@ -356,7 +375,39 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             &file_text
         };
 
-        f(initialized_plugin, &file_path, file_text, had_bom, &environment)
+        let formatted_text = {
+            // If this returns None, then that means a new instance of a plugin needs
+            // to be created for the pool. So this spawns a task creating that pool
+            // item, but then goes back to the pool and asks for an instance in case
+            // a one has been released in the meantime.
+            let initialized_plugin = loop {
+                let result = plugin_pool.try_take().await?;
+                if let Some(result) = result {
+                    break result;
+                } else {
+                    let plugin_pool = plugin_pool.clone();
+                    // todo: any concept of a background task in tokio that would kill
+                    // this task on process exit?
+                    tokio::task::spawn(async move {
+                        plugin_pool.create_pool_item().await.expect("Expected to create the plugin.");
+                    });
+                }
+            };
+
+            let format_text_result = initialized_plugin.format_text(file_path, file_text);
+            log_verbose!(environment, "Formatted file: {} (in memory)", file_path.display());
+            plugin_pool.release(initialized_plugin).await;
+            format_text_result? // release, then propagate error
+        };
+
+        let result = f(&file_path, file_text, formatted_text, had_bom, &environment)?;
+
+        // todo: make the `f` async... couldn't figure it out...
+        if let Some(result) = result {
+            environment.write_file_async(&file_path, &result).await?;
+        }
+
+        Ok(())
     }
 }
 
@@ -444,6 +495,21 @@ fn resolve_file_paths(config: &mut ResolvedConfig, args: &CliArgs, environment: 
     }
 
     environment.glob(&config.base_path, &file_patterns)
+}
+
+fn output_plugin_config_diagnostics(plugin_name: &str, plugin: &Box<dyn InitializedPlugin>, environment: &impl Environment) -> Result<(), ErrBox> {
+    let mut diagnostic_count = 0;
+
+    for diagnostic in plugin.get_config_diagnostics() {
+        environment.log_error(&format!("[{}]: {}", plugin_name, diagnostic.message));
+        diagnostic_count += 1;
+    }
+
+    if diagnostic_count > 0 {
+        err!("Error initializing from configuration file. Had {} diagnostic(s).", diagnostic_count)
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

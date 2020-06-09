@@ -2,6 +2,7 @@ use environment::RealEnvironment;
 
 #[macro_use]
 mod types;
+#[macro_use]
 mod environment;
 
 mod cache;

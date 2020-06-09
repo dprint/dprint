@@ -10,17 +10,6 @@ use indicatif::{ProgressBar, ProgressStyle};
 use super::Environment;
 use super::super::types::ErrBox;
 
-// use a macro here so the expression provided is only evaluated when in verbose mode
-macro_rules! log_verbose {
-    ($environment:ident, $($arg:tt)*) => {
-        if $environment.is_verbose {
-            let mut text = String::from("[VERBOSE]: ");
-            text.push_str(&format!($($arg)*));
-            $environment.log(&text);
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct RealEnvironment {
     output_lock: Arc<Mutex<u8>>,
@@ -46,6 +35,12 @@ impl Environment for RealEnvironment {
         Ok(text)
     }
 
+    async fn read_file_async(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
+        log_verbose!(self, "Reading file: {}", file_path.display());
+        let text = tokio::fs::read_to_string(file_path).await?;
+        Ok(text)
+    }
+
     fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox> {
         log_verbose!(self, "Reading file: {}", file_path.display());
         let bytes = fs::read(file_path)?;
@@ -55,6 +50,12 @@ impl Environment for RealEnvironment {
     fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
         log_verbose!(self, "Writing file: {}", file_path.display());
         fs::write(file_path, file_text)?;
+        Ok(())
+    }
+
+    async fn write_file_async(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
+        log_verbose!(self, "Writing file: {}", file_path.display());
+        tokio::fs::write(file_path, file_text).await?;
         Ok(())
     }
 
@@ -192,10 +193,6 @@ impl Environment for RealEnvironment {
         eprintln!("{}", text);
     }
 
-    fn log_verbose(&self, text: &str) {
-        log_verbose!(self, "{}", text);
-    }
-
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {
         log_verbose!(self, "Getting cache directory.");
         match app_dirs::app_dir(app_dirs::AppDataType::UserCache, &APP_INFO, "cache") {
@@ -216,5 +213,10 @@ impl Environment for RealEnvironment {
             .default(0)
             .interact()?;
         Ok(result)
+    }
+
+    #[inline]
+    fn is_verbose(&self) -> bool {
+        self.is_verbose
     }
 }
