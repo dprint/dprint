@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use colored::Colorize;
-use dprint_core::configuration::GlobalConfiguration;
 
 use crate::cache::Cache;
 use crate::environment::Environment;
@@ -16,11 +15,6 @@ use super::{CliArgs, SubCommand, FormatContext, FormatContexts};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
 
 const BOM_CHAR: char = '\u{FEFF}';
-
-struct PluginWithConfig {
-    pub plugin: Box<dyn Plugin>,
-    pub config: HashMap<String, String>,
-}
 
 pub async fn run_cli<'a, TEnvironment : Environment>(
     args: CliArgs,
@@ -54,23 +48,26 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
         return Ok(());
     }
 
-    // resolve file paths
+    // get configuration
     let mut config = resolve_config_from_args(&args, cache, environment).await?;
+
+    // get project type diagnostic, but don't surface any issues yet
+    let project_type_result = check_project_type_diagnostic(&config);
+
+    // resolve file paths
     let file_paths = resolve_file_paths(&mut config, &args, environment)?;
 
     // resolve plugins
-    let plugins = resolve_plugins(&mut config, &args, plugin_resolver).await?;
+    let plugins = resolve_plugins(config, &args, environment, plugin_resolver).await?;
     if plugins.is_empty() {
         return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
     }
 
     // get project type diagnostic and global config
-    let project_type_result = check_project_type_diagnostic(&config);
-    let global_config = get_global_config(config.config_map, environment)?;
 
     // output resolved config
     if args.sub_command == SubCommand::OutputResolvedConfig {
-        return output_resolved_config(plugins, &global_config, environment);
+        return output_resolved_config(plugins, environment);
     }
 
     let format_contexts = get_plugin_format_contexts(plugins, file_paths);
@@ -91,24 +88,24 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
 
     // check and format
     if args.sub_command == SubCommand::Check {
-        check_files(format_contexts, global_config, environment).await
+        check_files(format_contexts, environment).await
     } else if args.sub_command == SubCommand::Fmt {
-        format_files(format_contexts, global_config, environment).await
+        format_files(format_contexts, environment).await
     } else {
         unreachable!()
     }
 }
 
-fn get_plugin_format_contexts(plugins_with_config: Vec<PluginWithConfig>, file_paths: Vec<PathBuf>) -> Vec<FormatContext> {
+fn get_plugin_format_contexts(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> Vec<FormatContext> {
     let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for file_path in file_paths.into_iter() {
         if let Some(file_extension) = crate::utils::get_lowercase_file_extension(&file_path) {
-            if let Some(plugin_with_config) = plugins_with_config.iter().filter(|p| p.plugin.file_extensions().contains(&file_extension)).next() {
-                if let Some(file_paths) = file_paths_by_plugin.get_mut(plugin_with_config.plugin.name()) {
+            if let Some(plugin) = plugins.iter().filter(|p| p.file_extensions().contains(&file_extension)).next() {
+                if let Some(file_paths) = file_paths_by_plugin.get_mut(plugin.name()) {
                     file_paths.push(file_path);
                 } else {
-                    file_paths_by_plugin.insert(String::from(plugin_with_config.plugin.name()), vec![file_path]);
+                    file_paths_by_plugin.insert(String::from(plugin.name()), vec![file_path]);
                 }
                 continue;
             }
@@ -116,11 +113,10 @@ fn get_plugin_format_contexts(plugins_with_config: Vec<PluginWithConfig>, file_p
     }
 
     let mut format_contexts = Vec::new();
-    for plugin_with_config in plugins_with_config.into_iter() {
-        if let Some(file_paths) = file_paths_by_plugin.remove(plugin_with_config.plugin.name()) {
+    for plugin in plugins.into_iter() {
+        if let Some(file_paths) = file_paths_by_plugin.remove(plugin.name()) {
             format_contexts.push(FormatContext {
-                plugin: plugin_with_config.plugin,
-                config: plugin_with_config.config,
+                plugin: plugin,
                 file_paths,
             });
         }
@@ -185,9 +181,8 @@ async fn get_plugins_from_args<'a, TEnvironment : Environment>(
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
     match resolve_config_from_args(args, cache, environment).await {
         Ok(config) => {
-            let mut config = config;
-            let plugins_with_config = resolve_plugins(&mut config, args, plugin_resolver).await?;
-            Ok(plugins_with_config.into_iter().map(|p| p.plugin).collect())
+            let plugins = resolve_plugins(config, args, environment, plugin_resolver).await?;
+            Ok(plugins)
         },
         Err(_) => {
             // ignore
@@ -203,16 +198,13 @@ fn output_file_paths<'a>(file_paths: impl Iterator<Item=&'a PathBuf>, environmen
 }
 
 fn output_resolved_config(
-    plugins_with_config: Vec<PluginWithConfig>,
-    global_config: &GlobalConfiguration,
+    plugins: Vec<Box<dyn Plugin>>,
     environment: &impl Environment,
 ) -> Result<(), ErrBox> {
-    for plugin_with_config in plugins_with_config {
-        let config_key = String::from(plugin_with_config.plugin.config_key());
+    for plugin in plugins {
+        let config_key = String::from(plugin.config_key());
         let initialized_plugin = initialize_plugin(
-            plugin_with_config.plugin,
-            plugin_with_config.config,
-            global_config,
+            plugin,
             environment,
         )?;
         let text = initialized_plugin.get_resolved_config();
@@ -233,10 +225,10 @@ async fn init_config_file(environment: &impl Environment, config_file_path: &Pat
     }
 }
 
-async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfiguration, environment: &impl Environment) -> Result<(), ErrBox> {
+async fn check_files(format_contexts: FormatContexts, environment: &impl Environment) -> Result<(), ErrBox> {
     let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-    run_parallelized(format_contexts, global_config, environment, {
+    run_parallelized(format_contexts, environment, {
         let not_formatted_files_count = not_formatted_files_count.clone();
         move |plugin, file_path, file_text, _, environment| {
             let formatted_text = plugin.format_text(file_path, file_text)?;
@@ -262,11 +254,11 @@ async fn check_files(format_contexts: FormatContexts, global_config: GlobalConfi
     }
 }
 
-async fn format_files(format_contexts: FormatContexts, global_config: GlobalConfiguration, environment: &impl Environment) -> Result<(), ErrBox> {
+async fn format_files(format_contexts: FormatContexts, environment: &impl Environment) -> Result<(), ErrBox> {
     let formatted_files_count = Arc::new(AtomicUsize::new(0));
     let files_count: usize = format_contexts.iter().map(|x| x.file_paths.len()).sum();
 
-    run_parallelized(format_contexts, global_config, environment, {
+    run_parallelized(format_contexts, environment, {
         let formatted_files_count = formatted_files_count.clone();
         move |plugin, file_path, file_text, had_bom, environment| {
             let mut formatted_text = plugin.format_text(file_path, file_text)?;
@@ -293,7 +285,6 @@ async fn format_files(format_contexts: FormatContexts, global_config: GlobalConf
 
 async fn run_parallelized<F, TEnvironment : Environment>(
     format_contexts: FormatContexts,
-    global_config: GlobalConfiguration,
     environment: &TEnvironment,
     f: F,
 ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
@@ -301,12 +292,11 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     let error_count = Arc::new(AtomicUsize::new(0));
     let handles = format_contexts.into_iter().map(|format_context| {
         let environment = environment.to_owned();
-        let global_config = global_config.to_owned();
         let f = f.clone();
         let error_count = error_count.clone();
         tokio::task::spawn_blocking(move || {
             let plugin_name = format_context.plugin.name().to_string();
-            let result = inner_run(format_context, global_config, &environment, f);
+            let result = inner_run(format_context, &environment, f);
             if let Err(err) = result {
                 environment.log_error(&format!("[{}]: {}", plugin_name, err.to_string()));
                 error_count.fetch_add(1, Ordering::SeqCst);
@@ -332,14 +322,11 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     #[inline]
     fn inner_run<F, TEnvironment : Environment>(
         format_context: FormatContext,
-        global_config: GlobalConfiguration,
         environment: &TEnvironment,
         f: F
     ) -> Result<(), ErrBox> where F: Fn(&Box<dyn InitializedPlugin>, &PathBuf, &str, bool, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let initialized_plugin = initialize_plugin(
             format_context.plugin,
-            format_context.config,
-            &global_config,
             environment,
         )?;
 
@@ -373,19 +360,39 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     }
 }
 
-async fn resolve_plugins(config: &mut ResolvedConfig, args: &CliArgs, plugin_resolver: &impl PluginResolver) -> Result<Vec<PluginWithConfig>, ErrBox> {
-    let plugin_urls = get_plugin_urls(config, args)?;
-    let plugins = plugin_resolver.resolve_plugins(&plugin_urls).await?;
-    let mut plugins_with_config = Vec::new();
+async fn resolve_plugins(
+    config: ResolvedConfig,
+    args: &CliArgs,
+    environment: &impl Environment,
+    plugin_resolver: &impl PluginResolver,
+) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+    let mut config = config;
 
+    // resolve the plugins
+    let plugin_urls = get_plugin_urls(&mut config, args)?;
+    let plugins = plugin_resolver.resolve_plugins(&plugin_urls).await?;
+
+    // resolve each plugin's configuration
+    let mut plugins_with_config = Vec::new();
     for plugin in plugins.into_iter() {
-        plugins_with_config.push(PluginWithConfig {
-            config: get_plugin_config_map(&plugin, &mut config.config_map)?,
-            plugin,
-        });
+        plugins_with_config.push((
+            get_plugin_config_map(&plugin, &mut config.config_map)?,
+            plugin
+        ));
     }
 
-    return Ok(plugins_with_config);
+    // now get global config
+    let global_config = get_global_config(config.config_map, environment)?;
+
+    // now set each plugin's config
+    let mut plugins = Vec::new();
+    for (plugin_config, plugin) in plugins_with_config {
+        let mut plugin = plugin;
+        plugin.set_config(plugin_config, global_config.clone());
+        plugins.push(plugin);
+    }
+
+    return Ok(plugins);
 
     fn get_plugin_urls<'a>(config: &'a ResolvedConfig, args: &'a CliArgs) -> Result<&'a Vec<String>, ErrBox> {
         let plugin_urls_from_config = &config.plugins;

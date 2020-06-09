@@ -17,11 +17,13 @@ pub trait Plugin : std::marker::Send {
     fn help_url(&self) -> &str;
     /// Gets the configuration schema url.
     fn config_schema_url(&self) -> &str;
+    /// Sets the configuration for the plugin.
+    fn set_config(&mut self, plugin_config: HashMap<String, String>, global_config: GlobalConfiguration);
     /// Initializes the plugin.
-    fn initialize(&mut self, plugin_config: HashMap<String, String>, global_config: &GlobalConfiguration) -> Result<Box<dyn InitializedPlugin>, ErrBox>;
+    fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox>;
 }
 
-pub trait InitializedPlugin {
+pub trait InitializedPlugin : std::marker::Send {
     /// Gets the configuration as a collection of key value pairs.
     fn get_resolved_config(&self) -> String;
     /// Gets the configuration diagnostics.
@@ -58,12 +60,14 @@ impl Plugin for TestPlugin {
     fn config_schema_url(&self) -> &str { "https://plugins.dprint.dev/schemas/test.json" }
     fn config_key(&self) -> &str { &self.config_key }
     fn file_extensions(&self) -> &Vec<String> { &self.file_extensions }
-    fn initialize(&mut self, _: HashMap<String, String>, _: &GlobalConfiguration) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        Ok(Box::new(self.initialized_test_plugin.take().unwrap()))
+    fn set_config(&mut self, _: HashMap<String, String>, _: GlobalConfiguration) {}
+    fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+        Ok(Box::new(self.initialized_test_plugin.clone().unwrap()))
     }
 }
 
 #[cfg(test)]
+#[derive(Clone)]
 pub struct InitializedTestPlugin {
 }
 

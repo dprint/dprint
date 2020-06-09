@@ -1,6 +1,6 @@
 pub use super::super::super::types::{ErrBox, Error};
 
-/// Loads a compile wasm module from the specified bytes.
+/// Loads a compiled wasm module from the specified bytes.
 pub fn load_instance(compiled_module_bytes: &[u8]) -> Result<wasmer_runtime::Instance, ErrBox> {
     let artifact = match wasmer_runtime::cache::Artifact::deserialize(&compiled_module_bytes) {
         Ok(artifact) => artifact,

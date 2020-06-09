@@ -33,7 +33,7 @@ impl WasmFunctions {
 
         if plugin_schema_version != CURRENT_SCHEMA_VERSION {
             return err!(
-                "Invalid schema version: {} -- Expected: {}. This may indicate you should upgrade your Dprint cli",
+                "Invalid schema version: {} -- Expected: {}. This may indicate you should upgrade your Dprint CLI or plugin.",
                 plugin_schema_version,
                 CURRENT_SCHEMA_VERSION
             );
