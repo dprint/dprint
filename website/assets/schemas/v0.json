@@ -15,15 +15,15 @@
       "oneOf": [
         {
           "const": "openSource",
-          "description": "Dprint is formatting an open source project."
+          "description": "Dprint is formatting a non-commercial open source project."
         },
         {
-          "const": "commercialSponsored",
-          "description": "Dprint is formatting a commercial project and your company sponsored dprint. Thank you for being part of moving this project forward!"
+          "const": "commercialPaid",
+          "description": "Dprint is formatting a commercial project and your company paid for a license. Thank you for being part of moving this project forward!"
         },
         {
-          "const": "commercialDidNotSponsor",
-          "description": "Dprint is formatting a commercial project and you are just trying it out or don't want to sponsor. If you are in the financial position to do so, please take the time to sponsor."
+          "const": "commercialTrail",
+          "description": "Dprint is formatting a commercial project and you are just trying it out for 30 days."
         }
       ]
     },
@@ -101,13 +101,7 @@
     "typescript": {
       "$ref": "https://plugins.dprint.dev/schemas/typescript-v0.json"
     },
-    "javascript": {
-      "$ref": "https://plugins.dprint.dev/schemas/typescript-v0.json"
-    },
     "json": {
-      "$ref": "https://plugins.dprint.dev/schemas/json-v0.json"
-    },
-    "jsonc": {
       "$ref": "https://plugins.dprint.dev/schemas/json-v0.json"
     }
   },

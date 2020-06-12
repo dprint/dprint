@@ -27,9 +27,15 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
         return output_help(&args, cache, environment, plugin_resolver).await;
     }
 
-    //version
+    // version
     if args.sub_command == SubCommand::Version {
         return output_version(&args, cache, environment, plugin_resolver).await;
+    }
+
+    // license
+    if args.sub_command == SubCommand::License {
+        output_license(environment);
+        return Ok(());
     }
 
     // clear cache
@@ -173,6 +179,10 @@ async fn output_help<'a, TEnvironment: Environment>(
     Ok(())
 }
 
+fn output_license<TEnvironment : Environment>(environment: &TEnvironment) {
+    environment.log(std::str::from_utf8(include_bytes!("../../LICENSE")).unwrap());
+}
+
 async fn get_plugins_from_args<'a, TEnvironment : Environment>(
     args: &CliArgs,
     cache: &Cache<'a, TEnvironment>,
@@ -311,7 +321,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     let result = futures::future::try_join_all(handles).await;
     if let Err(err) = result {
         return err!(
-            "A panic occurred in a Dprint plugin. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.\n  Error: {}",
+            "A panic occurred in a dprint plugin. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.\n  Error: {}",
             err.to_string()
         );
     }
@@ -1094,7 +1104,7 @@ mod tests {
         environment.clear_logs();
         run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
-            "What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n",
+            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
             "Created ./dprint.config.json"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./dprint.config.json")).unwrap(), expected_text);
@@ -1117,7 +1127,7 @@ mod tests {
         environment.clear_logs();
         run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
-            "What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n",
+            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
             "Created ./test.config.json"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./test.config.json")).unwrap(), expected_text);
@@ -1148,6 +1158,15 @@ mod tests {
         assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "\u{FEFF}text_formatted");
+    }
+
+    #[tokio::test]
+    async fn it_should_output_license_for_sub_command() {
+        let environment = TestEnvironment::new();
+        run_test_cli(vec!["license"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![
+            std::str::from_utf8(include_bytes!("../../LICENSE")).unwrap()
+        ]);
     }
 
     fn get_singular_formatted_text() -> String {
@@ -1182,6 +1201,7 @@ SUBCOMMANDS:
     output-file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
     output-resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
     clear-cache               Deletes the plugin cache directory.
+    license                   Outputs the software license.
 
 OPTIONS:
     -c, --config <config>           Path or url to JSON configuration file. Defaults to dprint.config.json in current or
@@ -1198,10 +1218,10 @@ ARGS:
     <files>...    List of files or globs in quotes to format. This overrides what is specified in the config file.
 
 GETTING STARTED:
-    1. Navigate to the root directory of a code repository
-    2. Run `dprint init` to create a dprint.config.json file in that directory
-    3. Modify configuration file if necessary
-    4. Run `dprint fmt` or `dprint check`
+    1. Navigate to the root directory of a code repository.
+    2. Run `dprint init` to create a dprint.config.json file in that directory.
+    3. Modify configuration file if necessary.
+    4. Run `dprint fmt` or `dprint check`.
 
 EXAMPLES:
     Write formatted files to file system:
@@ -1214,7 +1234,7 @@ EXAMPLES:
 
     Specify path to config file other than the default:
 
-      dprint fmt --config configs/dprint.config.json
+      dprint fmt --config path/to/config/dprint.config.json
 
     Search for files using the specified file patterns:
 

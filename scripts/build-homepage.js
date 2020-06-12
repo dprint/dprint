@@ -2,48 +2,80 @@
 const showdown = require("showdown");
 const hljs = require("highlight.js");
 const fs = require("fs");
-const { minify } = require("html-minifier");
+const { minify: htmlMinify } = require("html-minifier");
 const CleanCss = require("clean-css");
+const sass = require("node-sass");
+const jsMinify = require("node-minify");
+
+const injectText = "<!-- inject -->";
 
 initCodeHighlightExtension();
 
-const templateHtmlPageFilePath = "build-website/template.html";
+const templateHtmlPageFilePath = "../website/templates/template.html";
 const templateHtmlPageText = fs.readFileSync(templateHtmlPageFilePath, { encoding: "utf8" });
+
+const documentationHtmlPageFilePath = "../website/templates/documentation.html";
+const documentationHtmlPageText = fs.readFileSync(documentationHtmlPageFilePath, { encoding: "utf8" });
+
+const fullPageHtmlPageFilePath = "../website/templates/full-page.html";
+const fullPageHtmlPageText = fs.readFileSync(fullPageHtmlPageFilePath, { encoding: "utf8" });
 
 const converter = new showdown.Converter({ extensions: ["codehighlight"] });
 converter.setFlavor("github");
 
 // index.html
-const indexMd = fs.readFileSync("../docs/home.md", { encoding: "utf8" });
-fs.writeFileSync("build-website/index.html", processMarkdown(indexMd));
+const indexMdText = fs.readFileSync("../website/index.md", { encoding: "utf8" });
+fs.writeFileSync("build-website/index.html", templateHtmlPageText.replace(injectText, processMarkdown(fullPageHtmlPageText, indexMdText)));
 
-// sponsor/index.html
-buildForPath("sponsor");
+buildForPath("pricing", fullPageHtmlPageText);
+buildForPath("thank-you", fullPageHtmlPageText);
+
+buildForPath("cli", documentationHtmlPageText);
+buildForPath("config", documentationHtmlPageText);
+buildForPath("install", documentationHtmlPageText);
+buildForPath("plugin-dev", documentationHtmlPageText);
+buildForPath("plugins", documentationHtmlPageText);
+buildForPath("setup", documentationHtmlPageText);
 // plugins/typescript/index.html
-fs.mkdirSync("build-website/plugins");
-buildForPath("plugins/typescript");
+buildForPath("plugins/typescript", documentationHtmlPageText);
+buildForPath("plugins/typescript/config", documentationHtmlPageText);
 // plugins/json/index.html
-buildForPath("plugins/json");
+buildForPath("plugins/json", documentationHtmlPageText);
+buildForPath("plugins/json/config", documentationHtmlPageText);
 
 // minify index.css
-const styleCssPageFilePath = "build-website/style.css";
-const indexCssPageText = fs.readFileSync(styleCssPageFilePath, { encoding: "utf8" });
-fs.writeFileSync(styleCssPageFilePath, new CleanCss().minify(indexCssPageText).styles);
+const sassFilePath = "../website/css/style.scss";
+const indexCssPageText = sass.renderSync({ file: sassFilePath }).css;
+fs.writeFileSync("build-website/style.css", new CleanCss().minify(indexCssPageText).styles);
 
-// cleanup
-fs.unlinkSync(templateHtmlPageFilePath);
+// minify js files
+jsMinify.minify({
+    compressor: "gcc",
+    input: "../website/scripts/*.js",
+    output: "build-website/scripts.js",
+});
 
 /** @param {string} [filePath] - Relative path to the file without extension. */
-function buildForPath(filePath) {
-    const sponsorMd = fs.readFileSync("../docs/" + filePath + ".md", { encoding: "utf8" });
+/** @param {string} [subTemplateText] - Name of the sub template to use. */
+function buildForPath(filePath, subTemplateText) {
+    const mdText = fs.readFileSync("../website/" + filePath + ".md", { encoding: "utf8" });
     fs.mkdirSync("build-website/" + filePath);
-    fs.writeFileSync("build-website/" + filePath + "/index.html", processMarkdown(sponsorMd));
+    let htmlText;
+    if (subTemplateText != null) {
+        htmlText = processMarkdown(subTemplateText, mdText);
+        htmlText = templateHtmlPageText.replace(injectText, htmlText);
+    }
+    else {
+        htmlText = processMarkdown(templateHtmlPageText, mdText);
+    }
+    fs.writeFileSync("build-website/" + filePath + "/index.html", htmlText);
 }
 
-/** @param {string} [mdText] - Markdown to format. */
-function processMarkdown(mdText) {
+/** @param {string} [htmlText] - Html text to use. */
+/** @param {string} [mdText] - Markdown to process and inject. */
+function processMarkdown(htmlText, mdText) {
     const innerHtml = converter.makeHtml(mdText);
-    return minify(templateHtmlPageText.replace("<!-- inject -->", innerHtml), { collapseWhitespace: true });
+    return htmlMinify(htmlText.replace(injectText, innerHtml), { collapseWhitespace: true });
 }
 
 function initCodeHighlightExtension() {
@@ -74,6 +106,10 @@ function initCodeHighlightExtension() {
                 return "typescript";
             if (left.indexOf("-bash") !== -1)
                 return "bash";
+            if (left.indexOf("-powershell") !== -1)
+                return "powershell";
+            if (left.indexOf("-rust") !== -1)
+                return "rust";
 
             throw new Error("Unknown language: " + left);
         }

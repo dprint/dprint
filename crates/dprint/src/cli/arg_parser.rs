@@ -20,7 +20,8 @@ pub enum SubCommand {
     OutputFilePaths,
     OutputResolvedConfig,
     Version,
-    Help
+    License,
+    Help,
 }
 
 pub fn parse_args(args: Vec<String>) -> Result<CliArgs, ErrBox> {
@@ -44,6 +45,8 @@ pub fn parse_args(args: Vec<String>) -> Result<CliArgs, ErrBox> {
         SubCommand::OutputResolvedConfig
     } else if matches.is_present("version") {
         SubCommand::Version
+    } else if matches.is_present("license") {
+        SubCommand::License
     } else {
         SubCommand::Help
     };
@@ -98,10 +101,10 @@ ARGS:
 {after-help}"#)
         .after_help(
             r#"GETTING STARTED:
-    1. Navigate to the root directory of a code repository
-    2. Run `dprint init` to create a dprint.config.json file in that directory
-    3. Modify configuration file if necessary
-    4. Run `dprint fmt` or `dprint check`
+    1. Navigate to the root directory of a code repository.
+    2. Run `dprint init` to create a dprint.config.json file in that directory.
+    3. Modify configuration file if necessary.
+    4. Run `dprint fmt` or `dprint check`.
 
 EXAMPLES:
     Write formatted files to file system:
@@ -114,7 +117,7 @@ EXAMPLES:
 
     Specify path to config file other than the default:
 
-      dprint fmt --config configs/dprint.config.json
+      dprint fmt --config path/to/config/dprint.config.json
 
     Search for files using the specified file patterns:
 
@@ -143,6 +146,10 @@ EXAMPLES:
         .subcommand(
             SubCommand::with_name("clear-cache")
                 .about("Deletes the plugin cache directory.")
+        )
+        .subcommand(
+            SubCommand::with_name("license")
+                .about("Outputs the software license.")
         )
         .arg(
             Arg::with_name("files")

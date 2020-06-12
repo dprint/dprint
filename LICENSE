@@ -1,9 +1,31 @@
 Copyright (c) 2019-2020 David Sherret
 
-At the moment:
+Given the following definitions:
 
-* crates/core - MIT
-* crates/development - MIT
-* All other code - You may not use for any purpose at this time. The above will remain MIT, but the
-  rest will take on a different licensing strategy going forward (will always be completely free
-  for open source use).
+  "Software Application" refers to the work governed by this license.
+
+  "User" refers to the individual who uses the Software Application.
+
+  "Software Project" refers to a collection of software source code
+    that the Software Application is acting on.
+
+  "Primary Maintainer" refers to the entity (ex. company or professional
+    individual) that primarily works on the Software Project.
+
+  "The Author" refers to Dprint Code Formatting.
+
+Permission is hereby granted to the User to execute the Software Application
+on a Software Project if the Software Project being acted on is not primarily
+maintained by a for-profit commercial company or for-profit individual.
+
+Permission otherwise is only granted with the purchase of a "Dprint Code
+Formatter Commercial License" from The Author by the Primary Maintainer,
+which is available at https://dprint.dev/pricing
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

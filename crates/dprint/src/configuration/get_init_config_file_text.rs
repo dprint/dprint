@@ -84,7 +84,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
 
 fn get_project_type_name(environment: &impl Environment) -> Result<&'static str, ErrBox> {
     let project_type_infos = get_project_type_infos();
-    environment.log("What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n");
+    environment.log("What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n");
     let options = get_table_text(project_type_infos.iter().map(|info| (info.name, info.description)).collect(), 2);
     let project_type_index = environment.get_selection(&options)?;
     Ok(project_type_infos[project_type_index].name)
@@ -190,7 +190,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
+  "projectType": "commercialPaid",
   "typescript": {
   },
   "includes": ["**/*.{ts}"],
@@ -245,6 +245,6 @@ mod test {
     }
 
     fn get_standard_logged_messages() -> Vec<&'static str> {
-        vec!["What kind of project will Dprint be formatting?\n\nSponsor at: https://dprint.dev/sponsor\n"]
+        vec!["What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n"]
     }
 }

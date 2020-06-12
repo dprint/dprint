@@ -28,12 +28,12 @@ pub fn handle_project_type_diagnostic(project_type: &Option<String>) -> Option<C
 fn build_message(project_type_infos: &Vec<ProjectTypeInfo>, property_name: &str) -> String {
     let mut message = String::new();
     message.push_str(&format!("The '{}' property is missing in the configuration file.\n\n", property_name));
-    message.push_str("You may specify any of the following values and that will suppress this error.\n");
+    message.push_str("You may specify any of the following values and that will suppress this error:\n");
     let option_texts = get_table_text(project_type_infos.iter().map(|info| (info.name, info.description)).collect(), 3);
     for option_text in option_texts {
         message.push_str(&format!("\n * {}", option_text))
     }
-    message.push_str("\n\nSponsor at: https://dprint.dev/sponsor");
+    message.push_str("\n\nSee commercial pricing at: https://dprint.dev/pricing");
     message
 }
 
@@ -45,19 +45,16 @@ pub struct ProjectTypeInfo {
 pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
     vec![ProjectTypeInfo {
         name: "openSource",
-        description: "Dprint is formatting an open source project.",
+        description: "Dprint is formatting a non-commercial open source project.",
     }, ProjectTypeInfo {
-        name: "commercialSponsored",
+        name: "commercialPaid",
         description: concat!(
-            "Dprint is formatting a commercial project and your company sponsored dprint.\n",
+            "Dprint is formatting a commercial project and your company paid for a license.\n",
             "Thank you for being part of moving this project forward!"
         ),
     }, ProjectTypeInfo {
-        name: "commercialDidNotSponsor",
-        description: concat!(
-            "Dprint is formatting a commercial project and you are just trying it out or don't want to sponsor.\n",
-            "If you are in the financial position to do so, please take the time to sponsor.\n"
-        ),
+        name: "commercialTrial",
+        description: "Dprint is formatting a commercial project and you are trying it out for 30 days.",
     }]
 }
 
@@ -86,15 +83,14 @@ mod tests {
         assert_eq!(result.property_name, "projectType");
         assert_eq!(result.message, r#"The 'projectType' property is missing in the configuration file.
 
-You may specify any of the following values and that will suppress this error.
+You may specify any of the following values and that will suppress this error:
 
- * openSource              Dprint is formatting an open source project.
- * commercialSponsored     Dprint is formatting a commercial project and your company sponsored dprint.
-                           Thank you for being part of moving this project forward!
- * commercialDidNotSponsor Dprint is formatting a commercial project and you are just trying it out or don't want to sponsor.
-                           If you are in the financial position to do so, please take the time to sponsor.
+ * openSource      Dprint is formatting a non-commercial open source project.
+ * commercialPaid  Dprint is formatting a commercial project and your company paid for a license.
+                   Thank you for being part of moving this project forward!
+ * commercialTrial Dprint is formatting a commercial project and you are trying it out for 30 days.
 
-Sponsor at: https://dprint.dev/sponsor"#);
+See commercial pricing at: https://dprint.dev/pricing"#);
     }
 
     #[test]

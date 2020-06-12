@@ -83,9 +83,9 @@ export function Playground({
                 <header className="appHeader">
                     <h1 id="title">dprint - Playground</h1>
                     <div id="headerRight">
-                        <a href="/">Overview</a>
+                        <a href="/install">Getting Started</a>
                         <a href="/playground">Playground</a>
-                        <a href="/sponsor">Sponsor</a>
+                        <a href="/pricing">Pricing</a>
                         <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
                     </div>
                 </header>

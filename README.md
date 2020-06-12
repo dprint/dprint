@@ -1,6 +1,5 @@
 # dprint
 
-[![npm version](https://badge.fury.io/js/dprint.svg)](https://badge.fury.io/js/dprint)
 [![CI](https://github.com/dprint/dprint/workflows/CI/badge.svg)](https://github.com/dprint/dprint/actions?query=workflow%3ACI)
 
 Monorepo for dprint—a pluggable and configurable code formatting platform.

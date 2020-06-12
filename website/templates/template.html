@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-55630862-3"></script>
+    <script async src="/scripts.js"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'UA-55630862-3');
+
+      document.addEventListener("DOMContentLoaded", () => {
+        var navBurger = document.getElementById("navbarBurger");
+        navBurger.addEventListener("click", function() {
+            navBurger.classList.toggle("is-active");
+            document.getElementById(navBurger.dataset.target).classList.toggle("is-active");
+        });
+      });
+    </script>
+
+    <meta charset="utf-8" />
+    <title>dprint - Code Formatter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="Description" content="A configurable and pluggable TypeScript and JSONC code formatter.">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+            <h1 class="title"><a href="/">dprint</a></h1>
+
+            <a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks">
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+            </a>
+        </div>
+
+        <div class="navbar-menu" id="navbarLinks">
+            <div class="navbar-end">
+                <a class="navbar-item" href="/install">Getting Started</a>
+                <a class="navbar-item" href="/playground">Playground</a>
+                <a class="navbar-item" href="/pricing">Pricing</a>
+                <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+            </div>
+        </div>
+    </nav>
+    <!-- inject -->
+</body>
+</html>
