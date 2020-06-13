@@ -16,6 +16,7 @@ pub struct InfoFilePluginInfo {
     pub config_schema_url: String,
     pub config_key: String,
     pub file_extensions: Vec<String>,
+    pub config_excludes: Vec<String>,
 }
 
 const SCHEMA_VERSION: u8 = 1;
@@ -76,17 +77,18 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     let url = get_string(&mut obj, "url")?;
     let config_key = get_string(&mut obj, "configKey")?;
     let config_schema_url = obj.take_string("configSchemaUrl").unwrap_or(String::new());
-    let file_extensions = get_file_extensions(&mut obj)?;
+    let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
+    let config_excludes = get_string_array(&mut obj, "configExcludes")?;
 
-    Ok(InfoFilePluginInfo { name, version, url, config_key, file_extensions, config_schema_url })
+    Ok(InfoFilePluginInfo { name, version, url, config_key, file_extensions, config_schema_url, config_excludes })
 }
 
-fn get_file_extensions(value: &mut JsonObject) -> Result<Vec<String>, ErrBox> {
+fn get_string_array(value: &mut JsonObject, key: &str) -> Result<Vec<String>, ErrBox> {
     let mut result = Vec::new();
-    for item in get_array(value, "fileExtensions")? {
+    for item in get_array(value, key)? {
         match item {
             JsonValue::String(item) => result.push(item),
-            _ => return err!("Unexpected non-string in file extensions array."),
+            _ => return err!("Unexpected non-string in {} array.", key),
         }
     }
     Ok(result)
@@ -122,14 +124,16 @@ mod test {
         "version": "0.17.2",
         "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
         "configKey": "typescript",
-        "fileExtensions": ["ts", "tsx"]
+        "fileExtensions": ["ts", "tsx"],
+        "configExcludes": ["**/node_modules"]
     }, {
         "name": "dprint-plugin-jsonc",
         "version": "0.2.3",
         "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
         "configKey": "json",
         "fileExtensions": ["json"],
-        "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json"
+        "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
+        "configExcludes": ["**/*-lock.json"]
     }]
 }"#.as_bytes());
         let info_file = read_info_file(&environment).await.unwrap();
@@ -142,6 +146,7 @@ mod test {
                 config_key: String::from("typescript"),
                 file_extensions: vec![String::from("ts"), String::from("tsx")],
                 config_schema_url: String::new(),
+                config_excludes: vec![String::from("**/node_modules")],
             }, InfoFilePluginInfo {
                 name: String::from("dprint-plugin-jsonc"),
                 version: String::from("0.2.3"),
@@ -149,6 +154,7 @@ mod test {
                 config_key: String::from("json"),
                 file_extensions: vec![String::from("json")],
                 config_schema_url: String::from("https://plugins.dprint.dev/schemas/json-v1.json"),
+                config_excludes: vec![String::from("**/*-lock.json")],
             }],
         })
     }

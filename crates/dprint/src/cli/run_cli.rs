@@ -492,7 +492,10 @@ fn resolve_file_paths(config: &mut ResolvedConfig, args: &CliArgs, environment: 
 
     if !args.allow_node_modules {
         // glob walker will not search the children of a directory once it's ignored like this
-        file_patterns.push(String::from("!**/node_modules"));
+        let node_modules_exclude = String::from("!**/node_modules");
+        if !file_patterns.contains(&node_modules_exclude) {
+            file_patterns.push(node_modules_exclude);
+        }
     }
 
     // glob walker doesn't support having `./` at the front of paths, so just remove them when they appear

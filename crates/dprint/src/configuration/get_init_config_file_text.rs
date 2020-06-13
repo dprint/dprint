@@ -57,12 +57,15 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
 
         json_text.push_str("  \"includes\": [\"**/*.{");
         json_text.push_str(&info.latest_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.to_owned()).collect::<Vec<_>>().join(","));
-        json_text.push_str("}\"],\n")
+        json_text.push_str("}\"],\n");
+        json_text.push_str("  \"excludes\": [\n");
+        json_text.push_str(&info.latest_plugins.iter().flat_map(|p| p.config_excludes.iter()).map(|x| format!("    \"{}\"", x)).collect::<Vec<_>>().join(",\n"));
+        json_text.push_str("\n  ],\n");
     } else {
         json_text.push_str("  \"includes\": [\"**/*.{ts,tsx,js,jsx,json}\"],\n");
+        json_text.push_str("  \"excludes\": [\n    \"**/node_modules\",\n    \"**/*-lock.json\"\n  ],\n");
     }
 
-    json_text.push_str("  \"excludes\": [],\n");
     json_text.push_str("  \"plugins\": [\n");
 
     if let Some(info) = &info {
@@ -108,14 +111,16 @@ mod test {
         "version": "0.17.2",
         "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
         "configKey": "typescript",
-        "fileExtensions": ["ts", "tsx"]
+        "fileExtensions": ["ts", "tsx"],
+        "configExcludes": ["**/something"]
     }, {
         "name": "dprint-plugin-jsonc",
         "version": "0.2.3",
         "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
         "configKey": "json",
         "fileExtensions": ["json"],
-        "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json"
+        "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
+        "configExcludes": ["**/*-asdf.json"]
     }]
 }"#.as_bytes());
         let text = get_init_config_file_text(&environment).await.unwrap();
@@ -130,7 +135,10 @@ mod test {
     "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
   },
   "includes": ["**/*.{ts,tsx,json}"],
-  "excludes": [],
+  "excludes": [
+    "**/something",
+    "**/*-asdf.json"
+  ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.17.2.wasm",
     "https://plugins.dprint.dev/json-0.2.3.wasm"
@@ -153,7 +161,10 @@ mod test {
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "openSource",
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
-  "excludes": [],
+  "excludes": [
+    "**/node_modules",
+    "**/*-lock.json"
+  ],
   "plugins": [
     // specify plugin urls here
   ]
@@ -182,7 +193,8 @@ mod test {
         "version": "0.17.2",
         "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
         "configKey": "typescript",
-        "fileExtensions": ["ts"]
+        "fileExtensions": ["ts"],
+        "configExcludes": ["test"]
     }]
 }"#.as_bytes());
         let text = get_init_config_file_text(&environment).await.unwrap();
@@ -194,7 +206,9 @@ mod test {
   "typescript": {
   },
   "includes": ["**/*.{ts}"],
-  "excludes": [],
+  "excludes": [
+    "test"
+  ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.17.2.wasm"
   ]
@@ -217,7 +231,8 @@ mod test {
         "version": "0.17.2",
         "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
         "configKey": "typescript",
-        "fileExtensions": ["ts"]
+        "fileExtensions": ["ts"],
+        "configExcludes": ["asdf"]
     }]
 }"#.as_bytes());
         let text = get_init_config_file_text(&environment).await.unwrap();
@@ -227,7 +242,10 @@ mod test {
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "openSource",
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
-  "excludes": [],
+  "excludes": [
+    "**/node_modules",
+    "**/*-lock.json"
+  ],
   "plugins": [
     // specify plugin urls here
   ]
