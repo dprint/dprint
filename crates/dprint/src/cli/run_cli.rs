@@ -404,8 +404,9 @@ async fn run_parallelized<F, TEnvironment : Environment>(
                 }
             };
 
+            let start_instant = std::time::Instant::now();
             let format_text_result = initialized_plugin.format_text(file_path, file_text);
-            log_verbose!(environment, "Formatted file: {} (in memory)", file_path.display());
+            log_verbose!(environment, "Formatted file: {} in {}ms", file_path.display(), start_instant.elapsed().as_millis());
             plugin_pool.release(initialized_plugin).await;
             format_text_result? // release, then propagate error
         };

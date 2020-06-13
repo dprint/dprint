@@ -55,9 +55,10 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     }
 
     fn create_instance(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+        let start_instant = std::time::Instant::now();
         log_verbose!(self.environment, "Creating instance of {}", self.plugin.name());
         let result = self.plugin.initialize();
-        log_verbose!(self.environment, "Created instance of {}", self.plugin.name());
+        log_verbose!(self.environment, "Created instance of {} in {}ms", self.plugin.name(), start_instant.elapsed().as_millis());
         result
     }
 }

@@ -153,6 +153,7 @@ impl Environment for RealEnvironment {
     */
 
     fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+        let start_instant = std::time::Instant::now();
         log_verbose!(self, "Globbing: {:?}", file_patterns);
         let walker = globwalk::GlobWalkerBuilder::from_patterns(base, file_patterns)
             .follow_links(false)
@@ -170,6 +171,8 @@ impl Environment for RealEnvironment {
                 Err(err) => return err!("Error walking files: {}", err),
             }
         }
+
+        log_verbose!(self, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
 
         Ok(file_paths)
     }
