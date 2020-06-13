@@ -44,22 +44,42 @@ pub struct ProjectTypeInfo {
 
 pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
     vec![ProjectTypeInfo {
-        name: "openSource",
-        description: "Dprint is formatting a non-commercial open source project.",
+        name: "commercialTrial",
+        description: concat!(
+            "Dprint is formatting a project whose primary maintainer is a for-profit\n",
+            "company or individual and it is being evaluated for 30 days."
+        )
     }, ProjectTypeInfo {
         name: "commercialPaid",
         description: concat!(
-            "Dprint is formatting a commercial project and your company paid for a license.\n",
+            "Dprint is formatting a project whose primary maintainer is a for-profit\n",
+            "company or individual AND the primary maintainer paid for a commercial license.\n",
             "Thank you for being part of moving this project forward!"
         ),
     }, ProjectTypeInfo {
-        name: "commercialTrial",
-        description: "Dprint is formatting a commercial project and you are trying it out for 30 days.",
+        name: "openSource",
+        description: concat!(
+            "Dprint is formatting an open source project whose primary maintainer\n",
+            "is not a for-profit company (free)."
+        )
+    }, ProjectTypeInfo {
+        name: "student",
+        description: concat!(
+            "Dprint is formatting a project run by a student or being used for\n",
+            "educational purposes (free)."
+        )
+    }, ProjectTypeInfo {
+        name: "nonProfit",
+        description: concat!(
+            "Dprint is formatting a project whose primary maintainer is a non-profit\n",
+            "organization (free)."
+        )
     }]
 }
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use super::handle_project_type_diagnostic;
 
     #[test]
@@ -85,10 +105,17 @@ mod tests {
 
 You may specify any of the following values and that will suppress this error:
 
- * openSource      Dprint is formatting a non-commercial open source project.
- * commercialPaid  Dprint is formatting a commercial project and your company paid for a license.
+ * commercialTrial Dprint is formatting a project whose primary maintainer is a for-profit
+                   company or individual and it is being evaluated for 30 days.
+ * commercialPaid  Dprint is formatting a project whose primary maintainer is a for-profit
+                   company or individual AND the primary maintainer paid for a commercial license.
                    Thank you for being part of moving this project forward!
- * commercialTrial Dprint is formatting a commercial project and you are trying it out for 30 days.
+ * openSource      Dprint is formatting an open source project whose primary maintainer
+                   is not a for-profit company (free).
+ * student         Dprint is formatting a project run by a student or being used for
+                   educational purposes (free).
+ * nonProfit       Dprint is formatting a project whose primary maintainer is a non-profit
+                   organization (free).
 
 See commercial pricing at: https://dprint.dev/pricing"#);
     }

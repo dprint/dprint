@@ -128,7 +128,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "openSource",
+  "projectType": "commercialTrial",
   "typescript": {
   },
   "json": {
@@ -159,7 +159,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "openSource",
+  "projectType": "commercialTrial",
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
     "**/node_modules",
@@ -240,7 +240,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "openSource",
+  "projectType": "commercialTrial",
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
     "**/node_modules",

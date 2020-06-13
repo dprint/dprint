@@ -1,13 +1,13 @@
 # Pricing
 
-Dprint's CLI will always be **free** for formatting non-commercial open source projects.
+Dprint's CLI will always be **free** for formatting open source projects whose primary maintainer is not a for-profit company.
 
-If you are using dprint's CLI on a commercial project AND you or your company is the primary maintainer, then you must purchase a license.
+If you are using dprint's CLI on a project whose primary maintainer is a for-profit company or individual, then you must purchase a license.
 
 * *Open source* - Free if the primary maintainer of the code being formatted is not a for profit company.
 * *Non-profit* - Free.
 * *Student* - Free.
-* *Commercial* - Commercial license required if formatting a commercial project AND you or your company is the primary maintainer.
+* *Commercial* - Commercial license required by the primary maintainer if the primary maintainer
 
 ## Questions and Answers
 
@@ -19,8 +19,10 @@ Do I need to purchase a license if...
     * **Talk to the company.** You need to talk to the company that maintains the code and they will need to purchase a license for dprint.
 3. ...I'm a commercial user working on another entity's open source codebase.
     * **No.**
-5. ...I'm a commercial user and I want to use dprint to format my company's code or my own commercial code.
+4. ...I'm a commercial user and I want to use dprint to format my company's code or my own commercial code.
     * **Yes.**
+5. ...I work professionally as a freelancer and want to use it to format my open source side projects?
+    * **No.**
 
 ## Commercial License
 
