@@ -997,9 +997,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_should_format_files_with_config_in_config_sub_dir() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        environment.remove_file(&PathBuf::from("./dprint.config.json")).unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        let file_path2 = PathBuf::from("/file2.txt");
+        environment.write_file(&file_path1, "text1").unwrap();
+        environment.write_file(&file_path2, "text2").unwrap();
+        environment.write_file(&PathBuf::from("./config/dprint.config.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+
+        run_test_cli(vec!["fmt"], &environment).await.unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec![get_plural_formatted_text(2)]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+        assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+    }
+
+    #[tokio::test]
     async fn it_should_format_using_config_in_ancestor_directory() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("./dprint.config.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.set_cwd("/test/other/");
+        let file_path = PathBuf::from("/test/other/file.txt");
+        environment.write_file(&file_path, "text").unwrap();
+        run_test_cli(vec!["fmt"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    }
+
+    #[tokio::test]
+    async fn it_should_format_using_config_in_ancestor_directory_config_folder() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        environment.remove_file(&PathBuf::from("./dprint.config.json")).unwrap();
+        environment.write_file(&PathBuf::from("./config/dprint.config.json"), r#"{
             "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]

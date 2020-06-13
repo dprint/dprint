@@ -29,18 +29,21 @@ pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
     });
 
     fn get_default_paths(environment: &impl Environment) -> ResolvedConfigPath {
-        let config_file_path = PathBuf::from(format!("./{}", DEFAULT_CONFIG_FILE_NAME));
+        let config_file_path = get_config_file_in_dir(&PathBuf::from("./"), environment);
 
-        if !environment.path_exists(&config_file_path) {
-            if let Some(resolved_config_path) = get_default_config_file_in_ancestor_directories(environment) {
-                return resolved_config_path;
+        if let Some(config_file_path) = config_file_path {
+            ResolvedConfigPath {
+                resolved_path: ResolvedPath::local(config_file_path),
+                base_path: PathBuf::from("./"),
             }
-        }
-
-        // just return this if it doesn't find a config file in the ancestor paths
-        ResolvedConfigPath {
-            resolved_path: ResolvedPath::local(config_file_path),
-            base_path: PathBuf::from("./"),
+        } else if let Some(resolved_config_path) = get_default_config_file_in_ancestor_directories(environment) {
+            resolved_config_path
+        } else {
+            // just return this even though it doesn't exist
+            ResolvedConfigPath {
+                resolved_path: ResolvedPath::local(PathBuf::from(format!("./{}", DEFAULT_CONFIG_FILE_NAME))),
+                base_path: PathBuf::from("./"),
+            }
         }
     }
 
@@ -48,11 +51,11 @@ pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
         match environment.cwd() {
             Ok(cwd) => {
                 for ancestor_dir in cwd.ancestors() {
-                    let ancestor_config_path = ancestor_dir.join(DEFAULT_CONFIG_FILE_NAME);
-                    if environment.path_exists(&ancestor_config_path) {
+                    let ancestor_dir = ancestor_dir.to_path_buf();
+                    if let Some(ancestor_config_path) = get_config_file_in_dir(&ancestor_dir, environment) {
                         return Some(ResolvedConfigPath {
                             resolved_path: ResolvedPath::local(ancestor_config_path),
-                            base_path: ancestor_dir.to_owned(),
+                            base_path: ancestor_dir,
                         });
                     }
                 }
@@ -62,6 +65,18 @@ pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
             }
         }
 
+        None
+    }
+
+    fn get_config_file_in_dir(dir: &PathBuf, environment: &impl Environment) -> Option<PathBuf> {
+        let config_path = dir.join(DEFAULT_CONFIG_FILE_NAME);
+        if environment.path_exists(&config_path) {
+            return Some(config_path);
+        }
+        let config_path = dir.join(format!("config/{}", DEFAULT_CONFIG_FILE_NAME));
+        if environment.path_exists(&config_path) {
+            return Some(config_path);
+        }
         None
     }
 }
