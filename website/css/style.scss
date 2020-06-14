@@ -42,6 +42,7 @@ $pre-padding: 0rem;
 $pre-background: inherit;
 $pre: #fff;
 $border: #fff;
+$notification-background-color: $header-background;
 
 // header
 $navbar-background-color: $header-background;
@@ -57,8 +58,22 @@ $menu-nested-list-padding-left: 0.5em;
 // breadcrumbs
 $breadcrumb-item-separator-color: #fff;
 
+// footer
+$footer-background-color: $header-background;
+$footer-padding: 1rem 0;
+
 @import "../../scripts/node_modules/bulma/bulma.sass";
 @import "a11y-dark.scss";
+
+// mixins
+
+@mixin center-width {
+  @media (min-width: $content-width) {
+    width: $content-width;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
 
 // header
 nav.navbar {
@@ -71,6 +86,22 @@ nav.navbar h1.title {
   font-size: 1.7rem;
   display: flex;
   align-items: center;
+}
+
+// footer
+
+footer {
+  border-top: 1px solid #000;
+
+  > div {
+    padding: 0 1rem;
+
+    @media (min-width: $content-width) {
+      width: $content-width;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  }
 }
 
 // rest
@@ -94,10 +125,9 @@ body {
   flex-direction: column;
 }
 
-ol, #content #contentBody p, #content #contentBody h2, #content #contentBody h3 {
+#content-body ol, #content-body ul, #content-body p, #content-body h2, #content-body h3 {
   margin: 1rem 0;
 }
-
 
 pre {
   white-space: pre-wrap;
@@ -118,8 +148,14 @@ code {
 
 /* main page */
 
-.main-tile {
+.inner-content {
+  @include center-width;
+}
+
+#main-bottom {
   background-color: $content-background;
+  flex: 1;
+  padding: 3rem 0;
 }
 
 /* content */
@@ -131,51 +167,49 @@ code {
   border-left: 1px solid #000;
   border-right: 1px solid #000;
   width: 100%;
-}
 
-@media (min-width: $content-width) {
-  #content {
+  @media (min-width: $content-width) {
     width: $content-width;
   }
 }
 
-#content h1 {
+#content-body h1 {
   font-size: $size-3;
   font-weight: bold;
   margin-bottom: 1rem;
 }
 
-#content h2 {
+#content-body h2 {
   border-bottom: 1px solid #fff;
   padding-bottom: 4px;
   font-size: $size-4;
 }
 
-#content h3, #content h3 code {
+#content-body h3, #content-body h3 code {
   font-size: $size-5;
   font-style: italic;
 }
 
-#content #contentBody a {
+#content-body a {
   text-decoration: underline;
 }
 
-#content #contentBody .breadcrumb a {
+#content-body .breadcrumb a {
   text-decoration: none;
 }
 
-#content #contentBody nav.breadcrumb {
+#content-body nav.breadcrumb {
   margin-bottom: 0.5rem;
 }
-#content #contentBody .breadcrumb ul {
+#content-body .breadcrumb ul {
   padding-left: 0;
 }
 
-#content #contentBody ul, #content #contentBody ol {
+#content-body ul, #content-body ol {
   padding-left: 2em;
 }
 
-#content #contentBody ul {
+#content-body ul {
   list-style-type: square;
 }
 

@@ -24,11 +24,13 @@ const converter = new showdown.Converter({ extensions: ["codehighlight"] });
 converter.setFlavor("github");
 
 // index.html
-const indexMdText = fs.readFileSync("../website/index.md", { encoding: "utf8" });
-fs.writeFileSync("build-website/index.html", templateHtmlPageText.replace(injectText, processMarkdown(fullPageHtmlPageText, indexMdText)));
+const indexHtmlText = fs.readFileSync("../website/index.html", { encoding: "utf8" });
+fs.writeFileSync("build-website/index.html", templateHtmlPageText.replace(injectText, indexHtmlText));
 
 buildForPath("pricing", fullPageHtmlPageText);
 buildForPath("thank-you", fullPageHtmlPageText);
+buildForPath("privacy-policy", fullPageHtmlPageText);
+buildForPath("contact", fullPageHtmlPageText);
 
 buildForPath("cli", documentationHtmlPageText);
 buildForPath("config", documentationHtmlPageText);

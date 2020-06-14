@@ -10,14 +10,6 @@
       gtag('js', new Date());
 
       gtag('config', 'UA-55630862-3');
-
-      document.addEventListener("DOMContentLoaded", () => {
-        var navBurger = document.getElementById("navbarBurger");
-        navBurger.addEventListener("click", function() {
-            navBurger.classList.toggle("is-active");
-            document.getElementById(navBurger.dataset.target).classList.toggle("is-active");
-        });
-      });
     </script>
 
     <meta charset="utf-8" />
@@ -49,5 +41,16 @@
         </div>
     </nav>
     <!-- inject -->
+    <footer class="footer">
+        <div class="content">
+            <p>
+                <a href="/">Home</a> |
+                <a href="/contact">Contact Us</a> |
+                <a href="/privacy-policy">Privacy Policy</a> |
+                <a href="https://twitter.com/dprintfmt">Twitter</a> |
+                <a href="https://github.com/dprint">GitHub</a>
+            </p>
+        </div>
+    </footer>
 </body>
 </html>

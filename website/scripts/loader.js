@@ -7,5 +7,6 @@
     function onLoad() {
         Dprint.replacePluginUrls();
         Dprint.replaceConfigTable();
+        Dprint.addNavBurgerEvent();
     }
 })(window.Dprint || (window.Dprint = {}));
