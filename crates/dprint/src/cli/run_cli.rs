@@ -47,10 +47,7 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
 
     // init
     if args.sub_command == SubCommand::Init {
-        let config_file_path = args.config.map(|x| PathBuf::from(x)).unwrap_or(PathBuf::from("./dprint.config.json"));
-        init_config_file(environment, &config_file_path).await?;
-        environment.log(&format!("Created {}", config_file_path.display()));
-        return Ok(());
+        return init_config_file(environment, &args.config).await;
     }
 
     // get configuration
@@ -241,11 +238,38 @@ fn output_resolved_config(
     Ok(())
 }
 
-async fn init_config_file(environment: &impl Environment, config_file_path: &PathBuf) -> Result<(), ErrBox> {
-    if !environment.path_exists(config_file_path) {
-        environment.write_file(config_file_path, &configuration::get_init_config_file_text(environment).await?)
+async fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<(), ErrBox> {
+    let config_file_path = get_config_path(environment, config_arg)?;
+    return if !environment.path_exists(&config_file_path) {
+        environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment).await?)?;
+        environment.log(&format!("Created {}", config_file_path.display()));
+        Ok(())
     } else {
         err!("Configuration file '{}' already exists.", config_file_path.display())
+    };
+
+    fn get_config_path(environment: &impl Environment, config_arg: &Option<String>) -> Result<PathBuf, ErrBox> {
+        return Ok(if let Some(config_arg) = config_arg.as_ref() {
+            PathBuf::from(config_arg)
+        } else if use_config_dir(environment)? {
+            PathBuf::from("./config/dprint.config.json")
+        } else {
+            PathBuf::from("./dprint.config.json")
+        });
+
+        fn use_config_dir(environment: &impl Environment) -> Result<bool, ErrBox> {
+            if environment.path_exists(&PathBuf::from("./config")) {
+                environment.log("Would you like to create the dprint.config.json in the ./config directory?");
+                let options = get_table_text(vec![
+                    ("Yes", "Create it in the ./config directory."),
+                    ("No", "Create it in the current working directory.")
+                ], 2);
+
+                Ok(environment.get_selection(&options)? == 0)
+            } else {
+                Ok(false)
+            }
+        }
     }
 }
 
@@ -1150,12 +1174,14 @@ mod tests {
                 "name": "dprint-plugin-typescript",
                 "version": "0.17.2",
                 "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-                "configKey": "typescript"
+                "configKey": "typescript",
+                "configExcludes": []
             }, {
                 "name": "dprint-plugin-jsonc",
                 "version": "0.2.3",
                 "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
-                "configKey": "json"
+                "configKey": "json",
+                "configExcludes": []
             }]
         }"#.as_bytes());
         let expected_text = get_init_config_file_text(&environment).await.unwrap();
@@ -1178,7 +1204,8 @@ mod tests {
                 "name": "dprint-plugin-typescript",
                 "version": "0.17.2",
                 "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-                "configKey": "typescript"
+                "configKey": "typescript",
+                "configExcludes": []
             }]
         }"#.as_bytes());
         let expected_text = get_init_config_file_text(&environment).await.unwrap();
@@ -1197,6 +1224,37 @@ mod tests {
         environment.write_file(&PathBuf::from("./dprint.config.json"), "{}").unwrap();
         let error_message = run_test_cli(vec!["init"], &environment).await.err().unwrap();
         assert_eq!(error_message.to_string(), "Configuration file './dprint.config.json' already exists.");
+    }
+
+    #[tokio::test]
+    async fn it_should_ask_to_initialize_in_config_dir() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("./config"), "").unwrap(); // hack for creating a directory with the test environment...
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        run_test_cli(vec!["init"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![
+            "Would you like to create the dprint.config.json in the ./config directory?",
+            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
+            "Created ./config/dprint.config.json"
+        ]);
+        assert_eq!(environment.read_file(&PathBuf::from("./config/dprint.config.json")).unwrap(), expected_text);
+    }
+
+    #[tokio::test]
+    async fn it_should_ask_to_initialize_in_config_dir_and_handle_no() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("./config"), "").unwrap(); // hack for creating a directory with the test environment...
+        environment.set_selection_result(1);
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        run_test_cli(vec!["init"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![
+            "Would you like to create the dprint.config.json in the ./config directory?",
+            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
+            "Created ./dprint.config.json"
+        ]);
+        assert_eq!(environment.read_file(&PathBuf::from("./dprint.config.json")).unwrap(), expected_text);
     }
 
     #[tokio::test]
