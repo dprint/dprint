@@ -27,6 +27,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     private editor: monacoEditorForTypes.editor.IStandaloneCodeEditor | undefined;
     private monacoEditor: typeof monacoEditorForTypes | undefined;
     private outerContainerRef = React.createRef<HTMLDivElement>();
+    private disposables: monacoEditorForTypes.IDisposable[] = [];
 
     constructor(props: CodeEditorProps) {
         super(props);
@@ -82,6 +83,13 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
         );
     }
 
+    componentWillUnmount() {
+        for (const disposable of this.disposables) {
+            disposable.dispose();
+        }
+        this.disposables.length = 0; // clear
+    }
+
     private getEditor() {
         if (this.state.editorComponent == null)
             return <Spinner backgroundColor="#1e1e1e" />;
@@ -112,24 +120,24 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     private editorDidMount(editor: monacoEditorForTypes.editor.IStandaloneCodeEditor) {
         this.editor = editor;
 
-        this.editor.onDidChangeModelContent(() => {
+        this.disposables.push(this.editor.onDidChangeModelContent(() => {
             if (this.props.readonly) {
                 this.editor!.setPosition({
                     column: 1,
                     lineNumber: 1,
                 });
             }
-        });
+        }));
 
-        this.editor.onDidScrollChange(e => {
+        this.disposables.push(this.editor.onDidScrollChange(e => {
             if (e.scrollTopChanged && this.props.onScrollTopChange)
                 this.props.onScrollTopChange(e.scrollTop);
-        });
+        }));
 
         // manually refresh the layout of the editor (lightweight compared to monaco editor)
         let lastHeight = 0;
         let lastWidth = 0;
-        setInterval(() => {
+        const intervalId = setInterval(() => {
             const containerElement = this.outerContainerRef.current;
             if (containerElement == null)
                 return;
@@ -144,6 +152,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
             lastHeight = height;
             lastWidth = width;
         }, 500);
+        this.disposables.push({ dispose: () => clearInterval(intervalId) });
     }
 
     private lastScrollTop = 0;
