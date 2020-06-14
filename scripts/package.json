@@ -24,7 +24,6 @@
     "copyfiles": "^2.2.0",
     "highlight.js": "^10.0.1",
     "html-minifier": "^4.0.0",
-    "lerna": "^3.20.2",
     "node-minify": "^3.6.0",
     "node-sass": "^4.14.1",
     "rimraf": "^3.0.2",

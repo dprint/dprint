@@ -7,3 +7,8 @@
 *.json text merge=union eol=lf
 *.toml text merge=union eol=lf
 *.md text merge=union eol=lf
+*.sh text merge=union eol=lf
+
+*.jpg binary
+*.data binary
+*.png binary
