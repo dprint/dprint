@@ -1,0 +1,9 @@
+# force lf newlines
+* text=auto
+
+*.rs text merge=union eol=lf
+*.ts text merge=union eol=lf
+*.js text merge=union eol=lf
+*.json text merge=union eol=lf
+*.toml text merge=union eol=lf
+*.md text merge=union eol=lf
