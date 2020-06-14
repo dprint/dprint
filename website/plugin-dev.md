@@ -44,7 +44,14 @@ fn get_plugin_help_url() -> String {
 }
 
 fn get_plugin_config_schema_url() -> String {
-    // for now, return an empty string...
+    // for now, return an empty string. Return a schema url once VSCode
+    // supports $schema properties in descendant objects:
+    // https://github.com/microsoft/vscode/issues/98443
+    String::new()
+}
+
+fn get_plugin_license_text() -> String {
+    std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
 }
 
 fn format_text(

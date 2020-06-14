@@ -61,6 +61,12 @@ impl WasmFunctions {
     }
 
     #[inline]
+    pub fn get_license_text(&self) -> usize {
+        let get_license_text_func: Func<(), u32> = self.get_export("get_license_text");
+        get_license_text_func.call().unwrap() as usize
+    }
+
+    #[inline]
     pub fn get_resolved_config(&self) -> usize {
         let get_resolved_config_func: Func<(), u32> = self.get_export("get_resolved_config");
         get_resolved_config_func.call().unwrap() as usize

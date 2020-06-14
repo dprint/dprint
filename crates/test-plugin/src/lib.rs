@@ -39,6 +39,10 @@ fn get_plugin_config_schema_url() -> String {
     String::from("https://plugins.dprint.dev/schemas/test.json")
 }
 
+fn get_plugin_license_text() -> String {
+    std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
+}
+
 fn format_text(_: &PathBuf, file_text: &str, config: &Configuration) -> Result<String, String> {
     if file_text.ends_with(&config.ending) {
         Ok(String::from(file_text))

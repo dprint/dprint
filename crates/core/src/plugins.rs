@@ -74,7 +74,7 @@ pub mod macros {
                 set_shared_bytes_str(error_text)
             }
 
-            // CONFIGURATION
+            // INFORMATION & CONFIGURATION
 
             static mut RESOLVE_CONFIGURATION_RESULT: Option<dprint_core::configuration::ResolveConfigurationResult<Configuration>> = None;
 
@@ -90,6 +90,11 @@ pub mod macros {
                     config_schema_url: get_plugin_config_schema_url(),
                 }).unwrap();
                 set_shared_bytes_str(info_json)
+            }
+
+            #[no_mangle]
+            pub fn get_license_text() -> usize {
+                set_shared_bytes_str(get_plugin_license_text())
             }
 
             #[no_mangle]

@@ -34,8 +34,7 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
 
     // license
     if args.sub_command == SubCommand::License {
-        output_license(environment);
-        return Ok(());
+        return output_license(&args, cache, environment, plugin_resolver).await;
     }
 
     // clear cache
@@ -179,8 +178,23 @@ async fn output_help<'a, TEnvironment: Environment>(
     Ok(())
 }
 
-fn output_license<TEnvironment : Environment>(environment: &TEnvironment) {
+async fn output_license<'a, TEnvironment: Environment>(
+    args: &CliArgs,
+    cache: &Cache<'a, TEnvironment>,
+    environment: &TEnvironment,
+    plugin_resolver: &impl PluginResolver
+) -> Result<(), ErrBox> {
+    environment.log("==== DPRINT CLI LICENSE ====");
     environment.log(std::str::from_utf8(include_bytes!("../../LICENSE")).unwrap());
+
+    // now check for the plugins
+    for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
+        environment.log(&format!("\n==== {} LICENSE ====", plugin.name().to_uppercase()));
+        let initialized_plugin = plugin.initialize()?;
+        environment.log(&initialized_plugin.get_license_text());
+    }
+
+    Ok(())
 }
 
 async fn get_plugins_from_args<'a, TEnvironment : Environment>(
@@ -1205,11 +1219,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn it_should_output_license_for_sub_command() {
+    async fn it_should_output_license_for_sub_command_with_no_plugins() {
         let environment = TestEnvironment::new();
         run_test_cli(vec!["license"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
+            "==== DPRINT CLI LICENSE ====",
             std::str::from_utf8(include_bytes!("../../LICENSE")).unwrap()
+        ]);
+    }
+
+    #[tokio::test]
+    async fn it_should_output_license_for_sub_command_with_plugins() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        run_test_cli(vec!["license"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![
+            "==== DPRINT CLI LICENSE ====",
+            std::str::from_utf8(include_bytes!("../../LICENSE")).unwrap(),
+            "\n==== TEST-PLUGIN LICENSE ====",
+            r#"Copyright 2020 David Sherret. All rights reserved.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"#
         ]);
     }
 

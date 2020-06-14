@@ -150,6 +150,11 @@ impl InitializedWasmPlugin {
 }
 
 impl InitializedPlugin for InitializedWasmPlugin {
+    fn get_license_text(&self) -> String {
+        let len = self.wasm_functions.get_license_text();
+        self.receive_string(len)
+    }
+
     fn get_resolved_config(&self) -> String {
         let len = self.wasm_functions.get_resolved_config();
         self.receive_string(len)

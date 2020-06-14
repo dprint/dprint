@@ -24,6 +24,8 @@ pub trait Plugin : std::marker::Send + std::marker::Sync {
 }
 
 pub trait InitializedPlugin : std::marker::Send {
+    /// Gets the license text
+    fn get_license_text(&self) -> String;
     /// Gets the configuration as a collection of key value pairs.
     fn get_resolved_config(&self) -> String;
     /// Gets the configuration diagnostics.
@@ -80,6 +82,7 @@ impl InitializedTestPlugin {
 
 #[cfg(test)]
 impl InitializedPlugin for InitializedTestPlugin {
+    fn get_license_text(&self) -> String { String::from("License Text") }
     fn get_resolved_config(&self) -> String { String::from("{}") }
     fn get_config_diagnostics(&self) -> Vec<ConfigurationDiagnostic> { vec![] }
     fn format_text(&self, _: &PathBuf, text: &str) -> Result<String, String> {
