@@ -28,6 +28,7 @@ export function createFromBuffer(wasmModuleBuffer) {
  */
 export function createFromInstance(wasmInstance) {
     const {
+        get_plugin_schema_version,
         set_file_path,
         get_formatted_text,
         format,
@@ -37,7 +38,7 @@ export function createFromInstance(wasmInstance) {
         get_config_diagnostics,
         set_global_config,
         set_plugin_config,
-        get_plugin_schema_version,
+        get_license_text,
         get_wasm_memory_buffer,
         get_wasm_memory_buffer_size,
         add_to_shared_bytes_from_buffer,
@@ -100,6 +101,14 @@ export function createFromInstance(wasmInstance) {
         getPluginInfo() {
             const length = get_plugin_info();
             return JSON.parse(receiveString(length));
+        },
+        /**
+         * Gets the license text of the plugin.
+         * @returns {string}
+         */
+        getLicenseText() {
+            const length = get_license_text();
+            return receiveString(length);
         },
         /**
          *
