@@ -7,7 +7,7 @@ export async function getPluginDefaultConfig(plugin: PluginInfo) {
     let wroteProperty = false;
 
     for (const propertyName of Object.keys(json.properties)) {
-        if (propertyName === "$schema" || propertyName === "deno")
+        if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked")
             continue;
         const property = json.properties[propertyName];
         let defaultValue: string | boolean | number | undefined;

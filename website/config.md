@@ -103,6 +103,17 @@ You may extend other configuration files by specifying an `extends` property. Th
 }
 ```
 
+Or even references to multiple configuration files ordered by precedence:
+
+```json
+{
+  "extends": [
+    "https://dprint.dev/path/to/config/file.v1.json",
+    "https://dprint.dev/path/to/config/other.v1.json"
+  ]
+}
+```
+
 Note: The `includes` and `excludes` of extended configuration is ignored for security reasons so you will need to specify them in the main configuration file or via the CLI.
 
 ## Global Configuration
@@ -146,5 +157,77 @@ Defaults to `4`.
 Whether to use tabs (`true`) or spaces (`false`).
 
 Defaults to `false`.
+
+## Locking Configuration—Opinionated Configurations
+
+You may want to publish your own opinionated configuration and disallow anyone using it from overriding the properties.
+
+This can be done by adding a `"locked": true` property to each plugin configuration you wish to lock.
+
+Note: When doing this, ensure you set all the global configuration values if you wish to enforce those.
+
+### Example
+
+Say the following configuration were published at `https://dprint.dev/configs/my-config.json`:
+
+```json
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "typescript": {
+    "locked": true,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "useTabs": false,
+    "quoteStyle": "preferSingle",
+    "binaryExpression.operatorPosition": "sameLine"
+  },
+  "json": {
+    "locked": true,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "useTabs": false
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
+    "https://plugins.dprint.dev/json-x.x.x.wasm"
+  ]
+}
+```
+
+The following would work fine:
+
+```json
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "extends": "https://dprint.dev/configs/my-config.json",
+  "myOtherPlugin": {
+    "propertySeparator": "comma"
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/my-other-plugin-0.1.0.wasm"
+  ]
+}
+```
+
+But specifying properties in the `"typescript"` or `"json"` objects would cause an error when running in the CLI:
+
+```json
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "extends": "https://dprint.dev/configs/my-config.json",
+  "typescript": {
+    "useBraces": "always" // error, "typescript" config was locked
+  },
+  "json": {
+    "lineWidth": 120 // error, "json" config was locked
+  },
+  "myOtherPlugin": {
+    "propertySeparator": "comma"
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/my-other-plugin-0.1.0.wasm"
+  ]
+}
+```
 
 Next step: [CLI](cli)

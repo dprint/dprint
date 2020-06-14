@@ -87,6 +87,7 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
     // resolve extends
     let base_source = resolved_config.resolved_path.source.parent();
     resolve_extends(&mut resolved_config, extends, &base_source, cache, environment).await?;
+    remove_locked_properties(&mut resolved_config);
 
     Ok(resolved_config)
 }
@@ -142,8 +143,8 @@ async fn handle_config_file<'a, TEnvironment : Environment>(
     // we don't want it specifying something like system or some configuration
     // files that it could change. Basically, the end user should have 100%
     // control over what files get formatted.
-    new_config_map.remove("includes");
-    new_config_map.remove("excludes");
+    new_config_map.remove("includes"); // NEVER REMOVE
+    new_config_map.remove("excludes"); // NEVER REMOVE
     // =========
 
     // combine plugins
@@ -165,6 +166,19 @@ async fn handle_config_file<'a, TEnvironment : Environment>(
                 if let Some(resolved_config_obj) = resolved_config.config_map.get_mut(&key) {
                     match resolved_config_obj {
                         ConfigMapValue::HashMap(resolved_config_obj) => {
+                            // check for locked configuration
+                            if let Some(is_locked) = obj.get("locked") {
+                                if is_locked.to_lowercase() == "true" && !resolved_config_obj.is_empty() {
+                                    return err!(
+                                        concat!(
+                                            "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
+                                            "Locked configurations cannot have their properties overridden."
+                                        ),
+                                        key
+                                    );
+                                }
+                            }
+
                             for (key, value) in obj {
                                 if !resolved_config_obj.contains_key(&key) {
                                     resolved_config_obj.insert(key, value);
@@ -226,6 +240,16 @@ fn get_warn_includes_excludes_message() -> String {
         "{} The 'includes' and 'excludes' properties are ignored for security reasons on remote configuration.",
         "Note: ".bold().to_string()
     )
+}
+
+fn remove_locked_properties(resolved_config: &mut ResolvedConfig) {
+    // Remove this property on each sub configuration as it's not useful
+    // for the caller to know about.
+    for (_, value) in resolved_config.config_map.iter_mut() {
+        if let ConfigMapValue::HashMap(obj) = value {
+            obj.remove("locked");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -656,5 +680,119 @@ mod tests {
             "Error with 'https://dprint.dev/dir/test.json'. Error deserializing. ",
             "Expected a colon after the string or word in an object property on line 2 column 21."
         ));
+    }
+
+    #[tokio::test]
+    async fn it_should_error_extending_locked_config() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "test": {
+                "locked": true,
+                "prop": 6,
+                "other": "test"
+            }
+        }"#.as_bytes());
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {
+                "prop": 5
+            }
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.err().unwrap();
+        assert_eq!(result.to_string(), concat!(
+            "Error with 'https://dprint.dev/test.json'. ",
+            "The configuration for \"test\" was locked, but a parent configuration specified it. ",
+            "Locked configurations cannot have their properties overridden."
+        ));
+    }
+
+    #[tokio::test]
+    async fn it_should_get_locked_config() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "test": {
+                "locked": true,
+                "prop": 6,
+                "other": "test"
+            }
+        }"#.as_bytes());
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "https://dprint.dev/test.json"
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("6"));
+            obj.insert(String::from("other"), String::from("test"));
+            obj
+        }));
+
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_locked_on_upstream_config() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "test": {
+                "prop": 6,
+                "other": "test"
+            }
+        }"#.as_bytes());
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {
+                "locked": true,
+                "prop": 7
+            }
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("7"));
+            obj.insert(String::from("other"), String::from("test"));
+            obj
+        }));
+
+        assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_get_locked_config_and_not_care_if_no_properties_set_in_parent_config() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "test": {
+                "locked": true,
+                "prop": 6,
+                "other": "test"
+            }
+        }"#.as_bytes());
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {}
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        let mut expected_config_map = HashMap::new();
+        expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
+            let mut obj = HashMap::new();
+            obj.insert(String::from("prop"), String::from("6"));
+            obj.insert(String::from("other"), String::from("test"));
+            obj
+        }));
+
+        assert_eq!(result.config_map, expected_config_map);
     }
 }

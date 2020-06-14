@@ -104,7 +104,7 @@
             var order = 0;
 
             for (const propertyName of Object.keys(json.properties)) {
-                if (propertyName === "$schema" || propertyName === "deno")
+                if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked")
                     continue;
                 var property = json.properties[propertyName];
 

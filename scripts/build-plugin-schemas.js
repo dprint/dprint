@@ -54,6 +54,10 @@ function buildText(pluginName, interfaceName, schemaFileName) {
                 writer.quote("description").write(": ").quote("The JSON schema reference.").write(",").newLine();
                 writer.quote("type").write(": ").quote("string");
             }).write(",").newLine();
+            writer.quote("locked").write(": ").inlineBlock(() => {
+                writer.quote("description").write(": ").quote("Whether the configuration is allowed to be overriden or extended.").write(",").newLine();
+                writer.quote("type").write(": ").quote("boolean");
+            }).write(",").newLine();
 
             for (const [index, prop] of propDefinitions.entries()) {
                 if (index > 0)
