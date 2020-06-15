@@ -1,3 +1,8 @@
+---
+title: Install
+description: Documentation on installing dprint.
+---
+
 # Install Dprint
 
 Shell (Mac, Linux, WSL):

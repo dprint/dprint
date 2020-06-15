@@ -1,4 +1,10 @@
-# Thank you
+---
+title: Thank You
+description: Thank you page for people who pay for a subscription.
+robots: false
+---
+
+# Thank You
 
 Thank you for purchasing a license. Your action will help drive this project forward and lead to a better product.
 

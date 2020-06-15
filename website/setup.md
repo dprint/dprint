@@ -1,3 +1,8 @@
+---
+title: Setup
+description: Documentation on setting up dprint to format a collection of code.
+---
+
 # Setup Dprint
 
 After [installing](install), the main part of getting setup is to create a *dprint.config.json* file in your project.

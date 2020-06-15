@@ -1,3 +1,9 @@
+---
+title: Privacy Policy
+description: Privacy policy for dprint.dev
+robots: false
+---
+
 # Privacy Policy for Dprint Code Formatting
 
 At Dprint Code Formatting, accessible from dprint.dev, one of our main priorities is the privacy of our visitors. This Privacy Policy document contains types of information that is collected and recorded by Dprint Code Formatting and how we use it.

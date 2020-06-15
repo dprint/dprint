@@ -1,3 +1,8 @@
+---
+title: CLI
+description: Documentation on dprint's command-line interface (CLI).
+---
+
 # Command Line Interface (CLI)
 
 ```bash

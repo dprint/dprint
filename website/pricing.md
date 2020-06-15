@@ -1,3 +1,8 @@
+---
+title: Pricing
+description: Information on how much dprint costs for commercial use.
+---
+
 # Pricing
 
 Dprint's CLI will always be **free** for formatting open source projects whose primary maintainer is not a for-profit company.

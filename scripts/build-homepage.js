@@ -7,6 +7,9 @@ const CleanCss = require("clean-css");
 const sass = require("node-sass");
 const jsMinify = require("node-minify");
 
+const titleInjectText = "<!-- title-inject -->";
+const descriptionInjectText = "<!-- description-inject -->";
+const additionalInjectText = "<!-- additional-inject -->";
 const injectText = "<!-- inject -->";
 
 initCodeHighlightExtension();
@@ -20,12 +23,18 @@ const documentationHtmlPageText = fs.readFileSync(documentationHtmlPageFilePath,
 const fullPageHtmlPageFilePath = "../website/templates/full-page.html";
 const fullPageHtmlPageText = fs.readFileSync(fullPageHtmlPageFilePath, { encoding: "utf8" });
 
-const converter = new showdown.Converter({ extensions: ["codehighlight"] });
+const converter = new showdown.Converter({ extensions: ["codehighlight"], metadata: true });
 converter.setFlavor("github");
 
 // index.html
 const indexHtmlText = fs.readFileSync("../website/index.html", { encoding: "utf8" });
-fs.writeFileSync("build-website/index.html", templateHtmlPageText.replace(injectText, indexHtmlText));
+writeHtmlFile(
+    "build-website/index.html",
+    "dprint - Code Formatter",
+    "A pluggable and configurable code formatting platform written in Rust.",
+    indexHtmlText,
+    true
+);
 
 buildForPath("pricing", fullPageHtmlPageText);
 buildForPath("thank-you", fullPageHtmlPageText);
@@ -62,21 +71,58 @@ jsMinify.minify({
 function buildForPath(filePath, subTemplateText) {
     const mdText = fs.readFileSync("../website/" + filePath + ".md", { encoding: "utf8" });
     fs.mkdirSync("build-website/" + filePath);
-    let htmlText;
+    let html;
+    let metaData;
     if (subTemplateText != null) {
-        htmlText = processMarkdown(subTemplateText, mdText);
-        htmlText = templateHtmlPageText.replace(injectText, htmlText);
+        const mdResult = processMarkdown(mdText);
+        html = subTemplateText.replace(injectText, mdResult.html);
+        metaData = mdResult.metaData;
     } else {
-        htmlText = processMarkdown(templateHtmlPageText, mdText);
+        const mdResult = processMarkdown(mdText);
+        html = mdResult.html;
+        metaData = mdResult.metaData;
     }
-    fs.writeFileSync("build-website/" + filePath + "/index.html", htmlText);
+    writeHtmlFile(
+        "build-website/" + filePath + "/index.html",
+        getTitle(),
+        getDescription(),
+        html,
+        // @ts-ignore
+        metaData.robots !== "false"
+    );
+
+    function getTitle() {
+        if (metaData.title == null)
+            throw new Error("Could not find title metadata for " + filePath);
+        return metaData.title + " - dprint - Code Formatter";
+    }
+
+    function getDescription() {
+        if (metaData.description == null)
+            throw new Error("Could not find description metadata for " + filePath);
+        return metaData.description;
+    }
 }
 
-/** @param {string} [htmlText] - Html text to use. */
+/** @param {string} [filePath] - File path to write to. */
+/** @param {string} [title] - Title of the html file. */
+/** @param {string} [description] - Description of the html file. */
+/** @param {string} [html] - Html to write. */
+/** @param {boolean} [robots] - Set to false to disallow robots. */
+function writeHtmlFile(filePath, title, description, html, robots) {
+    html = templateHtmlPageText
+        .replace(titleInjectText, title)
+        .replace(descriptionInjectText, description)
+        .replace(injectText, html)
+        .replace(additionalInjectText, robots ? "" : "<meta name=\"robots\" content=\"noindex\">");
+    fs.writeFileSync(filePath, htmlMinify(html, { collapseWhitespace: true }));
+}
+
 /** @param {string} [mdText] - Markdown to process and inject. */
-function processMarkdown(htmlText, mdText) {
-    const innerHtml = converter.makeHtml(mdText);
-    return htmlMinify(htmlText.replace(injectText, innerHtml), { collapseWhitespace: true });
+function processMarkdown(mdText) {
+    const html = converter.makeHtml(mdText);
+    const metaData = converter.getMetadata() || {};
+    return { html, metaData };
 }
 
 function initCodeHighlightExtension() {
@@ -119,6 +165,9 @@ function initCodeHighlightExtension() {
             }
             if (left.indexOf("-text") !== -1) {
                 return "text";
+            }
+            if (left.indexOf("-toml") !== -1) {
+                return "toml";
             }
 
             throw new Error("Unknown language: " + left);

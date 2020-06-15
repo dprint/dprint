@@ -1,3 +1,8 @@
+---
+title: TypeScript / JavaScript Plugin
+description: Documentation on the TypeScript / JavaScript code formatting plugin for dprint.
+---
+
 <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>

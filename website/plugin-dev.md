@@ -1,3 +1,8 @@
+---
+title: Creating a Plugin
+description: Documentation on creating your own dprint formatting plugin.
+---
+
 # Creating a Plugin
 
 Plugins can be written in any language that supports compiling to a WebAssembly file (*.wasm*).
@@ -65,7 +70,14 @@ fn format_text(
 generate_plugin_code!();
 ```
 
-After implementing, compile with:
+Add the following to *Cargo.toml*:
+
+```toml
+[lib]
+crate-type = ["lib", "cdylib"]
+```
+
+Then finally, compile with:
 
 ```bash
 cargo build --release --target=wasm32-unknown-unknown

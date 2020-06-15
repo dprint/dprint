@@ -1,3 +1,8 @@
+---
+title: JSON Plugin
+description: Documentation on the JSON code formatting plugin for dprint.
+---
+
 <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>

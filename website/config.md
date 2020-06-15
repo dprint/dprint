@@ -1,3 +1,8 @@
+---
+title: Configuration
+description: Documentation on dprint's configuration file.
+---
+
 # Configuration
 
 Configuration allows you to modify how dprint and its plugins behave.
