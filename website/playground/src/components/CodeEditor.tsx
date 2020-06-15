@@ -84,9 +84,8 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     }
 
     componentWillUnmount() {
-        for (const disposable of this.disposables) {
+        for (const disposable of this.disposables)
             disposable.dispose();
-        }
         this.disposables.length = 0; // clear
     }
 

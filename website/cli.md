@@ -34,6 +34,10 @@ Instead of formatting files, you can get a report of any files that aren't forma
 dprint check
 ```
 
+Example output:
+
+![Example of dprint check output.](/images/check-example.png "Example of dprint check output.")
+
 ## Using a Custom Config File Path or URL
 
 Instead of the default path of *dprint.config.json* or *config/dprint.config.json*, you can specify a path to a configuration file via the `--config` or `-c` flag.
@@ -46,7 +50,7 @@ dprint fmt --config path/to/my/config.json
 
 ### Outputting file paths
 
-Sometimes you may not be sure what files Dprint is picking up and formatting. To check, use the `output-file-paths` subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.
+Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the `output-file-paths` subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.
 
 ```bash
 dprint output-file-paths
@@ -55,7 +59,13 @@ dprint output-file-paths
 Example output:
 
 ```bash
-TODO
+C:\dev\my-project\scripts\build-homepage.js
+C:\dev\my-project\scripts\build-schemas.js
+C:\dev\my-project\website\playground\config-overrides.js
+C:\dev\my-project\website\playground\src\components\ExternalLink.tsx
+C:\dev\my-project\website\playground\src\components\index.ts
+C:\dev\my-project\website\playground\src\components\Spinner.tsx
+...etc...
 ```
 
 ### Outputting resolved configuration
@@ -68,8 +78,27 @@ dprint output-resolved-config
 
 Example output:
 
-```bash
-TODO
+```text
+typescript: {
+  "arguments.preferHanging": true,
+  "arguments.preferSingleLine": false,
+  "arguments.trailingCommas": "onlyMultiLine",
+  "arrayExpression.preferHanging": true,
+  "arrayExpression.preferSingleLine": false,
+  "arrayExpression.trailingCommas": "onlyMultiLine",
+  "arrayPattern.preferHanging": true,
+  // ...etc...
+  "whileStatement.singleBodyPosition": "nextLine",
+  "whileStatement.spaceAfterWhileKeyword": true,
+  "whileStatement.useBraces": "preferNone"
+}
+json: {
+  "commentLine.forceSpaceAfterSlashes": true,
+  "indentWidth": 2,
+  "lineWidth": 160,
+  "newLineKind": "lf",
+  "useTabs": false
+}
 ```
 
 ### Verbose
@@ -84,8 +113,40 @@ dprint check --verbose
 
 Example output:
 
-```bash
-TODO: Put example output here.
+```text
+[VERBOSE]: Getting cache directory.
+[VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\cache-manifest.json
+[VERBOSE]: Checking path exists: ./dprint.config.json
+[VERBOSE]: Reading file: V:\dev\my-project\dprint.config.json
+[VERBOSE]: Globbing: ["**/*.{ts,tsx,js,jsx,json}", "!website/playground/build", "!scripts/build-website", "!**/dist", "!**/target", "!**/wasm", "!**/*-lock.json", "!**/node_modules"]
+[VERBOSE]: Finished globbing in 12ms
+[VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\typescript-0.19.2.compiled_wasm
+[VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\json-0.4.1.compiled_wasm
+[VERBOSE]: Creating instance of dprint-plugin-typescript
+[VERBOSE]: Creating instance of dprint-plugin-jsonc
+[VERBOSE]: Created instance of dprint-plugin-jsonc in 9ms
+[VERBOSE]: Reading file: V:\dev\my-project\website\playground\tsconfig.json
+[VERBOSE]: Reading file: V:\dev\my-project\website\assets\schemas\v0.json
+[VERBOSE]: Reading file: V:\dev\my-project\dprint.config.json
+[VERBOSE]: Formatted file: V:\dev\my-project\website\assets\schemas\v0.json in 2ms
+[VERBOSE]: Formatted file: V:\dev\my-project\dprint.config.json in 0ms
+[VERBOSE]: Formatted file: V:\dev\my-project\website\playground\tsconfig.json in 0ms
+[VERBOSE]: Created instance of dprint-plugin-typescript in 35ms
+[VERBOSE]: Reading file: V:\dev\my-project\website\playground\public\formatter.worker.js
+[VERBOSE]: Reading file: V:\dev\my-project\website\assets\formatter\v1.js
+[VERBOSE]: Reading file: V:\dev\my-project\website\playground\src\plugins\getPluginInfo.ts
+[VERBOSE]: Formatted file: V:\dev\my-project\website\playground\public\formatter.worker.js in 22ms
+[VERBOSE]: Formatted file: V:\dev\my-project\website\assets\formatter\v1.js in 6ms
+[VERBOSE]: Formatted file: V:\dev\my-project\website\playground\src\plugins\getPluginInfo.ts in 4ms
+...etc....
 ```
 
-This can be exceptionally useful for finding files that are taking a long time to format and maybe can be excluded from formatting.
+This may be useful for finding files that are taking a long time to format and maybe should be excluded from formatting.
+
+### Clearing Cache
+
+Internally, a cache is used to avoid re-downloading files. It may be useful in some scenarios to clear this cache by running:
+
+```bash
+dprint clear-cache
+```

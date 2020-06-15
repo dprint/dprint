@@ -112,6 +112,8 @@ function initCodeHighlightExtension() {
                 return "powershell";
             if (left.indexOf("-rust") !== -1)
                 return "rust";
+            if (left.indexOf("-text") !== -1)
+                return "text";
 
             throw new Error("Unknown language: " + left);
         }
