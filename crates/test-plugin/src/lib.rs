@@ -8,17 +8,19 @@ use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult
 #[serde(rename_all = "camelCase")]
 pub struct Configuration {
     ending: String,
+    line_width: u32,
 }
 
-pub fn resolve_config(config: HashMap<String, String>, _: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+pub fn resolve_config(config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut config = config;
     let ending = config.remove("ending").unwrap_or(String::from("formatted"));
+    let line_width = config.remove("line_width").map(|x| x.parse::<u32>().unwrap()).unwrap_or(global_config.line_width.unwrap_or(120));
     let mut diagnostics = Vec::new();
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
     ResolveConfigurationResult {
-        config: Configuration { ending },
+        config: Configuration { ending, line_width },
         diagnostics,
     }
 }

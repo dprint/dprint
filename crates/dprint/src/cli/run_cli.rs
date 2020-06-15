@@ -230,7 +230,7 @@ fn output_resolved_config(
         output_plugin_config_diagnostics(plugin.name(), &initialized_plugin, environment)?;
 
         let text = initialized_plugin.get_resolved_config();
-        let key_values: HashMap<String, String> = serde_json::from_str(&text).unwrap();
+        let key_values: HashMap<String, serde_json::Value> = serde_json::from_str(&text).unwrap();
         let pretty_text = serde_json::to_string_pretty(&key_values).unwrap();
         environment.log(&format!("{}: {}", config_key, pretty_text));
     }
@@ -666,7 +666,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         run_test_cli(vec!["output-resolved-config"], &environment).await.unwrap();
         let logged_messages = environment.get_logged_messages();
-        assert_eq!(logged_messages, vec!["test-plugin: {\n  \"ending\": \"formatted\"\n}"]);
+        assert_eq!(logged_messages, vec!["test-plugin: {\n  \"ending\": \"formatted\",\n  \"lineWidth\": 120\n}"]);
     }
 
     #[tokio::test]
