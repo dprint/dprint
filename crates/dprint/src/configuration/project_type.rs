@@ -63,7 +63,7 @@ pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
             "is not a for-profit company (free)."
         )
     }, ProjectTypeInfo {
-        name: "student",
+        name: "educational",
         description: concat!(
             "Dprint is formatting a project run by a student or being used for\n",
             "educational purposes (free)."
@@ -112,7 +112,7 @@ You may specify any of the following values and that will suppress this error:
                    Thank you for being part of moving this project forward!
  * openSource      Dprint is formatting an open source project whose primary maintainer
                    is not a for-profit company (free).
- * student         Dprint is formatting a project run by a student or being used for
+ * educational     Dprint is formatting a project run by a student or being used for
                    educational purposes (free).
  * nonProfit       Dprint is formatting a project whose primary maintainer is a non-profit
                    organization (free).
