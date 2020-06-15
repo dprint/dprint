@@ -66,8 +66,7 @@ function buildForPath(filePath, subTemplateText) {
     if (subTemplateText != null) {
         htmlText = processMarkdown(subTemplateText, mdText);
         htmlText = templateHtmlPageText.replace(injectText, htmlText);
-    }
-    else {
+    } else {
         htmlText = processMarkdown(templateHtmlPageText, mdText);
     }
     fs.writeFileSync("build-website/" + filePath + "/index.html", htmlText);
@@ -100,20 +99,27 @@ function initCodeHighlightExtension() {
         }];
 
         function getLanguage(left) {
-            if (left.indexOf("-json") !== -1)
+            if (left.indexOf("-json") !== -1) {
                 return "json";
-            if (left.indexOf("-js") !== -1 || left.indexOf("-javascript") !== -1)
+            }
+            if (left.indexOf("-js") !== -1 || left.indexOf("-javascript") !== -1) {
                 return "javascript";
-            if (left.indexOf("-ts") !== -1 || left.indexOf("-typescript") !== -1)
+            }
+            if (left.indexOf("-ts") !== -1 || left.indexOf("-typescript") !== -1) {
                 return "typescript";
-            if (left.indexOf("-bash") !== -1)
+            }
+            if (left.indexOf("-bash") !== -1) {
                 return "bash";
-            if (left.indexOf("-powershell") !== -1)
+            }
+            if (left.indexOf("-powershell") !== -1) {
                 return "powershell";
-            if (left.indexOf("-rust") !== -1)
+            }
+            if (left.indexOf("-rust") !== -1) {
                 return "rust";
-            if (left.indexOf("-text") !== -1)
+            }
+            if (left.indexOf("-text") !== -1) {
                 return "text";
+            }
 
             throw new Error("Unknown language: " + left);
         }

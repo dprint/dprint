@@ -25,11 +25,13 @@ function loadUrl(url) {
         .then(wasmModuleBuffer => {
             const newFormatter = createFromBuffer(wasmModuleBuffer);
 
-            if (config)
+            if (config) {
                 setConfigSync(newFormatter, config);
+            }
 
-            if (nextFormat)
+            if (nextFormat) {
                 formatSync(newFormatter, nextFormat.filePath, nextFormat.fileText);
+            }
 
             return newFormatter;
         });
@@ -51,8 +53,9 @@ function setConfig(config) {
 function format(filePath, fileText) {
     nextFormat = { filePath, fileText };
 
-    if (formatter)
+    if (formatter) {
         formatter.then(f => formatSync(f, filePath, fileText));
+    }
 }
 
 function setConfigSync(f, config) {
@@ -125,8 +128,9 @@ function createFromInstance(wasmInstance) {
 
     const pluginSchemaVersion = get_plugin_schema_version();
     const expectedPluginSchemaVersion = 1;
-    if (pluginSchemaVersion !== expectedPluginSchemaVersion)
+    if (pluginSchemaVersion !== expectedPluginSchemaVersion) {
         throw new Error(`Not compatible plugin. Expected schema ${expectedPluginSchemaVersion}, but plugin had ${pluginSchemaVersion}.`);
+    }
 
     const bufferSize = get_wasm_memory_buffer_size();
     let configSet = false;
@@ -206,13 +210,15 @@ function createFromInstance(wasmInstance) {
     };
 
     function setConfigIfNotSet() {
-        if (!configSet)
+        if (!configSet) {
             setConfig({}, {});
+        }
     }
 
     function setConfig(globalConfig, pluginConfig) {
-        if (reset_config != null)
+        if (reset_config != null) {
             reset_config();
+        }
         sendString(JSON.stringify(globalConfig));
         set_global_config();
         sendString(JSON.stringify(getPluginConfigWithStringProps()));
@@ -223,8 +229,9 @@ function createFromInstance(wasmInstance) {
             // Need to convert all the properties to strings so
             // they will be deserialized to a HashMap<String, String>.
             const newPluginConfig = {};
-            for (const key of Object.keys(pluginConfig))
+            for (const key of Object.keys(pluginConfig)) {
                 newPluginConfig[key] = pluginConfig[key].toString();
+            }
             return newPluginConfig;
         }
     }
@@ -242,8 +249,9 @@ function createFromInstance(wasmInstance) {
             const writeCount = Math.min(length - index, bufferSize);
             const pointer = get_wasm_memory_buffer();
             const wasmBuffer = new Uint8Array(wasmInstance.exports.memory.buffer, pointer, writeCount);
-            for (let i = 0; i < writeCount; i++)
+            for (let i = 0; i < writeCount; i++) {
                 wasmBuffer[i] = encodedText[index + i];
+            }
             add_to_shared_bytes_from_buffer(writeCount);
             index += writeCount;
         }
@@ -258,8 +266,9 @@ function createFromInstance(wasmInstance) {
             set_buffer_with_shared_bytes(index, readCount);
             const pointer = get_wasm_memory_buffer();
             const wasmBuffer = new Uint8Array(wasmInstance.exports.memory.buffer, pointer, readCount);
-            for (let i = 0; i < readCount; i++)
+            for (let i = 0; i < readCount; i++) {
                 buffer[index + i] = wasmBuffer[i];
+            }
             index += readCount;
         }
         const decoder = new TextDecoder();

@@ -52,8 +52,9 @@ export function Playground({
             let config;
             try {
                 config = JSON.parse(configText);
-                if (config.lineWidth == null)
+                if (config.lineWidth == null) {
                     config.lineWidth = 80;
+                }
                 formatterWorker.setConfig(config);
             } catch (err) {
                 // ignore for now
@@ -66,8 +67,9 @@ export function Playground({
     const lineWidth = useMemo(() => {
         try {
             const lineWidth = parseInt(JSON.parse(configText).lineWidth, 10);
-            if (!isNaN(lineWidth))
+            if (!isNaN(lineWidth)) {
                 return lineWidth;
+            }
         } catch (err) {
             // ignore
         }

@@ -7,30 +7,34 @@ export async function getPluginDefaultConfig(plugin: PluginInfo) {
     let wroteProperty = false;
 
     for (const propertyName of Object.keys(json.properties)) {
-        if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked")
+        if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked") {
             continue;
+        }
         const property = json.properties[propertyName];
         let defaultValue: string | boolean | number | undefined;
 
-        if (property["$ref"])
+        if (property["$ref"]) {
             defaultValue = json.definitions[propertyName]?.default;
-        else
+        } else {
             defaultValue = property.default;
+        }
 
         if (defaultValue != null) {
-            if (wroteProperty)
+            if (wroteProperty) {
                 text += ",\n";
-            else
+            } else {
                 text += "\n";
+            }
 
             text += `  "${propertyName}": `;
-            if (typeof defaultValue === "string")
+            if (typeof defaultValue === "string") {
                 text += `"${defaultValue}"`;
-            else {
-                if (propertyName === "lineWidth")
+            } else {
+                if (propertyName === "lineWidth") {
                     text += "80";
-                else
+                } else {
                     text += `${defaultValue.toString()}`;
+                }
             }
 
             wroteProperty = true;

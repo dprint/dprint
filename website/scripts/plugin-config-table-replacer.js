@@ -13,8 +13,9 @@
                         element.appendChild(propertyContainer);
                         // title
                         var propertyTitle = document.createElement("h2");
-                        if (property.name === "preferSingleLine")
+                        if (property.name === "preferSingleLine") {
                             property.name += " (Very Experimental)";
+                        }
                         propertyTitle.textContent = property.name;
                         propertyContainer.appendChild(propertyTitle);
 
@@ -33,13 +34,14 @@
                                 var prefix = document.createElement("strong");
                                 prefix.textContent = valueToText(oneOf.const);
                                 oneOfContainer.appendChild(prefix);
-                                if (oneOf.description != null && oneOf.description.length > 0)
+                                if (oneOf.description != null && oneOf.description.length > 0) {
                                     oneOfContainer.append(" - " + oneOf.description);
-                                if (oneOf.const === property.default)
+                                }
+                                if (oneOf.const === property.default) {
                                     oneOfContainer.append(" (Default)");
+                                }
                             });
-                        }
-                        else {
+                        } else {
                             // type
                             var typeContainer = document.createElement("li");
                             infoContainer.appendChild(typeContainer);
@@ -74,8 +76,9 @@
                     });
 
                     function valueToText(value) {
-                        if (typeof value === "string")
+                        if (typeof value === "string") {
                             return "\"" + value + "\"";
+                        }
                         return value.toString();
                     }
                 });
@@ -104,8 +107,9 @@
             var order = 0;
 
             for (const propertyName of Object.keys(json.properties)) {
-                if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked")
+                if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked") {
                     continue;
+                }
                 var property = json.properties[propertyName];
 
                 if (property["$ref"]) {
@@ -115,14 +119,12 @@
                         properties[propertyName] = Object.assign(properties[propertyName], definition);
                         properties[propertyName].order = order++;
                         properties[propertyName].name = propertyName;
-                    }
-                    else {
+                    } else {
                         var derivedPropName = property["$ref"].replace("#/definitions/", "");
                         ensurePropertyName(derivedPropName);
                         properties[derivedPropName].astSpecificProperties.push(propertyName);
                     }
-                }
-                else {
+                } else {
                     ensurePropertyName(propertyName);
                     properties[propertyName] = Object.assign(properties[propertyName], property);
                     properties[propertyName].order = order++;

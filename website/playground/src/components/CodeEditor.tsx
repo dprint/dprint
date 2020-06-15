@@ -63,11 +63,11 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
             reactMonacoEditorPromise.then(editor => {
                 this.setState({ editorComponent: editor.default });
             }).catch(err => {
-                console.log(err);
+                console.error(err);
                 this.setState({ editorComponent: false });
             });
         }).catch(err => {
-            console.log(err);
+            console.error(err);
             this.setState({ editorComponent: false });
         });
     }
@@ -84,16 +84,19 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     }
 
     componentWillUnmount() {
-        for (const disposable of this.disposables)
+        for (const disposable of this.disposables) {
             disposable.dispose();
+        }
         this.disposables.length = 0; // clear
     }
 
     private getEditor() {
-        if (this.state.editorComponent == null)
+        if (this.state.editorComponent == null) {
             return <Spinner backgroundColor="#1e1e1e" />;
-        if (this.state.editorComponent === false)
+        }
+        if (this.state.editorComponent === false) {
             return <div className={"errorMessage"}>Error loading code editor. Please refresh the page to try again.</div>;
+        }
 
         return (
             <this.state.editorComponent
@@ -129,8 +132,9 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
         }));
 
         this.disposables.push(this.editor.onDidScrollChange(e => {
-            if (e.scrollTopChanged && this.props.onScrollTopChange)
+            if (e.scrollTopChanged && this.props.onScrollTopChange) {
                 this.props.onScrollTopChange(e.scrollTop);
+            }
         }));
 
         // manually refresh the layout of the editor (lightweight compared to monaco editor)
@@ -138,13 +142,15 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
         let lastWidth = 0;
         const intervalId = setInterval(() => {
             const containerElement = this.outerContainerRef.current;
-            if (containerElement == null)
+            if (containerElement == null) {
                 return;
+            }
 
             const width = containerElement.offsetWidth;
             const height = containerElement.offsetHeight;
-            if (lastHeight === height && lastWidth === width)
+            if (lastHeight === height && lastWidth === width) {
                 return;
+            }
 
             editor.layout();
 
@@ -156,8 +162,9 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
 
     private lastScrollTop = 0;
     private updateScrollTop() {
-        if (this.editor == null || this.lastScrollTop === this.props.scrollTop)
+        if (this.editor == null || this.lastScrollTop === this.props.scrollTop) {
             return;
+        }
 
         // todo: not sure how to not do this in the render method? I'm not a react/web person.
         setTimeout(() => {

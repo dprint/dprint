@@ -5,12 +5,14 @@ const errorListeners: ((err: string) => void)[] = [];
 formatterWorker.addEventListener("message", ev => {
     switch (ev.data.type) {
         case "Format":
-            for (const listener of formatListeners)
+            for (const listener of formatListeners) {
                 listener(ev.data.text);
+            }
             break;
         case "Error":
-            for (const listener of errorListeners)
+            for (const listener of errorListeners) {
                 listener(ev.data.message);
+            }
             break;
     }
 });
@@ -43,8 +45,9 @@ export function addOnFormat(listener: (text: string) => void) {
 
 export function removeOnFormat(listener: (text: string) => void) {
     const index = formatListeners.indexOf(listener);
-    if (index >= 0)
+    if (index >= 0) {
         formatListeners.splice(index, 1);
+    }
 }
 
 export function addOnError(listener: (err: string) => void) {
@@ -53,6 +56,7 @@ export function addOnError(listener: (err: string) => void) {
 
 export function removeOnError(listener: (err: string) => void) {
     const index = errorListeners.indexOf(listener);
-    if (index >= 0)
+    if (index >= 0) {
         errorListeners.splice(index, 1);
+    }
 }

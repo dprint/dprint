@@ -3,8 +3,9 @@ export async function getPluginInfo(): Promise<PluginInfo[]> {
     const json = await response.json();
     const expectedSchemaVersion = 1;
 
-    if (json.schemaVersion !== expectedSchemaVersion)
+    if (json.schemaVersion !== expectedSchemaVersion) {
         throw new Error(`Expected schema version ${expectedSchemaVersion}, but found ${json.schemaVersion}.`);
+    }
 
     const typescriptPlugin = json.latest.find((p: any) => p.configKey === "typescript")!;
     const jsonPlugin = json.latest.find((p: any) => p.configKey === "json")!;

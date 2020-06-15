@@ -3,14 +3,10 @@
   "projectType": "openSource",
   "lineWidth": 160,
   "typescript": {
-    "useBraces": "preferNone",
     "singleBodyPosition": "nextLine",
     "preferHanging": true,
-    "preferSingleLine": false,
-    "nextControlFlowPosition": "nextLine",
     "semiColons": "always",
-    "arrowFunction.useParentheses": "preferNone",
-    "tryStatement.nextControlFlowPosition": "sameLine"
+    "arrowFunction.useParentheses": "preferNone"
   },
   "json": {
     "indentWidth": 2

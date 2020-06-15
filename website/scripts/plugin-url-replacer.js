@@ -51,8 +51,9 @@
                 return response.json();
             })
             .then(function(data) {
-                if (data.schemaVersion !== schemaVersion)
+                if (data.schemaVersion !== schemaVersion) {
                     throw new Error("Expected schema version " + schemaVersion + ", but found " + data.schemaVersion);
+                }
 
                 return {
                     typescript: getUrlForPlugin(data, "dprint-plugin-typescript"),
@@ -64,8 +65,9 @@
             var pluginInfo = data.latest.find(function(pluginInfo) {
                 return pluginInfo.name === pluginName;
             });
-            if (pluginInfo == null)
+            if (pluginInfo == null) {
                 throw new Error("Could not find plugin with name " + pluginName);
+            }
 
             return pluginInfo.url;
         }

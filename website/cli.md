@@ -34,7 +34,7 @@ Instead of formatting files, you can get a report of any files that aren't forma
 dprint check
 ```
 
-Example output with `"useBraces": "preferNone"` set in the TypeScript plugin:
+Example output:
 
 ![Example of dprint check output.](/images/check-example.png "Example of dprint check output.")
 

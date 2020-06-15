@@ -13,8 +13,9 @@ export class UrlSaver {
 
         function getText() {
             const matches = /code\/([^/]+)/.exec(locationHash);
-            if (matches == null || matches.length !== 2)
+            if (matches == null || matches.length !== 2) {
                 return "";
+            }
 
             try {
                 return decompress(matches[1]);
@@ -26,8 +27,9 @@ export class UrlSaver {
 
         function getConfigText(): string | undefined {
             const matches = /config\/([^/]+)/.exec(locationHash);
-            if (matches == null || matches.length !== 2)
+            if (matches == null || matches.length !== 2) {
                 return undefined;
+            }
 
             try {
                 return decompress(matches[1]);
@@ -39,8 +41,9 @@ export class UrlSaver {
 
         function getLanguage(): "typescript" | "json" {
             const matches = /language\/([^/]+)/.exec(locationHash);
-            if (matches == null || matches.length !== 2)
+            if (matches == null || matches.length !== 2) {
                 return "typescript";
+            }
 
             try {
                 switch (matches[1]) {
@@ -64,11 +67,11 @@ export class UrlSaver {
                 "",
                 ``,
             );
-        }
-        else {
+        } else {
             let url = `#code/${compressToEncodedURIComponent(text)}`;
-            if (configText != null)
+            if (configText != null) {
                 url += `/config/${compressToEncodedURIComponent(configText)}`;
+            }
             url += `/language/${language}`;
             window.history.replaceState(
                 undefined,

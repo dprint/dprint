@@ -43,8 +43,9 @@ function Loader() {
     }, []);
 
     useEffect(() => {
-        if (plugin == null)
+        if (plugin == null) {
             return;
+        }
 
         urlSaver.updateUrl({
             text,
@@ -56,8 +57,9 @@ function Loader() {
     useEffect(() => {
         setIsLoading(true);
 
-        if (plugin == null)
+        if (plugin == null) {
             return;
+        }
 
         const defaultConfigPromise = getPluginDefaultConfig(plugin);
 
@@ -69,8 +71,7 @@ function Loader() {
             if (isFirstLoad && initialUrl.configText != null) {
                 setConfigText(initialUrl.configText);
                 isFirstLoad = false;
-            }
-            else {
+            } else {
                 setConfigText(defaultConfigText);
             }
             setDefaultConfigText(defaultConfigText);
@@ -82,8 +83,9 @@ function Loader() {
             });
     }, [plugin]);
 
-    if (plugin == null)
+    if (plugin == null) {
         return <Spinner />;
+    }
 
     return <Playground
         text={text}

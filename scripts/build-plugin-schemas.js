@@ -24,22 +24,25 @@ function buildText(pluginName, interfaceName, schemaFileName) {
         writer.quote("type").write(": ").quote("object").write(",").newLine();
         writer.quote("definitions").write(": ").inlineBlock(() => {
             for (const [index, prop] of propDefinitions.filter(p => p.type === "union" || p.type === "boolean").entries()) {
-                if (index > 0)
+                if (index > 0) {
                     writer.write(",").newLine();
+                }
                 writer.quote(prop.name).write(": ").inlineBlock(() => {
                     writer.quote("description").write(": ").quote(santizeDescription(prop.description)).write(",").newLine();
                     writer.quote("type").write(": ").quote(prop.type === "union" ? "string" : "boolean").write(",").newLine();
-                    if (prop.defaultValue != null)
+                    if (prop.defaultValue != null) {
                         writer.quote("default").write(": ").write(prop.defaultValue.toString()).write(",").newLine();
+                    }
                     writer.quote("oneOf").write(": [");
                     for (const [index, value] of prop.values.entries()) {
                         writer.conditionalWrite(index > 0, ", ");
                         writer.write("{").newLine().indent(() => {
                             writer.quote("const").write(": ");
-                            if (prop.type === "boolean")
+                            if (prop.type === "boolean") {
                                 writer.write(value.name);
-                            else
+                            } else {
                                 writer.quote(value.name);
+                            }
                             writer.write(",").newLine();
                             writer.quote("description").write(": ").quote(santizeDescription(value.description)).newLine();
                         }).write("}");
@@ -60,22 +63,24 @@ function buildText(pluginName, interfaceName, schemaFileName) {
             }).write(",").newLine();
 
             for (const [index, prop] of propDefinitions.entries()) {
-                if (index > 0)
+                if (index > 0) {
                     writer.write(",").newLine();
+                }
                 const name = prop.name;
                 writer.quote(name).write(": ").inlineBlock(() => {
-                    if (prop.type === "union" || prop.type === "boolean")
+                    if (prop.type === "union" || prop.type === "boolean") {
                         writer.quote("$ref").write(": ").quote(`#/definitions/${name}`);
-                    else if (prop.type === "string" || prop.type === "number") {
+                    } else if (prop.type === "string" || prop.type === "number") {
                         writer.quote("description").write(": ").quote(santizeDescription(prop.description)).write(",").newLine();
-                        if (prop.defaultValue != null)
+                        if (prop.defaultValue != null) {
                             writer.quote("default").write(": ").write(prop.defaultValue.toString()).write(",").newLine();
+                        }
                         writer.quote("type").write(": ").quote(prop.type);
-                    }
-                    else if (prop.type === "ref")
+                    } else if (prop.type === "ref") {
                         writer.quote("$ref").write(": ").quote(`#/definitions/${prop.reference}`);
-                    else
+                    } else {
                         throw new Error("Not handled. " + prop.type);
+                    }
                 });
             }
         });
@@ -97,30 +102,27 @@ function getPropertyDefinition(prop) {
     if (Node.isUnionTypeNode(typeNode)) {
         values = getUnionValues(prop, typeNode);
         type = "union";
-    }
-    else if (Node.isBooleanKeyword(typeNode)) {
+    } else if (Node.isBooleanKeyword(typeNode)) {
         values = getBoolValues(prop);
         type = "boolean";
-    }
-    else if (Node.isStringKeyword(typeNode))
+    } else if (Node.isStringKeyword(typeNode)) {
         type = "string";
-    else if (Node.isNumberKeyword(typeNode))
+    } else if (Node.isNumberKeyword(typeNode)) {
         type = "number";
-    else if (Node.isIndexedAccessTypeNode(typeNode)) {
+    } else if (Node.isIndexedAccessTypeNode(typeNode)) {
         type = "ref";
         const indexTypeNode = typeNode.getIndexTypeNode();
         if (Node.isLiteralTypeNode(indexTypeNode)) {
             const literal = indexTypeNode.getLiteral();
-            if (Node.isStringLiteral(literal))
+            if (Node.isStringLiteral(literal)) {
                 reference = literal.getLiteralValue();
-            else
+            } else {
                 throw new Error("Unhandled literal value kind.");
-        }
-        else {
+            }
+        } else {
             throw new Error("Not handled index type node.");
         }
-    }
-    else {
+    } else {
         throw new Error("Not handled: " + typeNode.getKindName());
     }
 
@@ -153,12 +155,10 @@ function getUnionValues(prop, typeNode) {
                     name,
                     description: tag.getComment().replace(`"${name}" - `, ""),
                 });
-            }
-            else {
+            } else {
                 throw new Error("Not expected.");
             }
-        }
-        else {
+        } else {
             throw new Error("Not expected.");
         }
     }
@@ -198,21 +198,24 @@ function getDefaultValue(prop) {
 
     const defaultTag = tags.find(t => t.getTagName() === "default");
     let result = defaultTag && defaultTag.getComment().trim();
-    if (result == null)
+    if (result == null) {
         return null;
-    if (result.startsWith("`") && result.endsWith("`"))
+    }
+    if (result.startsWith("`") && result.endsWith("`")) {
         result = result.substring(1, result.length - 1);
+    }
 
-    if (result === "true")
+    if (result === "true") {
         return true;
-    else if (result === "false")
+    } else if (result === "false") {
         return false;
-    else if (result.startsWith("\"") && result.endsWith("\""))
+    } else if (result.startsWith("\"") && result.endsWith("\"")) {
         return result;
-    else if (!isNaN(parseInt(result, 10)))
+    } else if (!isNaN(parseInt(result, 10))) {
         return parseInt(result, 10);
-    else
+    } else {
         throw new Error("Not handled value: " + result);
+    }
 }
 
 /** @param {string} [text] */
