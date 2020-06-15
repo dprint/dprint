@@ -426,14 +426,14 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "dprint-development"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "dprint-core",
 ]
