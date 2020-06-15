@@ -63,7 +63,7 @@ pub fn read_manifest(environment: &impl Environment) -> Result<CacheManifest, Er
 
 pub fn write_manifest(manifest: &CacheManifest, environment: &impl Environment) -> Result<(), ErrBox> {
     let file_path = get_manifest_file_path(environment)?;
-    let serialized_manifest = serde_json::to_string(&manifest).unwrap();
+    let serialized_manifest = serde_json::to_string(&manifest)?;
     environment.write_file(&file_path, &serialized_manifest)
 }
 
