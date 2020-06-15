@@ -124,7 +124,11 @@ fn get_grouped_changes<'a>(text1: &'a str, text2: &'a str) -> Vec<GroupedChange<
 
     for change in changes {
         if let Some(grouped_change) = grouped_changes.last_mut() {
-            if grouped_change.end_line_number >= change.start_line_number() - 1 {
+            // keeps changes together if they are only separated by a single line
+            const GROUPED_LINE_COUNT: usize = 2;
+            let should_group = change.start_line_number() < GROUPED_LINE_COUNT // prevent overflow
+                || grouped_change.end_line_number >= change.start_line_number() - GROUPED_LINE_COUNT;
+            if should_group {
                 grouped_change.end_index = change.end_index();
                 grouped_change.end_line_number = change.end_line_number();
                 grouped_change.changes.push(change);
@@ -396,11 +400,24 @@ mod test {
     #[test]
     fn it_should_show_multiple_removals_on_different_lines() {
         assert_eq!(
-            get_difference("let t ;\n\nlet u ;\n", "let t;\n\nlet u;\n"),
+            get_difference("let t ;\n\n\nlet u ;\n", "let t;\n\n\nlet u;\n"),
             format!(
                 "{}\n...\n{}",
                 format!("1| let\u{00B7}t{};", get_removal_text("\u{00B7}")),
-                format!("3| let\u{00B7}u{};", get_removal_text("\u{00B7}")),
+                format!("4| let\u{00B7}u{};", get_removal_text("\u{00B7}")),
+            )
+        );
+    }
+
+    #[test]
+    fn it_should_keep_grouped_when_changes_only_separated_by_one_line() {
+        assert_eq!(
+            get_difference("let t ;\ntest;\nlet u ;\n", "let t;\ntest;\nlet u;\n"),
+            format!(
+                "{}\n{}\n{}",
+                format!("1| let\u{00B7}t{};", get_removal_text("\u{00B7}")),
+                " | test;",
+                format!(" | let\u{00B7}u{};", get_removal_text("\u{00B7}")),
             )
         );
     }
