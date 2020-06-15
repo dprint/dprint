@@ -1,8 +1,6 @@
-use dprint_core::configuration::ConfigurationDiagnostic;
-
 /// Checks for diagnostics and panics if it finds any.
-pub fn ensure_no_diagnostics(diagnostics: &Vec<ConfigurationDiagnostic>) {
+pub fn ensure_no_diagnostics<T : std::fmt::Debug>(diagnostics: &Vec<T>) {
     for diagnostic in diagnostics {
-        panic!("Diagnostic error for '{}': {}", diagnostic.property_name, diagnostic.message);
+        panic!("Diagnostic error: {:?}", diagnostic);
     }
 }

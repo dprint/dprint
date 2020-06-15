@@ -1,5 +1,3 @@
-extern crate dprint_core;
-
 mod config_helpers;
 mod file_system_helpers;
 mod spec_parser;
