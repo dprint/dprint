@@ -49,6 +49,8 @@ Instead of the default path of *dprint.config.json* or *config/dprint.config.jso
 
 ```bash
 dprint fmt --config path/to/my/config.json
+# or specify a URL
+dprint fmt --config https://dprint.dev/path/to/some/config.json
 ```
 
 ## Diagnostic Commands and Flags
