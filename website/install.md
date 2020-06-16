@@ -25,4 +25,4 @@ cargo install dprint
 
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
 
-Next step: [Setup](setup)
+Next step: [Setup](/setup)

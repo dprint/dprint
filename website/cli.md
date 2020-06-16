@@ -11,7 +11,7 @@ dprint <SUBCOMMAND> [OPTIONS] [--] [files]...
 
 ## Installing and Setup/Initialization
 
-See [Install](install) and [Setup](setup).
+See [Install](/install) and [Setup](/setup).
 
 ## Help
 
@@ -19,7 +19,7 @@ The information outlined here will only be for the latest version, so `dprint he
 
 ## Formatting Files
 
-After [setting up a configuration file](setup), run the `fmt` command:
+After [setting up a configuration file](/setup), run the `fmt` command:
 
 ```bash
 dprint fmt

@@ -5,7 +5,7 @@ description: Documentation on setting up dprint to format a collection of code.
 
 # Setup Dprint
 
-After [installing](install), the main part of getting setup is to create a *dprint.config.json* file in your project.
+After [installing](/install), the main part of getting setup is to create a *dprint.config.json* file in your project.
 
 This file will outline:
 
@@ -28,7 +28,7 @@ This will create a *dprint.config.json* file in the current working directory. I
 
 ## Manual Setup
 
-Create a *dprint.config.json* file in the root directory of the project and read the [configuration documentation](config).
+Create a *dprint.config.json* file in the root directory of the project and read the [configuration documentation](/config).
 
 ## Custom config file location
 
@@ -42,4 +42,4 @@ You may specify a custom path for the creation of a configuration file via `dpri
 dprint init --config <path/to/dprint.config.json>
 ```
 
-Next step: [Configuration](config)
+Next step: [Configuration](/config)

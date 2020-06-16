@@ -9,7 +9,7 @@ Configuration allows you to modify how dprint and its plugins behave.
 
 ## Setup
 
-See [Setup](setup).
+See [Setup](/setup).
 
 ## Example
 
@@ -57,7 +57,7 @@ You must specify any of the following values:
 * `"commercialPaid"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer paid for a commercial license. Thank you for being part of moving this project forward!
 * `"commercialTrial"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and it is being evaluated for 30 days.
 
-See [Pricing](https://dprint.dev/pricing) for more details.
+See [Pricing](/pricing) for more details.
 
 ## Plugins
 
@@ -235,4 +235,4 @@ But specifying properties in the `"typescript"` or `"json"` objects would cause 
 }
 ```
 
-Next step: [CLI](cli)
+Next step: [CLI](/cli)
