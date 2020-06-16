@@ -62,6 +62,9 @@ $breadcrumb-item-separator-color: #fff;
 $footer-background-color: $header-background;
 $footer-padding: 1rem 0;
 
+// main page hero
+$hero-body-padding-medium: 5.5rem 1.5rem;
+
 @import "../../scripts/node_modules/bulma/bulma.sass";
 @import "a11y-dark.scss";
 
@@ -150,6 +153,14 @@ code {
 
 .inner-content {
   @include center-width;
+}
+
+#main-banner h1.title {
+  font-size: 3.5rem;
+}
+
+#main-banner h2.subtitle {
+  font-size: 1.5rem;
 }
 
 #main-bottom {
