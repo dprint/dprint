@@ -24,11 +24,11 @@ use dprint_core::configuration::{
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Configuration {
+struct Configuration {
     // add configuration properties here
 }
 
-pub fn resolve_config(
+fn resolve_config(
     config: HashMap<String, String>,
     global_config: &GlobalConfiguration,
 ) -> ResolveConfigurationResult<Configuration> {
@@ -37,15 +37,17 @@ pub fn resolve_config(
 
 fn get_plugin_config_key() -> String {
     // return the JSON object key name used in the configuration file
+    // ex. String::from("json")
 }
 
 fn get_plugin_file_extensions() -> Vec<String> {
     // return the file extensions this plugin will format
+    // ex. vec![String::from("json")]
 }
 
 fn get_plugin_help_url() -> String {
     // return the help url of the plugin
-    // ex. https://dprint.dev/plugins/json
+    // ex. String::from("https://dprint.dev/plugins/json")
 }
 
 fn get_plugin_config_schema_url() -> String {

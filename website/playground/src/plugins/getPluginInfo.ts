@@ -1,5 +1,5 @@
 export async function getPluginInfo(): Promise<PluginInfo[]> {
-    const response = await fetch("https://plugins.dprint.dev/temp-info.json");
+    const response = await fetch("https://plugins.dprint.dev/info.json");
     const json = await response.json();
     const expectedSchemaVersion = 1;
 
