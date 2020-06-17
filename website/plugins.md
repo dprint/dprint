@@ -5,8 +5,9 @@ description: Links to dprint formatting plugins.
 
 # Plugins
 
-Officially these are the only plugins available at this time:
+These are the only plugins available at this time:
 
 * [Typescript / JavaScript](/plugins/typescript)
 * [Json](/plugins/json)
+* [Rustfmt](/plugins/rustfmt)
 * More to come!

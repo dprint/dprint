@@ -6,8 +6,6 @@ Monorepo for dprint—a pluggable and configurable code formatting platform.
 
 This project is under active early development. I recommend you check its output to ensure it's doing its job correctly and only run this on code that has been checked into source control.
 
-Currently there are only TypeScript/Javascript and JSONC plugins.
-
 ## Links
 
 * [Getting Started](https://dprint.dev/install)
@@ -17,3 +15,4 @@ Currently there are only TypeScript/Javascript and JSONC plugins.
 
 * [dprint-plugin-typescript](https://github.com/dprint/dprint-plugin-typescript) - TypeScript/JavaScript code formatter.
 * [dprint-plugin-json](https://github.com/dprint/dprint-plugin-json) - JSON/JSONC code formatter.
+* [dprint-plugin-rustfmt](https://github.com/dprint/dprint-plugin-rustfmt) - Rustfmt wrapper plugin.

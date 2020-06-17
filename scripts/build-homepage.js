@@ -33,7 +33,7 @@ writeHtmlFile(
     "dprint - Code Formatter",
     "A pluggable and configurable code formatting platform written in Rust.",
     indexHtmlText,
-    true
+    true,
 );
 
 buildForPath("pricing", fullPageHtmlPageText);
@@ -47,12 +47,11 @@ buildForPath("install", documentationHtmlPageText);
 buildForPath("plugin-dev", documentationHtmlPageText);
 buildForPath("plugins", documentationHtmlPageText);
 buildForPath("setup", documentationHtmlPageText);
-// plugins/typescript/index.html
 buildForPath("plugins/typescript", documentationHtmlPageText);
 buildForPath("plugins/typescript/config", documentationHtmlPageText);
-// plugins/json/index.html
 buildForPath("plugins/json", documentationHtmlPageText);
 buildForPath("plugins/json/config", documentationHtmlPageText);
+buildForPath("plugins/rustfmt", documentationHtmlPageText);
 
 // minify index.css
 const sassFilePath = "../website/css/style.scss";
@@ -88,18 +87,20 @@ function buildForPath(filePath, subTemplateText) {
         getDescription(),
         html,
         // @ts-ignore
-        metaData.robots !== "false"
+        metaData.robots !== "false",
     );
 
     function getTitle() {
-        if (metaData.title == null)
+        if (metaData.title == null) {
             throw new Error("Could not find title metadata for " + filePath);
+        }
         return metaData.title + " - dprint - Code Formatter";
     }
 
     function getDescription() {
-        if (metaData.description == null)
+        if (metaData.description == null) {
             throw new Error("Could not find description metadata for " + filePath);
+        }
         return metaData.description;
     }
 }
