@@ -11,8 +11,10 @@
   "json": {
     "indentWidth": 2
   },
+  "rustfmt": {
+  },
   "includes": [
-    "**/*.{ts,tsx,js,jsx,json}"
+    "**/*.{ts,tsx,js,jsx,json,rs}"
   ],
   "excludes": [
     "website/playground/build",
@@ -24,6 +26,7 @@
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.19.2.wasm",
-    "https://plugins.dprint.dev/json-0.4.1.wasm"
+    "https://plugins.dprint.dev/json-0.4.1.wasm",
+    "http://localhost:4507/dprint_plugin_rustfmt.wasm"
   ]
 }

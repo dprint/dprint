@@ -109,7 +109,6 @@ fn get_plugin_format_contexts(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<Pat
                 } else {
                     file_paths_by_plugin.insert(String::from(plugin.name()), vec![file_path]);
                 }
-                continue;
             }
         }
     }

@@ -20,6 +20,7 @@ use dprint_core::configuration::{
     GlobalConfiguration,
     ResolveConfigurationResult,
     get_unknown_property_diagnostics,
+    ConfigurationDiagnostic,
 };
 
 #[derive(Clone, Serialize, Deserialize)]

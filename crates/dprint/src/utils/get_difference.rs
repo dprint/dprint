@@ -266,6 +266,14 @@ fn get_pre_processed_chunks<'a>(text1: &'a str, text2: &'a str) -> Vec<dissimila
         }
 
         if was_deleted_with_newline {
+            let add_delete_at_end = if let Some(Chunk::Insert(insert_text)) = chunks.get(i + 1) {
+                // Do not add a delete newline at the end if the next chunk is inserting a newline.
+                // TBH: This doesn't seem exactly right and I did this to fix a bug.
+                !insert_text.contains('\n')
+            } else {
+                true
+            };
+
             let delete_text = if let Chunk::Delete(delete_text) = chunk { delete_text } else { unreachable!() };
 
             // push delete text previous line
@@ -330,7 +338,9 @@ fn get_pre_processed_chunks<'a>(text1: &'a str, text2: &'a str) -> Vec<dissimila
 
             final_chunks.push(dissimilar::Chunk::Equal(&delete_text[delete_text_new_line_index..delete_text_new_line_index+1]));
             final_chunks.extend(next_line_chunks);
-            final_chunks.push(dissimilar::Chunk::Delete(&delete_text[delete_text_new_line_index..delete_text_new_line_index+1]));
+            if add_delete_at_end {
+                final_chunks.push(dissimilar::Chunk::Delete(&delete_text[delete_text_new_line_index..delete_text_new_line_index+1]));
+            }
         } else {
             final_chunks.push(chunk);
         }
@@ -429,6 +439,20 @@ mod test {
             format!(
                 "1| t{}t\u{00B7}t",
                 get_removal_text("\u{00B7}")
+            )
+        );
+    }
+
+    #[test]
+    fn it_should_handle_replacements() {
+        assert_eq!(
+            get_difference("use::asdf\nuse::test", "use::other\nsomething"),
+            format!(
+                "1| use::{}{}\n | {}{}",
+                get_removal_text("asdf"),
+                get_addition_text("other"),
+                get_removal_text("use::test"),
+                get_addition_text("something")
             )
         );
     }
