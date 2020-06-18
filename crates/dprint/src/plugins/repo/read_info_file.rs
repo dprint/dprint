@@ -8,7 +8,7 @@ pub struct InfoFile {
     pub latest_plugins: Vec<InfoFilePluginInfo>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct InfoFilePluginInfo {
     pub name: String,
     pub version: String,

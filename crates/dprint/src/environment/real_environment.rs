@@ -218,6 +218,14 @@ impl Environment for RealEnvironment {
         Ok(result)
     }
 
+    fn get_multi_selection(&self, items: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+        use dialoguer::*;
+        let result = MultiSelect::new()
+            .items_checked(&items.iter().map(|item| (item, true)).collect::<Vec<_>>())
+            .interact()?;
+        Ok(result)
+    }
+
     #[inline]
     fn is_verbose(&self) -> bool {
         self.is_verbose

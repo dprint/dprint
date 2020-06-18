@@ -17,6 +17,7 @@ pub struct TestEnvironment {
     remote_files: Arc<Mutex<HashMap<String, Bytes>>>,
     deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
     selection_result: Arc<Mutex<usize>>,
+    multi_selection_result: Arc<Mutex<Vec<usize>>>,
 }
 
 impl TestEnvironment {
@@ -29,6 +30,7 @@ impl TestEnvironment {
             remote_files: Arc::new(Mutex::new(HashMap::new())),
             deleted_directories: Arc::new(Mutex::new(Vec::new())),
             selection_result: Arc::new(Mutex::new(0)),
+            multi_selection_result: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -58,6 +60,11 @@ impl TestEnvironment {
     pub fn set_selection_result(&self, index: usize) {
         let mut selection_result = self.selection_result.lock().unwrap();
         *selection_result = index;
+    }
+
+    pub fn set_multi_selection_result(&self, indexes: Vec<usize>) {
+        let mut multi_selection_result = self.multi_selection_result.lock().unwrap();
+        *multi_selection_result = indexes;
     }
 
     pub fn set_cwd(&self, new_path: &str) {
@@ -189,6 +196,10 @@ impl Environment for TestEnvironment {
 
     fn get_selection(&self, _: &Vec<String>) -> Result<usize, ErrBox> {
         Ok(*self.selection_result.lock().unwrap())
+    }
+
+    fn get_multi_selection(&self, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+        Ok(self.multi_selection_result.lock().unwrap().clone())
     }
 
     fn is_verbose(&self) -> bool {

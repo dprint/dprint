@@ -8,6 +8,6 @@ description: Links to dprint formatting plugins.
 These are the only plugins available at this time:
 
 * [Typescript / JavaScript](/plugins/typescript)
-* [Json](/plugins/json)
+* [JSON](/plugins/json)
 * [Rustfmt](/plugins/rustfmt)
 * More to come!

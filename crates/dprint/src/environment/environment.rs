@@ -23,6 +23,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;
     fn get_time_secs(&self) -> u64;
     fn get_selection(&self, items: &Vec<String>) -> Result<usize, ErrBox>;
+    fn get_multi_selection(&self, items: &Vec<String>) -> Result<Vec<usize>, ErrBox>;
     fn is_verbose(&self) -> bool;
 }
 
