@@ -18,6 +18,7 @@ pub struct TestEnvironment {
     deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
     selection_result: Arc<Mutex<usize>>,
     multi_selection_result: Arc<Mutex<Vec<usize>>>,
+    is_silent: Arc<Mutex<bool>>,
 }
 
 impl TestEnvironment {
@@ -31,6 +32,7 @@ impl TestEnvironment {
             deleted_directories: Arc::new(Mutex::new(Vec::new())),
             selection_result: Arc::new(Mutex::new(0)),
             multi_selection_result: Arc::new(Mutex::new(Vec::new())),
+            is_silent: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -70,6 +72,11 @@ impl TestEnvironment {
     pub fn set_cwd(&self, new_path: &str) {
         let mut cwd = self.cwd.lock().unwrap();
         *cwd = String::from(new_path);
+    }
+
+    pub fn set_silent(&self) {
+        let mut is_silent = self.is_silent.lock().unwrap();
+        *is_silent = true;
     }
 }
 
@@ -179,11 +186,17 @@ impl Environment for TestEnvironment {
     }
 
     fn log(&self, text: &str) {
+        if *self.is_silent.lock().unwrap() { return; }
         self.logged_messages.lock().unwrap().push(String::from(text));
     }
 
     fn log_error(&self, text: &str) {
+        if *self.is_silent.lock().unwrap() { return; }
         self.logged_errors.lock().unwrap().push(String::from(text));
+    }
+
+    fn log_silent(&self, text: &str) {
+        self.logged_messages.lock().unwrap().push(String::from(text));
     }
 
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {

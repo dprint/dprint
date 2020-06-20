@@ -18,6 +18,8 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn cwd(&self) -> Result<PathBuf, ErrBox>;
     fn log(&self, text: &str);
     fn log_error(&self, text: &str);
+    /// Information to output when logging is silent.
+    fn log_silent(&self, text: &str);
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox>;
     // async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox>;
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;

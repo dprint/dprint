@@ -256,14 +256,15 @@ fn remove_locked_properties(resolved_config: &mut ResolvedConfig) {
 mod tests {
     use pretty_assertions::assert_eq;
     use crate::cache::Cache;
-    use crate::cli::parse_args;
+    use crate::cli::{parse_args, TestStdInReader};
     use crate::environment::{Environment, TestEnvironment};
     use crate::types::ErrBox;
 
     use super::*;
 
     async fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ErrBox> {
-        let args = parse_args(vec![String::from(""), String::from("-c"), String::from(url)]).unwrap();
+        let stdin_reader = TestStdInReader::new();
+        let args = parse_args(vec![String::from(""), String::from("-c"), String::from(url)], &stdin_reader).unwrap();
         let cache = Cache::new(environment).unwrap();
         resolve_config_from_args(&args, &cache, &environment).await
     }

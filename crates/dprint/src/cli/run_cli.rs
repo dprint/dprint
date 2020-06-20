@@ -11,7 +11,7 @@ use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPlugi
 use crate::utils::{get_table_text, get_difference, pretty_print_json_text};
 use crate::types::ErrBox;
 
-use super::{CliArgs, SubCommand, FormatContext, FormatContexts};
+use super::{CliArgs, SubCommand, FormatContext, FormatContexts, StdInFmt};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
 
 const BOM_CHAR: char = '\u{FEFF}';
@@ -23,8 +23,8 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
     plugin_resolver: &impl PluginResolver,
 ) -> Result<(), ErrBox> {
     // help
-    if args.help_text.is_some() {
-        return output_help(&args, cache, environment, plugin_resolver).await;
+    if let SubCommand::Help(help_text) = &args.sub_command {
+        return output_help(&args, cache, environment, plugin_resolver, help_text).await;
     }
 
     // version
@@ -35,6 +35,11 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
     // license
     if args.sub_command == SubCommand::License {
         return output_license(&args, cache, environment, plugin_resolver).await;
+    }
+
+    // editor plugin info
+    if args.sub_command == SubCommand::EditorInfo {
+        return output_editor_info(&args, cache, environment, plugin_resolver).await;
     }
 
     // clear cache
@@ -51,13 +56,17 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
     }
 
     // get configuration
-    let mut config = resolve_config_from_args(&args, cache, environment).await?;
+    let config = resolve_config_from_args(&args, cache, environment).await?;
 
     // get project type diagnostic, but don't surface any issues yet
     let project_type_result = check_project_type_diagnostic(&config);
 
     // resolve file paths
-    let file_paths = resolve_file_paths(&mut config, &args, environment)?;
+    let file_paths = if let SubCommand::StdInFmt(_) = &args.sub_command {
+        vec![]
+    } else {
+        resolve_file_paths(&config, &args, environment)?
+    };
 
     // resolve plugins
     let plugins = resolve_plugins(config, &args, environment, plugin_resolver).await?;
@@ -65,7 +74,10 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
         return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
     }
 
-    // get project type diagnostic and global config
+    // do stdin format
+    if let SubCommand::StdInFmt(stdin_fmt) = &args.sub_command {
+        return output_stdin_format(&stdin_fmt, environment, plugins);
+    }
 
     // output resolved config
     if args.sub_command == SubCommand::OutputResolvedConfig {
@@ -148,10 +160,11 @@ async fn output_help<'a, TEnvironment: Environment>(
     args: &CliArgs,
     cache: &Cache<'a, TEnvironment>,
     environment: &TEnvironment,
-    plugin_resolver: &impl PluginResolver
+    plugin_resolver: &impl PluginResolver,
+    help_text: &str,
 ) -> Result<(), ErrBox> {
     // log the cli's help first
-    environment.log(args.help_text.as_ref().unwrap());
+    environment.log(help_text);
 
     // now check for the plugins
     let plugins_result = get_plugins_from_args(args, cache, environment, plugin_resolver).await;
@@ -189,6 +202,43 @@ async fn output_license<'a, TEnvironment: Environment>(
         let initialized_plugin = plugin.initialize()?;
         environment.log(&initialized_plugin.get_license_text());
     }
+
+    Ok(())
+}
+
+async fn output_editor_info<'a, TEnvironment: Environment>(
+    args: &CliArgs,
+    cache: &Cache<'a, TEnvironment>,
+    environment: &TEnvironment,
+    plugin_resolver: &impl PluginResolver
+) -> Result<(), ErrBox> {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct EditorInfo {
+        pub schema_version: u32,
+        pub plugins: Vec<EditorPluginInfo>,
+    }
+
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct EditorPluginInfo {
+        name: String,
+        file_extensions: Vec<String>,
+    }
+
+    let mut plugins = Vec::new();
+
+    for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
+        plugins.push(EditorPluginInfo {
+            name: plugin.name().to_string(),
+            file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
+        });
+    }
+
+    environment.log_silent(&serde_json::to_string(&EditorInfo {
+        schema_version: 1,
+        plugins,
+    })?);
 
     Ok(())
 }
@@ -269,6 +319,29 @@ async fn init_config_file(environment: &impl Environment, config_arg: &Option<St
             }
         }
     }
+}
+
+fn output_stdin_format<'a, TEnvironment: Environment>(
+    stdin_fmt: &StdInFmt,
+    environment: &TEnvironment,
+    plugins: Vec<Box<dyn Plugin>>,
+) -> Result<(), ErrBox> {
+    let file_name = PathBuf::from(&stdin_fmt.file_name);
+    let ext = match file_name.extension() {
+        Some(ext) => ext.to_string_lossy().to_string(),
+        None => return err!("Could not find extension for {}", stdin_fmt.file_name),
+    };
+
+    for plugin in plugins {
+        if plugin.file_extensions().contains(&ext) {
+            let initialized_plugin = plugin.initialize()?;
+            let result = initialized_plugin.format_text(&file_name, &stdin_fmt.file_text)?;
+            environment.log_silent(&result);
+            return Ok(());
+        }
+    }
+
+    err!("Could not find plugin to format the file with extension: {}", ext)
 }
 
 async fn check_files(format_contexts: FormatContexts, environment: &impl Environment) -> Result<(), ErrBox> {
@@ -511,11 +584,11 @@ fn check_project_type_diagnostic(config: &ResolvedConfig) -> Result<(), ErrBox> 
     Ok(())
 }
 
-fn resolve_file_paths(config: &mut ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
+fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
     let mut file_patterns = Vec::new();
 
     file_patterns.extend(if args.file_patterns.is_empty() {
-        config.includes.clone()
+        config.includes.clone() // todo: take from array?
     } else {
         args.file_patterns.clone()
     });
@@ -576,15 +649,24 @@ mod tests {
     use crate::utils::get_difference;
 
     use super::run_cli;
-    use super::super::parse_args;
+    use super::super::{parse_args, TestStdInReader};
 
-    async fn run_test_cli(args: Vec<&'static str>, environment: &impl Environment) -> Result<(), ErrBox> {
+    async fn run_test_cli(args: Vec<&'static str>, environment: &TestEnvironment) -> Result<(), ErrBox> {
+        run_test_cli_with_stdin(args, environment, TestStdInReader::new()).await
+    }
+
+    async fn run_test_cli_with_stdin(
+        args: Vec<&'static str>,
+        environment: &TestEnvironment,
+        stdin_reader: TestStdInReader, // todo: no clue why this can't be passed in by reference
+    ) -> Result<(), ErrBox> {
         let mut args: Vec<String> = args.into_iter().map(String::from).collect();
         args.insert(0, String::from(""));
         let cache = Cache::new(environment).unwrap();
         let plugin_cache = PluginCache::new(environment, &cache, &quick_compile);
         let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache);
-        let args = parse_args(args)?;
+        let args = parse_args(args, &stdin_reader)?;
+        if args.is_silent_output() { environment.set_silent(); }
         run_cli(args, environment, &cache, &plugin_resolver).await
     }
 
@@ -1303,6 +1385,47 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 "#
         ]);
+    }
+
+    #[tokio::test]
+    async fn it_should_output_editor_plugin_info() {
+        // it should not output anything when downloading plugins
+        let environment = get_test_environment_with_remote_plugin();
+        environment.write_file(&PathBuf::from("./dprint.config.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        run_test_cli(vec!["editor-info"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![
+            r#"{"schemaVersion":1,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]}]}"#
+        ]);
+    }
+
+    #[tokio::test]
+    async fn it_should_format_for_stdin() {
+        // it should not output anything when downloading plugins
+        let environment = get_test_environment_with_remote_plugin();
+        environment.write_file(&PathBuf::from("./dprint.config.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        let test_std_in = TestStdInReader::new_with_text("text");
+        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.txt"], &environment, test_std_in).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec!["text_formatted"]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn it_should_error_when_format_for_stdin_no_matching_extension() {
+        // it should not output anything when downloading plugins
+        let environment = get_test_environment_with_remote_plugin();
+        environment.write_file(&PathBuf::from("./dprint.config.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        let test_std_in = TestStdInReader::new_with_text("text");
+        let error_message = run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.ts"], &environment, test_std_in).await.err().unwrap();
+        assert_eq!(error_message.to_string(), "Could not find plugin to format the file with extension: ts");
     }
 
     fn get_singular_formatted_text() -> String {

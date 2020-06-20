@@ -32,8 +32,9 @@ async fn run() -> Result<(), types::ErrBox> {
     #[cfg(windows)]
     colored::control::set_virtual_terminal(true).unwrap(); // the docs said this will always be ok
 
-    let args = cli::parse_args(std::env::args().collect())?;
-    let environment = RealEnvironment::new(args.verbose);
+    let stdin_reader = cli::RealStdInReader::new();
+    let args = cli::parse_args(std::env::args().collect(), &stdin_reader)?;
+    let environment = RealEnvironment::new(args.verbose, args.is_silent_output());
     let cache = cache::Cache::new(&environment)?;
     let plugin_cache = plugins::PluginCache::new(&environment, &cache, &crate::plugins::wasm::compile);
     let plugin_resolver = plugins::wasm::WasmPluginResolver::new(&environment, &plugin_cache);

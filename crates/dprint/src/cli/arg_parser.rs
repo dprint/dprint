@@ -1,4 +1,5 @@
 use crate::types::ErrBox;
+use super::StdInReader;
 
 pub struct CliArgs {
     pub sub_command: SubCommand,
@@ -7,8 +8,16 @@ pub struct CliArgs {
     pub file_patterns: Vec<String>,
     pub exclude_file_patterns: Vec<String>,
     pub plugin_urls: Vec<String>,
-    pub help_text: Option<String>,
     pub config: Option<String>,
+}
+
+impl CliArgs {
+    pub fn is_silent_output(&self) -> bool {
+        match self.sub_command {
+            SubCommand::EditorInfo | SubCommand::StdInFmt(..) => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -21,10 +30,18 @@ pub enum SubCommand {
     OutputResolvedConfig,
     Version,
     License,
-    Help,
+    Help(String),
+    EditorInfo,
+    StdInFmt(StdInFmt),
 }
 
-pub fn parse_args(args: Vec<String>) -> Result<CliArgs, ErrBox> {
+#[derive(Debug, PartialEq)]
+pub struct StdInFmt {
+    pub file_name: String,
+    pub file_text: String,
+}
+
+pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &TStdInReader) -> Result<CliArgs, ErrBox> {
     let mut cli_parser = create_cli_parser();
     let matches = match cli_parser.get_matches_from_safe_borrow(args) {
         Ok(result) => result,
@@ -47,15 +64,24 @@ pub fn parse_args(args: Vec<String>) -> Result<CliArgs, ErrBox> {
         SubCommand::Version
     } else if matches.is_present("license") {
         SubCommand::License
+    } else if matches.is_present("editor-info") {
+        SubCommand::EditorInfo
+    } else if matches.is_present("stdin-fmt") {
+        let std_in_fmt_matches = match matches.subcommand_matches("stdin-fmt") {
+            Some(matches) => matches,
+            None => return err!("Could not find stdin-fmt subcommand matches."),
+        };
+        SubCommand::StdInFmt(StdInFmt {
+            file_name: std_in_fmt_matches.value_of("file-name").map(String::from).unwrap(),
+            file_text: std_in_reader.read()?,
+        })
     } else {
-        SubCommand::Help
+        SubCommand::Help({
+            let mut text = Vec::new();
+            cli_parser.write_help(&mut text).unwrap();
+            String::from_utf8(text).unwrap()
+        })
     };
-
-    let help_text = if sub_command == SubCommand::Help {
-        let mut text = Vec::new();
-        cli_parser.write_help(&mut text).unwrap();
-        Some(String::from_utf8(text).unwrap())
-    } else { None };
 
     Ok(CliArgs {
         sub_command,
@@ -65,7 +91,6 @@ pub fn parse_args(args: Vec<String>) -> Result<CliArgs, ErrBox> {
         file_patterns: values_to_vec(matches.values_of("files")),
         exclude_file_patterns: values_to_vec(matches.values_of("excludes")),
         plugin_urls: values_to_vec(matches.values_of("plugins")),
-        help_text,
     })
 }
 
@@ -151,11 +176,26 @@ EXAMPLES:
             SubCommand::with_name("license")
                 .about("Outputs the software license.")
         )
+        .subcommand(
+            SubCommand::with_name("editor-info")
+                .setting(AppSettings::Hidden)
+        )
+        .subcommand(
+            SubCommand::with_name("stdin-fmt")
+                .setting(AppSettings::Hidden)
+                .arg(
+                    Arg::with_name("file-name")
+                        .long("file-name")
+                        .required(true)
+                        .takes_value(true)
+                )
+        )
         .arg(
             Arg::with_name("files")
                 .help("List of files or globs in quotes to format. This overrides what is specified in the config file.")
                 .takes_value(true)
                 .global(true)
+                .conflicts_with("stdin-fmt")
                 .multiple(true),
         )
         .arg(

@@ -397,7 +397,7 @@ checksum = "39de161cd2ebbd6e5783db53a82a47b6a47dcfef754130839603561745528b94"
 
 [[package]]
 name = "dprint"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "app_dirs",
  "async-trait",

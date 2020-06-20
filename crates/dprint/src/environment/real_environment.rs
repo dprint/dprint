@@ -14,13 +14,15 @@ use super::super::types::ErrBox;
 pub struct RealEnvironment {
     output_lock: Arc<Mutex<u8>>,
     is_verbose: bool,
+    is_silent: bool,
 }
 
 impl RealEnvironment {
-    pub fn new(is_verbose: bool) -> RealEnvironment {
+    pub fn new(is_verbose: bool, is_silent: bool) -> RealEnvironment {
         RealEnvironment {
             output_lock: Arc::new(Mutex::new(0)),
             is_verbose,
+            is_silent,
         }
     }
 }
@@ -91,21 +93,26 @@ impl Environment for RealEnvironment {
         };
 
         self.log(&format!("Downloading {}", url));
-        // https://github.com/mitsuhiko/indicatif/blob/master/examples/download.rs
-        let pb = ProgressBar::new(total_size.unwrap_or(0));
-        pb.set_style(ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-            .progress_chars("#>-"));
-        let mut final_bytes = bytes::BytesMut::new();
 
-        while let Some(chunk) = resp.chunk().await? {
-            final_bytes.extend_from_slice(&chunk);
-            pb.set_position(final_bytes.len() as u64);
+        if self.is_silent {
+            Ok(resp.bytes().await?)
+        } else {
+            // https://github.com/mitsuhiko/indicatif/blob/master/examples/download.rs
+            let pb = ProgressBar::new(total_size.unwrap_or(0));
+            pb.set_style(ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                .progress_chars("#>-"));
+            let mut final_bytes = bytes::BytesMut::new();
+
+            while let Some(chunk) = resp.chunk().await? {
+                final_bytes.extend_from_slice(&chunk);
+                pb.set_position(final_bytes.len() as u64);
+            }
+
+            pb.finish_with_message("downloaded");
+
+            Ok(final_bytes.freeze())
         }
-
-        pb.finish_with_message("downloaded");
-
-        Ok(final_bytes.freeze())
     }
 
     /*
@@ -187,11 +194,18 @@ impl Environment for RealEnvironment {
     }
 
     fn log(&self, text: &str) {
+        if self.is_silent { return; }
+        let _g = self.output_lock.lock().unwrap();
+        println!("{}", text);
+    }
+
+    fn log_silent(&self, text: &str) {
         let _g = self.output_lock.lock().unwrap();
         println!("{}", text);
     }
 
     fn log_error(&self, text: &str) {
+        if self.is_silent { return; }
         let _g = self.output_lock.lock().unwrap();
         eprintln!("{}", text);
     }
