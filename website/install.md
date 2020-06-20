@@ -25,4 +25,9 @@ cargo install dprint
 
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
 
+## Editor Extensions
+
+* [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
+* More to come!
+
 Next step: [Setup](/setup)
