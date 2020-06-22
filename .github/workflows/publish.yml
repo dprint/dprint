@@ -1,11 +1,11 @@
-name: Release
+name: Package Publish
 
 on:
   release:
     types: [published]
 jobs:
   publish:
-    runs-on: macOS-latest
+    runs-on: ubuntu-latest
     steps:
     - name: Get tag version
       id: get_tag_version

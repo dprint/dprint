@@ -11,10 +11,17 @@ Shell (Mac, Linux, WSL):
 curl -fsSL https://dprint.dev/install.sh | sh
 ```
 
-Windows (use Powershell):
+Powershell (Windows):
 
 ```powershell
 iwr https://dprint.dev/install.ps1 -useb | iex
+```
+
+Homebrew (Mac):
+
+```bash
+brew tap dprint/dprint
+brew install dprint
 ```
 
 Build and install the [Cargo package](https://crates.io/crates/dprint):
