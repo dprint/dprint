@@ -47,11 +47,6 @@ jobs:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Get tag version
-      if: matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
-      id: get_tag_version
-      run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
-
     - name: Build test plugin
       run: cargo build --manifest-path=crates/test-plugin/Cargo.toml --release --target=wasm32-unknown-unknown
 
@@ -86,28 +81,6 @@ jobs:
       run: |
           Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip
 
-    # Homebrew publish
-    - name: Checkout homebrew repo (Mac)
-      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
-      uses: actions/checkout@v2
-      with:
-        repository: dprint/homebrew-dprint
-        token: ${{ secrets.CI_REPO_PAT }} # github.token is scoped to current repo, so use this to push to other repo
-        path: homebrew-dprint
-    - name: Homebrew Publish (Mac)
-      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
-      run: |
-          chmod +x scripts/release/create-homebrew-formula.sh
-          scripts/release/create-homebrew-formula.sh target/release/dprint-x86_64-apple-darwin.tar.gz ${{ steps.get_tag_version.outputs.TAG_VERSION }} > homebrew-dprint/Formula/dprint.rb
-          cd homebrew-dprint
-          git add Formula/dprint.rb
-          git config user.name "David Sherret"
-          git config user.email "dsherret@users.noreply.github.com"
-          git commit -m "${{ steps.get_tag_version.outputs.TAG_VERSION }}"
-          git tag ${{ steps.get_tag_version.outputs.TAG_VERSION }} master
-          git push --tags origin master
-
-    # Release
     - name: Release
       uses: softprops/action-gh-release@v1
       if: matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')

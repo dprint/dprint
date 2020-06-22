@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+jobs:
+  publish:
+    runs-on: macOS-latest
+    steps:
+    - name: Get tag version
+      id: get_tag_version
+      run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
+
+      # Homebrew publish
+    - name: Checkout homebrew repo
+      uses: actions/checkout@v2
+      with:
+        repository: dprint/homebrew-dprint
+        token: ${{ secrets.CI_REPO_PAT }} # github.token is scoped to current repo, so use this to push to other repo
+        path: homebrew-dprint
+    - name: Homebrew Publish
+      run: |
+          cd homebrew-dprint
+          chmod +x scripts/update-formula.sh
+          scripts/update-formula.sh ${{ steps.get_tag_version.outputs.TAG_VERSION }}
+          git add .
+          git config user.name "David Sherret"
+          git config user.email "dsherret@users.noreply.github.com"
+          git commit -m "${{ steps.get_tag_version.outputs.TAG_VERSION }}"
+          git tag ${{ steps.get_tag_version.outputs.TAG_VERSION }} master
+          git push --tags origin master
