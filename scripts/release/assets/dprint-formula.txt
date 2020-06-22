@@ -1,0 +1,11 @@
+class Dprint < Formula
+    desc "Pluggable and configurable code formatting platform."
+    homepage "https://github.com/dprint/dprint"
+    url "https://github.com/dprint/dprint/releases/download/VERSION/dprint-x86_64-apple-darwin.tar.gz"
+    sha256 "SHA"
+    version "VERSION"
+
+    def install
+        bin.install "dprint"
+    end
+end
