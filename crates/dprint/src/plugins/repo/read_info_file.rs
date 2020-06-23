@@ -14,7 +14,7 @@ pub struct InfoFilePluginInfo {
     pub version: String,
     pub url: String,
     pub config_schema_url: String,
-    pub config_key: String,
+    pub config_key: Option<String>,
     pub file_extensions: Vec<String>,
     pub config_excludes: Vec<String>,
 }
@@ -75,7 +75,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     let name = get_string(&mut obj, "name")?;
     let version = get_string(&mut obj, "version")?;
     let url = get_string(&mut obj, "url")?;
-    let config_key = get_string(&mut obj, "configKey")?;
+    let config_key = obj.take_string("configKey");
     let config_schema_url = obj.take_string("configSchemaUrl").unwrap_or(String::new());
     let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
     let config_excludes = get_string_array(&mut obj, "configExcludes")?;
@@ -130,7 +130,6 @@ mod test {
         "name": "dprint-plugin-jsonc",
         "version": "0.2.3",
         "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
-        "configKey": "json",
         "fileExtensions": ["json"],
         "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
         "configExcludes": ["**/*-lock.json"]
@@ -143,7 +142,7 @@ mod test {
                 name: String::from("dprint-plugin-typescript"),
                 version: String::from("0.17.2"),
                 url: String::from("https://plugins.dprint.dev/typescript-0.17.2.wasm"),
-                config_key: String::from("typescript"),
+                config_key: Some(String::from("typescript")),
                 file_extensions: vec![String::from("ts"), String::from("tsx")],
                 config_schema_url: String::new(),
                 config_excludes: vec![String::from("**/node_modules")],
@@ -151,7 +150,7 @@ mod test {
                 name: String::from("dprint-plugin-jsonc"),
                 version: String::from("0.2.3"),
                 url: String::from("https://plugins.dprint.dev/json-0.2.3.wasm"),
-                config_key: String::from("json"),
+                config_key: None,
                 file_extensions: vec![String::from("json")],
                 config_schema_url: String::from("https://plugins.dprint.dev/schemas/json-v1.json"),
                 config_excludes: vec![String::from("**/*-lock.json")],

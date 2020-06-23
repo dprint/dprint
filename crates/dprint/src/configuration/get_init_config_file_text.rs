@@ -61,11 +61,15 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
         for plugin in selected_plugins.iter() {
             // Put the brace on the next line so the user doesn't have to as soon as they
             // go to add options.
-            json_text.push_str(&format!("  \"{}\": {{\n", plugin.config_key));
-            if !plugin.config_schema_url.is_empty() {
-                json_text.push_str(&format!("    \"$schema\": \"{}\"\n", plugin.config_schema_url));
+            if let Some(config_key) = &plugin.config_key {
+                if !config_key.is_empty() {
+                    json_text.push_str(&format!("  \"{}\": {{\n", config_key));
+                    if !plugin.config_schema_url.is_empty() {
+                        json_text.push_str(&format!("    \"$schema\": \"{}\"\n", plugin.config_schema_url));
+                    }
+                    json_text.push_str("  },\n");
+                }
             }
-            json_text.push_str("  },\n");
         }
 
         json_text.push_str("  \"includes\": [");
@@ -73,14 +77,14 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
             json_text.push_str("\"**/*.*\"");
         } else {
             json_text.push_str("\"**/*.{");
-            json_text.push_str(&selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.to_owned()).collect::<Vec<_>>().join(","));
+            json_text.push_str(&get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.to_owned()).collect::<Vec<_>>()).join(","));
             json_text.push_str("}\"");
         }
         json_text.push_str("],\n");
         json_text.push_str("  \"excludes\": [");
         if !selected_plugins.is_empty() {
             json_text.push_str("\n");
-            json_text.push_str(&selected_plugins.iter().flat_map(|p| p.config_excludes.iter()).map(|x| format!("    \"{}\"", x)).collect::<Vec<_>>().join(",\n"));
+            json_text.push_str(&get_unique_items(selected_plugins.iter().flat_map(|p| p.config_excludes.iter()).map(|x| format!("    \"{}\"", x)).collect::<Vec<_>>()).join(",\n"));
             json_text.push_str("\n  ");
         }
         json_text.push_str("],\n");
@@ -106,6 +110,19 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
     Ok(json_text)
 }
 
+/// Gets the unique items in the vector in the same order
+fn get_unique_items<T>(vec: Vec<T>) -> Vec<T> where T : PartialEq {
+    let mut new_vec = Vec::new();
+
+    for item in vec {
+        if !new_vec.contains(&item) {
+            new_vec.push(item);
+        }
+    }
+
+    new_vec
+}
+
 fn get_project_type_name(environment: &impl Environment) -> Result<&'static str, ErrBox> {
     let project_type_infos = get_project_type_infos();
     environment.log("What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n");
@@ -125,7 +142,7 @@ mod test {
     async fn should_get_initialization_text_when_can_access_url() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
-        environment.set_multi_selection_result(vec![0, 1]);
+        environment.set_multi_selection_result(vec![0, 1, 2]);
         let text = get_init_config_file_text(&environment).await.unwrap();
         assert_eq!(
             text,
@@ -137,14 +154,16 @@ mod test {
   "json": {
     "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
   },
-  "includes": ["**/*.{ts,tsx,json}"],
+  "includes": ["**/*.{ts,tsx,json,rs}"],
   "excludes": [
     "**/something",
-    "**/*-asdf.json"
+    "**/*-asdf.json",
+    "**other"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-    "https://plugins.dprint.dev/json-0.2.3.wasm"
+    "https://plugins.dprint.dev/json-0.2.3.wasm",
+    "https://plugins.dprint.dev/final-0.1.2.wasm"
   ]
 }
 "#
@@ -350,6 +369,12 @@ mod test {
                 "fileExtensions": ["json"],
                 "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
                 "configExcludes": ["**/*-asdf.json"]
+            }, {
+                "name": "dprint-plugin-final",
+                "version": "0.1.2",
+                "url": "https://plugins.dprint.dev/final-0.1.2.wasm",
+                "fileExtensions": ["tsx", "rs"],
+                "configExcludes": ["**/something", "**other"]
             }]
         }"#;
     }

@@ -9,7 +9,7 @@ pub trait Plugin : std::marker::Send + std::marker::Sync {
     fn name(&self) -> &str;
     /// The version of the plugin.
     fn version(&self) -> &str;
-    /// Gets the possible keys that can be used in the configuration JSON.
+    /// Gets the config key that can be used in the configuration JSON.
     fn config_key(&self) -> &str;
     /// Gets the file extensions.
     fn file_extensions(&self) -> &Vec<String>;
