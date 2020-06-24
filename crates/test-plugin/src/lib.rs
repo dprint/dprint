@@ -46,7 +46,9 @@ fn get_plugin_license_text() -> String {
 }
 
 fn format_text(_: &PathBuf, file_text: &str, config: &Configuration) -> Result<String, String> {
-    if file_text.ends_with(&config.ending) {
+    if file_text == "should_error" {
+        Err(String::from("Did error."))
+    } else if file_text.ends_with(&config.ending) {
         Ok(String::from(file_text))
     } else {
         Ok(format!("{}_{}", file_text, config.ending))

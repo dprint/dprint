@@ -419,7 +419,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         let error_count = error_count.clone();
         tokio::task::spawn(async move {
             let plugin_name = format_context.plugin.name().to_string();
-            let result = inner_run(format_context, &environment, f).await;
+            let result = inner_run(format_context, &environment, f, error_count.clone()).await;
             if let Err(err) = result {
                 environment.log_error(&format!("[{}]: {}", plugin_name, err.to_string()));
                 error_count.fetch_add(1, Ordering::SeqCst);
@@ -446,7 +446,8 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     async fn inner_run<F, TEnvironment : Environment>(
         format_context: FormatContext,
         environment: &TEnvironment,
-        f: F
+        f: F,
+        error_count: Arc<AtomicUsize>,
     ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
         let plugin_name = String::from(format_context.plugin.name());
         let plugin_pool = InitializedPluginPool::new(format_context.plugin, environment.to_owned());
@@ -464,11 +465,15 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             let environment = environment.to_owned();
             let f = f.clone();
             let plugin_pool = plugin_pool.clone();
+            let error_count = error_count.clone();
 
             tokio::task::spawn(async move {
-                match run_for_file_path(&file_path, environment, plugin_pool, f).await {
-                    Ok(_) => Ok(()),
-                    Err(err) => return err!("Error formatting {}. Message: {}", file_path.display(), err.to_string()),
+                match run_for_file_path(&file_path, &environment, plugin_pool, f).await {
+                    Err(err) => {
+                        environment.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err.to_string()));
+                        error_count.fetch_add(1, Ordering::SeqCst);
+                    },
+                    _ => {}
                 }
             })
         }).collect::<Vec<_>>();
@@ -481,7 +486,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     #[inline]
     async fn run_for_file_path<F, TEnvironment : Environment>(
         file_path: &PathBuf,
-        environment: TEnvironment,
+        environment: &TEnvironment,
         plugin_pool: Arc<InitializedPluginPool<TEnvironment>>,
         f: F
     ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
@@ -778,6 +783,17 @@ mod tests {
         assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_plugin_erroring() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path = PathBuf::from("/file.txt");
+        environment.write_file(&file_path, "should_error").unwrap(); // special text that makes the plugin error
+        let error_message = run_test_cli(vec!["fmt", "/file.txt"], &environment).await.err().unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.get_logged_errors(), vec![String::from("Error formatting /file.txt. Message: Did error.")]);
+        assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
     }
 
     #[tokio::test]
