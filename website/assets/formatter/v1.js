@@ -8,8 +8,21 @@
  * @param {Response | PromiseLike<Response>} response - The streaming source to create the formatter from.
  */
 export function createStreaming(response) {
-    return WebAssembly.instantiateStreaming(response)
-        .then(obj => createFromInstance(obj.instance));
+    if (WebAssembly.instantiateStreaming == null) {
+        return getArrayBuffer()
+            .then(buffer => createFromBuffer(buffer));
+    } else {
+        return WebAssembly.instantiateStreaming(response)
+            .then(obj => createFromInstance(obj.instance));
+    }
+
+    function getArrayBuffer() {
+        if (response.arrayBuffer) {
+            return response.arrayBuffer();
+        } else {
+            return response.then(response => response.arrayBuffer());
+        }
+    }
 }
 
 /**
@@ -50,7 +63,11 @@ export function createFromInstance(wasmInstance) {
     const pluginSchemaVersion = get_plugin_schema_version();
     const expectedPluginSchemaVersion = 1;
     if (pluginSchemaVersion !== expectedPluginSchemaVersion) {
-        throw new Error(`Not compatible plugin. Expected schema ${expectedPluginSchemaVersion}, but plugin had ${pluginSchemaVersion}.`);
+        throw new Error(
+            `Not compatible plugin. `
+            + `Expected schema ${expectedPluginSchemaVersion}, `
+            + `but plugin had ${pluginSchemaVersion}.`
+        );
     }
 
     const bufferSize = get_wasm_memory_buffer_size();
