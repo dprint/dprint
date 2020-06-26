@@ -17,7 +17,7 @@ These are the only plugins available at this time:
 Plugins may be used to format text in Deno like so:
 
 ```ts
-import { createStreaming } from "https://dprint.dev/formatter/v1.js";
+import { createStreaming } from "https://dprint.dev/formatter/v1.ts";
 
 const globalConfig = {
     indentWidth: 2,
@@ -35,4 +35,7 @@ tsFormatter.setConfig(globalConfig, {
 console.log(tsFormatter.formatText("file.ts", "const   t    = 5;"));
 ```
 
-Make sure to check the license of a plugin when you use it to see if use is permitted this way. Note: You may read a plugin's license text by running `#getLicenseText()` on the returned formatter object. For example, `tsFormatter.getLicenseText()` in this case returns the MIT license.
+Notes:
+
+* [Documentation](https://doc.deno.land/https/dprint.dev/formatter/v1.ts)
+* Make sure to check the license of a plugin when you use it to see if use is permitted this way. You may read a plugin's license text by running `#getLicenseText()` on the returned formatter object. For example, `tsFormatter.getLicenseText()` in this case returns the MIT license.
