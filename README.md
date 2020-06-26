@@ -8,6 +8,7 @@ This project is under active early development. I recommend you check its output
 
 ## Links
 
+* [Overview](https://dprint.dev/overview)
 * [Getting Started](https://dprint.dev/install)
 * [Playground](https://dprint.dev/playground)
 

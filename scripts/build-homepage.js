@@ -49,6 +49,7 @@ function buildWebsite() {
     buildForPath("cli", documentationHtmlPageText);
     buildForPath("config", documentationHtmlPageText);
     buildForPath("install", documentationHtmlPageText);
+    buildForPath("overview", documentationHtmlPageText);
     buildForPath("plugin-dev", documentationHtmlPageText);
     buildForPath("plugins", documentationHtmlPageText);
     buildForPath("setup", documentationHtmlPageText);
