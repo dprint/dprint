@@ -50,7 +50,7 @@ jobs:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Cargo Login
+    - name: Cargo login
       run: cargo login ${{ secrets.CRATES_TOKEN }}
 
     - name: Cargo publish
