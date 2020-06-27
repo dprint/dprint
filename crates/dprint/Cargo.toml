@@ -1,7 +1,7 @@
 [package]
 name = "dprint"
-version = "0.4.3"
-authors = ["David Sherret <dsherret@gmail.com>", "Bartek Iwańczuk <biwanczuk@gmail.com>"]
+version = "0.4.5"
+authors = ["Dprint Code Formatting <david@dprint.dev>"]
 edition = "2018"
 license-file = "LICENSE"
 description = "Binary for dprint."
