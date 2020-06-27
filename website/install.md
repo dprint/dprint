@@ -5,30 +5,36 @@ description: Documentation on installing dprint.
 
 # Install Dprint
 
-Shell (Mac, Linux, WSL):
+Install using one of the methods below.
 
-```bash
-curl -fsSL https://dprint.dev/install.sh | sh
-```
+* Shell (Mac, Linux, WSL):
 
-Powershell (Windows):
+    ```bash
+    curl -fsSL https://dprint.dev/install.sh | sh
+    ```
 
-```powershell
-iwr https://dprint.dev/install.ps1 -useb | iex
-```
+* Windows Installer
 
-Homebrew (Mac):
+    [Download](https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc-installer.exe)
 
-```bash
-brew tap dprint/dprint
-brew install dprint
-```
+* Powershell (Windows):
 
-Build and install the [Cargo package](https://crates.io/crates/dprint):
+    ```powershell
+    iwr https://dprint.dev/install.ps1 -useb | iex
+    ```
 
-```bash
-cargo install dprint
-```
+* Homebrew (Mac):
+
+    ```bash
+    brew tap dprint/dprint
+    brew install dprint
+    ```
+
+* Cargo (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
+
+    ```bash
+    cargo install dprint
+    ```
 
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
 

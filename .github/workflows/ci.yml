@@ -31,6 +31,7 @@ jobs:
     - name: Install wasm32 target
       run: rustup target add wasm32-unknown-unknown
 
+    # CACHE SETUP
     - name: Cache cargo registry
       uses: actions/cache@v1
       with:
@@ -47,6 +48,7 @@ jobs:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
+    # BUILD
     - name: Build test plugin
       run: cargo build --manifest-path=crates/test-plugin/Cargo.toml --release --target=wasm32-unknown-unknown
 
@@ -57,6 +59,7 @@ jobs:
       if: matrix.config.kind == 'test_release'
       run: cargo build --release --locked --all-targets --verbose
 
+    # TEST
     - name: Test debug
       if: matrix.config.kind == 'test_debug'
       run: cargo test --verbose
@@ -64,6 +67,24 @@ jobs:
       if: matrix.config.kind == 'test_release'
       run: cargo test --release --locked --all-targets --verbose
 
+    # INSTALLER
+    - name: Setup NSIS (Windows)
+      if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release'
+      run: |
+        mkdir NSIS_Plugins
+        cd NSIS_Plugins
+        iwr https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip -OutFile envar_plugin.zip
+        tar -xf envar_plugin.zip
+        rm envar_plugin.zip
+    - name: Create NSIS installer (Windows)
+      uses: joncloud/makensis-action@v2.0
+      if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release'
+      with:
+        include-more-plugins: true
+        additional-plugin-paths: ${{ github.workspace }}/NSIS_Plugins/Plugins/
+        script-file: ${{ github.workspace }}/scripts/dprint-installer.nsi
+
+    # PRE-RELEASE
     - name: Pre-release (Linux)
       if: startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release'
       run: |
@@ -89,6 +110,7 @@ jobs:
       with:
         files: |
           target/release/dprint-x86_64-pc-windows-msvc.zip
+          scripts/dprint-x86_64-pc-windows-msvc-installer.exe
           target/release/dprint-x86_64-unknown-linux-gnu.zip
           target/release/dprint-x86_64-apple-darwin.zip
           target/release/dprint-x86_64-apple-darwin.tar.gz
