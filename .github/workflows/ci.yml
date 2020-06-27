@@ -80,7 +80,6 @@ jobs:
       uses: joncloud/makensis-action@v2.0
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release'
       with:
-        include-more-plugins: true
         additional-plugin-paths: ${{ github.workspace }}/NSIS_Plugins/Plugins/
         script-file: ${{ github.workspace }}/scripts/dprint-installer.nsi
 
