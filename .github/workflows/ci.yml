@@ -74,14 +74,21 @@ jobs:
         mkdir NSIS_Plugins
         cd NSIS_Plugins
         iwr https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip -OutFile envar_plugin.zip
+        powershell -command "if ((CertUtil -hashfile envar_plugin.zip SHA1)[1] -replace ' ','' -ne '586c52fd2f44dcf1b5b0556bbd5dd3442f9301cd') { exit 1 }"
         tar -xf envar_plugin.zip
         rm envar_plugin.zip
-    - name: Create NSIS installer (Windows)
+    - name: Create installer (Windows)
       uses: joncloud/makensis-action@v2.0
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release'
       with:
         additional-plugin-paths: ${{ github.workspace }}/NSIS_Plugins/Plugins/
-        script-file: ${{ github.workspace }}/scripts/dprint-installer.nsi
+        script-file: ${{ github.workspace }}/scripts/installer/dprint-installer.nsi
+    - name: Sign installer (Windows)
+      if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release'
+      run: |
+        "${{ secrets.SELF_SIGNED_CERT_PFX }}" | Out-File -FilePath cert.txt
+        CertUtil -decode cert.txt cert.pfx
+        & 'C:\Program Files (x86)\Windows Kits\10\bin\x86\signtool' sign /f "cert.pfx" /p ${{ secrets.SELF_SIGNED_CERT_PFX_PASSWORD }} /td sha256 /fd sha256 scripts/installer/dprint-x86_64-pc-windows-msvc-installer.exe
 
     # PRE-RELEASE
     - name: Pre-release (Linux)
@@ -109,7 +116,7 @@ jobs:
       with:
         files: |
           target/release/dprint-x86_64-pc-windows-msvc.zip
-          scripts/dprint-x86_64-pc-windows-msvc-installer.exe
+          scripts/installer/dprint-x86_64-pc-windows-msvc-installer.exe
           target/release/dprint-x86_64-unknown-linux-gnu.zip
           target/release/dprint-x86_64-apple-darwin.zip
           target/release/dprint-x86_64-apple-darwin.tar.gz

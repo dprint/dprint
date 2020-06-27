@@ -9,7 +9,7 @@ Section
 
     CreateDirectory $INSTDIR\bin
     SetOutPath $INSTDIR\bin
-    File ..\target\release\dprint.exe
+    File ..\..\target\release\dprint.exe
 
     EnVar::AddValue "PATH" "$INSTDIR\bin"
     Pop $0
