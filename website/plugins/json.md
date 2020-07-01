@@ -19,7 +19,11 @@ Supports:
 
 ## Install and Setup
 
-Specify the plugin url in _dprint.config.json_ and add a `"json"` configuration property if desired:
+In _dprint.config.json_:
+
+1. Specify the plugin url in the `"plugins"` array.
+2. Ensure `.json` file extensions are matched in an `"includes"` pattern.
+3. Add a `"json"` configuration property if desired.
 
 ```json
 {

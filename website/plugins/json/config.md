@@ -1,6 +1,6 @@
 ---
 title: Configuration - JSON
-description: Documentation on the configuration file for dprint's JSON code formatting plugin.
+description: Documentation on the configuration file for the JSON code formatting plugin for dprint.
 ---
 
 <nav class="breadcrumb" aria-label="breadcrumbs">
@@ -14,5 +14,5 @@ description: Documentation on the configuration file for dprint's JSON code form
 # JSON - Configuration
 
 <div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/json-v0.json">
-    Loading...
+  Loading...
 </div>

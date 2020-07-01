@@ -1,4 +1,3 @@
-// import { TypeScriptConfiguration } from "dprint-plugin-typescript";
 import { decompressFromEncodedURIComponent, compressToEncodedURIComponent } from "lz-string";
 
 export class UrlSaver {
@@ -39,7 +38,7 @@ export class UrlSaver {
             }
         }
 
-        function getLanguage(): "typescript" | "json" {
+        function getLanguage(): "typescript" | "json" | "markdown" {
             const matches = /language\/([^/]+)/.exec(locationHash);
             if (matches == null || matches.length !== 2) {
                 return "typescript";
@@ -49,6 +48,8 @@ export class UrlSaver {
                 switch (matches[1]) {
                     case "json":
                         return "json";
+                    case "markdown":
+                        return "markdown";
                     case "typescript":
                     default:
                         return "typescript";
@@ -60,7 +61,7 @@ export class UrlSaver {
         }
     }
 
-    updateUrl({ text, configText, language }: { text: string; configText?: string; language?: "typescript" | "json"; }) {
+    updateUrl({ text, configText, language }: { text: string; configText?: string; language?: "typescript" | "json" | "markdown"; }) {
         if (language == null) {
             window.history.replaceState(
                 undefined,

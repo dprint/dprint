@@ -129,7 +129,7 @@ export function Playground({
                                 </div>
                             </div>
                             <CodeEditor
-                                language={Language.TypeScript}
+                                language={selectedPlugin.language}
                                 onChange={onTextChanged}
                                 text={text}
                                 lineWidth={lineWidth}
@@ -151,7 +151,7 @@ export function Playground({
                     </SplitPane>
                     <div className="container">
                         {isLoading ? <Spinner /> : <CodeEditor
-                            language={Language.TypeScript}
+                            language={selectedPlugin.language}
                             text={formattedText}
                             readonly={true}
                             lineWidth={lineWidth}

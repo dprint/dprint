@@ -9,6 +9,7 @@ These are the only plugins available at this time:
 
 - [Typescript / JavaScript](/plugins/typescript)
 - [JSON](/plugins/json)
+- [Markdown](/plugins/markdown)
 - [Rustfmt](/plugins/rustfmt)
 - More to come!
 

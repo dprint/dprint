@@ -57,6 +57,8 @@ function buildWebsite() {
     buildForPath("plugins/typescript/config", documentationHtmlPageText);
     buildForPath("plugins/json", documentationHtmlPageText);
     buildForPath("plugins/json/config", documentationHtmlPageText);
+    buildForPath("plugins/markdown", documentationHtmlPageText);
+    buildForPath("plugins/markdown/config", documentationHtmlPageText);
     buildForPath("plugins/rustfmt", documentationHtmlPageText);
 
     // minify index.css

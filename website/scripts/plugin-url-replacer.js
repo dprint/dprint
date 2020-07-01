@@ -2,6 +2,7 @@
 (function(Dprint) {
     var typescriptUrl = "https://plugins.dprint.dev/typescript-x.x.x.wasm";
     var jsonUrl = "https://plugins.dprint.dev/json-x.x.x.wasm";
+    var markdownUrl = "https://plugins.dprint.dev/markdown-x.x.x.wasm";
     var rustFmtUrl = "https://plugins.dprint.dev/rustfmt-x.x.x.wasm";
     var pluginInfoUrl = "https://plugins.dprint.dev/info.json";
     var schemaVersion = 1;
@@ -19,6 +20,9 @@
                         case getWithQuotes(jsonUrl):
                             element.textContent = getWithQuotes(urls["json"]);
                             break;
+                        case getWithQuotes(markdownUrl):
+                            element.textContent = getWithQuotes(urls["markdown"]);
+                            break;
                         case getWithQuotes(rustFmtUrl):
                             element.textContent = getWithQuotes(urls["rustfmt"]);
                             break;
@@ -35,8 +39,9 @@
             var stringElement = stringElements.item(i);
             switch (stringElement.textContent) {
                 case getWithQuotes(typescriptUrl):
-                case getWithQuotes(rustFmtUrl):
                 case getWithQuotes(jsonUrl):
+                case getWithQuotes(markdownUrl):
+                case getWithQuotes(rustFmtUrl):
                     result.push(stringElement);
                     break;
             }
@@ -61,6 +66,7 @@
                 return {
                     typescript: getUrlForPlugin(data, "dprint-plugin-typescript"),
                     json: getUrlForPlugin(data, "dprint-plugin-json"),
+                    markdown: getUrlForPlugin(data, "dprint-plugin-markdown"),
                     rustfmt: getUrlForPlugin(data, "dprint-plugin-rustfmt"),
                 };
             });

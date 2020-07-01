@@ -16,7 +16,11 @@ Wrapper plugin that formats Rust code via [rustfmt](https://github.com/rust-lang
 
 ## Install and Setup
 
-Specify the plugin url in _dprint.config.json_ and add a `"rustfmt"` configuration property if desired:
+In _dprint.config.json_:
+
+1. Specify the plugin url in the `"plugins"` array.
+2. Ensure `.rs` file extensions are matched in an `"includes"` pattern.
+3. Add a `"rustfmt"` configuration property if desired.
 
 ```json
 {

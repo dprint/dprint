@@ -17,6 +17,7 @@ export interface CodeEditorProps {
 export enum Language {
     TypeScript = "typescript",
     Json = "json",
+    Markdown = "markdown",
 }
 
 export interface CodeEditorState {

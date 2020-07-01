@@ -7,7 +7,7 @@
                 getDprintPluginConfig(item.url).then(function(properties) {
                     console.log(properties);
                     var element = item.element;
-                    element.innerHTML = "<p>This information is auto generated from <a href=\"" + item.url + "\">" + item.url + "</a>.</p>";
+                    element.innerHTML = "<p>This information was auto generated from <a href=\"" + item.url + "\">" + item.url + "</a>.</p>";
                     properties.forEach(function(property) {
                         var propertyContainer = document.createElement("div");
                         element.appendChild(propertyContainer);
