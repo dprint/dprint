@@ -10,6 +10,7 @@ impl std::fmt::Display for ParseConfigurationError {
     }
 }
 
+#[macro_export]
 macro_rules! generate_str_to_from {
     ($enum_name:ident, $([$member_name:ident, $string_value:expr]),* ) => {
         impl std::str::FromStr for $enum_name {
