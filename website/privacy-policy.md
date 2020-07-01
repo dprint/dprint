@@ -16,22 +16,22 @@ We are a Data Controller of your information.
 
 Dprint Code Formatting's legal basis for collecting and using the personal information described in this Privacy Policy depends on the Personal Information we collect and the specific context in which we collect the information:
 
-* Dprint Code Formatting needs to perform a contract with you
-* You have given Dprint Code Formatting permission to do so
-* Processing your personal information is in Dprint Code Formatting legitimate interests
-* Dprint Code Formatting needs to comply with the law
-* Dprint Code Formatting will retain your personal information only for as long as is necessary for the purposes set out in this Privacy Policy. We will retain and use your information to the extent necessary to comply with our legal obligations, resolve disputes, and enforce our policies. Our Privacy Policy was generated with the help of GDPR Privacy Policy Generator and the GDPR Privacy Policy Generator.
+- Dprint Code Formatting needs to perform a contract with you
+- You have given Dprint Code Formatting permission to do so
+- Processing your personal information is in Dprint Code Formatting legitimate interests
+- Dprint Code Formatting needs to comply with the law
+- Dprint Code Formatting will retain your personal information only for as long as is necessary for the purposes set out in this Privacy Policy. We will retain and use your information to the extent necessary to comply with our legal obligations, resolve disputes, and enforce our policies. Our Privacy Policy was generated with the help of GDPR Privacy Policy Generator and the GDPR Privacy Policy Generator.
 
 If you are a resident of the European Economic Area (EEA), you have certain data protection rights. If you wish to be informed what Personal Information we hold about you and if you want it to be removed from our systems, please contact us.
 
 In certain circumstances, you have the following data protection rights:
 
-* The right to access, update or to delete the information we have on you.
-* The right of rectification.
-* The right to object.
-* The right of restriction.
-* The right to data portability.
-* The right to withdraw consent.
+- The right to access, update or to delete the information we have on you.
+- The right of rectification.
+- The right to object.
+- The right of restriction.
+- The right to data portability.
+- The right to withdraw consent.
 
 ## Log Files
 

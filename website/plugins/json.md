@@ -14,12 +14,12 @@ description: Documentation on the JSON code formatting plugin for dprint.
 
 Supports:
 
-* JSON
-* JSONC (JSON with comments)
+- JSON
+- JSONC (JSON with comments)
 
 ## Install and Setup
 
-Specify the plugin url in *dprint.config.json* and add a `"json"` configuration property if desired:
+Specify the plugin url in _dprint.config.json_ and add a `"json"` configuration property if desired:
 
 ```json
 {

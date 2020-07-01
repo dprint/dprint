@@ -7,10 +7,10 @@ description: Links to dprint formatting plugins.
 
 These are the only plugins available at this time:
 
-* [Typescript / JavaScript](/plugins/typescript)
-* [JSON](/plugins/json)
-* [Rustfmt](/plugins/rustfmt)
-* More to come!
+- [Typescript / JavaScript](/plugins/typescript)
+- [JSON](/plugins/json)
+- [Rustfmt](/plugins/rustfmt)
+- More to come!
 
 ## Using Plugins in Deno
 
@@ -37,5 +37,5 @@ console.log(tsFormatter.formatText("file.ts", "const   t    = 5;"));
 
 Notes:
 
-* [Documentation](https://doc.deno.land/https/dprint.dev/formatter/v1.ts)
-* Make sure to check the license of a plugin when you use it to see if use is permitted this way. You may read a plugin's license text by running `#getLicenseText()` on the returned formatter object. For example, `tsFormatter.getLicenseText()` in this case returns the MIT license.
+- [Documentation](https://doc.deno.land/https/dprint.dev/formatter/v1.ts)
+- Make sure to check the license of a plugin when you use it to see if use is permitted this way. You may read a plugin's license text by running `#getLicenseText()` on the returned formatter object. For example, `tsFormatter.getLicenseText()` in this case returns the MIT license.

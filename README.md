@@ -8,12 +8,12 @@ This project is under active early development. I recommend you check its output
 
 ## Links
 
-* [Overview](https://dprint.dev/overview)
-* [Getting Started](https://dprint.dev/install)
-* [Playground](https://dprint.dev/playground)
+- [Overview](https://dprint.dev/overview)
+- [Getting Started](https://dprint.dev/install)
+- [Playground](https://dprint.dev/playground)
 
 ## Plugins
 
-* [dprint-plugin-typescript](https://github.com/dprint/dprint-plugin-typescript) - TypeScript/JavaScript code formatter.
-* [dprint-plugin-json](https://github.com/dprint/dprint-plugin-json) - JSON/JSONC code formatter.
-* [dprint-plugin-rustfmt](https://github.com/dprint/dprint-plugin-rustfmt) - Rustfmt wrapper plugin.
+- [dprint-plugin-typescript](https://github.com/dprint/dprint-plugin-typescript) - TypeScript/JavaScript code formatter.
+- [dprint-plugin-json](https://github.com/dprint/dprint-plugin-json) - JSON/JSONC code formatter.
+- [dprint-plugin-rustfmt](https://github.com/dprint/dprint-plugin-rustfmt) - Rustfmt wrapper plugin.

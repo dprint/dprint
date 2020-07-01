@@ -7,40 +7,36 @@ description: Documentation on installing dprint.
 
 Install using one of the methods below.
 
-* Shell (Mac, Linux, WSL):
+- Shell (Mac, Linux, WSL):
 
-    ```bash
-    curl -fsSL https://dprint.dev/install.sh | sh
-    ```
+      ```bash
+      curl -fsSL https://dprint.dev/install.sh | sh
+      ```
+- Windows Installer
 
-* Windows Installer
+  [Download](https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc-installer.exe)
+- Powershell (Windows):
 
-    [Download](https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc-installer.exe)
+      ```powershell
+      iwr https://dprint.dev/install.ps1 -useb | iex
+      ```
+- Homebrew (Mac):
 
-* Powershell (Windows):
+      ```bash
+      brew tap dprint/dprint
+      brew install dprint
+      ```
+- Cargo (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
 
-    ```powershell
-    iwr https://dprint.dev/install.ps1 -useb | iex
-    ```
-
-* Homebrew (Mac):
-
-    ```bash
-    brew tap dprint/dprint
-    brew install dprint
-    ```
-
-* Cargo (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
-
-    ```bash
-    cargo install dprint
-    ```
+      ```bash
+      cargo install dprint
+      ```
 
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
 
 ## Editor Extensions
 
-* [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
-* More to come!
+- [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
+- More to come!
 
 Next step: [Setup](/setup)

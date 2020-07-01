@@ -29,7 +29,7 @@ This hidden subcommand can be used to format the text provided stdin.
 
 1. Run specifying the `--file-name` flag (this is the file name only and not the full path):
 
-    ```
-    dprint stdin-fmt --file-name file.ts
-    ```
+       ```
+       dprint stdin-fmt --file-name file.ts
+       ```
 2. Then provide the text to stdin.

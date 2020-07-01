@@ -45,7 +45,7 @@ Example output:
 
 ## Using a Custom Config File Path or URL
 
-Instead of the default path of *dprint.config.json* or *config/dprint.config.json*, you can specify a path to a configuration file via the `--config` or `-c` flag.
+Instead of the default path of _dprint.config.json_ or _config/dprint.config.json_, you can specify a path to a configuration file via the `--config` or `-c` flag.
 
 ```bash
 dprint fmt --config path/to/my/config.json

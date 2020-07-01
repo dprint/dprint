@@ -14,13 +14,13 @@ description: Documentation on the TypeScript / JavaScript code formatting plugin
 
 Supports:
 
-* TypeScript
-* JavaScript - Supports all the JS syntax that the TS compiler supports.
-* JSX/TSX
+- TypeScript
+- JavaScript - Supports all the JS syntax that the TS compiler supports.
+- JSX/TSX
 
 ## Install and Setup
 
-Specify the plugin url in *dprint.config.json* and add a `"typescript"` configuration property if desired:
+Specify the plugin url in _dprint.config.json_ and add a `"typescript"` configuration property if desired:
 
 ```json
 {
@@ -115,8 +115,8 @@ if (
 
 By default, dprint will leave line breaks between expressions in member expressions (ex. `myObj.prop`) and binary expressions (ex. `value + other`). If you don't want this behaviour, you can disable it by setting the following configuration:
 
-* `"memberExpression.linePerExpression": true`
-* `"binaryExpression.linePerExpression": true`
+- `"memberExpression.linePerExpression": true`
+- `"binaryExpression.linePerExpression": true`
 
 Example:
 

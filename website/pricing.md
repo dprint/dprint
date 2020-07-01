@@ -9,25 +9,25 @@ Dprint's CLI will always be **free** for formatting open source projects whose p
 
 If you are using dprint's CLI on a project whose primary maintainer is a for-profit company or individual, then you must purchase a license.
 
-* *Open source* - Free if the primary maintainer of the code being formatted is not a for-profit company.
-* *Non-profit* - Free for formatting code primarily maintained by a non-profit company.
-* *Educational* - Free for formatting code maintained by students or for educational purposes.
-* *Commercial* - Commercial license required by the primary maintainer if the primary maintainer is a for-profit company or individual.
+- _Open source_ - Free if the primary maintainer of the code being formatted is not a for-profit company.
+- _Non-profit_ - Free for formatting code primarily maintained by a non-profit company.
+- _Educational_ - Free for formatting code maintained by students or for educational purposes.
+- _Commercial_ - Commercial license required by the primary maintainer if the primary maintainer is a for-profit company or individual.
 
 ## Questions and Answers
 
 Do I need to purchase a license if...
 
 1. ...I'm working on a codebase a commercial company maintains and they are using dprint?
-    * **No.** It was/is the responsibility of the company maintaining the codebase to purchase one.
+   - **No.** It was/is the responsibility of the company maintaining the codebase to purchase one.
 2. ...I'm working on a codebase a commercial company maintains and I want to introduce dprint?
-    * **Talk to the company.** You need to talk to the company that maintains the code and they will need to purchase a license for dprint.
+   - **Talk to the company.** You need to talk to the company that maintains the code and they will need to purchase a license for dprint.
 3. ...I'm a commercial user working on another entity's open source codebase.
-    * **No.**
+   - **No.**
 4. ...I'm a commercial user and I want to use dprint to format my company's code or my own commercial code.
-    * **Yes.**
+   - **Yes.**
 5. ...I work professionally as a freelancer and want to use it to format my open source side projects?
-    * **No.**
+   - **No.**
 
 ## Commercial License
 
@@ -51,7 +51,7 @@ Commercial licenses are available as a site license depending on the number of d
 
 ## How to apply license?
 
-Dprint doesn't use license keys in order to reduce friction. The only action you have to do to apply your license is update the project type property in your commercial project's configuration file (ex. *dprint.config.json*) to be `commercialPaid`.
+Dprint doesn't use license keys in order to reduce friction. The only action you have to do to apply your license is update the project type property in your commercial project's configuration file (ex. _dprint.config.json_) to be `commercialPaid`.
 
 ```json
 {
