@@ -1,7 +1,28 @@
 use crate::environment::Environment;
 use crate::types::ErrBox;
+use std::sync::Arc;
+use std::collections::HashMap;
 use super::{Plugin, InitializedPlugin};
 use tokio::sync::{Mutex, Semaphore};
+
+pub struct PluginPools<TEnvironment : Environment> {
+    pools: Arc<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>,
+}
+
+impl<TEnvironment : Environment> PluginPools<TEnvironment> {
+    pub fn new(environment: TEnvironment, plugins: Vec<Box<dyn Plugin>>) -> Self {
+        let pools = plugins.into_iter().map(|plugin| {
+            (String::from(plugin.name()), Arc::new(InitializedPluginPool::new(plugin, environment.clone())))
+        }).collect();
+        PluginPools {
+            pools: Arc::new(pools),
+        }
+    }
+
+    pub fn get_pool(&self, plugin_name: &str) -> Option<Arc<InitializedPluginPool<TEnvironment>>> {
+        self.pools.get(plugin_name).map(|p| p.clone())
+    }
+}
 
 pub struct InitializedPluginPool<TEnvironment : Environment> {
     environment: TEnvironment,
