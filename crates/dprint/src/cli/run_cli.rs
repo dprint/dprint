@@ -796,6 +796,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_should_format_calling_other_plugin() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path = PathBuf::from("/file.txt");
+        environment.write_file(&file_path, "plugin: format this text").unwrap();
+        run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    }
+
+    #[tokio::test]
     async fn it_should_format_when_specifying_dot_slash_paths() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         let file_path = PathBuf::from("/file.txt");
