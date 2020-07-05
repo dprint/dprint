@@ -1,33 +1,54 @@
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use super::{Plugin, InitializedPlugin};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+
+// todo: add a release function that releases a pool and adds any of its created instances into the pool
 
 pub struct PluginPools<TEnvironment : Environment> {
-    pools: Arc<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>,
+    environment: TEnvironment,
+    pools: Arc<Mutex<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>>,
+    extension_to_plugin_name_map: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl<TEnvironment : Environment> PluginPools<TEnvironment> {
-    pub fn new(environment: TEnvironment, plugins: Vec<Box<dyn Plugin>>) -> Self {
-        let pools = plugins.into_iter().map(|plugin| {
-            (String::from(plugin.name()), Arc::new(InitializedPluginPool::new(plugin, environment.clone())))
-        }).collect();
+    pub fn new(environment: TEnvironment) -> Self {
         PluginPools {
-            pools: Arc::new(pools),
+            environment,
+            pools: Arc::new(Mutex::new(HashMap::new())),
+            extension_to_plugin_name_map: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn add_plugin(&self, plugin: Box<dyn Plugin>) {
+        let plugin_name = String::from(plugin.name());
+        let plugin_extensions = plugin.file_extensions().clone();
+        let mut pools = self.pools.lock().unwrap();
+        let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.lock().unwrap();
+        pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
+        for extension in plugin_extensions.into_iter() {
+            // first added plugin takes precedence
+            if !extension_to_plugin_name_map.contains_key(&extension) {
+                extension_to_plugin_name_map.insert(extension, plugin_name.clone());
+            }
         }
     }
 
     pub fn get_pool(&self, plugin_name: &str) -> Option<Arc<InitializedPluginPool<TEnvironment>>> {
-        self.pools.get(plugin_name).map(|p| p.clone())
+        self.pools.lock().unwrap().get(plugin_name).map(|p| p.clone())
+    }
+
+    pub fn get_plugin_name_from_extension(&self, ext: &str) -> Option<String> {
+        self.extension_to_plugin_name_map.lock().unwrap().get(ext).map(|name| name.to_owned())
     }
 }
 
 pub struct InitializedPluginPool<TEnvironment : Environment> {
     environment: TEnvironment,
     plugin: Box<dyn Plugin>,
-    items: Mutex<Vec<Box<dyn InitializedPlugin>>>,
+    items: AsyncMutex<Vec<Box<dyn InitializedPlugin>>>,
     semaphore: Semaphore,
 }
 
@@ -39,13 +60,13 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
         InitializedPluginPool {
             environment,
             plugin: plugin,
-            items: Mutex::new(Vec::with_capacity(capacity)),
+            items: AsyncMutex::new(Vec::with_capacity(capacity)),
             semaphore: Semaphore::new(capacity),
         }
     }
 
     pub async fn initialize_first(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let initialized_plugin = self.create_instance()?;
+        let initialized_plugin = self.force_create_instance()?;
         self.wait_and_reduce_semaphore().await?;
         Ok(initialized_plugin)
     }
@@ -59,7 +80,7 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     }
 
     pub async fn create_pool_item(&self) -> Result<(), ErrBox> {
-        self.release(self.create_instance()?).await;
+        self.release(self.force_create_instance()?).await;
         Ok(())
     }
 
@@ -75,7 +96,7 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
         Ok(())
     }
 
-    fn create_instance(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+    pub fn force_create_instance(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let start_instant = std::time::Instant::now();
         log_verbose!(self.environment, "Creating instance of {}", self.plugin.name());
         let result = self.plugin.initialize();
@@ -83,25 +104,3 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
         result
     }
 }
-
-// pub struct ExtensionToNameMap {
-//     extensions_to_name: HashMap<String, String>,
-// }
-
-// impl ExtensionToNameMap {
-//     pub fn new(plugins: &Vec<Box<dyn Plugin>>) -> ExtensionToNameMap {
-//         let mut extensions_to_name = HashMap::new();
-//         for plugin in plugins {
-//             let plugin_name = plugin.name();
-//             for file_extension in plugin.file_extensions() {
-//                 // first takes presedence
-//                 if !extensions_to_name.contains_key(file_extension) {
-//                     extensions_to_name.insert(String::from(file_extension), String::from(plugin_name));
-//                 }
-//             }
-//         }
-//         ExtensionToNameMap {
-//             extensions_to_name,
-//         }
-//     }
-// }

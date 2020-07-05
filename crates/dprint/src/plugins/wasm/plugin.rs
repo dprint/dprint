@@ -1,34 +1,32 @@
-use std::sync::Mutex;
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
 use dprint_core::plugins::{PluginInfo};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use bytes::Bytes;
-use std::cell::RefCell;
-use std::sync::Arc;
-use wasmer_runtime_core::{structures::TypedIndex, types::TableIndex};
 
 use crate::types::ErrBox;
 use super::super::{Plugin, InitializedPlugin};
-use super::{WasmFunctions, FormatResult, load_instance};
+use super::{PluginImportObject, WasmFunctions, FormatResult, load_instance};
 
-pub struct WasmPlugin {
+pub struct WasmPlugin<TPluginImportObject : PluginImportObject> {
     compiled_wasm_bytes: Bytes,
     plugin_info: PluginInfo,
     config: Option<(HashMap<String, String>, GlobalConfiguration)>,
+    import_object: TPluginImportObject,
 }
 
-impl WasmPlugin {
-    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo) -> WasmPlugin {
+impl<TPluginImportObject: PluginImportObject> WasmPlugin<TPluginImportObject> {
+    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, import_object: TPluginImportObject) -> Self {
         WasmPlugin {
             compiled_wasm_bytes: compiled_wasm_bytes,
             plugin_info,
             config: None,
+            import_object,
         }
     }
 }
 
-impl Plugin for WasmPlugin {
+impl<TPluginImportObject : PluginImportObject> Plugin for WasmPlugin<TPluginImportObject> {
     fn name(&self) -> &str {
         &self.plugin_info.name
     }
@@ -58,7 +56,7 @@ impl Plugin for WasmPlugin {
     }
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes)?;
+        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, &self.import_object)?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config before calling initialize.");
 
         wasm_plugin.set_global_config(&global_config);
@@ -74,127 +72,7 @@ pub struct InitializedWasmPlugin {
 }
 
 impl InitializedWasmPlugin {
-    pub fn new(compiled_wasm_bytes: &[u8]) -> Result<Self, ErrBox> {
-        let file_path: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
-        let shared_bytes: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::with_capacity(0)));
-        let formatted_text_store: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-        let error_text_store: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-
-        let host_clear_bytes = {
-            let shared_bytes = shared_bytes.clone();
-            move |length: u32| {
-                let mut shared_bytes = shared_bytes.lock().unwrap();
-                *shared_bytes = Vec::with_capacity(length as usize);
-            }
-        };
-        let host_read_buffer = {
-            let shared_bytes = shared_bytes.clone();
-            move |ctx: &mut wasmer_runtime::Ctx, buffer_pointer: u32, length: u32| {
-                let buffer_pointer: wasmer_runtime::WasmPtr<u8, wasmer_runtime::Array> = wasmer_runtime::WasmPtr::new(buffer_pointer);
-                let memory_reader = buffer_pointer
-                    .deref(ctx.memory(0), 0, length)
-                    .unwrap();
-                let mut shared_bytes = shared_bytes.lock().unwrap();
-                for i in 0..length as usize {
-                    shared_bytes.push(memory_reader[i].get());
-                }
-            }
-        };
-        let host_write_buffer = {
-            let shared_bytes = shared_bytes.clone();
-            move |ctx: &mut wasmer_runtime::Ctx, buffer_pointer: u32, offset: u32, length: u32| {
-                let buffer_pointer: wasmer_runtime::WasmPtr<u8, wasmer_runtime::Array> = wasmer_runtime::WasmPtr::new(buffer_pointer);
-                let memory_writer = buffer_pointer
-                    .deref(ctx.memory(0), 0, length)
-                    .unwrap();
-                let offset = offset as usize;
-                let length = length as usize;
-                let shared_bytes = shared_bytes.lock().unwrap();
-                let byte_slice = &shared_bytes[offset..offset + length];
-                for i in 0..length as usize {
-                    memory_writer[i].set(byte_slice[i]);
-                }
-            }
-        };
-        let host_take_file_path = {
-            let file_path = file_path.clone();
-            let shared_bytes = shared_bytes.clone();
-            move || {
-                let bytes = {
-                    let mut shared_bytes = shared_bytes.lock().unwrap();
-                    std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
-                };
-                let file_path_str = String::from_utf8(bytes).unwrap();
-                let mut file_path = file_path.lock().unwrap();
-                file_path.replace(PathBuf::from(file_path_str));
-            }
-        };
-        let host_format = {
-            let file_path = file_path.clone();
-            let shared_bytes = shared_bytes.clone();
-            let formatted_text_store = formatted_text_store.clone();
-            let error_text_store = error_text_store.clone();
-            move || {
-                let file_path = file_path.lock().unwrap().take();
-                let bytes = {
-                    let mut shared_bytes = shared_bytes.lock().unwrap();
-                    std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
-                };
-                let file_text = String::from_utf8(bytes).unwrap();
-
-                println!("File text: {}", file_text);
-                println!("File path: {:?}", file_path);
-
-                let formatted_text = file_text.clone(); // todo: format the file text
-
-                if formatted_text == file_text {
-                    0 // no change
-                } else {
-                    let mut formatted_text_store = formatted_text_store.lock().unwrap();
-                    *formatted_text_store = formatted_text;
-                    1 // change
-                }
-            }
-        };
-        let host_get_formatted_text = {
-            let shared_bytes = shared_bytes.clone();
-            let formatted_text_store = formatted_text_store.clone();
-            move || {
-                let formatted_text = {
-                    let mut formatted_text_store = formatted_text_store.lock().unwrap();
-                    std::mem::replace(&mut *formatted_text_store, String::new())
-                };
-                let len = formatted_text.len();
-                let mut shared_bytes = shared_bytes.lock().unwrap();
-                *shared_bytes = formatted_text.into_bytes();
-                len as u32
-            }
-        };
-        let host_get_error_text = {
-            let shared_bytes = shared_bytes.clone();
-            let error_text_store = error_text_store.clone();
-            move || {
-                let error_text = {
-                    let mut error_text_store = error_text_store.lock().unwrap();
-                    std::mem::replace(&mut *error_text_store, String::new())
-                };
-                let len = error_text.len();
-                let mut shared_bytes = shared_bytes.lock().unwrap();
-                *shared_bytes = error_text.into_bytes();
-                len as u32
-            }
-        };
-        let import_object = wasmer_runtime::imports! {
-            "dprint" => {
-                "host_clear_bytes" => wasmer_runtime::func!(host_clear_bytes),
-                "host_read_buffer" => wasmer_runtime::func!(host_read_buffer),
-                "host_write_buffer" => wasmer_runtime::func!(host_write_buffer),
-                "host_take_file_path" => wasmer_runtime::func!(host_take_file_path),
-                "host_format" => wasmer_runtime::func!(host_format),
-                "host_get_formatted_text" => wasmer_runtime::func!(host_get_formatted_text),
-                "host_get_error_text" => wasmer_runtime::func!(host_get_error_text),
-            }
-        };
+    pub fn new(compiled_wasm_bytes: &[u8], import_object: &impl PluginImportObject) -> Result<Self, ErrBox> {
         let instance = load_instance(compiled_wasm_bytes, import_object)?;
         let wasm_functions = WasmFunctions::new(instance)?;
         let buffer_size = wasm_functions.get_wasm_memory_buffer_size();

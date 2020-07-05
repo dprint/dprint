@@ -2,15 +2,21 @@ use async_trait::async_trait;
 use crate::environment::Environment;
 use crate::types::ErrBox;
 use super::super::{Plugin, CompileFn, PluginResolver, PluginCache, PluginCacheItem};
-use super::WasmPlugin;
+use super::{WasmPlugin, PluginImportObject};
 
-pub struct WasmPluginResolver<'a, TEnvironment : Environment, TCompileFn : CompileFn> {
+pub struct WasmPluginResolver<'a, TEnvironment : Environment, TCompileFn : CompileFn, TPluginImportObject : PluginImportObject> {
     environment: &'a TEnvironment,
     plugin_cache: &'a PluginCache<'a, TEnvironment, TCompileFn>,
+    import_object: &'a TPluginImportObject,
 }
 
 #[async_trait(?Send)]
-impl<'a, TEnvironment : Environment, TCompileFn : CompileFn> PluginResolver for WasmPluginResolver<'a, TEnvironment, TCompileFn> {
+impl<
+    'a,
+    TEnvironment : Environment,
+    TCompileFn : CompileFn,
+    TPluginImportObject : PluginImportObject,
+> PluginResolver for WasmPluginResolver<'a, TEnvironment, TCompileFn, TPluginImportObject> {
     async fn resolve_plugins(&self, urls: &Vec<String>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
         let mut plugins = Vec::new();
 
@@ -29,15 +35,25 @@ impl<'a, TEnvironment : Environment, TCompileFn : CompileFn> PluginResolver for 
     }
 }
 
-impl<'a, TEnvironment : Environment, TCompileFn : CompileFn> WasmPluginResolver<'a, TEnvironment, TCompileFn> {
-    pub fn new(environment: &'a TEnvironment, plugin_cache: &'a PluginCache<'a, TEnvironment, TCompileFn>) -> Self {
-        WasmPluginResolver { environment, plugin_cache }
+impl<
+    'a,
+    TEnvironment : Environment,
+    TCompileFn : CompileFn,
+    TPluginImportObject : PluginImportObject,
+> WasmPluginResolver<'a, TEnvironment, TCompileFn, TPluginImportObject> {
+    pub fn new(
+        environment: &'a TEnvironment,
+        plugin_cache: &'a PluginCache<'a, TEnvironment, TCompileFn>,
+        import_object: &'a TPluginImportObject,
+    ) -> Self {
+        WasmPluginResolver { environment, plugin_cache, import_object }
     }
 
     async fn resolve_plugin(
         &self,
         url: &str
     ) -> Result<Box<dyn Plugin>, ErrBox> {
+        let import_object = self.import_object.clone();
         let cache_item = self.plugin_cache.get_plugin_cache_item(url).await;
         let cache_item: PluginCacheItem = match cache_item {
             Ok(cache_item) => Ok(cache_item),
@@ -67,6 +83,6 @@ impl<'a, TEnvironment : Environment, TCompileFn : CompileFn> WasmPluginResolver<
             }
         };
 
-        Ok(Box::new(WasmPlugin::new(file_bytes, cache_item.info)))
+        Ok(Box::new(WasmPlugin::new(file_bytes, cache_item.info, import_object)))
     }
 }
