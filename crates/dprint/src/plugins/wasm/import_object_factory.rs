@@ -6,30 +6,30 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::Arc;
 
-pub trait PluginImportObject : Clone + std::marker::Send + std::marker::Sync + 'static {
+pub trait ImportObjectFactory : Clone + std::marker::Send + std::marker::Sync + 'static {
     fn create_import_object(&self) -> wasmer_runtime::ImportObject;
 }
 
 /// Use this when the plugins don't need to format via a plugin pool.
 #[derive(Clone)]
-pub struct EmptyPluginImportObject {
+pub struct IdentityImportObjectFactory {
 }
 
-impl EmptyPluginImportObject {
+impl IdentityImportObjectFactory {
     pub fn new() -> Self {
-        EmptyPluginImportObject {}
+        IdentityImportObjectFactory {}
     }
 }
 
-impl PluginImportObject for EmptyPluginImportObject {
+impl ImportObjectFactory for IdentityImportObjectFactory {
     fn create_import_object(&self) -> wasmer_runtime::ImportObject {
-        let host_clear_bytes = |_: u32| unreachable!();
-        let host_read_buffer = |_: u32, _: u32| unreachable!();
-        let host_write_buffer = |_: u32, _: u32, _: u32| unreachable!();
-        let host_take_file_path = || unreachable!();
-        let host_format = || -> u32 { unreachable!() };
-        let host_get_formatted_text = || -> u32 { unreachable!() };
-        let host_get_error_text = || -> u32 { unreachable!() };
+        let host_clear_bytes = |_: u32| {};
+        let host_read_buffer = |_: u32, _: u32| {};
+        let host_write_buffer = |_: u32, _: u32, _: u32| {};
+        let host_take_file_path = || {};
+        let host_format = || -> u32 { 0 }; // no change
+        let host_get_formatted_text = || -> u32 { 0 }; // zero length
+        let host_get_error_text = || -> u32 { 0 }; // zero length
 
         wasmer_runtime::imports! {
             "dprint" => {
@@ -46,19 +46,19 @@ impl PluginImportObject for EmptyPluginImportObject {
 }
 
 #[derive(Clone)]
-pub struct PoolPluginImportObject<TEnvironment : Environment> {
+pub struct PoolImportObjectFactory<TEnvironment : Environment> {
     pools: Arc<PluginPools<TEnvironment>>,
 }
 
-impl<TEnvironment : Environment> PoolPluginImportObject<TEnvironment> {
+impl<TEnvironment : Environment> PoolImportObjectFactory<TEnvironment> {
     pub fn new(pools: Arc<PluginPools<TEnvironment>>) -> Self {
-        PoolPluginImportObject {
+        PoolImportObjectFactory {
             pools,
         }
     }
 }
 
-impl<TEnvironment : Environment> PluginImportObject for PoolPluginImportObject<TEnvironment> {
+impl<TEnvironment : Environment> ImportObjectFactory for PoolImportObjectFactory<TEnvironment> {
     fn create_import_object(&self) -> wasmer_runtime::ImportObject {
         let file_path: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
         let shared_bytes: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::with_capacity(0)));

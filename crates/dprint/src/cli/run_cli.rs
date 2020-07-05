@@ -661,7 +661,7 @@ mod tests {
     use crate::cache::Cache;
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
-    use crate::plugins::wasm::{WasmPluginResolver, PoolPluginImportObject};
+    use crate::plugins::wasm::{WasmPluginResolver, PoolImportObjectFactory};
     use crate::plugins::{PluginPools, PluginCache, CompilationResult};
     use crate::types::ErrBox;
     use crate::utils::get_difference;
@@ -683,8 +683,8 @@ mod tests {
         let cache = Cache::new(environment).unwrap();
         let plugin_cache = PluginCache::new(environment, &cache, &quick_compile);
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
-        let import_object = PoolPluginImportObject::new(plugin_pools.clone());
-        let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache, &import_object);
+        let import_object_factory = PoolImportObjectFactory::new(plugin_pools.clone());
+        let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache, &import_object_factory);
         let args = parse_args(args, &stdin_reader)?;
         if args.is_silent_output() { environment.set_silent(); }
         run_cli(args, environment, &cache, &plugin_resolver, plugin_pools).await

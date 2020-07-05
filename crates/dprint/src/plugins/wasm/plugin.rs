@@ -6,27 +6,27 @@ use bytes::Bytes;
 
 use crate::types::ErrBox;
 use super::super::{Plugin, InitializedPlugin};
-use super::{PluginImportObject, WasmFunctions, FormatResult, load_instance};
+use super::{ImportObjectFactory, WasmFunctions, FormatResult, load_instance};
 
-pub struct WasmPlugin<TPluginImportObject : PluginImportObject> {
+pub struct WasmPlugin<TImportObjectFactory : ImportObjectFactory> {
     compiled_wasm_bytes: Bytes,
     plugin_info: PluginInfo,
     config: Option<(HashMap<String, String>, GlobalConfiguration)>,
-    import_object: TPluginImportObject,
+    import_object_factory: TImportObjectFactory,
 }
 
-impl<TPluginImportObject: PluginImportObject> WasmPlugin<TPluginImportObject> {
-    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, import_object: TPluginImportObject) -> Self {
+impl<TImportObjectFactory: ImportObjectFactory> WasmPlugin<TImportObjectFactory> {
+    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, import_object_factory: TImportObjectFactory) -> Self {
         WasmPlugin {
             compiled_wasm_bytes: compiled_wasm_bytes,
             plugin_info,
             config: None,
-            import_object,
+            import_object_factory,
         }
     }
 }
 
-impl<TPluginImportObject : PluginImportObject> Plugin for WasmPlugin<TPluginImportObject> {
+impl<TImportObjectFactory : ImportObjectFactory> Plugin for WasmPlugin<TImportObjectFactory> {
     fn name(&self) -> &str {
         &self.plugin_info.name
     }
@@ -56,7 +56,7 @@ impl<TPluginImportObject : PluginImportObject> Plugin for WasmPlugin<TPluginImpo
     }
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, &self.import_object)?;
+        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, &self.import_object_factory)?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config before calling initialize.");
 
         wasm_plugin.set_global_config(&global_config);
@@ -72,8 +72,8 @@ pub struct InitializedWasmPlugin {
 }
 
 impl InitializedWasmPlugin {
-    pub fn new(compiled_wasm_bytes: &[u8], import_object: &impl PluginImportObject) -> Result<Self, ErrBox> {
-        let instance = load_instance(compiled_wasm_bytes, import_object)?;
+    pub fn new(compiled_wasm_bytes: &[u8], import_object_factory: &impl ImportObjectFactory) -> Result<Self, ErrBox> {
+        let instance = load_instance(compiled_wasm_bytes, import_object_factory)?;
         let wasm_functions = WasmFunctions::new(instance)?;
         let buffer_size = wasm_functions.get_wasm_memory_buffer_size();
 
