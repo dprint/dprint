@@ -492,6 +492,8 @@ async fn run_parallelized<F, TEnvironment : Environment>(
 
         futures::future::try_join_all(handles).await?;
 
+        plugin_pools.release(plugin_name).await;
+
         Ok(())
     }
 

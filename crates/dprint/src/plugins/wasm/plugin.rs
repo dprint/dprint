@@ -56,7 +56,8 @@ impl<TImportObjectFactory : ImportObjectFactory> Plugin for WasmPlugin<TImportOb
     }
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, &self.import_object_factory)?;
+        let import_object = self.import_object_factory.create_import_object(self.name());
+        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, import_object)?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config before calling initialize.");
 
         wasm_plugin.set_global_config(&global_config);
@@ -72,8 +73,8 @@ pub struct InitializedWasmPlugin {
 }
 
 impl InitializedWasmPlugin {
-    pub fn new(compiled_wasm_bytes: &[u8], import_object_factory: &impl ImportObjectFactory) -> Result<Self, ErrBox> {
-        let instance = load_instance(compiled_wasm_bytes, import_object_factory)?;
+    pub fn new(compiled_wasm_bytes: &[u8], import_object: wasmer_runtime::ImportObject) -> Result<Self, ErrBox> {
+        let instance = load_instance(compiled_wasm_bytes, import_object)?;
         let wasm_functions = WasmFunctions::new(instance)?;
         let buffer_size = wasm_functions.get_wasm_memory_buffer_size();
 

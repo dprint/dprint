@@ -1,13 +1,11 @@
 use crate::plugins::pool::PluginPools;
 use crate::environment::Environment;
-use crate::plugins::plugin::InitializedPlugin;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::Arc;
 
 pub trait ImportObjectFactory : Clone + std::marker::Send + std::marker::Sync + 'static {
-    fn create_import_object(&self) -> wasmer_runtime::ImportObject;
+    fn create_import_object(&self, plugin_name: &str) -> wasmer_runtime::ImportObject;
 }
 
 /// Use this when the plugins don't need to format via a plugin pool.
@@ -22,7 +20,7 @@ impl IdentityImportObjectFactory {
 }
 
 impl ImportObjectFactory for IdentityImportObjectFactory {
-    fn create_import_object(&self) -> wasmer_runtime::ImportObject {
+    fn create_import_object(&self, _: &str) -> wasmer_runtime::ImportObject {
         let host_clear_bytes = |_: u32| {};
         let host_read_buffer = |_: u32, _: u32| {};
         let host_write_buffer = |_: u32, _: u32, _: u32| {};
@@ -59,12 +57,12 @@ impl<TEnvironment : Environment> PoolImportObjectFactory<TEnvironment> {
 }
 
 impl<TEnvironment : Environment> ImportObjectFactory for PoolImportObjectFactory<TEnvironment> {
-    fn create_import_object(&self) -> wasmer_runtime::ImportObject {
+    fn create_import_object(&self, plugin_name: &str) -> wasmer_runtime::ImportObject {
+        let parent_plugin_name = String::from(plugin_name);
         let file_path: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
         let shared_bytes: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::with_capacity(0)));
         let formatted_text_store: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
         let error_text_store: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-        let initialized_plugins: Arc<Mutex<HashMap<String, Box<dyn InitializedPlugin>>>> = Arc::new(Mutex::new(HashMap::new()));
         let pools = self.pools.clone();
 
         let host_clear_bytes = {
@@ -123,40 +121,29 @@ impl<TEnvironment : Environment> ImportObjectFactory for PoolImportObjectFactory
             let error_text_store = error_text_store.clone();
             move || {
                 let file_path = file_path.lock().unwrap().take().expect("Expected to have file path.");
-                let mut initialized_plugins = initialized_plugins.lock().unwrap();
                 let bytes = {
                     let mut shared_bytes = shared_bytes.lock().unwrap();
                     std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
                 };
-                let plugin = if let Some(ext) = file_path.extension().and_then(|ext| ext.to_str()) {
-                    if let Some(plugin_name) = pools.get_plugin_name_from_extension(ext) {
-                        if let Some(initialized_plugin) = initialized_plugins.get(&plugin_name) {
-                            Some(initialized_plugin)
-                        } else {
-                            let pool = pools.get_pool(&plugin_name).expect("Expected the plugin to exist in the pool.");
-                            let initialized_plugin = match pool.force_create_instance() {
-                                Ok(initialized_plugin) => initialized_plugin,
-                                Err(error) => {
-                                    // todo: reuse with code below
-                                    let mut error_text_store = error_text_store.lock().unwrap();
-                                    *error_text_store = error.to_string();
-                                    return 2; // error
-                                }
-                            };
-                            initialized_plugins.insert(plugin_name.clone(), initialized_plugin);
-                            initialized_plugins.get(&plugin_name)
-                        }
-                    } else {
-                        None
-                    }
+                let sub_plugin_name = if let Some(ext) = file_path.extension().and_then(|ext| ext.to_str()) {
+                    pools.get_plugin_name_from_extension(ext)
                 } else {
                     None
                 };
 
-                if let Some(plugin) = plugin {
+                if let Some(sub_plugin_name) = sub_plugin_name {
+                    let initialized_plugin = pools.take_instance_for_plugin(&parent_plugin_name, &sub_plugin_name);
                     let file_text = String::from_utf8(bytes).unwrap();
+                    let result = match initialized_plugin {
+                        Ok(initialized_plugin) => {
+                            let format_result = initialized_plugin.format_text(&file_path, &file_text);
+                            pools.release_instance_for_plugin(&parent_plugin_name, &sub_plugin_name, initialized_plugin);
+                            format_result
+                        },
+                        Err(err) => Err(err.to_string()),
+                    };
 
-                    match plugin.format_text(&file_path, &file_text) {
+                    match result {
                         Ok(formatted_text) => {
                             if formatted_text == file_text {
                                 0 // no change
