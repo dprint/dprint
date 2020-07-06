@@ -53,10 +53,11 @@ Commercial licenses are available as a site license depending on the number of d
 
 Dprint doesn't use license keys in order to reduce friction. The only action you have to do to apply your license is update the project type property in your commercial project's configuration file (ex. _dprint.config.json_) to be `commercialPaid`.
 
+<!-- dprint-ignore -->
 ```json
 {
-    "projectType": "commercialPaid",
-    // etc...
+  "projectType": "commercialPaid",
+  // etc...
 }
 ```
 

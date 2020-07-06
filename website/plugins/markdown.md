@@ -22,13 +22,13 @@ In _dprint.config.json_:
 
 ```json
 {
-    // omitted...
-    "markdown": {
-        // markdown config goes here
-    },
-    "plugins": [
-        "https://plugins.dprint.dev/markdown-x.x.x.wasm"
-    ]
+  // omitted...
+  "markdown": {
+    // markdown config goes here
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/markdown-x.x.x.wasm"
+  ]
 }
 ```
 

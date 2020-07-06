@@ -27,13 +27,13 @@ In _dprint.config.json_:
 
 ```json
 {
-    // omitted...
-    "json": {
-        // json config goes here
-    },
-    "plugins": [
-        "https://plugins.dprint.dev/json-x.x.x.wasm"
-    ]
+  // omitted...
+  "json": {
+    // json config goes here
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/json-x.x.x.wasm"
+  ]
 }
 ```
 

@@ -101,6 +101,7 @@ These should be file globs according to [`gitignore`'s extended glob syntax](htt
 
 You may extend other configuration files by specifying an `extends` property. This may be a file path or URL.
 
+<!-- dprint-ignore -->
 ```json
 {
   "extends": "https://dprint.dev/path/to/config/file.v1.json",
@@ -129,19 +130,19 @@ For example:
 
 ```json
 {
-    "projectType": "openSource",
-    "lineWidth": 160,
-    "useTabs": true,
-    "typescript": {
-        "lineWidth": 80
-    },
-    "json": {
-        "indentWidth": 2,
-        "useTabs": false
-    },
-    "plugins": [
-        // etc...
-    ]
+  "projectType": "openSource",
+  "lineWidth": 160,
+  "useTabs": true,
+  "typescript": {
+    "lineWidth": 80
+  },
+  "json": {
+    "indentWidth": 2,
+    "useTabs": false
+  },
+  "plugins": [
+    // etc...
+  ]
 }
 ```
 

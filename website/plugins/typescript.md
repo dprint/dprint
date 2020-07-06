@@ -28,14 +28,14 @@ In _dprint.config.json_:
 
 ```json
 {
+  // ...etc...
+  "typescript": {
+    // TypeScript & JavaScript config goes here
+  },
+  "plugins": [
     // ...etc...
-    "typescript": {
-        // TypeScript & JavaScript config goes here
-    },
-    "plugins": [
-        // ...etc...
-        "https://plugins.dprint.dev/typescript-x.x.x.wasm"
-    ]
+    "https://plugins.dprint.dev/typescript-x.x.x.wasm"
+  ]
 }
 ```
 
@@ -91,6 +91,7 @@ expect(someFunctionCall(1, 2))
 
 Also, placing a node on the next line after an open paren will indent the text within the parens.
 
+<!-- dprint-ignore -->
 ```ts
 const mathResult = (
     1 + 2);
@@ -102,6 +103,7 @@ const mathResult = (
 
 The same happens with statements like if statements.
 
+<!-- dprint-ignore -->
 ```ts
 if (
     someCondition && otherCondition) {
@@ -124,6 +126,7 @@ By default, dprint will leave line breaks between expressions in member expressi
 
 Example:
 
+<!-- dprint-ignore -->
 ```ts
 myObject.accessing.someProperty;
 myObject
@@ -144,6 +147,7 @@ myObject
 
 You may want to use both `"preferSingleLine": true` in combination with this option:
 
+<!-- dprint-ignore -->
 ```ts
 myObject.accessing.someProperty;
 myObject

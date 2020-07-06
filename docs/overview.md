@@ -88,7 +88,7 @@ Given the following example AST nodes:
 ```ts
 enum SyntaxKind {
     ArrayLiteralExpression,
-    ArrayElement
+    ArrayElement,
 }
 
 interface BaseNode {
@@ -114,7 +114,7 @@ interface ArrayElement extends BaseNode {
 
 With the following expected outputs (when max line width configured in printer is 10):
 
-```ts
+```
 // input
 [a   ,   b
     , c
@@ -143,8 +143,15 @@ four]
 Here's some example TypeScript IR generation:
 
 ```ts
-import { PrintItemIterable, Condition, Info, PrintItemKind, Signal, PrintItem,
-    ResolveConditionContext } from "@dprint/core";
+import {
+    PrintItemIterable,
+    Condition,
+    Info,
+    PrintItemKind,
+    Signal,
+    PrintItem,
+    ResolveConditionContext,
+} from "@dprint/core";
 
 export function* parseNode(node: Node) {
     // In a real implementation, this function would parse comments as well.
@@ -176,7 +183,7 @@ function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIt
         name: "indentIfMultipleLines",
         condition: isMultipleLines,
         true: withIndent(elements),
-        false: elements
+        false: elements,
     };
 
     yield ifMultipleLines(Signal.NewLine);
@@ -201,27 +208,31 @@ function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIt
             name: "ifMultipleLines",
             condition: isMultipleLines,
             true: [trueItem],
-            false: falseItem == null ? undefined : [falseItem]
+            false: falseItem == null ? undefined : [falseItem],
         };
     }
 
     // condition resolver
     function isMultipleLines(conditionContext: ResolveConditionContext) {
         // no elements, so format on the same line
-        if (expr.elements.length === 0)
+        if (expr.elements.length === 0) {
             return false;
+        }
         // first element is on a different line than the start of the array expression,
         // so format all the elements as multi-line
-        if (expr.lineNumber < expr.elements[0].lineNumber)
+        if (expr.lineNumber < expr.elements[0].lineNumber) {
             return true;
+        }
         // only one element, so force it to be a single line
-        if (expr.elements.length === 1)
+        if (expr.elements.length === 1) {
             return false;
+        }
         // check if the expression spans multiple lines, and if it does then make it multi-line
         const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo)!;
         const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
-        if (resolvedEndInfo == null)
+        if (resolvedEndInfo == null) {
             return undefined;
+        }
         return resolvedStartInfo.lineNumber < resolvedEndInfo.lineNumber;
     }
 }

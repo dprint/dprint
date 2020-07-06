@@ -24,15 +24,15 @@ In _dprint.config.json_:
 
 ```json
 {
+  // ...etc...
+  "rustfmt": {
+    // rustfmt config goes here
+    "brace_style": "AlwaysNextLine"
+  },
+  "plugins": [
     // ...etc...
-    "rustfmt": {
-        // rustfmt config goes here
-        "brace_style": "AlwaysNextLine"
-    },
-    "plugins": [
-        // ...etc...
-        "https://plugins.dprint.dev/rustfmt-x.x.x.wasm"
-    ]
+    "https://plugins.dprint.dev/rustfmt-x.x.x.wasm"
+  ]
 }
 ```
 

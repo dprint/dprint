@@ -53,7 +53,7 @@ struct ArrayElement {
 
 With the following expected outputs (when max line width configured in printer is 10):
 
-```ts
+```
 // input
 [a   ,   b
     , c

@@ -25,7 +25,7 @@ const globalConfig = {
     lineWidth: 80,
 };
 const tsFormatter = await createStreaming(
-    fetch("https://plugins.dprint.dev/typescript-x.x.x.wasm")
+    fetch("https://plugins.dprint.dev/typescript-x.x.x.wasm"),
 );
 
 tsFormatter.setConfig(globalConfig, {
