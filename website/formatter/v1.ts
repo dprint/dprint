@@ -62,6 +62,24 @@ export interface PluginInfo {
 }
 
 /**
+ * Creates the web assembly import object, if necessary.
+ */
+export function createImportObject(): any /*: WebAssembly.Imports*/ {
+    // for now, use an identity object
+    return {
+        dprint: {
+            "host_clear_bytes": () => {},
+            "host_read_buffer": () => {},
+            "host_write_buffer": () => {},
+            "host_take_file_path": () => {},
+            "host_format": () => 0, // no change
+            "host_get_formatted_text": () => 0, // zero length
+            "host_get_error_text": () => 0, // zero length
+        },
+    };
+}
+
+/**
  * Creates a formatter from the specified streaming source.
  * @remarks This is the most efficient way to create a formatter.
  * @param response - The streaming source to create the formatter from.
@@ -71,7 +89,7 @@ export function createStreaming(response: Promise<Response>): Promise<Formatter>
         return getArrayBuffer()
             .then(buffer => createFromBuffer(buffer));
     } else {
-        return WebAssembly.instantiateStreaming(response)
+        return WebAssembly.instantiateStreaming(response, createImportObject())
             .then(obj => createFromInstance(obj.instance));
     }
 
@@ -94,7 +112,7 @@ export function createStreaming(response: Promise<Response>): Promise<Formatter>
  */
 export function createFromBuffer(wasmModuleBuffer: BufferSource): Formatter {
     const wasmModule = new WebAssembly.Module(wasmModuleBuffer);
-    const wasmInstance = new WebAssembly.Instance(wasmModule);
+    const wasmInstance = new WebAssembly.Instance(wasmModule, createImportObject());
     return createFromInstance(wasmInstance);
 }
 
