@@ -6,25 +6,27 @@ use bytes::Bytes;
 
 use crate::types::ErrBox;
 use super::super::{Plugin, InitializedPlugin};
-use super::{WasmFunctions, FormatResult, load_instance};
+use super::{ImportObjectFactory, WasmFunctions, FormatResult, load_instance};
 
-pub struct WasmPlugin {
+pub struct WasmPlugin<TImportObjectFactory : ImportObjectFactory> {
     compiled_wasm_bytes: Bytes,
     plugin_info: PluginInfo,
     config: Option<(HashMap<String, String>, GlobalConfiguration)>,
+    import_object_factory: TImportObjectFactory,
 }
 
-impl WasmPlugin {
-    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo) -> WasmPlugin {
+impl<TImportObjectFactory: ImportObjectFactory> WasmPlugin<TImportObjectFactory> {
+    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, import_object_factory: TImportObjectFactory) -> Self {
         WasmPlugin {
             compiled_wasm_bytes: compiled_wasm_bytes,
             plugin_info,
             config: None,
+            import_object_factory,
         }
     }
 }
 
-impl Plugin for WasmPlugin {
+impl<TImportObjectFactory : ImportObjectFactory> Plugin for WasmPlugin<TImportObjectFactory> {
     fn name(&self) -> &str {
         &self.plugin_info.name
     }
@@ -54,7 +56,8 @@ impl Plugin for WasmPlugin {
     }
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes)?;
+        let import_object = self.import_object_factory.create_import_object(self.name());
+        let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, import_object)?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config before calling initialize.");
 
         wasm_plugin.set_global_config(&global_config);
@@ -70,8 +73,8 @@ pub struct InitializedWasmPlugin {
 }
 
 impl InitializedWasmPlugin {
-    pub fn new(compiled_wasm_bytes: &[u8]) -> Result<Self, ErrBox> {
-        let instance = load_instance(compiled_wasm_bytes)?;
+    pub fn new(compiled_wasm_bytes: &[u8], import_object: wasmer_runtime::ImportObject) -> Result<Self, ErrBox> {
+        let instance = load_instance(compiled_wasm_bytes, import_object)?;
         let wasm_functions = WasmFunctions::new(instance)?;
         let buffer_size = wasm_functions.get_wasm_memory_buffer_size();
 

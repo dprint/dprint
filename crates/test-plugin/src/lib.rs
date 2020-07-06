@@ -46,7 +46,9 @@ fn get_plugin_license_text() -> String {
 }
 
 fn format_text(_: &PathBuf, file_text: &str, config: &Configuration) -> Result<String, String> {
-    if file_text == "should_error" {
+    if file_text.starts_with("plugin: ") {
+        format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""))
+    } else if file_text == "should_error" {
         Err(String::from("Did error."))
     } else if file_text.ends_with(&config.ending) {
         Ok(String::from(file_text))

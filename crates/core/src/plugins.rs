@@ -27,6 +27,73 @@ pub mod macros {
     #[macro_export]
     macro_rules! generate_plugin_code {
         () => {
+            // HOST FORMATTING
+
+            fn format_with_host(file_path: &PathBuf, file_text: String) -> Result<String, String> {
+                #[link(wasm_import_module = "dprint")]
+                extern "C" {
+                    fn host_clear_bytes(length: u32);
+                    fn host_read_buffer(
+                        pointer: u32,
+                        length: u32,
+                    );
+                    fn host_write_buffer(
+                        pointer: u32,
+                        offset: u32,
+                        length: u32,
+                    );
+                    fn host_take_file_path();
+                    fn host_format() -> u8;
+                    fn host_get_formatted_text() -> u32;
+                    fn host_get_error_text() -> u32;
+                }
+
+                send_string_to_host(file_path.to_string_lossy().to_string());
+                unsafe { host_take_file_path(); }
+                send_string_to_host(file_text.clone());
+
+                return match unsafe { host_format() } {
+                    0 => { // no change
+                        Ok(file_text)
+                    },
+                    1 => { // change
+                        let length = unsafe { host_get_formatted_text() };
+                        let formatted_text = get_string_from_host(length);
+                        Ok(formatted_text)
+                    },
+                    2 => { // error
+                        let length = unsafe { host_get_error_text() };
+                        let error_text = get_string_from_host(length);
+                        Err(error_text)
+                    },
+                    _ => unreachable!(),
+                };
+
+                fn send_string_to_host(text: String) {
+                    let mut index = 0;
+                    let length = set_shared_bytes_str(text);
+                    unsafe { host_clear_bytes(length as u32); }
+                    while index < length {
+                        let read_count = std::cmp::min(length - index, WASM_MEMORY_BUFFER_SIZE);
+                        set_buffer_with_shared_bytes(index, read_count);
+                        unsafe { host_read_buffer(get_wasm_memory_buffer() as u32, read_count as u32); }
+                        index += read_count;
+                    }
+                }
+
+                fn get_string_from_host(length: u32) -> String {
+                    let mut index: u32 = 0;
+                    clear_shared_bytes(length as usize);
+                    while index < length {
+                        let read_count = std::cmp::min(length - index, WASM_MEMORY_BUFFER_SIZE as u32);
+                        unsafe { host_write_buffer(get_wasm_memory_buffer() as u32, index, read_count); }
+                        add_to_shared_bytes_from_buffer(read_count as usize);
+                        index += read_count;
+                    }
+                    take_string_from_shared_bytes()
+                }
+            }
+
             // FORMATTING
 
             static mut FILE_PATH: Option<PathBuf> = None;

@@ -7,11 +7,11 @@ use colored::Colorize;
 use crate::cache::Cache;
 use crate::environment::Environment;
 use crate::configuration::{self, get_global_config, get_plugin_config_map};
-use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool};
+use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
 use crate::utils::{get_table_text, get_difference, pretty_print_json_text};
 use crate::types::ErrBox;
 
-use super::{CliArgs, SubCommand, FormatContext, FormatContexts, StdInFmt};
+use super::{CliArgs, SubCommand, StdInFmt};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
 
 const BOM_CHAR: char = '\u{FEFF}';
@@ -21,6 +21,7 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
     environment: &TEnvironment,
     cache: &Cache<'a, TEnvironment>,
     plugin_resolver: &impl PluginResolver,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
     // help
     if let SubCommand::Help(help_text) = &args.sub_command {
@@ -84,16 +85,16 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
         return output_resolved_config(plugins, environment);
     }
 
-    let format_contexts = get_plugin_format_contexts(plugins, file_paths);
+    let format_context = get_format_context(plugins, file_paths);
 
     // output resolved file paths
     if args.sub_command == SubCommand::OutputFilePaths {
-        output_file_paths(format_contexts.iter().flat_map(|x| x.file_paths.iter()), environment);
+        output_file_paths(format_context.file_paths_by_plugin.values().flat_map(|x| x.iter()), environment);
         return Ok(());
     }
 
     // error if no file paths
-    if format_contexts.is_empty() {
+    if format_context.file_paths_by_plugin.is_empty() {
         return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
     }
 
@@ -102,15 +103,20 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
 
     // check and format
     if args.sub_command == SubCommand::Check {
-        check_files(format_contexts, environment).await
+        check_files(format_context, environment, plugin_pools).await
     } else if args.sub_command == SubCommand::Fmt {
-        format_files(format_contexts, environment).await
+        format_files(format_context, environment, plugin_pools).await
     } else {
         unreachable!()
     }
 }
 
-fn get_plugin_format_contexts(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> Vec<FormatContext> {
+struct FormatContext {
+    pub plugins: Vec<Box<dyn Plugin>>,
+    pub file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
+}
+
+fn get_format_context(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> FormatContext {
     let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for file_path in file_paths.into_iter() {
@@ -125,17 +131,10 @@ fn get_plugin_format_contexts(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<Pat
         }
     }
 
-    let mut format_contexts = Vec::new();
-    for plugin in plugins.into_iter() {
-        if let Some(file_paths) = file_paths_by_plugin.remove(plugin.name()) {
-            format_contexts.push(FormatContext {
-                plugin: plugin,
-                file_paths,
-            });
-        }
+    FormatContext {
+        plugins,
+        file_paths_by_plugin,
     }
-
-    format_contexts
 }
 
 async fn output_version<'a, TEnvironment: Environment>(
@@ -344,10 +343,14 @@ fn output_stdin_format<'a, TEnvironment: Environment>(
     err!("Could not find plugin to format the file with extension: {}", ext)
 }
 
-async fn check_files(format_contexts: FormatContexts, environment: &impl Environment) -> Result<(), ErrBox> {
+async fn check_files<TEnvironment : Environment>(
+    format_context: FormatContext,
+    environment: &TEnvironment,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
+) -> Result<(), ErrBox> {
     let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-    run_parallelized(format_contexts, environment, {
+    run_parallelized(format_context, environment, plugin_pools, {
         let not_formatted_files_count = not_formatted_files_count.clone();
         move |file_path, file_text, formatted_text, _, environment| {
             if formatted_text != file_text {
@@ -372,11 +375,15 @@ async fn check_files(format_contexts: FormatContexts, environment: &impl Environ
     }
 }
 
-async fn format_files(format_contexts: FormatContexts, environment: &impl Environment) -> Result<(), ErrBox> {
+async fn format_files<TEnvironment : Environment>(
+    format_context: FormatContext,
+    environment: &TEnvironment,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
+) -> Result<(), ErrBox> {
     let formatted_files_count = Arc::new(AtomicUsize::new(0));
-    let files_count: usize = format_contexts.iter().map(|x| x.file_paths.len()).sum();
+    let files_count: usize = format_context.file_paths_by_plugin.values().map(|x| x.len()).sum();
 
-    run_parallelized(format_contexts, environment, {
+    run_parallelized(format_context, environment, plugin_pools, {
         let formatted_files_count = formatted_files_count.clone();
         move |_, file_text, formatted_text, had_bom, _| {
             if formatted_text != file_text {
@@ -408,18 +415,26 @@ async fn format_files(format_contexts: FormatContexts, environment: &impl Enviro
 }
 
 async fn run_parallelized<F, TEnvironment : Environment>(
-    format_contexts: FormatContexts,
+    format_context: FormatContext,
     environment: &TEnvironment,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
     f: F,
 ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
-    let handles = format_contexts.into_iter().map(|format_context| {
+    let plugins = format_context.plugins;
+    let file_paths_by_plugin = format_context.file_paths_by_plugin;
+
+    for plugin in plugins.into_iter() {
+        plugin_pools.add_plugin(plugin);
+    }
+
+    let handles = file_paths_by_plugin.into_iter().map(|(plugin_name, file_paths)| {
+        let plugin_pools = plugin_pools.clone();
         let environment = environment.to_owned();
         let f = f.clone();
         let error_count = error_count.clone();
         tokio::task::spawn(async move {
-            let plugin_name = format_context.plugin.name().to_string();
-            let result = inner_run(format_context, &environment, f, error_count.clone()).await;
+            let result = inner_run(&plugin_name, file_paths, plugin_pools, &environment, f, error_count.clone()).await;
             if let Err(err) = result {
                 environment.log_error(&format!("[{}]: {}", plugin_name, err.to_string()));
                 error_count.fetch_add(1, Ordering::SeqCst);
@@ -444,24 +459,21 @@ async fn run_parallelized<F, TEnvironment : Environment>(
 
     #[inline]
     async fn inner_run<F, TEnvironment : Environment>(
-        format_context: FormatContext,
+        plugin_name: &str,
+        file_paths: Vec<PathBuf>,
+        plugin_pools: Arc<PluginPools<TEnvironment>>,
         environment: &TEnvironment,
         f: F,
         error_count: Arc<AtomicUsize>,
     ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
-        let plugin_name = String::from(format_context.plugin.name());
-        let plugin_pool = InitializedPluginPool::new(format_context.plugin, environment.to_owned());
-
-        // todo: check the diagnostics once below in run_for_file_path so that multiple plugins can be initiated at once
+        let plugin_pool = plugin_pools.get_pool(plugin_name).expect("Could not get the plugin pool.");
 
         // get a plugin from the pool then propagate up its configuration diagnostics if necessary
         let plugin = plugin_pool.initialize_first().await?;
         output_plugin_config_diagnostics(&plugin_name, &plugin, environment)?;
-        plugin_pool.release(plugin).await;
+        plugin_pool.release(plugin);
 
-        let plugin_pool = Arc::new(plugin_pool);
-
-        let handles = format_context.file_paths.into_iter().map(|file_path| {
+        let handles = file_paths.into_iter().map(|file_path| {
             let environment = environment.to_owned();
             let f = f.clone();
             let plugin_pool = plugin_pool.clone();
@@ -479,6 +491,8 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         }).collect::<Vec<_>>();
 
         futures::future::try_join_all(handles).await?;
+
+        plugin_pools.release(plugin_name);
 
         Ok(())
     }
@@ -512,8 +526,8 @@ async fn run_parallelized<F, TEnvironment : Environment>(
                     let plugin_pool = plugin_pool.clone();
                     // todo: any concept of a background task in tokio that would kill
                     // this task on process exit?
-                    tokio::task::spawn(async move {
-                        plugin_pool.create_pool_item().await.expect("Expected to create the plugin.");
+                    tokio::task::spawn_blocking(move || {
+                        plugin_pool.create_pool_item().expect("Expected to create the plugin.");
                     });
                 }
             };
@@ -521,7 +535,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             let start_instant = std::time::Instant::now();
             let format_text_result = initialized_plugin.format_text(file_path, file_text);
             log_verbose!(environment, "Formatted file: {} in {}ms", file_path.display(), start_instant.elapsed().as_millis());
-            plugin_pool.release(initialized_plugin).await;
+            plugin_pool.release(initialized_plugin);
             format_text_result? // release, then propagate error
         };
 
@@ -645,11 +659,12 @@ mod tests {
     use colored::Colorize;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use crate::cache::Cache;
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
-    use crate::plugins::wasm::WasmPluginResolver;
-    use crate::plugins::{PluginCache, CompilationResult};
+    use crate::plugins::wasm::{WasmPluginResolver, PoolImportObjectFactory};
+    use crate::plugins::{PluginPools, PluginCache, CompilationResult};
     use crate::types::ErrBox;
     use crate::utils::get_difference;
 
@@ -669,10 +684,12 @@ mod tests {
         args.insert(0, String::from(""));
         let cache = Cache::new(environment).unwrap();
         let plugin_cache = PluginCache::new(environment, &cache, &quick_compile);
-        let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache);
+        let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
+        let import_object_factory = PoolImportObjectFactory::new(plugin_pools.clone());
+        let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache, &import_object_factory);
         let args = parse_args(args, &stdin_reader)?;
         if args.is_silent_output() { environment.set_silent(); }
-        run_cli(args, environment, &cache, &plugin_resolver).await
+        run_cli(args, environment, &cache, &plugin_resolver, plugin_pools).await
     }
 
     #[tokio::test]
@@ -794,6 +811,17 @@ mod tests {
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors(), vec![String::from("Error formatting /file.txt. Message: Did error.")]);
         assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    }
+
+    #[tokio::test]
+    async fn it_should_format_calling_other_plugin() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path = PathBuf::from("/file.txt");
+        environment.write_file(&file_path, "plugin: format this text").unwrap();
+        run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted");
     }
 
     #[tokio::test]
