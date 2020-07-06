@@ -93,109 +93,86 @@ function postError(err) {
 // TODO: DON'T COPY AND PASTE THIS HERE
 
 /**
- * Creates a formatter from the specified wasm module bytes.
- * @param {BufferSource} wasmModuleBuffer - The buffer of the wasm module.
+ * Creates the web assembly import object, if necessary.
  */
-function createFromBuffer(wasmModuleBuffer) {
-    const wasmModule = new WebAssembly.Module(wasmModuleBuffer);
-    const wasmInstance = new WebAssembly.Instance(wasmModule);
-    return createFromInstance(wasmInstance);
+function createImportObject() {
+    // for now, use an identity object
+    return {
+        dprint: {
+            "host_clear_bytes": function() {},
+            "host_read_buffer": function() {},
+            "host_write_buffer": function() {},
+            "host_take_file_path": function() {},
+            "host_format": function() {
+                return 0;
+            },
+            "host_get_formatted_text": function() {
+                return 0;
+            },
+            "host_get_error_text": function() {
+                return 0;
+            },
+        },
+    };
 }
 
 /**
+ * Creates a formatter from the specified wasm module bytes.
+ * @param wasmModuleBuffer - The buffer of the wasm module.
+ */
+function createFromBuffer(wasmModuleBuffer) {
+    var wasmModule = new WebAssembly.Module(wasmModuleBuffer);
+    var wasmInstance = new WebAssembly.Instance(wasmModule, createImportObject());
+    return createFromInstance(wasmInstance);
+}
+/**
  * Creates a formatter from the specified wasm instance.
- * @params {WebAssembly.Instance} The web assembly instance.
+ * @param wasmInstance - The web assembly instance.
  */
 function createFromInstance(wasmInstance) {
-    const {
-        set_file_path,
-        get_formatted_text,
-        format,
-        get_error_text,
-        get_plugin_info,
-        get_resolved_config,
-        get_config_diagnostics,
-        set_global_config,
-        set_plugin_config,
-        get_plugin_schema_version,
-        get_wasm_memory_buffer,
-        get_wasm_memory_buffer_size,
-        add_to_shared_bytes_from_buffer,
-        set_buffer_with_shared_bytes,
-        clear_shared_bytes,
-        reset_config,
-    } = wasmInstance.exports;
-
-    const pluginSchemaVersion = get_plugin_schema_version();
-    const expectedPluginSchemaVersion = 1;
+    var _a = wasmInstance.exports, get_plugin_schema_version = _a.get_plugin_schema_version, set_file_path = _a.set_file_path,
+        get_formatted_text = _a.get_formatted_text, format = _a.format, get_error_text = _a.get_error_text, get_plugin_info = _a.get_plugin_info,
+        get_resolved_config = _a.get_resolved_config, get_config_diagnostics = _a.get_config_diagnostics, set_global_config = _a.set_global_config,
+        set_plugin_config = _a.set_plugin_config, get_license_text = _a.get_license_text, get_wasm_memory_buffer = _a.get_wasm_memory_buffer,
+        get_wasm_memory_buffer_size = _a.get_wasm_memory_buffer_size, add_to_shared_bytes_from_buffer = _a.add_to_shared_bytes_from_buffer,
+        set_buffer_with_shared_bytes = _a.set_buffer_with_shared_bytes, clear_shared_bytes = _a.clear_shared_bytes, reset_config = _a.reset_config;
+    var pluginSchemaVersion = get_plugin_schema_version();
+    var expectedPluginSchemaVersion = 1;
     if (pluginSchemaVersion !== expectedPluginSchemaVersion) {
-        throw new Error(`Not compatible plugin. Expected schema ${expectedPluginSchemaVersion}, but plugin had ${pluginSchemaVersion}.`);
+        throw new Error("Not compatible plugin. "
+            + ("Expected schema " + expectedPluginSchemaVersion + ", ")
+            + ("but plugin had " + pluginSchemaVersion + "."));
     }
-
-    const bufferSize = get_wasm_memory_buffer_size();
-    let configSet = false;
-
+    var bufferSize = get_wasm_memory_buffer_size();
+    var configSet = false;
     return {
-        /**
-         * Sets the configuration.
-         * @param {{
-         *  lineWidth?: number;
-         *  indentWidth?: number;
-         *  useTabs?: boolean;
-         *  newLineKind?: "auto" | "lf" | "crlf" | "system";
-         * }} globalConfig - Global configuration.
-         * @param {object} pluginConfig - Plugin configuration.
-         */
-        setConfig(globalConfig, pluginConfig) {
+        setConfig: function(globalConfig, pluginConfig) {
             setConfig(globalConfig, pluginConfig);
         },
-        /**
-         * Gets the configuration diagnostics.
-         * @returns {{ propertyName: string; message: string; }[]} The configuration diagnostics.
-         */
-        getConfigDiagnostics() {
+        getConfigDiagnostics: function() {
             setConfigIfNotSet();
-            const length = get_config_diagnostics();
+            var length = get_config_diagnostics();
             return JSON.parse(receiveString(length));
         },
-        /**
-         * Gets the resolved configuration.
-         * @returns {object} An object containing the resolved configuration.
-         */
-        getResolvedConfig() {
+        getResolvedConfig: function() {
             setConfigIfNotSet();
-            const length = get_resolved_config();
+            var length = get_resolved_config();
             return JSON.parse(receiveString(length));
         },
-        /**
-         * Gets the plugin info.
-         * @returns {{
-         *  name: string;
-         *  version: string;
-         *  configKey: string;
-         *  fileExtensions: string[];
-         *  helpUrl: string;
-         *  configSchemaUrl: string;
-         * }} The plugin info.
-         */
-        getPluginInfo() {
-            const length = get_plugin_info();
+        getPluginInfo: function() {
+            var length = get_plugin_info();
             return JSON.parse(receiveString(length));
         },
-        /**
-         *
-         * @param {string} filePath - The file path to format.
-         * @param {string} fileText - File text to format.
-         * @returns {string} The formatted text.
-         * @throws If there is an error formatting.
-         */
-        formatText(filePath, fileText) {
+        getLicenseText: function() {
+            var length = get_license_text();
+            return receiveString(length);
+        },
+        formatText: function(filePath, fileText) {
             setConfigIfNotSet();
             sendString(filePath);
             set_file_path();
-
             sendString(fileText);
-            const responseCode = format();
+            var responseCode = format();
             switch (responseCode) {
                 case 0: // no change
                     return fileText;
@@ -204,17 +181,15 @@ function createFromInstance(wasmInstance) {
                 case 2: // error
                     throw new Error(receiveString(get_error_text()));
                 default:
-                    throw new Error(`Unexpected response code: ${responseCode}`);
+                    throw new Error("Unexpected response code: " + responseCode);
             }
         },
     };
-
     function setConfigIfNotSet() {
         if (!configSet) {
             setConfig({}, {});
         }
     }
-
     function setConfig(globalConfig, pluginConfig) {
         if (reset_config != null) {
             reset_config();
@@ -224,54 +199,50 @@ function createFromInstance(wasmInstance) {
         sendString(JSON.stringify(getPluginConfigWithStringProps()));
         set_plugin_config();
         configSet = true;
-
         function getPluginConfigWithStringProps() {
             // Need to convert all the properties to strings so
-            // they will be deserialized to a HashMap<String, String>.
-            const newPluginConfig = {};
-            for (const key of Object.keys(pluginConfig)) {
+            // they can be deserialized to a HashMap<String, String>.
+            var newPluginConfig = {};
+            for (var _i = 0, _a = Object.keys(pluginConfig); _i < _a.length; _i++) {
+                var key = _a[_i];
                 newPluginConfig[key] = pluginConfig[key].toString();
             }
             return newPluginConfig;
         }
     }
-
-    /** @param {string} text */
     function sendString(text) {
-        const encoder = new TextEncoder();
-        const encodedText = encoder.encode(text);
-        const length = encodedText.length;
-
+        var encoder = new TextEncoder();
+        var encodedText = encoder.encode(text);
+        var length = encodedText.length;
         clear_shared_bytes(length);
-
-        let index = 0;
+        var index = 0;
         while (index < length) {
-            const writeCount = Math.min(length - index, bufferSize);
-            const pointer = get_wasm_memory_buffer();
-            const wasmBuffer = new Uint8Array(wasmInstance.exports.memory.buffer, pointer, writeCount);
-            for (let i = 0; i < writeCount; i++) {
+            var writeCount = Math.min(length - index, bufferSize);
+            var wasmBuffer = getWasmBuffer(writeCount);
+            for (var i = 0; i < writeCount; i++) {
                 wasmBuffer[i] = encodedText[index + i];
             }
             add_to_shared_bytes_from_buffer(writeCount);
             index += writeCount;
         }
     }
-
-    /** @param {number} length */
     function receiveString(length) {
-        const buffer = new Uint8Array(length);
-        let index = 0;
+        var buffer = new Uint8Array(length);
+        var index = 0;
         while (index < length) {
-            const readCount = Math.min(length - index, bufferSize);
+            var readCount = Math.min(length - index, bufferSize);
             set_buffer_with_shared_bytes(index, readCount);
-            const pointer = get_wasm_memory_buffer();
-            const wasmBuffer = new Uint8Array(wasmInstance.exports.memory.buffer, pointer, readCount);
-            for (let i = 0; i < readCount; i++) {
+            var wasmBuffer = getWasmBuffer(readCount);
+            for (var i = 0; i < readCount; i++) {
                 buffer[index + i] = wasmBuffer[i];
             }
             index += readCount;
         }
-        const decoder = new TextDecoder();
+        var decoder = new TextDecoder();
         return decoder.decode(buffer);
+    }
+    function getWasmBuffer(length) {
+        var pointer = get_wasm_memory_buffer();
+        return new Uint8Array(wasmInstance.exports.memory.buffer, pointer, length);
     }
 }
