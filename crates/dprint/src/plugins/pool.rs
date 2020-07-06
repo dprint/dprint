@@ -3,7 +3,7 @@ use crate::types::ErrBox;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use super::{Plugin, InitializedPlugin};
-use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+use tokio::sync::Semaphore;
 
 pub struct PluginPools<TEnvironment : Environment> {
     environment: TEnvironment,
@@ -80,12 +80,12 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
         self.extension_to_plugin_name_map.lock().unwrap().get(ext).map(|name| name.to_owned())
     }
 
-    pub async fn release(&self, parent_plugin_name: &str) {
+    pub fn release(&self, parent_plugin_name: &str) {
         let plugins_for_plugin = self.plugins_for_plugins.lock().unwrap().remove(parent_plugin_name);
         if let Some(plugins_for_plugin) = plugins_for_plugin {
             for (sub_plugin_name, initialized_plugins) in plugins_for_plugin.into_iter() {
                 if let Some(pool) = self.get_pool(&sub_plugin_name) {
-                    pool.release_all(initialized_plugins).await;
+                    pool.release_all(initialized_plugins);
                 }
             }
         }
@@ -95,7 +95,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
 pub struct InitializedPluginPool<TEnvironment : Environment> {
     environment: TEnvironment,
     plugin: Box<dyn Plugin>,
-    items: AsyncMutex<Vec<Box<dyn InitializedPlugin>>>,
+    items: Mutex<Vec<Box<dyn InitializedPlugin>>>,
     semaphore: Semaphore,
 }
 
@@ -107,7 +107,7 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
         InitializedPluginPool {
             environment,
             plugin: plugin,
-            items: AsyncMutex::new(Vec::with_capacity(capacity)),
+            items: Mutex::new(Vec::with_capacity(capacity)),
             semaphore: Semaphore::new(capacity),
         }
     }
@@ -121,24 +121,24 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     pub async fn try_take(&self) -> Result<Option<Box<dyn InitializedPlugin>>, ErrBox> {
         self.wait_and_reduce_semaphore().await?;
 
-        let mut items = self.items.lock().await;
+        let mut items = self.items.lock().unwrap();
         // try to get an item from the pool
         return Ok(items.pop());
     }
 
-    pub async fn create_pool_item(&self) -> Result<(), ErrBox> {
-        self.release(self.force_create_instance()?).await;
+    pub fn create_pool_item(&self) -> Result<(), ErrBox> {
+        self.release(self.force_create_instance()?);
         Ok(())
     }
 
-    pub async fn release(&self, plugin: Box<dyn InitializedPlugin>) {
-        let mut items = self.items.lock().await;
+    pub fn release(&self, plugin: Box<dyn InitializedPlugin>) {
+        let mut items = self.items.lock().unwrap();
         items.push(plugin);
         self.semaphore.add_permits(1);
     }
 
-    pub async fn release_all(&self, plugins: Vec<Box<dyn InitializedPlugin>>) {
-        let mut items = self.items.lock().await;
+    pub fn release_all(&self, plugins: Vec<Box<dyn InitializedPlugin>>) {
+        let mut items = self.items.lock().unwrap();
         let plugins_len = plugins.len();
         items.extend(plugins);
         self.semaphore.add_permits(plugins_len);

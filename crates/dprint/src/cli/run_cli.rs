@@ -471,7 +471,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         // get a plugin from the pool then propagate up its configuration diagnostics if necessary
         let plugin = plugin_pool.initialize_first().await?;
         output_plugin_config_diagnostics(&plugin_name, &plugin, environment)?;
-        plugin_pool.release(plugin).await;
+        plugin_pool.release(plugin);
 
         let handles = file_paths.into_iter().map(|file_path| {
             let environment = environment.to_owned();
@@ -492,7 +492,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
 
         futures::future::try_join_all(handles).await?;
 
-        plugin_pools.release(plugin_name).await;
+        plugin_pools.release(plugin_name);
 
         Ok(())
     }
@@ -526,8 +526,8 @@ async fn run_parallelized<F, TEnvironment : Environment>(
                     let plugin_pool = plugin_pool.clone();
                     // todo: any concept of a background task in tokio that would kill
                     // this task on process exit?
-                    tokio::task::spawn(async move {
-                        plugin_pool.create_pool_item().await.expect("Expected to create the plugin.");
+                    tokio::task::spawn_blocking(move || {
+                        plugin_pool.create_pool_item().expect("Expected to create the plugin.");
                     });
                 }
             };
@@ -535,7 +535,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             let start_instant = std::time::Instant::now();
             let format_text_result = initialized_plugin.format_text(file_path, file_text);
             log_verbose!(environment, "Formatted file: {} in {}ms", file_path.display(), start_instant.elapsed().as_millis());
-            plugin_pool.release(initialized_plugin).await;
+            plugin_pool.release(initialized_plugin);
             format_text_result? // release, then propagate error
         };
 
