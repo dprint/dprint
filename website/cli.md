@@ -45,7 +45,7 @@ Example output:
 
 ## Using a Custom Config File Path or URL
 
-Instead of the default path of _dprint.config.json_ or _config/dprint.config.json_, you can specify a path to a configuration file via the `--config` or `-c` flag.
+Instead of the default path of _.dprintrc.json_ or _config/.dprintrc.json_, you can specify a path to a configuration file via the `--config` or `-c` flag.
 
 ```bash
 dprint fmt --config path/to/my/config.json
@@ -123,8 +123,8 @@ Example output:
 ```text
 [VERBOSE]: Getting cache directory.
 [VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\cache-manifest.json
-[VERBOSE]: Checking path exists: ./dprint.config.json
-[VERBOSE]: Reading file: V:\dev\my-project\dprint.config.json
+[VERBOSE]: Checking path exists: ./.dprintrc.json
+[VERBOSE]: Reading file: V:\dev\my-project\.dprintrc.json
 [VERBOSE]: Globbing: ["**/*.{ts,tsx,js,jsx,json}", "!website/playground/build", "!scripts/build-website", "!**/dist", "!**/target", "!**/wasm", "!**/*-lock.json", "!**/node_modules"]
 [VERBOSE]: Finished globbing in 12ms
 [VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\typescript-0.19.2.compiled_wasm
@@ -134,9 +134,9 @@ Example output:
 [VERBOSE]: Created instance of dprint-plugin-jsonc in 9ms
 [VERBOSE]: Reading file: V:\dev\my-project\website\playground\tsconfig.json
 [VERBOSE]: Reading file: V:\dev\my-project\website\assets\schemas\v0.json
-[VERBOSE]: Reading file: V:\dev\my-project\dprint.config.json
+[VERBOSE]: Reading file: V:\dev\my-project\.dprintrc.json
 [VERBOSE]: Formatted file: V:\dev\my-project\website\assets\schemas\v0.json in 2ms
-[VERBOSE]: Formatted file: V:\dev\my-project\dprint.config.json in 0ms
+[VERBOSE]: Formatted file: V:\dev\my-project\.dprintrc.json in 0ms
 [VERBOSE]: Formatted file: V:\dev\my-project\website\playground\tsconfig.json in 0ms
 [VERBOSE]: Created instance of dprint-plugin-typescript in 35ms
 [VERBOSE]: Reading file: V:\dev\my-project\website\playground\public\formatter.worker.js

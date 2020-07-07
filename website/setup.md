@@ -5,7 +5,7 @@ description: Documentation on setting up dprint to format a collection of code.
 
 # Setup Dprint
 
-After [installing](/install), the main part of getting setup is to create a _dprint.config.json_ file in your project.
+After [installing](/install), the main part of getting setup is to create a _.dprintrc.json_ file in your project.
 
 This file will outline:
 
@@ -24,22 +24,22 @@ Open a terminal in the root directory of your project and run the following comm
 dprint init
 ```
 
-This will create a _dprint.config.json_ file in the current working directory. If you are connected to the internet, it will initialize the file according to the latest plugins.
+This will create a _.dprintrc.json_ file in the current working directory. If you are connected to the internet, it will initialize the file according to the latest plugins.
 
 ## Manual Setup
 
-Create a _dprint.config.json_ file in the root directory of the project and read the [configuration documentation](/config).
+Create a _.dprintrc.json_ file in the root directory of the project and read the [configuration documentation](/config).
 
 ## Custom config file location
 
-It is recommended to use either _dprint.config.json_ or _config/dprint.config.json_ as the location of your configuration file because it will be automatically picked up by the CLI. If you place it in another other location then it will need to be manually specified using the `--config <path>` or `-c <path>` flag whenever you run a command.
+It is recommended to use either _.dprintrc.json_ or _config/.dprintrc.json_ as the location of your configuration file because it will be automatically picked up by the CLI. If you place it in another other location then it will need to be manually specified using the `--config <path>` or `-c <path>` flag whenever you run a command.
 
 ### `dprint init` with custom config file location
 
 You may specify a custom path for the creation of a configuration file via `dprint init` by specifying it with the `-c` or `--config` flag.
 
 ```bash
-dprint init --config <path/to/dprint.config.json>
+dprint init --config <path/to/.dprintrc.json>
 ```
 
 Next step: [Configuration](/config)

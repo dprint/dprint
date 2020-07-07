@@ -5,7 +5,9 @@ use crate::environment::Environment;
 use crate::types::ErrBox;
 use crate::utils::{resolve_url_or_file_path, ResolvedPath, PathSource};
 
-const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.config.json";
+const DEFAULT_CONFIG_FILE_NAME: &'static str = ".dprintrc.json";
+// todo: remove this in 0.6
+const ALTERNATE_CONFIG_FILE_NAME: &'static str = "dprint.config.json";
 
 pub struct ResolvedConfigPath {
     pub resolved_path: ResolvedPath,
@@ -69,11 +71,21 @@ pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
     }
 
     fn get_config_file_in_dir(dir: &PathBuf, environment: &impl Environment) -> Option<PathBuf> {
-        let config_path = dir.join(DEFAULT_CONFIG_FILE_NAME);
+        if let Some(path) = get_config_file_in_dir_with_name(dir, DEFAULT_CONFIG_FILE_NAME, environment) {
+            Some(path)
+        } else if let Some(path) = get_config_file_in_dir_with_name(dir, ALTERNATE_CONFIG_FILE_NAME, environment) {
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    fn get_config_file_in_dir_with_name(dir: &PathBuf, file_name: &str, environment: &impl Environment) -> Option<PathBuf> {
+        let config_path = dir.join(file_name);
         if environment.path_exists(&config_path) {
             return Some(config_path);
         }
-        let config_path = dir.join(format!("config/{}", DEFAULT_CONFIG_FILE_NAME));
+        let config_path = dir.join(format!("config/{}", file_name));
         if environment.path_exists(&config_path) {
             return Some(config_path);
         }
