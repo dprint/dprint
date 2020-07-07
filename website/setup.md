@@ -39,7 +39,7 @@ It is recommended to use either _.dprintrc.json_ or _config/.dprintrc.json_ as t
 You may specify a custom path for the creation of a configuration file via `dprint init` by specifying it with the `-c` or `--config` flag.
 
 ```bash
-dprint init --config <path/to/.dprintrc.json>
+dprint init --config path/to/.dprintrc.json
 ```
 
 Next step: [Configuration](/config)

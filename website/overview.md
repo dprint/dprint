@@ -13,14 +13,14 @@ dprint fmt
 
 ## Editor Demo
 
-<video controls>
+<video width="600" height="366" poster="/videos/editor-demo-thumbnail.png" controls>
     <source src="/videos/editor-demo.mp4" type="video/mp4">
     <p>Your browser doesn't support HTML5 vide. See video <a href="/videos/editor-demo.mp4">here</a>
 </video>
 
 ## CLI Demo
 
-<video controls>
+<video width="604" height="376" poster="/videos/cli-demo-thumbnail.png" controls>
     <source src="/videos/cli-demo.mp4" type="video/mp4">
     <p>Your browser doesn't support HTML5 vide. See video <a href="/videos/cli-demo.mp4">here</a>
 </video>
