@@ -27,7 +27,7 @@ impl RealEnvironment {
     }
 }
 
-const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "Dprint", author: "Dprint" };
+const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "dprint", author: "dprint" };
 
 #[async_trait]
 impl Environment for RealEnvironment {
