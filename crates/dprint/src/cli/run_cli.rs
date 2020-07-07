@@ -604,39 +604,75 @@ fn check_project_type_diagnostic(config: &ResolvedConfig) -> Result<(), ErrBox> 
 }
 
 fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
-    let mut file_patterns = Vec::new();
+    let mut file_patterns = get_file_patterns(config, args);
+    let absolute_paths = take_absolute_paths(&mut file_patterns);
 
-    file_patterns.extend(if args.file_patterns.is_empty() {
-        config.includes.clone() // todo: take from array?
-    } else {
-        args.file_patterns.clone()
-    });
+    let mut file_paths = environment.glob(&config.base_path, &file_patterns)?;
+    file_paths.extend(absolute_paths);
+    return Ok(file_paths);
 
-    file_patterns.extend(if args.exclude_file_patterns.is_empty() {
-        config.excludes.clone()
-    } else {
-        args.exclude_file_patterns.clone()
-    }.into_iter().map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }));
+    fn get_file_patterns(config: &ResolvedConfig, args: &CliArgs) -> Vec<String> {
+        let mut file_patterns = Vec::new();
 
-    if !args.allow_node_modules {
-        // glob walker will not search the children of a directory once it's ignored like this
-        let node_modules_exclude = String::from("!**/node_modules");
-        if !file_patterns.contains(&node_modules_exclude) {
-            file_patterns.push(node_modules_exclude);
+        file_patterns.extend(if args.file_patterns.is_empty() {
+            config.includes.clone() // todo: take from array?
+        } else {
+            args.file_patterns.clone()
+        });
+
+        file_patterns.extend(if args.exclude_file_patterns.is_empty() {
+            config.excludes.clone()
+        } else {
+            args.exclude_file_patterns.clone()
+        }.into_iter().map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }));
+
+        if !args.allow_node_modules {
+            // glob walker will not search the children of a directory once it's ignored like this
+            let node_modules_exclude = String::from("!**/node_modules");
+            if !file_patterns.contains(&node_modules_exclude) {
+                file_patterns.push(node_modules_exclude);
+            }
         }
+
+        // glob walker doesn't support having `./` at the front of paths, so just remove them when they appear
+        for file_pattern in file_patterns.iter_mut() {
+            if file_pattern.starts_with("./") {
+                *file_pattern = String::from(&file_pattern[2..]);
+            }
+            if file_pattern.starts_with("!./") {
+                *file_pattern = format!("!{}", &file_pattern[3..]);
+            }
+        }
+
+        file_patterns
     }
 
-    // glob walker doesn't support having `./` at the front of paths, so just remove them when they appear
-    for file_pattern in file_patterns.iter_mut() {
-        if file_pattern.starts_with("./") {
-            *file_pattern = String::from(&file_pattern[2..]);
+    fn take_absolute_paths(file_patterns: &mut Vec<String>) -> Vec<PathBuf> {
+        let len = file_patterns.len();
+        let mut file_paths = Vec::new();
+        for i in (0..len).rev() {
+            if is_absolute_path(&file_patterns[i]) {
+                file_paths.push(PathBuf::from(file_patterns.swap_remove(i))); // faster
+            }
         }
-        if file_pattern.starts_with("!./") {
-            *file_pattern = format!("!{}", &file_pattern[3..]);
-        }
+        file_paths
     }
 
-    environment.glob(&config.base_path, &file_patterns)
+    fn is_absolute_path(file_pattern: &str) -> bool {
+        return !has_glob_chars(file_pattern)
+            && PathBuf::from(file_pattern).is_absolute();
+
+        fn has_glob_chars(text: &str) -> bool {
+            for c in text.chars() {
+                match c {
+                    '*' | '{' | '}' | '[' | ']' | '!' => return true,
+                    _ => {}
+                }
+            }
+
+            false
+        }
+    }
 }
 
 fn output_plugin_config_diagnostics(plugin_name: &str, plugin: &Box<dyn InitializedPlugin>, environment: &impl Environment) -> Result<(), ErrBox> {
@@ -1029,6 +1065,46 @@ mod tests {
         );
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(environment.get_logged_errors().len(), 0);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn it_should_format_absolute_paths_on_windows() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path = PathBuf::from("E:\\file1.txt");
+        environment.set_cwd("D:\\test\\other\\");
+        environment.write_file(&file_path, "text1").unwrap();
+        environment.write_file(&PathBuf::from("D:\\test\\other\\.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+
+        run_test_cli(vec!["fmt", "--", "E:\\file1.txt"], &environment).await.unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn it_should_format_absolute_paths_on_linux() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path = PathBuf::from("/asdf/file1.txt");
+        environment.set_cwd("/test/other/");
+        environment.write_file(&file_path, "text1").unwrap();
+        environment.write_file(&PathBuf::from("/test/other/.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+
+        run_test_cli(vec!["fmt", "--", "/asdf/file1.txt"], &environment).await.unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
     }
 
     #[tokio::test]
