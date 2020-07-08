@@ -138,6 +138,7 @@ pre code {
   background-color: #333;
   border-radius: 3px;
   overflow-x: auto;
+  white-space: pre-wrap; // remove this eventually...
 }
 
 code {
