@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.5.2"
+version = "0.5.3"
 authors = ["Dprint Code Formatting <david@dprint.dev>"]
 edition = "2018"
 license-file = "LICENSE"
