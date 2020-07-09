@@ -30,7 +30,7 @@ pub async fn run_cli<'a, TEnvironment : Environment>(
 
     // version
     if args.sub_command == SubCommand::Version {
-        return output_version(&args, cache, environment, plugin_resolver).await;
+        return output_version(environment).await;
     }
 
     // license
@@ -137,20 +137,8 @@ fn get_format_context(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -
     }
 }
 
-async fn output_version<'a, TEnvironment: Environment>(
-    args: &CliArgs,
-    cache: &Cache<'a, TEnvironment>,
-    environment: &TEnvironment,
-    plugin_resolver: &impl PluginResolver
-) -> Result<(), ErrBox> {
-    // log the cli's current version first
-    environment.log(&format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
-
-    // now check for the plugins
-    for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
-        // output their names and versions
-        environment.log(&format!("{} v{}", plugin.name(), plugin.version()));
-    }
+async fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<(), ErrBox> {
+    environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
 
     Ok(())
 }
@@ -738,11 +726,11 @@ mod tests {
         let environment = TestEnvironment::new();
         run_test_cli(vec!["--version"], &environment).await.unwrap();
         let logged_messages = environment.get_logged_messages();
-        assert_eq!(logged_messages, vec![format!("dprint v{}", env!("CARGO_PKG_VERSION"))]);
+        assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
     }
 
     #[tokio::test]
-    async fn it_should_output_version_with_plugins() {
+    async fn it_should_output_version_with_plugins_but_ignore_them() {
         let environment = get_test_environment_with_remote_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
             "projectType": "openSource",
@@ -751,19 +739,7 @@ mod tests {
 
         run_test_cli(vec!["--version"], &environment).await.unwrap();
         let logged_messages = environment.get_logged_messages();
-        assert_eq!(logged_messages, vec![
-            format!("dprint v{}", env!("CARGO_PKG_VERSION")),
-            String::from("Compiling wasm module..."), // this should happen after getting dprint version
-            String::from("test-plugin v0.1.0")
-        ]);
-
-        environment.clear_logs();
-        run_test_cli(vec!["--version"], &environment).await.unwrap();
-        let logged_messages = environment.get_logged_messages();
-        assert_eq!(logged_messages, vec![
-            format!("dprint v{}", env!("CARGO_PKG_VERSION")),
-            String::from("test-plugin v0.1.0")
-        ]);
+        assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
     }
 
     #[tokio::test]
@@ -850,7 +826,7 @@ mod tests {
             "projectType": "openSource",
             "plugins": ["/plugins/test-plugin.wasm"]
         }"#).unwrap();
-        run_test_cli(vec!["--version"], &environment).await.unwrap(); // cause initialization
+        run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
         environment.clear_logs();
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text").unwrap();
@@ -1658,7 +1634,7 @@ EXAMPLES:
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
-        run_test_cli(vec!["--version"], &environment).await.unwrap(); // cause initialization
+        run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
         environment.clear_logs();
         Ok(environment)
     }
