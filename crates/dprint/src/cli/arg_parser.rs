@@ -7,7 +7,7 @@ pub struct CliArgs {
     pub verbose: bool,
     pub file_patterns: Vec<String>,
     pub exclude_file_patterns: Vec<String>,
-    pub plugin_urls: Vec<String>,
+    pub plugins: Vec<String>,
     pub config: Option<String>,
 }
 
@@ -90,7 +90,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
         config: matches.value_of("config").map(String::from),
         file_patterns: values_to_vec(matches.values_of("files")),
         exclude_file_patterns: values_to_vec(matches.values_of("excludes")),
-        plugin_urls: values_to_vec(matches.values_of("plugins")),
+        plugins: values_to_vec(matches.values_of("plugins")),
     })
 }
 
@@ -232,8 +232,8 @@ EXAMPLES:
         .arg(
             Arg::with_name("plugins")
                 .long("plugins")
-                .value_name("urls")
-                .help("List of urls of plugins to use. This overrides what is specified in the config file.")
+                .value_name("urls/files")
+                .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
                 .global(true)
                 .takes_value(true)
                 .multiple(true),

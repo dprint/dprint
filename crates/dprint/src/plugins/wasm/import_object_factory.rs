@@ -1,5 +1,6 @@
 use crate::plugins::pool::PluginPools;
 use crate::environment::Environment;
+use crate::utils::get_lowercase_file_extension;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::Arc;
@@ -125,8 +126,8 @@ impl<TEnvironment : Environment> ImportObjectFactory for PoolImportObjectFactory
                     let mut shared_bytes = shared_bytes.lock().unwrap();
                     std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
                 };
-                let sub_plugin_name = if let Some(ext) = file_path.extension().and_then(|ext| ext.to_str()) {
-                    pools.get_plugin_name_from_extension(ext)
+                let sub_plugin_name = if let Some(ext) = get_lowercase_file_extension(&file_path) {
+                    pools.get_plugin_name_from_extension(&ext)
                 } else {
                     None
                 };

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use crate::environment::Environment;
 use crate::types::ErrBox;
+use crate::utils::PathSource;
 use super::super::{Plugin, CompileFn, PluginResolver, PluginCache, PluginCacheItem};
 use super::{WasmPlugin, ImportObjectFactory};
 
@@ -17,15 +18,15 @@ impl<
     TCompileFn : CompileFn,
     TImportObjectFactory : ImportObjectFactory,
 > PluginResolver for WasmPluginResolver<'a, TEnvironment, TCompileFn, TImportObjectFactory> {
-    async fn resolve_plugins(&self, urls: &Vec<String>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+    async fn resolve_plugins(&self, path_sources: &Vec<PathSource>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
         let mut plugins = Vec::new();
 
-        for url in urls.iter() {
-            let plugin = match self.resolve_plugin(url).await {
+        for path_source in path_sources.iter() {
+            let plugin = match self.resolve_plugin(path_source).await {
                 Ok(plugin) => plugin,
                 Err(err) => {
-                    self.plugin_cache.forget_url(url)?;
-                    return err!("Error loading plugin at url {}: {}", url, err);
+                    self.plugin_cache.forget(path_source)?;
+                    return err!("Error resolving plugin {}: {}", path_source.display(), err);
                 }
             };
             plugins.push(plugin);
@@ -51,34 +52,34 @@ impl<
 
     async fn resolve_plugin(
         &self,
-        url: &str
+        path_source: &PathSource,
     ) -> Result<Box<dyn Plugin>, ErrBox> {
         let import_object_factory = self.import_object_factory.clone();
-        let cache_item = self.plugin_cache.get_plugin_cache_item(url).await;
+        let cache_item = self.plugin_cache.get_plugin_cache_item(path_source).await;
         let cache_item: PluginCacheItem = match cache_item {
             Ok(cache_item) => Ok(cache_item),
             Err(err) => {
                 self.environment.log_error(&format!(
-                    "Error getting plugin from cache. Forgetting from cache and attempting redownload. Message: {:?}",
+                    "Error getting plugin from cache. Forgetting from cache and retrying. Message: {:?}",
                     err
                 ));
 
-                // forget url and try again
-                self.plugin_cache.forget_url(url)?;
-                self.plugin_cache.get_plugin_cache_item(url).await
+                // forget and try again
+                self.plugin_cache.forget(path_source)?;
+                self.plugin_cache.get_plugin_cache_item(path_source).await
             }
         }?;
         let file_bytes = match self.environment.read_file_bytes(&cache_item.file_path) {
             Ok(file_bytes) => file_bytes,
             Err(err) => {
                 self.environment.log_error(&format!(
-                    "Error reading plugin file bytes. Forgetting from cache and attempting redownload. Message: {:?}",
+                    "Error reading plugin file bytes. Forgetting from cache and retrying. Message: {:?}",
                     err
                 ));
 
-                // forget url and try again
-                self.plugin_cache.forget_url(url)?;
-                let cache_item = self.plugin_cache.get_plugin_cache_item(url).await?;
+                // forget and try again
+                self.plugin_cache.forget(path_source)?;
+                let cache_item = self.plugin_cache.get_plugin_cache_item(path_source).await?;
                 self.environment.read_file_bytes(&cache_item.file_path)?
             }
         };

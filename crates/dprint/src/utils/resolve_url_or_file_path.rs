@@ -50,32 +50,14 @@ pub async fn resolve_url_or_file_path<'a, TEnvironment : Environment>(
     cache: &Cache<'a, TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<ResolvedPath, ErrBox> {
-    let url = Url::parse(url_or_file_path);
-    if let Ok(url) = url {
-        if url.cannot_be_a_base() { // relative url
-            if let PathSource::Remote(remote_base) = base {
-                let url = remote_base.url.join(&url_or_file_path)?;
-                return resolve_url(&url, cache, environment).await;
-            }
-        } else {
-            // handle file urls (ex. file:///C:/some/folder/file.json)
-            if url.scheme() == "file" {
-                match url.to_file_path() {
-                    Ok(file_path) => return Ok(ResolvedPath::local(file_path)),
-                    Err(()) => return err!("Problem converting file url `{}` to file path.", url_or_file_path),
-                }
-            }
-            return resolve_url(&url, cache, environment).await;
-        }
-    }
+    let path_source = resolve_url_or_file_path_to_path_source(url_or_file_path, base)?;
 
-    match base {
-        PathSource::Remote(remote_base) => {
-            let url = remote_base.url.join(&url_or_file_path)?;
-            resolve_url(&url, cache, environment).await
+    match path_source {
+        PathSource::Remote(path_source) => {
+            resolve_url(&path_source.url, cache, environment).await
         }
-        PathSource::Local(local_base) => {
-            Ok(ResolvedPath::local(local_base.path.join(url_or_file_path)))
+        PathSource::Local(path_source) => {
+            Ok(ResolvedPath::local(path_source.path))
         }
     }
 }
@@ -103,6 +85,40 @@ async fn resolve_url<'a, TEnvironment : Environment>(
     };
 
     Ok(ResolvedPath::remote(cache.resolve_cache_item_file_path(&cache_item), url.clone(), is_first_download))
+}
+
+pub fn resolve_url_or_file_path_to_path_source(
+    url_or_file_path: &str,
+    base: &PathSource,
+) -> Result<PathSource, ErrBox> {
+    let url = Url::parse(url_or_file_path);
+    if let Ok(url) = url {
+        if url.cannot_be_a_base() { // relative url
+            if let PathSource::Remote(remote_base) = base {
+                let url = remote_base.url.join(&url_or_file_path)?;
+                return Ok(PathSource::new_remote(url));
+            }
+        } else {
+            // handle file urls (ex. file:///C:/some/folder/file.json)
+            if url.scheme() == "file" {
+                match url.to_file_path() {
+                    Ok(file_path) => return Ok(PathSource::new_local(file_path)),
+                    Err(()) => return err!("Problem converting file url `{}` to file path.", url_or_file_path),
+                }
+            }
+            return Ok(PathSource::new_remote(url));
+        }
+    }
+
+    match base {
+        PathSource::Remote(remote_base) => {
+            let url = remote_base.url.join(&url_or_file_path)?;
+            return Ok(PathSource::new_remote(url));
+        }
+        PathSource::Local(local_base) => {
+            return Ok(PathSource::new_local(local_base.path.join(url_or_file_path)));
+        }
+    }
 }
 
 #[cfg(test)]

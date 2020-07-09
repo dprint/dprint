@@ -180,6 +180,12 @@ impl Environment for TestEnvironment {
         files.contains_key(&file_path.clean())
     }
 
+    fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox> {
+        // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
+        let file_path = PathBuf::from(path.to_string_lossy().replace("\\", "/"));
+        Ok(file_path.clean())
+    }
+
     fn cwd(&self) -> Result<PathBuf, ErrBox> {
         let cwd = self.cwd.lock().unwrap();
         Ok(PathBuf::from(cwd.to_owned()))

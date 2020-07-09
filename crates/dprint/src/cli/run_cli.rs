@@ -8,7 +8,7 @@ use crate::cache::Cache;
 use crate::environment::Environment;
 use crate::configuration::{self, get_global_config, get_plugin_config_map};
 use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
-use crate::utils::{get_table_text, get_difference, pretty_print_json_text};
+use crate::utils::{get_table_text, get_difference, pretty_print_json_text, PathSource, resolve_url_or_file_path_to_path_source};
 use crate::types::ErrBox;
 
 use super::{CliArgs, SubCommand, StdInFmt};
@@ -559,8 +559,8 @@ async fn resolve_plugins(
     let mut config = config;
 
     // resolve the plugins
-    let plugin_urls = get_plugin_urls(&mut config, args)?;
-    let plugins = plugin_resolver.resolve_plugins(&plugin_urls).await?;
+    let plugin_path_sources = get_plugin_path_sources(&mut config, args)?;
+    let plugins = plugin_resolver.resolve_plugins(&plugin_path_sources).await?;
 
     // resolve each plugin's configuration
     let mut plugins_with_config = Vec::new();
@@ -584,13 +584,18 @@ async fn resolve_plugins(
 
     return Ok(plugins);
 
-    fn get_plugin_urls<'a>(config: &'a ResolvedConfig, args: &'a CliArgs) -> Result<&'a Vec<String>, ErrBox> {
-        let plugin_urls_from_config = &config.plugins;
+    fn get_plugin_path_sources<'a>(config: &'a ResolvedConfig, args: &'a CliArgs) -> Result<Vec<PathSource>, ErrBox> {
+        let plugin_url_or_file_paths_from_config = &config.plugins;
 
-        Ok(if args.plugin_urls.is_empty() {
-            plugin_urls_from_config
+        Ok(if args.plugins.is_empty() {
+            plugin_url_or_file_paths_from_config.clone()
         } else {
-            &args.plugin_urls
+            let base_path = PathSource::new_local(config.base_path.clone());
+            let mut plugins = Vec::with_capacity(args.plugins.len());
+            for url_or_file_path in args.plugins.iter() {
+                plugins.push(resolve_url_or_file_path_to_path_source(url_or_file_path, &base_path)?);
+            }
+            plugins
         })
     }
 }
@@ -830,6 +835,23 @@ mod tests {
     #[tokio::test]
     async fn it_should_format_files() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let file_path = PathBuf::from("/file.txt");
+        environment.write_file(&file_path, "text").unwrap();
+        run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    }
+
+    #[tokio::test]
+    async fn it_should_format_files_with_local_plugin() {
+        let environment = get_test_environment_with_local_plugin();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["/plugins/test-plugin.wasm"]
+        }"#).unwrap();
+        run_test_cli(vec!["--version"], &environment).await.unwrap(); // cause initialization
+        environment.clear_logs();
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text").unwrap();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).await.unwrap();
@@ -1583,15 +1605,16 @@ SUBCOMMANDS:
     license                   Outputs the software license.
 
 OPTIONS:
-    -c, --config <config>           Path or url to JSON configuration file. Defaults to .dprintrc.json in current or
-                                    ancestor directory when not provided.
-        --excludes <patterns>...    List of files or directories or globs in quotes to exclude when formatting. This
-                                    overrides what is specified in the config file.
-        --allow-node-modules        Allows traversing node module directories (unstable - This flag will be renamed to
-                                    be non-node specific in the future).
-        --plugins <urls>...         List of urls of plugins to use. This overrides what is specified in the config file.
-        --verbose                   Prints additional diagnostic information.
-    -v, --version                   Prints the version.
+    -c, --config <config>            Path or url to JSON configuration file. Defaults to .dprintrc.json in current or
+                                     ancestor directory when not provided.
+        --excludes <patterns>...     List of files or directories or globs in quotes to exclude when formatting. This
+                                     overrides what is specified in the config file.
+        --allow-node-modules         Allows traversing node module directories (unstable - This flag will be renamed to
+                                     be non-node specific in the future).
+        --plugins <urls/files>...    List of urls or file paths of plugins to use. This overrides what is specified in
+                                     the config file.
+        --verbose                    Prints additional diagnostic information.
+    -v, --version                    Prints the version.
 
 ARGS:
     <files>...    List of files or globs in quotes to format. This overrides what is specified in the config file.
@@ -1643,6 +1666,12 @@ EXAMPLES:
     fn get_test_environment_with_remote_plugin() -> TestEnvironment {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://plugins.dprint.dev/test-plugin.wasm", PLUGIN_BYTES);
+        environment
+    }
+
+    fn get_test_environment_with_local_plugin() -> TestEnvironment {
+        let environment = TestEnvironment::new();
+        environment.write_file_bytes(&PathBuf::from("/plugins/test-plugin.wasm"), PLUGIN_BYTES).unwrap();
         environment
     }
 

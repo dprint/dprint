@@ -15,6 +15,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox>;
     fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox>;
     fn path_exists(&self, file_path: &PathBuf) -> bool;
+    fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox>;
     fn cwd(&self) -> Result<PathBuf, ErrBox>;
     fn log(&self, text: &str);
     fn log_error(&self, text: &str);

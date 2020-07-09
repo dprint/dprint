@@ -189,6 +189,10 @@ impl Environment for RealEnvironment {
         file_path.exists()
     }
 
+    fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox> {
+        Ok(path.canonicalize()?)
+    }
+
     fn cwd(&self) -> Result<PathBuf, ErrBox> {
         Ok(std::env::current_dir()?)
     }

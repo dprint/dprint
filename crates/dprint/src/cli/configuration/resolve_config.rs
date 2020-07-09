@@ -6,7 +6,7 @@ use crate::configuration::{ConfigMap, ConfigMapValue, deserialize_config};
 use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::utils::{ResolvedPath, resolve_url_or_file_path, PathSource};
+use crate::utils::{ResolvedPath, resolve_url_or_file_path, resolve_url_or_file_path_to_path_source, PathSource};
 
 use super::resolve_main_config_path;
 
@@ -15,7 +15,7 @@ pub struct ResolvedConfig {
     pub base_path: PathBuf,
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
-    pub plugins: Vec<String>,
+    pub plugins: Vec<PathSource>,
     pub project_type: Option<String>,
     pub config_map: ConfigMap,
 }
@@ -26,6 +26,7 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
     environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ErrBox> {
     let resolved_config_path = resolve_main_config_path(args, cache, environment).await?;
+    let base_source = resolved_config_path.resolved_path.source.parent();
     let config_file_path = &resolved_config_path.resolved_path.file_path;
     let main_config_map = get_config_map_from_path(config_file_path, environment)?;
 
@@ -33,7 +34,7 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
         Ok(main_config_map) => main_config_map,
         Err(err) => {
             // allow no config file when plugins are specified
-            if !args.plugin_urls.is_empty() && !environment.path_exists(config_file_path) {
+            if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
                 let mut config_map = HashMap::new();
                 // hack: easy way to supress project type diagnostic check
                 config_map.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
@@ -67,7 +68,7 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
 
     let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
     let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
-    let plugins = take_array_from_config_map(&mut main_config_map, "plugins")?;
+    let plugins = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?;
     let project_type = match main_config_map.remove("projectType") {
         Some(ConfigMapValue::String(project_type)) => Some(project_type),
         None => None,
@@ -85,7 +86,6 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
     };
 
     // resolve extends
-    let base_source = resolved_config.resolved_path.source.parent();
     resolve_extends(&mut resolved_config, extends, &base_source, cache, environment).await?;
     remove_locked_properties(&mut resolved_config);
 
@@ -148,7 +148,7 @@ async fn handle_config_file<'a, TEnvironment : Environment>(
     // =========
 
     // combine plugins
-    resolved_config.plugins.extend(take_array_from_config_map(&mut new_config_map, "plugins")?);
+    resolved_config.plugins.extend(take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent())?);
 
     for (key, value) in new_config_map {
         match value {
@@ -220,6 +220,15 @@ fn get_config_map_from_path(file_path: &PathBuf, environment: &impl Environment)
     };
 
     Ok(Ok(result))
+}
+
+fn take_plugins_array_from_config_map(config_map: &mut ConfigMap, base_path: &PathSource) -> Result<Vec<PathSource>, ErrBox> {
+    let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?;
+    let mut plugins = Vec::with_capacity(plugin_url_or_file_paths.len());
+    for url_or_file_path in plugin_url_or_file_paths {
+        plugins.push(resolve_url_or_file_path_to_path_source(&url_or_file_path, base_path)?);
+    }
+    Ok(plugins)
 }
 
 fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>, ErrBox> {
@@ -414,8 +423,8 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            "https://plugins.dprint.dev/test-plugin.wasm",
-            "https://plugins.dprint.dev/test-plugin2.wasm",
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -478,9 +487,9 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            "https://plugins.dprint.dev/test-plugin.wasm",
-            "https://plugins.dprint.dev/test-plugin2.wasm",
-            "https://plugins.dprint.dev/test-plugin3.wasm",
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -548,9 +557,9 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            "https://plugins.dprint.dev/test-plugin.wasm",
-            "https://plugins.dprint.dev/test-plugin2.wasm",
-            "https://plugins.dprint.dev/test-plugin3.wasm",
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -795,5 +804,76 @@ mod tests {
         }));
 
         assert_eq!(result.config_map, expected_config_map);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_relative_remote_plugin() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "plugins": ["./test-plugin.wasm"]
+        }"#.as_bytes());
+
+        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.plugins, vec![
+            PathSource::new_remote_from_str("https://dprint.dev/test-plugin.wasm")
+        ]);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_relative_remote_plugin_in_extends() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "extends": "dir/test.json"
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/dir/test.json", r#"{
+            "extends": "../otherDir/test.json"
+        }"#.as_bytes());
+        environment.add_remote_file("https://dprint.dev/otherDir/test.json", r#"{
+            "plugins": [
+                "../test/plugin.wasm",
+            ]
+        }"#.as_bytes());
+
+        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.plugins, vec![
+            PathSource::new_remote_from_str("https://dprint.dev/test/plugin.wasm")
+        ]);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_relative_local_plugins() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["./testing/asdf.wasm"],
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.plugins, vec![
+            PathSource::new_local(PathBuf::from("/testing/asdf.wasm"))
+        ]);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_relative_local_plugins_in_extends() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "./other/test.json",
+            "projectType": "openSource",
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/other/test.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["./testing/asdf.wasm"],
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.plugins, vec![
+            PathSource::new_local(PathBuf::from("/other/testing/asdf.wasm"))
+        ]);
     }
 }

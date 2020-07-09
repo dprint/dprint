@@ -19,6 +19,11 @@ impl PathSource {
         PathSource::Remote(RemotePathSource { url })
     }
 
+    #[cfg(test)]
+    pub fn new_remote_from_str(url: &str) -> PathSource {
+        PathSource::Remote(RemotePathSource { url: Url::parse(url).unwrap() })
+    }
+
     pub fn parent(&self) -> PathSource {
         match self {
             PathSource::Local(local) => {
@@ -50,12 +55,12 @@ impl PathSource {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocalPathSource {
-    pub(super) path: PathBuf,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RemotePathSource {
-    pub(super) url: Url,
+    pub url: Url,
 }
 
 #[cfg(test)]
