@@ -32,6 +32,21 @@ In _.dprintrc.json_:
 }
 ```
 
+## Code block formatters
+
+Code blocks are formatted based on the other provided plugins. For example, if you wish to format JSON, TypeScript, and JavaScript code blocks, then ensure those plugins are also specified in the list of plugins to use.
+
+```json
+{
+  // omitted...
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
+    "https://plugins.dprint.dev/json-x.x.x.wasm",
+    "https://plugins.dprint.dev/markdown-x.x.x.wasm"
+  ]
+}
+```
+
 ## Configuration
 
 See [Configuration](/plugins/markdown/config)

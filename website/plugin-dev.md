@@ -86,6 +86,12 @@ Then finally, compile with:
 cargo build --release --target=wasm32-unknown-unknown
 ```
 
+### Format using other plugin
+
+To format code using a different plugin, call the `format_with_host(file_path, file_text)` method that is exposed via the `generate_plugin_code!()` macro.
+
+For example, this function is used by the markdown plugin to format code blocks.
+
 ## Other Languages
 
 If you are interested in implementing plugins in another language that supports compiling to a _.wasm_ file, please [open an issue](https://github.com/dprint/dprint/issues/new?template=other.md) and I will try to help point you in the right direction.

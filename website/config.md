@@ -34,9 +34,10 @@ See [Setup](/setup).
     "**/*-lock.json"
   ],
   "plugins": [
-    // You may specify any urls here that you wish.
+    // You may specify any urls or file paths here that you wish.
     "https://plugins.dprint.dev/typescript-x.x.x.wasm",
-    "https://plugins.dprint.dev/json-x.x.x.wasm"
+    "https://plugins.dprint.dev/json-x.x.x.wasm",
+    "https://plugins.dprint.dev/markdown-x.x.x.wasm"
   ]
 }
 ```
@@ -61,20 +62,21 @@ See [Pricing](/pricing) for more details.
 
 ## Plugins
 
-The `plugins` property specifies which plugins to use for formatting. These may be URLs to a web assembly file of the plugin (file path support coming soon!).
+The `plugins` property specifies which plugins to use for formatting. These may be URLs or file paths to a web assembly file of the plugin.
 
 ```json
 {
   // ...omitted...
   "plugins": [
-    // You may specify any urls here that you wish.
+    // You may specify any urls or file paths here that you wish.
     "https://plugins.dprint.dev/typescript-x.x.x.wasm",
-    "https://plugins.dprint.dev/json-x.x.x.wasm"
+    "https://plugins.dprint.dev/json-x.x.x.wasm",
+    "https://plugins.dprint.dev/markdown-x.x.x.wasm"
   ]
 }
 ```
 
-Alternatively, these may be provided to the CLI via the `--plugins <plugin urls...>` flag.
+Alternatively, these may be provided to the CLI via the `--plugins <plugin urls or file paths...>` flag.
 
 Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first.
 
