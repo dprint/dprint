@@ -343,12 +343,24 @@ async fn check_files<TEnvironment : Environment>(
         move |file_path, file_text, formatted_text, _, environment| {
             if formatted_text != file_text {
                 not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-                environment.log(&format!(
-                    "{} {}:\n{}\n--",
-                    "from".bold().red().to_string(),
-                    file_path.display(),
-                    get_difference(&file_text, &formatted_text),
-                ));
+                match get_difference(&file_text, &formatted_text) {
+                    Ok(difference_text) => {
+                        environment.log(&format!(
+                            "{} {}:\n{}\n--",
+                            "from".bold().red().to_string(),
+                            file_path.display(),
+                            difference_text,
+                        ));
+                    }
+                    Err(err) => {
+                        environment.log(&format!(
+                            "{} {}:\nError getting difference, but this file needs formatting.\n\nError message: {}\n--",
+                            "from".bold().red().to_string(),
+                            file_path.display(),
+                            err.to_string().red().to_string(),
+                        ));
+                    }
+                }
             }
             Ok(None)
         }
@@ -1331,7 +1343,7 @@ mod tests {
             format!(
                 "{}\n{}\n--",
                 format!("{} /file.txt:", "from".bold().red().to_string()),
-                get_difference("const t=4;", "const t=4;_formatted"),
+                get_difference("const t=4;", "const t=4;_formatted").unwrap(),
             ),
         ]);
         assert_eq!(environment.get_logged_errors().len(), 0);
@@ -1351,12 +1363,12 @@ mod tests {
             format!(
                 "{}\n{}\n--",
                 format!("{} /file1.txt:", "from".bold().red().to_string()),
-                get_difference("const t=4;", "const t=4;_formatted"),
+                get_difference("const t=4;", "const t=4;_formatted").unwrap(),
             ),
             format!(
                 "{}\n{}\n--",
                 format!("{} /file2.txt:", "from".bold().red().to_string()),
-                get_difference("const t=5;", "const t=5;_formatted"),
+                get_difference("const t=5;", "const t=5;_formatted").unwrap(),
             ),
         ]);
         assert_eq!(environment.get_logged_errors().len(), 0);

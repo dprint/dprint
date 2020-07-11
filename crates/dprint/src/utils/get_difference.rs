@@ -1,7 +1,13 @@
 use dissimilar::*;
 use colored::Colorize;
+use crate::types::ErrBox;
 
-pub fn get_difference(text1: &str, text2: &str) -> String {
+// TODO: This file needs improvement as it is kind of buggy, but
+// does the job for now.
+
+/// Gets a string showing the difference between two strings.
+/// Note: This returns a Result because this funciton has been unstable.
+pub fn get_difference(text1: &str, text2: &str) -> Result<String, ErrBox> {
     debug_assert!(text1 != text2);
 
     // normalize newlines
@@ -9,7 +15,7 @@ pub fn get_difference(text1: &str, text2: &str) -> String {
     let text2 = text2.replace("\r\n", "\n");
 
     if text1 == text2 {
-        return String::from(" | Text differed by line endings.");
+        return Ok(String::from(" | Text differed by line endings."));
     }
 
     let grouped_changes = get_grouped_changes(&text1, &text2);
@@ -22,7 +28,7 @@ pub fn get_difference(text1: &str, text2: &str) -> String {
 
         let max_line_num_width = grouped_change.end_line_number.to_string().chars().count();
         text.push_str(&format!("{:width$}| ", grouped_change.start_line_number, width = max_line_num_width));
-        text.push_str(&annotate_whitespace(get_line_start_text(&text1, grouped_change.start_index)));
+        text.push_str(&annotate_whitespace(get_line_start_text(&text1, grouped_change.start_index)?));
         let mut last_index = grouped_change.start_index;
 
         for change in grouped_change.changes {
@@ -72,14 +78,19 @@ pub fn get_difference(text1: &str, text2: &str) -> String {
         text.push_str(&annotate_whitespace(&get_line_end_text(&text1, grouped_change.end_index)));
     }
 
-    text
+    Ok(text)
 }
 
-fn get_line_start_text<'a>(text: &'a str, index: usize) -> &'a str {
+fn get_line_start_text<'a>(text: &'a str, index: usize) -> Result<&'a str, ErrBox> {
     let new_line_byte = '\n' as u8;
     let text_bytes = text.as_bytes();
     let mut start_index = 0;
     let mut length = 0;
+
+    if index > text.len() {
+        // this should never happen
+        return err!("The byte index was {}, but the text byte length is {}.", index, text.len());
+    }
 
     for i in (0..index).rev() {
         if text_bytes[i] == new_line_byte || length > 50 {
@@ -89,7 +100,7 @@ fn get_line_start_text<'a>(text: &'a str, index: usize) -> &'a str {
         length += 1
     }
 
-    &text[start_index..index]
+    Ok(&text[start_index..index])
 }
 
 fn get_line_end_text<'a>(text: &'a str, index: usize) -> &'a str {
@@ -372,21 +383,21 @@ mod test {
 
     #[test]
     fn it_should_get_when_differs_by_line_endings() {
-        assert_eq!(get_difference("test\r\n", "test\n"), " | Text differed by line endings.");
+        assert_eq!(get_difference("test\r\n", "test\n").unwrap(), " | Text differed by line endings.");
     }
 
     #[test]
     fn it_should_get_difference_on_one_line() {
-        assert_eq!(get_difference("test1\n", "test2\n"), format!("1| test{}{}", get_removal_text("1"), get_addition_text("2")));
+        assert_eq!(get_difference("test1\n", "test2\n").unwrap(), format!("1| test{}{}", get_removal_text("1"), get_addition_text("2")));
     }
 
     #[test]
     fn it_should_show_the_addition_of_last_line() {
         assert_eq!(
-            get_difference("testing", "testing\n"),
+            get_difference("testing\ntesting", "testing\ntesting\n").unwrap(),
             format!(
                 "{}\n{}",
-                "1| testing",
+                "2| testing",
                 get_addition_text(&format!(" | "))
             )
         );
@@ -395,7 +406,7 @@ mod test {
     #[test]
     fn it_should_get_difference_for_removed_line() {
         assert_eq!(
-            get_difference("class Test\n{\n\n}", "class Test {\n}\n"),
+            get_difference("class Test\n{\n\n}", "class Test {\n}\n").unwrap(),
             format!(
                 "{}\n{}\n{}\n{}\n{}",
                 format!("1| class\u{00B7}Test{}{}", get_addition_text("\u{00B7}"), get_addition_text("{")),
@@ -410,7 +421,7 @@ mod test {
     #[test]
     fn it_should_show_multiple_removals_on_different_lines() {
         assert_eq!(
-            get_difference("let t ;\n\n\nlet u ;\n", "let t;\n\n\nlet u;\n"),
+            get_difference("let t ;\n\n\nlet u ;\n", "let t;\n\n\nlet u;\n").unwrap(),
             format!(
                 "{}\n...\n{}",
                 format!("1| let\u{00B7}t{};", get_removal_text("\u{00B7}")),
@@ -422,7 +433,7 @@ mod test {
     #[test]
     fn it_should_keep_grouped_when_changes_only_separated_by_one_line() {
         assert_eq!(
-            get_difference("let t ;\ntest;\nlet u ;\n", "let t;\ntest;\nlet u;\n"),
+            get_difference("let t ;\ntest;\nlet u ;\n", "let t;\ntest;\nlet u;\n").unwrap(),
             format!(
                 "{}\n{}\n{}",
                 format!("1| let\u{00B7}t{};", get_removal_text("\u{00B7}")),
@@ -435,7 +446,7 @@ mod test {
     #[test]
     fn it_should_annotate_whitespace_end_line_text() {
         assert_eq!(
-            get_difference("t t t\n", "tt t\n"),
+            get_difference("t t t\n", "tt t\n").unwrap(),
             format!(
                 "1| t{}t\u{00B7}t",
                 get_removal_text("\u{00B7}")
@@ -446,7 +457,7 @@ mod test {
     #[test]
     fn it_should_handle_replacements() {
         assert_eq!(
-            get_difference("use::asdf\nuse::test", "use::other\nsomething"),
+            get_difference("use::asdf\nuse::test", "use::other\nsomething").unwrap(),
             format!(
                 "1| use::{}{}\n | {}{}",
                 get_removal_text("asdf"),
