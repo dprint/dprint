@@ -1,13 +1,13 @@
 use std::path::PathBuf;
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 use crate::environment::Environment;
 use crate::types::ErrBox;
 use super::manifest::*;
 
-pub struct Cache<'a, TEnvironment : Environment> {
-    environment: &'a TEnvironment,
-    cache_manifest: RefCell<CacheManifest>,
+pub struct Cache<TEnvironment : Environment> {
+    environment: TEnvironment,
+    cache_manifest: RwLock<CacheManifest>,
     cache_dir_path: PathBuf,
 }
 
@@ -18,19 +18,19 @@ pub struct CreateCacheItemOptions<'a> {
     pub meta_data: Option<String>,
 }
 
-impl<'a, TEnvironment> Cache<'a, TEnvironment> where TEnvironment : Environment {
-    pub fn new(environment: &'a TEnvironment) -> Result<Self, ErrBox> {
-        let cache_manifest = read_manifest(environment)?;
+impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
+    pub fn new(environment: TEnvironment) -> Result<Self, ErrBox> {
+        let cache_manifest = read_manifest(&environment)?;
         let cache_dir_path = environment.get_cache_dir()?;
         Ok(Cache {
             environment,
-            cache_manifest: RefCell::new(cache_manifest),
+            cache_manifest: RwLock::new(cache_manifest),
             cache_dir_path,
         })
     }
 
     pub fn get_cache_item(&self, key: &str) -> Option<CacheItem> {
-        self.cache_manifest.borrow().get_item(key).map(|x| x.to_owned())
+        self.cache_manifest.read().unwrap().get_item(key).map(|x| x.to_owned())
     }
 
     pub fn resolve_cache_item_file_path(&self, cache_item: &CacheItem) -> PathBuf {
@@ -49,14 +49,14 @@ impl<'a, TEnvironment> Cache<'a, TEnvironment> where TEnvironment : Environment 
 
         self.environment.write_file_bytes(&file_path, &options.bytes)?;
 
-        self.cache_manifest.borrow_mut().add_item(options.key, cache_item.clone());
+        self.cache_manifest.write().unwrap().add_item(options.key, cache_item.clone());
         self.save_manifest()?;
 
         Ok(cache_item)
     }
 
     pub fn forget_item(&self, key: &str) -> Result<(), ErrBox> {
-        if let Some(item) = self.cache_manifest.borrow_mut().remove_item(key) {
+        if let Some(item) = self.cache_manifest.write().unwrap().remove_item(key) {
             let cache_file = self.cache_dir_path.join(&item.file_name);
             match self.environment.remove_file(&cache_file) {
                 _ => {}, // do nothing on success or failure
@@ -110,11 +110,11 @@ impl<'a, TEnvironment> Cache<'a, TEnvironment> where TEnvironment : Environment 
     }
 
     fn has_file_name_cache_item(&self, file_name: &str) -> bool {
-        self.cache_manifest.borrow().items().filter(|u| u.file_name == file_name).next().is_some()
+        self.cache_manifest.read().unwrap().items().filter(|u| u.file_name == file_name).next().is_some()
     }
 
     fn save_manifest(&self) -> Result<(), ErrBox> {
-        write_manifest(&self.cache_manifest.borrow(), self.environment)
+        write_manifest(&self.cache_manifest.read().unwrap(), &self.environment)
     }
 }
 
@@ -134,7 +134,7 @@ mod test {
 }}"#
         ).unwrap();
 
-        let cache = Cache::new(&environment).unwrap();
+        let cache = Cache::new(environment).unwrap();
         let cache_item = cache.get_cache_item("some-value").unwrap();
 
         assert_eq!(cache_item.file_name, "my-file.wasm");
@@ -144,7 +144,7 @@ mod test {
     fn it_should_handle_multiple_keys_with_similar_names() {
         let environment = TestEnvironment::new();
 
-        let cache = Cache::new(&environment).unwrap();
+        let cache = Cache::new(environment).unwrap();
         let cache_item1 = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("prefix/test"),
             extension: "test",
@@ -165,7 +165,7 @@ mod test {
     #[test]
     fn it_should_delete_key_from_manifest_when_no_file() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(&environment).unwrap();
+        let cache = Cache::new(environment.clone()).unwrap();
         let cache_item = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("test"),
             extension: ".test",
@@ -186,7 +186,7 @@ mod test {
     #[test]
     fn it_should_delete_key_from_manifest_when_file_exists() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(&environment).unwrap();
+        let cache = Cache::new(environment.clone()).unwrap();
         let cache_item = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("test"),
             extension: ".test",

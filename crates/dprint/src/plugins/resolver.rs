@@ -5,5 +5,5 @@ use crate::utils::PathSource;
 
 #[async_trait(?Send)]
 pub trait PluginResolver {
-    async fn resolve_plugins(&self, plugin_sources: &Vec<PathSource>) -> Result<Vec<Box<dyn Plugin>>, ErrBox>;
+    async fn resolve_plugins(&self, plugin_sources: Vec<PathSource>) -> Result<Vec<Box<dyn Plugin>>, ErrBox>;
 }

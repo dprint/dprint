@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use serde::{Serialize, Deserialize};
 use dprint_core::plugins::PluginInfo;
 
@@ -8,10 +9,11 @@ use crate::types::ErrBox;
 use crate::plugins::CompileFn;
 use crate::utils::{PathSource, RemotePathSource, LocalPathSource, get_bytes_hash};
 
-pub struct PluginCache<'a, TEnvironment : Environment, TCompileFn: CompileFn> {
-    environment: &'a TEnvironment,
-    cache: &'a Cache<'a, TEnvironment>,
-    compile: &'a TCompileFn,
+#[derive(Clone)]
+pub struct PluginCache<TEnvironment : Environment, TCompileFn: CompileFn> {
+    environment: TEnvironment,
+    cache: Arc<Cache<TEnvironment>>,
+    compile: &'static TCompileFn,
 }
 
 pub struct PluginCacheItem {
@@ -26,8 +28,8 @@ struct LocalPluginMetaData {
     plugin_info: PluginInfo,
 }
 
-impl<'a, TEnvironment, TCompileFn> PluginCache<'a, TEnvironment, TCompileFn> where TEnvironment : Environment, TCompileFn : CompileFn {
-    pub fn new(environment: &'a TEnvironment, cache: &'a Cache<'a, TEnvironment>, compile: &'a TCompileFn) -> Self {
+impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvironment : Environment, TCompileFn : CompileFn {
+    pub fn new(environment: TEnvironment, cache: Arc<Cache<TEnvironment>>, compile: &'static TCompileFn) -> Self {
         PluginCache {
             environment,
             cache,
@@ -65,9 +67,12 @@ impl<'a, TEnvironment, TCompileFn> PluginCache<'a, TEnvironment, TCompileFn> whe
             });
         }
 
-        let file_bytes = self.environment.download_file(&remote_source.url.as_str()).await?;
-        self.environment.log("Compiling wasm module...");
-        let compile_result = (self.compile)(&file_bytes)?;
+        let url_str = remote_source.url.as_str();
+        let file_bytes = self.environment.download_file(url_str).await?;
+        let compile_result = self.environment.log_action_with_progress(&format!("Compiling {}", url_str), || {
+            (self.compile)(&file_bytes)
+        })?;
+
         let serialized_plugin_info = match serde_json::to_string(&compile_result.plugin_info) {
             Ok(serialized_plugin_info) => serialized_plugin_info,
             Err(err) => return err!("Error serializing plugin info. {:?}", err),
@@ -111,8 +116,9 @@ impl<'a, TEnvironment, TCompileFn> PluginCache<'a, TEnvironment, TCompileFn> whe
             }
         }
 
-        self.environment.log("Compiling wasm module...");
-        let compile_result = (self.compile)(&file_bytes)?;
+        let compile_result = self.environment.log_action_with_progress("Compiling wasm module...", || {
+            (self.compile)(&file_bytes)
+        })?;
         let meta_data = LocalPluginMetaData {
             plugin_info: compile_result.plugin_info.clone(),
             file_hash,
@@ -164,8 +170,8 @@ mod test {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
 
-        let cache = Cache::new(&environment).unwrap();
-        let plugin_cache = PluginCache::new(&environment, &cache, &identity_compile);
+        let cache = Arc::new(Cache::new(environment.clone()).unwrap());
+        let plugin_cache = PluginCache::new(environment.clone(), cache, &identity_compile);
         let plugin_source = PathSource::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
         let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
         let expected_file_path = PathBuf::from("/cache").join("test.compiled_wasm");
@@ -202,8 +208,8 @@ mod test {
         let file_bytes = "t".as_bytes();
         environment.write_file_bytes(&original_file_path, file_bytes).unwrap();
 
-        let cache = Cache::new(&environment).unwrap();
-        let plugin_cache = PluginCache::new(&environment, &cache, &identity_compile);
+        let cache = Arc::new(Cache::new(environment.clone()).unwrap());
+        let plugin_cache = PluginCache::new(environment.clone(), cache, &identity_compile);
         let plugin_source = PathSource::new_local(original_file_path.clone());
         let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
         let expected_file_path = PathBuf::from("/cache").join("test.compiled_wasm");

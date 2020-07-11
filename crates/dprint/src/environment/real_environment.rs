@@ -5,14 +5,14 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bytes::Bytes;
 use reqwest::Client;
-use indicatif::{ProgressBar, ProgressStyle};
 
-use super::Environment;
+use super::{Environment, ProgressBars, ProgressBarStyle};
 use super::super::types::ErrBox;
 
 #[derive(Clone)]
 pub struct RealEnvironment {
     output_lock: Arc<Mutex<u8>>,
+    progress_bars: Arc<ProgressBars>,
     is_verbose: bool,
     is_silent: bool,
 }
@@ -21,6 +21,7 @@ impl RealEnvironment {
     pub fn new(is_verbose: bool, is_silent: bool) -> RealEnvironment {
         RealEnvironment {
             output_lock: Arc::new(Mutex::new(0)),
+            progress_bars: Arc::new(ProgressBars::new()),
             is_verbose,
             is_silent,
         }
@@ -92,16 +93,10 @@ impl Environment for RealEnvironment {
             }
         };
 
-        self.log(&format!("Downloading {}", url));
-
         if self.is_silent {
             Ok(resp.bytes().await?)
         } else {
-            // https://github.com/mitsuhiko/indicatif/blob/master/examples/download.rs
-            let pb = ProgressBar::new(total_size.unwrap_or(0));
-            pb.set_style(ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                .progress_chars("#>-"));
+            let pb = self.progress_bars.add_progress(&format!("Downloading {}", url), ProgressBarStyle::Download, total_size.unwrap_or(0));
             let mut final_bytes = bytes::BytesMut::new();
 
             while let Some(chunk) = resp.chunk().await? {
@@ -109,55 +104,12 @@ impl Environment for RealEnvironment {
                 pb.set_position(final_bytes.len() as u64);
             }
 
-            pb.finish_with_message("downloaded");
+            pb.finish();
+            self.progress_bars.finish();
 
             Ok(final_bytes.freeze())
         }
     }
-
-    /*
-    async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox> {
-        log_verbose!(self, "Downloading urls: {}", urls.join(", "));
-
-        for url in urls.iter() {
-            self.log(&format!("Downloading {}", url));
-        }
-
-        // https://github.com/mitsuhiko/indicatif/blob/master/examples/multi.rs
-        let m = MultiProgress::new();
-        let sty = ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-            .progress_chars("#>-");
-
-        let client = Client::new();
-        let mut handles = Vec::with_capacity(urls.len());
-        for url in urls {
-            let mut resp = client.get(url).send().await?;
-            let total_size = {
-                if resp.status().is_success() {
-                    resp.content_length()
-                } else {
-                    return err!("Error downloading: {}. Status: {:?}", url, resp.status());
-                }
-            };
-            let pb = m.add(ProgressBar::new(total_size.unwrap_or(0)));
-            pb.set_style(sty.clone());
-            handles.push(tokio::task::spawn(async move {
-                let mut final_bytes = bytes::BytesMut::new();
-                while let Some(chunk) = resp.chunk().await? {
-                    final_bytes.extend_from_slice(&chunk);
-                    pb.set_position(final_bytes.len() as u64);
-                }
-                pb.finish_with_message("downloaded");
-                Ok(final_bytes.freeze())
-            }));
-        }
-
-        let result = futures::future::try_join_all(handles).await?;
-
-        Ok(result)
-    }
-    */
 
     fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         let start_instant = std::time::Instant::now();
@@ -206,6 +158,14 @@ impl Environment for RealEnvironment {
     fn log_silent(&self, text: &str) {
         let _g = self.output_lock.lock().unwrap();
         println!("{}", text);
+    }
+
+    fn log_action_with_progress<TResult, TCreate : FnOnce() -> TResult>(&self, message: &str, action: TCreate) -> TResult {
+        let pb = self.progress_bars.add_progress(message, ProgressBarStyle::Action, 1);
+        let result = action();
+        pb.finish();
+        self.progress_bars.finish();
+        result
     }
 
     fn log_error(&self, text: &str) {

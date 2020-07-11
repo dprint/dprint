@@ -20,9 +20,9 @@ pub struct ResolvedConfig {
     pub config_map: ConfigMap,
 }
 
-pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
+pub async fn resolve_config_from_args<TEnvironment : Environment>(
     args: &CliArgs,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ErrBox> {
     let resolved_config_path = resolve_main_config_path(args, cache, environment).await?;
@@ -92,11 +92,11 @@ pub async fn resolve_config_from_args<'a, TEnvironment : Environment>(
     Ok(resolved_config)
 }
 
-async fn resolve_extends<'a, TEnvironment : Environment>(
+async fn resolve_extends<TEnvironment : Environment>(
     resolved_config: &mut ResolvedConfig,
     extends: Vec<String>,
     base_path: &PathSource,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<(), ErrBox> {
     // Rust does not support async recursion without boxing, so this is done to avoid having to do recursion
@@ -274,7 +274,7 @@ mod tests {
     async fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ErrBox> {
         let stdin_reader = TestStdInReader::new();
         let args = parse_args(vec![String::from(""), String::from("-c"), String::from(url)], &stdin_reader).unwrap();
-        let cache = Cache::new(environment).unwrap();
+        let cache = Cache::new(environment.to_owned()).unwrap();
         resolve_config_from_args(&args, &cache, &environment).await
     }
 

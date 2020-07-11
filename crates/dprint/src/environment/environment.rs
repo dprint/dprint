@@ -21,6 +21,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn log_error(&self, text: &str);
     /// Information to output when logging is silent.
     fn log_silent(&self, text: &str);
+    fn log_action_with_progress<TResult, TCreate : FnOnce() -> TResult>(&self, message: &str, action: TCreate) -> TResult;
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox>;
     // async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox>;
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;

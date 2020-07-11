@@ -135,16 +135,6 @@ impl Environment for TestEnvironment {
         }
     }
 
-    /*
-    async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox> {
-        let mut result = Vec::with_capacity(urls.len());
-        for url in urls {
-            result.push(self.download_file(url).await);
-        }
-        Ok(result)
-    }
-    */
-
     fn glob(&self, _: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         // todo: would be nice to test the base parameter here somehow...
         let mut file_paths = Vec::new();
@@ -203,6 +193,11 @@ impl Environment for TestEnvironment {
 
     fn log_silent(&self, text: &str) {
         self.logged_messages.lock().unwrap().push(String::from(text));
+    }
+
+    fn log_action_with_progress<TResult, TCreate : FnOnce() -> TResult>(&self, message: &str, action: TCreate) -> TResult {
+        self.log(message);
+        action()
     }
 
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {

@@ -16,7 +16,7 @@ pub struct ResolvedConfigPath {
 
 pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
     args: &CliArgs,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<ResolvedConfigPath, ErrBox> {
     return Ok(if let Some(config) = &args.config {

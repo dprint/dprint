@@ -16,10 +16,10 @@ use super::configuration::{resolve_config_from_args, ResolvedConfig};
 
 const BOM_CHAR: char = '\u{FEFF}';
 
-pub async fn run_cli<'a, TEnvironment : Environment>(
+pub async fn run_cli<TEnvironment : Environment>(
     args: CliArgs,
     environment: &TEnvironment,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     plugin_resolver: &impl PluginResolver,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
@@ -143,9 +143,9 @@ async fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironmen
     Ok(())
 }
 
-async fn output_help<'a, TEnvironment: Environment>(
+async fn output_help<TEnvironment: Environment>(
     args: &CliArgs,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
     plugin_resolver: &impl PluginResolver,
     help_text: &str,
@@ -174,9 +174,9 @@ async fn output_help<'a, TEnvironment: Environment>(
     Ok(())
 }
 
-async fn output_license<'a, TEnvironment: Environment>(
+async fn output_license<TEnvironment: Environment>(
     args: &CliArgs,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
     plugin_resolver: &impl PluginResolver
 ) -> Result<(), ErrBox> {
@@ -193,9 +193,9 @@ async fn output_license<'a, TEnvironment: Environment>(
     Ok(())
 }
 
-async fn output_editor_info<'a, TEnvironment: Environment>(
+async fn output_editor_info<TEnvironment: Environment>(
     args: &CliArgs,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
     plugin_resolver: &impl PluginResolver
 ) -> Result<(), ErrBox> {
@@ -230,9 +230,9 @@ async fn output_editor_info<'a, TEnvironment: Environment>(
     Ok(())
 }
 
-async fn get_plugins_from_args<'a, TEnvironment : Environment>(
+async fn get_plugins_from_args<TEnvironment : Environment>(
     args: &CliArgs,
-    cache: &Cache<'a, TEnvironment>,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
     plugin_resolver: &impl PluginResolver
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
@@ -548,7 +548,7 @@ async fn resolve_plugins(
 
     // resolve the plugins
     let plugin_path_sources = get_plugin_path_sources(&mut config, args)?;
-    let plugins = plugin_resolver.resolve_plugins(&plugin_path_sources).await?;
+    let plugins = plugin_resolver.resolve_plugins(plugin_path_sources).await?;
 
     // resolve each plugin's configuration
     let mut plugins_with_config = Vec::new();
@@ -711,11 +711,11 @@ mod tests {
     ) -> Result<(), ErrBox> {
         let mut args: Vec<String> = args.into_iter().map(String::from).collect();
         args.insert(0, String::from(""));
-        let cache = Cache::new(environment).unwrap();
-        let plugin_cache = PluginCache::new(environment, &cache, &quick_compile);
+        let cache = Arc::new(Cache::new(environment.clone()).unwrap());
+        let plugin_cache = PluginCache::new(environment.clone(), cache.clone(), &quick_compile);
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
         let import_object_factory = PoolImportObjectFactory::new(plugin_pools.clone());
-        let plugin_resolver = WasmPluginResolver::new(environment, &plugin_cache, &import_object_factory);
+        let plugin_resolver = WasmPluginResolver::new(environment.clone(), plugin_cache, import_object_factory);
         let args = parse_args(args, &stdin_reader)?;
         if args.is_silent_output() { environment.set_silent(); }
         run_cli(args, environment, &cache, &plugin_resolver, plugin_pools).await
