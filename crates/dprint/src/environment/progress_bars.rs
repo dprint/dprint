@@ -60,7 +60,7 @@ impl ProgressBars {
                 // completes. That would cause overlapping text.
                 let mut progress = progress;
                 loop {
-                    progress.join().unwrap();
+                    progress.join_and_clear().unwrap();
 
                     // After exiting, if a new MultiProgress has been created then use it and
                     // continue drawing on this task.
@@ -78,7 +78,7 @@ impl ProgressBars {
         pb
     }
 
-    pub fn finish(&self) {
+    pub fn finish_one(&self) {
         let mut state = self.state.lock().unwrap();
         let mut progress_state = state.progress_state.as_mut().expect("Cannot call finish() without a corresponding add_progress().");
 

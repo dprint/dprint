@@ -104,8 +104,8 @@ impl Environment for RealEnvironment {
                 pb.set_position(final_bytes.len() as u64);
             }
 
-            pb.finish();
-            self.progress_bars.finish();
+            pb.finish_and_clear();
+            self.progress_bars.finish_one();
 
             Ok(final_bytes.freeze())
         }
@@ -163,8 +163,8 @@ impl Environment for RealEnvironment {
     fn log_action_with_progress<TResult, TCreate : FnOnce() -> TResult>(&self, message: &str, action: TCreate) -> TResult {
         let pb = self.progress_bars.add_progress(message, ProgressBarStyle::Action, 1);
         let result = action();
-        pb.finish();
-        self.progress_bars.finish();
+        pb.finish_and_clear();
+        self.progress_bars.finish_one();
         result
     }
 
