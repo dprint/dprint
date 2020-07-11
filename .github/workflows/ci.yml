@@ -92,21 +92,28 @@ jobs:
 
     # PRE-RELEASE
     - name: Pre-release (Linux)
+      id: linux_pre_release
       if: startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release'
       run: |
           cd target/release
           zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
+          echo ::set-output name=BINARY_CHECKSUM::$(shasum -a 256 dprint | awk '{print $1}')
     - name: Pre-release (Mac)
+      id: mac_pre_release
       if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release'
       # .tar.gz file is for homebrew binary release
       run: |
           cd target/release
           zip -r dprint-x86_64-apple-darwin.zip dprint
           tar -czf dprint-x86_64-apple-darwin.tar.gz dprint
+          echo ::set-output name=BINARY_CHECKSUM::$(shasum -a 256 dprint | awk '{print $1}')
     - name: Pre-release (Windows)
+      id: windows_pre_release
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release'
       run: |
           Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip
+          echo ::set-output name=BINARY_CHECKSUM::$(shasum -a 256 target/release/dprint.exe | awk '{print $1}')
+          echo ::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 scripts/installer/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')
 
     - name: Release
       uses: softprops/action-gh-release@v1
@@ -120,4 +127,38 @@ jobs:
           target/release/dprint-x86_64-unknown-linux-gnu.zip
           target/release/dprint-x86_64-apple-darwin.zip
           target/release/dprint-x86_64-apple-darwin.tar.gz
+        body: |
+          ## Changes
+
+            * TODO
+
+          ## Install
+
+          Linux/Mac/WSL:
+
+          ```bash
+          curl -fsSL https://dprint.dev/install.sh | sh
+          ```
+
+          Windows (use Powershell or installer below):
+
+          ```powershell
+          iwr https://dprint.dev/install.ps1 -useb | iex
+          ```
+
+          Homebrew (Mac):
+
+          ```bash
+          brew tap dprint/dprint
+          brew install dprint
+          ```
+
+          ## SHA-256 Checksums
+
+          |System|Binary|
+          |:--|:--|
+          |Linux|{{steps.linux_pre_release.outputs.BINARY_CHECKSUM}}|
+          |Mac|{{steps.mac_pre_release.outputs.BINARY_CHECKSUM}}|
+          |Windows|{{steps.windows_pre_release.outputs.BINARY_CHECKSUM}}|
+          |Windows Installer|{{steps.windows_pre_release.outputs.INSTALLER_CHECKSUM}}|
         draft: true
