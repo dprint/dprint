@@ -216,11 +216,14 @@ impl Writer {
             // update the indent level again since on the first column
             self.state.last_line_indent_level = self.state.indent_level;
 
+            // set the current line column
+            self.state.current_line_column = self.state.indent_level as u32 * self.indent_width as u32;
+
+            // finally, push the indent level
             if self.state.indent_level > 0 {
+                // this might update the indent_level based on the queued indentation, so do this last
                 self.push_item(WriteItem::Indent(self.state.indent_level));
             }
-
-            self.state.current_line_column += self.state.indent_level as u32 * self.indent_width as u32;
         }
     }
 
@@ -231,7 +234,7 @@ impl Writer {
         if self.state.indent_queue_count > 0 {
             let indent_count = self.state.indent_queue_count;
             self.state.indent_queue_count = 0;
-            self.state.indent_level = self.state.indent_level + indent_count;
+            self.state.indent_level += indent_count;
         }
     }
 
@@ -255,7 +258,7 @@ impl Writer {
         super::print_write_items(write_items.into_iter(), super::PrintWriteItemsOptions {
             use_tabs: false,
             new_line_text: "\n",
-            indent_width: 4,
+            indent_width: self.indent_width,
         })
     }
 
