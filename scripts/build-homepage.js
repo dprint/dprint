@@ -178,6 +178,9 @@ function buildWebsite() {
                 if (left.indexOf("-toml") !== -1) {
                     return "toml";
                 }
+                if (left.indexOf("-md") !== -1 || left.indexOf("-markdown") !== -1) {
+                    return "markdown";
+                }
 
                 throw new Error("Unknown language: " + left);
             }

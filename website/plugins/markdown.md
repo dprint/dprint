@@ -54,3 +54,29 @@ See [Configuration](/plugins/markdown/config)
 ## Playground
 
 See [Playground](https://dprint.dev/playground#language/markdown)
+
+## Ignore Comments
+
+Use an ignore comment:
+
+<!-- dprint-ignore -->
+
+```md
+<!-- dprint-ignore -->
+Some              text
+```
+
+Or a range ignore:
+
+<!-- dprint-ignore -->
+
+```md
+<!-- dprint-ignore-start -->
+
+Some    text
+
+* other    text
+*           testing
+
+<!-- dprint-ignore-end -->
+```
