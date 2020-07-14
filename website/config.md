@@ -101,9 +101,10 @@ These should be file globs according to [`gitignore`'s extended glob syntax](htt
 
 ## Extending a Different Configuration File
 
-You may extend other configuration files by specifying an `extends` property. This may be a file path or URL.
+You may extend other configuration files by specifying an `extends` property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).
 
 <!-- dprint-ignore -->
+
 ```json
 {
   "extends": "https://dprint.dev/path/to/config/file.v1.json",
@@ -111,7 +112,7 @@ You may extend other configuration files by specifying an `extends` property. Th
 }
 ```
 
-Or even references to multiple configuration files ordered by precedence:
+Referencing multiple configuration files is also supported. These should be ordered by precedence:
 
 ```json
 {
@@ -194,11 +195,7 @@ Say the following configuration were published at `https://dprint.dev/configs/my
     "lineWidth": 80,
     "indentWidth": 2,
     "useTabs": false
-  },
-  "plugins": [
-    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
-    "https://plugins.dprint.dev/json-x.x.x.wasm"
-  ]
+  }
 }
 ```
 
@@ -212,6 +209,8 @@ The following would work fine:
     "propertySeparator": "comma"
   },
   "plugins": [
+    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
+    "https://plugins.dprint.dev/json-x.x.x.wasm",
     "https://plugins.dprint.dev/my-other-plugin-0.1.0.wasm"
   ]
 }
@@ -233,6 +232,8 @@ But specifying properties in the `"typescript"` or `"json"` objects would cause 
     "propertySeparator": "comma"
   },
   "plugins": [
+    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
+    "https://plugins.dprint.dev/json-x.x.x.wasm",
     "https://plugins.dprint.dev/my-other-plugin-0.1.0.wasm"
   ]
 }

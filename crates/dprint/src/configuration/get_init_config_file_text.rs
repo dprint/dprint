@@ -42,8 +42,8 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
 
     let selected_plugins = if let Some(info) = info {
         let latest_plugins = info.latest_plugins;
-        environment.log("Select plugins (use the spacebar to select/deselect and then press enter when finished):");
-        let plugin_indexes = environment.get_multi_selection(&latest_plugins.iter().map(|x| String::from(&x.name)).collect())?;
+        let prompt_message = "Select plugins (use the spacebar to select/deselect and then press enter when finished):";
+        let plugin_indexes = environment.get_multi_selection(prompt_message, &latest_plugins.iter().map(|x| String::from(&x.name)).collect())?;
         let mut selected_plugins = Vec::new();
         for index in plugin_indexes {
             selected_plugins.push(latest_plugins[index].clone());
@@ -125,9 +125,9 @@ fn get_unique_items<T>(vec: Vec<T>) -> Vec<T> where T : PartialEq {
 
 fn get_project_type_name(environment: &impl Environment) -> Result<&'static str, ErrBox> {
     let project_type_infos = get_project_type_infos();
-    environment.log("What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n");
+    let prompt_message = "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n";
     let options = get_table_text(project_type_infos.iter().map(|info| (info.name, info.description)).collect(), 2);
-    let project_type_index = environment.get_selection(&options)?;
+    let project_type_index = environment.get_selection(prompt_message, &options)?;
     Ok(project_type_infos[project_type_index].name)
 }
 

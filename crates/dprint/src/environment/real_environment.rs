@@ -91,13 +91,13 @@ impl Environment for RealEnvironment {
             } else {
                 return err!("Error downloading: {}. Status: {:?}", url, resp.status());
             }
-        };
+        }.unwrap_or(0);
 
         if self.is_silent {
             Ok(resp.bytes().await?)
         } else {
-            let pb = self.progress_bars.add_progress(&format!("Downloading {}", url), ProgressBarStyle::Download, total_size.unwrap_or(0));
-            let mut final_bytes = bytes::BytesMut::new();
+            let pb = self.progress_bars.add_progress(&format!("Downloading {}", url), ProgressBarStyle::Download, total_size);
+            let mut final_bytes = bytes::BytesMut::with_capacity(total_size as usize);
 
             while let Some(chunk) = resp.chunk().await? {
                 final_bytes.extend_from_slice(&chunk);
@@ -105,7 +105,7 @@ impl Environment for RealEnvironment {
             }
 
             pb.finish_and_clear();
-            self.progress_bars.finish_one();
+            self.progress_bars.finish_one().await?;
 
             Ok(final_bytes.freeze())
         }
@@ -160,12 +160,15 @@ impl Environment for RealEnvironment {
         println!("{}", text);
     }
 
-    fn log_action_with_progress<TResult, TCreate : FnOnce() -> TResult>(&self, message: &str, action: TCreate) -> TResult {
+    async fn log_action_with_progress<
+        TResult: std::marker::Send + std::marker::Sync,
+        TCreate : FnOnce() -> TResult + std::marker::Send + std::marker::Sync
+    >(&self, message: &str, action: TCreate) -> Result<TResult, ErrBox> {
         let pb = self.progress_bars.add_progress(message, ProgressBarStyle::Action, 1);
         let result = action();
         pb.finish_and_clear();
-        self.progress_bars.finish_one();
-        result
+        self.progress_bars.finish_one().await?;
+        Ok(result)
     }
 
     fn log_error(&self, text: &str) {
@@ -186,19 +189,21 @@ impl Environment for RealEnvironment {
         SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
     }
 
-    fn get_selection(&self, items: &Vec<String>) -> Result<usize, ErrBox> {
+    fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox> {
         use dialoguer::*;
 
-        let result = Select::new()
+        let result = Select::with_theme(&CustomDialoguerTheme::new())
+            .with_prompt(prompt_message)
             .items(items)
             .default(0)
             .interact()?;
         Ok(result)
     }
 
-    fn get_multi_selection(&self, items: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+    fn get_multi_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
         use dialoguer::*;
-        let result = MultiSelect::new()
+        let result = MultiSelect::with_theme(&CustomDialoguerTheme::new())
+            .with_prompt(prompt_message)
             .items_checked(&items.iter().map(|item| (item, true)).collect::<Vec<_>>())
             .interact()?;
         Ok(result)
@@ -207,5 +212,46 @@ impl Environment for RealEnvironment {
     #[inline]
     fn is_verbose(&self) -> bool {
         self.is_verbose
+    }
+}
+
+
+struct CustomDialoguerTheme {
+}
+
+impl CustomDialoguerTheme {
+    pub fn new() -> Self {
+        CustomDialoguerTheme {}
+    }
+}
+
+impl dialoguer::theme::Theme for CustomDialoguerTheme {
+    #[inline]
+    fn format_prompt(&self, f: &mut dyn std::fmt::Write, prompt: &str) -> std::fmt::Result {
+        // render without colon
+        write!(f, "{}", prompt)
+    }
+
+    #[inline]
+    fn format_input_prompt_selection(
+        &self,
+        f: &mut dyn std::fmt::Write,
+        prompt: &str,
+        sel: &str,
+    ) -> std::fmt::Result {
+        write!(f, "{}\n  {}", prompt, sel)
+    }
+
+    fn format_multi_select_prompt_selection(
+        &self,
+        f: &mut dyn std::fmt::Write,
+        prompt: &str,
+        selections: &[&str],
+    ) -> std::fmt::Result {
+        write!(f, "{}", prompt)?;
+        for sel in selections.iter() {
+            write!(f, "\n  * {}", sel)?;
+        }
+        Ok(())
     }
 }

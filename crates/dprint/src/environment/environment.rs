@@ -21,13 +21,16 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn log_error(&self, text: &str);
     /// Information to output when logging is silent.
     fn log_silent(&self, text: &str);
-    fn log_action_with_progress<TResult, TCreate : FnOnce() -> TResult>(&self, message: &str, action: TCreate) -> TResult;
+    async fn log_action_with_progress<
+        TResult: std::marker::Send + std::marker::Sync,
+        TCreate : FnOnce() -> TResult + std::marker::Send + std::marker::Sync
+    >(&self, message: &str, action: TCreate) -> Result<TResult, ErrBox>;
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox>;
     // async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox>;
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;
     fn get_time_secs(&self) -> u64;
-    fn get_selection(&self, items: &Vec<String>) -> Result<usize, ErrBox>;
-    fn get_multi_selection(&self, items: &Vec<String>) -> Result<Vec<usize>, ErrBox>;
+    fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox>;
+    fn get_multi_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<Vec<usize>, ErrBox>;
     fn is_verbose(&self) -> bool;
 }
 

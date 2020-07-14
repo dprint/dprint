@@ -294,13 +294,13 @@ async fn init_config_file(environment: &impl Environment, config_arg: &Option<St
 
         fn use_config_dir(environment: &impl Environment) -> Result<bool, ErrBox> {
             if environment.path_exists(&PathBuf::from("./config")) {
-                environment.log("Would you like to create the .dprintrc.json in the ./config directory?");
+                let prompt_message = "Would you like to create the .dprintrc.json in the ./config directory?";
                 let options = get_table_text(vec![
                     ("Yes", "Create it in the ./config directory."),
                     ("No", "Create it in the current working directory.")
                 ], 2);
 
-                Ok(environment.get_selection(&options)? == 0)
+                Ok(environment.get_selection(prompt_message, &options)? == 0)
             } else {
                 Ok(false)
             }

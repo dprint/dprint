@@ -45,7 +45,7 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
         let cache_key = self.get_cache_key(path_source)?;
         match path_source {
             PathSource::Remote(remote_source) => self.get_remote_plugin(cache_key, remote_source).await,
-            PathSource::Local(local_source) => self.get_local_plugin(cache_key, local_source),
+            PathSource::Local(local_source) => self.get_local_plugin(cache_key, local_source).await,
         }
     }
 
@@ -71,7 +71,7 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
         let file_bytes = self.environment.download_file(url_str).await?;
         let compile_result = self.environment.log_action_with_progress(&format!("Compiling {}", url_str), || {
             (self.compile)(&file_bytes)
-        })?;
+        }).await??;
 
         let serialized_plugin_info = match serde_json::to_string(&compile_result.plugin_info) {
             Ok(serialized_plugin_info) => serialized_plugin_info,
@@ -92,7 +92,7 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
         })
     }
 
-    fn get_local_plugin(&self, cache_key: String, local_source: &LocalPathSource) -> Result<PluginCacheItem, ErrBox> {
+    async fn get_local_plugin(&self, cache_key: String, local_source: &LocalPathSource) -> Result<PluginCacheItem, ErrBox> {
         let file_bytes = self.environment.read_file_bytes(&local_source.path)?;
         let file_hash = get_bytes_hash(&file_bytes);
         if let Some(cache_item) = self.cache.get_cache_item(&cache_key) {
@@ -118,7 +118,7 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
 
         let compile_result = self.environment.log_action_with_progress("Compiling wasm module...", || {
             (self.compile)(&file_bytes)
-        })?;
+        }).await??;
         let meta_data = LocalPluginMetaData {
             plugin_info: compile_result.plugin_info.clone(),
             file_hash,

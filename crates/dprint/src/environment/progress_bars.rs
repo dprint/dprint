@@ -1,14 +1,15 @@
 use std::sync::{Arc, Mutex};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use crate::types::ErrBox;
 
 struct ProgressState {
     progress: Arc<MultiProgress>,
     counter: usize,
+    finish_handle: tokio::task::JoinHandle<()>,
 }
 
 struct InternalState {
     progress_state: Option<ProgressState>,
-    create_drawing_task: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -26,67 +27,55 @@ impl ProgressBars {
         ProgressBars {
             state: Arc::new(Mutex::new(InternalState {
                 progress_state: None,
-                create_drawing_task: true,
             })),
         }
     }
 
     pub fn add_progress(&self, message: &str, style: ProgressBarStyle, total_size: u64) -> ProgressBar {
         let mut internal_state = self.state.lock().unwrap();
-        let create_drawing_task = internal_state.create_drawing_task;
-        if internal_state.progress_state.is_none() {
+        let pb = if internal_state.progress_state.is_none() {
+            let progress = Arc::new(MultiProgress::new());
+            let pb = progress.add(ProgressBar::new(total_size));
             internal_state.progress_state = Some(ProgressState {
-                progress: Arc::new(MultiProgress::new()),
-                counter: 0,
+                progress: progress.clone(),
+                counter: 1,
+                finish_handle: tokio::task::spawn_blocking(move || {
+                    progress.join_and_clear().unwrap();
+                }),
             });
-        }
+            pb
+        } else {
+            let internal_state = internal_state.progress_state.as_mut().unwrap();
+            let pb = internal_state.progress.add(ProgressBar::new(total_size));
+            internal_state.counter += 1;
+            pb
+        };
 
-        let mut progress_state = internal_state.progress_state.as_mut().unwrap();
-
-        let pb = progress_state.progress.add(ProgressBar::new(total_size));
         pb.set_style(self.get_style(style));
         pb.set_message(message);
-
-        progress_state.counter += 1;
-
-        if create_drawing_task {
-            let progress = progress_state.progress.clone();
-            internal_state.create_drawing_task = false;
-            let state = self.state.clone();
-            tokio::task::spawn_blocking(move || {
-                // Draw the progress on a dedicated task in order to prevent multiple threads
-                // from drawing at the same time. Since one thread could stop all the progress
-                // bars and another could immediately start before the join inside this task
-                // completes. That would cause overlapping text.
-                let mut progress = progress;
-                loop {
-                    progress.join_and_clear().unwrap();
-
-                    // After exiting, if a new MultiProgress has been created then use it and
-                    // continue drawing on this task.
-                    let mut state = state.lock().unwrap();
-                    if let Some(progress_state) = &state.progress_state.as_ref() {
-                        progress = progress_state.progress.clone();
-                    } else {
-                        state.create_drawing_task = true;
-                        break;
-                    }
-                }
-            });
-        }
 
         pb
     }
 
-    pub fn finish_one(&self) {
-        let mut state = self.state.lock().unwrap();
-        let mut progress_state = state.progress_state.as_mut().expect("Cannot call finish() without a corresponding add_progress().");
+    pub async fn finish_one(&self) -> Result<(), ErrBox> {
+        let previous_state = {
+            let mut internal_state = self.state.lock().unwrap();
+            let mut progress_state = internal_state.progress_state.as_mut().expect("Cannot call finish() without a corresponding add_progress().");
 
-        progress_state.counter -= 1;
+            progress_state.counter -= 1;
 
-        if progress_state.counter == 0 {
-            state.progress_state.take();
+            if progress_state.counter == 0 {
+                internal_state.progress_state.take()
+            } else {
+                None
+            }
+        };
+
+        if let Some(previous_state) = previous_state {
+            previous_state.finish_handle.await?;
         }
+
+        Ok(())
     }
 
     fn get_style(&self, style: ProgressBarStyle) -> ProgressStyle {

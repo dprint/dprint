@@ -58,7 +58,7 @@ function buildText(pluginName, interfaceName, schemaFileName) {
                 writer.quote("type").write(": ").quote("string");
             }).write(",").newLine();
             writer.quote("locked").write(": ").inlineBlock(() => {
-                writer.quote("description").write(": ").quote("Whether the configuration is allowed to be overriden or extended.").write(",").newLine();
+                writer.quote("description").write(": ").quote("Whether the configuration is not allowed to be overriden or extended.").write(",").newLine();
                 writer.quote("type").write(": ").quote("boolean");
             }).write(",").newLine();
 

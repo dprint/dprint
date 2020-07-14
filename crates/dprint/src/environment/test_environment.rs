@@ -195,9 +195,12 @@ impl Environment for TestEnvironment {
         self.logged_messages.lock().unwrap().push(String::from(text));
     }
 
-    fn log_action_with_progress<TResult, TCreate : FnOnce() -> TResult>(&self, message: &str, action: TCreate) -> TResult {
+    async fn log_action_with_progress<
+        TResult: std::marker::Send + std::marker::Sync,
+        TCreate : FnOnce() -> TResult + std::marker::Send + std::marker::Sync
+    >(&self, message: &str, action: TCreate) -> Result<TResult, ErrBox> {
         self.log(message);
-        action()
+        Ok(action())
     }
 
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {
@@ -208,11 +211,13 @@ impl Environment for TestEnvironment {
         123456
     }
 
-    fn get_selection(&self, _: &Vec<String>) -> Result<usize, ErrBox> {
+    fn get_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<usize, ErrBox> {
+        self.log(prompt_message);
         Ok(*self.selection_result.lock().unwrap())
     }
 
-    fn get_multi_selection(&self, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+    fn get_multi_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+        self.log(prompt_message);
         Ok(self.multi_selection_result.lock().unwrap().clone())
     }
 
