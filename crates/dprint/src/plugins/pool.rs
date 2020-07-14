@@ -25,16 +25,18 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
         }
     }
 
-    pub fn add_plugin(&self, plugin: Box<dyn Plugin>) {
-        let plugin_name = String::from(plugin.name());
-        let plugin_extensions = plugin.file_extensions().clone();
+    pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>) {
         let mut pools = self.pools.lock().unwrap();
         let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.lock().unwrap();
-        pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
-        for extension in plugin_extensions.into_iter() {
-            // first added plugin takes precedence
-            if !extension_to_plugin_name_map.contains_key(&extension) {
-                extension_to_plugin_name_map.insert(extension, plugin_name.clone());
+        for plugin in plugins {
+            let plugin_name = String::from(plugin.name());
+            let plugin_extensions = plugin.file_extensions().clone();
+            pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
+            for extension in plugin_extensions.into_iter() {
+                // first added plugin takes precedence
+                if !extension_to_plugin_name_map.contains_key(&extension) {
+                    extension_to_plugin_name_map.insert(extension, plugin_name.clone());
+                }
             }
         }
     }

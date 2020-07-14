@@ -77,7 +77,8 @@ pub async fn run_cli<TEnvironment : Environment>(
 
     // do stdin format
     if let SubCommand::StdInFmt(stdin_fmt) = &args.sub_command {
-        return output_stdin_format(&stdin_fmt, environment, plugins);
+        plugin_pools.set_plugins(plugins);
+        return output_stdin_format(&stdin_fmt, environment, plugin_pools).await;
     }
 
     // output resolved config
@@ -85,16 +86,17 @@ pub async fn run_cli<TEnvironment : Environment>(
         return output_resolved_config(plugins, environment);
     }
 
-    let format_context = get_format_context(plugins, file_paths);
+    let file_paths_by_plugin = get_file_paths_by_plugin(&plugins, file_paths);
+    plugin_pools.set_plugins(plugins);
 
     // output resolved file paths
     if args.sub_command == SubCommand::OutputFilePaths {
-        output_file_paths(format_context.file_paths_by_plugin.values().flat_map(|x| x.iter()), environment);
+        output_file_paths(file_paths_by_plugin.values().flat_map(|x| x.iter()), environment);
         return Ok(());
     }
 
     // error if no file paths
-    if format_context.file_paths_by_plugin.is_empty() {
+    if file_paths_by_plugin.is_empty() {
         return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
     }
 
@@ -103,20 +105,15 @@ pub async fn run_cli<TEnvironment : Environment>(
 
     // check and format
     if args.sub_command == SubCommand::Check {
-        check_files(format_context, environment, plugin_pools).await
+        check_files(file_paths_by_plugin, environment, plugin_pools).await
     } else if args.sub_command == SubCommand::Fmt {
-        format_files(format_context, environment, plugin_pools).await
+        format_files(file_paths_by_plugin, environment, plugin_pools).await
     } else {
         unreachable!()
     }
 }
 
-struct FormatContext {
-    pub plugins: Vec<Box<dyn Plugin>>,
-    pub file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
-}
-
-fn get_format_context(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> FormatContext {
+fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
     let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for file_path in file_paths.into_iter() {
@@ -131,10 +128,7 @@ fn get_format_context(plugins: Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -
         }
     }
 
-    FormatContext {
-        plugins,
-        file_paths_by_plugin,
-    }
+    file_paths_by_plugin
 }
 
 async fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<(), ErrBox> {
@@ -308,10 +302,10 @@ async fn init_config_file(environment: &impl Environment, config_arg: &Option<St
     }
 }
 
-fn output_stdin_format<'a, TEnvironment: Environment>(
+async fn output_stdin_format<'a, TEnvironment: Environment>(
     stdin_fmt: &StdInFmt,
     environment: &TEnvironment,
-    plugins: Vec<Box<dyn Plugin>>,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
     let file_name = PathBuf::from(&stdin_fmt.file_name);
     let ext = match file_name.extension() {
@@ -319,26 +313,25 @@ fn output_stdin_format<'a, TEnvironment: Environment>(
         None => return err!("Could not find extension for {}", stdin_fmt.file_name),
     };
 
-    for plugin in plugins {
-        if plugin.file_extensions().contains(&ext) {
-            let initialized_plugin = plugin.initialize()?;
-            let result = initialized_plugin.format_text(&file_name, &stdin_fmt.file_text)?;
-            environment.log_silent(&result);
-            return Ok(());
-        }
+    if let Some(plugin_name) = plugin_pools.get_plugin_name_from_extension(&ext) {
+        let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
+        let initialized_plugin = plugin_pool.initialize_first().await?;
+        let result = initialized_plugin.format_text(&file_name, &stdin_fmt.file_text)?;
+        environment.log_silent(&result);
+        return Ok(());
     }
 
     err!("Could not find plugin to format the file with extension: {}", ext)
 }
 
 async fn check_files<TEnvironment : Environment>(
-    format_context: FormatContext,
+    file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
     let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-    run_parallelized(format_context, environment, plugin_pools, {
+    run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
         let not_formatted_files_count = not_formatted_files_count.clone();
         move |file_path, file_text, formatted_text, _, environment| {
             if formatted_text != file_text {
@@ -376,14 +369,14 @@ async fn check_files<TEnvironment : Environment>(
 }
 
 async fn format_files<TEnvironment : Environment>(
-    format_context: FormatContext,
+    file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
     let formatted_files_count = Arc::new(AtomicUsize::new(0));
-    let files_count: usize = format_context.file_paths_by_plugin.values().map(|x| x.len()).sum();
+    let files_count: usize = file_paths_by_plugin.values().map(|x| x.len()).sum();
 
-    run_parallelized(format_context, environment, plugin_pools, {
+    run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
         let formatted_files_count = formatted_files_count.clone();
         move |_, file_text, formatted_text, had_bom, _| {
             if formatted_text != file_text {
@@ -415,18 +408,12 @@ async fn format_files<TEnvironment : Environment>(
 }
 
 async fn run_parallelized<F, TEnvironment : Environment>(
-    format_context: FormatContext,
+    file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
     f: F,
 ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
-    let plugins = format_context.plugins;
-    let file_paths_by_plugin = format_context.file_paths_by_plugin;
-
-    for plugin in plugins.into_iter() {
-        plugin_pools.add_plugin(plugin);
-    }
 
     let handles = file_paths_by_plugin.into_iter().map(|(plugin_name, file_paths)| {
         let plugin_pools = plugin_pools.clone();
@@ -1556,6 +1543,15 @@ SOFTWARE.
         let test_std_in = TestStdInReader::new_with_text("text");
         let error_message = run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.ts"], &environment, test_std_in).await.err().unwrap();
         assert_eq!(error_message.to_string(), "Could not find plugin to format the file with extension: ts");
+    }
+
+    #[tokio::test]
+    async fn it_should_format_stdin_calling_other_plugin() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
+        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.txt"], &environment, test_std_in).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec!["format this text_formatted"]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
     }
 
     fn get_singular_formatted_text() -> String {
