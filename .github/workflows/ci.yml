@@ -130,7 +130,7 @@ jobs:
         body: |
           ## Changes
 
-            * TODO
+           * TODO
 
           ## Install
 
@@ -157,8 +157,8 @@ jobs:
 
           |System|Binary|
           |:--|:--|
-          |Linux|{{steps.linux_pre_release.outputs.BINARY_CHECKSUM}}|
-          |Mac|{{steps.mac_pre_release.outputs.BINARY_CHECKSUM}}|
-          |Windows|{{steps.windows_pre_release.outputs.BINARY_CHECKSUM}}|
-          |Windows Installer|{{steps.windows_pre_release.outputs.INSTALLER_CHECKSUM}}|
+          |Linux|${{steps.linux_pre_release.outputs.BINARY_CHECKSUM}}|
+          |Mac|${{steps.mac_pre_release.outputs.BINARY_CHECKSUM}}|
+          |Windows|${{steps.windows_pre_release.outputs.BINARY_CHECKSUM}}|
+          |Windows Installer|${{steps.windows_pre_release.outputs.INSTALLER_CHECKSUM}}|
         draft: true
