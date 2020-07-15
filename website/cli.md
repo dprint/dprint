@@ -118,7 +118,7 @@ dprint output-format-times
 
 Example output:
 
-```
+```text
 0ms - C:\dev\my-project\.dprintrc.json
 0ms - C:\dev\my-project\README.md
 1ms - C:\dev\my-project\other-file.md
