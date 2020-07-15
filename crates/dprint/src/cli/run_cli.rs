@@ -837,6 +837,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_should_output_format_times() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
+        environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
+        run_test_cli(vec!["output-format-times", "**/*.txt"], &environment).await.unwrap();
+        let logged_messages = environment.get_logged_messages();
+        assert_eq!(logged_messages.len(), 2); // good enough
+    }
+
+    #[tokio::test]
     async fn it_should_format_files() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         let file_path = PathBuf::from("/file.txt");

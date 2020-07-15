@@ -108,6 +108,29 @@ json: {
 }
 ```
 
+### Outputting format times
+
+It can be useful to know what files take a long time to format as you may consider skipping them. To see this information, use the following command:
+
+```bash
+dprint output-format-times
+```
+
+Example output:
+
+```
+0ms - C:\dev\my-project\.dprintrc.json
+0ms - C:\dev\my-project\README.md
+1ms - C:\dev\my-project\other-file.md
+2ms - C:\dev\my-project\package.json
+2ms - C:\dev\my-project\my-markdown-file.md
+4ms - C:\dev\my-project\test.ts
+5ms - C:\dev\my-project\docs\info.md
+16ms - C:\dev\my-project\my-file.ts
+46ms - C:\dev\my-project\docs\overview.md
+54ms - C:\dev\my-project\build.js
+```
+
 ### Verbose
 
 It is sometimes useful to see what's going on under the hood. For those cases, run dprint with the `--verbose` flag.
