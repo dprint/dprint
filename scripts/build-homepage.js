@@ -38,6 +38,7 @@ function buildWebsite() {
         "build-website/index.html",
         {
             page_title: "dprint - Code Formatter",
+            title: "dprint - Code Formatter",
             description: "A pluggable and configurable code formatting platform written in Rust.",
         },
         indexHtmlText,
