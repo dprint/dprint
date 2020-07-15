@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use colored::Colorize;
 
 use crate::cache::Cache;
@@ -108,6 +109,8 @@ pub async fn run_cli<TEnvironment : Environment>(
         check_files(file_paths_by_plugin, environment, plugin_pools).await
     } else if args.sub_command == SubCommand::Fmt {
         format_files(file_paths_by_plugin, environment, plugin_pools).await
+    } else if args.sub_command == SubCommand::OutputFormatTimes {
+        output_format_times(file_paths_by_plugin, environment, plugin_pools).await
     } else {
         unreachable!()
     }
@@ -333,7 +336,7 @@ async fn check_files<TEnvironment : Environment>(
 
     run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
         let not_formatted_files_count = not_formatted_files_count.clone();
-        move |file_path, file_text, formatted_text, _, environment| {
+        move |file_path, file_text, formatted_text, _, _, environment| {
             if formatted_text != file_text {
                 not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
                 match get_difference(&file_text, &formatted_text) {
@@ -378,7 +381,7 @@ async fn format_files<TEnvironment : Environment>(
 
     run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
         let formatted_files_count = formatted_files_count.clone();
-        move |_, file_text, formatted_text, had_bom, _| {
+        move |_, file_text, formatted_text, had_bom, _, _| {
             if formatted_text != file_text {
                 let new_text = if had_bom {
                     // add back the BOM
@@ -407,12 +410,38 @@ async fn format_files<TEnvironment : Environment>(
     Ok(())
 }
 
+async fn output_format_times<TEnvironment : Environment>(
+    file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
+    environment: &TEnvironment,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
+) -> Result<(), ErrBox> {
+    let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
+
+    run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
+        let durations = durations.clone();
+        move |file_path, _, _, _, start_instant, _| {
+            let duration = start_instant.elapsed().as_millis();
+            let mut durations = durations.lock().unwrap();
+            durations.push((file_path.to_owned(), duration));
+            Ok(None)
+        }
+    }).await?;
+
+    let mut durations = durations.lock().unwrap();
+    durations.sort_by_key(|k| k.1);
+    for (file_path, duration) in durations.iter() {
+        environment.log(&format!("{}ms - {}", duration, file_path.display()));
+    }
+
+    Ok(())
+}
+
 async fn run_parallelized<F, TEnvironment : Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
     f: F,
-) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
+) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
 
     let handles = file_paths_by_plugin.into_iter().map(|(plugin_name, file_paths)| {
@@ -452,7 +481,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         environment: &TEnvironment,
         f: F,
         error_count: Arc<AtomicUsize>,
-    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
+    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
         let plugin_pool = plugin_pools.get_pool(plugin_name).expect("Could not get the plugin pool.");
 
         // get a plugin from the pool then propagate up its configuration diagnostics if necessary
@@ -490,7 +519,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         environment: &TEnvironment,
         plugin_pool: Arc<InitializedPluginPool<TEnvironment>>,
         f: F
-    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
+    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
         let file_text = environment.read_file_async(&file_path).await?;
         let had_bom = file_text.starts_with(BOM_CHAR);
         let file_text = if had_bom {
@@ -500,7 +529,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             &file_text
         };
 
-        let formatted_text = {
+        let (start_instant, formatted_text) = {
             // If this returns None, then that means a new instance of a plugin needs
             // to be created for the pool. So this spawns a task creating that pool
             // item, but then goes back to the pool and asks for an instance in case
@@ -519,14 +548,14 @@ async fn run_parallelized<F, TEnvironment : Environment>(
                 }
             };
 
-            let start_instant = std::time::Instant::now();
+            let start_instant = Instant::now();
             let format_text_result = initialized_plugin.format_text(file_path, file_text);
             log_verbose!(environment, "Formatted file: {} in {}ms", file_path.display(), start_instant.elapsed().as_millis());
-            plugin_pool.release(initialized_plugin);
-            format_text_result? // release, then propagate error
+            plugin_pool.release(initialized_plugin); // release, then propagate error
+            (start_instant, format_text_result?)
         };
 
-        let result = f(&file_path, file_text, formatted_text, had_bom, &environment)?;
+        let result = f(&file_path, file_text, formatted_text, had_bom, start_instant, &environment)?;
 
         // todo: make the `f` async... couldn't figure it out...
         if let Some(result) = result {
@@ -1585,6 +1614,7 @@ SUBCOMMANDS:
     check                     Checks for any files that haven't been formatted.
     output-file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
     output-resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
+    output-format-times       Prints the amount of time it takes to format each file. Use this for debugging.
     clear-cache               Deletes the plugin cache directory.
     license                   Outputs the software license.
 

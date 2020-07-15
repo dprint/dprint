@@ -28,6 +28,7 @@ pub enum SubCommand {
     ClearCache,
     OutputFilePaths,
     OutputResolvedConfig,
+    OutputFormatTimes,
     Version,
     License,
     Help(String),
@@ -60,6 +61,8 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
         SubCommand::OutputFilePaths
     } else if matches.is_present("output-resolved-config") {
         SubCommand::OutputResolvedConfig
+    } else if matches.is_present("output-format-times") {
+        SubCommand::OutputFormatTimes
     } else if matches.is_present("version") {
         SubCommand::Version
     } else if matches.is_present("license") {
@@ -167,6 +170,10 @@ EXAMPLES:
         .subcommand(
             SubCommand::with_name("output-resolved-config")
                 .about("Prints the resolved configuration for the plugins based on the args and configuration.")
+        )
+        .subcommand(
+            SubCommand::with_name("output-format-times")
+                .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         )
         .subcommand(
             SubCommand::with_name("clear-cache")
