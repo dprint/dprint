@@ -13,6 +13,8 @@ dprint fmt
 
 ## Editor Demo
 
+With "format on save" enabled:
+
 <video width="600" height="366" poster="/videos/editor-demo-thumbnail.png" controls>
     <source src="/videos/editor-demo.mp4" type="video/mp4">
     <p>Your browser doesn't support HTML5 video. See video <a href="/videos/editor-demo.mp4">here</a>.

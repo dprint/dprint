@@ -12,8 +12,6 @@ buildWebsite();
 buildFormatter();
 
 function buildWebsite() {
-    const titleInjectText = "<!-- title-inject -->";
-    const descriptionInjectText = "<!-- description-inject -->";
     const additionalInjectText = "<!-- additional-inject -->";
     const injectText = "<!-- inject -->";
 
@@ -28,6 +26,9 @@ function buildWebsite() {
     const fullPageHtmlPageFilePath = "../website/templates/full-page.html";
     const fullPageHtmlPageText = fs.readFileSync(fullPageHtmlPageFilePath, { encoding: "utf8" });
 
+    const blogPostHtmlPageFilePath = "../website/templates/blog-post.html";
+    const blogPostHtmlPageText = fs.readFileSync(blogPostHtmlPageFilePath, { encoding: "utf8" });
+
     const converter = new showdown.Converter({ extensions: ["codehighlight"], metadata: true });
     converter.setFlavor("github");
 
@@ -35,16 +36,18 @@ function buildWebsite() {
     const indexHtmlText = fs.readFileSync("../website/index.html", { encoding: "utf8" });
     writeHtmlFile(
         "build-website/index.html",
-        "dprint - Code Formatter",
-        "A pluggable and configurable code formatting platform written in Rust.",
+        {
+            page_title: "dprint - Code Formatter",
+            description: "A pluggable and configurable code formatting platform written in Rust.",
+        },
         indexHtmlText,
-        true,
     );
 
     buildForPath("pricing", fullPageHtmlPageText);
     buildForPath("thank-you", fullPageHtmlPageText);
     buildForPath("privacy-policy", fullPageHtmlPageText);
     buildForPath("contact", fullPageHtmlPageText);
+    buildForPath("blog", fullPageHtmlPageText);
 
     buildForPath("cli", documentationHtmlPageText);
     buildForPath("config", documentationHtmlPageText);
@@ -60,6 +63,8 @@ function buildWebsite() {
     buildForPath("plugins/markdown", documentationHtmlPageText);
     buildForPath("plugins/markdown/config", documentationHtmlPageText);
     buildForPath("plugins/rustfmt", documentationHtmlPageText);
+
+    buildForPath("blog/dprint-rewritten-in-rust", blogPostHtmlPageText);
 
     // minify index.css
     const sassFilePath = "../website/css/style.scss";
@@ -78,52 +83,59 @@ function buildWebsite() {
     function buildForPath(filePath, subTemplateText) {
         const mdText = fs.readFileSync("../website/" + filePath + ".md", { encoding: "utf8" });
         fs.mkdirSync("build-website/" + filePath);
-        let html;
-        let metaData;
-        if (subTemplateText != null) {
-            const mdResult = processMarkdown(mdText);
-            html = subTemplateText.replace(injectText, mdResult.html);
-            metaData = mdResult.metaData;
-        } else {
-            const mdResult = processMarkdown(mdText);
-            html = mdResult.html;
-            metaData = mdResult.metaData;
-        }
+        const mdResult = processMarkdown(mdText);
+        const html = subTemplateText.replace(injectText, mdResult.html);
+        /** @type {any} */
+        const metaData = mdResult.metaData;
+        verifyMetaData();
         writeHtmlFile(
             "build-website/" + filePath + "/index.html",
-            getTitle(),
-            getDescription(),
+            metaData,
             html,
-            // @ts-ignore
-            metaData.robots !== "false",
         );
 
-        function getTitle() {
+        function verifyMetaData() {
             if (metaData.title == null) {
                 throw new Error("Could not find title metadata for " + filePath);
             }
-            return metaData.title + " - dprint - Code Formatter";
-        }
-
-        function getDescription() {
+            metaData.page_title = metaData.title + " - dprint - Code Formatter";
             if (metaData.description == null) {
                 throw new Error("Could not find description metadata for " + filePath);
             }
-            return metaData.description;
         }
     }
 
     /** @param {string} [filePath] - File path to write to. */
-    /** @param {string} [title] - Title of the html file. */
-    /** @param {string} [description] - Description of the html file. */
+    /** @param {any} [metaData] - Title of the html file. */
     /** @param {string} [html] - Html to write. */
-    /** @param {boolean} [robots] - Set to false to disallow robots. */
-    function writeHtmlFile(filePath, title, description, html, robots) {
-        html = templateHtmlPageText
-            .replace(titleInjectText, title)
-            .replace(descriptionInjectText, description)
-            .replace(injectText, html)
-            .replace(additionalInjectText, robots ? "" : "<meta name=\"robots\" content=\"noindex\">");
+    function writeHtmlFile(filePath, metaData, html) {
+        html = templateHtmlPageText.replace(injectText, html);
+        for (const prop of Object.keys(metaData)) {
+            if (prop === "robots") {
+                if (metaData[prop] === false) {
+                    html = html.replace(additionalInjectText, "<meta name=\"robots\" content=\"noindex\">");
+                }
+            } else if (prop === "author") {
+                if (metaData[prop] !== "David Sherret") {
+                    throw new Error("Unhandled author.");
+                }
+            } else {
+                const newText = html.replace(new RegExp("\{\{" + prop + "\}\}", "gi"), metaData[prop]);
+                if (newText === html && prop !== "title") {
+                    throw new Error("The text did not change after applying meta data: " + prop);
+                } else {
+                    html = newText;
+                }
+            }
+        }
+
+        html = html.replace(additionalInjectText, "");
+
+        if (html.includes("{{") || html.includes("inject")) {
+            console.log(html);
+            throw new Error(`The page ${filePath} still had a template in it.`);
+        }
+
         fs.writeFileSync(filePath, htmlMinify(html, { collapseWhitespace: true }));
     }
 

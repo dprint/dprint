@@ -132,13 +132,33 @@ body {
   margin: 1rem 0;
 }
 
+#content-body {
+  &.documentation {
+    @media (min-width: $tablet) {
+      padding-right: 2rem;
+    }
+
+    @media (min-width: $content-width) {
+      max-width: 80%; // to constrain code blocks
+    }
+    @media (min-width: $tablet) and (max-width: $content-width) {
+      max-width: 76%;
+    }
+  }
+
+  &.full-page {
+    @media (min-width: $tablet) {
+      padding: 0 2rem;
+    }
+  }
+}
+
 pre code {
   display: block;
   padding: 10px;
   background-color: #333;
   border-radius: 3px;
   overflow-x: auto;
-  white-space: pre-wrap; // remove this eventually...
 }
 
 code {
@@ -233,4 +253,20 @@ code {
 
 #pricing-subscribe {
   margin-left: 0.5rem;
+}
+
+// blog
+
+article {
+  @media (min-width: $tablet) {
+    padding: 0 2.5rem;
+  }
+
+  h1.title {
+    margin-bottom: 0.5rem !important;
+  }
+
+  .blog-date-author {
+    color: #ccc;
+  }
 }
