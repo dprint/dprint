@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use colored::Colorize;
-use tokio::sync::Semaphore;
 
 use crate::cache::Cache;
 use crate::environment::Environment;
@@ -444,18 +443,14 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     f: F,
 ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
-    // this semaphore prevents the "Too many open files" error on Mac (issue 264)
-    // and limits the amount of files loaded into memory at a time
-    let max_concurrent_files_semaphore = Arc::new(Semaphore::new(32));
 
     let handles = file_paths_by_plugin.into_iter().map(|(plugin_name, file_paths)| {
         let plugin_pools = plugin_pools.clone();
         let environment = environment.to_owned();
         let f = f.clone();
         let error_count = error_count.clone();
-        let max_concurrent_files_semaphore = max_concurrent_files_semaphore.clone();
         tokio::task::spawn(async move {
-            let result = inner_run(&plugin_name, file_paths, plugin_pools, &environment, f, error_count.clone(), max_concurrent_files_semaphore).await;
+            let result = inner_run(&plugin_name, file_paths, plugin_pools, &environment, f, error_count.clone()).await;
             if let Err(err) = result {
                 environment.log_error(&format!("[{}]: {}", plugin_name, err.to_string()));
                 error_count.fetch_add(1, Ordering::SeqCst);
@@ -486,7 +481,6 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         environment: &TEnvironment,
         f: F,
         error_count: Arc<AtomicUsize>,
-        max_concurrent_files_semaphore: Arc<Semaphore>,
     ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
         let plugin_pool = plugin_pools.get_pool(plugin_name).expect("Could not get the plugin pool.");
 
@@ -494,6 +488,10 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         let plugin = plugin_pool.initialize_first().await?;
         output_plugin_config_diagnostics(&plugin_name, &plugin, environment)?;
         plugin_pool.release(plugin);
+
+        // this semaphore prevents the "Too many open files" error on Mac (issue 264)
+        // and limits the amount of files loaded into memory at a time
+        let max_concurrent_files_semaphore = Arc::new(tokio::sync::Semaphore::new(8)); // per plugin
 
         let handles = file_paths.into_iter().map(|file_path| {
             let environment = environment.to_owned();

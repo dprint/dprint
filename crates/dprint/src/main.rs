@@ -44,4 +44,3 @@ async fn run() -> Result<(), types::ErrBox> {
 
     cli::run_cli(args, &environment, &cache, &plugin_resolver, plugin_pools).await
 }
-
