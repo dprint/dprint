@@ -68,7 +68,7 @@
       "type": "boolean",
       "default": false
     },
-    "newlineKind": {
+    "newLineKind": {
       "description": "The kind of newline to use.",
       "type": "string",
       "oneOf": [
