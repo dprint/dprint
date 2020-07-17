@@ -56,6 +56,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
     let mut json_text = String::from("{\n");
     json_text.push_str("  \"$schema\": \"https://dprint.dev/schemas/v0.json\",\n");
     json_text.push_str(&format!("  \"projectType\": \"{}\",\n", project_type_name));
+    json_text.push_str("  \"incremental\": true,\n");
 
     if let Some(selected_plugins) = &selected_plugins {
         for plugin in selected_plugins.iter() {
@@ -149,6 +150,7 @@ mod test {
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "commercialTrial",
+  "incremental": true,
   "typescript": {
   },
   "json": {
@@ -184,6 +186,7 @@ mod test {
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "commercialTrial",
+  "incremental": true,
   "json": {
     "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
   },
@@ -213,6 +216,7 @@ mod test {
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "commercialTrial",
+  "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [],
   "plugins": [
@@ -235,6 +239,7 @@ mod test {
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "commercialTrial",
+  "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
     "**/node_modules",
@@ -279,6 +284,7 @@ mod test {
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "commercialPaid",
+  "incremental": true,
   "typescript": {
   },
   "includes": ["**/*.{ts}"],
@@ -318,6 +324,7 @@ mod test {
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "commercialTrial",
+  "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
     "**/node_modules",
