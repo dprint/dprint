@@ -43,9 +43,9 @@ Example output:
 
 ![Example of dprint check output.](/images/check-example.png "Example of dprint check output.")
 
-## Formatting incrementally
+## Incremental Formatting
 
-You may specify to only format files that have changed since the last time you ran `dprint fmt` by specifying an `--incremental` flag:
+You may specify to only format files that have changed since the last time you formatted the code using the `--incremental` flag:
 
 ```bash
 dprint fmt --incremental

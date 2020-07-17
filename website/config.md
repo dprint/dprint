@@ -128,7 +128,7 @@ Note: The `includes` and `excludes` of extended configuration is ignored for sec
 
 ## Incremental
 
-You may specify to only format files that have changed since the last time you ran `dprint fmt` by specifying `"incremental": true`:
+You may specify to only format files that have changed since the last time you formatted the code:
 
 ```jsonc
 {
@@ -138,7 +138,7 @@ You may specify to only format files that have changed since the last time you r
 }
 ```
 
-Alternatively, you may specify an `--incremental` flag on the CLI:
+Alternatively, use an `--incremental` flag on the CLI:
 
 ```bash
 dprint fmt --incremental
