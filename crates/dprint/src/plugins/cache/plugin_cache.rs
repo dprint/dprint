@@ -81,7 +81,7 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
         let cache_item = self.cache.create_cache_item(CreateCacheItemOptions {
             key: cache_key,
             extension: "compiled_wasm",
-            bytes: &compile_result.bytes,
+            bytes: Some(&compile_result.bytes),
             meta_data: Some(serialized_plugin_info),
         })?;
         let file_path = self.cache.resolve_cache_item_file_path(&cache_item);
@@ -131,7 +131,7 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
         let cache_item = self.cache.create_cache_item(CreateCacheItemOptions {
             key: cache_key,
             extension: "compiled_wasm",
-            bytes: &compile_result.bytes,
+            bytes: Some(&compile_result.bytes),
             meta_data: Some(serialized_meta_data),
         })?;
         let file_path = self.cache.resolve_cache_item_file_path(&cache_item);

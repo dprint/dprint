@@ -43,6 +43,26 @@ Example output:
 
 ![Example of dprint check output.](/images/check-example.png "Example of dprint check output.")
 
+## Formatting incrementally
+
+You may specify to only format files that have changed since the last time you ran `dprint fmt` by specifying an `--incremental` flag:
+
+```bash
+dprint fmt --incremental
+```
+
+Alternatively, you may specify this in the `.dprintrc.json` configuration file:
+
+```jsonc
+{
+  // etc...
+  "incremental": true
+  // etc...
+}
+```
+
+Doing this will drastically improve performance.
+
 ## Using a Custom Config File Path or URL
 
 Instead of the default path of _.dprintrc.json_ or _config/.dprintrc.json_, you can specify a path to a configuration file via the `--config` or `-c` flag.

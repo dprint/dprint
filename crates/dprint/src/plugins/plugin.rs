@@ -21,6 +21,9 @@ pub trait Plugin : std::marker::Send + std::marker::Sync {
     fn set_config(&mut self, plugin_config: HashMap<String, String>, global_config: GlobalConfiguration);
     /// Initializes the plugin.
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox>;
+    /// Gets a hash that represents the current state of the plugin.
+    /// This is used for the "incremental" feature to tell if a plugin has changed state.
+    fn get_hash(&self) -> u64;
 }
 
 pub trait InitializedPlugin : std::marker::Send {
@@ -65,6 +68,9 @@ impl Plugin for TestPlugin {
     fn set_config(&mut self, _: HashMap<String, String>, _: GlobalConfiguration) {}
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         Ok(Box::new(self.initialized_test_plugin.clone().unwrap()))
+    }
+    fn get_hash(&self) -> u64 {
+        0
     }
 }
 

@@ -35,6 +35,11 @@
         }
       ]
     },
+    "incremental": {
+      "description": "Whether to format files only when they change. Setting this to `true` will dramatically speed up formatting.",
+      "type": "boolean",
+      "default": false
+    },
     "extends": {
       "description": "Configurations to extend.",
       "anyOf": [{

@@ -1,5 +1,6 @@
 mod arg_parser;
 mod configuration;
+pub mod incremental;
 mod run_cli;
 mod stdin_reader;
 

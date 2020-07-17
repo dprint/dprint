@@ -142,7 +142,12 @@ impl Environment for RealEnvironment {
     }
 
     fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox> {
-        Ok(path.canonicalize()?)
+        // use this to avoid //?//C:/etc... like paths on windows (UNC)
+        Ok(dunce::canonicalize(path)?)
+    }
+
+    fn is_absolute_path(&self, path: &PathBuf) -> bool {
+        path.is_absolute()
     }
 
     fn cwd(&self) -> Result<PathBuf, ErrBox> {

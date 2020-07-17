@@ -17,6 +17,7 @@ See [Setup](/setup).
 {
   "$schema": "https://dprint.dev/schemas/v0.json",
   "projectType": "commercialTrial",
+  "incremental": true,
   "lineWidth": 80,
   "typescript": {
     // This applies to both JavaScript & TypeScript
@@ -124,6 +125,26 @@ Referencing multiple configuration files is also supported. These should be orde
 ```
 
 Note: The `includes` and `excludes` of extended configuration is ignored for security reasons so you will need to specify them in the main configuration file or via the CLI.
+
+## Incremental
+
+You may specify to only format files that have changed since the last time you ran `dprint fmt` or `dprint check` by specifying `"incremental": true`:
+
+```jsonc
+{
+  // etc...
+  "incremental": true
+  // etc...
+}
+```
+
+Alternatively, you may specify an `--incremental` flag on the CLI:
+
+```bash
+dprint fmt --incremental
+```
+
+Doing this will drastically improve performance.
 
 ## Global Configuration
 

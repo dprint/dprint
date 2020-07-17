@@ -14,7 +14,7 @@ pub struct Cache<TEnvironment : Environment> {
 pub struct CreateCacheItemOptions<'a> {
     pub key: String,
     pub extension: &'a str,
-    pub bytes: &'a [u8],
+    pub bytes: Option<&'a [u8]>,
     pub meta_data: Option<String>,
 }
 
@@ -39,15 +39,16 @@ impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
 
     pub fn create_cache_item<'b>(&self, options: CreateCacheItemOptions<'b>) -> Result<CacheItem, ErrBox> {
         let file_name = self.get_file_name_from_key(&options.key, &options.extension);
-        let file_path = self.cache_dir_path.join(&file_name);
-
         let cache_item = CacheItem {
             file_name,
             created_time: self.environment.get_time_secs(),
             meta_data: options.meta_data,
         };
 
-        self.environment.write_file_bytes(&file_path, &options.bytes)?;
+        if let Some(bytes) = options.bytes {
+            let file_path = self.resolve_cache_item_file_path(&cache_item);
+            self.environment.write_file_bytes(&file_path, bytes)?;
+        }
 
         self.cache_manifest.write().unwrap().add_item(options.key, cache_item.clone());
         self.save_manifest()?;
@@ -72,21 +73,28 @@ impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
     }
 
     fn get_file_name_from_key(&self, key: &str, extension: &str) -> String {
-        // try to get some kind of readable file name based on the key
-        let mut file_name = Vec::new();
-        for c in key.chars().rev() {
-            if c.is_alphanumeric() || c == '-' || c == '.' {
-                file_name.push(c);
-            } else if !file_name.is_empty() {
-                break;
+        return self.get_unique_file_name(&get_starting_file_name(key), extension);
+
+        fn get_starting_file_name(key: &str) -> String {
+            // try to get some kind of readable file name based on the key
+            let mut file_name = Vec::new();
+            for c in key.chars().rev() {
+                if c.is_alphanumeric() || c == '-' || c == '.' {
+                    file_name.push(c);
+                } else if !file_name.is_empty() {
+                    break;
+                }
+            }
+            file_name.reverse();
+
+            let file_name = file_name.into_iter().collect::<String>();
+            let standard_name = "temp-cache-item";
+            let file_name = PathBuf::from(if file_name.is_empty() { String::from(standard_name) } else { file_name });
+            match file_name.file_stem() {
+                Some(file_stem) => file_stem.to_str().unwrap_or(standard_name).to_string(),
+                None => standard_name.to_string()
             }
         }
-        file_name.reverse();
-
-        let file_name = file_name.into_iter().collect::<String>();
-        let file_name = PathBuf::from(if file_name.is_empty() { String::from("temp") } else { file_name });
-        let file_stem = file_name.file_stem().expect("Expected to find the file stem."); // no extension
-        self.get_unique_file_name(file_stem.to_str().unwrap(), extension)
     }
 
     fn get_unique_file_name(&self, prefix: &str, extension: &str) -> String {
@@ -148,7 +156,7 @@ mod test {
         let cache_item1 = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("prefix/test"),
             extension: "test",
-            bytes: "t".as_bytes(),
+            bytes: Some("t".as_bytes()),
             meta_data: None,
         }).unwrap();
         assert_eq!(cache_item1.file_name, "test.test");
@@ -156,7 +164,7 @@ mod test {
         let cache_item2 = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("prefix2/test"),
             extension: "test",
-            bytes: "t".as_bytes(),
+            bytes: Some("t".as_bytes()),
             meta_data: None,
         }).unwrap();
         assert_eq!(cache_item2.file_name, "test_2.test");
@@ -169,7 +177,7 @@ mod test {
         let cache_item = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("test"),
             extension: ".test",
-            bytes: "t".as_bytes(),
+            bytes: Some("t".as_bytes()),
             meta_data: None,
         }).unwrap();
 
@@ -190,7 +198,7 @@ mod test {
         let cache_item = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("test"),
             extension: ".test",
-            bytes: "t".as_bytes(),
+            bytes: Some("t".as_bytes()),
             meta_data: None,
         }).unwrap();
         let cache_item_file_path = cache.resolve_cache_item_file_path(&cache_item);

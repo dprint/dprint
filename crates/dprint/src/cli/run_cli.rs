@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use colored::Colorize;
 
-use crate::cache::Cache;
+use crate::cache::{Cache, CreateCacheItemOptions};
 use crate::environment::Environment;
 use crate::configuration::{self, get_global_config, get_plugin_config_map};
 use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
@@ -14,6 +14,7 @@ use crate::types::ErrBox;
 
 use super::{CliArgs, SubCommand, StdInFmt};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
+use super::incremental::IncrementalFile;
 
 const BOM_CHAR: char = '\u{FEFF}';
 
@@ -71,7 +72,7 @@ pub async fn run_cli<TEnvironment : Environment>(
     };
 
     // resolve plugins
-    let plugins = resolve_plugins(config, &args, environment, plugin_resolver).await?;
+    let plugins = resolve_plugins(&config, &args, environment, plugin_resolver).await?;
     if plugins.is_empty() {
         return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
     }
@@ -104,13 +105,17 @@ pub async fn run_cli<TEnvironment : Environment>(
     // surface the project type error at this point
     project_type_result?;
 
+    // check output format times
+    if args.sub_command == SubCommand::OutputFormatTimes {
+        return output_format_times(file_paths_by_plugin, environment, plugin_pools).await;
+    }
+
     // check and format
+    let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
     if args.sub_command == SubCommand::Check {
-        check_files(file_paths_by_plugin, environment, plugin_pools).await
+        check_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
     } else if args.sub_command == SubCommand::Fmt {
-        format_files(file_paths_by_plugin, environment, plugin_pools).await
-    } else if args.sub_command == SubCommand::OutputFormatTimes {
-        output_format_times(file_paths_by_plugin, environment, plugin_pools).await
+        format_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
     } else {
         unreachable!()
     }
@@ -235,7 +240,7 @@ async fn get_plugins_from_args<TEnvironment : Environment>(
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
     match resolve_config_from_args(args, cache, environment).await {
         Ok(config) => {
-            let plugins = resolve_plugins(config, args, environment, plugin_resolver).await?;
+            let plugins = resolve_plugins(&config, args, environment, plugin_resolver).await?;
             Ok(plugins)
         },
         Err(_) => {
@@ -331,10 +336,11 @@ async fn check_files<TEnvironment : Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
+    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
 ) -> Result<(), ErrBox> {
     let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-    run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
+    run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, {
         let not_formatted_files_count = not_formatted_files_count.clone();
         move |file_path, file_text, formatted_text, _, _, environment| {
             if formatted_text != file_text {
@@ -375,11 +381,12 @@ async fn format_files<TEnvironment : Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
+    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
 ) -> Result<(), ErrBox> {
     let formatted_files_count = Arc::new(AtomicUsize::new(0));
     let files_count: usize = file_paths_by_plugin.values().map(|x| x.len()).sum();
 
-    run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
+    run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, {
         let formatted_files_count = formatted_files_count.clone();
         move |_, file_text, formatted_text, had_bom, _, _| {
             if formatted_text != file_text {
@@ -417,7 +424,7 @@ async fn output_format_times<TEnvironment : Environment>(
 ) -> Result<(), ErrBox> {
     let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
-    run_parallelized(file_paths_by_plugin, environment, plugin_pools, {
+    run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, {
         let durations = durations.clone();
         move |file_path, _, _, _, start_instant, _| {
             let duration = start_instant.elapsed().as_millis();
@@ -440,6 +447,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
+    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
     f: F,
 ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
@@ -449,8 +457,10 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         let environment = environment.to_owned();
         let f = f.clone();
         let error_count = error_count.clone();
+        let incremental_file = incremental_file.clone();
+
         tokio::task::spawn(async move {
-            let result = inner_run(&plugin_name, file_paths, plugin_pools, &environment, f, error_count.clone()).await;
+            let result = inner_run(&plugin_name, file_paths, plugin_pools, incremental_file, &environment, f, error_count.clone()).await;
             if let Err(err) = result {
                 environment.log_error(&format!("[{}]: {}", plugin_name, err.to_string()));
                 error_count.fetch_add(1, Ordering::SeqCst);
@@ -466,6 +476,10 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         );
     }
 
+    if let Some(incremental_file) = incremental_file {
+        incremental_file.write();
+    }
+
     let error_count = error_count.load(Ordering::SeqCst);
     return if error_count == 0 {
         Ok(())
@@ -478,6 +492,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         plugin_name: &str,
         file_paths: Vec<PathBuf>,
         plugin_pools: Arc<PluginPools<TEnvironment>>,
+        incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
         environment: &TEnvironment,
         f: F,
         error_count: Arc<AtomicUsize>,
@@ -499,10 +514,11 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             let plugin_pool = plugin_pool.clone();
             let error_count = error_count.clone();
             let max_concurrent_files_semaphore = max_concurrent_files_semaphore.clone();
+            let incremental_file = incremental_file.clone();
 
             tokio::task::spawn(async move {
                 let permit = max_concurrent_files_semaphore.acquire().await;
-                match run_for_file_path(&file_path, &environment, plugin_pool, f).await {
+                match run_for_file_path(&file_path, &environment, incremental_file, plugin_pool, f).await {
                     Err(err) => {
                         environment.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err.to_string()));
                         error_count.fetch_add(1, Ordering::SeqCst);
@@ -524,6 +540,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     async fn run_for_file_path<F, TEnvironment : Environment>(
         file_path: &PathBuf,
         environment: &TEnvironment,
+        incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
         plugin_pool: Arc<InitializedPluginPool<TEnvironment>>,
         f: F
     ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
@@ -535,6 +552,13 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         } else {
             &file_text
         };
+
+        if let Some(incremental_file) = &incremental_file {
+            if incremental_file.is_file_same(file_path, &file_text) {
+                log_verbose!(environment, "No change: {}", file_path.display());
+                return Ok(());
+            }
+        }
 
         let (start_instant, formatted_text) = {
             // If this returns None, then that means a new instance of a plugin needs
@@ -562,6 +586,10 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             (start_instant, format_text_result?)
         };
 
+        if let Some(incremental_file) = &incremental_file {
+            incremental_file.update_file(file_path, &formatted_text);
+        }
+
         let result = f(&file_path, file_text, formatted_text, had_bom, start_instant, &environment)?;
 
         // todo: make the `f` async... couldn't figure it out...
@@ -574,28 +602,27 @@ async fn run_parallelized<F, TEnvironment : Environment>(
 }
 
 async fn resolve_plugins(
-    config: ResolvedConfig,
+    config: &ResolvedConfig,
     args: &CliArgs,
     environment: &impl Environment,
     plugin_resolver: &impl PluginResolver,
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-    let mut config = config;
-
     // resolve the plugins
-    let plugin_path_sources = get_plugin_path_sources(&mut config, args)?;
+    let plugin_path_sources = get_plugin_path_sources(config, args)?;
     let plugins = plugin_resolver.resolve_plugins(plugin_path_sources).await?;
+    let mut config_map = config.config_map.clone();
 
     // resolve each plugin's configuration
     let mut plugins_with_config = Vec::new();
     for plugin in plugins.into_iter() {
         plugins_with_config.push((
-            get_plugin_config_map(&plugin, &mut config.config_map)?,
+            get_plugin_config_map(&plugin, &mut config_map)?,
             plugin
         ));
     }
 
     // now get global config
-    let global_config = get_global_config(config.config_map, environment)?;
+    let global_config = get_global_config(config_map, environment)?;
 
     // now set each plugin's config
     let mut plugins = Vec::new();
@@ -633,7 +660,7 @@ fn check_project_type_diagnostic(config: &ResolvedConfig) -> Result<(), ErrBox> 
 
 fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
     let mut file_patterns = get_file_patterns(config, args);
-    let absolute_paths = take_absolute_paths(&mut file_patterns);
+    let absolute_paths = take_absolute_paths(&mut file_patterns, environment);
 
     let mut file_paths = environment.glob(&config.base_path, &file_patterns)?;
     file_paths.extend(absolute_paths);
@@ -675,20 +702,20 @@ fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &imp
         file_patterns
     }
 
-    fn take_absolute_paths(file_patterns: &mut Vec<String>) -> Vec<PathBuf> {
+    fn take_absolute_paths(file_patterns: &mut Vec<String>, environment: &impl Environment) -> Vec<PathBuf> {
         let len = file_patterns.len();
         let mut file_paths = Vec::new();
         for i in (0..len).rev() {
-            if is_absolute_path(&file_patterns[i]) {
+            if is_absolute_path(&file_patterns[i], environment) {
                 file_paths.push(PathBuf::from(file_patterns.swap_remove(i))); // faster
             }
         }
         file_paths
     }
 
-    fn is_absolute_path(file_pattern: &str) -> bool {
+    fn is_absolute_path(file_pattern: &str, environment: &impl Environment) -> bool {
         return !has_glob_chars(file_pattern)
-            && PathBuf::from(file_pattern).is_absolute();
+            && environment.is_absolute_path(&PathBuf::from(file_pattern));
 
         fn has_glob_chars(text: &str) -> bool {
             for c in text.chars() {
@@ -715,6 +742,47 @@ fn output_plugin_config_diagnostics(plugin_name: &str, plugin: &Box<dyn Initiali
         err!("Error initializing from configuration file. Had {} diagnostic(s).", diagnostic_count)
     } else {
         Ok(())
+    }
+}
+
+fn get_incremental_file<TEnvironment: Environment>(
+    args: &CliArgs,
+    config: &ResolvedConfig,
+    cache: &Cache<TEnvironment>,
+    plugin_pools: &PluginPools<TEnvironment>,
+    environment: &TEnvironment,
+) -> Option<Arc<IncrementalFile<TEnvironment>>> {
+    if args.incremental || config.incremental {
+        // the incremental file is stored in the cache with a key based on the root directory
+        let base_path = match environment.canonicalize(&config.base_path) {
+            Ok(base_path) => base_path,
+            Err(err) => {
+                environment.log_error(&format!("Could not canonicalize base path for incremental feature. {}", err));
+                return None;
+            }
+        };
+        let key = format!("incremental_cache:{}", base_path.to_string_lossy());
+        let cache_item = if let Some(cache_item) = cache.get_cache_item(&key) {
+            cache_item
+        } else {
+            let cache_item = cache.create_cache_item(CreateCacheItemOptions {
+                key,
+                extension: "incremental",
+                bytes: None,
+                meta_data: None,
+            });
+            match cache_item {
+                Ok(cache_item) => cache_item,
+                Err(err) => {
+                    environment.log_error(&format!("Could not create cache item for incremental feature. {}", err));
+                    return None;
+                }
+            }
+        };
+        let file_path = cache.resolve_cache_item_file_path(&cache_item);
+        Some(Arc::new(IncrementalFile::new(file_path, plugin_pools.get_plugins_hash(), environment.clone(), base_path)))
+    } else {
+        None
     }
 }
 
@@ -752,7 +820,8 @@ mod tests {
         let import_object_factory = PoolImportObjectFactory::new(plugin_pools.clone());
         let plugin_resolver = WasmPluginResolver::new(environment.clone(), plugin_cache, import_object_factory);
         let args = parse_args(args, &stdin_reader)?;
-        if args.is_silent_output() { environment.set_silent(); }
+        environment.set_silent(args.is_silent_output());
+        environment.set_verbose(args.verbose);
         run_cli(args, environment, &cache, &plugin_resolver, plugin_pools).await
     }
 
@@ -1335,6 +1404,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_should_format_incrementally_when_specified_on_cli() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        environment.write_file(&file_path1, "text1").unwrap();
+
+        run_test_cli(vec!["fmt", "--incremental"], &environment).await.unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+
+        environment.clear_logs();
+        run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+
+        // update the file and ensure it's formatted
+        environment.write_file(&file_path1, "asdf").unwrap();
+        environment.clear_logs();
+        run_test_cli(vec!["fmt", "--incremental"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "asdf_formatted");
+
+        // update the global config and ensure it's formatted
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "indentWidth": 2,
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.clear_logs();
+        run_test_cli(vec!["fmt", "--incremental"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), false);
+
+        // update the plugin config and ensure it's formatted
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "indentWidth": 2,
+            "test-plugin": {
+                "ending": "custom-formatted"
+            },
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.clear_logs();
+        run_test_cli(vec!["fmt", "--incremental"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "asdf_formatted_custom-formatted");
+
+        // change the cwd and ensure it's not formatted again
+        environment.clear_logs();
+        environment.set_cwd("/test/other/");
+        run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+    }
+
+    #[tokio::test]
+    async fn it_should_format_incrementally_when_specified_via_config() {
+        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "incremental": true,
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        environment.write_file(&file_path1, "text1").unwrap();
+
+        run_test_cli(vec!["fmt"], &environment).await.unwrap();
+
+        assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+
+        environment.clear_logs();
+        run_test_cli(vec!["fmt", "--verbose"], &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+    }
+
+    #[tokio::test]
     async fn it_should_error_when_missing_project_type() {
         let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
@@ -1642,6 +1797,8 @@ OPTIONS:
                                      overrides what is specified in the config file.
         --allow-node-modules         Allows traversing node module directories (unstable - This flag will be renamed to
                                      be non-node specific in the future).
+        --incremental                Only format files only when they change. This may alternatively be specified in the
+                                     configuration file.
         --plugins <urls/files>...    List of urls or file paths of plugins to use. This overrides what is specified in
                                      the config file.
         --verbose                    Prints additional diagnostic information.

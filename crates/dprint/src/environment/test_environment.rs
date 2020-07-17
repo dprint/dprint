@@ -10,6 +10,7 @@ use path_clean::{PathClean};
 
 #[derive(Clone)]
 pub struct TestEnvironment {
+    is_verbose: Arc<Mutex<bool>>,
     cwd: Arc<Mutex<String>>,
     files: Arc<Mutex<HashMap<PathBuf, Bytes>>>,
     logged_messages: Arc<Mutex<Vec<String>>>,
@@ -24,6 +25,7 @@ pub struct TestEnvironment {
 impl TestEnvironment {
     pub fn new() -> TestEnvironment {
         TestEnvironment {
+            is_verbose: Arc::new(Mutex::new(false)),
             cwd: Arc::new(Mutex::new(String::from("/"))),
             files: Arc::new(Mutex::new(HashMap::new())),
             logged_messages: Arc::new(Mutex::new(Vec::new())),
@@ -74,9 +76,14 @@ impl TestEnvironment {
         *cwd = String::from(new_path);
     }
 
-    pub fn set_silent(&self) {
+    pub fn set_silent(&self, value: bool) {
         let mut is_silent = self.is_silent.lock().unwrap();
-        *is_silent = true;
+        *is_silent = value;
+    }
+
+    pub fn set_verbose(&self, value: bool) {
+        let mut is_verbose = self.is_verbose.lock().unwrap();
+        *is_verbose = value;
     }
 }
 
@@ -176,6 +183,10 @@ impl Environment for TestEnvironment {
         Ok(file_path.clean())
     }
 
+    fn is_absolute_path(&self, path: &PathBuf) -> bool {
+        path.to_string_lossy().starts_with("/")
+    }
+
     fn cwd(&self) -> Result<PathBuf, ErrBox> {
         let cwd = self.cwd.lock().unwrap();
         Ok(PathBuf::from(cwd.to_owned()))
@@ -222,7 +233,7 @@ impl Environment for TestEnvironment {
     }
 
     fn is_verbose(&self) -> bool {
-        false
+        *self.is_verbose.lock().unwrap()
     }
 }
 

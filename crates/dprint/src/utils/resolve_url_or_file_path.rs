@@ -79,7 +79,7 @@ async fn resolve_url<TEnvironment : Environment>(
         cache.create_cache_item(CreateCacheItemOptions {
             key: cache_key,
             extension: "tmp",
-            bytes: &file_bytes,
+            bytes: Some(&file_bytes),
             meta_data: None,
         })?
     };

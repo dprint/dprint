@@ -58,12 +58,23 @@ impl<TImportObjectFactory : ImportObjectFactory> Plugin for WasmPlugin<TImportOb
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let import_object = self.import_object_factory.create_import_object(self.name());
         let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, import_object)?;
-        let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config before calling initialize.");
+        let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 
         wasm_plugin.set_global_config(&global_config);
         wasm_plugin.set_plugin_config(&plugin_config);
 
         Ok(Box::new(wasm_plugin))
+    }
+
+    fn get_hash(&self) -> u64 {
+        let config = self.config.as_ref().expect("Call set_config first.");
+        let mut hash_str = String::new();
+        // list everything in here that would affect formatting
+        hash_str.push_str(&self.plugin_info.name);
+        hash_str.push_str(&self.plugin_info.version);
+        hash_str.push_str(&serde_json::to_string(&config.0).unwrap());
+        hash_str.push_str(&serde_json::to_string(&config.1).unwrap());
+        crate::utils::get_bytes_hash(hash_str.as_bytes())
     }
 }
 

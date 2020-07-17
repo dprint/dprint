@@ -12,10 +12,12 @@ use super::resolve_main_config_path;
 
 pub struct ResolvedConfig {
     pub resolved_path: ResolvedPath,
+    /// The folder that should be considered the "root".
     pub base_path: PathBuf,
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
     pub plugins: Vec<PathSource>,
+    pub incremental: bool,
     pub project_type: Option<String>,
     pub config_map: ConfigMap,
 }
@@ -69,6 +71,7 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
     let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
     let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
     let plugins = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?;
+    let incremental = take_bool_from_config_map(&mut main_config_map, "incremental", false)?;
     let project_type = match main_config_map.remove("projectType") {
         Some(ConfigMapValue::String(project_type)) => Some(project_type),
         None => None,
@@ -82,6 +85,7 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
         includes,
         excludes,
         plugins,
+        incremental,
         project_type,
     };
 
@@ -239,6 +243,25 @@ fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -
                 result.extend(elements);
             },
             _ => return err!("Expected array in '{}' property.", property_name),
+        }
+    }
+    Ok(result)
+}
+
+fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, default_value: bool) -> Result<bool, ErrBox> {
+    let mut result = default_value;
+    if let Some(value) = config_map.remove(property_name) {
+        match value {
+            ConfigMapValue::String(value) => {
+                if value.to_lowercase() == "true" {
+                    result = true;
+                } else if value.to_lowercase() == "false" {
+                    result = false;
+                } else {
+                    return err!("Expected boolean in '{}' property.", property_name);
+                }
+            },
+            _ => return err!("Expected boolean in '{}' property.", property_name),
         }
     }
     Ok(result)
@@ -875,5 +898,46 @@ mod tests {
         assert_eq!(result.plugins, vec![
             PathSource::new_local(PathBuf::from("/other/testing/asdf.wasm"))
         ]);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_incremental_flag_when_not_specified() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["./testing/asdf.wasm"],
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.incremental, false);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_incremental_flag_when_true() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "projectType": "openSource",
+            "incremental": true,
+            "plugins": ["./testing/asdf.wasm"],
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.incremental, true);
+    }
+
+    #[tokio::test]
+    async fn it_should_handle_incremental_flag_when_false() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "projectType": "openSource",
+            "incremental": false,
+            "plugins": ["./testing/asdf.wasm"],
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.incremental, false);
     }
 }

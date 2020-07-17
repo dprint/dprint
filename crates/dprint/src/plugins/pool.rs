@@ -92,6 +92,18 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
             }
         }
     }
+
+    /// Gets a hash to be used for the "incremental" feature to tell if any plugins have changed.
+    pub fn get_plugins_hash(&self) -> u64 {
+        // yeah, I know adding hashes isn't right, but the chance of this not working
+        // in order to tell when a plugin has changed is super low.
+        let pools = self.pools.lock().unwrap();
+        let mut hash_sum = 0;
+        for (_, pool) in pools.iter() {
+            hash_sum += pool.plugin.get_hash();
+        }
+        hash_sum
+    }
 }
 
 pub struct InitializedPluginPool<TEnvironment : Environment> {

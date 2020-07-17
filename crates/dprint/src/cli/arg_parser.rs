@@ -5,6 +5,7 @@ pub struct CliArgs {
     pub sub_command: SubCommand,
     pub allow_node_modules: bool,
     pub verbose: bool,
+    pub incremental: bool,
     pub file_patterns: Vec<String>,
     pub exclude_file_patterns: Vec<String>,
     pub plugins: Vec<String>,
@@ -89,6 +90,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
     Ok(CliArgs {
         sub_command,
         verbose: matches.is_present("verbose"),
+        incremental: matches.is_present("incremental"),
         allow_node_modules: matches.is_present("allow-node-modules"),
         config: matches.value_of("config").map(String::from),
         file_patterns: values_to_vec(matches.values_of("files")),
@@ -233,6 +235,13 @@ EXAMPLES:
             Arg::with_name("allow-node-modules")
                 .long("allow-node-modules")
                 .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
+                .global(true)
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("incremental")
+                .long("incremental")
+                .help("Only format files only when they change. This may alternatively be specified in the configuration file.")
                 .global(true)
                 .takes_value(false),
         )
