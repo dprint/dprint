@@ -103,7 +103,7 @@ jobs:
       run: |
           cd target/release
           zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
-          echo ::set-output name=BINARY_CHECKSUM::$(shasum -a 256 dprint | awk '{print $1}')
+          echo "::set-output name=BINARY_CHECKSUM::$(shasum -a 256 dprint | awk '{print $1}')"
     - name: Pre-release (Mac)
       id: mac_pre_release
       if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
@@ -112,15 +112,15 @@ jobs:
           cd target/release
           zip -r dprint-x86_64-apple-darwin.zip dprint
           tar -czf dprint-x86_64-apple-darwin.tar.gz dprint
-          echo ::set-output name=BINARY_CHECKSUM::$(shasum -a 256 dprint | awk '{print $1}')
+          echo "::set-output name=BINARY_CHECKSUM::$(shasum -a 256 dprint | awk '{print $1}')"
     - name: Pre-release (Windows)
       id: windows_pre_release
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       run: |
           Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip
           mv scripts/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/release/dprint-x86_64-pc-windows-msvc-installer.exe
-          echo ::set-output name=BINARY_CHECKSUM::$(shasum -a 256 target/release/dprint.exe | awk '{print $1}')
-          echo ::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')
+          echo "::set-output name=BINARY_CHECKSUM::$(shasum -a 256 target/release/dprint.exe | awk '{print $1}')"
+          echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
 
     # UPLOAD ARTIFACTS
     - name: Upload Artifacts (Linux)
@@ -154,6 +154,13 @@ jobs:
     steps:
     - name: Download artifacts
       uses: actions/download-artifact@v2
+
+    - name: Output checksums
+      run: |
+        echo "Linux Binary: ${{needs.build.outputs.LINUX_BINARY_CHECKSUM}}"
+        echo "Mac Binary: ${{needs.build.outputs.MAC_BINARY_CHECKSUM}}"
+        echo "Windows Binary: ${{needs.build.outputs.WINDOWS_BINARY_CHECKSUM}}"
+        echo "Windows Installer: ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}"
 
     - name: Draft release
       uses: softprops/action-gh-release@v1
@@ -192,12 +199,12 @@ jobs:
           brew install dprint
           ```
 
-          ## SHA-256 Checksums
+          ## Checksums
 
-          |System|Binary|
+          |Artifact|SHA-256 Checksum|
           |:--|:--|
-          |Linux|${{needs.build.outputs.LINUX_BINARY_CHECKSUM}}|
-          |Mac|${{needs.build.outputs.MAC_BINARY_CHECKSUM}}|
-          |Windows|${{needs.build.outputs.WINDOWS_BINARY_CHECKSUM}}|
+          |Linux Binary|${{needs.build.outputs.LINUX_BINARY_CHECKSUM}}|
+          |Mac Binary|${{needs.build.outputs.MAC_BINARY_CHECKSUM}}|
+          |Windows Binary|${{needs.build.outputs.WINDOWS_BINARY_CHECKSUM}}|
           |Windows Installer|${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}|
         draft: true

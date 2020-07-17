@@ -72,8 +72,13 @@ impl<TImportObjectFactory : ImportObjectFactory> Plugin for WasmPlugin<TImportOb
         // list everything in here that would affect formatting
         hash_str.push_str(&self.plugin_info.name);
         hash_str.push_str(&self.plugin_info.version);
-        hash_str.push_str(&serde_json::to_string(&config.0).unwrap());
+
+        // serialize the config keys in order to prevent the hash from changing
+        let sorted_config: std::collections::BTreeMap::<&String, &String> = config.0.iter().collect();
+        hash_str.push_str(&serde_json::to_string(&sorted_config).unwrap());
+
         hash_str.push_str(&serde_json::to_string(&config.1).unwrap());
+
         crate::utils::get_bytes_hash(hash_str.as_bytes())
     }
 }

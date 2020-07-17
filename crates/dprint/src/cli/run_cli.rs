@@ -386,7 +386,7 @@ async fn format_files<TEnvironment : Environment>(
     let formatted_files_count = Arc::new(AtomicUsize::new(0));
     let files_count: usize = file_paths_by_plugin.values().map(|x| x.len()).sum();
 
-    run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, {
+    run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file.clone(), {
         let formatted_files_count = formatted_files_count.clone();
         move |_, file_text, formatted_text, had_bom, _, _| {
             if formatted_text != file_text {
@@ -412,6 +412,10 @@ async fn format_files<TEnvironment : Environment>(
     if formatted_files_count > 0 {
         let suffix = if files_count == 1 { "file" } else { "files" };
         environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold().to_string(), suffix));
+    }
+
+    if let Some(incremental_file) = &incremental_file {
+        incremental_file.write();
     }
 
     Ok(())
@@ -474,10 +478,6 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             "A panic occurred in a dprint plugin. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.\n  Error: {}",
             err.to_string()
         );
-    }
-
-    if let Some(incremental_file) = incremental_file {
-        incremental_file.write();
     }
 
     let error_count = error_count.load(Ordering::SeqCst);
@@ -1448,7 +1448,8 @@ mod tests {
             "projectType": "openSource",
             "indentWidth": 2,
             "test-plugin": {
-                "ending": "custom-formatted"
+                "ending": "custom-formatted",
+                "line_width": 80
             },
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1458,6 +1459,14 @@ mod tests {
         assert_eq!(environment.get_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.get_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "asdf_formatted_custom-formatted");
+
+        // Try this a few times. There was a bug where the config hashmap was being serialized causing
+        // random order and the hash to be new each time.
+        for _ in 1..4 {
+            environment.clear_logs();
+            run_test_cli(vec!["fmt", "--incremental"], &environment).await.unwrap();
+            assert_eq!(environment.get_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), false);
+        }
 
         // change the cwd and ensure it's not formatted again
         environment.clear_logs();
