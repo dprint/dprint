@@ -16,7 +16,7 @@ See [Setup](/setup).
 ```json
 {
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialTrial",
+  "projectType": "commercialSponsored",
   "incremental": true,
   "lineWidth": 80,
   "typescript": {
@@ -53,13 +53,13 @@ The `"projectType"` specifies the type of license being used to format the proje
 
 You must specify any of the following values:
 
-- `"openSource"` - Dprint is formatting an open source project whose primary maintainer is not a for-profit company (free).
-- `"educational"` - Dprint is formatting a project run by a student or being used for educational purposes (free).
-- `"nonProfit"` - Dprint is formatting a project whose primary maintainer is a non-profit organization (free).
-- `"commercialPaid"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer paid for a commercial license. Thank you for being part of moving this project forward!
-- `"commercialTrial"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and it is being evaluated for 30 days.
+- `"openSource"` - Dprint is formatting an open source project whose primary maintainer is not a for-profit company (no sponsorship requirement).
+- `"educational"` - Dprint is formatting a project run by a student or being used for educational purposes (no sponsorship requirement).
+- `"nonProfit"` - Dprint is formatting a project whose primary maintainer is a non-profit organization (no sponsorship requirement).
+- `"commercialSponsored"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!
+- `"commercialEvaluation"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and it is being evaluated for 30 days.
 
-See [Pricing](/pricing) for more details.
+See [Sponsor](/sponsor) for more details.
 
 ## Plugins
 

@@ -126,7 +126,7 @@ fn get_unique_items<T>(vec: Vec<T>) -> Vec<T> where T : PartialEq {
 
 fn get_project_type_name(environment: &impl Environment) -> Result<&'static str, ErrBox> {
     let project_type_infos = get_project_type_infos();
-    let prompt_message = "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n";
+    let prompt_message = "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n";
     let options = get_table_text(project_type_infos.iter().map(|info| (info.name, info.description)).collect(), 2);
     let project_type_index = environment.get_selection(prompt_message, &options)?;
     Ok(project_type_infos[project_type_index].name)
@@ -149,7 +149,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialTrial",
+  "projectType": "commercialEvaluation",
   "incremental": true,
   "typescript": {
   },
@@ -185,7 +185,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialTrial",
+  "projectType": "commercialEvaluation",
   "incremental": true,
   "json": {
     "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
@@ -215,7 +215,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialTrial",
+  "projectType": "commercialEvaluation",
   "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [],
@@ -238,7 +238,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialTrial",
+  "projectType": "commercialEvaluation",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
@@ -283,7 +283,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialPaid",
+  "projectType": "commercialSponsored",
   "incremental": true,
   "typescript": {
   },
@@ -323,7 +323,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialTrial",
+  "projectType": "commercialEvaluation",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
@@ -347,12 +347,12 @@ mod test {
     }
 
     fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {
-        vec!["What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n"]
+        vec!["What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n"]
     }
 
     fn get_standard_logged_messages() -> Vec<&'static str> {
         vec![
-            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
+            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
             "Select plugins (use the spacebar to select/deselect and then press enter when finished):"
         ]
     }

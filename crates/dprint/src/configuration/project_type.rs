@@ -33,7 +33,7 @@ fn build_message(project_type_infos: &Vec<ProjectTypeInfo>, property_name: &str)
     for option_text in option_texts {
         message.push_str(&format!("\n * {}", option_text))
     }
-    message.push_str("\n\nSee commercial pricing at: https://dprint.dev/pricing");
+    message.push_str("\n\nMore information: https://dprint.dev/sponsor");
     message
 }
 
@@ -44,35 +44,35 @@ pub struct ProjectTypeInfo {
 
 pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
     vec![ProjectTypeInfo {
-        name: "commercialTrial",
+        name: "commercialEvaluation",
         description: concat!(
             "Dprint is formatting a project whose primary maintainer is a for-profit\n",
-            "company or individual and it is being evaluated for 30 days."
+            "company or individual and it is being evaluated for 30 days.",
         )
     }, ProjectTypeInfo {
-        name: "commercialPaid",
+        name: "commercialSponsored",
         description: concat!(
             "Dprint is formatting a project whose primary maintainer is a for-profit\n",
-            "company or individual AND the primary maintainer paid for a commercial license.\n",
+            "company or individual AND the primary maintainer sponsored the project.\n",
             "Thank you for being part of moving this project forward!"
         ),
     }, ProjectTypeInfo {
         name: "openSource",
         description: concat!(
-            "Dprint is formatting an open source project whose primary maintainer\n",
-            "is not a for-profit company (free)."
+            "Dprint is formatting an open source project whose primary\n",
+            "maintainer is not a for-profit company (no sponsorship requirement)."
         )
     }, ProjectTypeInfo {
         name: "educational",
         description: concat!(
             "Dprint is formatting a project run by a student or being used for\n",
-            "educational purposes (free)."
+            "educational purposes (no sponsorship requirement)."
         )
     }, ProjectTypeInfo {
         name: "nonProfit",
         description: concat!(
             "Dprint is formatting a project whose primary maintainer is a non-profit\n",
-            "organization (free)."
+            "organization (no sponsorship requirement)."
         )
     }]
 }
@@ -105,19 +105,19 @@ mod tests {
 
 You may specify any of the following values and that will suppress this error:
 
- * commercialTrial Dprint is formatting a project whose primary maintainer is a for-profit
-                   company or individual and it is being evaluated for 30 days.
- * commercialPaid  Dprint is formatting a project whose primary maintainer is a for-profit
-                   company or individual AND the primary maintainer paid for a commercial license.
-                   Thank you for being part of moving this project forward!
- * openSource      Dprint is formatting an open source project whose primary maintainer
-                   is not a for-profit company (free).
- * educational     Dprint is formatting a project run by a student or being used for
-                   educational purposes (free).
- * nonProfit       Dprint is formatting a project whose primary maintainer is a non-profit
-                   organization (free).
+ * commercialEvaluation Dprint is formatting a project whose primary maintainer is a for-profit
+                        company or individual and it is being evaluated for 30 days.
+ * commercialSponsored  Dprint is formatting a project whose primary maintainer is a for-profit
+                        company or individual AND the primary maintainer sponsored the project.
+                        Thank you for being part of moving this project forward!
+ * openSource           Dprint is formatting an open source project whose primary
+                        maintainer is not a for-profit company (no sponsorship requirement).
+ * educational          Dprint is formatting a project run by a student or being used for
+                        educational purposes (no sponsorship requirement).
+ * nonProfit            Dprint is formatting a project whose primary maintainer is a non-profit
+                        organization (no sponsorship requirement).
 
-See commercial pricing at: https://dprint.dev/pricing"#);
+More information: https://dprint.dev/sponsor"#);
     }
 
     #[test]

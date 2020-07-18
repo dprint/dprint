@@ -26,11 +26,11 @@
           "description": "Dprint is formatting a project whose primary maintainer is a non-profit organization (free)."
         },
         {
-          "const": "commercialPaid",
-          "description": "Dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer paid for a commercial license. Thank you for being part of moving this project forward!"
+          "const": "commercialSponsored",
+          "description": "Dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!"
         },
         {
-          "const": "commercialTrail",
+          "const": "commercialEvaluation",
           "description": "Dprint is formatting a project whose primary maintainer is a for-profit company or individual and it is being evaluated for 30 days."
         }
       ]

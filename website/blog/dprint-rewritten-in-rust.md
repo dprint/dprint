@@ -222,11 +222,9 @@ For more information on configuration files beyond what's outlined here, see the
 
 If you wish to have an opinionated white-labeled binaries locked to a specific configuration for your company, please [get in touch](/contact) as I will offer this as a separate service.
 
-## Pricing
+## Sponsorship Requirement for Commercial Maintainers
 
-Dprint is and will always be free for formatting open source projects whose primary maintainer is not a for-profit company. Unfortunately dprint's growth isn't sustainable without support from for-profit companies and this support would help drive this project forward. If you wish to use dprint on a code base whose primary maintainer is a for-profit company or individual, then you must purchase a license. See [pricing](https://dprint.dev/pricing/) for more details.
-
-If you're not a commercial user and excited about the project, consider sponsoring at https://github.com/sponsors/dprint
+Dprint is and will always be free for formatting open source projects whose primary maintainer is not a for-profit company. Unfortunately dprint's growth isn't sustainable without support from for-profit companies and this support would help drive this project forward. If you wish to use dprint on a code base whose primary maintainer is a for-profit company or individual, then you must sponsor the project. See [https://dprint.dev/sponsor](https://dprint.dev/sponsor) for more details.
 
 ## Future
 

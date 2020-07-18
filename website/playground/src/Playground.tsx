@@ -87,7 +87,7 @@ export function Playground({
                     <div id="headerRight">
                         <a href="/overview">Overview</a>
                         <a href="/playground">Playground</a>
-                        <a href="/pricing">Pricing</a>
+                        <a href="/sponsor">Sponsor</a>
                         <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
                     </div>
                 </header>

@@ -1595,7 +1595,7 @@ mod tests {
         environment.clear_logs();
         run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
-            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
+            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
             "Created ./.dprintrc.json"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./.dprintrc.json")).unwrap(), expected_text);
@@ -1619,7 +1619,7 @@ mod tests {
         environment.clear_logs();
         run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
-            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
+            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
             "Created ./test.config.json"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./test.config.json")).unwrap(), expected_text);
@@ -1642,7 +1642,7 @@ mod tests {
         run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
             "Would you like to create the .dprintrc.json in the ./config directory?",
-            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
+            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
             "Created ./config/.dprintrc.json"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./config/.dprintrc.json")).unwrap(), expected_text);
@@ -1658,7 +1658,7 @@ mod tests {
         run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
             "Would you like to create the .dprintrc.json in the ./config directory?",
-            "What kind of project will dprint be formatting?\n\nSee commercial pricing at: https://dprint.dev/pricing\n",
+            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
             "Created ./.dprintrc.json"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./.dprintrc.json")).unwrap(), expected_text);

@@ -44,7 +44,7 @@ function buildWebsite() {
         indexHtmlText,
     );
 
-    buildForPath("pricing", fullPageHtmlPageText);
+    buildForPath("sponsor", fullPageHtmlPageText);
     buildForPath("thank-you", fullPageHtmlPageText);
     buildForPath("privacy-policy", fullPageHtmlPageText);
     buildForPath("contact", fullPageHtmlPageText);
@@ -66,6 +66,8 @@ function buildWebsite() {
     buildForPath("plugins/rustfmt", documentationHtmlPageText);
 
     buildForPath("blog/dprint-rewritten-in-rust", blogPostHtmlPageText);
+
+    createRedirect("pricing", "sponsor");
 
     // minify index.css
     const sassFilePath = "../website/css/style.scss";
@@ -204,6 +206,19 @@ function buildWebsite() {
                     .replace(/&gt;/g, ">"));
             }
         });
+    }
+
+    /** @param {string} [from] - Page to redirect from. */
+    /** @param {string} [to] - Page to redirect to. */
+    function createRedirect(from, to) {
+        const text = `<html>
+  <head>
+    <meta http-equiv="refresh" content="0; url=https://dprint.dev/${to}">
+    <meta name="robots" content="noindex">
+  </head>
+</html>`;
+        fs.mkdirSync("build-website/" + from);
+        fs.writeFileSync("build-website/" + from + "/index.html", text);
     }
 }
 

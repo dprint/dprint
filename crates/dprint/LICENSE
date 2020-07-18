@@ -13,20 +13,19 @@ Given the following definitions:
     individual) that primarily works on the Software Project. It is not
     necessarily the owner of the Software Project.
 
-  "The Author" refers to Dprint Code Formatting.
+  "Author" refers to Dprint Code Formatting.
 
 Permission is hereby granted to the User to execute the Software Application
 on a Software Project if the Software Project being acted on is not primarily
 maintained by a for-profit commercial company or for-profit individual.
 
-Permission otherwise is only granted if the Primary Maintainer has purchased
-a "Dprint Code Formatter Commercial License" from The Author which is available
-at https://dprint.dev/pricing
+Permission otherwise is only granted for the duration the Primary Maintainer
+sponsors the Author as described at https://dprint.dev/sponsor
 
 The Primary Maintainer may also evaluate the Software Application without
-purchasing for a period of 30 days since their first execution of the
+sponsoring for a period of 30 days since their first execution of the
 Software Application. Once 30 days has passed, the Primary Maintainer must
-cease use or purchase the Software Application.
+cease use or sponsor the Author as previously described for continued use.
 
 Additionally, permission is granted to the User to distribute the Software
 Application and to permit persons to whom the Software Application is
