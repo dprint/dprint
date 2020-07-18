@@ -28,13 +28,9 @@ Recommended tier based on number of developers:
 - Large Sponsorship: 50-99 developers
 - Enterprise Sponsorship: 100+ developers
 
-## GitHub Sponsors
-
-You may sponsor through GitHub sponsors: [https://github.com/sponsors/dprint](https://github.com/sponsors/dprint)
-
 ## PayPay
 
-Sponsorship is also available via PayPal:
+Sponsorship is available via PayPal:
 
 <form id="sponsor" action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_top">
    <input type="hidden" name="cmd" value="_s-xclick">
@@ -56,6 +52,10 @@ Sponsorship is also available via PayPal:
    <input id="sponsor-subscribe" type="image" src="/images/subscribe.png" border="0" name="submit" alt="Sponsor via PayPal.">
    <img alt="" border="0" src="https://www.paypalobjects.com/en_US/i/scr/pixel.gif" width="1" height="1">
 </form>
+
+## GitHub Sponsors
+
+Alternatively, some other sponsorship tiers are available through GitHub sponsors: [https://github.com/sponsors/dprint](https://github.com/sponsors/dprint)
 
 ## After Sponsoring
 
