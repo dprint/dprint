@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use url::Url;
+use bytes::Bytes;
 use crate::cache::{Cache, CreateCacheItemOptions};
 use crate::environment::Environment;
 use crate::types::ErrBox;
@@ -85,6 +86,20 @@ async fn resolve_url<TEnvironment : Environment>(
     };
 
     Ok(ResolvedPath::remote(cache.resolve_cache_item_file_path(&cache_item), url.clone(), is_first_download))
+}
+
+pub async fn fetch_file_or_url_bytes(
+    url_or_file_path: &PathSource,
+    environment: &impl Environment
+) -> Result<Bytes, ErrBox> {
+    match url_or_file_path {
+        PathSource::Remote(path_source) => {
+            environment.download_file(path_source.url.as_str()).await
+        }
+        PathSource::Local(path_source) => {
+            environment.read_file_bytes(&path_source.path)
+        }
+    }
 }
 
 pub fn resolve_url_or_file_path_to_path_source(

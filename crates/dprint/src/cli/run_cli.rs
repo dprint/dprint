@@ -8,8 +8,9 @@ use colored::Colorize;
 use crate::cache::{Cache, CreateCacheItemOptions};
 use crate::environment::Environment;
 use crate::configuration::{self, get_global_config, get_plugin_config_map};
-use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
-use crate::utils::{get_table_text, get_difference, pretty_print_json_text, PathSource, resolve_url_or_file_path_to_path_source};
+use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools,
+    PluginSourceReference, parse_plugin_source_reference};
+use crate::utils::{get_table_text, get_difference, pretty_print_json_text, PathSource};
 use crate::types::ErrBox;
 
 use super::{CliArgs, SubCommand, StdInFmt};
@@ -634,7 +635,7 @@ async fn resolve_plugins(
 
     return Ok(plugins);
 
-    fn get_plugin_path_sources<'a>(config: &'a ResolvedConfig, args: &'a CliArgs) -> Result<Vec<PathSource>, ErrBox> {
+    fn get_plugin_path_sources<'a>(config: &'a ResolvedConfig, args: &'a CliArgs) -> Result<Vec<PluginSourceReference>, ErrBox> {
         let plugin_url_or_file_paths_from_config = &config.plugins;
 
         Ok(if args.plugins.is_empty() {
@@ -643,7 +644,7 @@ async fn resolve_plugins(
             let base_path = PathSource::new_local(config.base_path.clone());
             let mut plugins = Vec::with_capacity(args.plugins.len());
             for url_or_file_path in args.plugins.iter() {
-                plugins.push(resolve_url_or_file_path_to_path_source(url_or_file_path, &base_path)?);
+                plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path)?);
             }
             plugins
         })
@@ -795,8 +796,8 @@ mod tests {
     use crate::cache::Cache;
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
-    use crate::plugins::wasm::{WasmPluginResolver, PoolImportObjectFactory};
-    use crate::plugins::{PluginPools, PluginCache, CompilationResult};
+    use crate::plugins::wasm::{WasmPluginResolver, PoolImportObjectFactory, WasmPluginCache};
+    use crate::plugins::{PluginPools, CompilationResult};
     use crate::types::ErrBox;
     use crate::utils::get_difference;
 
@@ -815,7 +816,7 @@ mod tests {
         let mut args: Vec<String> = args.into_iter().map(String::from).collect();
         args.insert(0, String::from(""));
         let cache = Arc::new(Cache::new(environment.clone()).unwrap());
-        let plugin_cache = PluginCache::new(environment.clone(), cache.clone(), &quick_compile);
+        let plugin_cache = WasmPluginCache::new(environment.clone(), cache.clone(), &quick_compile);
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
         let import_object_factory = PoolImportObjectFactory::new(plugin_pools.clone());
         let plugin_resolver = WasmPluginResolver::new(environment.clone(), plugin_cache, import_object_factory);

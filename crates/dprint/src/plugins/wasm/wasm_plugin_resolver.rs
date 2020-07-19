@@ -2,13 +2,12 @@ use async_trait::async_trait;
 
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::utils::PathSource;
-use super::super::{Plugin, CompileFn, PluginResolver, PluginCache, PluginCacheItem};
-use super::{WasmPlugin, ImportObjectFactory};
+use super::super::{Plugin, CompileFn, PluginResolver, PluginSourceReference};
+use super::{WasmPlugin, ImportObjectFactory, WasmPluginCache, WasmPluginCacheItem};
 
 pub struct WasmPluginResolver<TEnvironment : Environment, TCompileFn : CompileFn, TImportObjectFactory : ImportObjectFactory> {
     environment: TEnvironment,
-    plugin_cache: PluginCache<TEnvironment, TCompileFn>,
+    plugin_cache: WasmPluginCache<TEnvironment, TCompileFn>,
     import_object_factory: TImportObjectFactory,
 }
 
@@ -18,23 +17,23 @@ impl<
     TCompileFn : CompileFn,
     TImportObjectFactory : ImportObjectFactory,
 > PluginResolver for WasmPluginResolver<TEnvironment, TCompileFn, TImportObjectFactory> {
-    async fn resolve_plugins(&self, path_sources: Vec<PathSource>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-        let mut handles = Vec::with_capacity(path_sources.len());
-        let mut plugins = Vec::with_capacity(path_sources.len());
+    async fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+        let mut handles = Vec::with_capacity(plugin_references.len());
+        let mut plugins = Vec::with_capacity(plugin_references.len());
 
-        for path_source in path_sources.into_iter() {
+        for plugin_reference in plugin_references.into_iter() {
             let environment = self.environment.clone();
             let plugin_cache = self.plugin_cache.clone();
             let import_object_factory = self.import_object_factory.clone();
             handles.push(tokio::task::spawn(async move {
-                match resolve_plugin(import_object_factory, &plugin_cache, environment, &path_source).await {
+                match resolve_plugin(import_object_factory, &plugin_cache, environment, &plugin_reference).await {
                     Ok(plugin) => Ok(plugin),
                     Err(err) => {
-                        match plugin_cache.forget(&path_source) {
+                        match plugin_cache.forget(&plugin_reference) {
                             Ok(()) => {},
-                            Err(inner_err) => return err!("Error resolving plugin {} and forgetting from cache: {}\n{}", path_source.display(), err, inner_err),
+                            Err(inner_err) => return err!("Error resolving plugin {} and forgetting from cache: {}\n{}", plugin_reference.display(), err, inner_err),
                         }
-                        return err!("Error resolving plugin {}: {}", path_source.display(), err);
+                        return err!("Error resolving plugin {}: {}", plugin_reference.display(), err);
                     }
                 }
             }));
@@ -56,7 +55,7 @@ impl<
 > WasmPluginResolver<TEnvironment, TCompileFn, TImportObjectFactory> {
     pub fn new(
         environment: TEnvironment,
-        plugin_cache: PluginCache<TEnvironment, TCompileFn>,
+        plugin_cache: WasmPluginCache<TEnvironment, TCompileFn>,
         import_object_factory: TImportObjectFactory,
     ) -> Self {
         WasmPluginResolver { environment, plugin_cache, import_object_factory }
@@ -65,12 +64,12 @@ impl<
 
 async fn resolve_plugin<TEnvironment : Environment, TCompileFn : CompileFn, TImportObjectFactory : ImportObjectFactory>(
     import_object_factory: TImportObjectFactory,
-    plugin_cache: &PluginCache<TEnvironment, TCompileFn>,
+    plugin_cache: &WasmPluginCache<TEnvironment, TCompileFn>,
     environment: TEnvironment,
-    path_source: &PathSource,
+    plugin_reference: &PluginSourceReference,
 ) -> Result<Box<dyn Plugin>, ErrBox> {
-    let cache_item = plugin_cache.get_plugin_cache_item(path_source).await;
-    let cache_item: PluginCacheItem = match cache_item {
+    let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await;
+    let cache_item: WasmPluginCacheItem = match cache_item {
         Ok(cache_item) => Ok(cache_item),
         Err(err) => {
             environment.log_error(&format!(
@@ -79,8 +78,8 @@ async fn resolve_plugin<TEnvironment : Environment, TCompileFn : CompileFn, TImp
             ));
 
             // forget and try again
-            plugin_cache.forget(path_source)?;
-            plugin_cache.get_plugin_cache_item(path_source).await
+            plugin_cache.forget(plugin_reference)?;
+            plugin_cache.get_plugin_cache_item(plugin_reference).await
         }
     }?;
     let file_bytes = match environment.read_file_bytes(&cache_item.file_path) {
@@ -92,8 +91,8 @@ async fn resolve_plugin<TEnvironment : Environment, TCompileFn : CompileFn, TImp
             ));
 
             // forget and try again
-            plugin_cache.forget(path_source)?;
-            let cache_item = plugin_cache.get_plugin_cache_item(path_source).await?;
+            plugin_cache.forget(plugin_reference)?;
+            let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await?;
             environment.read_file_bytes(&cache_item.file_path)?
         }
     };

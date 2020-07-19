@@ -6,17 +6,17 @@ use dprint_core::plugins::PluginInfo;
 use crate::cache::{Cache, CreateCacheItemOptions};
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::plugins::CompileFn;
-use crate::utils::{PathSource, RemotePathSource, LocalPathSource, get_bytes_hash};
+use crate::plugins::{CompileFn, PluginSourceReference};
+use crate::utils::{PathSource, RemotePathSource, LocalPathSource, get_bytes_hash, verify_sha256_checksum};
 
 #[derive(Clone)]
-pub struct PluginCache<TEnvironment : Environment, TCompileFn: CompileFn> {
+pub struct WasmPluginCache<TEnvironment : Environment, TCompileFn: CompileFn> {
     environment: TEnvironment,
     cache: Arc<Cache<TEnvironment>>,
     compile: &'static TCompileFn,
 }
 
-pub struct PluginCacheItem {
+pub struct WasmPluginCacheItem {
     pub file_path: PathBuf,
     pub info: PluginInfo,
 }
@@ -28,28 +28,28 @@ struct LocalPluginMetaData {
     plugin_info: PluginInfo,
 }
 
-impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvironment : Environment, TCompileFn : CompileFn {
+impl<TEnvironment, TCompileFn> WasmPluginCache<TEnvironment, TCompileFn> where TEnvironment : Environment, TCompileFn : CompileFn {
     pub fn new(environment: TEnvironment, cache: Arc<Cache<TEnvironment>>, compile: &'static TCompileFn) -> Self {
-        PluginCache {
+        WasmPluginCache {
             environment,
             cache,
             compile,
         }
     }
 
-    pub fn forget(&self, path_source: &PathSource) -> Result<(), ErrBox> {
-        self.cache.forget_item(&self.get_cache_key(path_source)?)
+    pub fn forget(&self, source_reference: &PluginSourceReference) -> Result<(), ErrBox> {
+        self.cache.forget_item(&self.get_cache_key(&source_reference.path_source)?)
     }
 
-    pub async fn get_plugin_cache_item(&self, path_source: &PathSource) -> Result<PluginCacheItem, ErrBox> {
-        let cache_key = self.get_cache_key(path_source)?;
-        match path_source {
-            PathSource::Remote(remote_source) => self.get_remote_plugin(cache_key, remote_source).await,
-            PathSource::Local(local_source) => self.get_local_plugin(cache_key, local_source).await,
+    pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<WasmPluginCacheItem, ErrBox> {
+        let cache_key = self.get_cache_key(&source_reference.path_source)?;
+        match &source_reference.path_source {
+            PathSource::Remote(remote_source) => self.get_remote_plugin(cache_key, remote_source, &source_reference.checksum).await,
+            PathSource::Local(local_source) => self.get_local_plugin(cache_key, local_source, &source_reference.checksum).await,
         }
     }
 
-    async fn get_remote_plugin(&self, cache_key: String, remote_source: &RemotePathSource) -> Result<PluginCacheItem, ErrBox> {
+    async fn get_remote_plugin(&self, cache_key: String, remote_source: &RemotePathSource, checksum: &Option<String>) -> Result<WasmPluginCacheItem, ErrBox> {
         if let Some(cache_item) = self.cache.get_cache_item(&cache_key) {
             let file_path = self.cache.resolve_cache_item_file_path(&cache_item);
             let meta_data = match &cache_item.meta_data {
@@ -61,14 +61,22 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
                 Err(err) => return err!("Error deserializing plugin info. {:?}", err),
             };
 
-            return Ok(PluginCacheItem {
+            return Ok(WasmPluginCacheItem {
                 file_path,
                 info: plugin_info,
             });
         }
 
+        // get bytes
         let url_str = remote_source.url.as_str();
         let file_bytes = self.environment.download_file(url_str).await?;
+
+        // check checksum only if provided (not required for WASM plugins)
+        if let Some(checksum) = &checksum {
+            verify_sha256_checksum(&file_bytes, checksum)?;
+        }
+
+        // compile
         let compile_result = self.environment.log_action_with_progress(&format!("Compiling {}", url_str), || {
             (self.compile)(&file_bytes)
         }).await??;
@@ -86,13 +94,13 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
         })?;
         let file_path = self.cache.resolve_cache_item_file_path(&cache_item);
 
-        Ok(PluginCacheItem {
+        Ok(WasmPluginCacheItem {
             file_path,
             info: compile_result.plugin_info,
         })
     }
 
-    async fn get_local_plugin(&self, cache_key: String, local_source: &LocalPathSource) -> Result<PluginCacheItem, ErrBox> {
+    async fn get_local_plugin(&self, cache_key: String, local_source: &LocalPathSource, checksum: &Option<String>) -> Result<WasmPluginCacheItem, ErrBox> {
         let file_bytes = self.environment.read_file_bytes(&local_source.path)?;
         let file_hash = get_bytes_hash(&file_bytes);
         if let Some(cache_item) = self.cache.get_cache_item(&cache_key) {
@@ -107,13 +115,17 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
             };
 
             if meta_data.file_hash == file_hash {
-                return Ok(PluginCacheItem {
+                return Ok(WasmPluginCacheItem {
                     file_path,
                     info: meta_data.plugin_info,
                 });
             } else {
                 self.cache.forget_item(&cache_key)?;
             }
+        }
+
+        if let Some(checksum) = &checksum {
+            verify_sha256_checksum(&file_bytes, checksum)?;
         }
 
         let compile_result = self.environment.log_action_with_progress("Compiling wasm module...", || {
@@ -136,7 +148,7 @@ impl<TEnvironment, TCompileFn> PluginCache<TEnvironment, TCompileFn> where TEnvi
         })?;
         let file_path = self.cache.resolve_cache_item_file_path(&cache_item);
 
-        Ok(PluginCacheItem {
+        Ok(WasmPluginCacheItem {
             file_path,
             info: compile_result.plugin_info,
         })
@@ -161,7 +173,7 @@ mod test {
     use pretty_assertions::assert_eq;
     use dprint_core::plugins::PluginInfo;
     use crate::environment::TestEnvironment;
-    use crate::plugins::CompilationResult;
+    use crate::plugins::{CompilationResult, PluginSourceReference};
     use crate::types::ErrBox;
     use super::*;
 
@@ -171,8 +183,8 @@ mod test {
         environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
 
         let cache = Arc::new(Cache::new(environment.clone()).unwrap());
-        let plugin_cache = PluginCache::new(environment.clone(), cache, &identity_compile);
-        let plugin_source = PathSource::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
+        let plugin_cache = WasmPluginCache::new(environment.clone(), cache, &identity_compile);
+        let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
         let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
         let expected_file_path = PathBuf::from("/cache").join("test.compiled_wasm");
 
@@ -209,8 +221,8 @@ mod test {
         environment.write_file_bytes(&original_file_path, file_bytes).unwrap();
 
         let cache = Arc::new(Cache::new(environment.clone()).unwrap());
-        let plugin_cache = PluginCache::new(environment.clone(), cache, &identity_compile);
-        let plugin_source = PathSource::new_local(original_file_path.clone());
+        let plugin_cache = WasmPluginCache::new(environment.clone(), cache, &identity_compile);
+        let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
         let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
         let expected_file_path = PathBuf::from("/cache").join("test.compiled_wasm");
 
@@ -244,7 +256,7 @@ mod test {
         environment.write_file_bytes(&original_file_path, file_bytes).unwrap();
 
         // should update the cache with the new file
-        let file_path = plugin_cache.get_plugin_cache_item(&PathSource::new_local(original_file_path.clone())).await?.file_path;
+        let file_path = plugin_cache.get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone())).await?.file_path;
         assert_eq!(file_path, expected_file_path);
 
         assert_eq!(

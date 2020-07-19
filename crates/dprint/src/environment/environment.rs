@@ -17,6 +17,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn path_exists(&self, file_path: &PathBuf) -> bool;
     fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox>;
     fn is_absolute_path(&self, path: &PathBuf) -> bool;
+    fn mk_dir_all(&self, path: &PathBuf) -> Result<(), ErrBox>;
     fn cwd(&self) -> Result<PathBuf, ErrBox>;
     fn log(&self, text: &str);
     fn log_error(&self, text: &str);

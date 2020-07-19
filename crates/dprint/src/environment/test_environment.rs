@@ -187,6 +187,10 @@ impl Environment for TestEnvironment {
         path.to_string_lossy().starts_with("/")
     }
 
+    fn mk_dir_all(&self, _: &PathBuf) -> Result<(), ErrBox> {
+        Ok(())
+    }
+
     fn cwd(&self) -> Result<PathBuf, ErrBox> {
         let cwd = self.cwd.lock().unwrap();
         Ok(PathBuf::from(cwd.to_owned()))

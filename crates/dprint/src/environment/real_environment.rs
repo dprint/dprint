@@ -150,6 +150,11 @@ impl Environment for RealEnvironment {
         path.is_absolute()
     }
 
+    fn mk_dir_all(&self, path: &PathBuf) -> Result<(), ErrBox> {
+        fs::create_dir_all(path)?;
+        Ok(())
+    }
+
     fn cwd(&self) -> Result<PathBuf, ErrBox> {
         Ok(std::env::current_dir()?)
     }

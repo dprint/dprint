@@ -6,6 +6,7 @@ use crate::configuration::{ConfigMap, ConfigMapValue, deserialize_config};
 use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::types::ErrBox;
+use crate::plugins::{PluginSourceReference, parse_plugin_source_reference};
 use crate::utils::{ResolvedPath, resolve_url_or_file_path, resolve_url_or_file_path_to_path_source, PathSource};
 
 use super::resolve_main_config_path;
@@ -16,7 +17,7 @@ pub struct ResolvedConfig {
     pub base_path: PathBuf,
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
-    pub plugins: Vec<PathSource>,
+    pub plugins: Vec<PluginSourceReference>,
     pub incremental: bool,
     pub project_type: Option<String>,
     pub config_map: ConfigMap,
@@ -226,11 +227,11 @@ fn get_config_map_from_path(file_path: &PathBuf, environment: &impl Environment)
     Ok(Ok(result))
 }
 
-fn take_plugins_array_from_config_map(config_map: &mut ConfigMap, base_path: &PathSource) -> Result<Vec<PathSource>, ErrBox> {
+fn take_plugins_array_from_config_map(config_map: &mut ConfigMap, base_path: &PathSource) -> Result<Vec<PluginSourceReference>, ErrBox> {
     let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?;
     let mut plugins = Vec::with_capacity(plugin_url_or_file_paths.len());
     for url_or_file_path in plugin_url_or_file_paths {
-        plugins.push(resolve_url_or_file_path_to_path_source(&url_or_file_path, base_path)?);
+        plugins.push(parse_plugin_source_reference(&url_or_file_path, base_path)?);
     }
     Ok(plugins)
 }
@@ -446,8 +447,8 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -510,9 +511,9 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -580,9 +581,9 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -840,7 +841,7 @@ mod tests {
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://dprint.dev/test-plugin.wasm")
+            PluginSourceReference::new_remote_from_str("https://dprint.dev/test-plugin.wasm")
         ]);
     }
 
@@ -862,7 +863,7 @@ mod tests {
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://dprint.dev/test/plugin.wasm")
+            PluginSourceReference::new_remote_from_str("https://dprint.dev/test/plugin.wasm")
         ]);
     }
 
@@ -877,7 +878,7 @@ mod tests {
         let result = get_result("/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_local(PathBuf::from("/testing/asdf.wasm"))
+            PluginSourceReference::new_local(PathBuf::from("/testing/asdf.wasm"))
         ]);
     }
 
@@ -896,7 +897,7 @@ mod tests {
         let result = get_result("/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_local(PathBuf::from("/other/testing/asdf.wasm"))
+            PluginSourceReference::new_local(PathBuf::from("/other/testing/asdf.wasm"))
         ]);
     }
 

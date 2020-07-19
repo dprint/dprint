@@ -1,5 +1,6 @@
-use crate::types::ErrBox;
 use dprint_core::plugins::PluginInfo;
+
+use crate::types::ErrBox;
 
 #[derive(Clone)]
 pub struct CompilationResult {
