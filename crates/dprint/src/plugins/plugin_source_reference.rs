@@ -12,6 +12,10 @@ impl PluginSourceReference {
         self.path_source.display()
     }
 
+    pub fn is_wasm_plugin(&self) -> bool {
+        self.path_source.display().to_lowercase().ends_with(".wasm")
+    }
+
     #[cfg(test)]
     pub fn new_local(path: std::path::PathBuf) -> PluginSourceReference {
         PluginSourceReference {
