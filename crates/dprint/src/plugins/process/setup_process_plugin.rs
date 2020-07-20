@@ -50,8 +50,11 @@ struct ProcessPluginFile {
     schema_version: u32,
     name: String,
     version: String,
+    #[serde(rename="linux-x86_64")]
     linux: Option<ProcessPluginPath>,
+    #[serde(rename="mac-x86_64")]
     mac: Option<ProcessPluginPath>,
+    #[serde(rename="windows-x86_64")]
     windows: Option<ProcessPluginPath>,
 }
 

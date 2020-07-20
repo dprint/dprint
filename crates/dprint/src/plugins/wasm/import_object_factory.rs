@@ -141,7 +141,7 @@ impl<TEnvironment : Environment> ImportObjectFactory for PoolImportObjectFactory
                             pools.release_instance_for_plugin(&parent_plugin_name, &sub_plugin_name, initialized_plugin);
                             format_result
                         },
-                        Err(err) => Err(err.to_string()),
+                        Err(err) => Err(err),
                     };
 
                     match result {
@@ -156,7 +156,7 @@ impl<TEnvironment : Environment> ImportObjectFactory for PoolImportObjectFactory
                         },
                         Err(error_text) => {
                             let mut error_text_store = error_text_store.lock().unwrap();
-                            *error_text_store = error_text;
+                            *error_text_store = error_text.to_string();
                             2 // error
                         }
                     }

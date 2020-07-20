@@ -6,7 +6,7 @@ use crate::types::ErrBox;
 
 pub fn extract_zip(zip_bytes: &[u8], dir_path: &PathBuf, environment: &impl Environment) -> Result<(), ErrBox> {
     // adapted from https://github.com/mvdnes/zip-rs/blob/master/examples/extract.rs
-    let mut reader = std::io::Cursor::new(&zip_bytes);
+    let reader = std::io::Cursor::new(&zip_bytes);
     let mut zip = zip::ZipArchive::new(reader)?;
 
     // todo: consider parallelizing this
@@ -17,7 +17,7 @@ pub fn extract_zip(zip_bytes: &[u8], dir_path: &PathBuf, environment: &impl Envi
 
         if !file.is_dir() {
             if let Some(parent_dir_path) = file_path.parent() {
-                environment.mk_dir_all(&parent_dir_path.to_path_buf());
+                environment.mk_dir_all(&parent_dir_path.to_path_buf())?;
             }
             let mut file_bytes = Vec::with_capacity(file.size() as usize);
             file.read_to_end(&mut file_bytes)?;

@@ -55,31 +55,19 @@ impl<TImportObjectFactory : ImportObjectFactory> Plugin for WasmPlugin<TImportOb
         self.config = Some((plugin_config, global_config));
     }
 
+    fn get_config(&self) -> &(HashMap<String, String>, GlobalConfiguration) {
+        self.config.as_ref().expect("Call set_config first.")
+    }
+
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let import_object = self.import_object_factory.create_import_object(self.name());
         let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, import_object)?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 
-        wasm_plugin.set_global_config(&global_config);
-        wasm_plugin.set_plugin_config(&plugin_config);
+        wasm_plugin.set_global_config(&global_config)?;
+        wasm_plugin.set_plugin_config(&plugin_config)?;
 
         Ok(Box::new(wasm_plugin))
-    }
-
-    fn get_hash(&self) -> u64 {
-        let config = self.config.as_ref().expect("Call set_config first.");
-        let mut hash_str = String::new();
-        // list everything in here that would affect formatting
-        hash_str.push_str(&self.plugin_info.name);
-        hash_str.push_str(&self.plugin_info.version);
-
-        // serialize the config keys in order to prevent the hash from changing
-        let sorted_config: std::collections::BTreeMap::<&String, &String> = config.0.iter().collect();
-        hash_str.push_str(&serde_json::to_string(&sorted_config).unwrap());
-
-        hash_str.push_str(&serde_json::to_string(&config.1).unwrap());
-
-        crate::utils::get_bytes_hash(hash_str.as_bytes())
     }
 }
 
@@ -100,22 +88,24 @@ impl InitializedWasmPlugin {
         })
     }
 
-    pub fn set_global_config(&self, global_config: &GlobalConfiguration) {
-        let json = serde_json::to_string(global_config).unwrap();
+    pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
+        let json = serde_json::to_string(global_config)?;
         self.send_string(&json);
         self.wasm_functions.set_global_config();
+        Ok(())
     }
 
-    pub fn set_plugin_config(&self, plugin_config: &HashMap<String, String>) {
-        let json = serde_json::to_string(plugin_config).unwrap();
+    pub fn set_plugin_config(&self, plugin_config: &HashMap<String, String>) -> Result<(), ErrBox> {
+        let json = serde_json::to_string(plugin_config)?;
         self.send_string(&json);
         self.wasm_functions.set_plugin_config();
+        Ok(())
     }
 
-    pub fn get_plugin_info(&self) -> PluginInfo {
+    pub fn get_plugin_info(&self) -> Result<PluginInfo, ErrBox> {
         let len = self.wasm_functions.get_plugin_info();
-        let json_text = self.receive_string(len);
-        serde_json::from_str(&json_text).unwrap()
+        let json_text = self.receive_string(len)?;
+        Ok(serde_json::from_str(&json_text)?)
     }
 
     /* LOW LEVEL SENDING AND RECEIVING */
@@ -144,7 +134,7 @@ impl InitializedWasmPlugin {
         }
     }
 
-    fn receive_string(&self, len: usize) -> String {
+    fn receive_string(&self, len: usize) -> Result<String, ErrBox> {
         let mut index = 0;
         let mut bytes: Vec<u8> = vec![0; len];
         while index < len {
@@ -153,7 +143,7 @@ impl InitializedWasmPlugin {
             self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)]);
             index += read_count;
         }
-        String::from_utf8(bytes).unwrap()
+        Ok(String::from_utf8(bytes)?)
     }
 
     fn read_bytes_from_memory_buffer(&self, bytes: &mut [u8]) {
@@ -169,23 +159,23 @@ impl InitializedWasmPlugin {
 }
 
 impl InitializedPlugin for InitializedWasmPlugin {
-    fn get_license_text(&self) -> String {
+    fn get_license_text(&self) -> Result<String, ErrBox> {
         let len = self.wasm_functions.get_license_text();
         self.receive_string(len)
     }
 
-    fn get_resolved_config(&self) -> String {
+    fn get_resolved_config(&self) -> Result<String, ErrBox> {
         let len = self.wasm_functions.get_resolved_config();
         self.receive_string(len)
     }
 
-    fn get_config_diagnostics(&self) -> Vec<ConfigurationDiagnostic> {
+    fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
         let len = self.wasm_functions.get_config_diagnostics();
-        let json_text = self.receive_string(len);
-        serde_json::from_str(&json_text).unwrap()
+        let json_text = self.receive_string(len)?;
+        Ok(serde_json::from_str(&json_text)?)
     }
 
-    fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, String> {
+    fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, ErrBox> {
         // send file path
         self.send_string(&file_path.to_string_lossy());
         self.wasm_functions.set_file_path();
@@ -199,11 +189,11 @@ impl InitializedPlugin for InitializedWasmPlugin {
             FormatResult::NoChange => Ok(String::from(file_text)),
             FormatResult::Change => {
                 let len = self.wasm_functions.get_formatted_text();
-                Ok(self.receive_string(len))
+                Ok(self.receive_string(len)?)
             }
             FormatResult::Error => {
                 let len = self.wasm_functions.get_error_text();
-                Err(self.receive_string(len))
+                err!("{}", self.receive_string(len)?)
             }
         }
     }

@@ -190,7 +190,7 @@ async fn output_license<TEnvironment: Environment>(
     for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
         environment.log(&format!("\n==== {} LICENSE ====", plugin.name().to_uppercase()));
         let initialized_plugin = plugin.initialize()?;
-        environment.log(&initialized_plugin.get_license_text());
+        environment.log(&initialized_plugin.get_license_text()?);
     }
 
     Ok(())
@@ -268,7 +268,7 @@ fn output_resolved_config(
         let initialized_plugin = plugin.initialize()?;
         output_plugin_config_diagnostics(plugin.name(), &initialized_plugin, environment)?;
 
-        let text = initialized_plugin.get_resolved_config();
+        let text = initialized_plugin.get_resolved_config()?;
         let pretty_text = pretty_print_json_text(&text)?;
         environment.log(&format!("{}: {}", config_key, pretty_text));
     }
@@ -734,7 +734,7 @@ fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &imp
 fn output_plugin_config_diagnostics(plugin_name: &str, plugin: &Box<dyn InitializedPlugin>, environment: &impl Environment) -> Result<(), ErrBox> {
     let mut diagnostic_count = 0;
 
-    for diagnostic in plugin.get_config_diagnostics() {
+    for diagnostic in plugin.get_config_diagnostics()? {
         environment.log_error(&format!("[{}]: {}", plugin_name, diagnostic.message));
         diagnostic_count += 1;
     }

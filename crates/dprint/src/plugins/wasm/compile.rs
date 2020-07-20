@@ -20,7 +20,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
         &bytes,
         IdentityImportObjectFactory::new().create_import_object(""), // we're not formatting anything
     )?;
-    let plugin_info = plugin.get_plugin_info();
+    let plugin_info = plugin.get_plugin_info()?;
 
     Ok(CompilationResult {
         bytes,
