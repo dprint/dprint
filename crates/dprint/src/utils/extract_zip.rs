@@ -31,7 +31,7 @@ pub fn extract_zip(zip_bytes: &[u8], dir_path: &PathBuf, environment: &impl Envi
             use std::fs;
 
             if let Some(mode) = file.unix_mode() {
-                fs::set_permissions(&outpath, fs::Permissions::from_mode(mode)).unwrap();
+                fs::set_permissions(&file_path, fs::Permissions::from_mode(mode)).unwrap();
             }
         }
     }
