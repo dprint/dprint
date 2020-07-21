@@ -9,7 +9,7 @@ use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path
 use crate::types::ErrBox;
 
 use super::InitializedProcessPlugin;
-use super::super::PluginSetupResult;
+use super::super::SetupPluginResult;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
     let dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment)?;
@@ -31,7 +31,7 @@ fn get_plugin_executable_file_path(dir_path: &PathBuf, plugin_name: &str) -> Pat
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
 /// Returns the executable file path once complete
-pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<PluginSetupResult, ErrBox> {
+pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
     let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
     let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment)?;
 
@@ -46,7 +46,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
         }
     };
 
-    fn setup_inner(plugin_cache_dir_path: &PathBuf, plugin_name: String, zip_bytes: &[u8], environment: &impl Environment) -> Result<PluginSetupResult, ErrBox> {
+    fn setup_inner(plugin_cache_dir_path: &PathBuf, plugin_name: String, zip_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
         environment.remove_dir_all(&plugin_cache_dir_path)?;
 
         extract_zip(&zip_bytes, &plugin_cache_dir_path, environment)?;
@@ -59,7 +59,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
         let plugin = InitializedProcessPlugin::new(&plugin_executable_file_path)?;
         let plugin_info = plugin.get_plugin_info()?;
 
-        Ok(PluginSetupResult {
+        Ok(SetupPluginResult {
             plugin_info,
             file_path: plugin_executable_file_path,
         })

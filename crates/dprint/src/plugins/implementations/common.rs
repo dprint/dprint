@@ -7,10 +7,10 @@ use crate::environment::Environment;
 use crate::plugins::{Plugin, PluginSourceReference, PluginCache, PluginPools};
 use crate::types::ErrBox;
 use crate::utils::PathSource;
-use super::process::ProcessPlugin;
-use super::wasm::WasmPlugin;
+use super::process::{self};
+use super::wasm::{self};
 
-pub struct PluginSetupResult {
+pub struct SetupPluginResult {
     pub file_path: PathBuf,
     pub plugin_info: PluginInfo,
 }
@@ -19,11 +19,11 @@ pub async fn setup_plugin<TEnvironment: Environment>(
     url_or_file_path: &PathSource,
     file_bytes: &Bytes,
     environment: &TEnvironment
-) -> Result<PluginSetupResult, ErrBox> {
+) -> Result<SetupPluginResult, ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        super::wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await
+        wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await
     } else if url_or_file_path.is_process_plugin() {
-        super::process::setup_process_plugin(url_or_file_path, file_bytes, environment).await
+        process::setup_process_plugin(url_or_file_path, file_bytes, environment).await
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
@@ -35,9 +35,9 @@ pub fn get_file_path_from_plugin_info<TEnvironment: Environment>(
     environment: &TEnvironment,
 ) -> Result<PathBuf, ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        super::wasm::get_file_path_from_plugin_info(plugin_info, environment)
+        wasm::get_file_path_from_plugin_info(plugin_info, environment)
     } else if url_or_file_path.is_process_plugin() {
-        super::process::get_file_path_from_plugin_info(plugin_info, environment)
+        process::get_file_path_from_plugin_info(plugin_info, environment)
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
@@ -50,9 +50,9 @@ pub fn cleanup_plugin<TEnvironment: Environment>(
     environment: &TEnvironment,
 ) -> Result<(), ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        super::wasm::cleanup_wasm_plugin(plugin_info, environment)
+        wasm::cleanup_wasm_plugin(plugin_info, environment)
     } else if url_or_file_path.is_process_plugin() {
-        super::process::cleanup_process_plugin(plugin_info, environment)
+        process::cleanup_process_plugin(plugin_info, environment)
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
@@ -79,7 +79,6 @@ pub async fn create_plugin<TEnvironment : Environment>(
         }
     }?;
 
-    // todo: consolidate with setup_plugin.rs so all code like this is in the same place
     if plugin_reference.is_wasm_plugin() {
         let file_bytes = match environment.read_file_bytes(&cache_item.file_path) {
             Ok(file_bytes) => file_bytes,
@@ -96,7 +95,7 @@ pub async fn create_plugin<TEnvironment : Environment>(
             }
         };
 
-        Ok(Box::new(WasmPlugin::new(file_bytes, cache_item.info, plugin_pools)))
+        Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, plugin_pools)))
     } else if plugin_reference.is_process_plugin() {
         let cache_item = if !environment.path_exists(&cache_item.file_path) {
             environment.log_error(&format!(
@@ -111,7 +110,7 @@ pub async fn create_plugin<TEnvironment : Environment>(
             cache_item
         };
 
-        Ok(Box::new(ProcessPlugin::new(cache_item.info, cache_item.file_path)))
+        Ok(Box::new(process::ProcessPlugin::new(cache_item.info, cache_item.file_path)))
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());
     }

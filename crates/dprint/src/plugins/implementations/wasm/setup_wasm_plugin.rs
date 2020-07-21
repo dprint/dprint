@@ -6,7 +6,7 @@ use dprint_core::plugins::PluginInfo;
 use crate::environment::Environment;
 use crate::types::ErrBox;
 
-use super::super::PluginSetupResult;
+use super::super::SetupPluginResult;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
     let cache_dir_path = environment.get_cache_dir()?;
@@ -18,7 +18,7 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
     url_or_file_path: &PathSource,
     file_bytes: &Bytes,
     environment: &TEnvironment
-) -> Result<PluginSetupResult, ErrBox> {
+) -> Result<SetupPluginResult, ErrBox> {
     let compile_result = environment.log_action_with_progress(&format!("Compiling {}", url_or_file_path.display()), || {
         environment.compile_wasm(file_bytes)
     }).await??;
@@ -27,7 +27,7 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
     environment.mk_dir_all(&plugin_cache_file_path.parent().unwrap().to_path_buf())?;
     environment.write_file_bytes(&plugin_cache_file_path, &compile_result.bytes)?;
 
-    Ok(PluginSetupResult {
+    Ok(SetupPluginResult {
         plugin_info,
         file_path: plugin_cache_file_path
     })
