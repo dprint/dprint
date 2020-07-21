@@ -230,7 +230,7 @@ impl Environment for RealEnvironment {
     }
 
     fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
-        crate::plugins::wasm::compile(wasm_bytes)
+        crate::plugins::compile_wasm(wasm_bytes)
     }
 }
 

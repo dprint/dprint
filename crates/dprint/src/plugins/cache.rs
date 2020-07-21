@@ -8,14 +8,14 @@ use crate::environment::Environment;
 use crate::types::ErrBox;
 use crate::plugins::{PluginSourceReference};
 use crate::utils::{PathSource, get_bytes_hash, verify_sha256_checksum};
-use super::{PluginCacheManifest, PluginCacheManifestItem, read_manifest, write_manifest, setup_plugin, cleanup_plugin, get_file_path_from_plugin_info};
+use super::implementations::{setup_plugin, cleanup_plugin, get_file_path_from_plugin_info};
+use super::{PluginCacheManifest, PluginCacheManifestItem, read_manifest, write_manifest};
 
 pub struct PluginCacheItem {
     pub file_path: PathBuf,
     pub info: PluginInfo,
 }
 
-#[derive(Clone)]
 pub struct PluginCache<TEnvironment : Environment> {
     environment: TEnvironment,
     manifest: Arc<RwLock<PluginCacheManifest>>,

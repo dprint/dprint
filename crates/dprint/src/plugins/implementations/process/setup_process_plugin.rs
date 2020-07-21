@@ -5,10 +5,11 @@ use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 
 use crate::environment::Environment;
-use crate::plugins::PluginSetupResult;
 use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path_to_path_source, verify_sha256_checksum, extract_zip};
 use crate::types::ErrBox;
+
 use super::InitializedProcessPlugin;
+use super::super::PluginSetupResult;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
     let dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment)?;

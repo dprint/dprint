@@ -1,21 +1,22 @@
+use std::sync::Arc;
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::plugins::{Plugin, PluginSourceReference, PluginCache, create_plugin};
-use crate::plugins::wasm::PoolImportObjectFactory;
+use crate::plugins::{Plugin, PluginSourceReference, PluginCache, PluginPools};
+use super::implementations::{create_plugin};
 
 pub struct PluginResolver<TEnvironment : Environment> {
     environment: TEnvironment,
-    plugin_cache: PluginCache<TEnvironment>,
-    import_object_factory: PoolImportObjectFactory<TEnvironment>,
+    plugin_cache: Arc<PluginCache<TEnvironment>>,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
 impl<TEnvironment : Environment> PluginResolver<TEnvironment> {
     pub fn new(
         environment: TEnvironment,
-        plugin_cache: PluginCache<TEnvironment>,
-        import_object_factory: PoolImportObjectFactory<TEnvironment>,
+        plugin_cache: Arc<PluginCache<TEnvironment>>,
+        plugin_pools: Arc<PluginPools<TEnvironment>>,
     ) -> Self {
-        PluginResolver { environment, plugin_cache, import_object_factory }
+        PluginResolver { environment, plugin_cache, plugin_pools }
     }
 
     pub async fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
@@ -25,9 +26,9 @@ impl<TEnvironment : Environment> PluginResolver<TEnvironment> {
         for plugin_reference in plugin_references.into_iter() {
             let environment = self.environment.clone();
             let plugin_cache = self.plugin_cache.clone();
-            let import_object_factory = self.import_object_factory.clone();
+            let plugin_pools = self.plugin_pools.clone();
             handles.push(tokio::task::spawn(async move {
-                match create_plugin(import_object_factory, &plugin_cache, environment, &plugin_reference).await {
+                match create_plugin(plugin_pools, &plugin_cache, environment, &plugin_reference).await {
                     Ok(plugin) => Ok(plugin),
                     Err(err) => {
                         match plugin_cache.forget(&plugin_reference) {

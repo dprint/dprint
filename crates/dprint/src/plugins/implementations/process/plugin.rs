@@ -6,7 +6,7 @@ use std::process::{Child, Command, Stdio};
 use std::path::PathBuf;
 
 use crate::types::ErrBox;
-use super::super::{Plugin, InitializedPlugin};
+use crate::plugins::{Plugin, InitializedPlugin};
 
 pub struct ProcessPlugin {
     plugin_info: PluginInfo,

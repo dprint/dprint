@@ -2,27 +2,28 @@ use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
 use dprint_core::plugins::{PluginInfo};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use bytes::Bytes;
 
 use crate::environment::Environment;
+use crate::plugins::{Plugin, InitializedPlugin, PluginPools};
 use crate::types::ErrBox;
-use super::super::{Plugin, InitializedPlugin};
-use super::{WasmFunctions, FormatResult, load_instance, PoolImportObjectFactory};
+use super::{WasmFunctions, FormatResult, load_instance, create_pools_import_object};
 
 pub struct WasmPlugin<TEnvironment: Environment> {
     compiled_wasm_bytes: Bytes,
     plugin_info: PluginInfo,
     config: Option<(HashMap<String, String>, GlobalConfiguration)>,
-    import_object_factory: PoolImportObjectFactory<TEnvironment>,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, import_object_factory: PoolImportObjectFactory<TEnvironment>) -> Self {
+    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
         WasmPlugin {
             compiled_wasm_bytes: compiled_wasm_bytes,
             plugin_info,
             config: None,
-            import_object_factory,
+            plugin_pools,
         }
     }
 }
@@ -61,7 +62,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     }
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let import_object = self.import_object_factory.create_import_object(self.name());
+        let import_object = create_pools_import_object(self.plugin_pools.clone(), self.name());
         let wasm_plugin = InitializedWasmPlugin::new(&self.compiled_wasm_bytes, import_object)?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 

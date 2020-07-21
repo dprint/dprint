@@ -1,6 +1,6 @@
+use crate::plugins::CompilationResult;
 use crate::types::ErrBox;
-use super::super::CompilationResult;
-use super::{InitializedWasmPlugin, IdentityImportObjectFactory};
+use super::{InitializedWasmPlugin, create_identity_import_object};
 
 /// Compiles a WASM module.
 pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
@@ -18,7 +18,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
     // load the plugin and get the info
     let plugin = InitializedWasmPlugin::new(
         &bytes,
-        IdentityImportObjectFactory::new().create_import_object(), // we're not formatting anything
+        create_identity_import_object(), // we're not formatting anything so this is ok
     )?;
     let plugin_info = plugin.get_plugin_info()?;
 

@@ -796,7 +796,6 @@ mod tests {
     use crate::cache::Cache;
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
-    use crate::plugins::wasm::{PoolImportObjectFactory};
     use crate::plugins::{PluginPools, CompilationResult, PluginResolver, PluginCache};
     use crate::types::ErrBox;
     use crate::utils::get_difference;
@@ -817,10 +816,9 @@ mod tests {
         args.insert(0, String::from(""));
         environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
         let cache = Arc::new(Cache::new(environment.clone()).unwrap());
-        let plugin_cache = PluginCache::new(environment.clone())?;
+        let plugin_cache = Arc::new(PluginCache::new(environment.clone())?);
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
-        let import_object_factory = PoolImportObjectFactory::new(plugin_pools.clone());
-        let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, import_object_factory);
+        let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
         let args = parse_args(args, &stdin_reader)?;
         environment.set_silent(args.is_silent_output());
         environment.set_verbose(args.verbose);
@@ -1847,7 +1845,7 @@ EXAMPLES:
     lazy_static! {
         // cache the compilation so this only has to be done once across all tests
         static ref COMPILATION_RESULT: CompilationResult = {
-            crate::plugins::wasm::compile(PLUGIN_BYTES).unwrap()
+            crate::plugins::compile_wasm(PLUGIN_BYTES).unwrap()
         };
     }
 

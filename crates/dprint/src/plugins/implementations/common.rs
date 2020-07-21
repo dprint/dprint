@@ -1,13 +1,14 @@
-use crate::plugins::{Plugin, PluginSourceReference, PluginCache};
-use crate::plugins::process::ProcessPlugin;
-use crate::plugins::wasm::{PoolImportObjectFactory, WasmPlugin};
-use crate::utils::PathSource;
 use bytes::Bytes;
 use dprint_core::plugins::PluginInfo;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::environment::Environment;
+use crate::plugins::{Plugin, PluginSourceReference, PluginCache, PluginPools};
 use crate::types::ErrBox;
+use crate::utils::PathSource;
+use super::process::ProcessPlugin;
+use super::wasm::WasmPlugin;
 
 pub struct PluginSetupResult {
     pub file_path: PathBuf,
@@ -20,9 +21,9 @@ pub async fn setup_plugin<TEnvironment: Environment>(
     environment: &TEnvironment
 ) -> Result<PluginSetupResult, ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        crate::plugins::wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await
+        super::wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await
     } else if url_or_file_path.is_process_plugin() {
-        crate::plugins::process::setup_process_plugin(url_or_file_path, file_bytes, environment).await
+        super::process::setup_process_plugin(url_or_file_path, file_bytes, environment).await
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
@@ -34,9 +35,9 @@ pub fn get_file_path_from_plugin_info<TEnvironment: Environment>(
     environment: &TEnvironment,
 ) -> Result<PathBuf, ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        crate::plugins::wasm::get_file_path_from_plugin_info(plugin_info, environment)
+        super::wasm::get_file_path_from_plugin_info(plugin_info, environment)
     } else if url_or_file_path.is_process_plugin() {
-        crate::plugins::process::get_file_path_from_plugin_info(plugin_info, environment)
+        super::process::get_file_path_from_plugin_info(plugin_info, environment)
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
@@ -49,16 +50,16 @@ pub fn cleanup_plugin<TEnvironment: Environment>(
     environment: &TEnvironment,
 ) -> Result<(), ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        crate::plugins::wasm::cleanup_wasm_plugin(plugin_info, environment)
+        super::wasm::cleanup_wasm_plugin(plugin_info, environment)
     } else if url_or_file_path.is_process_plugin() {
-        crate::plugins::process::cleanup_process_plugin(plugin_info, environment)
+        super::process::cleanup_process_plugin(plugin_info, environment)
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
 }
 
 pub async fn create_plugin<TEnvironment : Environment>(
-    import_object_factory: PoolImportObjectFactory<TEnvironment>,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
     plugin_cache: &PluginCache<TEnvironment>,
     environment: TEnvironment,
     plugin_reference: &PluginSourceReference,
@@ -95,7 +96,7 @@ pub async fn create_plugin<TEnvironment : Environment>(
             }
         };
 
-        Ok(Box::new(WasmPlugin::new(file_bytes, cache_item.info, import_object_factory)))
+        Ok(Box::new(WasmPlugin::new(file_bytes, cache_item.info, plugin_pools)))
     } else if plugin_reference.is_process_plugin() {
         let cache_item = if !environment.path_exists(&cache_item.file_path) {
             environment.log_error(&format!(

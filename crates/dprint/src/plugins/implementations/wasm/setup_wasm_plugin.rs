@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
-use crate::plugins::PluginSetupResult;
 use crate::types::ErrBox;
+
+use super::super::PluginSetupResult;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
     let cache_dir_path = environment.get_cache_dir()?;
