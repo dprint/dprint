@@ -37,7 +37,10 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
         write_manifest(&manifest, &self.environment)?;
 
         if let Some(cache_item) = cache_item {
-            let _ignore_result = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment);
+            match cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
+                Err(err) => self.environment.log_error(&format!("Error forgetting plugin: {}", err.to_string())),
+                _ => {},
+            }
         }
 
         Ok(())
@@ -68,7 +71,9 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
         check_file_hash: bool,
         read_bytes: F
     ) -> Result<PluginCacheItem, ErrBox>
-        where F: Fn(PathSource, TEnvironment) -> Fut, Fut: Future<Output = Result<Bytes, ErrBox>>
+        where
+            F: Fn(PathSource, TEnvironment) -> Fut,
+            Fut: Future<Output = Result<Bytes, ErrBox>>
     {
         let cache_key = self.get_cache_key(&source_reference.path_source)?;
         let cache_item = self.manifest.read().unwrap().get_item(&cache_key).map(|x| x.to_owned()); // drop lock

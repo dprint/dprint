@@ -234,7 +234,6 @@ impl Environment for RealEnvironment {
     }
 }
 
-
 struct CustomDialoguerTheme {
 }
 
