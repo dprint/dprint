@@ -41,6 +41,22 @@ impl PathSource {
         }
     }
 
+    pub fn unwrap_local(&self) -> LocalPathSource {
+        if let PathSource::Local(local_path_source) = self {
+            local_path_source.clone()
+        } else {
+            panic!("Attempted to unwrap a path source as local that was not local.");
+        }
+    }
+
+    pub fn unwrap_remote(&self) -> RemotePathSource {
+        if let PathSource::Remote(remote_path_source) = self {
+            remote_path_source.clone()
+        } else {
+            panic!("Attempted to unwrap a path source as remote that was not remote.");
+        }
+    }
+
     pub fn display(&self) -> String {
         match self {
             PathSource::Local(local) => {
@@ -50,6 +66,14 @@ impl PathSource {
                 remote.url.to_string()
             },
         }
+    }
+
+    pub fn is_wasm_plugin(&self) -> bool {
+        self.display().to_lowercase().ends_with(".wasm")
+    }
+
+    pub fn is_process_plugin(&self) -> bool {
+        self.display().to_lowercase().ends_with(".plugin")
     }
 }
 

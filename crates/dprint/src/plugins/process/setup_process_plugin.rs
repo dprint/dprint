@@ -1,23 +1,43 @@
+use dprint_core::plugins::PluginInfo;
 use bytes::Bytes;
 use std::str;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 
 use crate::environment::Environment;
+use crate::plugins::PluginSetupResult;
 use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path_to_path_source, verify_sha256_checksum, extract_zip};
 use crate::types::ErrBox;
+use super::InitializedProcessPlugin;
+
+pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
+    let dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment)?;
+    Ok(get_plugin_executable_file_path(&dir_path, &plugin_info.name))
+}
+
+fn get_plugin_dir_path(name: &str, version: &str, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
+    let cache_dir_path = environment.get_cache_dir()?;
+    Ok(cache_dir_path.join("plugins").join(&name).join(&version))
+}
+
+fn get_plugin_executable_file_path(dir_path: &PathBuf, plugin_name: &str) -> PathBuf {
+    dir_path.join(if cfg!(target_os="windows") {
+        format!("{}.exe", plugin_name)
+    } else {
+        plugin_name.to_string()
+    })
+}
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
 /// Returns the executable file path once complete
-async fn setup_process_plugin(url_or_file_path: &PathSource, checksum: &str, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
-    let cache_dir_path = environment.get_cache_dir()?;
-    let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, checksum, environment).await?;
-    let plugin_cache_dir_path = cache_dir_path.join("plugins").join(&plugin_zip_bytes.name).join(&plugin_zip_bytes.version);
+pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<PluginSetupResult, ErrBox> {
+    let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
+    let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment)?;
 
     let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment);
 
     return match result {
-        Ok(plugin_cache_dir_path) => Ok(plugin_cache_dir_path),
+        Ok(result) => Ok(result),
         Err(err) => {
             // failed, so delete the dir if it exists
             let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
@@ -25,23 +45,30 @@ async fn setup_process_plugin(url_or_file_path: &PathSource, checksum: &str, env
         }
     };
 
-    fn setup_inner(plugin_cache_dir_path: &PathBuf, plugin_name: String, zip_bytes: &[u8], environment: &impl Environment) -> Result<PathBuf, ErrBox> {
+    fn setup_inner(plugin_cache_dir_path: &PathBuf, plugin_name: String, zip_bytes: &[u8], environment: &impl Environment) -> Result<PluginSetupResult, ErrBox> {
         environment.remove_dir_all(&plugin_cache_dir_path)?;
 
         extract_zip(&zip_bytes, &plugin_cache_dir_path, environment)?;
 
-        let plugin_executable_file_path = plugin_cache_dir_path.join(if cfg!(target_os="windows") {
-            format!("{}.exe", plugin_name)
-        } else {
-            plugin_name
-        });
-
+        let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
         if !environment.path_exists(&plugin_executable_file_path) {
             return err!("Plugin zip file did not contain required executable at: {}", plugin_executable_file_path.display());
         }
 
-        Ok(plugin_executable_file_path)
+        let plugin = InitializedProcessPlugin::new(&plugin_executable_file_path)?;
+        let plugin_info = plugin.get_plugin_info()?;
+
+        Ok(PluginSetupResult {
+            plugin_info,
+            file_path: plugin_executable_file_path,
+        })
     }
+}
+
+pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<(), ErrBox> {
+    let plugin_cache_dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment)?;
+    environment.remove_dir_all(&plugin_cache_dir_path)?;
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -71,9 +98,7 @@ struct ProcessPluginZipBytes {
     zip_bytes: Bytes,
 }
 
-async fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &PathSource, checksum: &str, environment: &TEnvironment) -> Result<ProcessPluginZipBytes, ErrBox> {
-    let plugin_file_bytes = fetch_file_or_url_bytes(url_or_file_path, environment).await?;
-    verify_sha256_checksum(&plugin_file_bytes, checksum)?;
+async fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &TEnvironment) -> Result<ProcessPluginZipBytes, ErrBox> {
     let plugin_file = deserialize_file(&plugin_file_bytes)?;
     let plugin_path = get_os_path(&plugin_file)?;
     let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent())?;

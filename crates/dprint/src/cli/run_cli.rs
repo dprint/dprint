@@ -23,7 +23,7 @@ pub async fn run_cli<TEnvironment : Environment>(
     args: CliArgs,
     environment: &TEnvironment,
     cache: &Cache<TEnvironment>,
-    plugin_resolver: &impl PluginResolver,
+    plugin_resolver: &PluginResolver<TEnvironment>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
     // help
@@ -150,7 +150,7 @@ async fn output_help<TEnvironment: Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
-    plugin_resolver: &impl PluginResolver,
+    plugin_resolver: &PluginResolver<TEnvironment>,
     help_text: &str,
 ) -> Result<(), ErrBox> {
     // log the cli's help first
@@ -181,7 +181,7 @@ async fn output_license<TEnvironment: Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
-    plugin_resolver: &impl PluginResolver
+    plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<(), ErrBox> {
     environment.log("==== DPRINT CLI LICENSE ====");
     environment.log(std::str::from_utf8(include_bytes!("../../LICENSE"))?);
@@ -200,7 +200,7 @@ async fn output_editor_info<TEnvironment: Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
-    plugin_resolver: &impl PluginResolver
+    plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<(), ErrBox> {
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -237,7 +237,7 @@ async fn get_plugins_from_args<TEnvironment : Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
-    plugin_resolver: &impl PluginResolver
+    plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
     match resolve_config_from_args(args, cache, environment).await {
         Ok(config) => {
@@ -602,11 +602,11 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     }
 }
 
-async fn resolve_plugins(
+async fn resolve_plugins<TEnvironment: Environment>(
     config: &ResolvedConfig,
     args: &CliArgs,
-    environment: &impl Environment,
-    plugin_resolver: &impl PluginResolver,
+    environment: &TEnvironment,
+    plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
     // resolve the plugins
     let plugin_path_sources = get_plugin_path_sources(config, args)?;
@@ -796,8 +796,8 @@ mod tests {
     use crate::cache::Cache;
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
-    use crate::plugins::wasm::{WasmPluginResolver, PoolImportObjectFactory, WasmPluginCache};
-    use crate::plugins::{PluginPools, CompilationResult};
+    use crate::plugins::wasm::{PoolImportObjectFactory};
+    use crate::plugins::{PluginPools, CompilationResult, PluginResolver, PluginCache};
     use crate::types::ErrBox;
     use crate::utils::get_difference;
 
@@ -815,11 +815,12 @@ mod tests {
     ) -> Result<(), ErrBox> {
         let mut args: Vec<String> = args.into_iter().map(String::from).collect();
         args.insert(0, String::from(""));
+        environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
         let cache = Arc::new(Cache::new(environment.clone()).unwrap());
-        let plugin_cache = WasmPluginCache::new(environment.clone(), cache.clone(), &quick_compile);
+        let plugin_cache = PluginCache::new(environment.clone())?;
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
         let import_object_factory = PoolImportObjectFactory::new(plugin_pools.clone());
-        let plugin_resolver = WasmPluginResolver::new(environment.clone(), plugin_cache, import_object_factory);
+        let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, import_object_factory);
         let args = parse_args(args, &stdin_reader)?;
         environment.set_silent(args.is_silent_output());
         environment.set_verbose(args.verbose);
@@ -1871,13 +1872,5 @@ EXAMPLES:
         let environment = TestEnvironment::new();
         environment.write_file_bytes(&PathBuf::from("/plugins/test-plugin.wasm"), PLUGIN_BYTES).unwrap();
         environment
-    }
-
-    pub fn quick_compile(wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
-        if wasm_bytes == PLUGIN_BYTES {
-            Ok(COMPILATION_RESULT.clone())
-        } else {
-            unreachable!()
-        }
     }
 }

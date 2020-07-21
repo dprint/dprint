@@ -4,19 +4,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use bytes::Bytes;
 
+use crate::environment::Environment;
 use crate::types::ErrBox;
 use super::super::{Plugin, InitializedPlugin};
-use super::{ImportObjectFactory, WasmFunctions, FormatResult, load_instance};
+use super::{WasmFunctions, FormatResult, load_instance, PoolImportObjectFactory};
 
-pub struct WasmPlugin<TImportObjectFactory : ImportObjectFactory> {
+pub struct WasmPlugin<TEnvironment: Environment> {
     compiled_wasm_bytes: Bytes,
     plugin_info: PluginInfo,
     config: Option<(HashMap<String, String>, GlobalConfiguration)>,
-    import_object_factory: TImportObjectFactory,
+    import_object_factory: PoolImportObjectFactory<TEnvironment>,
 }
 
-impl<TImportObjectFactory: ImportObjectFactory> WasmPlugin<TImportObjectFactory> {
-    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, import_object_factory: TImportObjectFactory) -> Self {
+impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
+    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, import_object_factory: PoolImportObjectFactory<TEnvironment>) -> Self {
         WasmPlugin {
             compiled_wasm_bytes: compiled_wasm_bytes,
             plugin_info,
@@ -26,7 +27,7 @@ impl<TImportObjectFactory: ImportObjectFactory> WasmPlugin<TImportObjectFactory>
     }
 }
 
-impl<TImportObjectFactory : ImportObjectFactory> Plugin for WasmPlugin<TImportObjectFactory> {
+impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     fn name(&self) -> &str {
         &self.plugin_info.name
     }

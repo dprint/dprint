@@ -1,15 +1,21 @@
 pub mod wasm;
 pub mod process;
-mod resolver;
 mod plugin;
+mod plugin_cache;
+mod plugin_cache_manifest;
 mod plugin_source_reference;
+mod plugin_resolver;
 mod pool;
+mod setup_plugin;
 mod repo;
 mod types;
 
-pub use resolver::*;
 pub use plugin::*;
+pub use plugin_cache::*;
+use plugin_cache_manifest::*;
+pub use setup_plugin::*;
 pub use plugin_source_reference::*;
+pub use plugin_resolver::*;
 pub use pool::*;
 pub use repo::*;
 pub use types::*;

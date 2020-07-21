@@ -5,10 +5,6 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::Arc;
 
-pub trait ImportObjectFactory : Clone + std::marker::Send + std::marker::Sync + 'static {
-    fn create_import_object(&self, plugin_name: &str) -> wasmer_runtime::ImportObject;
-}
-
 /// Use this when the plugins don't need to format via a plugin pool.
 #[derive(Clone)]
 pub struct IdentityImportObjectFactory {
@@ -20,8 +16,8 @@ impl IdentityImportObjectFactory {
     }
 }
 
-impl ImportObjectFactory for IdentityImportObjectFactory {
-    fn create_import_object(&self, _: &str) -> wasmer_runtime::ImportObject {
+impl IdentityImportObjectFactory {
+    pub fn create_import_object(&self) -> wasmer_runtime::ImportObject {
         let host_clear_bytes = |_: u32| {};
         let host_read_buffer = |_: u32, _: u32| {};
         let host_write_buffer = |_: u32, _: u32, _: u32| {};
@@ -57,8 +53,8 @@ impl<TEnvironment : Environment> PoolImportObjectFactory<TEnvironment> {
     }
 }
 
-impl<TEnvironment : Environment> ImportObjectFactory for PoolImportObjectFactory<TEnvironment> {
-    fn create_import_object(&self, plugin_name: &str) -> wasmer_runtime::ImportObject {
+impl<TEnvironment : Environment> PoolImportObjectFactory<TEnvironment> {
+    pub fn create_import_object(&self, plugin_name: &str) -> wasmer_runtime::ImportObject {
         let parent_plugin_name = String::from(plugin_name);
         let file_path: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
         let shared_bytes: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::with_capacity(0)));

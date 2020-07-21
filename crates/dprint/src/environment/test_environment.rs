@@ -2,11 +2,13 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use globset::{GlobSetBuilder, GlobSet, Glob};
-use super::Environment;
-use super::super::types::ErrBox;
 use async_trait::async_trait;
 use bytes::Bytes;
 use path_clean::{PathClean};
+
+use super::Environment;
+use crate::types::ErrBox;
+use crate::plugins::CompilationResult;
 
 #[derive(Clone)]
 pub struct TestEnvironment {
@@ -20,6 +22,7 @@ pub struct TestEnvironment {
     selection_result: Arc<Mutex<usize>>,
     multi_selection_result: Arc<Mutex<Vec<usize>>>,
     is_silent: Arc<Mutex<bool>>,
+    wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
 }
 
 impl TestEnvironment {
@@ -35,6 +38,7 @@ impl TestEnvironment {
             selection_result: Arc::new(Mutex::new(0)),
             multi_selection_result: Arc::new(Mutex::new(Vec::new())),
             is_silent: Arc::new(Mutex::new(false)),
+            wasm_compile_result: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -85,10 +89,19 @@ impl TestEnvironment {
         let mut is_verbose = self.is_verbose.lock().unwrap();
         *is_verbose = value;
     }
+
+    pub fn set_wasm_compile_result(&self, value: CompilationResult) {
+        let mut wasm_compile_result = self.wasm_compile_result.lock().unwrap();
+        *wasm_compile_result = Some(value);
+    }
 }
 
 #[async_trait]
 impl Environment for TestEnvironment {
+    fn is_real(&self) -> bool {
+        false
+    }
+
     fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
         let file_bytes = self.read_file_bytes(file_path)?;
         Ok(String::from_utf8(file_bytes.to_vec()).unwrap())
@@ -238,6 +251,11 @@ impl Environment for TestEnvironment {
 
     fn is_verbose(&self) -> bool {
         *self.is_verbose.lock().unwrap()
+    }
+
+    fn compile_wasm(&self, _: &[u8]) -> Result<CompilationResult, ErrBox> {
+        let wasm_compile_result = self.wasm_compile_result.lock().unwrap();
+        Ok(wasm_compile_result.clone().expect("Expected compilation result to be set."))
     }
 }
 

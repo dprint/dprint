@@ -26,8 +26,9 @@ pub fn extract_zip(zip_bytes: &[u8], dir_path: &PathBuf, environment: &impl Envi
 
         // Get and Set permissions
         #[cfg(unix)]
-        {
+        if environment.is_real() {
             use std::os::unix::fs::PermissionsExt;
+            use std::fs;
 
             if let Some(mode) = file.unix_mode() {
                 fs::set_permissions(&outpath, fs::Permissions::from_mode(mode)).unwrap();

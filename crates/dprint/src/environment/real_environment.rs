@@ -7,7 +7,8 @@ use bytes::Bytes;
 use reqwest::Client;
 
 use super::{Environment, ProgressBars, ProgressBarStyle};
-use super::super::types::ErrBox;
+use crate::types::ErrBox;
+use crate::plugins::CompilationResult;
 
 #[derive(Clone)]
 pub struct RealEnvironment {
@@ -32,6 +33,10 @@ const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "dprint", author: 
 
 #[async_trait]
 impl Environment for RealEnvironment {
+    fn is_real(&self) -> bool {
+        true
+    }
+
     fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
         log_verbose!(self, "Reading file: {}", file_path.display());
         let text = fs::read_to_string(file_path)?;
@@ -222,6 +227,10 @@ impl Environment for RealEnvironment {
     #[inline]
     fn is_verbose(&self) -> bool {
         self.is_verbose
+    }
+
+    fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
+        crate::plugins::wasm::compile(wasm_bytes)
     }
 }
 

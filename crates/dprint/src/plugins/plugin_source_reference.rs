@@ -13,7 +13,11 @@ impl PluginSourceReference {
     }
 
     pub fn is_wasm_plugin(&self) -> bool {
-        self.path_source.display().to_lowercase().ends_with(".wasm")
+        self.path_source.is_wasm_plugin()
+    }
+
+    pub fn is_process_plugin(&self) -> bool {
+        self.path_source.is_process_plugin()
     }
 
     #[cfg(test)]
