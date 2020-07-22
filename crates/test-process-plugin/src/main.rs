@@ -1,12 +1,12 @@
-mod types;
-use types::ErrBox;
-use std::io::{self, Read, Write};
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics};
+use dprint_core::types::ErrBox;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::process::StdInOutReaderWriter;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +25,11 @@ enum MessageKind {
     SetPluginConfig = 5,
     GetConfigDiagnostics = 6,
     FormatText = 7,
+}
+
+enum ResponseKind {
+    Success = 0,
+    Error = 1,
 }
 
 // todo: generate with a macro
@@ -64,21 +69,27 @@ fn main() -> Result<(), ErrBox> {
     let mut plugin_config: Option<HashMap<String, String>> = None;
     let mut resolved_config_result: Option<ResolveConfigurationResult<Configuration>> = None;
 
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut reader_writer = StdInOutReaderWriter::new(&mut stdin, &mut stdout);
+
     loop {
-        let (message_kind, message_data) = read_message()?;
+        let message_kind = reader_writer.read_message_kind()?.into();
 
         // todo: return an error when this fails
         // todo: return error instead of panic in some cases here (ex. unwraps)
         match message_kind {
-            MessageKind::GetPluginSchemaVersion => send_int(1)?,
-            MessageKind::GetPluginInfo => send_string(&serde_json::to_string(&plugin_info)?)?,
-            MessageKind::GetLicenseText => send_string(license_text)?,
+            MessageKind::GetPluginSchemaVersion => send_int(&mut reader_writer, 1)?,
+            MessageKind::GetPluginInfo => send_string(&mut reader_writer, &serde_json::to_string(&plugin_info)?)?,
+            MessageKind::GetLicenseText => send_string(&mut reader_writer, license_text)?,
             MessageKind::SetGlobalConfig => {
+                let message_data = reader_writer.read_message_part()?;
                 global_config = Some(serde_json::from_slice(&message_data)?);
                 resolved_config_result.take();
-                send_success()?;
+                send_success(&mut reader_writer)?;
             },
             MessageKind::SetPluginConfig => {
+                let message_data = reader_writer.read_message_part()?;
                 plugin_config = Some(serde_json::from_slice(&message_data)?);
                 resolved_config_result.take();
 
@@ -86,41 +97,46 @@ fn main() -> Result<(), ErrBox> {
                     plugin_config.as_ref().unwrap().clone(),
                     global_config.as_ref().unwrap(),
                 ));
-                send_success()?;
+                send_success(&mut reader_writer)?;
             },
             MessageKind::GetResolvedConfig => {
                 let resolved_config = resolved_config_result.as_ref().unwrap();
-                send_string(&serde_json::to_string(&resolved_config.config)?)?
+                send_string(&mut reader_writer, &serde_json::to_string(&resolved_config.config)?)?
             },
             MessageKind::GetConfigDiagnostics => {
                 let resolved_config = resolved_config_result.as_ref().unwrap();
-                send_string(&serde_json::to_string(&resolved_config.diagnostics)?)?
+                send_string(&mut reader_writer, &serde_json::to_string(&resolved_config.diagnostics)?)?
             },
             MessageKind::FormatText => {
-                let message_text = String::from_utf8(message_data)?;
                 let config = resolved_config_result.as_ref().unwrap();
-                let separator_index = message_text.find("|").unwrap();
-                let file_path = PathBuf::from(&message_text[..separator_index]);
-                let file_text = &message_text[separator_index + 1..];
+
+                let message_data = reader_writer.read_message_part()?;
+                let file_path = PathBuf::from(std::str::from_utf8(&message_data).unwrap());
+
+                let file_text = reader_writer.read_message_part_as_string()?;
+
                 match format_text(&file_path, &file_text, &config.config) {
                     Ok(formatted_text) => {
                         if formatted_text == file_text {
-                            send_int(0)?; // no change
+                            send_int(&mut reader_writer, 0)?; // no change
                         } else {
-                            // todo: avoid copy here
-                            let mut send_bytes = Vec::with_capacity(4 + formatted_text.len());
-                            send_bytes.extend(&1u32.to_be_bytes());
-                            send_bytes.extend(formatted_text.as_bytes());
-                            send_response(&send_bytes)?;
+                            send_response(
+                                &mut reader_writer,
+                                vec![
+                                    &(1 as u32).to_be_bytes(), // change
+                                    formatted_text.as_bytes()
+                                ]
+                            )?;
                         }
                     }
                     Err(err) => {
-                        // todo: avoid copy here
-                        let error_message = err.to_string();
-                        let mut send_bytes = Vec::with_capacity(4 + file_text.len());
-                        send_bytes.extend(&2u32.to_be_bytes());
-                        send_bytes.extend(error_message.as_bytes());
-                        send_response(&send_bytes)?;
+                        send_response(
+                            &mut reader_writer,
+                            vec![
+                                &(2 as u32).to_be_bytes(), // error
+                                err.to_string().as_bytes()
+                            ]
+                        )?;
                     }
                 }
             }
@@ -156,49 +172,35 @@ fn resolve_config(config: HashMap<String, String>, global_config: &GlobalConfigu
     }
 }
 
-fn read_message() -> Result<(MessageKind, Vec<u8>), ErrBox> {
-    let mut int_buf: [u8; 4] = [0; 4];
-    io::stdin().read_exact(&mut int_buf)?;
-    let message_kind = u32::from_be_bytes(int_buf);
-    let mut int_buf: [u8; 4] = [0; 4];
-    io::stdin().read_exact(&mut int_buf)?;
-    let message_size = u32::from_be_bytes(int_buf);
-    let message_data = if message_size > 0 {
-        let mut message_data = vec![0u8; message_size as usize];
-        io::stdin().read_exact(&mut message_data)?;
-        message_data
-    } else {
-        Vec::new()
-    };
-
-    Ok((message_kind.into(), message_data))
+fn send_success<'a, TRead: Read, TWrite: Write>(
+    reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
+) -> Result<(), ErrBox> {
+    send_response(reader_writer, Vec::new())
 }
 
-fn send_success() -> Result<(), ErrBox> {
-    send_response(&Vec::new())
+fn send_string<'a, TRead: Read, TWrite: Write>(
+    reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
+    value: &str,
+) -> Result<(), ErrBox> {
+    send_response(reader_writer, vec![value.as_bytes()])
 }
 
-fn send_string(value: &str) -> Result<(), ErrBox> {
-    send_response(value.as_bytes())
+fn send_int<'a, TRead: Read, TWrite: Write>(
+    reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
+    value: u32,
+) -> Result<(), ErrBox> {
+    send_response(reader_writer, vec![&value.to_be_bytes()])
 }
 
-fn send_int(value: u32) -> Result<(), ErrBox> {
-    send_response(&value.to_be_bytes())
-}
+fn send_response<'a, TRead: Read, TWrite: Write>(
+    reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
+    message_parts: Vec<&[u8]>
+) -> Result<(), ErrBox> {
 
-fn send_response(message: &[u8]) -> Result<(), ErrBox> {
-    let mut int_buf: [u8; 4] = [0; 4];
-    io::stdout().write_all(&mut int_buf)?; // response success
-
-    // message length
-    io::stdout().write_all(&(message.len() as u32).to_be_bytes())?;
-
-    // message
-    if !message.is_empty() {
-        io::stdout().write_all(message)?;
+    reader_writer.send_message_kind(ResponseKind::Success as u32)?;
+    for message_part in message_parts {
+        reader_writer.send_message_part(message_part)?;
     }
-
-    io::stdout().flush()?;
 
     Ok(())
 }

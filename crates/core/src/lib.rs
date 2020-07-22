@@ -1,3 +1,6 @@
+#[macro_use]
+pub mod types;
+
 mod collections;
 pub mod configuration;
 mod print_items;
@@ -7,6 +10,10 @@ mod writer;
 mod write_items;
 mod print_write_items;
 mod print;
+
+#[cfg(feature = "process")]
+pub mod process;
+
 pub mod condition_resolvers;
 pub mod conditions;
 pub mod parser_helpers;

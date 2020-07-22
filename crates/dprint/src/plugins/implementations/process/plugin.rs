@@ -1,5 +1,6 @@
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
-use dprint_core::plugins::{PluginInfo};
+use dprint_core::plugins::PluginInfo;
+use dprint_core::process::StdInOutReaderWriter;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
@@ -172,66 +173,53 @@ impl InitializedProcessPlugin {
     }
 
     fn get_string(&self, message_kind: MessageKind) -> Result<String, ErrBox> {
-        let response = self.send_and_receive(message_kind, None)?;
-        Ok(String::from_utf8(response)?)
+        let bytes = self.get_bytes(message_kind)?;
+        Ok(String::from_utf8(bytes)?)
     }
 
     fn get_bytes(&self, message_kind: MessageKind) -> Result<Vec<u8>, ErrBox> {
-        self.send_and_receive(message_kind, None)
+        self.with_reader_writer(|reader_writer| {
+            send_message(
+                reader_writer,
+                message_kind,
+                Vec::new(),
+            )?;
+            reader_writer.read_message_part()
+        })
     }
 
     fn send_data(&self, message_kind: MessageKind, data: &[u8]) -> Result<(), ErrBox> {
-        self.send_and_receive(message_kind, Some(data))?;
-        Ok(())
+        self.with_reader_writer(|reader_writer| {
+            send_message(
+                reader_writer,
+                message_kind,
+                vec![data],
+            )
+        })
     }
 
-    fn send_and_receive(&self, message_kind: MessageKind, data: Option<&[u8]>) -> Result<Vec<u8>, ErrBox> {
-        use std::io::{Read, Write};
+    fn with_reader_writer<F, FResult>(
+        &self,
+        with_action: F
+    ) -> Result<FResult, ErrBox>
+        where F: FnOnce(&mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>) -> Result<FResult, ErrBox>
+    {
         let mut child = self.child.lock().unwrap();
+        // take because can't mutably borrow twice
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
 
-        // Send Message
-        {
-            let stdin = child.stdin.as_mut().unwrap();
+        let result = {
+            let mut reader_writer = StdInOutReaderWriter::new(&mut stdout, &mut stdin);
 
-            // send the kind
-            stdin.write_all(&(message_kind as u32).to_be_bytes())?;
+            with_action(&mut reader_writer)?
+        };
 
-            // send the message data length or 0
-            stdin.write_all(&((data.map(|data| data.len()).unwrap_or(0) as u32).to_be_bytes()))?;
+        // don't bother replacing these on error above, because it will be exiting anyway
+        child.stdin.replace(stdin);
+        child.stdout.replace(stdout);
 
-            // send message data
-            if let Some(data) = data {
-                stdin.write_all(&data)?;
-            }
-
-            stdin.flush()?;
-        }
-
-        // Response, read code, size, then data
-        let stdout = child.stdout.as_mut().unwrap();
-        let mut int_buf: [u8; 4] = [0; 4];
-
-        // response kind
-        stdout.read_exact(&mut int_buf)?;
-        let response_kind = u32::from_be_bytes(int_buf);
-
-        // size
-        stdout.read_exact(&mut int_buf)?;
-        let size = u32::from_be_bytes(int_buf);
-
-        // message
-        let mut response = vec![0u8; size as usize];
-        if size > 0 {
-            stdout.read_exact(&mut response)?;
-        }
-
-        // non-zero response means error
-        if response_kind != 0 {
-            let error_text = String::from_utf8(response)?;
-            return err!("{}", error_text)
-        } else {
-            Ok(response)
-        }
+        Ok(result)
     }
 }
 
@@ -250,32 +238,49 @@ impl InitializedPlugin for InitializedProcessPlugin {
     }
 
     fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, ErrBox> {
-        // todo(performance): avoid copy here and drain below
         let file_path = file_path.to_string_lossy();
-        let separator = "|";
-        let mut send_bytes = bytes::BytesMut::with_capacity(file_path.len() + separator.len() + file_text.len());
-        send_bytes.extend(file_path.as_bytes());
-        send_bytes.extend(separator.as_bytes());
-        send_bytes.extend(file_text.as_bytes());
 
-        // get the response code
-        let mut response_bytes = self.send_and_receive(MessageKind::FormatText, Some(&send_bytes))?;
-        let mut response_code_buf = [0u8; 4];
-        response_code_buf.clone_from_slice(&response_bytes[0..4]);
-        let response_code = u32::from_be_bytes(response_code_buf);
+        self.with_reader_writer(|reader_writer| {
+            send_message(
+                reader_writer,
+                MessageKind::FormatText, vec![
+                    file_path.as_bytes(),
+                    file_text.as_bytes()
+                ]
+            )?;
 
-        // remove response code from bytes
-        response_bytes.drain(0..4);
+            let response_code = reader_writer.read_message_part_as_u32()?;
 
-        // handle the response
-        match response_code.into() {
-            FormatResult::NoChange => Ok(String::from(file_text)),
-            FormatResult::Change => {
-                Ok(String::from_utf8(response_bytes)?)
+            match response_code.into() {
+                FormatResult::NoChange => Ok(String::from(file_text)),
+                FormatResult::Change => {
+                    Ok(reader_writer.read_message_part_as_string()?)
+                }
+                FormatResult::Error => {
+                    err!("{}", reader_writer.read_message_part_as_string()?)
+                }
             }
-            FormatResult::Error => {
-                err!("{}", String::from_utf8(response_bytes)?)
-            }
-        }
+        })
+    }
+}
+
+fn send_message(
+    reader_writer: &mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>,
+    message_kind: MessageKind,
+    parts: Vec<&[u8]>,
+) -> Result<(), ErrBox> {
+    // send message
+    reader_writer.send_message_kind(message_kind as u32)?;
+    for part in parts {
+        reader_writer.send_message_part(part)?;
+    }
+
+    // read response
+    let response_kind = reader_writer.read_message_kind()?;
+    if response_kind != 0 {
+        let error_text = String::from_utf8(reader_writer.read_message_part()?)?;
+        err!("{}", error_text)
+    } else {
+        Ok(())
     }
 }
