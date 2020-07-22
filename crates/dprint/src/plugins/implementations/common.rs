@@ -69,8 +69,8 @@ pub async fn create_plugin<TEnvironment : Environment>(
         Ok(cache_item) => Ok(cache_item),
         Err(err) => {
             environment.log_error(&format!(
-                "Error getting plugin from cache. Forgetting from cache and retrying. Message: {:?}",
-                err
+                "Error getting plugin from cache. Forgetting from cache and retrying. Message: {}",
+                err.to_string()
             ));
 
             // forget and try again
@@ -84,8 +84,8 @@ pub async fn create_plugin<TEnvironment : Environment>(
             Ok(file_bytes) => file_bytes,
             Err(err) => {
                 environment.log_error(&format!(
-                    "Error reading plugin file bytes. Forgetting from cache and retrying. Message: {:?}",
-                    err
+                    "Error reading plugin file bytes. Forgetting from cache and retrying. Message: {}",
+                    err.to_string()
                 ));
 
                 // forget and try again

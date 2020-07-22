@@ -68,6 +68,7 @@ impl Plugin for ProcessPlugin {
     }
 }
 
+#[derive(Debug)]
 enum MessageKind {
     GetPluginSchemaVersion = 0,
     GetPluginInfo = 1,
@@ -202,13 +203,15 @@ impl InitializedProcessPlugin {
             if let Some(data) = data {
                 stdin.write_all(&data)?;
             }
+
+            stdin.flush()?;
         }
 
         // Response, read code, size, then data
         let stdout = child.stdout.as_mut().unwrap();
         let mut int_buf: [u8; 4] = [0; 4];
 
-        // code
+        // response kind
         stdout.read_exact(&mut int_buf)?;
         let response_kind = u32::from_be_bytes(int_buf);
 

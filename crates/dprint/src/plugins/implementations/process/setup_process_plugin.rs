@@ -47,7 +47,9 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
     };
 
     fn setup_inner(plugin_cache_dir_path: &PathBuf, plugin_name: String, zip_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
-        environment.remove_dir_all(&plugin_cache_dir_path)?;
+        if environment.path_exists(plugin_cache_dir_path) {
+            environment.remove_dir_all(plugin_cache_dir_path)?;
+        }
 
         extract_zip(&zip_bytes, &plugin_cache_dir_path, environment)?;
 
@@ -104,7 +106,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &Path
     let plugin_path = get_os_path(&plugin_file)?;
     let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent())?;
     let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment).await?;
-    verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.reference)?;
+    verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum)?;
 
     Ok(ProcessPluginZipBytes {
         name: plugin_file.name,
@@ -145,6 +147,6 @@ fn get_plugin_path<'a>(plugin_path: &'a Option<ProcessPluginPath>) -> Result<&'a
     if let Some(path) = &plugin_path {
         Ok(path)
     } else {
-        return err!("Unsupported operating system for this plugin.")
+        return err!("Unsupported operating system.")
     }
 }

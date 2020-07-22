@@ -1,0 +1,9 @@
+{
+    "schemaVersion": 1,
+    "name": "test-process-plugin",
+    "version": "0.2.0",
+    "windows-x86_64": {
+        "reference": "../../target/release/test-process-plugin.zip",
+        "checksum": "5e9a75c8a3a9823a4a152867d72f755a9ff95e15f45a2d70aefaf7018623188b"
+    }
+}
