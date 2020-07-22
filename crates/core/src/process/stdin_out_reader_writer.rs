@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use crate::types::ErrBox;
 
 const BUFFER_SIZE: usize = 1024; // safe to assume
@@ -24,6 +25,18 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         self.writer.flush()?;
 
         Ok(())
+    }
+
+    pub fn send_message_part_as_u32(&mut self, value: u32) -> Result<(), ErrBox> {
+        self.send_message_part(&value.to_be_bytes())
+    }
+
+    pub fn send_message_part_as_string(&mut self, text: &str) -> Result<(), ErrBox> {
+        self.send_message_part(text.as_bytes())
+    }
+
+    pub fn send_message_part_as_path_buf(&mut self, path_buf: &PathBuf) -> Result<(), ErrBox> {
+        self.send_message_part_as_string(&path_buf.to_string_lossy())
     }
 
     /// Sends the message part (4 bytes length, X bytes data)
@@ -72,6 +85,11 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
     pub fn read_message_part_as_string(&mut self) -> Result<String, ErrBox> {
         let message_part = self.read_message_part()?;
         Ok(String::from_utf8(message_part)?)
+    }
+
+    pub fn read_message_part_as_path_buf(&mut self) -> Result<PathBuf, ErrBox> {
+        let message_data = self.read_message_part()?;
+        Ok(PathBuf::from(std::str::from_utf8(&message_data)?))
     }
 
     /// Gets the message part (4 bytes length, X bytes data)

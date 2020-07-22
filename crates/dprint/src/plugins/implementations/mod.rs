@@ -1,7 +1,9 @@
-mod process;
-mod wasm;
 mod common;
+mod process;
+mod public;
+mod wasm;
 
-pub use common::*;
+use common::*;
+pub use public::*;
 
 pub use wasm::compile as compile_wasm;

@@ -46,7 +46,12 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
         }
     };
 
-    fn setup_inner(plugin_cache_dir_path: &PathBuf, plugin_name: String, zip_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
+    fn setup_inner<TEnvironment: Environment>(
+        plugin_cache_dir_path: &PathBuf,
+        plugin_name: String,
+        zip_bytes: &[u8],
+        environment: &TEnvironment,
+    ) -> Result<SetupPluginResult, ErrBox> {
         if environment.path_exists(plugin_cache_dir_path) {
             environment.remove_dir_all(plugin_cache_dir_path)?;
         }
@@ -58,7 +63,11 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
             return err!("Plugin zip file did not contain required executable at: {}", plugin_executable_file_path.display());
         }
 
-        let plugin = InitializedProcessPlugin::new(&plugin_executable_file_path)?;
+        let plugin: InitializedProcessPlugin<TEnvironment> = InitializedProcessPlugin::new(
+            plugin_name,
+            &plugin_executable_file_path,
+            None, // not formatting so providing None is ok
+        )?;
         let plugin_info = plugin.get_plugin_info()?;
 
         Ok(SetupPluginResult {

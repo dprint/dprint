@@ -1,6 +1,7 @@
 use crate::plugins::pool::PluginPools;
 use crate::environment::Environment;
-use crate::utils::get_lowercase_file_extension;
+use super::super::format_with_plugin_pool;
+
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::Arc;
@@ -99,42 +100,22 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
                 let mut shared_bytes = shared_bytes.lock().unwrap();
                 std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
             };
-            let sub_plugin_name = if let Some(ext) = get_lowercase_file_extension(&file_path) {
-                pools.get_plugin_name_from_extension(&ext)
-            } else {
-                None
-            };
+            let file_text = String::from_utf8(bytes).unwrap();
 
-            if let Some(sub_plugin_name) = sub_plugin_name {
-                let initialized_plugin = pools.take_instance_for_plugin(&parent_plugin_name, &sub_plugin_name);
-                let file_text = String::from_utf8(bytes).unwrap();
-                let result = match initialized_plugin {
-                    Ok(initialized_plugin) => {
-                        let format_result = initialized_plugin.format_text(&file_path, &file_text);
-                        pools.release_instance_for_plugin(&parent_plugin_name, &sub_plugin_name, initialized_plugin);
-                        format_result
-                    },
-                    Err(err) => Err(err),
-                };
-
-                match result {
-                    Ok(formatted_text) => {
-                        if formatted_text == file_text {
-                            0 // no change
-                        } else {
-                            let mut formatted_text_store = formatted_text_store.lock().unwrap();
-                            *formatted_text_store = formatted_text;
-                            1 // change
-                        }
-                    },
-                    Err(error_text) => {
-                        let mut error_text_store = error_text_store.lock().unwrap();
-                        *error_text_store = error_text.to_string();
-                        2 // error
-                    }
+            match format_with_plugin_pool(&parent_plugin_name, &file_path, &file_text, &pools) {
+                Ok(Some(formatted_text)) => {
+                    let mut formatted_text_store = formatted_text_store.lock().unwrap();
+                    *formatted_text_store = formatted_text;
+                    1 // change
+                },
+                Ok(None) => {
+                    0 // no change
                 }
-            } else {
-                0 // no plugin, no change
+                Err(err) => {
+                    let mut error_text_store = error_text_store.lock().unwrap();
+                    *error_text_store = err.to_string();
+                    2 // error
+                }
             }
         }
     };

@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics};
+use dprint_core::err;
 use dprint_core::types::ErrBox;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::process::{MessageKind, ResponseKind, FormatResult, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION};
+use dprint_core::process::{MessageKind, ResponseKind, FormatResult, HostFormatResult, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,11 +72,10 @@ fn main() -> Result<(), ErrBox> {
             MessageKind::FormatText => {
                 let config = resolved_config_result.as_ref().unwrap();
 
-                let message_data = reader_writer.read_message_part()?;
-                let file_path = PathBuf::from(std::str::from_utf8(&message_data).unwrap());
+                let file_path = reader_writer.read_message_part_as_path_buf()?;
                 let file_text = reader_writer.read_message_part_as_string()?;
 
-                match format_text(&file_path, &file_text, &config.config) {
+                match format_text(&mut reader_writer, &file_path, &file_text, &config.config) {
                     Ok(formatted_text) => {
                         if formatted_text == file_text {
                             send_int(&mut reader_writer, FormatResult::NoChange as u32)?;
@@ -102,19 +102,39 @@ fn main() -> Result<(), ErrBox> {
             }
         }
     }
-
-    Ok(())
 }
 
-fn format_text(_: &PathBuf, file_text: &str, config: &Configuration) -> Result<String, String> {
-    /*if file_text.starts_with("plugin: ") {
-        format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""))
-    } else */if file_text == "should_error" {
-        Err(String::from("Did error."))
+fn format_text(
+    reader_writer: &mut StdInOutReaderWriter<std::io::Stdin, std::io::Stdout>,
+    _: &PathBuf,
+    file_text: &str,
+    config: &Configuration,
+) -> Result<String, ErrBox> {
+    if file_text.starts_with("plugin: ") {
+        format_with_host(reader_writer, &PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""))
+    } else if file_text == "should_error" {
+        err!("Did error")
     } else if file_text.ends_with(&config.ending) {
         Ok(String::from(file_text))
     } else {
         Ok(format!("{}_{}", file_text, config.ending))
+    }
+}
+
+fn format_with_host(
+    reader_writer: &mut StdInOutReaderWriter<std::io::Stdin, std::io::Stdout>,
+    file_path: &PathBuf,
+    file_text: String
+) -> Result<String, ErrBox> {
+    reader_writer.send_message_part_as_u32(FormatResult::RequestTextFormat as u32)?;
+    reader_writer.send_message_part_as_path_buf(&file_path)?;
+    reader_writer.send_message_part_as_string(&file_text)?;
+
+    let format_result = reader_writer.read_message_part_as_u32()?.into();
+    match format_result {
+        HostFormatResult::Change => Ok(reader_writer.read_message_part_as_string()?),
+        HostFormatResult::NoChange => Ok(file_text),
+        HostFormatResult::Error => err!("{}", reader_writer.read_message_part_as_string()?),
     }
 }
 

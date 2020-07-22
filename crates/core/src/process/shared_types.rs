@@ -56,6 +56,7 @@ pub enum FormatResult {
     NoChange = 0,
     Change = 1,
     Error = 2,
+    RequestTextFormat = 3,
 }
 
 // todo: generate with a macro
@@ -65,6 +66,27 @@ impl From<u32> for FormatResult {
             0 => FormatResult::NoChange,
             1 => FormatResult::Change,
             2 => FormatResult::Error,
+            3 => FormatResult::RequestTextFormat,
+            _ => unreachable!("Unexpected format result: {}", orig),
+        }
+    }
+}
+
+/// The kinds of host format results.
+#[derive(Debug)]
+pub enum HostFormatResult {
+    NoChange = 0,
+    Change = 1,
+    Error = 2,
+}
+
+// todo: generate with a macro
+impl From<u32> for HostFormatResult {
+    fn from(orig: u32) -> Self {
+        match orig {
+            0 => HostFormatResult::NoChange,
+            1 => HostFormatResult::Change,
+            2 => HostFormatResult::Error,
             _ => unreachable!("Unexpected format result: {}", orig),
         }
     }

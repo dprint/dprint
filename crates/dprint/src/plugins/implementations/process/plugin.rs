@@ -1,31 +1,36 @@
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
 use dprint_core::plugins::PluginInfo;
-use dprint_core::process::{MessageKind, FormatResult, ResponseKind, StdInOutReaderWriter};
+use dprint_core::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::path::PathBuf;
 
+use crate::environment::Environment;
+use crate::plugins::{Plugin, InitializedPlugin, PluginPools};
 use crate::types::ErrBox;
-use crate::plugins::{Plugin, InitializedPlugin};
 
-pub struct ProcessPlugin {
+use super::super::format_with_plugin_pool;
+
+pub struct ProcessPlugin<TEnvironment: Environment> {
+    executable_file_path: PathBuf,
     plugin_info: PluginInfo,
     config: Option<(HashMap<String, String>, GlobalConfiguration)>,
-    executable_file_path: PathBuf,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
-impl ProcessPlugin {
-    pub fn new(plugin_info: PluginInfo, executable_file_path: PathBuf) -> Self {
+impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
+    pub fn new(executable_file_path: PathBuf, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
         ProcessPlugin {
+            executable_file_path,
             plugin_info,
             config: None,
-            executable_file_path,
+            plugin_pools
         }
     }
 }
 
-impl Plugin for ProcessPlugin {
+impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     fn name(&self) -> &str {
         &self.plugin_info.name
     }
@@ -59,7 +64,11 @@ impl Plugin for ProcessPlugin {
     }
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let process_plugin = InitializedProcessPlugin::new(&self.executable_file_path)?;
+        let process_plugin = InitializedProcessPlugin::new(
+            self.name().to_string(),
+            &self.executable_file_path,
+            Some(self.plugin_pools.clone())
+        )?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 
         process_plugin.set_global_config(&global_config)?;
@@ -69,25 +78,33 @@ impl Plugin for ProcessPlugin {
     }
 }
 
-pub struct InitializedProcessPlugin {
+pub struct InitializedProcessPlugin<TEnvironment: Environment> {
+    name: String,
     child: Arc<Mutex<Child>>,
+    plugin_pools: Option<Arc<PluginPools<TEnvironment>>>,
 }
 
-impl Drop for InitializedProcessPlugin {
+impl<TEnvironment: Environment> Drop for InitializedProcessPlugin<TEnvironment> {
     fn drop(&mut self) {
         let mut child = self.child.lock().unwrap();
         let _unused = child.kill();
     }
 }
 
-impl InitializedProcessPlugin {
-    pub fn new(executable_file_path: &PathBuf) -> Result<Self, ErrBox> {
+impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
+    pub fn new(
+        name: String,
+        executable_file_path: &PathBuf,
+        plugin_pools: Option<Arc<PluginPools<TEnvironment>>>,
+    ) -> Result<Self, ErrBox> {
         let child = Command::new(executable_file_path)
             .stdin(Stdio::piped())
             .stderr(Stdio::piped()) // todo: read stderr
             .stdout(Stdio::piped())
             .spawn()?;
         let initialized_plugin = InitializedProcessPlugin {
+            name,
+            plugin_pools,
             child: Arc::new(Mutex::new(child)),
         };
 
@@ -194,7 +211,7 @@ impl InitializedProcessPlugin {
     }
 }
 
-impl InitializedPlugin for InitializedProcessPlugin {
+impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<TEnvironment> {
     fn get_license_text(&self) -> Result<String, ErrBox> {
         self.get_string(MessageKind::GetLicenseText)
     }
@@ -220,12 +237,32 @@ impl InitializedPlugin for InitializedProcessPlugin {
                 ]
             )?;
 
-            let response_code = reader_writer.read_message_part_as_u32()?;
+            loop {
+                let response_code = reader_writer.read_message_part_as_u32()?;
+                match response_code.into() {
+                    FormatResult::NoChange => break Ok(String::from(file_text)),
+                    FormatResult::Change => break Ok(reader_writer.read_message_part_as_string()?),
+                    FormatResult::Error => break err!("{}", reader_writer.read_message_part_as_string()?),
+                    FormatResult::RequestTextFormat => {
+                        let file_path = reader_writer.read_message_part_as_path_buf()?;
+                        let file_text = reader_writer.read_message_part_as_string()?;
+                        let pools = self.plugin_pools.as_ref().unwrap();
 
-            match response_code.into() {
-                FormatResult::NoChange => Ok(String::from(file_text)),
-                FormatResult::Change => Ok(reader_writer.read_message_part_as_string()?),
-                FormatResult::Error => err!("{}", reader_writer.read_message_part_as_string()?),
+                        match format_with_plugin_pool(&self.name, &file_path, &file_text, pools) {
+                            Ok(Some(formatted_text)) => {
+                                reader_writer.send_message_part_as_u32(HostFormatResult::Change as u32)?;
+                                reader_writer.send_message_part_as_string(&formatted_text)?;
+                            },
+                            Ok(None) => {
+                                reader_writer.send_message_part_as_u32(HostFormatResult::NoChange as u32)?;
+                            }
+                            Err(err) => {
+                                reader_writer.send_message_part_as_u32(HostFormatResult::Error as u32)?;
+                                reader_writer.send_message_part_as_string(&err.to_string())?;
+                            }
+                        }
+                    }
+                }
             }
         })
     }
