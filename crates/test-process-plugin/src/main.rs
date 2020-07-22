@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics};
 use dprint_core::types::ErrBox;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::process::StdInOutReaderWriter;
+use dprint_core::process::{MessageKind, ResponseKind, FormatResult, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,45 +15,7 @@ struct Configuration {
     line_width: u32,
 }
 
-/// todo: share with CLI (maybe in dprint_core)
-enum MessageKind {
-    GetPluginSchemaVersion = 0,
-    GetPluginInfo = 1,
-    GetLicenseText = 2,
-    GetResolvedConfig = 3,
-    SetGlobalConfig = 4,
-    SetPluginConfig = 5,
-    GetConfigDiagnostics = 6,
-    FormatText = 7,
-}
-
-enum ResponseKind {
-    Success = 0,
-    Error = 1,
-}
-
-// todo: generate with a macro
-impl From<u32> for MessageKind {
-    fn from(kind: u32) -> Self {
-        match kind {
-            0 => MessageKind::GetPluginSchemaVersion,
-            1 => MessageKind::GetPluginInfo,
-            2 => MessageKind::GetLicenseText,
-            3 => MessageKind::GetResolvedConfig,
-            4 => MessageKind::SetGlobalConfig,
-            5 => MessageKind::SetPluginConfig,
-            6 => MessageKind::GetConfigDiagnostics,
-            7 => MessageKind::FormatText,
-            _ => unreachable!(), // todo: return a result and say the provided value
-        }
-    }
-}
-
-enum FormatResult {
-    NoChange = 0,
-    Change = 1,
-    Error = 2,
-}
+// todo: resolve todos and extract out some of this to dprint_core to make implementing this very easy in Rust
 
 fn main() -> Result<(), ErrBox> {
     let plugin_info = PluginInfo {
@@ -66,7 +28,6 @@ fn main() -> Result<(), ErrBox> {
     };
     let license_text = "License text.";
     let mut global_config: Option<GlobalConfiguration> = None;
-    let mut plugin_config: Option<HashMap<String, String>> = None;
     let mut resolved_config_result: Option<ResolveConfigurationResult<Configuration>> = None;
 
     let mut stdin = std::io::stdin();
@@ -79,7 +40,7 @@ fn main() -> Result<(), ErrBox> {
         // todo: return an error when this fails
         // todo: return error instead of panic in some cases here (ex. unwraps)
         match message_kind {
-            MessageKind::GetPluginSchemaVersion => send_int(&mut reader_writer, 1)?,
+            MessageKind::GetPluginSchemaVersion => send_int(&mut reader_writer, PLUGIN_SCHEMA_VERSION)?,
             MessageKind::GetPluginInfo => send_string(&mut reader_writer, &serde_json::to_string(&plugin_info)?)?,
             MessageKind::GetLicenseText => send_string(&mut reader_writer, license_text)?,
             MessageKind::SetGlobalConfig => {
@@ -90,11 +51,11 @@ fn main() -> Result<(), ErrBox> {
             },
             MessageKind::SetPluginConfig => {
                 let message_data = reader_writer.read_message_part()?;
-                plugin_config = Some(serde_json::from_slice(&message_data)?);
+                let plugin_config = serde_json::from_slice(&message_data)?;
                 resolved_config_result.take();
 
                 resolved_config_result = Some(resolve_config(
-                    plugin_config.as_ref().unwrap().clone(),
+                    plugin_config,
                     global_config.as_ref().unwrap(),
                 ));
                 send_success(&mut reader_writer)?;
@@ -112,18 +73,17 @@ fn main() -> Result<(), ErrBox> {
 
                 let message_data = reader_writer.read_message_part()?;
                 let file_path = PathBuf::from(std::str::from_utf8(&message_data).unwrap());
-
                 let file_text = reader_writer.read_message_part_as_string()?;
 
                 match format_text(&file_path, &file_text, &config.config) {
                     Ok(formatted_text) => {
                         if formatted_text == file_text {
-                            send_int(&mut reader_writer, 0)?; // no change
+                            send_int(&mut reader_writer, FormatResult::NoChange as u32)?;
                         } else {
                             send_response(
                                 &mut reader_writer,
                                 vec![
-                                    &(1 as u32).to_be_bytes(), // change
+                                    &(FormatResult::Change as u32).to_be_bytes(),
                                     formatted_text.as_bytes()
                                 ]
                             )?;
@@ -133,7 +93,7 @@ fn main() -> Result<(), ErrBox> {
                         send_response(
                             &mut reader_writer,
                             vec![
-                                &(2 as u32).to_be_bytes(), // error
+                                &(FormatResult::Error as u32).to_be_bytes(), // error
                                 err.to_string().as_bytes()
                             ]
                         )?;

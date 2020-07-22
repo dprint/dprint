@@ -1,6 +1,6 @@
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
 use dprint_core::plugins::PluginInfo;
-use dprint_core::process::StdInOutReaderWriter;
+use dprint_core::process::{MessageKind, FormatResult, ResponseKind, StdInOutReaderWriter};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
@@ -66,35 +66,6 @@ impl Plugin for ProcessPlugin {
         process_plugin.set_plugin_config(&plugin_config)?;
 
         Ok(Box::new(process_plugin))
-    }
-}
-
-#[derive(Debug)]
-enum MessageKind {
-    GetPluginSchemaVersion = 0,
-    GetPluginInfo = 1,
-    GetLicenseText = 2,
-    GetResolvedConfig = 3,
-    SetGlobalConfig = 4,
-    SetPluginConfig = 5,
-    GetConfigDiagnostics = 6,
-    FormatText = 7,
-}
-
-enum FormatResult {
-    NoChange = 0,
-    Change = 1,
-    Error = 2,
-}
-
-impl From<u32> for FormatResult {
-    fn from(orig: u32) -> Self {
-        match orig {
-            0 => FormatResult::NoChange,
-            1 => FormatResult::Change,
-            2 => FormatResult::Error,
-            _ => unreachable!(),
-        }
     }
 }
 
@@ -253,12 +224,8 @@ impl InitializedPlugin for InitializedProcessPlugin {
 
             match response_code.into() {
                 FormatResult::NoChange => Ok(String::from(file_text)),
-                FormatResult::Change => {
-                    Ok(reader_writer.read_message_part_as_string()?)
-                }
-                FormatResult::Error => {
-                    err!("{}", reader_writer.read_message_part_as_string()?)
-                }
+                FormatResult::Change => Ok(reader_writer.read_message_part_as_string()?),
+                FormatResult::Error => err!("{}", reader_writer.read_message_part_as_string()?),
             }
         })
     }
@@ -276,11 +243,9 @@ fn send_message(
     }
 
     // read response
-    let response_kind = reader_writer.read_message_kind()?;
-    if response_kind != 0 {
-        let error_text = String::from_utf8(reader_writer.read_message_part()?)?;
-        err!("{}", error_text)
-    } else {
-        Ok(())
+    let response_kind = reader_writer.read_message_kind()?.into();
+    match response_kind {
+        ResponseKind::Success => Ok(()),
+        ResponseKind::Error => err!("{}", reader_writer.read_message_part_as_string()?),
     }
 }
