@@ -20,11 +20,11 @@ struct Configuration {
 
 fn main() -> Result<(), ErrBox> {
     let plugin_info = PluginInfo {
-        name: "test-process-plugin".to_string(),
-        version: "0.2.0".to_string(),
+        name: String::from(env!("CARGO_PKG_NAME")),
+        version: String::from(env!("CARGO_PKG_VERSION")),
         config_key: "testProcessPlugin".to_string(),
         file_extensions: vec!["txt_ps".to_string()],
-        help_url: "test-process-plugin-help-url".to_string(),
+        help_url: "https://dprint.dev/plugins/test-process".to_string(),
         config_schema_url: "".to_string()
     };
     let license_text = "License text.";

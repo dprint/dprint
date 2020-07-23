@@ -12,6 +12,19 @@ use crate::types::ErrBox;
 
 use super::super::format_with_plugin_pool;
 
+/// Use this to get an executable file name that also works in the tests.
+pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment: &impl Environment) -> PathBuf {
+    if environment.is_real() {
+        executable_file_path
+    } else {
+        // do this so that we can launch the process in the tests
+        let temp_process_plugin_file = PathBuf::from("target/temp-plugin.exe");
+        // ignore errors here... just means the file already exists
+        let _ignore_errors = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
+        temp_process_plugin_file
+    }
+}
+
 pub struct ProcessPlugin<TEnvironment: Environment> {
     executable_file_path: PathBuf,
     plugin_info: PluginInfo,

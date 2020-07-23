@@ -65,7 +65,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
 
         let plugin: InitializedProcessPlugin<TEnvironment> = InitializedProcessPlugin::new(
             plugin_name,
-            &plugin_executable_file_path,
+            &super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment),
             None, // not formatting so providing None is ok
         )?;
         let plugin_info = plugin.get_plugin_info()?;
