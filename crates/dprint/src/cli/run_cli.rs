@@ -1209,7 +1209,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn it_should_format_absolute_paths_on_linux() {
-        let environment = get_initialized_test_environment_with_remote_plugin().await.unwrap();
+        let environment = get_initialized_test_environment_with_remote_wasm_plugin().await.unwrap();
         let file_path = PathBuf::from("/asdf/file1.txt");
         environment.set_cwd("/test/other/");
         environment.write_file(&file_path, "text1").unwrap();

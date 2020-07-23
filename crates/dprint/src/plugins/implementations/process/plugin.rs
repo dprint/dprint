@@ -18,7 +18,7 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
         executable_file_path
     } else {
         // do this so that we can launch the process in the tests
-        let temp_process_plugin_file = PathBuf::from("target/temp-plugin.exe");
+        let temp_process_plugin_file = PathBuf::from("target").join(if cfg!(target_os="windows") { "temp-plugin.exe" } else { "temp-plugin" });
         // ignore errors here... just means the file already exists
         let _ignore_errors = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
         temp_process_plugin_file
