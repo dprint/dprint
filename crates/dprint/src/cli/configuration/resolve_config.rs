@@ -51,7 +51,24 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
             }
         }
     };
-    let mut plugins = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?;
+
+    let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?; // always take this out of the config map
+    let plugins = if args.plugins.is_empty() {
+        // filter out any non-wasm plugins from remote config
+        if !resolved_config_path.resolved_path.is_local() {
+            filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
+        } else {
+            plugins_vec
+        }
+    } else {
+        let base_path = PathSource::new_local(resolved_config_path.base_path.clone());
+        let mut plugins = Vec::with_capacity(args.plugins.len());
+        for url_or_file_path in args.plugins.iter() {
+            plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path)?);
+        }
+
+        plugins
+    };
 
     // IMPORTANT
     // =========
@@ -67,9 +84,6 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
         if was_removed && resolved_config_path.resolved_path.is_first_download {
             environment.log(&get_warn_includes_excludes_message());
         }
-
-        // only keep wasm plugins for remote config for security reasons
-        plugins = filter_non_wasm_plugins(plugins, environment);
     }
     // =========
 
@@ -974,8 +988,8 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec![get_warn_non_wasm_plugins_message()]);
         assert_eq!(result.plugins, vec![]);
+        assert_eq!(environment.get_logged_messages(), vec![get_warn_non_wasm_plugins_message()]);
     }
 
     #[tokio::test]

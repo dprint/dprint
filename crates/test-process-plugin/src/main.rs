@@ -90,12 +90,9 @@ fn main() -> Result<(), ErrBox> {
                         }
                     }
                     Err(err) => {
-                        send_response(
+                        send_error_response(
                             &mut reader_writer,
-                            vec![
-                                &(FormatResult::Error as u32).to_be_bytes(), // error
-                                err.to_string().as_bytes()
-                            ]
+                            &err.to_string()
                         )?;
                     }
                 }
@@ -113,7 +110,7 @@ fn format_text(
     if file_text.starts_with("plugin: ") {
         format_with_host(reader_writer, &PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""))
     } else if file_text == "should_error" {
-        err!("Did error")
+        err!("Did error.")
     } else if file_text.ends_with(&config.ending) {
         Ok(String::from(file_text))
     } else {
@@ -126,9 +123,14 @@ fn format_with_host(
     file_path: &PathBuf,
     file_text: String
 ) -> Result<String, ErrBox> {
-    reader_writer.send_message_part_as_u32(FormatResult::RequestTextFormat as u32)?;
-    reader_writer.send_message_part_as_path_buf(&file_path)?;
-    reader_writer.send_message_part_as_string(&file_text)?;
+    send_response(
+        reader_writer,
+        vec![
+            &(FormatResult::RequestTextFormat as u32).to_be_bytes(),
+            file_path.to_string_lossy().as_bytes(),
+            file_text.as_bytes()
+        ]
+    )?;
 
     let format_result = reader_writer.read_message_part_as_u32()?.into();
     match format_result {
@@ -140,7 +142,7 @@ fn format_with_host(
 
 fn resolve_config(config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut config = config;
-    let ending = config.remove("ending").unwrap_or(String::from("formatted"));
+    let ending = config.remove("ending").unwrap_or(String::from("formatted_process"));
     let line_width = config.remove("line_width").map(|x| x.parse::<u32>().unwrap()).unwrap_or(global_config.line_width.unwrap_or(120));
     let mut diagnostics = Vec::new();
 
@@ -181,6 +183,17 @@ fn send_response<'a, TRead: Read, TWrite: Write>(
     for message_part in message_parts {
         reader_writer.send_message_part(message_part)?;
     }
+
+    Ok(())
+}
+
+fn send_error_response<'a, TRead: Read, TWrite: Write>(
+    reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
+    error_message: &str,
+) -> Result<(), ErrBox> {
+
+    reader_writer.send_message_kind(ResponseKind::Error as u32)?;
+    reader_writer.send_message_part_as_string(error_message)?;
 
     Ok(())
 }

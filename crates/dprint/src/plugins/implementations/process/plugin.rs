@@ -100,7 +100,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
 
 pub struct InitializedProcessPlugin<TEnvironment: Environment> {
     name: String,
-    child: Arc<Mutex<Child>>,
+    child: Mutex<Child>,
     plugin_pools: Option<Arc<PluginPools<TEnvironment>>>,
 }
 
@@ -125,7 +125,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
         let initialized_plugin = InitializedProcessPlugin {
             name,
             plugin_pools,
-            child: Arc::new(Mutex::new(child)),
+            child: Mutex::new(child),
         };
 
         initialized_plugin.verify_plugin_schema_version()?;
@@ -246,23 +246,19 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
     }
 
     fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, ErrBox> {
-        let file_path = file_path.to_string_lossy();
-
         self.with_reader_writer(|reader_writer| {
-            send_message(
-                reader_writer,
-                MessageKind::FormatText, vec![
-                    file_path.as_bytes(),
-                    file_text.as_bytes()
-                ]
-            )?;
+            // send message
+            reader_writer.send_message_kind(MessageKind::FormatText as u32)?;
+            reader_writer.send_message_part_as_path_buf(file_path)?;
+            reader_writer.send_message_part_as_string(file_text)?;
 
             loop {
-                let response_code = reader_writer.read_message_part_as_u32()?;
-                match response_code.into() {
+                read_response(reader_writer)?;
+
+                let format_result = reader_writer.read_message_part_as_u32()?;
+                match format_result.into() {
                     FormatResult::NoChange => break Ok(String::from(file_text)),
                     FormatResult::Change => break Ok(reader_writer.read_message_part_as_string()?),
-                    FormatResult::Error => break err!("{}", reader_writer.read_message_part_as_string()?),
                     FormatResult::RequestTextFormat => {
                         let file_path = reader_writer.read_message_part_as_path_buf()?;
                         let file_text = reader_writer.read_message_part_as_string()?;
@@ -300,6 +296,12 @@ fn send_message(
     }
 
     // read response
+    read_response(reader_writer)
+}
+
+fn read_response(
+    reader_writer: &mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>,
+) -> Result<(), ErrBox> {
     let response_kind = reader_writer.read_message_kind()?.into();
     match response_kind {
         ResponseKind::Success => Ok(()),

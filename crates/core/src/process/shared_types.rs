@@ -55,8 +55,7 @@ impl From<u32> for ResponseKind {
 pub enum FormatResult {
     NoChange = 0,
     Change = 1,
-    Error = 2,
-    RequestTextFormat = 3,
+    RequestTextFormat = 2,
 }
 
 // todo: generate with a macro
@@ -65,8 +64,7 @@ impl From<u32> for FormatResult {
         match orig {
             0 => FormatResult::NoChange,
             1 => FormatResult::Change,
-            2 => FormatResult::Error,
-            3 => FormatResult::RequestTextFormat,
+            2 => FormatResult::RequestTextFormat,
             _ => unreachable!("Unexpected format result: {}", orig),
         }
     }
@@ -87,7 +85,7 @@ impl From<u32> for HostFormatResult {
             0 => HostFormatResult::NoChange,
             1 => HostFormatResult::Change,
             2 => HostFormatResult::Error,
-            _ => unreachable!("Unexpected format result: {}", orig),
+            _ => unreachable!("Unexpected host format result: {}", orig),
         }
     }
 }
