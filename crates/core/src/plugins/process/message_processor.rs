@@ -21,7 +21,7 @@ pub trait ProcessPluginHandler<TConfiguration: Clone + Serialize> {
     ) -> Result<String, ErrBox>;
 }
 
-/// Handles the process's message based on the provided handler.
+/// Handles the process' messages based on the provided handler.
 pub fn handle_process_stdin_stdout_messages<THandler: ProcessPluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(
     handler: THandler
 ) -> Result<(), ErrBox> {
