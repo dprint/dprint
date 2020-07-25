@@ -1,10 +1,13 @@
 use std::path::PathBuf;
 use async_trait::async_trait;
 use bytes::Bytes;
-use super::super::types::ErrBox;
+
+use crate::plugins::CompilationResult;
+use crate::types::ErrBox;
 
 #[async_trait]
 pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static {
+    fn is_real(&self) -> bool;
     fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox>;
     async fn read_file_async(&self, file_path: &PathBuf) -> Result<String, ErrBox>;
     fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox>;
@@ -17,6 +20,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn path_exists(&self, file_path: &PathBuf) -> bool;
     fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox>;
     fn is_absolute_path(&self, path: &PathBuf) -> bool;
+    fn mk_dir_all(&self, path: &PathBuf) -> Result<(), ErrBox>;
     fn cwd(&self) -> Result<PathBuf, ErrBox>;
     fn log(&self, text: &str);
     fn log_error(&self, text: &str);
@@ -33,6 +37,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox>;
     fn get_multi_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<Vec<usize>, ErrBox>;
     fn is_verbose(&self) -> bool;
+    fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox>;
 }
 
 // use a macro here so the expression provided is only evaluated when in verbose mode

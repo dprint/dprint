@@ -37,10 +37,9 @@ async fn run() -> Result<(), types::ErrBox> {
     let args = cli::parse_args(std::env::args().collect(), &stdin_reader)?;
     let environment = RealEnvironment::new(args.verbose, args.is_silent_output());
     let cache = Arc::new(cache::Cache::new(environment.clone())?);
-    let plugin_cache = plugins::PluginCache::new(environment.clone(), cache.clone(), &crate::plugins::wasm::compile);
+    let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone())?);
     let plugin_pools = Arc::new(plugins::PluginPools::new(environment.clone()));
-    let import_object_factory = plugins::wasm::PoolImportObjectFactory::new(plugin_pools.clone());
-    let plugin_resolver = plugins::wasm::WasmPluginResolver::new(environment.clone(), plugin_cache, import_object_factory);
+    let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
 
     cli::run_cli(args, &environment, &cache, &plugin_resolver, plugin_pools).await
 }

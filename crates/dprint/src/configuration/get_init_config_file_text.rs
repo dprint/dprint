@@ -1,4 +1,4 @@
-use dprint_core::plugins::PLUGIN_SYSTEM_SCHEMA_VERSION;
+use dprint_core::plugins::wasm::{self};
 
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
@@ -12,14 +12,15 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
 
     let info = match read_info_file(environment).await {
         Ok(info) => {
-            if info.plugin_system_schema_version != PLUGIN_SYSTEM_SCHEMA_VERSION {
+            // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
+            if info.plugin_system_schema_version != wasm::PLUGIN_SYSTEM_SCHEMA_VERSION {
                 environment.log_error(&format!(
                     concat!(
                         "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
                         "Consider upgrading to support new plugins. ",
                         "Plugin system schema version is {}, latest is {}."
                     ),
-                    PLUGIN_SYSTEM_SCHEMA_VERSION,
+                    wasm::PLUGIN_SYSTEM_SCHEMA_VERSION,
                     info.plugin_system_schema_version,
                 ));
                 None

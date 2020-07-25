@@ -6,7 +6,8 @@ use crate::configuration::{ConfigMap, ConfigMapValue, deserialize_config};
 use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::types::ErrBox;
-use crate::utils::{ResolvedPath, resolve_url_or_file_path, resolve_url_or_file_path_to_path_source, PathSource};
+use crate::plugins::{PluginSourceReference, parse_plugin_source_reference};
+use crate::utils::{ResolvedPath, resolve_url_or_file_path, PathSource};
 
 use super::resolve_main_config_path;
 
@@ -16,7 +17,7 @@ pub struct ResolvedConfig {
     pub base_path: PathBuf,
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
-    pub plugins: Vec<PathSource>,
+    pub plugins: Vec<PluginSourceReference>,
     pub incremental: bool,
     pub project_type: Option<String>,
     pub config_map: ConfigMap,
@@ -51,6 +52,24 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
         }
     };
 
+    let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?; // always take this out of the config map
+    let plugins = if args.plugins.is_empty() {
+        // filter out any non-wasm plugins from remote config
+        if !resolved_config_path.resolved_path.is_local() {
+            filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
+        } else {
+            plugins_vec
+        }
+    } else {
+        let base_path = PathSource::new_local(resolved_config_path.base_path.clone());
+        let mut plugins = Vec::with_capacity(args.plugins.len());
+        for url_or_file_path in args.plugins.iter() {
+            plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path)?);
+        }
+
+        plugins
+    };
+
     // IMPORTANT
     // =========
     // Remove the includes and excludes from remote configuration since
@@ -59,8 +78,8 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
     // control over what files get formatted.
     if !resolved_config_path.resolved_path.is_local() {
         // Careful! Don't be fancy and ensure both of these are removed.
-        let removed_includes = main_config_map.remove("includes").is_some(); // NEVER REMOVE
-        let removed_excludes = main_config_map.remove("excludes").is_some(); // NEVER REMOVE
+        let removed_includes = main_config_map.remove("includes").is_some(); // NEVER REMOVE THIS STATEMENT
+        let removed_excludes = main_config_map.remove("excludes").is_some(); // NEVER REMOVE THIS STATEMENT
         let was_removed = removed_includes || removed_excludes;
         if was_removed && resolved_config_path.resolved_path.is_first_download {
             environment.log(&get_warn_includes_excludes_message());
@@ -70,7 +89,6 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
 
     let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
     let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
-    let plugins = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?;
     let incremental = take_bool_from_config_map(&mut main_config_map, "incremental", false)?;
     let project_type = match main_config_map.remove("projectType") {
         Some(ConfigMapValue::String(project_type)) => Some(project_type),
@@ -147,12 +165,16 @@ async fn handle_config_file<'a, TEnvironment : Environment>(
     // we don't want it specifying something like system or some configuration
     // files that it could change. Basically, the end user should have 100%
     // control over what files get formatted.
-    new_config_map.remove("includes"); // NEVER REMOVE
-    new_config_map.remove("excludes"); // NEVER REMOVE
+    new_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    new_config_map.remove("excludes"); // NEVER REMOVE THIS STATEMENT
+    // Also remove any non-wasm plugins, but only for remote configurations.
+    // The assumption here is that the user won't be malicious to themselves.
+    let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent())?;
+    let plugins = if !resolved_path.is_local() { filter_non_wasm_plugins(plugins, environment) } else { plugins };
     // =========
 
     // combine plugins
-    resolved_config.plugins.extend(take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent())?);
+    resolved_config.plugins.extend(plugins);
 
     for (key, value) in new_config_map {
         match value {
@@ -226,11 +248,11 @@ fn get_config_map_from_path(file_path: &PathBuf, environment: &impl Environment)
     Ok(Ok(result))
 }
 
-fn take_plugins_array_from_config_map(config_map: &mut ConfigMap, base_path: &PathSource) -> Result<Vec<PathSource>, ErrBox> {
+fn take_plugins_array_from_config_map(config_map: &mut ConfigMap, base_path: &PathSource) -> Result<Vec<PluginSourceReference>, ErrBox> {
     let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?;
     let mut plugins = Vec::with_capacity(plugin_url_or_file_paths.len());
     for url_or_file_path in plugin_url_or_file_paths {
-        plugins.push(resolve_url_or_file_path_to_path_source(&url_or_file_path, base_path)?);
+        plugins.push(parse_plugin_source_reference(&url_or_file_path, base_path)?);
     }
     Ok(plugins)
 }
@@ -267,9 +289,25 @@ fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, de
     Ok(result)
 }
 
+fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
+    if plugins.iter().any(|plugin| !plugin.is_wasm_plugin()) {
+        environment.log(&get_warn_non_wasm_plugins_message());
+        plugins.into_iter().filter(|plugin| plugin.is_wasm_plugin()).collect()
+    } else {
+        plugins
+    }
+}
+
 fn get_warn_includes_excludes_message() -> String {
     format!(
         "{} The 'includes' and 'excludes' properties are ignored for security reasons on remote configuration.",
+        "Note: ".bold().to_string()
+    )
+}
+
+fn get_warn_non_wasm_plugins_message() -> String {
+    format!(
+        "{} Non-wasm plugins are ignored for security reasons on remote configuration.",
         "Note: ".bold().to_string()
     )
 }
@@ -446,8 +484,8 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -510,9 +548,9 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -580,9 +618,9 @@ mod tests {
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
-            PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+            PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
         ]);
 
         let mut expected_config_map = HashMap::new();
@@ -648,7 +686,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn it_should_handle_relative_local_extends() {
+    async fn it_should_handle_remote_in_local_extends() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "https://dprint.dev/dir/test.json",
@@ -673,7 +711,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn it_should_handle_remote_in_local_extends() {
+    async fn it_should_handle_relative_local_extends() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "dir/test.json",
@@ -840,7 +878,7 @@ mod tests {
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://dprint.dev/test-plugin.wasm")
+            PluginSourceReference::new_remote_from_str("https://dprint.dev/test-plugin.wasm")
         ]);
     }
 
@@ -862,7 +900,7 @@ mod tests {
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_remote_from_str("https://dprint.dev/test/plugin.wasm")
+            PluginSourceReference::new_remote_from_str("https://dprint.dev/test/plugin.wasm")
         ]);
     }
 
@@ -877,7 +915,7 @@ mod tests {
         let result = get_result("/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_local(PathBuf::from("/testing/asdf.wasm"))
+            PluginSourceReference::new_local(PathBuf::from("/testing/asdf.wasm"))
         ]);
     }
 
@@ -896,7 +934,7 @@ mod tests {
         let result = get_result("/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
-            PathSource::new_local(PathBuf::from("/other/testing/asdf.wasm"))
+            PluginSourceReference::new_local(PathBuf::from("/other/testing/asdf.wasm"))
         ]);
     }
 
@@ -939,5 +977,53 @@ mod tests {
         let result = get_result("/test.json", &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages().len(), 0);
         assert_eq!(result.incremental, false);
+    }
+
+    #[tokio::test]
+    async fn it_should_ignore_non_wasm_plugins_in_remote_config() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file("https://dprint.dev/test.json", r#"{
+            "projectType": "openSource",
+            "plugins": ["./test-plugin.plugin@checksum"]
+        }"#.as_bytes());
+
+        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        assert_eq!(result.plugins, vec![]);
+        assert_eq!(environment.get_logged_messages(), vec![get_warn_non_wasm_plugins_message()]);
+    }
+
+    #[tokio::test]
+    async fn it_should_ignore_non_wasm_plugins_in_remote_extends() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "https://dprint.dev/dir/test.json",
+            "prop1": 1
+        }"#).unwrap();
+        environment.add_remote_file("https://dprint.dev/dir/test.json", r#"{
+            "plugins": ["./test-plugin.plugin@checksum"]
+        }"#.as_bytes());
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages(), vec![get_warn_non_wasm_plugins_message()]);
+        assert_eq!(result.plugins, vec![]);
+    }
+
+    #[tokio::test]
+    async fn it_should_not_allow_non_wasm_plugins_in_local_extends() {
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "extends": "dir/test.json",
+            "prop1": 1
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/dir/test.json"), r#"{
+            "plugins": ["./test-plugin.plugin@checksum"]
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).await.unwrap();
+        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(result.plugins, vec![PluginSourceReference {
+            path_source: PathSource::new_local(PathBuf::from("/dir/test-plugin.plugin")),
+            checksum: Some(String::from("checksum")),
+        }]);
     }
 }

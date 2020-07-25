@@ -56,6 +56,7 @@ impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
         Ok(cache_item)
     }
 
+    #[allow(dead_code)]
     pub fn forget_item(&self, key: &str) -> Result<(), ErrBox> {
         if let Some(item) = self.cache_manifest.write().unwrap().remove_item(key) {
             let cache_file = self.cache_dir_path.join(&item.file_name);

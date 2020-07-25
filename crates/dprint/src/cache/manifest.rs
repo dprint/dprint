@@ -43,21 +43,15 @@ pub struct CacheItem {
 
 pub fn read_manifest(environment: &impl Environment) -> Result<CacheManifest, ErrBox> {
     let file_path = get_manifest_file_path(environment)?;
-    let manifest_file_text = match environment.read_file(&file_path) {
-        Ok(text) => Some(text),
-        Err(_) => None,
-    };
-
-    if let Some(text) = manifest_file_text {
-        match serde_json::from_str(&text) {
+    match environment.read_file(&file_path) {
+        Ok(text) => match serde_json::from_str(&text) {
             Ok(manifest) => Ok(manifest),
             Err(err) => {
                 environment.log_error(&format!("Error deserializing cache manifest, but ignoring: {}", err));
                 Ok(CacheManifest::new())
             }
-        }
-    } else {
-        Ok(CacheManifest::new())
+        },
+        Err(_) => Ok(CacheManifest::new()),
     }
 }
 

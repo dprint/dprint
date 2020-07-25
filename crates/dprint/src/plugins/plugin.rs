@@ -21,20 +21,38 @@ pub trait Plugin : std::marker::Send + std::marker::Sync {
     fn set_config(&mut self, plugin_config: HashMap<String, String>, global_config: GlobalConfiguration);
     /// Initializes the plugin.
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox>;
+    /// Gets the configuration for the plugin.
+    fn get_config(&self) -> &(HashMap<String, String>, GlobalConfiguration);
+
     /// Gets a hash that represents the current state of the plugin.
     /// This is used for the "incremental" feature to tell if a plugin has changed state.
-    fn get_hash(&self) -> u64;
+    fn get_hash(&self) -> u64 {
+        let config = self.get_config();
+        let mut hash_str = String::new();
+
+        // list everything in here that would affect formatting
+        hash_str.push_str(&self.name());
+        hash_str.push_str(&self.version());
+
+        // serialize the config keys in order to prevent the hash from changing
+        let sorted_config: std::collections::BTreeMap::<&String, &String> = config.0.iter().collect();
+        hash_str.push_str(&serde_json::to_string(&sorted_config).unwrap());
+
+        hash_str.push_str(&serde_json::to_string(&config.1).unwrap());
+
+        crate::utils::get_bytes_hash(hash_str.as_bytes())
+    }
 }
 
 pub trait InitializedPlugin : std::marker::Send {
     /// Gets the license text
-    fn get_license_text(&self) -> String;
+    fn get_license_text(&self) -> Result<String, ErrBox>;
     /// Gets the configuration as a collection of key value pairs.
-    fn get_resolved_config(&self) -> String;
+    fn get_resolved_config(&self) -> Result<String, ErrBox>;
     /// Gets the configuration diagnostics.
-    fn get_config_diagnostics(&self) -> Vec<ConfigurationDiagnostic>;
+    fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox>;
     /// Formats the text in memory based on the file path and file text.
-    fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, String>;
+    fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, ErrBox>;
 }
 
 #[cfg(test)]
@@ -43,6 +61,7 @@ pub struct TestPlugin {
     config_key: String,
     file_extensions: Vec<String>,
     initialized_test_plugin: Option<InitializedTestPlugin>,
+    config: (HashMap<String, String>, GlobalConfiguration),
 }
 
 #[cfg(test)]
@@ -53,6 +72,12 @@ impl TestPlugin {
             config_key: String::from(config_key),
             file_extensions: file_extensions.into_iter().map(String::from).collect(),
             initialized_test_plugin: Some(InitializedTestPlugin::new()),
+            config: (HashMap::new(), GlobalConfiguration {
+                line_width: None,
+                use_tabs: None,
+                indent_width: None,
+                new_line_kind: None,
+            })
         }
     }
 }
@@ -66,11 +91,11 @@ impl Plugin for TestPlugin {
     fn config_key(&self) -> &str { &self.config_key }
     fn file_extensions(&self) -> &Vec<String> { &self.file_extensions }
     fn set_config(&mut self, _: HashMap<String, String>, _: GlobalConfiguration) {}
+    fn get_config(&self) -> &(HashMap<String, String>, GlobalConfiguration) {
+        &self.config
+    }
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         Ok(Box::new(self.initialized_test_plugin.clone().unwrap()))
-    }
-    fn get_hash(&self) -> u64 {
-        0
     }
 }
 
@@ -88,10 +113,10 @@ impl InitializedTestPlugin {
 
 #[cfg(test)]
 impl InitializedPlugin for InitializedTestPlugin {
-    fn get_license_text(&self) -> String { String::from("License Text") }
-    fn get_resolved_config(&self) -> String { String::from("{}") }
-    fn get_config_diagnostics(&self) -> Vec<ConfigurationDiagnostic> { vec![] }
-    fn format_text(&self, _: &PathBuf, text: &str) -> Result<String, String> {
+    fn get_license_text(&self) -> Result<String, ErrBox> { Ok(String::from("License Text")) }
+    fn get_resolved_config(&self) -> Result<String, ErrBox> { Ok(String::from("{}")) }
+    fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> { Ok(vec![]) }
+    fn format_text(&self, _: &PathBuf, text: &str) -> Result<String, ErrBox> {
         Ok(format!("{}_formatted", text))
     }
 }
