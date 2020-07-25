@@ -1893,6 +1893,46 @@ SOFTWARE.
         );
     }
 
+    #[tokio::test]
+    async fn it_should_error_if_wasm_plugin_has_wrong_checksum_in_config() {
+        let environment = TestEnvironment::new();
+        setup_test_environment_with_remote_wasm_plugin(&environment);
+        let actual_plugin_file_checksum = get_wasm_plugin_checksum();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "plugins": [
+                "https://plugins.dprint.dev/test-plugin.wasm@asdf"
+            ]
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("test.txt"), "").unwrap();
+        let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).await.err().unwrap();
+
+        assert_eq!(
+            error_message.to_string(),
+            format!(
+                "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: The checksum {} did not match the expected checksum of asdf.",
+                actual_plugin_file_checksum,
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn it_should_not_if_wasm_plugin_has_correct_checksum_in_config() {
+        let environment = TestEnvironment::new();
+        setup_test_environment_with_remote_wasm_plugin(&environment);
+        let actual_plugin_file_checksum = get_wasm_plugin_checksum();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
+            "projectType": "openSource",
+            "plugins": [
+                "https://plugins.dprint.dev/test-plugin.wasm@{}"
+            ]
+        }}"#, actual_plugin_file_checksum)).unwrap();
+        environment.write_file(&PathBuf::from("test.txt"), "text").unwrap();
+        run_test_cli(vec!["fmt", "*.*"], &environment).await.unwrap();
+
+        assert_eq!(environment.read_file(&PathBuf::from("test.txt")).unwrap(), "text_formatted");
+    }
+
     fn get_singular_formatted_text() -> String {
         format!("Formatted {} file.", "1".bold().to_string())
     }
@@ -1998,6 +2038,10 @@ EXAMPLES:
     async fn get_process_plugin_checksum(environment: &TestEnvironment) -> String {
         let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.plugin").await.unwrap();
         crate::utils::get_sha256_checksum(&plugin_file_bytes)
+    }
+
+    fn get_wasm_plugin_checksum() -> String {
+        crate::utils::get_sha256_checksum(WASM_PLUGIN_BYTES)
     }
 
     async fn get_initialized_test_environment_with_remote_process_plugin() -> Result<TestEnvironment, ErrBox> {
