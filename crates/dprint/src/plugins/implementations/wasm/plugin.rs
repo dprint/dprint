@@ -1,13 +1,14 @@
-use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
-use dprint_core::plugins::{PluginInfo};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use bytes::Bytes;
 
+use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::plugins::{PluginInfo};
+use dprint_core::types::ErrBox;
+
 use crate::environment::Environment;
 use crate::plugins::{Plugin, InitializedPlugin, PluginPools};
-use crate::types::ErrBox;
 use super::{WasmFunctions, FormatResult, load_instance, create_pools_import_object};
 
 pub struct WasmPlugin<TEnvironment: Environment> {

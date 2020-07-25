@@ -4,13 +4,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use colored::Colorize;
+use dprint_core::types::ErrBox;
 
 use crate::cache::{Cache, CreateCacheItemOptions};
 use crate::environment::Environment;
 use crate::configuration::{self, get_global_config, get_plugin_config_map};
 use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
 use crate::utils::{get_table_text, get_difference, pretty_print_json_text};
-use crate::types::ErrBox;
 
 use super::{CliArgs, SubCommand, StdInFmt};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
@@ -780,7 +780,7 @@ mod tests {
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
     use crate::plugins::{PluginPools, CompilationResult, PluginResolver, PluginCache};
-    use crate::types::ErrBox;
+    use dprint_core::types::ErrBox;
     use crate::utils::get_difference;
 
     use super::run_cli;
@@ -1778,7 +1778,7 @@ mod tests {
 
     #[tokio::test]
     async fn it_should_output_license_for_sub_command_with_plugins() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().await.unwrap();
+        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
         run_test_cli(vec!["license"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
             "==== DPRINT CLI LICENSE ====",
@@ -1793,21 +1793,29 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-"#
+"#,
+            "\n==== TEST-PROCESS-PLUGIN LICENSE ====",
+            "License text."
         ]);
     }
 
     #[tokio::test]
     async fn it_should_output_editor_plugin_info() {
         // it should not output anything when downloading plugins
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+        let environment = TestEnvironment::new();
+        setup_test_environment_with_remote_process_plugin(&environment);
+        setup_test_environment_with_remote_wasm_plugin(&environment);
+        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+            "plugins": [
+                "https://plugins.dprint.dev/test-plugin.wasm",
+                "https://plugins.dprint.dev/test-process.plugin@{}"
+            ]
+        }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).await.unwrap();
         assert_eq!(environment.get_logged_messages(), vec![
-            r#"{"schemaVersion":1,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]}]}"#
+            r#"{"schemaVersion":1,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]},{"name":"test-process-plugin","fileExtensions":["txt_ps"]}]}"#
         ]);
     }
 

@@ -1,4 +1,4 @@
-use crate::types::ErrBox;
+use dprint_core::types::ErrBox;
 
 /// Loads a compiled wasm module from the specified bytes.
 pub fn load_instance(compiled_module_bytes: &[u8], import_object: wasmer_runtime::ImportObject) -> Result<wasmer_runtime::Instance, ErrBox> {

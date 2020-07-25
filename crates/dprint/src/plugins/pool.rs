@@ -1,9 +1,11 @@
-use crate::environment::Environment;
-use crate::types::ErrBox;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use super::{Plugin, InitializedPlugin};
 use tokio::sync::Semaphore;
+
+use dprint_core::types::ErrBox;
+
+use crate::environment::Environment;
+use super::{Plugin, InitializedPlugin};
 
 pub struct PluginPools<TEnvironment : Environment> {
     environment: TEnvironment,

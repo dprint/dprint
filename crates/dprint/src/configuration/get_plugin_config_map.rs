@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use dprint_core::types::ErrBox;
 
 use crate::plugins::Plugin;
-use crate::types::ErrBox;
 use super::{ConfigMap, ConfigMapValue};
 
 pub fn get_plugin_config_map(

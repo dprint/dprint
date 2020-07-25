@@ -1,4 +1,4 @@
-use crate::types::ErrBox;
+use dprint_core::types::ErrBox;
 
 pub fn get_bytes_hash(bytes: &[u8]) -> u64 {
     use std::hash::Hasher;

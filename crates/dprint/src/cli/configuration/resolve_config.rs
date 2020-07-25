@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
 use colored::Colorize;
+use dprint_core::types::ErrBox;
+
 use crate::cache::Cache;
 use crate::configuration::{ConfigMap, ConfigMapValue, deserialize_config};
 use crate::cli::CliArgs;
 use crate::environment::Environment;
-use crate::types::ErrBox;
 use crate::plugins::{PluginSourceReference, parse_plugin_source_reference};
 use crate::utils::{ResolvedPath, resolve_url_or_file_path, PathSource};
 
@@ -328,7 +329,7 @@ mod tests {
     use crate::cache::Cache;
     use crate::cli::{parse_args, TestStdInReader};
     use crate::environment::{Environment, TestEnvironment};
-    use crate::types::ErrBox;
+    use dprint_core::types::ErrBox;
 
     use super::*;
 

@@ -1,11 +1,12 @@
-use dprint_core::plugins::PluginInfo;
 use bytes::Bytes;
 use futures::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use dprint_core::plugins::PluginInfo;
+use dprint_core::types::ErrBox;
+
 use crate::environment::Environment;
-use crate::types::ErrBox;
 use crate::plugins::{PluginSourceReference};
 use crate::utils::{PathSource, get_bytes_hash, verify_sha256_checksum};
 use super::implementations::{setup_plugin, cleanup_plugin, get_file_path_from_plugin_info};
@@ -164,7 +165,7 @@ mod test {
     use dprint_core::plugins::PluginInfo;
     use crate::environment::TestEnvironment;
     use crate::plugins::{CompilationResult, PluginSourceReference};
-    use crate::types::ErrBox;
+    use dprint_core::types::ErrBox;
     use super::*;
 
     #[tokio::test]

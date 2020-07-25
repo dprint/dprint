@@ -1,10 +1,14 @@
-use std::sync::Arc;
-use environment::RealEnvironment;
-
+#[macro_use(err)]
+extern crate dprint_core;
+#[cfg(test)]
 #[macro_use]
-mod types;
+extern crate lazy_static;
 #[macro_use]
 mod environment;
+
+use dprint_core::types::ErrBox;
+use std::sync::Arc;
+use environment::RealEnvironment;
 
 mod cache;
 mod cli;
@@ -12,12 +16,8 @@ mod configuration;
 mod plugins;
 mod utils;
 
-#[cfg(test)]
-#[macro_use]
-extern crate lazy_static;
-
 #[tokio::main]
-async fn main() -> Result<(), types::ErrBox> {
+async fn main() -> Result<(), ErrBox> {
     match run().await {
         Ok(_) => {},
         Err(err) => {
@@ -29,7 +29,7 @@ async fn main() -> Result<(), types::ErrBox> {
     Ok(())
 }
 
-async fn run() -> Result<(), types::ErrBox> {
+async fn run() -> Result<(), ErrBox> {
     #[cfg(windows)]
     colored::control::set_virtual_terminal(true).unwrap(); // the docs said this will always be Ok(())
 

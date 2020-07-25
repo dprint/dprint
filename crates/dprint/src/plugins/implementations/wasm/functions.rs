@@ -1,7 +1,7 @@
 use wasmer_runtime_core::export::Exportable;
 use wasmer_runtime::{Instance, Func, WasmPtr, Array, Memory};
 
-use crate::types::ErrBox;
+use dprint_core::types::ErrBox;
 
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 

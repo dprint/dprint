@@ -1,10 +1,11 @@
 use crate::utils::PathSource;
 use bytes::Bytes;
 use std::path::PathBuf;
+
 use dprint_core::plugins::PluginInfo;
+use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
-use crate::types::ErrBox;
 
 use super::super::SetupPluginResult;
 

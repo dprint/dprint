@@ -1,11 +1,12 @@
 use bytes::Bytes;
-use dprint_core::plugins::PluginInfo;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dprint_core::plugins::PluginInfo;
+use dprint_core::types::ErrBox;
+
 use crate::environment::Environment;
 use crate::plugins::{Plugin, PluginSourceReference, PluginCache, PluginPools};
-use crate::types::ErrBox;
 use crate::utils::PathSource;
 use super::process::{self};
 use super::wasm::{self};

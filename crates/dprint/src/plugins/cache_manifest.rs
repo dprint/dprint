@@ -1,10 +1,11 @@
-use dprint_core::plugins::PluginInfo;
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 
+use dprint_core::plugins::PluginInfo;
+use dprint_core::types::ErrBox;
+
 use crate::environment::Environment;
-use crate::types::ErrBox;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct PluginCacheManifest(HashMap<String, PluginCacheManifestItem>);

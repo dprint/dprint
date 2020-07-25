@@ -1,6 +1,7 @@
 use dissimilar::*;
 use colored::Colorize;
-use crate::types::ErrBox;
+
+use dprint_core::types::ErrBox;
 
 // TODO: This file needs improvement as it is kind of buggy, but
 // does the job for now.

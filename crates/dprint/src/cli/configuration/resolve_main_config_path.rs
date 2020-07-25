@@ -1,8 +1,9 @@
 use std::path::PathBuf;
+use dprint_core::types::ErrBox;
+
 use crate::cache::Cache;
 use crate::cli::CliArgs;
 use crate::environment::Environment;
-use crate::types::ErrBox;
 use crate::utils::{resolve_url_or_file_path, ResolvedPath, PathSource};
 
 const DEFAULT_CONFIG_FILE_NAME: &'static str = ".dprintrc.json";

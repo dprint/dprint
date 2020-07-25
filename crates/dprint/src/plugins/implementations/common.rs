@@ -1,9 +1,9 @@
 use std::path::PathBuf;
+use dprint_core::types::ErrBox;
 
 use crate::plugins::pool::PluginPools;
 use crate::environment::Environment;
 use crate::utils::get_lowercase_file_extension;
-use crate::types::ErrBox;
 
 pub fn format_with_plugin_pool<TEnvironment: Environment>(
     parent_plugin_name: &str,

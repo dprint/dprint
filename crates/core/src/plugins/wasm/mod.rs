@@ -212,7 +212,7 @@ pub mod macros {
 
             #[no_mangle]
             pub fn get_plugin_schema_version() -> u32 {
-                dprint_core::plugins::PLUGIN_SYSTEM_SCHEMA_VERSION // version 1
+                dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION // version 1
             }
 
             #[no_mangle]

@@ -1,6 +1,6 @@
 use dprint_core::plugins::PluginInfo;
+use dprint_core::types::ErrBox;
 
-use crate::types::ErrBox;
 use crate::utils::{PathSource, resolve_url_or_file_path_to_path_source};
 
 #[derive(Clone)]

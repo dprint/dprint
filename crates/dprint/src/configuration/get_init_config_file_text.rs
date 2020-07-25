@@ -1,8 +1,8 @@
 use dprint_core::plugins::wasm::{self};
+use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
-use crate::types::ErrBox;
 use crate::utils::get_table_text;
 
 use super::get_project_type_infos;

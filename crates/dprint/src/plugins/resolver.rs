@@ -1,6 +1,8 @@
 use std::sync::Arc;
+
+use dprint_core::types::ErrBox;
+
 use crate::environment::Environment;
-use crate::types::ErrBox;
 use crate::plugins::{Plugin, PluginSourceReference, PluginCache, PluginPools};
 use super::implementations::{create_plugin};
 

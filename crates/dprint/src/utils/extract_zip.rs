@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::io::prelude::*;
 
+use dprint_core::types::ErrBox;
+
 use crate::environment::Environment;
-use crate::types::ErrBox;
 
 pub fn extract_zip(zip_bytes: &[u8], dir_path: &PathBuf, environment: &impl Environment) -> Result<(), ErrBox> {
     // adapted from https://github.com/mvdnes/zip-rs/blob/master/examples/extract.rs

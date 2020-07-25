@@ -1,6 +1,6 @@
+use super::collections::{GraphNode, GraphNodeIterator};
 use super::StringContainer;
 use super::WriteItem;
-use super::collections::{GraphNode, GraphNodeIterator};
 use super::print_items::WriterInfo;
 use std::rc::Rc;
 

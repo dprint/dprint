@@ -1,12 +1,12 @@
-use dprint_core::plugins::PluginInfo;
 use bytes::Bytes;
 use std::str;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
+use dprint_core::plugins::PluginInfo;
+use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path_to_path_source, verify_sha256_checksum, extract_zip};
-use crate::types::ErrBox;
 
 use super::InitializedProcessPlugin;
 use super::super::SetupPluginResult;

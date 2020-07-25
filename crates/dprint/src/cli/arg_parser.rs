@@ -1,4 +1,4 @@
-use crate::types::ErrBox;
+use dprint_core::types::ErrBox;
 use super::StdInReader;
 
 pub struct CliArgs {

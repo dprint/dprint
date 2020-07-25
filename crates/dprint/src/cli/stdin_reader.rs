@@ -1,4 +1,4 @@
-use crate::types::ErrBox;
+use dprint_core::types::ErrBox;
 
 pub trait StdInReader : Clone + std::marker::Send + std::marker::Sync + 'static {
     fn read(&self) -> Result<String, ErrBox>;

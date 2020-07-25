@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
-use crate::types::ErrBox;
 use super::{ConfigMap, ConfigMapValue};
 
 pub fn get_global_config(config_map: ConfigMap, environment: &impl Environment) -> Result<GlobalConfiguration, ErrBox> {

@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use async_trait::async_trait;
 use bytes::Bytes;
+use dprint_core::types::ErrBox;
 
 use crate::plugins::CompilationResult;
-use crate::types::ErrBox;
 
 #[async_trait]
 pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static {

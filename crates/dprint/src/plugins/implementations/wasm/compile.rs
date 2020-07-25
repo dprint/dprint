@@ -1,5 +1,6 @@
+use dprint_core::types::ErrBox;
+
 use crate::plugins::CompilationResult;
-use crate::types::ErrBox;
 use super::{InitializedWasmPlugin, create_identity_import_object};
 
 /// Compiles a WASM module.

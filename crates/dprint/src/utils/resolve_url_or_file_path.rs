@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use url::Url;
 use bytes::Bytes;
+
+use dprint_core::types::ErrBox;
+
 use crate::cache::{Cache, CreateCacheItemOptions};
 use crate::environment::Environment;
-use crate::types::ErrBox;
-
 use super::PathSource;
 
 pub struct ResolvedPath {

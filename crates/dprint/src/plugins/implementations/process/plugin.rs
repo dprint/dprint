@@ -1,14 +1,14 @@
-use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
-use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::path::PathBuf;
+use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter};
+use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::plugins::{Plugin, InitializedPlugin, PluginPools};
-use crate::types::ErrBox;
 
 use super::super::format_with_plugin_pool;
 

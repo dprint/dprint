@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::RwLock;
+use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
-use crate::types::ErrBox;
 use super::manifest::*;
 
 pub struct Cache<TEnvironment : Environment> {

@@ -5,9 +5,9 @@ use globset::{GlobSetBuilder, GlobSet, Glob};
 use async_trait::async_trait;
 use bytes::Bytes;
 use path_clean::{PathClean};
+use dprint_core::types::ErrBox;
 
 use super::Environment;
-use crate::types::ErrBox;
 use crate::plugins::CompilationResult;
 
 #[derive(Clone)]

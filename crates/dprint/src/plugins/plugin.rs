@@ -1,8 +1,8 @@
-use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::types::ErrBox;
+use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::types::ErrBox;
 
 pub trait Plugin : std::marker::Send + std::marker::Sync {
     /// The name of the plugin.

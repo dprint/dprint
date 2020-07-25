@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use crate::types::ErrBox;
+use dprint_core::types::ErrBox;
 
 struct ProgressState {
     progress: Arc<MultiProgress>,

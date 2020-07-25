@@ -1,6 +1,7 @@
-use crate::environment::Environment;
-use crate::types::ErrBox;
 use jsonc_parser::{parse_to_value, JsonValue, JsonObject, JsonArray};
+use dprint_core::types::ErrBox;
+
+use crate::environment::Environment;
 
 #[derive(PartialEq, Debug)]
 pub struct InfoFile {

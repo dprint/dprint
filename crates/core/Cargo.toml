@@ -10,8 +10,9 @@ homepage = "https://github.com/dprint/dprint/tree/master/crates/core"
 repository = "https://github.com/dprint/dprint"
 
 [features]
-default = []
+default = ["formatting"]
 
+formatting = []
 process = ["serde_json"]
 wasm = []
 
