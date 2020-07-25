@@ -493,6 +493,7 @@ name = "dprint-core"
 version = "0.25.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
