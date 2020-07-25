@@ -6,7 +6,7 @@ use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult
 use dprint_core::err;
 use dprint_core::types::ErrBox;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::process::{handle_process_stdin_stdout_messages, ProcessPluginHandler};
+use dprint_core::plugins::process::{handle_process_stdin_stdout_messages, ProcessPluginHandler};
 
 fn main() -> Result<(), ErrBox> {
     handle_process_stdin_stdout_messages(TestProcessPluginHandler::new())

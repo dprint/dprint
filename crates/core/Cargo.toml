@@ -13,6 +13,7 @@ repository = "https://github.com/dprint/dprint"
 default = []
 
 process = ["serde_json"]
+wasm = []
 
 [dependencies]
 serde = { version = "1.0.88", features = ["derive"] }

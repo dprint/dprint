@@ -1,6 +1,6 @@
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
 use dprint_core::plugins::PluginInfo;
-use dprint_core::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter};
+use dprint_core::plugins::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
