@@ -138,7 +138,7 @@ mod test {
         ).unwrap();
 
         assert_eq!(read_manifest(&environment).unwrap(), PluginCacheManifest::new());
-        assert_eq!(environment.get_logged_errors(), vec![
+        assert_eq!(environment.take_logged_errors(), vec![
             String::from("Error deserializing plugin cache manifest, but ignoring: key must be a string at line 1 column 10")
         ]);
     }
@@ -148,7 +148,7 @@ mod test {
         let environment = TestEnvironment::new();
 
         assert_eq!(read_manifest(&environment).unwrap(), PluginCacheManifest::new());
-        assert_eq!(environment.get_logged_errors().len(), 0);
+        assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
     #[test]

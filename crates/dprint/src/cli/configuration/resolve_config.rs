@@ -83,7 +83,7 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
         let removed_excludes = main_config_map.remove("excludes").is_some(); // NEVER REMOVE THIS STATEMENT
         let was_removed = removed_includes || removed_excludes;
         if was_removed && resolved_config_path.resolved_path.is_first_download {
-            environment.log(&get_warn_includes_excludes_message());
+            environment.log_error(&get_warn_includes_excludes_message());
         }
     }
     // =========
@@ -292,7 +292,7 @@ fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, de
 
 fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
     if plugins.iter().any(|plugin| !plugin.is_wasm_plugin()) {
-        environment.log(&get_warn_non_wasm_plugins_message());
+        environment.log_error(&get_warn_non_wasm_plugins_message());
         plugins.into_iter().filter(|plugin| plugin.is_wasm_plugin()).collect()
     } else {
         plugins
@@ -351,7 +351,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_local(), true);
         assert_eq!(result.project_type, Some(String::from("openSource")));
@@ -370,7 +370,7 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_remote(), true);
         assert_eq!(result.project_type, Some(String::from("openSource")));
@@ -386,12 +386,13 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec![get_warn_includes_excludes_message()]);
+        assert_eq!(environment.take_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_errors(), vec![get_warn_includes_excludes_message()]);
         assert_eq!(result.includes.len(), 0);
 
         environment.clear_logs();
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0); // no warning this time
+        assert_eq!(environment.take_logged_errors().len(), 0); // no warning this time
         assert_eq!(result.includes.len(), 0);
     }
 
@@ -405,12 +406,12 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec![get_warn_includes_excludes_message()]);
+        assert_eq!(environment.take_logged_errors(), vec![get_warn_includes_excludes_message()]);
         assert_eq!(result.excludes.len(), 0);
 
         environment.clear_logs();
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0); // no warning this time
+        assert_eq!(environment.take_logged_errors().len(), 0); // no warning this time
         assert_eq!(result.excludes.len(), 0);
     }
 
@@ -425,13 +426,13 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec![get_warn_includes_excludes_message()]);
+        assert_eq!(environment.take_logged_errors(), vec![get_warn_includes_excludes_message()]);
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
 
         environment.clear_logs();
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0); // no warning this time
+        assert_eq!(environment.take_logged_errors().len(), 0); // no warning this time
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
     }
@@ -445,7 +446,7 @@ mod tests {
         }"#.as_bytes());
 
         get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
     }
 
     #[tokio::test]
@@ -478,7 +479,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_local(), true);
         assert_eq!(result.project_type, None); // should always come from main config
@@ -544,7 +545,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.project_type, None);
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
@@ -614,7 +615,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.project_type, None);
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
@@ -674,7 +675,7 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
@@ -702,7 +703,7 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
@@ -727,7 +728,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
@@ -796,7 +797,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
@@ -827,7 +828,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
@@ -856,7 +857,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
@@ -877,7 +878,7 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_remote_from_str("https://dprint.dev/test-plugin.wasm")
         ]);
@@ -899,7 +900,7 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_remote_from_str("https://dprint.dev/test/plugin.wasm")
         ]);
@@ -914,7 +915,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_local(PathBuf::from("/testing/asdf.wasm"))
         ]);
@@ -933,7 +934,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_local(PathBuf::from("/other/testing/asdf.wasm"))
         ]);
@@ -948,7 +949,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.incremental, false);
     }
 
@@ -962,7 +963,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.incremental, true);
     }
 
@@ -976,7 +977,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.incremental, false);
     }
 
@@ -990,7 +991,7 @@ mod tests {
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
         assert_eq!(result.plugins, vec![]);
-        assert_eq!(environment.get_logged_messages(), vec![get_warn_non_wasm_plugins_message()]);
+        assert_eq!(environment.take_logged_errors(), vec![get_warn_non_wasm_plugins_message()]);
     }
 
     #[tokio::test]
@@ -1005,7 +1006,7 @@ mod tests {
         }"#.as_bytes());
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages(), vec![get_warn_non_wasm_plugins_message()]);
+        assert_eq!(environment.take_logged_errors(), vec![get_warn_non_wasm_plugins_message()]);
         assert_eq!(result.plugins, vec![]);
     }
 
@@ -1021,7 +1022,7 @@ mod tests {
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
-        assert_eq!(environment.get_logged_messages().len(), 0);
+        assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![PluginSourceReference {
             path_source: PathSource::new_local(PathBuf::from("/dir/test-plugin.plugin")),
             checksum: Some(String::from("checksum")),

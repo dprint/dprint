@@ -180,6 +180,7 @@ mod test {
         let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("test-plugin-0.1.0.wat");
 
         assert_eq!(file_path, expected_file_path);
+        assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
 
         // should be the same when requesting it again
         let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
@@ -219,9 +220,7 @@ mod test {
 
         assert_eq!(file_path, expected_file_path);
 
-        let logged_messages = environment.get_logged_messages();
-        assert_eq!(logged_messages, vec!["Compiling /test.wasm"]);
-        environment.clear_logs();
+        assert_eq!(environment.take_logged_errors(), vec!["Compiling /test.wasm"]);
 
         // should be the same when requesting it again
         let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
@@ -237,9 +236,7 @@ mod test {
             )
         );
 
-        let logged_messages = environment.get_logged_messages();
-        assert_eq!(logged_messages.len(), 0); // no logs, nothing changed
-        environment.clear_logs();
+        assert_eq!(environment.take_logged_errors().len(), 0); // no logs, nothing changed
 
         // update the file bytes
         let file_bytes = "u".as_bytes();
@@ -258,9 +255,7 @@ mod test {
             )
         );
 
-        let logged_messages = environment.get_logged_messages();
-        assert_eq!(logged_messages, vec!["Compiling /test.wasm"]);
-        environment.clear_logs();
+        assert_eq!(environment.take_logged_errors(), vec!["Compiling /test.wasm"]);
 
         // should forget it afterwards
         plugin_cache.forget(&plugin_source).unwrap();

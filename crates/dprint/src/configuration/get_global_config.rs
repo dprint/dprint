@@ -117,6 +117,6 @@ mod tests {
         let test_environment = TestEnvironment::new();
         let result = get_global_config(config_map, &test_environment);
         assert_eq!(result.err().unwrap().to_string(), format!("Error resolving global config from configuration file. {}", message));
-        assert_eq!(test_environment.get_logged_errors(), logged_errors);
+        assert_eq!(test_environment.take_logged_errors(), logged_errors);
     }
 }

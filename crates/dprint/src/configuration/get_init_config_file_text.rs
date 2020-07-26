@@ -172,8 +172,7 @@ mod test {
 "#
         );
 
-        assert_eq!(environment.get_logged_errors().len(), 0);
-        assert_eq!(environment.get_logged_messages(), get_standard_logged_messages());
+        assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
     #[tokio::test]
@@ -202,8 +201,7 @@ mod test {
 "#
         );
 
-        assert_eq!(environment.get_logged_errors().len(), 0);
-        assert_eq!(environment.get_logged_messages(), get_standard_logged_messages());
+        assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
     #[tokio::test]
@@ -227,8 +225,7 @@ mod test {
 "#
         );
 
-        assert_eq!(environment.get_logged_errors().len(), 0);
-        assert_eq!(environment.get_logged_messages(), get_standard_logged_messages());
+        assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
     #[tokio::test]
@@ -252,14 +249,13 @@ mod test {
 }
 "#
         );
-        assert_eq!(environment.get_logged_errors(), vec![
-            concat!(
-                "There was a problem getting the latest plugin info. ",
-                "The created config file may not be as helpful of a starting point. ",
-                "Error: Could not find file at url https://plugins.dprint.dev/info.json"
-            )
-        ]);
-        assert_eq!(environment.get_logged_messages(), get_standard_logged_messages_no_plugin_selection());
+        let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+        expected_messages.push(concat!(
+            "There was a problem getting the latest plugin info. ",
+            "The created config file may not be as helpful of a starting point. ",
+            "Error: Could not find file at url https://plugins.dprint.dev/info.json"
+        ));
+        assert_eq!(environment.take_logged_errors(), expected_messages);
     }
 
     #[tokio::test]
@@ -299,8 +295,7 @@ mod test {
 "#
         );
 
-        assert_eq!(environment.get_logged_errors().len(), 0);
-        assert_eq!(environment.get_logged_messages(), get_standard_logged_messages());
+        assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
     #[tokio::test]
@@ -337,14 +332,13 @@ mod test {
 }
 "#
         );
-        assert_eq!(environment.get_logged_errors(), vec![
-            concat!(
-                "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
-                "Consider upgrading to support new plugins. ",
-                "Plugin system schema version is 1, latest is 2."
-            ),
-        ]);
-        assert_eq!(environment.get_logged_messages(), get_standard_logged_messages_no_plugin_selection());
+        let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+        expected_messages.push(concat!(
+            "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
+            "Consider upgrading to support new plugins. ",
+            "Plugin system schema version is 1, latest is 2."
+        ));
+        assert_eq!(environment.take_logged_errors(), expected_messages);
     }
 
     fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {

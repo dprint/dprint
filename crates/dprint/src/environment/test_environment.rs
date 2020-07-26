@@ -42,8 +42,8 @@ impl TestEnvironment {
         }
     }
 
-    pub fn get_logged_messages(&self) -> Vec<String> {
-        self.logged_messages.lock().unwrap().clone()
+    pub fn take_logged_messages(&self) -> Vec<String> {
+        self.logged_messages.lock().unwrap().drain(..).collect()
     }
 
     pub fn clear_logs(&self) {
@@ -51,8 +51,8 @@ impl TestEnvironment {
         self.logged_errors.lock().unwrap().clear();
     }
 
-    pub fn get_logged_errors(&self) -> Vec<String> {
-        self.logged_errors.lock().unwrap().clone()
+    pub fn take_logged_errors(&self) -> Vec<String> {
+        self.logged_errors.lock().unwrap().drain(..).collect()
     }
 
     pub fn add_remote_file(&self, path: &str, bytes: &'static [u8]) {
@@ -97,6 +97,17 @@ impl TestEnvironment {
     pub fn set_wasm_compile_result(&self, value: CompilationResult) {
         let mut wasm_compile_result = self.wasm_compile_result.lock().unwrap();
         *wasm_compile_result = Some(value);
+    }
+}
+
+impl Drop for TestEnvironment {
+    fn drop(&mut self) {
+        // If this panics that means the logged messages or errors weren't inspected for a test.
+        // Use take_logged_messages() or take_logged_errors() and inspect the results.
+        if !std::thread::panicking() && Arc::strong_count(&self.logged_messages) == 1 {
+            assert_eq!(self.logged_messages.lock().unwrap().clone(), Vec::<String>::new(), "should not have logged messages left on drop");
+            assert_eq!(self.logged_errors.lock().unwrap().clone(), Vec::<String>::new(), "should not have logged errors left on drop");
+        }
     }
 }
 
@@ -231,7 +242,7 @@ impl Environment for TestEnvironment {
         TResult: std::marker::Send + std::marker::Sync,
         TCreate : FnOnce() -> TResult + std::marker::Send + std::marker::Sync
     >(&self, message: &str, action: TCreate) -> Result<TResult, ErrBox> {
-        self.log(message);
+        self.log_error(message);
         Ok(action())
     }
 
@@ -244,12 +255,12 @@ impl Environment for TestEnvironment {
     }
 
     fn get_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<usize, ErrBox> {
-        self.log(prompt_message);
+        self.log_error(prompt_message);
         Ok(*self.selection_result.lock().unwrap())
     }
 
     fn get_multi_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
-        self.log(prompt_message);
+        self.log_error(prompt_message);
         Ok(self.multi_selection_result.lock().unwrap().clone())
     }
 
