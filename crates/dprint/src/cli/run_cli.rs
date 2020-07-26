@@ -1965,6 +1965,34 @@ SOFTWARE.
         assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
     }
 
+    #[tokio::test]
+    async fn it_should_error_if_process_plugin_has_wrong_checksum_in_file_for_zip() {
+        let environment = TestEnvironment::new();
+        setup_test_environment_with_remote_process_plugin(&environment);
+        write_process_plugin_file(&environment, "asdf");
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
+            "projectType": "openSource",
+            "plugins": [
+                "https://plugins.dprint.dev/test-process.plugin@{}"
+            ]
+        }}"#, get_process_plugin_checksum(&environment).await)).unwrap();
+        let actual_plugin_zip_file_checksum = get_process_plugin_zip_checksum(&environment).await;
+        environment.write_file(&PathBuf::from("test.txt_ps"), "").unwrap();
+        let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).await.err().unwrap();
+
+        assert_eq!(
+            error_message.to_string(),
+            format!(
+                "Error resolving plugin https://plugins.dprint.dev/test-process.plugin: The checksum {} did not match the expected checksum of asdf.",
+                actual_plugin_zip_file_checksum,
+            )
+        );
+        assert_eq!(environment.take_logged_errors(), vec![format!(
+            "Error getting plugin from cache. Forgetting from cache and retrying. Message: The checksum {} did not match the expected checksum of asdf.",
+            actual_plugin_zip_file_checksum
+        )]);
+    }
+
     fn get_singular_formatted_text() -> String {
         format!("Formatted {} file.", "1".bold().to_string())
     }
@@ -2072,6 +2100,11 @@ EXAMPLES:
         crate::utils::get_sha256_checksum(&plugin_file_bytes)
     }
 
+    async fn get_process_plugin_zip_checksum(environment: &TestEnvironment) -> String {
+        let plugin_file_bytes = environment.download_file("https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip").await.unwrap();
+        crate::utils::get_sha256_checksum(&plugin_file_bytes)
+    }
+
     fn get_wasm_plugin_checksum() -> String {
         crate::utils::get_sha256_checksum(WASM_PLUGIN_BYTES)
     }
@@ -2138,6 +2171,10 @@ EXAMPLES:
             "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
             Bytes::from(result),
         );
+        write_process_plugin_file(environment, &zip_file_checksum);
+    }
+
+    fn write_process_plugin_file(environment: &TestEnvironment, zip_checksum: &str) {
         environment.add_remote_file_bytes(
             "https://plugins.dprint.dev/test-process.plugin",
             Bytes::from(format!(r#"{{
@@ -2156,7 +2193,7 @@ EXAMPLES:
         "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
         "checksum": "{0}"
     }}
-}}"#, zip_file_checksum))
+}}"#, zip_checksum))
         );
     }
 }
