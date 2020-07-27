@@ -35,7 +35,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
     let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
     let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment)?;
 
-    let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment);
+    let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
 
     return match result {
         Ok(result) => Ok(result),
@@ -46,7 +46,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
         }
     };
 
-    fn setup_inner<TEnvironment: Environment>(
+    async fn setup_inner<TEnvironment: Environment>(
         plugin_cache_dir_path: &PathBuf,
         plugin_name: String,
         zip_bytes: &[u8],
@@ -56,7 +56,9 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
             environment.remove_dir_all(plugin_cache_dir_path)?;
         }
 
-        extract_zip(&zip_bytes, &plugin_cache_dir_path, environment)?;
+        environment.log_action_with_progress(&format!("Extracting zip for {}", plugin_name), || {
+            extract_zip(&zip_bytes, &plugin_cache_dir_path, environment)
+        }).await??;
 
         let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
         if !environment.path_exists(&plugin_executable_file_path) {
