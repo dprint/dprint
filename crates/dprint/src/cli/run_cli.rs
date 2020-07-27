@@ -779,7 +779,7 @@ mod tests {
     use crate::cache::Cache;
     use crate::environment::{Environment, TestEnvironment};
     use crate::configuration::*;
-    use crate::plugins::{PluginPools, CompilationResult, PluginResolver, PluginCache};
+    use crate::plugins::{PluginsDropper, PluginPools, CompilationResult, PluginResolver, PluginCache};
     use dprint_core::types::ErrBox;
     use crate::utils::get_difference;
 
@@ -801,6 +801,7 @@ mod tests {
         let cache = Arc::new(Cache::new(environment.clone()).unwrap());
         let plugin_cache = Arc::new(PluginCache::new(environment.clone())?);
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
+        let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
         let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
         let args = parse_args(args, &stdin_reader)?;
         environment.set_silent(args.is_silent_output());

@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use futures::Future;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
@@ -19,12 +19,12 @@ pub struct PluginCacheItem {
 
 pub struct PluginCache<TEnvironment : Environment> {
     environment: TEnvironment,
-    manifest: Arc<RwLock<PluginCacheManifest>>,
+    manifest: RwLock<PluginCacheManifest>,
 }
 
 impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
     pub fn new(environment: TEnvironment) -> Result<Self, ErrBox> {
-        let manifest = Arc::new(RwLock::new(read_manifest(&environment)?));
+        let manifest = RwLock::new(read_manifest(&environment)?);
         Ok(PluginCache {
             environment,
             manifest,

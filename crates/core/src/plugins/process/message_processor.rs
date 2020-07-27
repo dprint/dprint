@@ -71,7 +71,8 @@ impl<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler
                     &mut reader_writer,
                     &err.to_string()
                 )?,
-                _ => {},
+                Ok(true) => {},
+                Ok(false) => return Ok(()),
             }
         }
     }
@@ -82,8 +83,9 @@ fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + S
     reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
     handler: &THandler,
     state: &mut MessageProcessorState<TConfiguration>,
-) -> Result<(), ErrBox> {
+) -> Result<bool, ErrBox> {
     match message_kind {
+        MessageKind::Close => return Ok(false),
         MessageKind::GetPluginSchemaVersion => send_int(reader_writer, PLUGIN_SCHEMA_VERSION)?,
         MessageKind::GetPluginInfo => send_string(reader_writer, &serde_json::to_string(&handler.get_plugin_info())?)?,
         MessageKind::GetLicenseText => send_string(reader_writer, handler.get_license_text())?,
@@ -140,7 +142,7 @@ fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + S
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>>(

@@ -13,6 +13,7 @@ pub enum MessageKind {
     GetConfigDiagnostics = 6,
     /// Returns a format result part, then a file text part.
     FormatText = 7,
+    Close = 8,
 }
 
 // todo: generate with a macro
@@ -27,6 +28,7 @@ impl From<u32> for MessageKind {
             5 => MessageKind::SetPluginConfig,
             6 => MessageKind::GetConfigDiagnostics,
             7 => MessageKind::FormatText,
+            8 => MessageKind::Close,
             _ => unreachable!("Unexpected message kind: {}", kind),
         }
     }

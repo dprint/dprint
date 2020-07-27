@@ -52,7 +52,7 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         // write remaining bytes
         let mut index = BUFFER_SIZE;
         while index < data.len() {
-            // wait for "ready byte" from the client
+            // wait for "ready" from the client
             self.reader.read_exact(&mut [0; 4])?;
 
             // write to buffer
@@ -105,7 +105,7 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
             // read remaining bytes
             let mut index = BUFFER_SIZE;
             while index < size {
-                // send "ready byte" to the client
+                // send "ready" to the client
                 self.writer.write_all(&[0; 4])?;
                 self.writer.flush()?;
 

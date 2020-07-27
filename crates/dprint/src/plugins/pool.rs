@@ -7,23 +7,55 @@ use dprint_core::types::ErrBox;
 use crate::environment::Environment;
 use super::{Plugin, InitializedPlugin};
 
+/// This is necessary because of a circular reference where
+/// PluginPools hold plugins and the plugins hold a PluginPools.
+pub struct PluginsDropper<TEnvironment: Environment> {
+    pools: Arc<PluginPools<TEnvironment>>,
+}
+
+impl<TEnvironment: Environment> Drop for PluginsDropper<TEnvironment> {
+    fn drop(&mut self) {
+        self.pools.drop_plugins();
+    }
+}
+
+impl<TEnvironment: Environment> PluginsDropper<TEnvironment> {
+    pub fn new(pools: Arc<PluginPools<TEnvironment>>) -> Self {
+        PluginsDropper { pools }
+    }
+}
+
 pub struct PluginPools<TEnvironment : Environment> {
     environment: TEnvironment,
-    pools: Arc<Mutex<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>>,
-    extension_to_plugin_name_map: Arc<Mutex<HashMap<String, String>>>,
+    pools: Mutex<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>,
+    extension_to_plugin_name_map: Mutex<HashMap<String, String>>,
     /// Plugins may format using other plugins. Since when plugins are formatting other plugins
     /// they cannot use an async operation, they must be provided with an instance synchronously
     /// and cannot get a plugin from the plugin pool below.
-    plugins_for_plugins: Arc<Mutex<HashMap<String, HashMap<String, Vec<Box<dyn InitializedPlugin>>>>>>,
+    plugins_for_plugins: Mutex<HashMap<String, HashMap<String, Vec<Box<dyn InitializedPlugin>>>>>,
 }
 
 impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     pub fn new(environment: TEnvironment) -> Self {
         PluginPools {
             environment,
-            pools: Arc::new(Mutex::new(HashMap::new())),
-            extension_to_plugin_name_map: Arc::new(Mutex::new(HashMap::new())),
-            plugins_for_plugins: Arc::new(Mutex::new(HashMap::new())),
+            pools: Mutex::new(HashMap::new()),
+            extension_to_plugin_name_map: Mutex::new(HashMap::new()),
+            plugins_for_plugins: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn drop_plugins(&self) {
+        {
+            let mut pools = self.pools.lock().unwrap();
+            for pool in pools.values() {
+                pool.drop_plugins();
+            }
+            pools.clear();
+        }
+        {
+            let mut plugins_for_plugins = self.plugins_for_plugins.lock().unwrap();
+            plugins_for_plugins.clear();
         }
     }
 
@@ -97,14 +129,15 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
 
     /// Gets a hash to be used for the "incremental" feature to tell if any plugins have changed.
     pub fn get_plugins_hash(&self) -> u64 {
+        use std::num::Wrapping;
         // yeah, I know adding hashes isn't right, but the chance of this not working
         // in order to tell when a plugin has changed is super low.
         let pools = self.pools.lock().unwrap();
-        let mut hash_sum = 0;
+        let mut hash_sum = Wrapping(0);
         for (_, pool) in pools.iter() {
-            hash_sum += pool.plugin.get_hash();
+            hash_sum += Wrapping(pool.plugin.get_hash());
         }
-        hash_sum
+        hash_sum.0
     }
 }
 
@@ -126,6 +159,11 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
             items: Mutex::new(Vec::with_capacity(capacity)),
             semaphore: Semaphore::new(capacity),
         }
+    }
+
+    pub fn drop_plugins(&self) {
+        let mut items = self.items.lock().unwrap();
+        items.clear();
     }
 
     pub async fn initialize_first(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {

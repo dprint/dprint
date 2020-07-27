@@ -106,8 +106,7 @@ pub struct InitializedProcessPlugin<TEnvironment: Environment> {
 
 impl<TEnvironment: Environment> Drop for InitializedProcessPlugin<TEnvironment> {
     fn drop(&mut self) {
-        let mut child = self.child.lock().unwrap();
-        let _unused = child.kill();
+        let _ignore = self.kill();
     }
 }
 
@@ -131,6 +130,22 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
         initialized_plugin.verify_plugin_schema_version()?;
 
         Ok(initialized_plugin)
+    }
+
+    fn kill(&self) -> Result<(), ErrBox> {
+        // attempt to exit nicely
+        let _ignore = self.with_reader_writer(|reader_writer| {
+            send_message(
+                reader_writer,
+                MessageKind::Close,
+                Vec::new()
+            )
+        });
+
+        // now ensure kill
+        let mut child = self.child.lock().unwrap();
+        child.kill()?;
+        Ok(())
     }
 
     pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
@@ -220,14 +235,13 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
         let result = {
             let mut reader_writer = StdInOutReaderWriter::new(&mut stdout, &mut stdin);
 
-            with_action(&mut reader_writer)?
+            with_action(&mut reader_writer)
         };
 
-        // don't bother replacing these on error above, because it will be exiting anyway
         child.stdin.replace(stdin);
         child.stdout.replace(stdout);
 
-        Ok(result)
+        Ok(result?)
     }
 }
 
@@ -302,8 +316,8 @@ fn send_message(
 fn read_response(
     reader_writer: &mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>,
 ) -> Result<(), ErrBox> {
-    let response_kind = reader_writer.read_message_kind()?.into();
-    match response_kind {
+    let response_kind = reader_writer.read_message_kind()?;
+    match response_kind.into() {
         ResponseKind::Success => Ok(()),
         ResponseKind::Error => err!("{}", reader_writer.read_message_part_as_string()?),
     }

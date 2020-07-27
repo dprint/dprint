@@ -127,7 +127,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &Path
 fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile, ErrBox> {
     let plugin_file: ProcessPluginFile = match serde_json::from_slice(&bytes) {
         Ok(plugin_file) => plugin_file,
-        Err(err) => return err!("Error deserializing plugin file. {:?}", err),
+        Err(err) => return err!("Error deserializing plugin file: {}", err.to_string()),
     };
 
     if plugin_file.schema_version != 1 {
