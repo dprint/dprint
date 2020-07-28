@@ -1,8 +1,7 @@
 use std::path::PathBuf;
-use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use dprint_core::generate_plugin_code;
-use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics};
+use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -11,11 +10,11 @@ struct Configuration {
     line_width: u32,
 }
 
-fn resolve_config(config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+fn resolve_config(config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut config = config;
-    let ending = config.remove("ending").unwrap_or(String::from("formatted"));
-    let line_width = config.remove("line_width").map(|x| x.parse::<u32>().unwrap()).unwrap_or(global_config.line_width.unwrap_or(120));
     let mut diagnostics = Vec::new();
+    let ending = get_value(&mut config, "ending", String::from("formatted"), &mut diagnostics);
+    let line_width = get_value(&mut config, "line_width", global_config.line_width.unwrap_or(120), &mut diagnostics);
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 

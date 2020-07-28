@@ -1,8 +1,7 @@
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::path::PathBuf;
-use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter};
 use dprint_core::types::ErrBox;
@@ -12,6 +11,8 @@ use crate::plugins::{Plugin, InitializedPlugin, PluginPools};
 
 use super::super::format_with_plugin_pool;
 
+static PLUGIN_FILE_INITIALIZE: std::sync::Once = std::sync::Once::new();
+
 /// Use this to get an executable file name that also works in the tests.
 pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment: &impl Environment) -> PathBuf {
     if environment.is_real() {
@@ -20,9 +21,11 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
         // do this so that we can launch the process in the tests
         if cfg!(target_os="windows") {
             let tmp_dir = PathBuf::from("temp");
-            let _ = std::fs::create_dir(&tmp_dir);
             let temp_process_plugin_file = tmp_dir.join(if cfg!(target_os="windows") { "temp-plugin.exe" } else { "temp-plugin" });
-            let _ = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
+            PLUGIN_FILE_INITIALIZE.call_once(|| {
+                let _ = std::fs::create_dir(&tmp_dir);
+                let _ = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
+            });
             // ignore errors if path already exists
             temp_process_plugin_file
         } else {
@@ -35,7 +38,7 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
 pub struct ProcessPlugin<TEnvironment: Environment> {
     executable_file_path: PathBuf,
     plugin_info: PluginInfo,
-    config: Option<(HashMap<String, String>, GlobalConfiguration)>,
+    config: Option<(ConfigKeyMap, GlobalConfiguration)>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
@@ -75,11 +78,11 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
         &self.plugin_info.config_schema_url
     }
 
-    fn set_config(&mut self, plugin_config: HashMap<String, String>, global_config: GlobalConfiguration) {
+    fn set_config(&mut self, plugin_config: ConfigKeyMap, global_config: GlobalConfiguration) {
         self.config = Some((plugin_config, global_config));
     }
 
-    fn get_config(&self) -> &(HashMap<String, String>, GlobalConfiguration) {
+    fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration) {
         self.config.as_ref().expect("Call set_config first.")
     }
 
@@ -154,7 +157,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
         Ok(())
     }
 
-    pub fn set_plugin_config(&self, plugin_config: &HashMap<String, String>) -> Result<(), ErrBox> {
+    pub fn set_plugin_config(&self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
         let json = serde_json::to_vec(plugin_config)?;
         self.send_data(MessageKind::SetPluginConfig, &json)?;
         Ok(())

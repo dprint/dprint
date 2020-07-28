@@ -2,8 +2,7 @@ use wasmer_runtime_core::export::Exportable;
 use wasmer_runtime::{Instance, Func, WasmPtr, Array, Memory};
 
 use dprint_core::types::ErrBox;
-
-const CURRENT_SCHEMA_VERSION: u32 = 1;
+use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
 
 pub enum FormatResult {
     NoChange = 0,
@@ -31,11 +30,11 @@ impl WasmFunctions {
         let plugin_schema_version_func: Func<(), u32> = instance.exports.get("get_plugin_schema_version")?;
         let plugin_schema_version = plugin_schema_version_func.call().unwrap();
 
-        if plugin_schema_version != CURRENT_SCHEMA_VERSION {
+        if plugin_schema_version != PLUGIN_SYSTEM_SCHEMA_VERSION {
             return err!(
-                "Invalid schema version: {} -- Expected: {}. This may indicate you should upgrade your Dprint CLI or plugin.",
+                "Invalid schema version: {} -- Expected: {}. This may indicate you should upgrade your dprint CLI or plugin.",
                 plugin_schema_version,
-                CURRENT_SCHEMA_VERSION
+                PLUGIN_SYSTEM_SCHEMA_VERSION
             );
         }
 

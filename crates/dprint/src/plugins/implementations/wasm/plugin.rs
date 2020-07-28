@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use bytes::Bytes;
 
-use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::{PluginInfo};
 use dprint_core::types::ErrBox;
 
@@ -14,7 +13,7 @@ use super::{WasmFunctions, FormatResult, load_instance, create_pools_import_obje
 pub struct WasmPlugin<TEnvironment: Environment> {
     compiled_wasm_bytes: Bytes,
     plugin_info: PluginInfo,
-    config: Option<(HashMap<String, String>, GlobalConfiguration)>,
+    config: Option<(ConfigKeyMap, GlobalConfiguration)>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
@@ -54,11 +53,11 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
         &self.plugin_info.config_schema_url
     }
 
-    fn set_config(&mut self, plugin_config: HashMap<String, String>, global_config: GlobalConfiguration) {
+    fn set_config(&mut self, plugin_config: ConfigKeyMap, global_config: GlobalConfiguration) {
         self.config = Some((plugin_config, global_config));
     }
 
-    fn get_config(&self) -> &(HashMap<String, String>, GlobalConfiguration) {
+    fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration) {
         self.config.as_ref().expect("Call set_config first.")
     }
 
@@ -98,7 +97,7 @@ impl InitializedWasmPlugin {
         Ok(())
     }
 
-    pub fn set_plugin_config(&self, plugin_config: &HashMap<String, String>) -> Result<(), ErrBox> {
+    pub fn set_plugin_config(&self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
         let json = serde_json::to_string(plugin_config)?;
         self.send_string(&json);
         self.wasm_functions.set_plugin_config();

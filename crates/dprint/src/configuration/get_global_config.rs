@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::configuration::{ConfigKeyMap, GlobalConfiguration};
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
@@ -32,17 +32,17 @@ fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment
         Ok(global_config_result.config)
     };
 
-    fn get_global_config_from_config_map(config_map: ConfigMap) -> Result<HashMap<String, String>, ErrBox> {
-        // at this point, there should only be string values inside the hash map
+    fn get_global_config_from_config_map(config_map: ConfigMap) -> Result<ConfigKeyMap, ErrBox> {
+        // at this point, there should only be key values inside the hash map
         let mut global_config = HashMap::new();
 
         for (key, value) in config_map.into_iter() {
             if key == "$schema" { continue; } // ignore $schema property
 
-            if let ConfigMapValue::String(value) = value {
+            if let ConfigMapValue::KeyValue(value) = value {
                 global_config.insert(key, value);
             } else {
-                return err!("Unexpected non-string property '{}'.", key);
+                return err!("Unexpected non-string, boolean, or int property '{}'.", key);
             }
         }
 
@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn it_should_get_global_config() {
         let mut config_map = HashMap::new();
-        config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("80")));
+        config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
         assert_gets(config_map, GlobalConfiguration {
             line_width: Some(80),
             use_tabs: None,
@@ -76,15 +76,15 @@ mod tests {
         assert_errors(
             config_map,
             vec![],
-            "Unexpected non-string property 'test'.",
+            "Unexpected non-string, boolean, or int property 'test'.",
         );
     }
 
     #[test]
     fn it_should_log_config_file_diagnostics() {
         let mut config_map = HashMap::new();
-        config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("test")));
-        config_map.insert(String::from("unknownProperty"), ConfigMapValue::String(String::from("80")));
+        config_map.insert(String::from("lineWidth"), ConfigMapValue::from_str("test"));
+        config_map.insert(String::from("unknownProperty"), ConfigMapValue::from_i32(80));
         assert_errors(
             config_map,
             vec![
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn it_should_ignore_schema_property() {
         let mut config_map = HashMap::new();
-        config_map.insert(String::from("$schema"), ConfigMapValue::String(String::from("test")));
+        config_map.insert(String::from("$schema"), ConfigMapValue::from_str("test"));
         assert_gets(config_map, GlobalConfiguration {
             line_width: None,
             use_tabs: None,

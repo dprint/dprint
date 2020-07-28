@@ -1,6 +1,6 @@
 /// The plugin system schema version that is incremented
 /// when there are any breaking changes.
-pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 1;
+pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 2;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod macros {
@@ -182,7 +182,7 @@ pub mod macros {
             // INITIALIZATION
 
             static mut GLOBAL_CONFIG: Option<dprint_core::configuration::GlobalConfiguration> = None;
-            static mut PLUGIN_CONFIG: Option<std::collections::HashMap<String, String>> = None;
+            static mut PLUGIN_CONFIG: Option<dprint_core::configuration::ConfigKeyMap> = None;
 
             #[no_mangle]
             pub fn set_global_config() {
@@ -197,7 +197,7 @@ pub mod macros {
             #[no_mangle]
             pub fn set_plugin_config() {
                 let text = take_string_from_shared_bytes();
-                let plugin_config: std::collections::HashMap<String, String> = serde_json::from_str(&text).unwrap();
+                let plugin_config: dprint_core::configuration::ConfigKeyMap = serde_json::from_str(&text).unwrap();
                 unsafe {
                     PLUGIN_CONFIG.replace(plugin_config);
                     RESOLVE_CONFIGURATION_RESULT.take(); // clear

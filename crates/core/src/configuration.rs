@@ -68,6 +68,31 @@ pub struct ConfigurationDiagnostic {
     pub message: String,
 }
 
+pub type ConfigKeyMap = HashMap<String, ConfigKeyValue>;
+
+#[derive(Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigKeyValue {
+    String(String),
+    Number(i32),
+    Bool(bool)
+}
+
+impl ConfigKeyValue {
+    pub fn from_i32(value: i32) -> ConfigKeyValue {
+        ConfigKeyValue::Number(value)
+    }
+
+    pub fn from_str(value: &str) -> ConfigKeyValue {
+        ConfigKeyValue::String(value.to_string())
+    }
+
+    pub fn from_bool(value: bool) -> ConfigKeyValue {
+        ConfigKeyValue::Bool(value)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalConfiguration {
@@ -103,7 +128,7 @@ pub struct ResolveConfigurationResult<T> where T : Clone + Serialize {
 }
 
 /// Resolves a collection of key value pairs to a GlobalConfiguration.
-pub fn resolve_global_config(config: HashMap<String, String>) -> ResolveConfigurationResult<GlobalConfiguration> {
+pub fn resolve_global_config(config: ConfigKeyMap) -> ResolveConfigurationResult<GlobalConfiguration> {
     let mut config = config;
     let mut diagnostics = Vec::new();
 
@@ -126,7 +151,7 @@ pub fn resolve_global_config(config: HashMap<String, String>) -> ResolveConfigur
 /// If the provided key does not exist, it returns the default value.
 /// Adds a diagnostic if there is any problem deserializing the value.
 pub fn get_value<T>(
-    config: &mut HashMap<String, String>,
+    config: &mut ConfigKeyMap,
     key: &'static str,
     default_value: T,
     diagnostics: &mut Vec<ConfigurationDiagnostic>
@@ -135,31 +160,30 @@ pub fn get_value<T>(
 }
 
 fn get_nullable_value<T>(
-    config: &mut HashMap<String, String>,
+    config: &mut ConfigKeyMap,
     key: &'static str,
     diagnostics: &mut Vec<ConfigurationDiagnostic>
 ) -> Option<T> where T : std::str::FromStr, <T as std::str::FromStr>::Err : std::fmt::Display {
-    let value = if let Some(raw_value) = config.get(key) {
-        if raw_value.trim().is_empty() {
-            None
-        } else {
-            let parsed_value = raw_value.parse::<T>();
-            match parsed_value {
-                Ok(parsed_value) => Some(parsed_value),
-                Err(message) => {
-                    diagnostics.push(ConfigurationDiagnostic {
-                        property_name: String::from(key),
-                        message: format!("Error parsing configuration value for '{}'. Message: {}", key, message)
-                    });
-                    None
-                }
+    if let Some(raw_value) = config.remove(key) {
+        // not exactly the best, but can't think of anything better at the moment
+        let parsed_value = match raw_value {
+            ConfigKeyValue::Bool(value) => value.to_string().parse::<T>(),
+            ConfigKeyValue::Number(value) => value.to_string().parse::<T>(),
+            ConfigKeyValue::String(value) => value.parse::<T>(),
+        };
+        match parsed_value {
+            Ok(parsed_value) => Some(parsed_value),
+            Err(message) => {
+                diagnostics.push(ConfigurationDiagnostic {
+                    property_name: String::from(key),
+                    message: format!("Error parsing configuration value for '{}'. Message: {}", key, message)
+                });
+                None
             }
         }
     } else {
         None
-    };
-    config.remove(key);
-    value
+    }
 }
 
 /// Resolves the `NewLineKind` text from the provided file text and `NewLineKind`.
@@ -198,7 +222,7 @@ pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'s
 /// Gets a diagnostic for each remaining key value pair in the hash map.
 ///
 /// This should be done last, so it swallows the hashmap.
-pub fn get_unknown_property_diagnostics(config: HashMap<String, String>) -> Vec<ConfigurationDiagnostic> {
+pub fn get_unknown_property_diagnostics(config: ConfigKeyMap) -> Vec<ConfigurationDiagnostic> {
     let mut diagnostics = Vec::new();
     for (key, _) in config.iter() {
         diagnostics.push(ConfigurationDiagnostic {
@@ -228,10 +252,10 @@ mod test {
     #[test]
     fn get_values_when_filled() {
         let mut global_config = HashMap::new();
-        global_config.insert(String::from("lineWidth"), String::from("80"));
-        global_config.insert(String::from("indentWidth"), String::from("8"));
-        global_config.insert(String::from("newLineKind"), String::from("crlf"));
-        global_config.insert(String::from("useTabs"), String::from("true"));
+        global_config.insert(String::from("lineWidth"), ConfigKeyValue::from_i32(80));
+        global_config.insert(String::from("indentWidth"), ConfigKeyValue::from_i32(8));
+        global_config.insert(String::from("newLineKind"), ConfigKeyValue::from_str("crlf"));
+        global_config.insert(String::from("useTabs"), ConfigKeyValue::from_bool(true));
         let config_result = resolve_global_config(global_config);
         let config = config_result.config;
         assert_eq!(config_result.diagnostics.len(), 0);
@@ -244,7 +268,7 @@ mod test {
     #[test]
     fn get_diagnostic_for_invalid_enum_config() {
         let mut global_config = HashMap::new();
-        global_config.insert(String::from("newLineKind"), String::from("something"));
+        global_config.insert(String::from("newLineKind"), ConfigKeyValue::from_str("something"));
         let diagnostics = resolve_global_config(global_config).diagnostics;
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "Error parsing configuration value for 'newLineKind'. Message: Found invalid value 'something'.");
@@ -254,7 +278,7 @@ mod test {
     #[test]
     fn get_diagnostic_for_invalid_primitive() {
         let mut global_config = HashMap::new();
-        global_config.insert(String::from("useTabs"), String::from("something"));
+        global_config.insert(String::from("useTabs"), ConfigKeyValue::from_str("something"));
         let diagnostics = resolve_global_config(global_config).diagnostics;
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "Error parsing configuration value for 'useTabs'. Message: provided string was not `true` or `false`");
@@ -264,7 +288,7 @@ mod test {
     #[test]
     fn get_diagnostic_for_excess_property() {
         let mut global_config = HashMap::new();
-        global_config.insert(String::from("something"), String::from("value"));
+        global_config.insert(String::from("something"), ConfigKeyValue::from_str("value"));
         let diagnostics = resolve_global_config(global_config).diagnostics;
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "Unknown property in configuration: something");

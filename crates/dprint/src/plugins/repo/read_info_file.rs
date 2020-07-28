@@ -119,7 +119,7 @@ mod test {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
     "schemaVersion": 1,
-    "pluginSystemSchemaVersion": 1,
+    "pluginSystemSchemaVersion": 2,
     "latest": [{
         "name": "dprint-plugin-typescript",
         "version": "0.17.2",
@@ -138,7 +138,7 @@ mod test {
 }"#.as_bytes());
         let info_file = read_info_file(&environment).await.unwrap();
         assert_eq!(info_file, InfoFile {
-            plugin_system_schema_version: 1,
+            plugin_system_schema_version: 2,
             latest_plugins: vec![InfoFilePluginInfo {
                 name: String::from("dprint-plugin-typescript"),
                 version: String::from("0.17.2"),

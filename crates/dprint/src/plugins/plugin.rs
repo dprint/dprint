@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
-use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap, ConfigKeyValue};
 use dprint_core::types::ErrBox;
 
 pub trait Plugin : std::marker::Send + std::marker::Sync {
@@ -18,11 +17,11 @@ pub trait Plugin : std::marker::Send + std::marker::Sync {
     /// Gets the configuration schema url.
     fn config_schema_url(&self) -> &str;
     /// Sets the configuration for the plugin.
-    fn set_config(&mut self, plugin_config: HashMap<String, String>, global_config: GlobalConfiguration);
+    fn set_config(&mut self, plugin_config: ConfigKeyMap, global_config: GlobalConfiguration);
     /// Initializes the plugin.
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox>;
     /// Gets the configuration for the plugin.
-    fn get_config(&self) -> &(HashMap<String, String>, GlobalConfiguration);
+    fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration);
 
     /// Gets a hash that represents the current state of the plugin.
     /// This is used for the "incremental" feature to tell if a plugin has changed state.
@@ -35,7 +34,7 @@ pub trait Plugin : std::marker::Send + std::marker::Sync {
         hash_str.push_str(&self.version());
 
         // serialize the config keys in order to prevent the hash from changing
-        let sorted_config: std::collections::BTreeMap::<&String, &String> = config.0.iter().collect();
+        let sorted_config: std::collections::BTreeMap::<&String, &ConfigKeyValue> = config.0.iter().collect();
         hash_str.push_str(&serde_json::to_string(&sorted_config).unwrap());
 
         hash_str.push_str(&serde_json::to_string(&config.1).unwrap());
@@ -61,7 +60,7 @@ pub struct TestPlugin {
     config_key: String,
     file_extensions: Vec<String>,
     initialized_test_plugin: Option<InitializedTestPlugin>,
-    config: (HashMap<String, String>, GlobalConfiguration),
+    config: (ConfigKeyMap, GlobalConfiguration),
 }
 
 #[cfg(test)]
@@ -72,7 +71,7 @@ impl TestPlugin {
             config_key: String::from(config_key),
             file_extensions: file_extensions.into_iter().map(String::from).collect(),
             initialized_test_plugin: Some(InitializedTestPlugin::new()),
-            config: (HashMap::new(), GlobalConfiguration {
+            config: (std::collections::HashMap::new(), GlobalConfiguration {
                 line_width: None,
                 use_tabs: None,
                 indent_width: None,
@@ -90,8 +89,8 @@ impl Plugin for TestPlugin {
     fn config_schema_url(&self) -> &str { "https://plugins.dprint.dev/schemas/test.json" }
     fn config_key(&self) -> &str { &self.config_key }
     fn file_extensions(&self) -> &Vec<String> { &self.file_extensions }
-    fn set_config(&mut self, _: HashMap<String, String>, _: GlobalConfiguration) {}
-    fn get_config(&self) -> &(HashMap<String, String>, GlobalConfiguration) {
+    fn set_config(&mut self, _: ConfigKeyMap, _: GlobalConfiguration) {}
+    fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration) {
         &self.config
     }
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
 use colored::Colorize;
+use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::types::ErrBox;
 
 use crate::cache::Cache;
@@ -41,7 +42,7 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
             if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
                 let mut config_map = HashMap::new();
                 // hack: easy way to supress project type diagnostic check
-                config_map.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
+                config_map.insert(String::from("projectType"), ConfigMapValue::from_str("openSource"));
                 config_map
             } else {
                 return err!(
@@ -92,7 +93,7 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
     let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
     let incremental = take_bool_from_config_map(&mut main_config_map, "incremental", false)?;
     let project_type = match main_config_map.remove("projectType") {
-        Some(ConfigMapValue::String(project_type)) => Some(project_type),
+        Some(ConfigMapValue::KeyValue(ConfigKeyValue::String(project_type))) => Some(project_type),
         None => None,
         _ => return err!("The projectType configuration should be a string."),
     };
@@ -179,9 +180,9 @@ async fn handle_config_file<'a, TEnvironment : Environment>(
 
     for (key, value) in new_config_map {
         match value {
-            ConfigMapValue::String(text) => {
+            ConfigMapValue::KeyValue(key_value) => {
                 if !resolved_config.config_map.contains_key(&key) {
-                    resolved_config.config_map.insert(key, ConfigMapValue::String(text));
+                    resolved_config.config_map.insert(key, ConfigMapValue::KeyValue(key_value));
                 }
             },
             ConfigMapValue::Vec(items) => {
@@ -194,8 +195,8 @@ async fn handle_config_file<'a, TEnvironment : Environment>(
                     match resolved_config_obj {
                         ConfigMapValue::HashMap(resolved_config_obj) => {
                             // check for locked configuration
-                            if let Some(is_locked) = obj.get("locked") {
-                                if is_locked.to_lowercase() == "true" && !resolved_config_obj.is_empty() {
+                            if let Some(ConfigKeyValue::Bool(is_locked)) = obj.get("locked") {
+                                if *is_locked && !resolved_config_obj.is_empty() {
                                     return err!(
                                         concat!(
                                             "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
@@ -228,7 +229,7 @@ async fn handle_config_file<'a, TEnvironment : Environment>(
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>, ErrBox> {
     match config_map.remove("extends") {
-        Some(ConfigMapValue::String(url_or_file_path)) => Ok(vec![url_or_file_path]),
+        Some(ConfigMapValue::KeyValue(ConfigKeyValue::String(url_or_file_path))) => Ok(vec![url_or_file_path]),
         Some(ConfigMapValue::Vec(url_or_file_paths)) => Ok(url_or_file_paths),
         Some(_) => return err!("Extends in configuration must be a string or an array of strings."),
         None => Ok(Vec::new())
@@ -275,14 +276,8 @@ fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, de
     let mut result = default_value;
     if let Some(value) = config_map.remove(property_name) {
         match value {
-            ConfigMapValue::String(value) => {
-                if value.to_lowercase() == "true" {
-                    result = true;
-                } else if value.to_lowercase() == "false" {
-                    result = false;
-                } else {
-                    return err!("Expected boolean in '{}' property.", property_name);
-                }
+            ConfigMapValue::KeyValue(ConfigKeyValue::Bool(value)) => {
+                result = value;
             },
             _ => return err!("Expected boolean in '{}' property.", property_name),
         }
@@ -491,18 +486,18 @@ mod tests {
         ]);
 
         let mut expected_config_map = HashMap::new();
-        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("1")));
-        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::String(String::from("6")));
-        expected_config_map.insert(String::from("otherProp2"), ConfigMapValue::String(String::from("a")));
+        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(1));
+        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::from_i32(6));
+        expected_config_map.insert(String::from("otherProp2"), ConfigMapValue::from_str("a"));
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("5"));
-            obj.insert(String::from("other"), String::from("test"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(5));
+            obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
             obj
         }));
         expected_config_map.insert(String::from("test2"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("2"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(2));
             obj
         }));
 
@@ -556,18 +551,18 @@ mod tests {
         ]);
 
         let mut expected_config_map = HashMap::new();
-        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("1")));
-        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::String(String::from("6")));
-        expected_config_map.insert(String::from("asdf"), ConfigMapValue::String(String::from("4")));
+        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(1));
+        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::from_i32(6));
+        expected_config_map.insert(String::from("asdf"), ConfigMapValue::from_i32(4));
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("5"));
-            obj.insert(String::from("other"), String::from("test"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(5));
+            obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
             obj
         }));
         expected_config_map.insert(String::from("test2"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("2"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(2));
             obj
         }));
 
@@ -626,19 +621,19 @@ mod tests {
         ]);
 
         let mut expected_config_map = HashMap::new();
-        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::String(String::from("1")));
-        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::String(String::from("6")));
-        expected_config_map.insert(String::from("asdf"), ConfigMapValue::String(String::from("4")));
-        expected_config_map.insert(String::from("newProp"), ConfigMapValue::String(String::from("test")));
+        expected_config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(1));
+        expected_config_map.insert(String::from("otherProp"), ConfigMapValue::from_i32(6));
+        expected_config_map.insert(String::from("asdf"), ConfigMapValue::from_i32(4));
+        expected_config_map.insert(String::from("newProp"), ConfigMapValue::from_str("test"));
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("5"));
-            obj.insert(String::from("other"), String::from("test"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(5));
+            obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
             obj
         }));
         expected_config_map.insert(String::from("test2"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("2"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(2));
             obj
         }));
 
@@ -678,12 +673,12 @@ mod tests {
         assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
-        expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
-        expected_config_map.insert(String::from("prop2"), ConfigMapValue::String(String::from("2")));
-        expected_config_map.insert(String::from("prop3"), ConfigMapValue::String(String::from("3")));
-        expected_config_map.insert(String::from("prop4"), ConfigMapValue::String(String::from("4")));
-        expected_config_map.insert(String::from("prop5"), ConfigMapValue::String(String::from("5")));
-        expected_config_map.insert(String::from("prop6"), ConfigMapValue::String(String::from("6")));
+        expected_config_map.insert(String::from("prop1"), ConfigMapValue::from_i32(1));
+        expected_config_map.insert(String::from("prop2"), ConfigMapValue::from_i32(2));
+        expected_config_map.insert(String::from("prop3"), ConfigMapValue::from_i32(3));
+        expected_config_map.insert(String::from("prop4"), ConfigMapValue::from_i32(4));
+        expected_config_map.insert(String::from("prop5"), ConfigMapValue::from_i32(5));
+        expected_config_map.insert(String::from("prop6"), ConfigMapValue::from_i32(6));
         assert_eq!(result.config_map, expected_config_map);
     }
 
@@ -706,9 +701,9 @@ mod tests {
         assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
-        expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
-        expected_config_map.insert(String::from("prop2"), ConfigMapValue::String(String::from("2")));
-        expected_config_map.insert(String::from("prop3"), ConfigMapValue::String(String::from("3")));
+        expected_config_map.insert(String::from("prop1"), ConfigMapValue::from_i32(1));
+        expected_config_map.insert(String::from("prop2"), ConfigMapValue::from_i32(2));
+        expected_config_map.insert(String::from("prop3"), ConfigMapValue::from_i32(3));
         assert_eq!(result.config_map, expected_config_map);
     }
 
@@ -731,9 +726,9 @@ mod tests {
         assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
-        expected_config_map.insert(String::from("prop1"), ConfigMapValue::String(String::from("1")));
-        expected_config_map.insert(String::from("prop2"), ConfigMapValue::String(String::from("2")));
-        expected_config_map.insert(String::from("prop3"), ConfigMapValue::String(String::from("3")));
+        expected_config_map.insert(String::from("prop1"), ConfigMapValue::from_i32(1));
+        expected_config_map.insert(String::from("prop2"), ConfigMapValue::from_i32(2));
+        expected_config_map.insert(String::from("prop3"), ConfigMapValue::from_i32(3));
         assert_eq!(result.config_map, expected_config_map);
     }
 
@@ -801,8 +796,8 @@ mod tests {
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("6"));
-            obj.insert(String::from("other"), String::from("test"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(6));
+            obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
             obj
         }));
 
@@ -832,8 +827,8 @@ mod tests {
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("7"));
-            obj.insert(String::from("other"), String::from("test"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(7));
+            obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
             obj
         }));
 
@@ -861,8 +856,8 @@ mod tests {
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
             let mut obj = HashMap::new();
-            obj.insert(String::from("prop"), String::from("6"));
-            obj.insert(String::from("other"), String::from("test"));
+            obj.insert(String::from("prop"), ConfigKeyValue::from_i32(6));
+            obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
             obj
         }));
 

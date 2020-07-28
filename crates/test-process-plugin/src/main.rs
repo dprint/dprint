@@ -1,8 +1,7 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 
-use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics};
+use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
 use dprint_core::err;
 use dprint_core::types::ErrBox;
 use dprint_core::plugins::PluginInfo;
@@ -44,11 +43,11 @@ impl ProcessPluginHandler<Configuration> for TestProcessPluginHandler {
         "License text."
     }
 
-    fn resolve_config(&self, config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+    fn resolve_config(&self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
         let mut config = config;
-        let ending = config.remove("ending").unwrap_or(String::from("formatted_process"));
-        let line_width = config.remove("line_width").map(|x| x.parse::<u32>().unwrap()).unwrap_or(global_config.line_width.unwrap_or(120));
         let mut diagnostics = Vec::new();
+        let ending = get_value(&mut config, "ending", String::from("formatted_process"), &mut diagnostics);
+        let line_width = get_value(&mut config, "line_width", global_config.line_width.unwrap_or(120), &mut diagnostics);
 
         diagnostics.extend(get_unknown_property_diagnostics(config));
 

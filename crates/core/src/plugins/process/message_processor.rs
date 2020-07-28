@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use serde::{Serialize};
 
-use crate::configuration::{GlobalConfiguration, ResolveConfigurationResult};
+use crate::configuration::{GlobalConfiguration, ResolveConfigurationResult, ConfigKeyMap};
 use crate::types::ErrBox;
 use crate::plugins::PluginInfo;
 use super::{MessageKind, ResponseKind, FormatResult, HostFormatResult, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION};
@@ -11,7 +10,7 @@ use super::{MessageKind, ResponseKind, FormatResult, HostFormatResult, StdInOutR
 pub trait ProcessPluginHandler<TConfiguration: Clone + Serialize> {
     fn get_plugin_info(&self) -> PluginInfo;
     fn get_license_text(&self) -> &str;
-    fn resolve_config(&self, config: HashMap<String, String>, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
+    fn resolve_config(&self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
     fn format_text<'a>(
         &self,
         file_path: &PathBuf,
@@ -35,7 +34,7 @@ pub fn handle_process_stdin_stdout_messages<THandler: ProcessPluginHandler<TConf
 
 struct MessageProcessorState<TConfiguration: Clone + Serialize> {
     global_config: Option<GlobalConfiguration>,
-    config: Option<HashMap<String, String>>,
+    config: Option<ConfigKeyMap>,
     resolved_config_result: Option<ResolveConfigurationResult<TConfiguration>>,
 }
 

@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 use jsonc_parser::{JsonValue, JsonArray, JsonObject};
+use dprint_core::types::ErrBox;
+use dprint_core::configuration::{ConfigKeyMap, ConfigKeyValue};
 use super::{ConfigMapValue, ConfigMap};
 
-pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, String> {
+pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
     let value = match jsonc_parser::parse_to_value(&config_file_text) {
         Ok(c) => c,
-        Err(e) => return Err(e.get_message_with_range(&config_file_text)),
+        Err(e) => return err!("{}", e.get_message_with_range(&config_file_text)),
     };
 
     let root_object_node = match value {
         Some(JsonValue::Object(obj)) => obj,
-        _ => return Err(String::from("Expected a root object in the json")),
+        _ => return err!("Expected a root object in the json"),
     };
 
     let mut properties = HashMap::new();
@@ -20,10 +22,18 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, String> {
         let property_value = match value {
             JsonValue::Object(obj) => ConfigMapValue::HashMap(json_obj_to_hash_map(&property_name, obj)?),
             JsonValue::Array(arr) => ConfigMapValue::Vec(json_array_to_vec(&property_name, arr)?),
-            JsonValue::Boolean(value) => ConfigMapValue::String(value.to_string()),
-            JsonValue::String(value) => ConfigMapValue::String(value),
-            JsonValue::Number(value) => ConfigMapValue::String(value),
-            _ => return Err(format!("Expected an object, boolean, string, or number in root object property '{}'", property_name)),
+            JsonValue::Boolean(value) => ConfigMapValue::from_bool(value),
+            JsonValue::String(value) => ConfigMapValue::KeyValue(ConfigKeyValue::String(value)),
+            JsonValue::Number(value) => ConfigMapValue::from_i32(match value.parse::<i32>() {
+                Ok(value) => value,
+                Err(err) => return err!(
+                    "Expected property '{}' with value '{}' to be convertable to a signed integer. {}",
+                    property_name,
+                    value,
+                    err.to_string()
+                ),
+            }),
+            _ => return err!("Expected an object, boolean, string, or number in root object property '{}'", property_name),
         };
         properties.insert(property_name, property_value);
     }
@@ -31,14 +41,14 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, String> {
     Ok(properties)
 }
 
-fn json_obj_to_hash_map(parent_prop_name: &str, obj: JsonObject) -> Result<HashMap<String, String>, String> {
+fn json_obj_to_hash_map(parent_prop_name: &str, obj: JsonObject) -> Result<ConfigKeyMap, ErrBox> {
     let mut properties = HashMap::new();
 
     for (key, value) in obj.into_iter() {
         let property_name = key;
-        let property_value = match value_to_string(value) {
+        let property_value = match value_to_plugin_config_key_value(value) {
             Ok(result) => result,
-            Err(err) => return Err(format!("{} in object property '{} -> {}'", err, parent_prop_name, property_name)),
+            Err(err) => return err!("{} in object property '{} -> {}'", err, parent_prop_name, property_name),
         };
         properties.insert(property_name, property_value);
     }
@@ -46,13 +56,13 @@ fn json_obj_to_hash_map(parent_prop_name: &str, obj: JsonObject) -> Result<HashM
     Ok(properties)
 }
 
-fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<String>, String> {
+fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<String>, ErrBox> {
     let mut elements = Vec::new();
 
     for element in array.into_iter() {
         let value = match value_to_string(element) {
             Ok(result) => result,
-            Err(err) => return Err(format!("{} in array '{}'", err, parent_prop_name)),
+            Err(err) => return err!("{} in array '{}'", err, parent_prop_name),
         };
         elements.push(value);
     }
@@ -60,17 +70,26 @@ fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<Str
     Ok(elements)
 }
 
-fn value_to_string(value: JsonValue) -> Result<String, String> {
+fn value_to_string(value: JsonValue) -> Result<String, ErrBox> {
     match value {
-        JsonValue::Boolean(value) => Ok(value.to_string()),
-        JsonValue::String(value) | JsonValue::Number(value) => Ok(value),
-        _ => return Err(String::from("Expected a boolean, string, or number")),
+        JsonValue::String(value) => Ok(value),
+        _ => return err!("Expected a string"),
     }
+}
+
+fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue, ErrBox> {
+    Ok(match value {
+        JsonValue::Boolean(value) => ConfigKeyValue::Bool(value),
+        JsonValue::String(value) => ConfigKeyValue::String(value),
+        JsonValue::Number(value) => ConfigKeyValue::Number(value.parse::<i32>()?),
+        _ => return err!("Expected a boolean, string, or number"),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use dprint_core::configuration::{ConfigKeyValue};
     use super::deserialize_config;
     use super::super::{ConfigMapValue, ConfigMap};
 
@@ -102,11 +121,11 @@ mod tests {
     #[test]
     fn it_should_deserialize_full_object() {
         let mut expected_props = HashMap::new();
-        expected_props.insert(String::from("projectType"), ConfigMapValue::String(String::from("openSource")));
+        expected_props.insert(String::from("projectType"), ConfigMapValue::from_str("openSource"));
         let mut ts_hash_map = HashMap::new();
-        ts_hash_map.insert(String::from("lineWidth"), String::from("40"));
-        ts_hash_map.insert(String::from("preferSingleLine"), String::from("true"));
-        ts_hash_map.insert(String::from("other"), String::from("test"));
+        ts_hash_map.insert(String::from("lineWidth"), ConfigKeyValue::from_i32(40));
+        ts_hash_map.insert(String::from("preferSingleLine"), ConfigKeyValue::from_bool(true));
+        ts_hash_map.insert(String::from("other"), ConfigKeyValue::from_str("test"));
         expected_props.insert(String::from("typescript"), ConfigMapValue::HashMap(ts_hash_map));
         assert_deserializes(
             "{'projectType': 'openSource', 'typescript': { 'lineWidth': 40, 'preferSingleLine': true, 'other': 'test' }}",
@@ -124,7 +143,7 @@ mod tests {
     fn assert_error(text: &str, expected_err: &str) {
         match deserialize_config(text) {
             Ok(_) => panic!("Did not error, but that was expected."),
-            Err(err) => assert_eq!(err, expected_err),
+            Err(err) => assert_eq!(err.to_string(), expected_err),
         }
     }
 }

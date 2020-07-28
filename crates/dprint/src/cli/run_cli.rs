@@ -1660,7 +1660,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.add_remote_file(crate::plugins::REMOTE_INFO_URL, r#"{
             "schemaVersion": 1,
-            "pluginSystemSchemaVersion": 1,
+            "pluginSystemSchemaVersion": 2,
             "latest": [{
                 "name": "dprint-plugin-typescript",
                 "version": "0.17.2",
@@ -1695,7 +1695,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.add_remote_file(crate::plugins::REMOTE_INFO_URL, r#"{
             "schemaVersion": 1,
-            "pluginSystemSchemaVersion": 1,
+            "pluginSystemSchemaVersion": 2,
             "latest": [{
                 "name": "dprint-plugin-typescript",
                 "version": "0.17.2",
