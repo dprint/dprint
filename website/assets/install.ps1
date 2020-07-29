@@ -60,7 +60,16 @@ if (!(Test-Path $BinDir)) {
 
 Invoke-WebRequest $DprintUri -OutFile $DprintZip -UseBasicParsing
 
-Expand-Archive $DprintZip -Destination $BinDir -Force
+if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {
+  Expand-Archive $DprintZip -Destination $BinDir -Force
+} else {
+  if (Test-Path $DprintExe) {
+    Remove-Item $DprintExe
+  }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::ExtractToDirectory($DprintZip, $BinDir)
+}
+
 Remove-Item $DprintZip
 
 $User = [EnvironmentVariableTarget]::User
