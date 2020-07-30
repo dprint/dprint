@@ -39,7 +39,7 @@ pub enum SubCommand {
 
 #[derive(Debug, PartialEq)]
 pub struct StdInFmt {
-    pub file_name: String,
+    pub file_path: String,
     pub file_text: String,
 }
 
@@ -76,7 +76,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
             None => return err!("Could not find stdin-fmt subcommand matches."),
         };
         SubCommand::StdInFmt(StdInFmt {
-            file_name: std_in_fmt_matches.value_of("file-name").map(String::from).unwrap(),
+            file_path: std_in_fmt_matches.value_of("file-name").map(String::from).unwrap(), // todo: rename to file-path
             file_text: std_in_reader.read()?,
         })
     } else {

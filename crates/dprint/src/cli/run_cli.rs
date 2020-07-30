@@ -65,11 +65,7 @@ pub async fn run_cli<TEnvironment : Environment>(
     let project_type_result = check_project_type_diagnostic(&config);
 
     // resolve file paths
-    let file_paths = if let SubCommand::StdInFmt(_) = &args.sub_command {
-        vec![]
-    } else {
-        resolve_file_paths(&config, &args, environment)?
-    };
+    let file_paths = resolve_file_paths(&config, &args, environment)?;
 
     // resolve plugins
     let plugins = resolve_plugins(&config, environment, plugin_resolver).await?;
@@ -80,7 +76,7 @@ pub async fn run_cli<TEnvironment : Environment>(
     // do stdin format
     if let SubCommand::StdInFmt(stdin_fmt) = &args.sub_command {
         plugin_pools.set_plugins(plugins);
-        return output_stdin_format(&stdin_fmt, environment, plugin_pools).await;
+        return output_stdin_format(&stdin_fmt, &file_paths, environment, plugin_pools).await;
     }
 
     // output resolved config
@@ -312,24 +308,39 @@ async fn init_config_file(environment: &impl Environment, config_arg: &Option<St
 
 async fn output_stdin_format<'a, TEnvironment: Environment>(
     stdin_fmt: &StdInFmt,
+    matched_file_paths: &Vec<PathBuf>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
-    let file_name = PathBuf::from(&stdin_fmt.file_name);
-    let ext = match file_name.extension() {
+    let file_path = PathBuf::from(&stdin_fmt.file_path);
+    let ext = match file_path.extension() {
         Some(ext) => ext.to_string_lossy().to_string(),
-        None => return err!("Could not find extension for {}", stdin_fmt.file_name),
+        None => return err!("Could not find extension for {}", stdin_fmt.file_path),
     };
+
+    // ensure the file path
+    match environment.canonicalize(&file_path) {
+        Ok(resolved_file_path) => {
+            if !matched_file_paths.contains(&resolved_file_path) {
+                // send back the file text as-is
+                environment.log_silent(&stdin_fmt.file_text);
+                return Ok(());
+            }
+        }
+        _ => {}, // ignore
+    }
 
     if let Some(plugin_name) = plugin_pools.get_plugin_name_from_extension(&ext) {
         let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
         let initialized_plugin = plugin_pool.initialize_first().await?;
-        let result = initialized_plugin.format_text(&file_name, &stdin_fmt.file_text)?;
+        let result = initialized_plugin.format_text(&file_path, &stdin_fmt.file_text)?;
         environment.log_silent(&result);
         return Ok(());
+    } else {
+        // send back the file text as-is
+        environment.log_silent(&stdin_fmt.file_text);
+        return Ok(());
     }
-
-    err!("Could not find plugin to format the file with extension: {}", ext)
 }
 
 async fn check_files<TEnvironment : Environment>(
@@ -1841,10 +1852,12 @@ SOFTWARE.
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
             "projectType": "openSource",
+            "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
+        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         let test_std_in = TestStdInReader::new_with_text("text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.txt"], &environment, test_std_in).await.unwrap();
+        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.txt"], &environment, test_std_in).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
         assert_eq!(environment.take_logged_errors().len(), 0);
     }
@@ -1855,20 +1868,31 @@ SOFTWARE.
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
             "projectType": "openSource",
+            "includes": ["**/*.ts"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
+        environment.write_file(&PathBuf::from("/file.ts"), "").unwrap();
         let test_std_in = TestStdInReader::new_with_text("text");
-        let error_message = run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.ts"], &environment, test_std_in).await.err().unwrap();
-        assert_eq!(error_message.to_string(), "Could not find plugin to format the file with extension: ts");
+        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.ts"], &environment, test_std_in).await.ok().unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["text"]); // as-is
     }
 
     #[tokio::test]
     async fn it_should_format_stdin_calling_other_plugin() {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
+        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
+        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
+            "projectType": "openSource",
+            "includes": ["**/*"]
+            "plugins": [
+                "https://plugins.dprint.dev/test-plugin.wasm",
+                "https://plugins.dprint.dev/test-process.plugin@{}"
+            ]
+        }}"#, plugin_file_checksum)).unwrap();
         let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.txt"], &environment, test_std_in).await.unwrap();
+        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.txt"], &environment, test_std_in).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["format this text_formatted_process"]);
-        assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
     #[tokio::test]
