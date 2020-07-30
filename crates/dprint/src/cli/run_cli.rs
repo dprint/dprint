@@ -1863,7 +1863,23 @@ SOFTWARE.
     }
 
     #[tokio::test]
-    async fn it_should_error_when_format_for_stdin_no_matching_extension() {
+    async fn it_should_identity_for_non_matching_file_path_for_stdin() {
+        // it should not output anything when downloading plugins
+        let environment = get_test_environment_with_remote_wasm_plugin();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["test/**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
+        let test_std_in = TestStdInReader::new_with_text("text");
+        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.txt"], &environment, test_std_in).await.unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["text"]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn it_should_identity_for_stdin_no_matching_extension() {
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
