@@ -93,6 +93,30 @@ impl ConfigKeyValue {
     }
 }
 
+impl From<i32> for ConfigKeyValue {
+    fn from(item: i32) -> Self {
+        ConfigKeyValue::from_i32(item)
+    }
+}
+
+impl From<bool> for ConfigKeyValue {
+    fn from(item: bool) -> Self {
+        ConfigKeyValue::from_bool(item)
+    }
+}
+
+impl From<String> for ConfigKeyValue {
+    fn from(item: String) -> Self {
+        ConfigKeyValue::from_str(&item)
+    }
+}
+
+impl From<&str> for ConfigKeyValue {
+    fn from(item: &str) -> Self {
+        ConfigKeyValue::from_str(item)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalConfiguration {
