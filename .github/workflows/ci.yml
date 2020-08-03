@@ -38,21 +38,14 @@ jobs:
       run: rustup target add wasm32-unknown-unknown
 
     # CACHE SETUP
-    - name: Cache cargo registry
-      uses: actions/cache@v1
+    - name: Cache cargo
+      uses: actions/cache@v2
       with:
-        path: ~/.cargo/registry
-        key: ${{ matrix.config.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-    - name: Cache cargo index
-      uses: actions/cache@v1
-      with:
-        path: ~/.cargo/git
-        key: ${{ matrix.config.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-    - name: Cache cargo build
-      uses: actions/cache@v1
-      with:
-        path: target
-        key: ${{ matrix.config.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ matrix.config.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # BUILD
     - name: Build test plugins
@@ -112,8 +105,8 @@ jobs:
       # .tar.gz file is for homebrew binary release
       run: |
           cd target/release
-          zip -r dprint-x86_64-apple-darwin.zip dprint
           tar -czf dprint-x86_64-apple-darwin.tar.gz dprint
+          zip -r dprint-x86_64-apple-darwin.zip dprint
           echo "::set-output name=BINARY_CHECKSUM::$(shasum -a 256 dprint | awk '{print $1}')"
     - name: Pre-release (Windows)
       id: windows_pre_release

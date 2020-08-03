@@ -224,8 +224,14 @@ function buildWebsite() {
 
 function buildFormatter() {
     const project = new tsMorph.Project();
-    const formatterFile = project.addSourceFileAtPath("../website/formatter/v1.ts");
-    const newFile = formatterFile.copy("../../scripts/build-website/formatter/v1.ts");
-    newFile.saveSync();
-    newFile.emitSync();
+    emitVersion("v1");
+    emitVersion("v2");
+
+    /** @param {string} [version] - Version of. */
+    function emitVersion(version) {
+        const formatterFileV1 = project.addSourceFileAtPath(`../website/formatter/${version}.ts`);
+        const newFormatterFileV1 = formatterFileV1.copy(`../../scripts/build-website/formatter/${version}.ts`);
+        newFormatterFileV1.saveSync();
+        newFormatterFileV1.emitSync();
+    }
 }

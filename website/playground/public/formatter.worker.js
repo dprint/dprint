@@ -137,7 +137,7 @@ function createFromInstance(wasmInstance) {
         get_wasm_memory_buffer_size = _a.get_wasm_memory_buffer_size, add_to_shared_bytes_from_buffer = _a.add_to_shared_bytes_from_buffer,
         set_buffer_with_shared_bytes = _a.set_buffer_with_shared_bytes, clear_shared_bytes = _a.clear_shared_bytes, reset_config = _a.reset_config;
     var pluginSchemaVersion = get_plugin_schema_version();
-    var expectedPluginSchemaVersion = 1;
+    var expectedPluginSchemaVersion = 2;
     if (pluginSchemaVersion !== expectedPluginSchemaVersion) {
         throw new Error("Not compatible plugin. "
             + ("Expected schema " + expectedPluginSchemaVersion + ", ")
@@ -196,19 +196,9 @@ function createFromInstance(wasmInstance) {
         }
         sendString(JSON.stringify(globalConfig));
         set_global_config();
-        sendString(JSON.stringify(getPluginConfigWithStringProps()));
+        sendString(JSON.stringify(pluginConfig));
         set_plugin_config();
         configSet = true;
-        function getPluginConfigWithStringProps() {
-            // Need to convert all the properties to strings so
-            // they can be deserialized to a HashMap<String, String>.
-            var newPluginConfig = {};
-            for (var _i = 0, _a = Object.keys(pluginConfig); _i < _a.length; _i++) {
-                var key = _a[_i];
-                newPluginConfig[key] = pluginConfig[key].toString();
-            }
-            return newPluginConfig;
-        }
     }
     function sendString(text) {
         var encoder = new TextEncoder();

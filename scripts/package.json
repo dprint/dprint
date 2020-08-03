@@ -15,19 +15,19 @@
   "homepage": "https://github.com/dprint/dprint#readme",
   "dependencies": {},
   "devDependencies": {
-    "@types/clean-css": "^4.2.1",
-    "@types/highlight.js": "^9.12.3",
-    "@types/html-minifier": "^3.5.3",
+    "@types/clean-css": "^4.2.2",
+    "@types/highlight.js": "^9.12.4",
+    "@types/html-minifier": "^4.0.0",
     "@types/showdown": "^1.9.3",
     "bulma": "^0.9.0",
     "clean-css": "^4.2.3",
-    "copyfiles": "^2.2.0",
-    "highlight.js": "^10.0.1",
+    "copyfiles": "^2.3.0",
+    "highlight.js": "^10.1.2",
     "html-minifier": "^4.0.0",
     "node-minify": "^3.6.0",
     "node-sass": "^4.14.1",
     "rimraf": "^3.0.2",
     "showdown": "^1.9.1",
-    "ts-morph": "^7.0.3"
+    "ts-morph": "^7.1.3"
   }
 }

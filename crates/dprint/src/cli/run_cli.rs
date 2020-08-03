@@ -1099,7 +1099,7 @@ mod tests {
             }},
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.plugin@{}"
+                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
         environment.write_file(&file_path1, "text").unwrap();
@@ -1200,7 +1200,7 @@ mod tests {
             "projectType": "openSource",
             "testProcessPlugin": {{ "non-existent": 25 }},
             "plugins": [
-                "https://plugins.dprint.dev/test-process.plugin@{}"
+                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
         environment.write_file(&PathBuf::from("/test.txt_ps"), "test").unwrap();
@@ -1837,7 +1837,7 @@ SOFTWARE.
             "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.plugin@{}"
+                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).await.unwrap();
@@ -1903,7 +1903,7 @@ SOFTWARE.
             "includes": ["**/*"]
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.plugin@{}"
+                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
         let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
@@ -1917,7 +1917,7 @@ SOFTWARE.
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
             "projectType": "openSource",
             "plugins": [
-                "https://plugins.dprint.dev/test-process.plugin"
+                "https://plugins.dprint.dev/test-process.exe-plugin"
             ]
         }"#).unwrap();
         environment.write_file(&PathBuf::from("test.txt_ps"), "").unwrap();
@@ -1926,8 +1926,8 @@ SOFTWARE.
         assert_eq!(
             error_message.to_string(),
             concat!(
-                "The plugin 'https://plugins.dprint.dev/test-process.plugin' must have a checksum specified for security reasons ",
-                "since it is not a WASM plugin. You may specify one by writing \"https://plugins.dprint.dev/test-process.plugin@checksum-goes-here\" ",
+                "The plugin 'https://plugins.dprint.dev/test-process.exe-plugin' must have a checksum specified for security reasons ",
+                "since it is not a WASM plugin. You may specify one by writing \"https://plugins.dprint.dev/test-process.exe-plugin@checksum-goes-here\" ",
                 "when providing the url in the configuration file. Check the plugin's release notes for what ",
                 "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
             )
@@ -1942,7 +1942,7 @@ SOFTWARE.
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
             "projectType": "openSource",
             "plugins": [
-                "https://plugins.dprint.dev/test-process.plugin@asdf"
+                "https://plugins.dprint.dev/test-process.exe-plugin@asdf"
             ]
         }"#).unwrap();
         environment.write_file(&PathBuf::from("test.txt_ps"), "").unwrap();
@@ -1951,7 +1951,7 @@ SOFTWARE.
         assert_eq!(
             error_message.to_string(),
             format!(
-                "Error resolving plugin https://plugins.dprint.dev/test-process.plugin: The checksum {} did not match the expected checksum of asdf.",
+                "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The checksum {} did not match the expected checksum of asdf.",
                 actual_plugin_file_checksum,
             )
         );
@@ -2014,7 +2014,7 @@ SOFTWARE.
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
             "plugins": [
-                "https://plugins.dprint.dev/test-process.plugin@{}"
+                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, get_process_plugin_checksum(&environment).await)).unwrap();
         let actual_plugin_zip_file_checksum = get_process_plugin_zip_checksum(&environment).await;
@@ -2024,7 +2024,7 @@ SOFTWARE.
         assert_eq!(
             error_message.to_string(),
             format!(
-                "Error resolving plugin https://plugins.dprint.dev/test-process.plugin: The checksum {} did not match the expected checksum of asdf.",
+                "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The checksum {} did not match the expected checksum of asdf.",
                 actual_plugin_zip_file_checksum,
             )
         );
@@ -2128,7 +2128,7 @@ EXAMPLES:
             "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.plugin@{}"
+                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
@@ -2137,7 +2137,7 @@ EXAMPLES:
     }
 
     async fn get_process_plugin_checksum(environment: &TestEnvironment) -> String {
-        let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.plugin").await.unwrap();
+        let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").await.unwrap();
         crate::utils::get_sha256_checksum(&plugin_file_bytes)
     }
 
@@ -2157,7 +2157,7 @@ EXAMPLES:
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
             "plugins": [
-                "https://plugins.dprint.dev/test-process.plugin@{}"
+                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
@@ -2217,7 +2217,7 @@ EXAMPLES:
 
     fn write_process_plugin_file(environment: &TestEnvironment, zip_checksum: &str) {
         environment.add_remote_file_bytes(
-            "https://plugins.dprint.dev/test-process.plugin",
+            "https://plugins.dprint.dev/test-process.exe-plugin",
             Bytes::from(format!(r#"{{
     "schemaVersion": 1,
     "name": "test-process-plugin",

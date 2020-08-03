@@ -103,21 +103,21 @@ mod tests {
 
     #[test]
     fn it_should_parse_non_wasm_plugin_with_checksum() {
-        let result = parse_plugin_source_reference("http://dprint.dev/plugin.plugin@checksum", &PathSource::new_local(PathBuf::from("./"))).unwrap();
+        let result = parse_plugin_source_reference("http://dprint.dev/plugin.exe-plugin@checksum", &PathSource::new_local(PathBuf::from("./"))).unwrap();
         assert_eq!(result, PluginSourceReference {
-            path_source: PathSource::new_remote_from_str("http://dprint.dev/plugin.plugin"),
+            path_source: PathSource::new_remote_from_str("http://dprint.dev/plugin.exe-plugin"),
             checksum: Some(String::from("checksum")),
         });
     }
 
     #[test]
     fn it_should_error_for_non_wasm_plugin_no_checksum() {
-        let err = parse_plugin_source_reference("http://dprint.dev/plugin.plugin", &PathSource::new_local(PathBuf::from("./"))).err().unwrap();
+        let err = parse_plugin_source_reference("http://dprint.dev/plugin.exe-plugin", &PathSource::new_local(PathBuf::from("./"))).err().unwrap();
         assert_eq!(
             err.to_string(),
             concat!(
-                "The plugin 'http://dprint.dev/plugin.plugin' must have a checksum specified for security reasons ",
-                "since it is not a WASM plugin. You may specify one by writing \"http://dprint.dev/plugin.plugin@checksum-goes-here\" ",
+                "The plugin 'http://dprint.dev/plugin.exe-plugin' must have a checksum specified for security reasons ",
+                "since it is not a WASM plugin. You may specify one by writing \"http://dprint.dev/plugin.exe-plugin@checksum-goes-here\" ",
                 "when providing the url in the configuration file. Check the plugin's release notes for what ",
                 "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
             )

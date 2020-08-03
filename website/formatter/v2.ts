@@ -2,8 +2,6 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-// DEPRECATED. Does not support plugin schemas > 1
-
 /** Formats code. */
 export interface Formatter {
     /**
@@ -144,7 +142,7 @@ export function createFromInstance(wasmInstance: WebAssembly.Instance): Formatte
     } = wasmInstance.exports as any;
 
     const pluginSchemaVersion = get_plugin_schema_version();
-    const expectedPluginSchemaVersion = 1;
+    const expectedPluginSchemaVersion = 2;
     if (pluginSchemaVersion !== expectedPluginSchemaVersion) {
         throw new Error(
             `Not compatible plugin. `
@@ -210,19 +208,9 @@ export function createFromInstance(wasmInstance: WebAssembly.Instance): Formatte
         }
         sendString(JSON.stringify(globalConfig));
         set_global_config();
-        sendString(JSON.stringify(getPluginConfigWithStringProps()));
+        sendString(JSON.stringify(pluginConfig));
         set_plugin_config();
         configSet = true;
-
-        function getPluginConfigWithStringProps() {
-            // Need to convert all the properties to strings so
-            // they can be deserialized to a HashMap<String, String>.
-            const newPluginConfig: { [key: string]: string; } = {};
-            for (const key of Object.keys(pluginConfig)) {
-                newPluginConfig[key] = (pluginConfig as any)[key].toString();
-            }
-            return newPluginConfig;
-        }
     }
 
     function sendString(text: string) {

@@ -981,7 +981,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
-            "plugins": ["./test-plugin.plugin@checksum"]
+            "plugins": ["./test-plugin.exe-plugin@checksum"]
         }"#.as_bytes());
 
         let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
@@ -997,7 +997,7 @@ mod tests {
             "prop1": 1
         }"#).unwrap();
         environment.add_remote_file("https://dprint.dev/dir/test.json", r#"{
-            "plugins": ["./test-plugin.plugin@checksum"]
+            "plugins": ["./test-plugin.exe-plugin@checksum"]
         }"#.as_bytes());
 
         let result = get_result("/test.json", &environment).await.unwrap();
@@ -1013,13 +1013,13 @@ mod tests {
             "prop1": 1
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/dir/test.json"), r#"{
-            "plugins": ["./test-plugin.plugin@checksum"]
+            "plugins": ["./test-plugin.exe-plugin@checksum"]
         }"#).unwrap();
 
         let result = get_result("/test.json", &environment).await.unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![PluginSourceReference {
-            path_source: PathSource::new_local(PathBuf::from("/dir/test-plugin.plugin")),
+            path_source: PathSource::new_local(PathBuf::from("/dir/test-plugin.exe-plugin")),
             checksum: Some(String::from("checksum")),
         }]);
     }

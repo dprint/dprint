@@ -74,15 +74,15 @@ Since dprint plugins are distributed as WebAssembly files, they have the added b
 For example, this code uses the Rustfmt dprint plugin to format Rust code in Deno:
 
 ```ts
-// documentation: https://doc.deno.land/https/dprint.dev/formatter/v1.ts
-import { createStreaming } from "https://dprint.dev/formatter/v1.ts";
+// documentation: https://doc.deno.land/https/dprint.dev/formatter/v2.ts
+import { createStreaming } from "https://dprint.dev/formatter/v2.ts";
 
 const globalConfig = {
     indentWidth: 2,
     lineWidth: 80,
 };
 const rustFormatter = await createStreaming(
-    fetch("https://plugins.dprint.dev/rustfmt-0.1.0.wasm"),
+    fetch("https://plugins.dprint.dev/rustfmt-x.x.x.wasm"),
 );
 
 rustFormatter.setConfig(globalConfig, { brace_style: "AlwaysNextLine" });

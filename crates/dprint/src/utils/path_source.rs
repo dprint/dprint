@@ -73,7 +73,7 @@ impl PathSource {
     }
 
     pub fn is_process_plugin(&self) -> bool {
-        self.display().to_lowercase().ends_with(".plugin")
+        self.display().to_lowercase().ends_with(".exe-plugin")
     }
 }
 
