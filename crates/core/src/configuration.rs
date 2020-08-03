@@ -70,6 +70,22 @@ pub struct ConfigurationDiagnostic {
 
 pub type ConfigKeyMap = HashMap<String, ConfigKeyValue>;
 
+/// Creates a ConfigKeyMap from a series of string key value pairs.
+pub fn parse_config_key_map(spec_config: &HashMap<String, String>) -> ConfigKeyMap {
+    let mut key_map = HashMap::new();
+    for (key, value) in spec_config {
+        let new_value = match value.parse::<bool>() {
+            Ok(value) => value.into(),
+            Err(_) => match value.parse::<i32>() {
+                Ok(value) => value.into(),
+                Err(_) => value.clone().into(),
+            }
+        };
+        key_map.insert(key.clone(), new_value);
+    }
+    key_map
+}
+
 #[derive(Clone, PartialEq, Debug)]
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
