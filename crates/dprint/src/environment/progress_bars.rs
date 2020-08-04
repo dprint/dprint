@@ -84,12 +84,12 @@ impl ProgressBars {
                 // https://github.com/mitsuhiko/indicatif/blob/main/examples/download.rs
                 // https://github.com/mitsuhiko/indicatif/blob/main/examples/multi.rs
                 ProgressStyle::default_bar()
-                    .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                    .template("{wide_msg}\n{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
                     .progress_chars("#>-")
             },
             ProgressBarStyle::Action => {
                 ProgressStyle::default_bar()
-                    .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}]")
+                    .template("{wide_msg}\n{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}]")
                     .progress_chars("#>-")
 
             }
