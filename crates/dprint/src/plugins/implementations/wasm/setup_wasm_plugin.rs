@@ -20,9 +20,9 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
     file_bytes: &Bytes,
     environment: &TEnvironment
 ) -> Result<SetupPluginResult, ErrBox> {
-    let compile_result = environment.log_action_with_progress(&format!("Compiling {}", url_or_file_path.display()), || {
+    let compile_result = environment.log_action_with_progress(&format!("Compiling {}", url_or_file_path.display()), |_| {
         environment.compile_wasm(file_bytes)
-    }).await??;
+    }, 1).await??;
     let plugin_info = compile_result.plugin_info;
     let plugin_cache_file_path = get_file_path_from_plugin_info(&plugin_info, environment)?;
     environment.mk_dir_all(&plugin_cache_file_path.parent().unwrap().to_path_buf())?;

@@ -240,10 +240,10 @@ impl Environment for TestEnvironment {
 
     async fn log_action_with_progress<
         TResult: std::marker::Send + std::marker::Sync,
-        TCreate : FnOnce() -> TResult + std::marker::Send + std::marker::Sync
-    >(&self, message: &str, action: TCreate) -> Result<TResult, ErrBox> {
+        TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync
+    >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox> {
         self.log_error(message);
-        Ok(action())
+        Ok(action(Box::new(|_| {})))
     }
 
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {

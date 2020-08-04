@@ -56,9 +56,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
             environment.remove_dir_all(plugin_cache_dir_path)?;
         }
 
-        environment.log_action_with_progress(&format!("Extracting zip for {}", plugin_name), || {
-            extract_zip(&zip_bytes, &plugin_cache_dir_path, environment)
-        }).await??;
+        extract_zip(&format!("Extracting zip for {}", plugin_name), &zip_bytes, &plugin_cache_dir_path, environment).await?;
 
         let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
         if !environment.path_exists(&plugin_executable_file_path) {

@@ -178,10 +178,14 @@ impl Environment for RealEnvironment {
 
     async fn log_action_with_progress<
         TResult: std::marker::Send + std::marker::Sync,
-        TCreate : FnOnce() -> TResult + std::marker::Send + std::marker::Sync
-    >(&self, message: &str, action: TCreate) -> Result<TResult, ErrBox> {
-        let pb = self.progress_bars.add_progress(message, ProgressBarStyle::Action, 1);
-        let result = action();
+        TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
+    >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox> {
+        let pb = self.progress_bars.add_progress(message, ProgressBarStyle::Action, total_size as u64);
+        let pb = std::sync::Arc::new(pb);
+        let result = action(Box::new({
+            let pb = pb.clone();
+            move |size| pb.set_position(size as u64)
+        }));
         pb.finish_and_clear();
         self.progress_bars.finish_one().await?;
         Ok(result)
@@ -293,8 +297,10 @@ fn get_middle_truncted_text(prompt: &str, text: &str) -> String {
 
     let prompt_width = console::measure_text_width(prompt);
     let text_width = console::measure_text_width(text);
+    let is_text_within_term_width = prompt_width + text_width < term_width;
+    let should_give_up = term_width < prompt_width || (term_width - prompt_width) / 2 < 3;
 
-    if prompt_width + text_width < term_width {
+    if is_text_within_term_width || should_give_up {
         format!("{}{}", prompt, text)
     } else {
         let middle_point = (term_width - prompt_width) / 2;

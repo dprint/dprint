@@ -28,8 +28,8 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn log_silent(&self, text: &str);
     async fn log_action_with_progress<
         TResult: std::marker::Send + std::marker::Sync,
-        TCreate : FnOnce() -> TResult + std::marker::Send + std::marker::Sync
-    >(&self, message: &str, action: TCreate) -> Result<TResult, ErrBox>;
+        TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
+    >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox>;
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox>;
     // async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox>;
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;
