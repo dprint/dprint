@@ -68,6 +68,7 @@ function buildWebsite() {
     buildForPath("plugins/rustfmt", documentationHtmlPageText);
 
     buildForPath("blog/dprint-rewritten-in-rust", blogPostHtmlPageText);
+    buildForPath("blog/incremental-and-process-plugins", blogPostHtmlPageText);
 
     createRedirect("pricing", "sponsor");
 
