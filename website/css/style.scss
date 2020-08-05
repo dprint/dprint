@@ -21,7 +21,7 @@ $grey-darker: hsl(0, 0%, 86%);
 $grey-dark: hsl(0, 0%, 71%);
 $grey: hsl(0, 0%, 48%);
 $grey-light: hsl(0, 0%, 29%);
-$grey-lighter:hsl(0, 0%, 21%);
+$grey-lighter: hsl(0, 0%, 21%);
 $grey-lightest: hsl(0, 0%, 10%);
 
 $white-ter: hsl(0, 0%, 14%);
@@ -109,7 +109,8 @@ footer {
 
 // rest
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
 }
@@ -128,7 +129,11 @@ body {
   flex-direction: column;
 }
 
-#content-body ol, #content-body ul, #content-body p, #content-body h2, #content-body h3 {
+#content-body ol,
+#content-body ul,
+#content-body p,
+#content-body h2,
+#content-body h3 {
   margin: 1rem 0;
 }
 
@@ -234,7 +239,8 @@ code {
   font-size: $size-4;
 }
 
-#content-body h3, #content-body h3 code {
+#content-body h3,
+#content-body h3 code {
   font-size: $size-5;
   font-style: italic;
 }
@@ -254,7 +260,8 @@ code {
   padding-left: 0;
 }
 
-#content-body ul, #content-body ol {
+#content-body ul,
+#content-body ol {
   padding-left: 2em;
 }
 

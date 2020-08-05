@@ -13,7 +13,7 @@
     "indentWidth": 2
   },
   "includes": [
-    "**/*.{ts,tsx,js,jsx,json,md,html}"
+    "**/*.{ts,tsx,js,jsx,json,md,html,scss}"
   ],
   "excludes": [
     "website/playground/build",
