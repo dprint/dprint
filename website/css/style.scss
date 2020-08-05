@@ -186,6 +186,23 @@ code {
   padding: 3rem 0;
 }
 
+#main-plugins {
+  .column {
+    padding-top: 0px;
+  }
+
+  @media (max-width: $tablet) {
+    .main-plugins-following {
+      ul {
+        margin-top: 0;
+      }
+    }
+    .column:not(.main-plugins-following) {
+      padding-bottom: 0.3rem;
+    }
+  }
+}
+
 /* content */
 
 #content {

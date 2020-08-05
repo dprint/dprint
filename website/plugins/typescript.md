@@ -26,7 +26,7 @@ In _.dprintrc.json_:
 2. Ensure `.ts,.tsx,.js,.jsx` file extensions are matched in an `"includes"` pattern.
 3. Add a `"typescript"` configuration property if desired.
 
-```json
+```jsonc
 {
   // ...etc...
   "typescript": {

@@ -20,7 +20,7 @@ In _.dprintrc.json_:
 2. Ensure `.md` file extensions are matched in an `"includes"` pattern.
 3. Add a `"markdown"` configuration property if desired.
 
-```json
+```jsonc
 {
   // omitted...
   "markdown": {

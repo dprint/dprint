@@ -51,7 +51,7 @@ You may specify to only format files that have changed since the last time you f
 dprint fmt --incremental
 ```
 
-Alternatively, you may specify this in the `.dprintrc.json` configuration file:
+Alternatively, you may specify this in the `.dprintrc.json` configuration file (recommended):
 
 ```jsonc
 {

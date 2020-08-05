@@ -5,11 +5,14 @@ description: Documentation on creating your own dprint formatting plugin.
 
 # Creating a Plugin
 
-Plugins can be written in any language that supports compiling to a WebAssembly file (_.wasm_).
+As outlined in [plugins](/plugins), there are WASM plugins and process plugins.
 
-## Rust
+* WASM plugins can be written in any language that supports compiling to a WebAssembly file (_.wasm_) (highly recommended)
+* Process plugins can be written in any language that supports compiling to an executable.
 
-Here's an example Rust plugin created with the `generate_plugin_code` macro from [`dprint-core`](https://crates.io/crates/dprint-core).
+## Rust (WASM Plugin)
+
+Here's an example Rust WASM plugin created with the `generate_plugin_code` macro from [`dprint-core`](https://crates.io/crates/dprint-core).
 
 ```rust
 use std::path::PathBuf;
@@ -92,6 +95,10 @@ To format code using a different plugin, call the `format_with_host(file_path, f
 
 For example, this function is used by the markdown plugin to format code blocks.
 
+## Process Plugins
+
+Please [open an issue](https://github.com/dprint/dprint/issues/new?template=other.md) asking me to outline some details and I will when I can.
+
 ## Other Languages
 
-If you are interested in implementing plugins in another language that supports compiling to a _.wasm_ file, please [open an issue](https://github.com/dprint/dprint/issues/new?template=other.md) and I will try to help point you in the right direction.
+If you are interested in implementing plugins in another language, please [open an issue](https://github.com/dprint/dprint/issues/new?template=other.md) and I will try to help point you in the right direction.

@@ -22,11 +22,10 @@ In _.dprintrc.json_:
 2. Ensure `.rs` file extensions are matched in an `"includes"` pattern.
 3. Add a `"rustfmt"` configuration property if desired.
 
-```json
+```jsonc
 {
   // ...etc...
   "rustfmt": {
-    // rustfmt config goes here
     "brace_style": "AlwaysNextLine"
   },
   "plugins": [

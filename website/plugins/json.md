@@ -25,7 +25,7 @@ In _.dprintrc.json_:
 2. Ensure `.json` file extensions are matched in an `"includes"` pattern.
 3. Add a `"json"` configuration property if desired.
 
-```json
+```jsonc
 {
   // omitted...
   "json": {
