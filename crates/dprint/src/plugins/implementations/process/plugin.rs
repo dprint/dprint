@@ -121,7 +121,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
     ) -> Result<Self, ErrBox> {
         let child = Command::new(executable_file_path)
             .stdin(Stdio::piped())
-            .stderr(Stdio::piped()) // todo: read stderr
+            .stderr(Stdio::inherit())
             .stdout(Stdio::piped())
             .spawn()?;
         let initialized_plugin = InitializedProcessPlugin {
