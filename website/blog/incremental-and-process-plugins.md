@@ -58,8 +58,8 @@ Yeah, kind of annoying, but overall not too bad if you copy and paste. The instr
 
 At the moment there's two process plugins (these should all work on Windows, Linux, and Mac):
 
-* [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - All the many language's [Prettier](https://prettier.io) supports
-* [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - C# and Visual Basic formatting using the [Roslyn](https://github.com/dotnet/roslyn) compiler
+- [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - All the many language's [Prettier](https://prettier.io) supports
+- [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - C# and Visual Basic formatting using the [Roslyn](https://github.com/dotnet/roslyn) compiler
 
 ## Immediate Future
 

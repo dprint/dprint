@@ -7,8 +7,8 @@ description: Documentation on creating your own dprint formatting plugin.
 
 As outlined in [plugins](/plugins), there are WASM plugins and process plugins.
 
-* WASM plugins can be written in any language that supports compiling to a WebAssembly file (_.wasm_) (highly recommended)
-* Process plugins can be written in any language that supports compiling to an executable.
+- WASM plugins can be written in any language that supports compiling to a WebAssembly file (_.wasm_) (highly recommended)
+- Process plugins can be written in any language that supports compiling to an executable.
 
 ## Rust (WASM Plugin)
 
