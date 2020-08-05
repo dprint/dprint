@@ -12,7 +12,7 @@ use crate::configuration::{self, get_global_config, get_plugin_config_map};
 use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
 use crate::utils::{get_table_text, get_difference, pretty_print_json_text};
 
-use super::{CliArgs, SubCommand, StdInFmt};
+use super::{CliArgs, SubCommand, EditorFmt};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
 use super::incremental::IncrementalFile;
 
@@ -73,10 +73,10 @@ pub async fn run_cli<TEnvironment : Environment>(
         return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
     }
 
-    // do stdin format
-    if let SubCommand::StdInFmt(stdin_fmt) = &args.sub_command {
+    // do editor format
+    if let SubCommand::EditorFmt(editor_fmt) = &args.sub_command {
         plugin_pools.set_plugins(plugins);
-        return output_stdin_format(&stdin_fmt, &file_paths, environment, plugin_pools).await;
+        return output_editor_format(&editor_fmt, &file_paths, environment, plugin_pools).await;
     }
 
     // output resolved config
@@ -221,7 +221,7 @@ async fn output_editor_info<TEnvironment: Environment>(
     }
 
     environment.log_silent(&serde_json::to_string(&EditorInfo {
-        schema_version: 1,
+        schema_version: 2,
         plugins,
     })?);
 
@@ -306,16 +306,16 @@ async fn init_config_file(environment: &impl Environment, config_arg: &Option<St
     }
 }
 
-async fn output_stdin_format<'a, TEnvironment: Environment>(
-    stdin_fmt: &StdInFmt,
+async fn output_editor_format<'a, TEnvironment: Environment>(
+    editor_fmt: &EditorFmt,
     matched_file_paths: &Vec<PathBuf>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
-    let file_path = PathBuf::from(&stdin_fmt.file_path);
+    let file_path = PathBuf::from(&editor_fmt.file_path);
     let ext = match file_path.extension() {
         Some(ext) => ext.to_string_lossy().to_string(),
-        None => return err!("Could not find extension for {}", stdin_fmt.file_path),
+        None => return err!("Could not find extension for {}", editor_fmt.file_path),
     };
 
     // ensure the file path
@@ -323,7 +323,7 @@ async fn output_stdin_format<'a, TEnvironment: Environment>(
         Ok(resolved_file_path) => {
             if !matched_file_paths.contains(&resolved_file_path) {
                 // send back the file text as-is
-                environment.log_silent(&stdin_fmt.file_text);
+                environment.log_silent(&editor_fmt.file_text);
                 return Ok(());
             }
         }
@@ -333,12 +333,12 @@ async fn output_stdin_format<'a, TEnvironment: Environment>(
     if let Some(plugin_name) = plugin_pools.get_plugin_name_from_extension(&ext) {
         let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
         let initialized_plugin = plugin_pool.initialize_first().await?;
-        let result = initialized_plugin.format_text(&file_path, &stdin_fmt.file_text)?;
+        let result = initialized_plugin.format_text(&file_path, &editor_fmt.file_text)?;
         environment.log_silent(&result);
         return Ok(());
     } else {
         // send back the file text as-is
-        environment.log_silent(&stdin_fmt.file_text);
+        environment.log_silent(&editor_fmt.file_text);
         return Ok(());
     }
 }
@@ -1842,12 +1842,12 @@ SOFTWARE.
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
-            r#"{"schemaVersion":1,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]},{"name":"test-process-plugin","fileExtensions":["txt_ps"]}]}"#
+            r#"{"schemaVersion":2,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]},{"name":"test-process-plugin","fileExtensions":["txt_ps"]}]}"#
         ]);
     }
 
     #[tokio::test]
-    async fn it_should_format_for_stdin() {
+    async fn it_should_format_for_editor_fmt() {
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
@@ -1857,13 +1857,13 @@ SOFTWARE.
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         let test_std_in = TestStdInReader::new_with_text("text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.txt"], &environment, test_std_in).await.unwrap();
+        run_test_cli_with_stdin(vec!["editor-fmt", "--file-path", "/file.txt"], &environment, test_std_in).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
         assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
     #[tokio::test]
-    async fn it_should_identity_for_non_matching_file_path_for_stdin() {
+    async fn it_should_identity_for_non_matching_file_path_for_editor_fmt() {
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
@@ -1873,13 +1873,13 @@ SOFTWARE.
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         let test_std_in = TestStdInReader::new_with_text("text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.txt"], &environment, test_std_in).await.unwrap();
+        run_test_cli_with_stdin(vec!["editor-fmt", "--file-path", "/file.txt"], &environment, test_std_in).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["text"]);
         assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
     #[tokio::test]
-    async fn it_should_identity_for_stdin_no_matching_extension() {
+    async fn it_should_identity_for_editor_fmt_no_matching_extension() {
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
@@ -1889,12 +1889,12 @@ SOFTWARE.
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/file.ts"), "").unwrap();
         let test_std_in = TestStdInReader::new_with_text("text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.ts"], &environment, test_std_in).await.ok().unwrap();
+        run_test_cli_with_stdin(vec!["editor-fmt", "--file-path", "/file.ts"], &environment, test_std_in).await.ok().unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["text"]); // as-is
     }
 
     #[tokio::test]
-    async fn it_should_format_stdin_calling_other_plugin() {
+    async fn it_should_format_editor_fmt_calling_other_plugin() {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
@@ -1907,7 +1907,7 @@ SOFTWARE.
             ]
         }}"#, plugin_file_checksum)).unwrap();
         let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "/file.txt"], &environment, test_std_in).await.unwrap();
+        run_test_cli_with_stdin(vec!["editor-fmt", "--file-path", "/file.txt"], &environment, test_std_in).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["format this text_formatted_process"]);
     }
 
