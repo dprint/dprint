@@ -15,7 +15,7 @@ pub struct CliArgs {
 impl CliArgs {
     pub fn is_silent_output(&self) -> bool {
         match self.sub_command {
-            SubCommand::EditorInfo | SubCommand::EditorFmt(..) => true,
+            SubCommand::EditorInfo | SubCommand::EditorFmt(..) | SubCommand::StdInFmt(..) => true,
             _ => false
         }
     }
@@ -35,11 +35,18 @@ pub enum SubCommand {
     Help(String),
     EditorInfo,
     EditorFmt(EditorFmt),
+    StdInFmt(StdInFmt),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct EditorFmt {
     pub file_path: String,
+    pub file_text: String,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct StdInFmt {
+    pub file_name: String,
     pub file_text: String,
 }
 
@@ -77,6 +84,15 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
         };
         SubCommand::EditorFmt(EditorFmt {
             file_path: editor_fmt_matches.value_of("file-path").map(String::from).unwrap(),
+            file_text: std_in_reader.read()?,
+        })
+    } else if matches.is_present("stdin-fmt") {
+        let stdin_fmt_matches = match matches.subcommand_matches("stdin-fmt") {
+            Some(matches) => matches,
+            None => return err!("Could not find stdin-fmt subcommand matches."),
+        };
+        SubCommand::StdInFmt(StdInFmt {
+            file_name: stdin_fmt_matches.value_of("file-name").map(String::from).unwrap(),
             file_text: std_in_reader.read()?,
         })
     } else {
@@ -195,6 +211,16 @@ EXAMPLES:
                 .arg(
                     Arg::with_name("file-path")
                         .long("file-path")
+                        .required(true)
+                        .takes_value(true)
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("stdin-fmt")
+                .setting(AppSettings::Hidden)
+                .arg(
+                    Arg::with_name("file-name")
+                        .long("file-name")
                         .required(true)
                         .takes_value(true)
                 )
