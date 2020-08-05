@@ -1,5 +1,5 @@
 ---
-title: Incremental and Process Plugins - dprint 0.7
+title: Incremental Formatting and Process Plugins - dprint 0.7
 description: Overview of the new features in dprint 0.7
 publish_date: 2020-08-05
 author: David Sherret
