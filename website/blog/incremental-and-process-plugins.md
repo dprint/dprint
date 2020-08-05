@@ -7,7 +7,7 @@ author: David Sherret
 
 Dprint is a pluggable, configurable, and fast code formatting platform written in Rust.
 
-This blog will outline the new features in dprint 0.7.
+This post will outline the new features in dprint 0.7.
 
 ## Incremental
 
@@ -43,7 +43,7 @@ Dprint has previously only supported plugins compiled to a single `.wasm` file. 
 
 To get around this, a new type of plugin called "process plugins" has been introduced. These are plugins that work by the CLI executing a separate process and then communicating with it via stdin and stdout.
 
-Obviously, process plugins are not as secure as WASM plugins since they don't run sandboxed. To at least ensure the process plugin being used is the same that was built with the CI pipeline, you must specify a checksum in addition to a URL. For example:
+Obviously, process plugins are not as secure as WASM plugins since they don't run sandboxed. To at least ensure the process plugin being used is the same that was built with the CI pipeline, you must specify the checksum of the file in addition to a URL. For example:
 
 ```jsonc
 {
@@ -56,10 +56,10 @@ Obviously, process plugins are not as secure as WASM plugins since they don't ru
 
 Yeah, kind of annoying, but overall not too bad if you copy and paste. The instructions for setting this up are outlined on each plugin's page.
 
-At the moment there's two process plugins (these should all work on Windows, Linux, and Mac):
+At the moment there are two process plugins (these should both work on Windows, Linux, and Mac):
 
-- [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - All the many language's [Prettier](https://prettier.io) supports
-- [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - C# and Visual Basic formatting using the [Roslyn](https://github.com/dotnet/roslyn) compiler
+- [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - C# and Visual Basic formatting using the [Roslyn](https://github.com/dotnet/roslyn) compiler.
+- [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Formats all the many languages [Prettier](https://prettier.io) supports. Note: if you wish to use this with plugins like `dprint-plugin-typescript`, then specify this after those plugins in the `"plugins"` array of the configuration file.
 
 ## Immediate Future
 
