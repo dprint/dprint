@@ -26,6 +26,8 @@ pub async fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &PathBuf, en
                 let mut file_bytes = Vec::with_capacity(file.size() as usize);
                 file.read_to_end(&mut file_bytes)?;
                 environment.write_file_bytes(&file_path, &file_bytes)?;
+            } else {
+                environment.mk_dir_all(&file_path)?;
             }
 
             // Get and Set permissions
@@ -35,7 +37,7 @@ pub async fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &PathBuf, en
                 use std::fs;
 
                 if let Some(mode) = file.unix_mode() {
-                    fs::set_permissions(&file_path, fs::Permissions::from_mode(mode)).unwrap();
+                    fs::set_permissions(&file_path, fs::Permissions::from_mode(mode))?;
                 }
             }
         }
