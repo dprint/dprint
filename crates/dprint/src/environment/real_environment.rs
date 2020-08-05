@@ -120,6 +120,7 @@ impl Environment for RealEnvironment {
     fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         let start_instant = std::time::Instant::now();
         log_verbose!(self, "Globbing: {:?}", file_patterns);
+        let base = self.canonicalize(base)?;
         let walker = globwalk::GlobWalkerBuilder::from_patterns(base, file_patterns)
             .follow_links(false)
             .file_type(globwalk::FileType::FILE)
@@ -132,7 +133,7 @@ impl Environment for RealEnvironment {
         let mut file_paths = Vec::new();
         for result in walker.into_iter() {
             match result {
-                Ok(result) => { file_paths.push(result.into_path()); },
+                Ok(result) => file_paths.push(result.into_path()),
                 Err(err) => return err!("Error walking files: {}", err),
             }
         }

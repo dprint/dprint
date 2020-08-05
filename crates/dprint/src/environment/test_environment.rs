@@ -241,7 +241,7 @@ impl Environment for TestEnvironment {
     async fn log_action_with_progress<
         TResult: std::marker::Send + std::marker::Sync,
         TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync
-    >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox> {
+    >(&self, message: &str, action: TCreate, _: usize) -> Result<TResult, ErrBox> {
         self.log_error(message);
         Ok(action(Box::new(|_| {})))
     }
