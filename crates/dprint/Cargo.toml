@@ -18,7 +18,7 @@ dissimilar = "1.0"
 globwalk = "0.8.0"
 jsonc-parser = { version = "0.12.1" }
 indicatif = "0.14.0"
-reqwest = { version = "0.10.4" }
+reqwest = { version = "0.10.4", features = ["rustls-tls"] }
 bytes = "0.5.4"
 futures = { version = "0.3.4", features = ["compat", "io-compat"] }
 tokio = { version = "0.2", features = ["full", "blocking", "sync"] }
