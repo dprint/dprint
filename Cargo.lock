@@ -457,7 +457,7 @@ checksum = "39de161cd2ebbd6e5783db53a82a47b6a47dcfef754130839603561745528b94"
 
 [[package]]
 name = "dprint"
-version = "0.7.4"
+version = "0.8.0"
 dependencies = [
  "app_dirs",
  "async-trait",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.26.2"
+version = "0.27.0"
 dependencies = [
  "serde",
  "serde_json",
