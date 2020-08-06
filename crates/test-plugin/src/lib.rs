@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use dprint_core::generate_plugin_code;
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
@@ -46,7 +47,11 @@ fn get_plugin_license_text() -> String {
 
 fn format_text(_: &PathBuf, file_text: &str, config: &Configuration) -> Result<String, String> {
     if file_text.starts_with("plugin: ") {
-        format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin: ", ""))
+        format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin: ", ""), &HashMap::new())
+    } else if file_text.starts_with("plugin-config: ") {
+        let mut config_map = HashMap::new();
+        config_map.insert("ending".to_string(), "custom_config".into());
+        format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin-config: ", ""), &config_map)
     } else if file_text == "should_error" {
         Err(String::from("Did error."))
     } else if file_text.ends_with(&config.ending) {

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
@@ -62,11 +63,16 @@ impl ProcessPluginHandler<Configuration> for TestProcessPluginHandler {
         _: &PathBuf,
         file_text: &str,
         config: &Configuration,
-        format_with_host: Box<dyn FnMut(&PathBuf, String) -> Result<String, ErrBox> + 'a>,
+        format_with_host: Box<dyn FnMut(&PathBuf, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>,
     ) -> Result<String, ErrBox> {
         if file_text.starts_with("plugin: ") {
             let mut format_with_host = format_with_host;
-            format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""))
+            format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""), &HashMap::new())
+        } else if file_text.starts_with("plugin-config: ") {
+            let mut config_map = HashMap::new();
+            config_map.insert("ending".to_string(), "custom_config".into());
+            let mut format_with_host = format_with_host;
+            format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin-config: ", ""), &config_map)
         } else if file_text == "should_error" {
             err!("Did error.")
         } else if file_text.ends_with(&config.ending) {

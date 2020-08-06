@@ -1,6 +1,6 @@
 /// The plugin system schema version that is incremented
 /// when there are any breaking changes.
-pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 2;
+pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 3;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod macros {
@@ -9,7 +9,7 @@ pub mod macros {
         () => {
             // HOST FORMATTING
 
-            fn format_with_host(file_path: &PathBuf, file_text: String) -> Result<String, String> {
+            fn format_with_host(file_path: &PathBuf, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, String> {
                 #[link(wasm_import_module = "dprint")]
                 extern "C" {
                     fn host_clear_bytes(length: u32);
@@ -23,9 +23,15 @@ pub mod macros {
                         length: u32,
                     );
                     fn host_take_file_path();
+                    fn host_take_override_config();
                     fn host_format() -> u8;
                     fn host_get_formatted_text() -> u32;
                     fn host_get_error_text() -> u32;
+                }
+
+                if !override_config.is_empty() {
+                    send_string_to_host(serde_json::to_string(override_config).unwrap());
+                    unsafe { host_take_override_config(); }
                 }
 
                 send_string_to_host(file_path.to_string_lossy().to_string());
@@ -76,9 +82,17 @@ pub mod macros {
 
             // FORMATTING
 
+            static mut OVERRIDE_CONFIG: Option<dprint_core::configuration::ConfigKeyMap> = None;
             static mut FILE_PATH: Option<PathBuf> = None;
             static mut FORMATTED_TEXT: Option<String> = None;
             static mut ERROR_TEXT: Option<String> = None;
+
+            #[no_mangle]
+            pub fn set_override_config() {
+                let bytes = take_from_shared_bytes();
+                let config = serde_json::from_slice(&bytes).unwrap();
+                unsafe { OVERRIDE_CONFIG.replace(config) };
+            }
 
             #[no_mangle]
             pub fn set_file_path() {
@@ -89,10 +103,17 @@ pub mod macros {
             #[no_mangle]
             pub fn format() -> u8 {
                 ensure_initialized();
+                let config = unsafe {
+                    if let Some(override_config) = OVERRIDE_CONFIG.take() {
+                        std::borrow::Cow::Owned(create_resolved_config_result(override_config).config)
+                    } else {
+                        std::borrow::Cow::Borrowed(&get_resolved_config_result().config)
+                    }
+                };
                 let file_path = unsafe { FILE_PATH.take().expect("Expected the file path to be set.") };
                 let file_text = take_string_from_shared_bytes();
 
-                let formatted_text = format_text(&file_path, &file_text, &get_resolved_config_result().config);
+                let formatted_text = format_text(&file_path, &file_text, &config);
                 match formatted_text {
                     Ok(formatted_text) => {
                         if formatted_text == file_text {
@@ -146,14 +167,14 @@ pub mod macros {
 
             #[no_mangle]
             pub fn get_resolved_config() -> usize {
-                let json = serde_json::to_string(&get_resolved_config_result().config).unwrap();
-                set_shared_bytes_str(json)
+                let bytes = serde_json::to_vec(&get_resolved_config_result().config).unwrap();
+                set_shared_bytes(bytes)
             }
 
             #[no_mangle]
             pub fn get_config_diagnostics() -> usize {
-                let json = serde_json::to_string(&get_resolved_config_result().diagnostics).unwrap();
-                set_shared_bytes_str(json)
+                let bytes = serde_json::to_vec(&get_resolved_config_result().diagnostics).unwrap();
+                set_shared_bytes(bytes)
             }
 
             fn get_resolved_config_result<'a>() -> &'a dprint_core::configuration::ResolveConfigurationResult<Configuration> {
@@ -166,17 +187,26 @@ pub mod macros {
             fn ensure_initialized() {
                 unsafe {
                     if RESOLVE_CONFIGURATION_RESULT.is_none() {
-                        if let Some(global_config) = GLOBAL_CONFIG.take() {
-                            if let Some(plugin_config) = PLUGIN_CONFIG.take() {
-                                let config_result = resolve_config(plugin_config, &global_config);
-                                RESOLVE_CONFIGURATION_RESULT.replace(config_result);
-                                return;
-                            }
-                        }
-
-                        panic!("Plugin must have global config and plugin config set before use.");
+                        let config_result = create_resolved_config_result(std::collections::HashMap::new());
+                        RESOLVE_CONFIGURATION_RESULT.replace(config_result);
                     }
                 }
+            }
+
+            fn create_resolved_config_result(override_config: dprint_core::configuration::ConfigKeyMap) -> dprint_core::configuration::ResolveConfigurationResult<Configuration> {
+                unsafe {
+                    if let Some(global_config) = &GLOBAL_CONFIG {
+                        if let Some(plugin_config) = &PLUGIN_CONFIG {
+                            let mut plugin_config = plugin_config.clone();
+                            for (key, value) in override_config {
+                                plugin_config.insert(key, value);
+                            }
+                            return resolve_config(plugin_config, global_config);
+                        }
+                    }
+                }
+
+                panic!("Plugin must have global config and plugin config set before use.");
             }
 
             // INITIALIZATION
@@ -186,8 +216,8 @@ pub mod macros {
 
             #[no_mangle]
             pub fn set_global_config() {
-                let text = take_string_from_shared_bytes();
-                let global_config: dprint_core::configuration::GlobalConfiguration = serde_json::from_str(&text).unwrap();
+                let bytes = take_from_shared_bytes();
+                let global_config: dprint_core::configuration::GlobalConfiguration = serde_json::from_slice(&bytes).unwrap();
                 unsafe {
                     GLOBAL_CONFIG.replace(global_config);
                     RESOLVE_CONFIGURATION_RESULT.take(); // clear
@@ -196,8 +226,8 @@ pub mod macros {
 
             #[no_mangle]
             pub fn set_plugin_config() {
-                let text = take_string_from_shared_bytes();
-                let plugin_config: dprint_core::configuration::ConfigKeyMap = serde_json::from_str(&text).unwrap();
+                let bytes = take_from_shared_bytes();
+                let plugin_config: dprint_core::configuration::ConfigKeyMap = serde_json::from_slice(&bytes).unwrap();
                 unsafe {
                     PLUGIN_CONFIG.replace(plugin_config);
                     RESOLVE_CONFIGURATION_RESULT.take(); // clear
@@ -246,15 +276,22 @@ pub mod macros {
             }
 
             fn take_string_from_shared_bytes() -> String {
+                String::from_utf8(take_from_shared_bytes()).unwrap()
+            }
+
+            fn take_from_shared_bytes() -> Vec<u8> {
                 unsafe {
-                    let bytes = std::mem::replace(&mut SHARED_BYTES, Vec::with_capacity(0));
-                    String::from_utf8(bytes).unwrap()
+                    std::mem::replace(&mut SHARED_BYTES, Vec::with_capacity(0))
                 }
             }
 
             fn set_shared_bytes_str(text: String) -> usize {
-                let length = text.len();
-                unsafe { SHARED_BYTES = text.into_bytes() }
+                set_shared_bytes(text.into_bytes())
+            }
+
+            fn set_shared_bytes(bytes: Vec<u8>) -> usize {
+                let length = bytes.len();
+                unsafe { SHARED_BYTES = bytes }
                 length
             }
         }

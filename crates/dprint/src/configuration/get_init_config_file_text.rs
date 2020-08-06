@@ -264,7 +264,7 @@ mod test {
         environment.set_selection_result(1);
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
     "schemaVersion": 1,
-    "pluginSystemSchemaVersion": 2,
+    "pluginSystemSchemaVersion": 3,
     "latest": [{
         "name": "dprint-plugin-typescript",
         "version": "0.17.2",
@@ -303,7 +303,7 @@ mod test {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
     "schemaVersion": 1,
-    "pluginSystemSchemaVersion": 9, // this is 9 instead of 2
+    "pluginSystemSchemaVersion": 9, // this is 9 instead of 3
     "latest": [{
         "name": "dprint-plugin-typescript",
         "version": "0.17.2",
@@ -336,7 +336,7 @@ mod test {
         expected_messages.push(concat!(
             "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
             "Consider upgrading to support new plugins. ",
-            "Plugin system schema version is 2, latest is 9."
+            "Plugin system schema version is 3, latest is 9."
         ));
         assert_eq!(environment.take_logged_errors(), expected_messages);
     }
@@ -355,7 +355,7 @@ mod test {
     fn get_multi_plugins_config() -> &'static str {
         return r#"{
             "schemaVersion": 1,
-            "pluginSystemSchemaVersion": 2,
+            "pluginSystemSchemaVersion": 3,
             "latest": [{
                 "name": "dprint-plugin-typescript",
                 "version": "0.17.2",

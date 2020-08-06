@@ -78,6 +78,12 @@ impl WasmFunctions {
     }
 
     #[inline]
+    pub fn set_override_config(&self) {
+        let set_override_config_func: Func = self.get_export("set_override_config");
+        set_override_config_func.call().unwrap()
+    }
+
+    #[inline]
     pub fn set_file_path(&self) {
         let set_file_path_func: Func = self.get_export("set_file_path");
         set_file_path_func.call().unwrap()

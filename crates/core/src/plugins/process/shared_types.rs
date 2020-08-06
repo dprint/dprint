@@ -1,5 +1,5 @@
 /// The process plugin schema version.
-pub const PLUGIN_SCHEMA_VERSION: u32 = 1;
+pub const PLUGIN_SCHEMA_VERSION: u32 = 2;
 
 /// Kinds of messages that process plugins must handle.
 #[derive(Debug)]

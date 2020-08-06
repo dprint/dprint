@@ -177,7 +177,13 @@ impl InitializedPlugin for InitializedWasmPlugin {
         Ok(serde_json::from_str(&json_text)?)
     }
 
-    fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, ErrBox> {
+    fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+        // send override config if necessary
+        if !override_config.is_empty() {
+            self.send_string(&serde_json::to_string(override_config)?);
+            self.wasm_functions.set_override_config();
+        }
+
         // send file path
         self.send_string(&file_path.to_string_lossy());
         self.wasm_functions.set_file_path();

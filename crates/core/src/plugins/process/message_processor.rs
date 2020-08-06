@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::borrow::Cow;
 use serde::{Serialize};
 
 use crate::configuration::{GlobalConfiguration, ResolveConfigurationResult, ConfigKeyMap};
@@ -16,7 +18,7 @@ pub trait ProcessPluginHandler<TConfiguration: Clone + Serialize> {
         file_path: &PathBuf,
         file_text: &str,
         config: &TConfiguration,
-        format_with_host: Box<dyn FnMut(&PathBuf, String) -> Result<String, ErrBox> + 'a>
+        format_with_host: Box<dyn FnMut(&PathBuf, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>
     ) -> Result<String, ErrBox>;
 }
 
@@ -113,17 +115,22 @@ fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + S
         },
         MessageKind::FormatText => {
             ensure_resolved_config(handler, state)?;
-            let config = get_resolved_config_result(state)?;
             let file_path = reader_writer.read_message_part_as_path_buf()?;
             let file_text = reader_writer.read_message_part_as_string()?;
+            let override_config: ConfigKeyMap = serde_json::from_slice(&reader_writer.read_message_part()?)?;
+            let config = if !override_config.is_empty() {
+                Cow::Owned(create_resolved_config_result(handler, state, override_config)?.config)
+            } else {
+                Cow::Borrowed(&get_resolved_config_result(state)?.config)
+            };
 
             let mut reader_writer = reader_writer;
             let formatted_text = handler.format_text(
                 &file_path,
                 &file_text,
-                &config.config,
-                Box::new(|file_path, file_text| {
-                    format_with_host(&mut reader_writer, file_path, file_text)
+                &config,
+                Box::new(|file_path, file_text, override_config| {
+                    format_with_host(&mut reader_writer, file_path, file_text, override_config)
                 })
             )?;
 
@@ -149,13 +156,25 @@ fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: ProcessPl
     state: &mut MessageProcessorState<TConfiguration>,
 ) -> Result<(), ErrBox> {
     if state.resolved_config_result.is_none() {
-        state.resolved_config_result = Some(handler.resolve_config(
-            state.config.as_ref().ok_or("Expected plugin config to be set at this point")?.clone(),
-            state.global_config.as_ref().ok_or("Expected global config to be set at this point.")?,
-        ));
+        state.resolved_config_result = Some(create_resolved_config_result(handler, state, HashMap::new())?);
     }
 
     Ok(())
+}
+
+fn create_resolved_config_result<TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>>(
+    handler: &THandler,
+    state: &MessageProcessorState<TConfiguration>,
+    override_config: ConfigKeyMap,
+) -> Result<ResolveConfigurationResult<TConfiguration>, ErrBox> {
+    let mut plugin_config = state.config.as_ref().ok_or("Expected plugin config to be set at this point")?.clone();
+    for (key, value) in override_config {
+        plugin_config.insert(key, value);
+    }
+    Ok(handler.resolve_config(
+        plugin_config,
+        state.global_config.as_ref().ok_or("Expected global config to be set at this point.")?,
+    ))
 }
 
 fn get_resolved_config_result<'a, TConfiguration: Clone + Serialize>(
@@ -167,14 +186,16 @@ fn get_resolved_config_result<'a, TConfiguration: Clone + Serialize>(
 fn format_with_host<'a, TRead: Read, TWrite: Write>(
     reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
     file_path: &PathBuf,
-    file_text: String
+    file_text: String,
+    override_config: &ConfigKeyMap,
 ) -> Result<String, ErrBox> {
     send_response(
         reader_writer,
         vec![
             &(FormatResult::RequestTextFormat as u32).to_be_bytes(),
             file_path.to_string_lossy().as_bytes(),
-            file_text.as_bytes()
+            file_text.as_bytes(),
+            &serde_json::to_vec(&override_config)?,
         ]
     )?;
 

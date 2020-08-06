@@ -3,7 +3,7 @@ use std::process::{Child, Command, Stdio};
 use std::path::PathBuf;
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter};
+use dprint_core::plugins::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION};
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
@@ -184,14 +184,13 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
         let mut buf = [0u8; 4];
         buf.clone_from_slice(&response[0..4]);
         let plugin_schema_version = u32::from_be_bytes(buf);
-        let expected_version = 1;
-        if plugin_schema_version != expected_version {
+        if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
             return err!(
                 concat!(
                     "The plugin schema version was {}, but expected {}. ",
                     "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade."
                 ),
-                plugin_schema_version, expected_version
+                plugin_schema_version, PLUGIN_SCHEMA_VERSION
             );
         }
 
@@ -262,12 +261,14 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    fn format_text(&self, file_path: &PathBuf, file_text: &str) -> Result<String, ErrBox> {
+    fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
         self.with_reader_writer(|reader_writer| {
+            let override_config = serde_json::to_vec(override_config)?;
             // send message
             reader_writer.send_message_kind(MessageKind::FormatText as u32)?;
             reader_writer.send_message_part_as_path_buf(file_path)?;
             reader_writer.send_message_part_as_string(file_text)?;
+            reader_writer.send_message_part(&override_config)?;
 
             loop {
                 read_response(reader_writer)?;
@@ -279,9 +280,10 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
                     FormatResult::RequestTextFormat => {
                         let file_path = reader_writer.read_message_part_as_path_buf()?;
                         let file_text = reader_writer.read_message_part_as_string()?;
+                        let override_config = serde_json::from_slice(&reader_writer.read_message_part()?)?;
                         let pools = self.plugin_pools.as_ref().unwrap();
 
-                        match format_with_plugin_pool(&self.name, &file_path, &file_text, pools) {
+                        match format_with_plugin_pool(&self.name, &file_path, &file_text, &override_config, pools) {
                             Ok(Some(formatted_text)) => {
                                 reader_writer.send_message_part_as_u32(HostFormatResult::Change as u32)?;
                                 reader_writer.send_message_part_as_string(&formatted_text)?;

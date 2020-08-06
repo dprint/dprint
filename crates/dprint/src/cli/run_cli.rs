@@ -349,7 +349,7 @@ async fn output_stdin_format<TEnvironment: Environment>(
     if let Some(plugin_name) = plugin_pools.get_plugin_name_from_extension(&ext) {
         let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
         let initialized_plugin = plugin_pool.initialize_first().await?;
-        let result = initialized_plugin.format_text(file_name, file_text)?;
+        let result = initialized_plugin.format_text(file_name, file_text, &HashMap::new())?;
         environment.log_silent(&result);
         return Ok(());
     } else {
@@ -607,7 +607,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             };
 
             let start_instant = Instant::now();
-            let format_text_result = initialized_plugin.format_text(file_path, file_text);
+            let format_text_result = initialized_plugin.format_text(file_path, file_text, &HashMap::new());
             log_verbose!(environment, "Formatted file: {} in {}ms", file_path.display(), start_instant.elapsed().as_millis());
             plugin_pool.release(initialized_plugin); // release, then propagate error
             (start_instant, format_text_result?)
@@ -1012,6 +1012,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_should_format_calling_process_plugin_with_wasm_plugin_using_additional_plugin_specified_config() {
+        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        environment.write_file(&file_path1, "plugin-config: format this text").unwrap();
+        let file_path2 = PathBuf::from("/file2.txt");
+        environment.write_file(&file_path2, "plugin: format this text").unwrap();
+        run_test_cli(vec!["fmt", "/*.txt"], &environment).await.unwrap();
+        assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
+        assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted_process");
+    }
+
+    #[tokio::test]
     async fn it_should_error_calling_process_plugin_with_wasm_plugin_and_process_plugin_errors() {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
         let file_path = PathBuf::from("/file.txt");
@@ -1041,6 +1055,20 @@ mod tests {
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted");
+    }
+
+    #[tokio::test]
+    async fn it_should_format_calling_wasm_plugin_with_process_plugin_using_additional_plugin_specified_config() {
+        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
+        let file_path1 = PathBuf::from("/file1.txt_ps");
+        environment.write_file(&file_path1, "plugin-config: format this text").unwrap();
+        let file_path2 = PathBuf::from("/file2.txt_ps");
+        environment.write_file(&file_path2, "plugin: format this text").unwrap();
+        run_test_cli(vec!["fmt", "*.txt_ps"], &environment).await.unwrap();
+        assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
+        assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted");
     }
 
     #[tokio::test]
@@ -1687,7 +1715,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.add_remote_file(crate::plugins::REMOTE_INFO_URL, r#"{
             "schemaVersion": 1,
-            "pluginSystemSchemaVersion": 2,
+            "pluginSystemSchemaVersion": 3,
             "latest": [{
                 "name": "dprint-plugin-typescript",
                 "version": "0.17.2",
@@ -1722,7 +1750,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.add_remote_file(crate::plugins::REMOTE_INFO_URL, r#"{
             "schemaVersion": 1,
-            "pluginSystemSchemaVersion": 2,
+            "pluginSystemSchemaVersion": 3,
             "latest": [{
                 "name": "dprint-plugin-typescript",
                 "version": "0.17.2",
