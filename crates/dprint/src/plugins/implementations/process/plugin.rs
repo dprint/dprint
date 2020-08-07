@@ -1,9 +1,8 @@
-use std::sync::{Arc, Mutex};
-use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::path::PathBuf;
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::process::{MessageKind, FormatResult, HostFormatResult, ResponseKind, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION};
+use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
@@ -103,14 +102,8 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
 
 pub struct InitializedProcessPlugin<TEnvironment: Environment> {
     name: String,
-    child: Mutex<Child>,
+    communicator: ProcessPluginCommunicator,
     plugin_pools: Option<Arc<PluginPools<TEnvironment>>>,
-}
-
-impl<TEnvironment: Environment> Drop for InitializedProcessPlugin<TEnvironment> {
-    fn drop(&mut self) {
-        let _ignore = self.kill();
-    }
 }
 
 impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
@@ -119,211 +112,45 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
         executable_file_path: &PathBuf,
         plugin_pools: Option<Arc<PluginPools<TEnvironment>>>,
     ) -> Result<Self, ErrBox> {
-        let child = Command::new(executable_file_path)
-            .stdin(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .stdout(Stdio::piped())
-            .spawn()?;
         let initialized_plugin = InitializedProcessPlugin {
             name,
             plugin_pools,
-            child: Mutex::new(child),
+            communicator: ProcessPluginCommunicator::new(executable_file_path)?,
         };
-
-        initialized_plugin.verify_plugin_schema_version()?;
 
         Ok(initialized_plugin)
     }
 
-    fn kill(&self) -> Result<(), ErrBox> {
-        // attempt to exit nicely
-        let _ignore = self.with_reader_writer(|reader_writer| {
-            send_message(
-                reader_writer,
-                MessageKind::Close,
-                Vec::new()
-            )
-        });
-
-        // now ensure kill
-        let mut child = self.child.lock().unwrap();
-        child.kill()?;
-        Ok(())
-    }
-
     pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
-        let json = serde_json::to_vec(global_config)?;
-        self.send_data(MessageKind::SetGlobalConfig, &json)?;
-        Ok(())
+        self.communicator.set_global_config(global_config)
     }
 
     pub fn set_plugin_config(&self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
-        let json = serde_json::to_vec(plugin_config)?;
-        self.send_data(MessageKind::SetPluginConfig, &json)?;
-        Ok(())
+        self.communicator.set_plugin_config(plugin_config)
     }
 
     pub fn get_plugin_info(&self) -> Result<PluginInfo, ErrBox> {
-        let response = self.get_bytes(MessageKind::GetPluginInfo)?;
-        Ok(serde_json::from_slice(&response)?)
-    }
-
-    fn verify_plugin_schema_version(&self) -> Result<(), ErrBox> {
-        let response = match self.get_bytes(MessageKind::GetPluginSchemaVersion) {
-            Ok(response) => response,
-            Err(err) => {
-                return err!(
-                    concat!(
-                        "There was a problem checking the plugin schema version. ",
-                        "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade. {}"
-                    ),
-                    err
-                );
-            }
-        };
-        let mut buf = [0u8; 4];
-        buf.clone_from_slice(&response[0..4]);
-        let plugin_schema_version = u32::from_be_bytes(buf);
-        if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
-            return err!(
-                concat!(
-                    "The plugin schema version was {}, but expected {}. ",
-                    "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade."
-                ),
-                plugin_schema_version, PLUGIN_SCHEMA_VERSION
-            );
-        }
-
-        Ok(())
-    }
-
-    fn get_string(&self, message_kind: MessageKind) -> Result<String, ErrBox> {
-        let bytes = self.get_bytes(message_kind)?;
-        Ok(String::from_utf8(bytes)?)
-    }
-
-    fn get_bytes(&self, message_kind: MessageKind) -> Result<Vec<u8>, ErrBox> {
-        self.with_reader_writer(|reader_writer| {
-            send_message(
-                reader_writer,
-                message_kind,
-                Vec::new(),
-            )?;
-            reader_writer.read_message_part()
-        })
-    }
-
-    fn send_data(&self, message_kind: MessageKind, data: &[u8]) -> Result<(), ErrBox> {
-        self.with_reader_writer(|reader_writer| {
-            send_message(
-                reader_writer,
-                message_kind,
-                vec![data],
-            )
-        })
-    }
-
-    fn with_reader_writer<F, FResult>(
-        &self,
-        with_action: F
-    ) -> Result<FResult, ErrBox>
-        where F: FnOnce(&mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>) -> Result<FResult, ErrBox>
-    {
-        let mut child = self.child.lock().unwrap();
-        // take because can't mutably borrow twice
-        let mut stdin = child.stdin.take().unwrap();
-        let mut stdout = child.stdout.take().unwrap();
-
-        let result = {
-            let mut reader_writer = StdInOutReaderWriter::new(&mut stdout, &mut stdin);
-
-            with_action(&mut reader_writer)
-        };
-
-        child.stdin.replace(stdin);
-        child.stdout.replace(stdout);
-
-        Ok(result?)
+        self.communicator.get_plugin_info()
     }
 }
 
 impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<TEnvironment> {
     fn get_license_text(&self) -> Result<String, ErrBox> {
-        self.get_string(MessageKind::GetLicenseText)
+        self.communicator.get_license_text()
     }
 
     fn get_resolved_config(&self) -> Result<String, ErrBox> {
-        self.get_string(MessageKind::GetResolvedConfig)
+        self.communicator.get_resolved_config()
     }
 
     fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
-        let bytes = self.get_bytes(MessageKind::GetConfigDiagnostics)?;
-        Ok(serde_json::from_slice(&bytes)?)
+        self.communicator.get_config_diagnostics()
     }
 
     fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
-        self.with_reader_writer(|reader_writer| {
-            let override_config = serde_json::to_vec(override_config)?;
-            // send message
-            reader_writer.send_message_kind(MessageKind::FormatText as u32)?;
-            reader_writer.send_message_part_as_path_buf(file_path)?;
-            reader_writer.send_message_part_as_string(file_text)?;
-            reader_writer.send_message_part(&override_config)?;
-
-            loop {
-                read_response(reader_writer)?;
-
-                let format_result = reader_writer.read_message_part_as_u32()?;
-                match format_result.into() {
-                    FormatResult::NoChange => break Ok(String::from(file_text)),
-                    FormatResult::Change => break Ok(reader_writer.read_message_part_as_string()?),
-                    FormatResult::RequestTextFormat => {
-                        let file_path = reader_writer.read_message_part_as_path_buf()?;
-                        let file_text = reader_writer.read_message_part_as_string()?;
-                        let override_config = serde_json::from_slice(&reader_writer.read_message_part()?)?;
-                        let pools = self.plugin_pools.as_ref().unwrap();
-
-                        match format_with_plugin_pool(&self.name, &file_path, &file_text, &override_config, pools) {
-                            Ok(Some(formatted_text)) => {
-                                reader_writer.send_message_part_as_u32(HostFormatResult::Change as u32)?;
-                                reader_writer.send_message_part_as_string(&formatted_text)?;
-                            },
-                            Ok(None) => {
-                                reader_writer.send_message_part_as_u32(HostFormatResult::NoChange as u32)?;
-                            }
-                            Err(err) => {
-                                reader_writer.send_message_part_as_u32(HostFormatResult::Error as u32)?;
-                                reader_writer.send_message_part_as_string(&err.to_string())?;
-                            }
-                        }
-                    }
-                }
-            }
+        self.communicator.format_text(file_path, file_text, override_config, |file_path, file_text, override_config| {
+            let pools = self.plugin_pools.as_ref().unwrap();
+            format_with_plugin_pool(&self.name, &file_path, &file_text, &override_config, pools)
         })
-    }
-}
-
-fn send_message(
-    reader_writer: &mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>,
-    message_kind: MessageKind,
-    parts: Vec<&[u8]>,
-) -> Result<(), ErrBox> {
-    // send message
-    reader_writer.send_message_kind(message_kind as u32)?;
-    for part in parts {
-        reader_writer.send_message_part(part)?;
-    }
-
-    // read response
-    read_response(reader_writer)
-}
-
-fn read_response(
-    reader_writer: &mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>,
-) -> Result<(), ErrBox> {
-    let response_kind = reader_writer.read_message_kind()?;
-    match response_kind.into() {
-        ResponseKind::Success => Ok(()),
-        ResponseKind::Error => err!("{}", reader_writer.read_message_part_as_string()?),
     }
 }
