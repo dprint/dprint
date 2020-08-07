@@ -19,29 +19,31 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         }
     }
 
-    /// Sends the message kind (4 bytes).
-    pub fn send_message_kind(&mut self, message_kind: u32) -> Result<(), ErrBox> {
-        self.writer.write_all(&message_kind.to_be_bytes())?;
+    /// Send a u32 value.
+    pub fn send_u32(&mut self, value: u32) -> Result<(), ErrBox> {
+        self.writer.write_all(&value.to_be_bytes())?;
         self.writer.flush()?;
 
         Ok(())
     }
 
-    pub fn send_message_part_as_u32(&mut self, value: u32) -> Result<(), ErrBox> {
-        self.send_message_part(&value.to_be_bytes())
+    /// Reads a u32 value.
+    pub fn read_u32(&mut self) -> Result<u32, ErrBox> {
+        let mut int_buf: [u8; 4] = [0; 4];
+        self.reader.read_exact(&mut int_buf)?;
+        Ok(u32::from_be_bytes(int_buf))
     }
 
-    pub fn send_message_part_as_string(&mut self, text: &str) -> Result<(), ErrBox> {
-        self.send_message_part(text.as_bytes())
+    pub fn send_string(&mut self, text: &str) -> Result<(), ErrBox> {
+        self.send_variable_data(text.as_bytes())
     }
 
-    pub fn send_message_part_as_path_buf(&mut self, path_buf: &PathBuf) -> Result<(), ErrBox> {
-        self.send_message_part_as_string(&path_buf.to_string_lossy())
+    pub fn send_path_buf(&mut self, path_buf: &PathBuf) -> Result<(), ErrBox> {
+        self.send_string(&path_buf.to_string_lossy())
     }
 
-    /// Sends the message part (4 bytes length, X bytes data)
-    /// Messages may have multiple parts.
-    pub fn send_message_part(&mut self, data: &[u8]) -> Result<(), ErrBox> {
+    /// Sends variable width data (4 bytes length, X bytes data)
+    pub fn send_variable_data(&mut self, data: &[u8]) -> Result<(), ErrBox> {
         // send the message part length (4 bytes)
         self.writer.write_all(&(data.len() as u32).to_be_bytes())?;
 
@@ -67,34 +69,19 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         Ok(())
     }
 
-    /// Gets the message kind (4 bytes)
-    pub fn read_message_kind(&mut self) -> Result<u32, ErrBox> {
-        self.read_u32()
-    }
-
-    pub fn read_message_part_as_u32(&mut self) -> Result<u32, ErrBox> {
-        let message_part = self.read_message_part()?;
-        if message_part.len() != 4 {
-            return err!("Expected to read a message part size of 4 bytes, but was {}.", message_part.len());
-        }
-        let mut dst = [0u8; 4];
-        dst.clone_from_slice(&message_part[0..4]);
-        Ok(u32::from_be_bytes(dst))
-    }
-
-    pub fn read_message_part_as_string(&mut self) -> Result<String, ErrBox> {
-        let message_part = self.read_message_part()?;
+    pub fn read_string(&mut self) -> Result<String, ErrBox> {
+        let message_part = self.read_variable_data()?;
         Ok(String::from_utf8(message_part)?)
     }
 
-    pub fn read_message_part_as_path_buf(&mut self) -> Result<PathBuf, ErrBox> {
-        let message_data = self.read_message_part()?;
+    pub fn read_path_buf(&mut self) -> Result<PathBuf, ErrBox> {
+        let message_data = self.read_variable_data()?;
         Ok(PathBuf::from(std::str::from_utf8(&message_data)?))
     }
 
     /// Gets the message part (4 bytes length, X bytes data)
     /// Messages may have multiple parts.
-    pub fn read_message_part(&mut self) -> Result<Vec<u8>, ErrBox> {
+    pub fn read_variable_data(&mut self) -> Result<Vec<u8>, ErrBox> {
         let size = self.read_u32()? as usize;
 
         let mut message_data = vec![0u8; size];
@@ -119,11 +106,5 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         }
 
         Ok(message_data)
-    }
-
-    fn read_u32(&mut self) -> Result<u32, ErrBox> {
-        let mut int_buf: [u8; 4] = [0; 4];
-        self.reader.read_exact(&mut int_buf)?;
-        Ok(u32::from_be_bytes(int_buf))
     }
 }

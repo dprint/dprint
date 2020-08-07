@@ -193,7 +193,6 @@ impl Environment for RealEnvironment {
     }
 
     fn log_error(&self, text: &str) {
-        if self.is_silent { return; }
         let _g = self.output_lock.lock().unwrap();
         eprintln!("{}", text);
     }
@@ -237,6 +236,14 @@ impl Environment for RealEnvironment {
 
     fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
         crate::plugins::compile_wasm(wasm_bytes)
+    }
+
+    fn stdout(&self) -> Box<dyn std::io::Write + Send> {
+        Box::new(std::io::stdout())
+    }
+
+    fn stdin(&self) -> Box<dyn std::io::Read + Send> {
+        Box::new(std::io::stdin())
     }
 }
 

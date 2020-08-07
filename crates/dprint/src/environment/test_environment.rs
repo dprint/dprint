@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Sender, Receiver};
+use std::io::{Read, Write, Error};
 use globset::{GlobSetBuilder, GlobSet, Glob};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -9,6 +11,65 @@ use dprint_core::types::ErrBox;
 
 use super::Environment;
 use crate::plugins::CompilationResult;
+
+struct BufferData {
+    data: Vec<u8>,
+    read_pos: usize,
+}
+
+#[derive(Clone)]
+struct MockStdInOut {
+    buffer_data: Arc<Mutex<BufferData>>,
+    sender: Arc<Mutex<Sender<u32>>>,
+    receiver: Arc<Mutex<Receiver<u32>>>,
+}
+
+impl MockStdInOut {
+    pub fn new() -> Self {
+        let (sender, receiver) = channel();
+        MockStdInOut {
+            buffer_data: Arc::new(Mutex::new(BufferData {
+                data: Vec::new(),
+                read_pos: 0,
+            })),
+            sender: Arc::new(Mutex::new(sender)),
+            receiver: Arc::new(Mutex::new(receiver)),
+        }
+    }
+}
+
+impl Read for MockStdInOut {
+    fn read(&mut self, _: &mut [u8]) -> Result<usize, Error> {
+        panic!("Not implemented");
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        let rx = self.receiver.lock().unwrap();
+        rx.recv().unwrap();
+
+        let mut buffer_data = self.buffer_data.lock().unwrap();
+        buf.copy_from_slice(&buffer_data.data[buffer_data.read_pos..buffer_data.read_pos + buf.len()]);
+        buffer_data.read_pos += buf.len();
+
+        Ok(())
+    }
+}
+
+impl Write for MockStdInOut {
+    fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
+        let result = {
+            let mut buffer_data = self.buffer_data.lock().unwrap();
+            buffer_data.data.write(data)
+        };
+        let tx = self.sender.lock().unwrap();
+        tx.send(0).unwrap();
+        result
+    }
+
+    fn flush(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct TestEnvironment {
@@ -23,6 +84,8 @@ pub struct TestEnvironment {
     multi_selection_result: Arc<Mutex<Vec<usize>>>,
     is_silent: Arc<Mutex<bool>>,
     wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
+    std_in: MockStdInOut,
+    std_out: MockStdInOut,
 }
 
 impl TestEnvironment {
@@ -39,6 +102,8 @@ impl TestEnvironment {
             multi_selection_result: Arc::new(Mutex::new(Vec::new())),
             is_silent: Arc::new(Mutex::new(false)),
             wasm_compile_result: Arc::new(Mutex::new(None)),
+            std_in: MockStdInOut::new(),
+            std_out: MockStdInOut::new(),
         }
     }
 
@@ -97,6 +162,14 @@ impl TestEnvironment {
     pub fn set_wasm_compile_result(&self, value: CompilationResult) {
         let mut wasm_compile_result = self.wasm_compile_result.lock().unwrap();
         *wasm_compile_result = Some(value);
+    }
+
+    pub fn stdout_reader(&self) -> Box<dyn Read + Send> {
+        Box::new(self.std_out.clone())
+    }
+
+    pub fn stdin_writer(&self) -> Box<dyn Write + Send> {
+        Box::new(self.std_in.clone())
     }
 }
 
@@ -271,6 +344,14 @@ impl Environment for TestEnvironment {
     fn compile_wasm(&self, _: &[u8]) -> Result<CompilationResult, ErrBox> {
         let wasm_compile_result = self.wasm_compile_result.lock().unwrap();
         Ok(wasm_compile_result.clone().expect("Expected compilation result to be set."))
+    }
+
+    fn stdout(&self) -> Box<dyn Write + Send> {
+        Box::new(self.std_out.clone())
+    }
+
+    fn stdin(&self) -> Box<dyn Read + Send> {
+        Box::new(self.std_in.clone())
     }
 }
 

@@ -8,6 +8,7 @@ use crate::cache::{Cache, CreateCacheItemOptions};
 use crate::environment::Environment;
 use super::PathSource;
 
+#[derive(PartialEq)]
 pub struct ResolvedPath {
     pub file_path: PathBuf,
     pub source: PathSource,

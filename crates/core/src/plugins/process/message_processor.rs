@@ -7,7 +7,7 @@ use serde::{Serialize};
 use crate::configuration::{GlobalConfiguration, ResolveConfigurationResult, ConfigKeyMap};
 use crate::types::ErrBox;
 use crate::plugins::PluginInfo;
-use super::{MessageKind, ResponseKind, FormatResult, HostFormatResult, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION};
+use super::{MessageKind, ResponseKind, FormatResult, HostFormatResult, StdInOutReaderWriter, PLUGIN_SCHEMA_VERSION, MessagePart};
 
 pub trait ProcessPluginHandler<TConfiguration: Clone + Serialize> {
     fn get_plugin_info(&self) -> PluginInfo;
@@ -66,7 +66,7 @@ impl<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler
         let handler = self.handler;
         let mut state = self.state;
         loop {
-            let message_kind = reader_writer.read_message_kind()?.into();
+            let message_kind = reader_writer.read_u32()?.into();
             match handle_message_kind(message_kind, &mut reader_writer, &handler, &mut state) {
                 Err(err) => send_error_response(
                     &mut reader_writer,
@@ -91,13 +91,13 @@ fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + S
         MessageKind::GetPluginInfo => send_string(reader_writer, &serde_json::to_string(&handler.get_plugin_info())?)?,
         MessageKind::GetLicenseText => send_string(reader_writer, handler.get_license_text())?,
         MessageKind::SetGlobalConfig => {
-            let message_data = reader_writer.read_message_part()?;
+            let message_data = reader_writer.read_variable_data()?;
             state.global_config = Some(serde_json::from_slice(&message_data)?);
             state.resolved_config_result.take();
             send_success(reader_writer)?;
         },
         MessageKind::SetPluginConfig => {
-            let message_data = reader_writer.read_message_part()?;
+            let message_data = reader_writer.read_variable_data()?;
             let plugin_config = serde_json::from_slice(&message_data)?;
             state.resolved_config_result.take();
             state.config = Some(plugin_config);
@@ -115,9 +115,9 @@ fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + S
         },
         MessageKind::FormatText => {
             ensure_resolved_config(handler, state)?;
-            let file_path = reader_writer.read_message_part_as_path_buf()?;
-            let file_text = reader_writer.read_message_part_as_string()?;
-            let override_config: ConfigKeyMap = serde_json::from_slice(&reader_writer.read_message_part()?)?;
+            let file_path = reader_writer.read_path_buf()?;
+            let file_text = reader_writer.read_string()?;
+            let override_config: ConfigKeyMap = serde_json::from_slice(&reader_writer.read_variable_data()?)?;
             let config = if !override_config.is_empty() {
                 Cow::Owned(create_resolved_config_result(handler, state, override_config)?.config)
             } else {
@@ -140,8 +140,8 @@ fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + S
                 send_response(
                     &mut reader_writer,
                     vec![
-                        &(FormatResult::Change as u32).to_be_bytes(),
-                        formatted_text.as_bytes()
+                        MessagePart::Number(FormatResult::Change as u32),
+                        MessagePart::VariableData(formatted_text.as_bytes()),
                     ]
                 )?;
             }
@@ -192,18 +192,18 @@ fn format_with_host<'a, TRead: Read, TWrite: Write>(
     send_response(
         reader_writer,
         vec![
-            &(FormatResult::RequestTextFormat as u32).to_be_bytes(),
-            file_path.to_string_lossy().as_bytes(),
-            file_text.as_bytes(),
-            &serde_json::to_vec(&override_config)?,
+            MessagePart::Number(FormatResult::RequestTextFormat as u32),
+            MessagePart::VariableData(file_path.to_string_lossy().as_bytes()),
+            MessagePart::VariableData(file_text.as_bytes()),
+            MessagePart::VariableData(&serde_json::to_vec(&override_config)?),
         ]
     )?;
 
-    let format_result = reader_writer.read_message_part_as_u32()?.into();
+    let format_result = reader_writer.read_u32()?.into();
     match format_result {
-        HostFormatResult::Change => Ok(reader_writer.read_message_part_as_string()?),
+        HostFormatResult::Change => Ok(reader_writer.read_string()?),
         HostFormatResult::NoChange => Ok(file_text),
-        HostFormatResult::Error => err!("{}", reader_writer.read_message_part_as_string()?),
+        HostFormatResult::Error => err!("{}", reader_writer.read_string()?),
     }
 }
 
@@ -217,23 +217,26 @@ fn send_string<'a, TRead: Read, TWrite: Write>(
     reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
     value: &str,
 ) -> Result<(), ErrBox> {
-    send_response(reader_writer, vec![value.as_bytes()])
+    send_response(reader_writer, vec![MessagePart::VariableData(value.as_bytes())])
 }
 
 fn send_int<'a, TRead: Read, TWrite: Write>(
     reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
     value: u32,
 ) -> Result<(), ErrBox> {
-    send_response(reader_writer, vec![&value.to_be_bytes()])
+    send_response(reader_writer, vec![MessagePart::Number(value)])
 }
 
 fn send_response<'a, TRead: Read, TWrite: Write>(
     reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
-    message_parts: Vec<&[u8]>
+    message_parts: Vec<MessagePart>,
 ) -> Result<(), ErrBox> {
-    reader_writer.send_message_kind(ResponseKind::Success as u32)?;
+    reader_writer.send_u32(ResponseKind::Success as u32)?;
     for message_part in message_parts {
-        reader_writer.send_message_part(message_part)?;
+        match message_part {
+            MessagePart::Number(value) => reader_writer.send_u32(value)?,
+            MessagePart::VariableData(value) => reader_writer.send_variable_data(value)?,
+        }
     }
 
     Ok(())
@@ -243,8 +246,8 @@ fn send_error_response<'a, TRead: Read, TWrite: Write>(
     reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
     error_message: &str,
 ) -> Result<(), ErrBox> {
-    reader_writer.send_message_kind(ResponseKind::Error as u32)?;
-    reader_writer.send_message_part_as_string(error_message)?;
+    reader_writer.send_u32(ResponseKind::Error as u32)?;
+    reader_writer.send_string(error_message)?;
 
     Ok(())
 }

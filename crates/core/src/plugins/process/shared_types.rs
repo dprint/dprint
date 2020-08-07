@@ -91,3 +91,8 @@ impl From<u32> for HostFormatResult {
         }
     }
 }
+
+pub enum MessagePart<'a> {
+    VariableData(&'a [u8]),
+    Number(u32)
+}

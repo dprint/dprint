@@ -13,6 +13,7 @@ use crate::utils::{ResolvedPath, resolve_url_or_file_path, PathSource};
 
 use super::resolve_main_config_path;
 
+#[derive(PartialEq)]
 pub struct ResolvedConfig {
     pub resolved_path: ResolvedPath,
     /// The folder that should be considered the "root".

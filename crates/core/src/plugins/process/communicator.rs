@@ -5,7 +5,7 @@ use std::process::{Child, Command, Stdio};
 use crate::configuration::{ConfigKeyMap, GlobalConfiguration, ConfigurationDiagnostic};
 use crate::types::ErrBox;
 use crate::plugins::PluginInfo;
-use super::{StdInOutReaderWriter, FormatResult, MessageKind, PLUGIN_SCHEMA_VERSION, HostFormatResult, ResponseKind};
+use super::{StdInOutReaderWriter, FormatResult, MessageKind, PLUGIN_SCHEMA_VERSION, HostFormatResult, ResponseKind, MessagePart};
 
 /// Communicates with a process plugin.
 pub struct ProcessPluginCommunicator {
@@ -90,34 +90,34 @@ impl ProcessPluginCommunicator {
         self.with_reader_writer(|reader_writer| {
             let override_config = serde_json::to_vec(override_config)?;
             // send message
-            reader_writer.send_message_kind(MessageKind::FormatText as u32)?;
-            reader_writer.send_message_part_as_path_buf(file_path)?;
-            reader_writer.send_message_part_as_string(file_text)?;
-            reader_writer.send_message_part(&override_config)?;
+            reader_writer.send_u32(MessageKind::FormatText as u32)?;
+            reader_writer.send_path_buf(file_path)?;
+            reader_writer.send_string(file_text)?;
+            reader_writer.send_variable_data(&override_config)?;
 
             loop {
                 read_response(reader_writer)?;
 
-                let format_result = reader_writer.read_message_part_as_u32()?;
+                let format_result = reader_writer.read_u32()?;
                 match format_result.into() {
                     FormatResult::NoChange => break Ok(String::from(file_text)),
-                    FormatResult::Change => break Ok(reader_writer.read_message_part_as_string()?),
+                    FormatResult::Change => break Ok(reader_writer.read_string()?),
                     FormatResult::RequestTextFormat => {
-                        let file_path = reader_writer.read_message_part_as_path_buf()?;
-                        let file_text = reader_writer.read_message_part_as_string()?;
-                        let override_config = serde_json::from_slice(&reader_writer.read_message_part()?)?;
+                        let file_path = reader_writer.read_path_buf()?;
+                        let file_text = reader_writer.read_string()?;
+                        let override_config = serde_json::from_slice(&reader_writer.read_variable_data()?)?;
 
                         match format_with_host(file_path, file_text, override_config) {
                             Ok(Some(formatted_text)) => {
-                                reader_writer.send_message_part_as_u32(HostFormatResult::Change as u32)?;
-                                reader_writer.send_message_part_as_string(&formatted_text)?;
+                                reader_writer.send_u32(HostFormatResult::Change as u32)?;
+                                reader_writer.send_string(&formatted_text)?;
                             },
                             Ok(None) => {
-                                reader_writer.send_message_part_as_u32(HostFormatResult::NoChange as u32)?;
+                                reader_writer.send_u32(HostFormatResult::NoChange as u32)?;
                             }
                             Err(err) => {
-                                reader_writer.send_message_part_as_u32(HostFormatResult::Error as u32)?;
-                                reader_writer.send_message_part_as_string(&err.to_string())?;
+                                reader_writer.send_u32(HostFormatResult::Error as u32)?;
+                                reader_writer.send_string(&err.to_string())?;
                             }
                         }
                     }
@@ -127,7 +127,7 @@ impl ProcessPluginCommunicator {
     }
 
     fn verify_plugin_schema_version(&self) -> Result<(), ErrBox> {
-        let response = match self.get_bytes(MessageKind::GetPluginSchemaVersion) {
+        let plugin_schema_version = match self.get_u32(MessageKind::GetPluginSchemaVersion) {
             Ok(response) => response,
             Err(err) => {
                 return err!(
@@ -139,9 +139,6 @@ impl ProcessPluginCommunicator {
                 );
             }
         };
-        let mut buf = [0u8; 4];
-        buf.clone_from_slice(&response[0..4]);
-        let plugin_schema_version = u32::from_be_bytes(buf);
         if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
             return err!(
                 concat!(
@@ -167,7 +164,18 @@ impl ProcessPluginCommunicator {
                 message_kind,
                 Vec::new(),
             )?;
-            reader_writer.read_message_part()
+            reader_writer.read_variable_data()
+        })
+    }
+
+    fn get_u32(&self, message_kind: MessageKind) -> Result<u32, ErrBox> {
+        self.with_reader_writer(|reader_writer| {
+            send_message(
+                reader_writer,
+                message_kind,
+                Vec::new(),
+            )?;
+            reader_writer.read_u32()
         })
     }
 
@@ -176,7 +184,7 @@ impl ProcessPluginCommunicator {
             send_message(
                 reader_writer,
                 message_kind,
-                vec![data],
+                vec![MessagePart::VariableData(data)],
             )
         })
     }
@@ -208,12 +216,15 @@ impl ProcessPluginCommunicator {
 fn send_message(
     reader_writer: &mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>,
     message_kind: MessageKind,
-    parts: Vec<&[u8]>,
+    parts: Vec<MessagePart>,
 ) -> Result<(), ErrBox> {
     // send message
-    reader_writer.send_message_kind(message_kind as u32)?;
+    reader_writer.send_u32(message_kind as u32)?;
     for part in parts {
-        reader_writer.send_message_part(part)?;
+        match part {
+            MessagePart::VariableData(data) => reader_writer.send_variable_data(data)?,
+            MessagePart::Number(value) => reader_writer.send_u32(value)?,
+        }
     }
 
     // read response
@@ -223,9 +234,9 @@ fn send_message(
 fn read_response(
     reader_writer: &mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>,
 ) -> Result<(), ErrBox> {
-    let response_kind = reader_writer.read_message_kind()?;
+    let response_kind = reader_writer.read_u32()?;
     match response_kind.into() {
         ResponseKind::Success => Ok(()),
-        ResponseKind::Error => err!("{}", reader_writer.read_message_part_as_string()?),
+        ResponseKind::Error => err!("{}", reader_writer.read_string()?),
     }
 }

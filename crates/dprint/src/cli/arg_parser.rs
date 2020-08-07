@@ -15,7 +15,7 @@ pub struct CliArgs {
 impl CliArgs {
     pub fn is_silent_output(&self) -> bool {
         match self.sub_command {
-            SubCommand::EditorInfo | SubCommand::EditorFmt(..) | SubCommand::StdInFmt(..) => true,
+            SubCommand::EditorInfo | SubCommand::EditorService | SubCommand::StdInFmt(..) => true,
             _ => false
         }
     }
@@ -33,15 +33,9 @@ pub enum SubCommand {
     Version,
     License,
     Help(String),
-    EditorInfo,
-    EditorFmt(EditorFmt),
+    EditorInfo, // todo: deprecate
+    EditorService,
     StdInFmt(StdInFmt),
-}
-
-#[derive(Debug, PartialEq)]
-pub struct EditorFmt {
-    pub file_path: String,
-    pub file_text: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -77,15 +71,8 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
         SubCommand::License
     } else if matches.is_present("editor-info") {
         SubCommand::EditorInfo
-    } else if matches.is_present("editor-fmt") {
-        let editor_fmt_matches = match matches.subcommand_matches("editor-fmt") {
-            Some(matches) => matches,
-            None => return err!("Could not find editor-fmt subcommand matches."),
-        };
-        SubCommand::EditorFmt(EditorFmt {
-            file_path: editor_fmt_matches.value_of("file-path").map(String::from).unwrap(),
-            file_text: std_in_reader.read()?,
-        })
+    } else if matches.is_present("editor-service") {
+        SubCommand::EditorService
     } else if matches.is_present("stdin-fmt") {
         let stdin_fmt_matches = match matches.subcommand_matches("stdin-fmt") {
             Some(matches) => matches,
@@ -206,14 +193,8 @@ EXAMPLES:
                 .setting(AppSettings::Hidden)
         )
         .subcommand(
-            SubCommand::with_name("editor-fmt")
+            SubCommand::with_name("editor-service")
                 .setting(AppSettings::Hidden)
-                .arg(
-                    Arg::with_name("file-path")
-                        .long("file-path")
-                        .required(true)
-                        .takes_value(true)
-                )
         )
         .subcommand(
             SubCommand::with_name("stdin-fmt")
@@ -230,7 +211,7 @@ EXAMPLES:
                 .help("List of files or globs in quotes to format. This overrides what is specified in the config file.")
                 .takes_value(true)
                 .global(true)
-                .conflicts_with("editor-fmt")
+                .conflicts_with("stdin-fmt")
                 .multiple(true),
         )
         .arg(

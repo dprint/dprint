@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::io::{Read, Write};
 use async_trait::async_trait;
 use bytes::Bytes;
 use dprint_core::types::ErrBox;
@@ -38,6 +39,8 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn get_multi_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<Vec<usize>, ErrBox>;
     fn is_verbose(&self) -> bool;
     fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox>;
+    fn stdout(&self) -> Box<dyn Write + Send>;
+    fn stdin(&self) -> Box<dyn Read + Send>;
 }
 
 // use a macro here so the expression provided is only evaluated when in verbose mode

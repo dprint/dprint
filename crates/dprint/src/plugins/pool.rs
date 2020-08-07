@@ -166,6 +166,20 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
         items.clear();
     }
 
+    pub fn take_or_create_no_sempahore(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+        let mut items = self.items.lock().unwrap();
+        if let Some(item) = items.pop() {
+            Ok(item)
+        } else {
+            self.force_create_instance()
+        }
+    }
+
+    pub fn release_no_semaphore(&self, plugin: Box<dyn InitializedPlugin>) {
+        let mut items = self.items.lock().unwrap();
+        items.push(plugin);
+    }
+
     pub async fn initialize_first(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let initialized_plugin = self.force_create_instance()?;
         self.wait_and_reduce_semaphore().await?;
