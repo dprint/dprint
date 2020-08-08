@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::process::{Child, Command, Stdio};
 
 use crate::configuration::{ConfigKeyMap, GlobalConfiguration, ConfigurationDiagnostic};
@@ -9,7 +8,7 @@ use super::{StdInOutReaderWriter, FormatResult, MessageKind, PLUGIN_SCHEMA_VERSI
 
 /// Communicates with a process plugin.
 pub struct ProcessPluginCommunicator {
-    child: Mutex<Child>,
+    child: Child,
 }
 
 impl Drop for ProcessPluginCommunicator {
@@ -26,8 +25,8 @@ impl ProcessPluginCommunicator {
             .stderr(Stdio::inherit())
             .stdout(Stdio::piped())
             .spawn()?;
-        let communicator = ProcessPluginCommunicator {
-            child: Mutex::new(child),
+        let mut communicator = ProcessPluginCommunicator {
+            child,
         };
 
         communicator.verify_plugin_schema_version()?;
@@ -35,7 +34,7 @@ impl ProcessPluginCommunicator {
         Ok(communicator)
     }
 
-    fn kill(&self) -> Result<(), ErrBox> {
+    fn kill(&mut self) -> Result<(), ErrBox> {
         // attempt to exit nicely
         let _ignore = self.with_reader_writer(|reader_writer| {
             send_message(
@@ -46,43 +45,42 @@ impl ProcessPluginCommunicator {
         });
 
         // now ensure kill
-        let mut child = self.child.lock().unwrap();
-        child.kill()?;
+        self.child.kill()?;
         Ok(())
     }
 
-    pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
+    pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
         let json = serde_json::to_vec(global_config)?;
         self.send_data(MessageKind::SetGlobalConfig, &json)?;
         Ok(())
     }
 
-    pub fn set_plugin_config(&self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
+    pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
         let json = serde_json::to_vec(plugin_config)?;
         self.send_data(MessageKind::SetPluginConfig, &json)?;
         Ok(())
     }
 
-    pub fn get_plugin_info(&self) -> Result<PluginInfo, ErrBox> {
+    pub fn get_plugin_info(&mut self) -> Result<PluginInfo, ErrBox> {
         let response = self.get_bytes(MessageKind::GetPluginInfo)?;
         Ok(serde_json::from_slice(&response)?)
     }
 
-    pub fn get_license_text(&self) -> Result<String, ErrBox> {
+    pub fn get_license_text(&mut self) -> Result<String, ErrBox> {
         self.get_string(MessageKind::GetLicenseText)
     }
 
-    pub fn get_resolved_config(&self) -> Result<String, ErrBox> {
+    pub fn get_resolved_config(&mut self) -> Result<String, ErrBox> {
         self.get_string(MessageKind::GetResolvedConfig)
     }
 
-    pub fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
+    pub fn get_config_diagnostics(&mut self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
         let bytes = self.get_bytes(MessageKind::GetConfigDiagnostics)?;
         Ok(serde_json::from_slice(&bytes)?)
     }
 
     pub fn format_text(
-        &self,
+        &mut self,
         file_path: &PathBuf,
         file_text: &str,
         override_config: &ConfigKeyMap,
@@ -129,7 +127,7 @@ impl ProcessPluginCommunicator {
 
     /// Checks if the process is functioning.
     /// Only use this after an error has occurred to tell if the process should be recreated.
-    pub fn is_process_alive(&self) -> bool {
+    pub fn is_process_alive(&mut self) -> bool {
         let result = self.get_plugin_schema_version();
         if let Ok(plugin_schema_version) = result {
             plugin_schema_version == PLUGIN_SCHEMA_VERSION
@@ -138,7 +136,7 @@ impl ProcessPluginCommunicator {
         }
     }
 
-    fn get_plugin_schema_version(&self) -> Result<u32, ErrBox> {
+    fn get_plugin_schema_version(&mut self) -> Result<u32, ErrBox> {
         match self.get_u32(MessageKind::GetPluginSchemaVersion) {
             Ok(response) => Ok(response),
             Err(err) => {
@@ -153,7 +151,7 @@ impl ProcessPluginCommunicator {
         }
     }
 
-    fn verify_plugin_schema_version(&self) -> Result<(), ErrBox> {
+    fn verify_plugin_schema_version(&mut self) -> Result<(), ErrBox> {
         let plugin_schema_version = self.get_plugin_schema_version()?;
         if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
             return err!(
@@ -168,12 +166,12 @@ impl ProcessPluginCommunicator {
         Ok(())
     }
 
-    fn get_string(&self, message_kind: MessageKind) -> Result<String, ErrBox> {
+    fn get_string(&mut self, message_kind: MessageKind) -> Result<String, ErrBox> {
         let bytes = self.get_bytes(message_kind)?;
         Ok(String::from_utf8(bytes)?)
     }
 
-    fn get_bytes(&self, message_kind: MessageKind) -> Result<Vec<u8>, ErrBox> {
+    fn get_bytes(&mut self, message_kind: MessageKind) -> Result<Vec<u8>, ErrBox> {
         self.with_reader_writer(|reader_writer| {
             send_message(
                 reader_writer,
@@ -184,7 +182,7 @@ impl ProcessPluginCommunicator {
         })
     }
 
-    fn get_u32(&self, message_kind: MessageKind) -> Result<u32, ErrBox> {
+    fn get_u32(&mut self, message_kind: MessageKind) -> Result<u32, ErrBox> {
         self.with_reader_writer(|reader_writer| {
             send_message(
                 reader_writer,
@@ -195,7 +193,7 @@ impl ProcessPluginCommunicator {
         })
     }
 
-    fn send_data(&self, message_kind: MessageKind, data: &[u8]) -> Result<(), ErrBox> {
+    fn send_data(&mut self, message_kind: MessageKind, data: &[u8]) -> Result<(), ErrBox> {
         self.with_reader_writer(|reader_writer| {
             send_message(
                 reader_writer,
@@ -206,15 +204,14 @@ impl ProcessPluginCommunicator {
     }
 
     fn with_reader_writer<F, FResult>(
-        &self,
+        &mut self,
         with_action: F
     ) -> Result<FResult, ErrBox>
         where F: FnOnce(&mut StdInOutReaderWriter<std::process::ChildStdout, std::process::ChildStdin>) -> Result<FResult, ErrBox>
     {
-        let mut child = self.child.lock().unwrap();
         // take because can't mutably borrow twice
-        let mut stdin = child.stdin.take().unwrap();
-        let mut stdout = child.stdout.take().unwrap();
+        let mut stdin = self.child.stdin.take().unwrap();
+        let mut stdout = self.child.stdout.take().unwrap();
 
         let result = {
             let mut reader_writer = StdInOutReaderWriter::new(&mut stdout, &mut stdin);
@@ -222,8 +219,8 @@ impl ProcessPluginCommunicator {
             with_action(&mut reader_writer)
         };
 
-        child.stdin.replace(stdin);
-        child.stdout.replace(stdout);
+        self.child.stdin.replace(stdin);
+        self.child.stdout.replace(stdout);
 
         Ok(result?)
     }

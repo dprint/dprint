@@ -28,19 +28,19 @@ impl InitializedProcessPluginCommunicator {
     }
 
     pub fn get_license_text(&self) -> Result<String, ErrBox> {
-        self.communicator.borrow().get_license_text()
+        self.communicator.borrow_mut().get_license_text()
     }
 
     pub fn get_resolved_config(&self) -> Result<String, ErrBox> {
-        self.communicator.borrow().get_resolved_config()
+        self.communicator.borrow_mut().get_resolved_config()
     }
 
     pub fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
-        self.communicator.borrow().get_config_diagnostics()
+        self.communicator.borrow_mut().get_config_diagnostics()
     }
 
     pub fn recreate_process_if_dead(&self) -> Result<bool, ErrBox> {
-        let is_process_alive = { self.communicator.borrow().is_process_alive() };
+        let is_process_alive = { self.communicator.borrow_mut().is_process_alive() };
         if is_process_alive {
             Ok(false)
         } else {
@@ -57,7 +57,7 @@ impl InitializedProcessPluginCommunicator {
     }
 
     pub fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap, format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>, ErrBox>) -> Result<String, ErrBox> {
-        self.communicator.borrow().format_text(file_path, file_text, override_config, format_with_host)
+        self.communicator.borrow_mut().format_text(file_path, file_text, override_config, format_with_host)
     }
 }
 
@@ -66,7 +66,7 @@ fn create_new_communicator(
     config: &(ConfigKeyMap, GlobalConfiguration)
 ) -> Result<ProcessPluginCommunicator, ErrBox> {
     // ensure it's initialized each time
-    let communicator = ProcessPluginCommunicator::new(executable_file_path)?;
+    let mut communicator = ProcessPluginCommunicator::new(executable_file_path)?;
     communicator.set_global_config(&config.1)?;
     communicator.set_plugin_config(&config.0)?;
     Ok(communicator)
