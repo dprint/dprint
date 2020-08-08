@@ -2,7 +2,13 @@
 
 Editor extensions communicate with the CLI using the `dprint editor-service` subcommand.
 
-Startup:
+## Executing
+
+Run `dprint editor-service --parent-pid <provide your current process pid here>`
+
+The editor service polls for the provided process id every 30 seconds and if it doesn't exist it will exit.
+
+## Startup
 
 - CLI outputs a u32 (4 bytes) indicating the schema version.
 

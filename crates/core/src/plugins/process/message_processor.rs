@@ -22,62 +22,39 @@ pub trait ProcessPluginHandler<TConfiguration: Clone + Serialize> {
     ) -> Result<String, ErrBox>;
 }
 
-/// Handles the process' messages based on the provided handler.
-pub fn handle_process_stdin_stdout_messages<THandler: ProcessPluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(
-    handler: THandler
-) -> Result<(), ErrBox> {
-    let mut stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
-    let reader_writer = StdInOutReaderWriter::new(&mut stdin, &mut stdout);
-    let message_processor = ProcessPluginMessageProcessor::new(reader_writer, handler);
-
-    message_processor.handle_messages()
-}
-
 struct MessageProcessorState<TConfiguration: Clone + Serialize> {
     global_config: Option<GlobalConfiguration>,
     config: Option<ConfigKeyMap>,
     resolved_config_result: Option<ResolveConfigurationResult<TConfiguration>>,
 }
 
-pub struct ProcessPluginMessageProcessor<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>> {
-    reader_writer: StdInOutReaderWriter<'a, TRead, TWrite>,
-    handler: THandler,
-    state: MessageProcessorState<TConfiguration>,
-}
+/// Handles the process' messages based on the provided handler.
+pub fn handle_process_stdin_stdout_messages<THandler: ProcessPluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(
+    handler: THandler
+) -> Result<(), ErrBox> {
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut reader_writer = StdInOutReaderWriter::new(&mut stdin, &mut stdout);
+    let mut state = MessageProcessorState {
+        global_config: None,
+        config: None,
+        resolved_config_result: None,
+    };
 
-impl<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>>
-    ProcessPluginMessageProcessor<'a, TRead, TWrite, TConfiguration, THandler>
-{
-    pub fn new(reader_writer: StdInOutReaderWriter<'a, TRead, TWrite>, handler: THandler) -> Self {
-        ProcessPluginMessageProcessor {
-            reader_writer,
-            handler,
-            state: MessageProcessorState {
-                global_config: None,
-                config: None,
-                resolved_config_result: None,
-            }
-        }
-    }
+    loop {
+        let message_kind = reader_writer.read_u32()?.into();
 
-    pub fn handle_messages(self) -> Result<(), ErrBox> {
-        let mut reader_writer = self.reader_writer;
-        let handler = self.handler;
-        let mut state = self.state;
-        loop {
-            let message_kind = reader_writer.read_u32()?.into();
-            match handle_message_kind(message_kind, &mut reader_writer, &handler, &mut state) {
-                Err(err) => send_error_response(
-                    &mut reader_writer,
-                    &err.to_string()
-                )?,
-                Ok(true) => {},
-                Ok(false) => return Ok(()),
-            }
+        match handle_message_kind(message_kind, &mut reader_writer, &handler, &mut state) {
+            Err(err) => send_error_response(
+                &mut reader_writer,
+                &err.to_string()
+            )?,
+            Ok(true) => {},
+            Ok(false) => return Ok(()),
         }
     }
 }
+
 
 fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>>(
     message_kind: MessageKind,
@@ -145,7 +122,7 @@ fn handle_message_kind<'a, TRead: Read, TWrite: Write, TConfiguration: Clone + S
                     ]
                 )?;
             }
-        }
+        },
     }
 
     Ok(true)

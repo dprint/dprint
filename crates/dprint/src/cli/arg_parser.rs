@@ -15,7 +15,7 @@ pub struct CliArgs {
 impl CliArgs {
     pub fn is_silent_output(&self) -> bool {
         match self.sub_command {
-            SubCommand::EditorInfo | SubCommand::EditorService | SubCommand::StdInFmt(..) => true,
+            SubCommand::EditorInfo | SubCommand::EditorService(..) | SubCommand::StdInFmt(..) => true,
             _ => false
         }
     }
@@ -34,12 +34,17 @@ pub enum SubCommand {
     License,
     Help(String),
     EditorInfo, // todo: deprecate
-    EditorService,
-    StdInFmt(StdInFmt),
+    EditorService(EditorServiceInfo),
+    StdInFmt(StdInFmtInfo),
 }
 
 #[derive(Debug, PartialEq)]
-pub struct StdInFmt {
+pub struct EditorServiceInfo {
+    pub parent_pid: u32,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct StdInFmtInfo {
     pub file_name: String,
     pub file_text: String,
 }
@@ -72,13 +77,19 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
     } else if matches.is_present("editor-info") {
         SubCommand::EditorInfo
     } else if matches.is_present("editor-service") {
-        SubCommand::EditorService
+        let matches = match matches.subcommand_matches("editor-service") {
+            Some(matches) => matches,
+            None => return err!("Could not find stdin-fmt subcommand matches."),
+        };
+        SubCommand::EditorService(EditorServiceInfo {
+            parent_pid: matches.value_of("parent-pid").map(|v| v.parse::<u32>().ok()).flatten().unwrap()
+        })
     } else if matches.is_present("stdin-fmt") {
         let stdin_fmt_matches = match matches.subcommand_matches("stdin-fmt") {
             Some(matches) => matches,
             None => return err!("Could not find stdin-fmt subcommand matches."),
         };
-        SubCommand::StdInFmt(StdInFmt {
+        SubCommand::StdInFmt(StdInFmtInfo {
             file_name: stdin_fmt_matches.value_of("file-name").map(String::from).unwrap(),
             file_text: std_in_reader.read()?,
         })
@@ -195,6 +206,12 @@ EXAMPLES:
         .subcommand(
             SubCommand::with_name("editor-service")
                 .setting(AppSettings::Hidden)
+                .arg(
+                    Arg::with_name("parent-pid")
+                        .long("parent-pid")
+                        .required(true)
+                        .takes_value(true)
+                )
         )
         .subcommand(
             SubCommand::with_name("stdin-fmt")

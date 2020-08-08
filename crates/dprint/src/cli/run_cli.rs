@@ -13,7 +13,7 @@ use crate::configuration::{self, get_global_config, get_plugin_config_map};
 use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
 use crate::utils::{get_table_text, get_difference, pretty_print_json_text};
 
-use super::{CliArgs, SubCommand};
+use super::{CliArgs, SubCommand, EditorServiceInfo};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
 use super::incremental::IncrementalFile;
 
@@ -47,8 +47,8 @@ pub async fn run_cli<TEnvironment : Environment>(
     }
 
     // editor service
-    if args.sub_command == SubCommand::EditorService {
-        return run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools).await;
+    if let SubCommand::EditorService(info) = &args.sub_command {
+        return run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools, info).await;
     }
 
     // clear cache
@@ -227,8 +227,12 @@ async fn run_editor_service<TEnvironment: Environment>(
     environment: &TEnvironment,
     plugin_resolver: &PluginResolver<TEnvironment>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
+    editor_service_info: &EditorServiceInfo,
 ) -> Result<(), ErrBox> {
-    use dprint_core::plugins::process::StdInOutReaderWriter;
+    use dprint_core::plugins::process::{StdInOutReaderWriter, start_parent_process_checker_thread};
+
+    // poll for the existence of the parent process and terminate this process when that process no longer exists
+    let _handle = start_parent_process_checker_thread("editor-service".to_string(), editor_service_info.parent_pid);
 
     let mut stdin = environment.stdin();
     let mut stdout = environment.stdout();
@@ -879,12 +883,12 @@ mod tests {
     use super::run_cli;
     use super::super::{parse_args, TestStdInReader};
 
-    async fn run_test_cli(args: Vec<&'static str>, environment: &TestEnvironment) -> Result<(), ErrBox> {
+    async fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<(), ErrBox> {
         run_test_cli_with_stdin(args, environment, TestStdInReader::new()).await
     }
 
     async fn run_test_cli_with_stdin(
-        args: Vec<&'static str>,
+        args: Vec<&str>,
         environment: &TestEnvironment,
         stdin_reader: TestStdInReader, // todo: no clue why this can't be passed in by reference
     ) -> Result<(), ErrBox> {
@@ -2046,6 +2050,7 @@ SOFTWARE.
                 assert_eq!(communicator.format_text(&txt_file_path, "plugin: format this text").unwrap().unwrap(), "format this text_formatted_process");
                 assert_eq!(communicator.format_text(&txt_file_path, "should_error").err().unwrap().to_string(), "Did error.");
                 assert_eq!(communicator.format_text(&txt_file_path, "plugin: should_error").err().unwrap().to_string(), "Did error.");
+                assert_eq!(communicator.format_text(&PathBuf::from("/file.txt_ps"), "testing").unwrap().unwrap(), "testing_formatted_process");
 
                 // write a new file and make sure the service picks up the changes
                 environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
@@ -2065,7 +2070,9 @@ SOFTWARE.
             }
         });
 
-        run_test_cli(vec!["editor-service"], &environment).await.unwrap();
+        // usually this would be the editor's process id, but this is ok for testing purposes
+        let pid = std::process::id().to_string();
+        run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).await.unwrap();
 
         result.await.unwrap();
     }

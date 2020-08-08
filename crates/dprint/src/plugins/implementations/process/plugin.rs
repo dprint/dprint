@@ -2,12 +2,12 @@ use std::sync::Arc;
 use std::path::PathBuf;
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::plugins::{Plugin, InitializedPlugin, PluginPools};
 
+use super::InitializedProcessPluginCommunicator;
 use super::super::format_with_plugin_pool;
 
 static PLUGIN_FILE_INITIALIZE: std::sync::Once = std::sync::Once::new();
@@ -35,6 +35,7 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
 }
 
 pub struct ProcessPlugin<TEnvironment: Environment> {
+    environment: TEnvironment,
     executable_file_path: PathBuf,
     plugin_info: PluginInfo,
     config: Option<(ConfigKeyMap, GlobalConfiguration)>,
@@ -42,8 +43,14 @@ pub struct ProcessPlugin<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
-    pub fn new(executable_file_path: PathBuf, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
+    pub fn new(
+        environment: TEnvironment,
+        executable_file_path: PathBuf,
+        plugin_info: PluginInfo,
+        plugin_pools: Arc<PluginPools<TEnvironment>>
+    ) -> Self {
         ProcessPlugin {
+            environment,
             executable_file_path,
             plugin_info,
             config: None,
@@ -86,15 +93,17 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     }
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+        let config = self.config.as_ref().expect("Call set_config first.");
+        let communicator = InitializedProcessPluginCommunicator::new(
+            self.executable_file_path.clone(),
+            config.clone(),
+        )?;
         let process_plugin = InitializedProcessPlugin::new(
             self.name().to_string(),
-            &self.executable_file_path,
-            Some(self.plugin_pools.clone())
+            self.environment.clone(),
+            communicator,
+            self.plugin_pools.clone()
         )?;
-        let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
-
-        process_plugin.set_global_config(&global_config)?;
-        process_plugin.set_plugin_config(&plugin_config)?;
 
         Ok(Box::new(process_plugin))
     }
@@ -102,35 +111,32 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
 
 pub struct InitializedProcessPlugin<TEnvironment: Environment> {
     name: String,
-    communicator: ProcessPluginCommunicator,
-    plugin_pools: Option<Arc<PluginPools<TEnvironment>>>,
+    environment: TEnvironment,
+    communicator: InitializedProcessPluginCommunicator,
+    plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
     pub fn new(
         name: String,
-        executable_file_path: &PathBuf,
-        plugin_pools: Option<Arc<PluginPools<TEnvironment>>>,
+        environment: TEnvironment,
+        communicator: InitializedProcessPluginCommunicator,
+        plugin_pools: Arc<PluginPools<TEnvironment>>,
     ) -> Result<Self, ErrBox> {
         let initialized_plugin = InitializedProcessPlugin {
             name,
+            environment,
+            communicator,
             plugin_pools,
-            communicator: ProcessPluginCommunicator::new(executable_file_path)?,
         };
 
         Ok(initialized_plugin)
     }
 
-    pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
-        self.communicator.set_global_config(global_config)
-    }
-
-    pub fn set_plugin_config(&self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
-        self.communicator.set_plugin_config(plugin_config)
-    }
-
-    pub fn get_plugin_info(&self) -> Result<PluginInfo, ErrBox> {
-        self.communicator.get_plugin_info()
+    fn inner_format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+        self.communicator.format_text(file_path, file_text, override_config, |file_path, file_text, override_config| {
+            format_with_plugin_pool(&self.name, &file_path, &file_text, &override_config, &self.plugin_pools)
+        })
     }
 }
 
@@ -148,9 +154,30 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
     }
 
     fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
-        self.communicator.format_text(file_path, file_text, override_config, |file_path, file_text, override_config| {
-            let pools = self.plugin_pools.as_ref().unwrap();
-            format_with_plugin_pool(&self.name, &file_path, &file_text, &override_config, pools)
-        })
+        let result = self.inner_format_text(file_path, file_text, override_config);
+
+        match result {
+            Ok(result) => Ok(result),
+            Err(original_err) => {
+                // todo: tests for this somehow
+                let process_recreated = match self.communicator.recreate_process_if_dead() {
+                    Ok(process_recreated) => process_recreated,
+                    Err(err) => {
+                        self.environment.log_error(&format!(
+                            "Failed to recreate child process plugin after it was unresponsive: {}",
+                            err.to_string()
+                        ));
+                        return Err(original_err);
+                    }
+                };
+
+                if process_recreated {
+                    // attempt formatting again
+                    self.inner_format_text(file_path, file_text, override_config)
+                } else {
+                    return Err(original_err);
+                }
+            }
+        }
     }
 }

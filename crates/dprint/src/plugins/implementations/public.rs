@@ -112,7 +112,7 @@ pub async fn create_plugin<TEnvironment : Environment>(
         };
 
         let executable_path = super::process::get_test_safe_executable_path(cache_item.file_path, &environment);
-        Ok(Box::new(process::ProcessPlugin::new(executable_path, cache_item.info, plugin_pools)))
+        Ok(Box::new(process::ProcessPlugin::new(environment.clone(), executable_path, cache_item.info, plugin_pools)))
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());
     }

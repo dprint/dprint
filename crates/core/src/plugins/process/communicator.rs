@@ -21,6 +21,7 @@ impl Drop for ProcessPluginCommunicator {
 impl ProcessPluginCommunicator {
     pub fn new(executable_file_path: &PathBuf) -> Result<Self, ErrBox> {
         let child = Command::new(executable_file_path)
+            .args(&["--parent-pid".to_string(), std::process::id().to_string()])
             .stdin(Stdio::piped())
             .stderr(Stdio::inherit())
             .stdout(Stdio::piped())
@@ -126,9 +127,20 @@ impl ProcessPluginCommunicator {
         })
     }
 
-    fn verify_plugin_schema_version(&self) -> Result<(), ErrBox> {
-        let plugin_schema_version = match self.get_u32(MessageKind::GetPluginSchemaVersion) {
-            Ok(response) => response,
+    /// Checks if the process is functioning.
+    /// Only use this after an error has occurred to tell if the process should be recreated.
+    pub fn is_process_alive(&self) -> bool {
+        let result = self.get_plugin_schema_version();
+        if let Ok(plugin_schema_version) = result {
+            plugin_schema_version == PLUGIN_SCHEMA_VERSION
+        } else {
+            false
+        }
+    }
+
+    fn get_plugin_schema_version(&self) -> Result<u32, ErrBox> {
+        match self.get_u32(MessageKind::GetPluginSchemaVersion) {
+            Ok(response) => Ok(response),
             Err(err) => {
                 return err!(
                     concat!(
@@ -138,7 +150,11 @@ impl ProcessPluginCommunicator {
                     err
                 );
             }
-        };
+        }
+    }
+
+    fn verify_plugin_schema_version(&self) -> Result<(), ErrBox> {
+        let plugin_schema_version = self.get_plugin_schema_version()?;
         if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
             return err!(
                 concat!(

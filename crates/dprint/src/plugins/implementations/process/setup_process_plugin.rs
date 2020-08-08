@@ -3,12 +3,12 @@ use std::str;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path_to_path_source, verify_sha256_checksum, extract_zip};
 
-use super::InitializedProcessPlugin;
 use super::super::SetupPluginResult;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
@@ -63,12 +63,9 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
             return err!("Plugin zip file did not contain required executable at: {}", plugin_executable_file_path.display());
         }
 
-        let plugin: InitializedProcessPlugin<TEnvironment> = InitializedProcessPlugin::new(
-            plugin_name,
-            &super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment),
-            None, // not formatting so providing None is ok
-        )?;
-        let plugin_info = plugin.get_plugin_info()?;
+        let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
+        let communicator = ProcessPluginCommunicator::new(&executable_path)?;
+        let plugin_info = communicator.get_plugin_info()?;
 
         Ok(SetupPluginResult {
             plugin_info,
