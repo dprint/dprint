@@ -41,9 +41,9 @@ pub async fn run_cli<TEnvironment : Environment>(
         return output_license(&args, cache, environment, plugin_resolver).await;
     }
 
-    // editor plugin info (DEPRECATED, use editor service)
+    // editor plugin info
     if args.sub_command == SubCommand::EditorInfo {
-        return output_editor_info(environment).await;
+        return output_editor_info(&args, cache, environment, plugin_resolver).await;
     }
 
     // editor service
@@ -197,8 +197,12 @@ async fn output_license<TEnvironment: Environment>(
     Ok(())
 }
 
-/// DEPRECATED. REMOVE THIS IN A FUTURE RELEASE
-async fn output_editor_info<TEnvironment: Environment>(environment: &TEnvironment) -> Result<(), ErrBox> {
+async fn output_editor_info<TEnvironment: Environment>(
+    args: &CliArgs,
+    cache: &Cache<TEnvironment>,
+    environment: &TEnvironment,
+    plugin_resolver: &PluginResolver<TEnvironment>,
+) -> Result<(), ErrBox> {
     #[derive(serde::Serialize)]
     #[serde(rename_all = "camelCase")]
     struct EditorInfo {
@@ -213,9 +217,18 @@ async fn output_editor_info<TEnvironment: Environment>(environment: &TEnvironmen
         file_extensions: Vec<String>,
     }
 
+    let mut plugins = Vec::new();
+
+    for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
+        plugins.push(EditorPluginInfo {
+            name: plugin.name().to_string(),
+            file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
+        });
+    }
+
     environment.log_silent(&serde_json::to_string(&EditorInfo {
         schema_version: 2,
-        plugins: Vec::new(),
+        plugins,
     })?);
 
     Ok(())
@@ -237,9 +250,6 @@ async fn run_editor_service<TEnvironment: Environment>(
     let mut stdin = environment.stdin();
     let mut stdout = environment.stdout();
     let mut reader_writer = StdInOutReaderWriter::new(&mut stdin, &mut stdout);
-
-    reader_writer.send_u32(1)?; // send the plugin schema version
-
     let mut past_config: Option<ResolvedConfig> = None;
 
     loop {
@@ -1955,9 +1965,8 @@ SOFTWARE.
             ]
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).await.unwrap();
-        // deprecated so only output a schema version of 2
         assert_eq!(environment.take_logged_messages(), vec![
-            r#"{"schemaVersion":2,"plugins":[]}"#
+            r#"{"schemaVersion":2,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]},{"name":"test-process-plugin","fileExtensions":["txt_ps"]}]}"#
         ]);
     }
 
@@ -1975,11 +1984,6 @@ SOFTWARE.
                 stdin,
                 stdout,
             }
-        }
-
-        pub fn read_plugin_schema(&mut self) -> Result<u32, ErrBox> {
-            let mut reader_writer = self.get_reader_writer();
-            Ok(reader_writer.read_u32()?)
         }
 
         pub fn check_file(&mut self, file_path: &PathBuf) -> Result<bool, ErrBox> {
@@ -2038,7 +2042,6 @@ SOFTWARE.
             move || {
                 let mut communicator = EditorServiceCommunicator::new(stdin, stdout);
 
-                assert_eq!(communicator.read_plugin_schema().unwrap(), 1);
                 assert_eq!(communicator.check_file(&txt_file_path).unwrap(), true);
                 assert_eq!(communicator.check_file(&PathBuf::from("/non-existent.txt")).unwrap(), false);
                 assert_eq!(communicator.check_file(&other_ext_path).unwrap(), false);
