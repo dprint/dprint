@@ -23,7 +23,7 @@ bytes = "0.5.4"
 futures = { version = "0.3.4", features = ["compat", "io-compat"] }
 tokio = { version = "0.2", features = ["full", "blocking", "sync"] }
 async-trait = "0.1.30"
-app_dirs = "1.2.1"
+app_dirs = { version = "2", package = "app_dirs2" }
 serde = { version = "1.0.88", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.9.1"
