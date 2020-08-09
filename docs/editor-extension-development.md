@@ -1,8 +1,10 @@
 # Developing an Editor Extension
 
-Editor extensions communicate with the CLI using the `dprint editor-service` subcommand.
+Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
 
-## `dprint editor-info`
+## dprint editor-info
+
+Called first in order to get information about the current working directory.
 
 ```
 dprint editor-info
@@ -23,13 +25,17 @@ Outputs:
 1. If the `schemaVersion` number is less than the expected, output a message saying they need to update their global `dprint` version.
 2. If the `schemaVersion` number is greater than the expected, output a message saying the editor extension is not compatible and they may need to update their editor extension to the latest version.
 
-## Executing
+## dprint editor-service
+
+This starts a long running process that can be communicated with over stdin and stdout.
+
+### Executing
 
 Run `dprint editor-service --parent-pid <provide your current process pid here>`
 
 The editor service polls for the provided process id every 30 seconds and if it doesn't exist it will exit.
 
-## Message Kinds
+### Message Kinds
 
 After startup, send one of the following messages:
 
@@ -37,12 +43,12 @@ After startup, send one of the following messages:
 - `1` - Check if a path can be formatted by the CLI.
 - `2` - Format a file.
 
-### `0` - Shutting down the process
+#### `0` - Shutting down the process
 
 - Editor sends
   - u32 (4 bytes) - Message kind `1` indicating to shut down the process.
 
-### `1` - Checking a file can be formatted
+#### `1` - Checking a file can be formatted
 
 - Editor sends:
   - u32 (4 bytes) - Message kind `2` indicating to check if a path can be formatted by the CLI.
@@ -51,7 +57,7 @@ After startup, send one of the following messages:
 - CLI responds:
   - u32 (4 bytes) - 0 for cannot format, or 1 for can format
 
-### `2` - Formatting a file
+#### `2` - Formatting a file
 
 - Editor sends:
   - u32 (4 bytes) - Message kind `3` for formatting a file.
@@ -64,7 +70,7 @@ After startup, send one of the following messages:
   - u32 (4 bytes) - Formatted file text or error message size
   - X bytes - Formatted file text or error message
 
-## General
+### General
 
 - Everything is big endian and utf-8
 - Communication is always done with a buffer size of 1024. So if sending data (X bytes) above 1024 bytes then the following protocol happens:
