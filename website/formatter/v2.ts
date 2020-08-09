@@ -31,10 +31,11 @@ export interface Formatter {
      * Formats the specified file text.
      * @param filePath - The file path to format.
      * @param fileText - File text to format.
+     * @param overrideConfig - Configuration to set for a single format.
      * @returns The formatted text.
      * @throws If there is an error formatting.
      */
-    formatText(filePath: string, fileText: string): string;
+    formatText(filePath: string, fileText: string, overrideConfig?: object): string;
 }
 
 /** Configuration specified for use across plugins. */
@@ -72,6 +73,7 @@ export function createImportObject(): any /*: WebAssembly.Imports*/ {
             "host_read_buffer": () => {},
             "host_write_buffer": () => {},
             "host_take_file_path": () => {},
+            "host_take_override_config": () => {},
             "host_format": () => 0, // no change
             "host_get_formatted_text": () => 0, // zero length
             "host_get_error_text": () => 0, // zero length
@@ -124,6 +126,7 @@ export function createFromInstance(wasmInstance: WebAssembly.Instance): Formatte
     const {
         get_plugin_schema_version,
         set_file_path,
+        set_override_config,
         get_formatted_text,
         format,
         get_error_text,
@@ -142,8 +145,8 @@ export function createFromInstance(wasmInstance: WebAssembly.Instance): Formatte
     } = wasmInstance.exports as any;
 
     const pluginSchemaVersion = get_plugin_schema_version();
-    const expectedPluginSchemaVersion = 2;
-    if (pluginSchemaVersion !== expectedPluginSchemaVersion) {
+    const expectedPluginSchemaVersion = 3;
+    if (pluginSchemaVersion !== 2 && pluginSchemaVersion !== expectedPluginSchemaVersion) {
         throw new Error(
             `Not compatible plugin. `
                 + `Expected schema ${expectedPluginSchemaVersion}, `
@@ -176,8 +179,15 @@ export function createFromInstance(wasmInstance: WebAssembly.Instance): Formatte
             const length = get_license_text();
             return receiveString(length);
         },
-        formatText(filePath, fileText) {
+        formatText(filePath, fileText, overrideConfig) {
             setConfigIfNotSet();
+            if (overrideConfig != null) {
+                if (pluginSchemaVersion === 2) {
+                    throw new Error("Cannot set the override configuration for this old plugin.");
+                }
+                sendString(JSON.stringify(overrideConfig));
+                set_override_config();
+            }
             sendString(filePath);
             set_file_path();
 
