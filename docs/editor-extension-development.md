@@ -1,4 +1,4 @@
-# Developing an Editor Extension
+# Developing an Editor Extension (Schema Version 2)
 
 Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
 

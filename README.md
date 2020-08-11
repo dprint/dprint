@@ -26,4 +26,4 @@ This repo is under active early development.
 1. The interface between the CLI and plugins might change often. You may need to keep updating to the latest version of both the CLI and plugins (the CLI will let you know what to do).
    - An upgrade path will be outlined in the [release notes](https://github.com/dprint/dprint/releases) when this occurs.
 2. Most of the code in this repository is not open source. Some is MIT. If you make any contributions, ensure the file says it is MIT at the top. See [#243](https://github.com/dprint/dprint/issues/243).
-   - If you are using the CLI on a codebase whose primrary maintainer is a for-profit company or individual, then that entity must sponsor the project for continued use (sponsor what you can). See [sponsoring](https://dprint.dev/sponsor/) for more details.
+   - If you are using the CLI on a codebase whose primary maintainer is a for-profit company or individual, then that entity must sponsor the project for use beyond 30 days (sponsor what you can). See [sponsoring](https://dprint.dev/sponsor/) for more details.

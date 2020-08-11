@@ -83,32 +83,32 @@ The printer will enforce these rules in non-release mode.
 
 ## Example IR Generation
 
-Given the following example AST nodes:
+Given the following AST nodes:
 
-```ts
-enum SyntaxKind {
-    ArrayLiteralExpression,
-    ArrayElement,
+```rust
+enum Node<'a> {
+    ArrayLiteralExpression(&'a ArrayLiteralExpression),
+    ArrayElement(&'a ArrayElement),
 }
 
-interface BaseNode {
-    kind: SyntaxKind;
-    /** Line number in the original source code. */
-    lineNumber: number;
-    /** Column number in the original source code. */
-    columnNumber: number;
+#[derive(Clone)]
+struct Position {
+    /// Line number in the original source code.
+    pub line_number: u32,
+    /// Column number in the original source code.
+    pub column_number: u32,
 }
 
-type Node = ArrayLiteralExpression | ArrayElement;
-
-interface ArrayLiteralExpression extends BaseNode {
-    kind: SyntaxKind.ArrayLiteralExpression;
-    elements: ArrayElement[];
+#[derive(Clone)]
+struct ArrayLiteralExpression {
+    pub position: Position,
+    pub elements: Vec<ArrayElement>,
 }
 
-interface ArrayElement extends BaseNode {
-    kind: SyntaxKind.ArrayElement;
-    text: string;
+#[derive(Clone)]
+struct ArrayElement {
+    pub position: Position,
+    pub text: String,
 }
 ```
 
@@ -140,124 +140,126 @@ four]
 ]
 ```
 
-Here's some example TypeScript IR generation:
+Here's some example IR generation:
 
-```ts
-import {
-    PrintItemIterable,
-    Condition,
-    Info,
-    PrintItemKind,
-    Signal,
-    PrintItem,
-    ResolveConditionContext,
-} from "@dprint/core";
+```rust
+use dprint_core::formatting::*;
 
-export function* parseNode(node: Node) {
-    // In a real implementation, this function would parse comments as well.
+pub fn format(expr: &ArrayLiteralExpression) -> String {
+    // parse out the print items from the AST
+    let print_items = parse_node(Node::ArrayLiteralExpression(expr));
 
-    switch (node.kind) {
-        case SyntaxKind.ArrayLiteralExpression:
-            yield* parseArrayLiteralExpression(expr);
-            break;
-        case SyntaxKind.ArrayElement:
-            yield* parseArrayElement(expr);
-            break;
+    // print them
+    dprint_core::print(print_items, PrintOptions {
+        indent_width: 4,
+        max_width: 10,
+        use_tabs: false,
+        newline_kind: "\n",
+    })
+}
+
+// node parsing functions
+
+fn parse_node(node: Node) -> PrintItems {
+    // in a real implementation this function would deal with surrounding comments
+
+    match node {
+        Node::ArrayLiteralExpression(expr) => parse_array_literal_expression(&expr),
+        Node::ArrayElement(array_element) => parse_array_element(&array_element),
     }
 }
 
-// node functions
+fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
+    let mut items = PrintItems::new();
+    let start_info = Info::new("start");
+    let end_info = Info::new("end");
+    let is_multiple_lines = create_is_multiple_lines_resolver(
+        expr.position.clone(),
+        expr.elements.iter().map(|e| e.position.clone()).collect(),
+        start_info,
+        end_info
+    );
 
-function* parseArrayLiteralExpression(expr: ArrayLiteralExpression): PrintItemIterable {
-    const startInfo = createInfo("startArrayExpression");
-    const endInfo = createInfo("endArrayExpression");
+    items.push_info(start_info);
 
-    yield startInfo;
+    items.push_str("[");
+    items.push_condition(conditions::if_true(
+        "arrayStartNewLine",
+        is_multiple_lines.clone(),
+        Signal::NewLine.into()
+    ));
 
-    yield "[";
-    yield ifMultipleLines(Signal.NewLine);
+    let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines).into_rc_path();
+    items.push_condition(conditions::if_true_or(
+        "indentIfMultipleLines",
+        is_multiple_lines.clone(),
+        parser_helpers::with_indent(parsed_elements.clone().into()),
+        parsed_elements.into(),
+    ));
 
-    const elements = makeRepeatable(parseElements());
-    yield {
-        kind: PrintItemKind.Condition,
-        name: "indentIfMultipleLines",
-        condition: isMultipleLines,
-        true: withIndent(elements),
-        false: elements,
-    };
+    items.push_condition(conditions::if_true(
+        "arrayEndNewLine",
+        is_multiple_lines,
+        Signal::NewLine.into()
+    ));
+    items.push_str("]");
 
-    yield ifMultipleLines(Signal.NewLine);
-    yield "]";
+    items.push_info(end_info);
 
-    yield endInfo;
+    return items;
 
-    function* parseElements(): PrintItemIterable {
-        for (let i = 0; i < expr.elements.length; i++) {
-            yield* parseNode(expr.elements[i]);
+    fn parse_elements(
+        elements: &Vec<ArrayElement>,
+        is_multiple_lines: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static)
+    ) -> PrintItems {
+        let mut items = PrintItems::new();
+        let elements_len = elements.len();
 
-            if (i < expr.elements.length - 1) {
-                yield ",";
-                yield ifMultipleLines(Signal.NewLine, Signal.SpaceOrNewLine);
+        for (i, elem) in elements.iter().enumerate() {
+            items.extend(parse_node(Node::ArrayElement(elem)));
+
+            if i < elements_len - 1 {
+                items.push_str(",");
+                items.push_condition(conditions::if_true_or(
+                    "afterCommaSeparator",
+                    is_multiple_lines.clone(),
+                    Signal::NewLine.into(),
+                    Signal::SpaceOrNewLine.into()
+                ));
             }
         }
-    }
 
-    function ifMultipleLines(trueItem: PrintItem, falseItem?: PrintItem): Condition {
-        return {
-            kind: PrintItemKind.Condition,
-            name: "ifMultipleLines",
-            condition: isMultipleLines,
-            true: [trueItem],
-            false: falseItem == null ? undefined : [falseItem],
-        };
-    }
-
-    // condition resolver
-    function isMultipleLines(conditionContext: ResolveConditionContext) {
-        // no elements, so format on the same line
-        if (expr.elements.length === 0) {
-            return false;
-        }
-        // first element is on a different line than the start of the array expression,
-        // so format all the elements as multi-line
-        if (expr.lineNumber < expr.elements[0].lineNumber) {
-            return true;
-        }
-        // only one element, so force it to be a single line
-        if (expr.elements.length === 1) {
-            return false;
-        }
-        // check if the expression spans multiple lines, and if it does then make it multi-line
-        const resolvedStartInfo = conditionContext.getResolvedInfo(startInfo)!;
-        const resolvedEndInfo = conditionContext.getResolvedInfo(endInfo);
-        if (resolvedEndInfo == null) {
-            return undefined;
-        }
-        return resolvedStartInfo.lineNumber < resolvedEndInfo.lineNumber;
+        items
     }
 }
 
-function* parseArrayElement(element: ArrayElement): PrintItemIterable {
-    yield element.text;
+fn parse_array_element(element: &ArrayElement) -> PrintItems {
+    (&element.text).into()
 }
 
 // helper functions
 
-function createInfo(name: string): Info {
-    return { kind: PrintItemKind.Info, name };
-}
+fn create_is_multiple_lines_resolver(
+    parent_position: Position,
+    child_positions: Vec<Position>,
+    start_info: Info,
+    end_info: Info
+) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
+    // todo: this could be more efficient only only use references and avoid the clones
+    // I'm too lazy to update this sample, but it should help you get the idea.
+    return move |condition_context: &mut ConditionResolverContext| {
+        // no items, so format on the same line
+        if child_positions.len() == 0 {
+            return Some(false);
+        }
+        // first child is on a different line than the start of the parent
+        // so format all the children as multi-line
+        if parent_position.line_number < child_positions[0].line_number {
+            return Some(true);
+        }
 
-function* withIndent(items: PrintItemIterable) {
-    yield Signal.StartIndent;
-    yield* items;
-    yield Signal.FinishIndent;
-}
-
-function makeRepeatable(items: PrintItemIterable) {
-    return Array.from(items);
+        // check if it spans multiple lines, and if it does then make it multi-line
+        condition_resolvers::is_multiple_lines(condition_context, &start_info, &end_info)
+    };
 }
 ```
-
-### Rust IR Generation Example
-
-See the example in the [dprint-core](../crates/core) Rust crate.
