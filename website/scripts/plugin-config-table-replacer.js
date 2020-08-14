@@ -5,7 +5,6 @@
         if (items.length > 0) {
             items.forEach(function(item) {
                 getDprintPluginConfig(item.url).then(function(properties) {
-                    console.log(properties);
                     var element = item.element;
                     element.innerHTML = "<p>This information was auto generated from <a href=\"" + item.url + "\">" + item.url + "</a>.</p>";
                     properties.forEach(function(property) {
