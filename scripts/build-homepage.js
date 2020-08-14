@@ -66,6 +66,7 @@ function buildWebsite() {
     buildForPath("plugins/prettier", documentationHtmlPageText);
     buildForPath("plugins/roslyn", documentationHtmlPageText);
     buildForPath("plugins/rustfmt", documentationHtmlPageText);
+    buildForPath("plugins/yapf", documentationHtmlPageText);
 
     buildForPath("blog/dprint-rewritten-in-rust", blogPostHtmlPageText);
     buildForPath("blog/incremental-and-process-plugins", blogPostHtmlPageText);
