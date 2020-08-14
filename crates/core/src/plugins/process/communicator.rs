@@ -19,8 +19,20 @@ impl Drop for ProcessPluginCommunicator {
 
 impl ProcessPluginCommunicator {
     pub fn new(executable_file_path: &PathBuf) -> Result<Self, ErrBox> {
+        ProcessPluginCommunicator::new_internal(executable_file_path, false)
+    }
+
+    /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
+    pub fn new_with_init(executable_file_path: &PathBuf) -> Result<Self, ErrBox> {
+        ProcessPluginCommunicator::new_internal(executable_file_path, true)
+    }
+
+    fn new_internal(executable_file_path: &PathBuf, is_init: bool) -> Result<Self, ErrBox> {
+        let mut args = vec!["--parent-pid".to_string(), std::process::id().to_string()];
+        if is_init { args.push("--init".to_string()); }
+
         let child = Command::new(executable_file_path)
-            .args(&["--parent-pid".to_string(), std::process::id().to_string()])
+            .args(&args)
             .stdin(Stdio::piped())
             .stderr(Stdio::inherit())
             .stdout(Stdio::piped())
