@@ -1,9 +1,19 @@
+# dprint installer script
+# Copyright 2020 by David Sherret. All rights reserved. MIT license.
+
 Name "dprint"
 
 RequestExecutionLevel User
 
 OutFile "dprint-x86_64-pc-windows-msvc-installer.exe"
 InstallDir $PROFILE\.dprint
+
+!macro KillDprintProcess
+    # https://stackoverflow.com/a/34371858/188246
+    nsExec::ExecToStack `wmic Path win32_process where "name like 'dprint.exe'" Call Terminate`
+    Pop $0 # return value
+    Pop $1 # printed text
+!macroend
 
 Section
 
@@ -13,6 +23,8 @@ Section
 
     EnVar::AddValue "PATH" "$INSTDIR\bin"
     Pop $0
+
+    !insertmacro KillDprintProcess
 
     SetOutPath $INSTDIR
     WriteUninstaller $INSTDIR\uninstall.exe
@@ -30,6 +42,8 @@ Section "Uninstall"
 
     EnVar::DeleteValue "PATH" "$INSTDIR\bin"
     Pop $0
+
+    !insertmacro KillDprintProcess
 
     Delete $INSTDIR\uninstall.exe
     Delete $INSTDIR\bin\dprint.exe

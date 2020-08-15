@@ -35,6 +35,10 @@ if [ ! -d "$bin_dir" ]; then
 	mkdir -p "$bin_dir"
 fi
 
+# stop any running dprint editor services
+pkill -9 "dprint"
+
+# download and install
 curl --fail --location --progress-bar --output "$exe.zip" "$dprint_uri"
 cd "$bin_dir"
 unzip -o "$exe.zip"

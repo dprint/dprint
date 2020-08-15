@@ -58,6 +58,10 @@ if (!(Test-Path $BinDir)) {
   New-Item $BinDir -ItemType Directory | Out-Null
 }
 
+# stop any running dprint editor services
+Stop-Process -Name "dprint" -Erroraction 'silentlycontinue'
+
+# download and install
 Invoke-WebRequest $DprintUri -OutFile $DprintZip -UseBasicParsing
 
 if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {
