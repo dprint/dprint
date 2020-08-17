@@ -18,6 +18,9 @@ This project is under active early development. I recommend you check its output
 - [dprint-plugin-json](https://github.com/dprint/dprint-plugin-json) - JSON/JSONC code formatter.
 - [dprint-plugin-markdown](https://github.com/dprint/dprint-plugin-markdown) - Markdown code formatter.
 - [dprint-plugin-rustfmt](https://github.com/dprint/dprint-plugin-rustfmt) - Rustfmt wrapper plugin.
+- [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
+- [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.
+- [dprint-plugin-yapf](https://github.com/dprint/dprint-plugin-yapf) - YAPF (Python) wrapper plugin.
 
 ## Notes
 
