@@ -82,7 +82,7 @@ impl InitializedWasmPlugin {
     pub fn new(compiled_wasm_bytes: &[u8], import_object: wasmer_runtime::ImportObject) -> Result<Self, ErrBox> {
         let instance = load_instance(compiled_wasm_bytes, import_object)?;
         let wasm_functions = WasmFunctions::new(instance)?;
-        let buffer_size = wasm_functions.get_wasm_memory_buffer_size();
+        let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
         Ok(InitializedWasmPlugin {
             wasm_functions,
@@ -93,41 +93,44 @@ impl InitializedWasmPlugin {
     pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
         let json = serde_json::to_string(global_config)?;
         self.send_string(&json);
-        self.wasm_functions.set_global_config();
+        self.wasm_functions.set_global_config()?;
         Ok(())
     }
 
     pub fn set_plugin_config(&self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
         let json = serde_json::to_string(plugin_config)?;
         self.send_string(&json);
-        self.wasm_functions.set_plugin_config();
+        self.wasm_functions.set_plugin_config()?;
         Ok(())
     }
 
     pub fn get_plugin_info(&self) -> Result<PluginInfo, ErrBox> {
-        let len = self.wasm_functions.get_plugin_info();
+        let len = self.wasm_functions.get_plugin_info()?;
         let json_text = self.receive_string(len)?;
         Ok(serde_json::from_str(&json_text)?)
     }
 
     /* LOW LEVEL SENDING AND RECEIVING */
 
+    // These methods should panic when failing because that may indicate
+    // a major problem where the CLI is out of sync with the plugin.
+
     fn send_string(&self, text: &str) {
         let mut index = 0;
         let len = text.len();
         let text_bytes = text.as_bytes();
-        self.wasm_functions.clear_shared_bytes(len);
+        self.wasm_functions.clear_shared_bytes(len).unwrap();
         while index < len {
             let write_count = std::cmp::min(len - index, self.buffer_size);
             self.write_bytes_to_memory_buffer(&text_bytes[index..(index + write_count)]);
-            self.wasm_functions.add_to_shared_bytes_from_buffer(write_count);
+            self.wasm_functions.add_to_shared_bytes_from_buffer(write_count).unwrap();
             index += write_count;
         }
     }
 
     fn write_bytes_to_memory_buffer(&self, bytes: &[u8]) {
         let length = bytes.len();
-        let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr();
+        let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr().unwrap();
         let memory_writer = wasm_buffer_pointer
             .deref(self.wasm_functions.get_memory(), 0, length as u32)
             .unwrap();
@@ -141,7 +144,7 @@ impl InitializedWasmPlugin {
         let mut bytes: Vec<u8> = vec![0; len];
         while index < len {
             let read_count = std::cmp::min(len - index, self.buffer_size);
-            self.wasm_functions.set_buffer_with_shared_bytes(index, read_count);
+            self.wasm_functions.set_buffer_with_shared_bytes(index, read_count).unwrap();
             self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)]);
             index += read_count;
         }
@@ -150,7 +153,7 @@ impl InitializedWasmPlugin {
 
     fn read_bytes_from_memory_buffer(&self, bytes: &mut [u8]) {
         let length = bytes.len();
-        let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr();
+        let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr().unwrap();
         let memory_reader = wasm_buffer_pointer
             .deref(self.wasm_functions.get_memory(), 0, length as u32)
             .unwrap();
@@ -162,17 +165,17 @@ impl InitializedWasmPlugin {
 
 impl InitializedPlugin for InitializedWasmPlugin {
     fn get_license_text(&self) -> Result<String, ErrBox> {
-        let len = self.wasm_functions.get_license_text();
+        let len = self.wasm_functions.get_license_text()?;
         self.receive_string(len)
     }
 
     fn get_resolved_config(&self) -> Result<String, ErrBox> {
-        let len = self.wasm_functions.get_resolved_config();
+        let len = self.wasm_functions.get_resolved_config()?;
         self.receive_string(len)
     }
 
     fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
-        let len = self.wasm_functions.get_config_diagnostics();
+        let len = self.wasm_functions.get_config_diagnostics()?;
         let json_text = self.receive_string(len)?;
         Ok(serde_json::from_str(&json_text)?)
     }
@@ -181,26 +184,26 @@ impl InitializedPlugin for InitializedWasmPlugin {
         // send override config if necessary
         if !override_config.is_empty() {
             self.send_string(&serde_json::to_string(override_config)?);
-            self.wasm_functions.set_override_config();
+            self.wasm_functions.set_override_config()?;
         }
 
         // send file path
         self.send_string(&file_path.to_string_lossy());
-        self.wasm_functions.set_file_path();
+        self.wasm_functions.set_file_path()?;
 
         // send file text and format
         self.send_string(file_text);
-        let response_code = self.wasm_functions.format();
+        let response_code = self.wasm_functions.format()?;
 
         // handle the response
         match response_code {
             FormatResult::NoChange => Ok(String::from(file_text)),
             FormatResult::Change => {
-                let len = self.wasm_functions.get_formatted_text();
+                let len = self.wasm_functions.get_formatted_text()?;
                 Ok(self.receive_string(len)?)
             }
             FormatResult::Error => {
-                let len = self.wasm_functions.get_error_text();
+                let len = self.wasm_functions.get_error_text()?;
                 err!("{}", self.receive_string(len)?)
             }
         }
