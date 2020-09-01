@@ -4,10 +4,10 @@ use std::fs;
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bytes::Bytes;
-use reqwest::Client;
 use dprint_core::types::ErrBox;
+use dprint_cli_core::{ProgressBars, download_url, log_action_with_progress};
 
-use super::{Environment, ProgressBars, ProgressBarStyle};
+use super::Environment;
 use crate::plugins::CompilationResult;
 
 #[derive(Clone)]
@@ -88,33 +88,7 @@ impl Environment for RealEnvironment {
     async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox> {
         log_verbose!(self, "Downloading url: {}", url);
 
-        let client = Client::new();
-        let mut resp = client.get(url).send().await?;
-        let total_size = {
-            if resp.status().is_success() {
-                resp.content_length()
-            } else {
-                return err!("Error downloading: {}. Status: {:?}", url, resp.status());
-            }
-        }.unwrap_or(0);
-
-        if self.is_silent {
-            Ok(resp.bytes().await?)
-        } else {
-            let message = get_middle_truncted_text("Downloading ", url);
-            let pb = self.progress_bars.add_progress(&message, ProgressBarStyle::Download, total_size);
-            let mut final_bytes = bytes::BytesMut::with_capacity(total_size as usize);
-
-            while let Some(chunk) = resp.chunk().await? {
-                final_bytes.extend_from_slice(&chunk);
-                pb.set_position(final_bytes.len() as u64);
-            }
-
-            pb.finish_and_clear();
-            self.progress_bars.finish_one().await?;
-
-            Ok(final_bytes.freeze())
-        }
+        download_url(url, &self.progress_bars).await
     }
 
     fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
@@ -181,15 +155,7 @@ impl Environment for RealEnvironment {
         TResult: std::marker::Send + std::marker::Sync,
         TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
     >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox> {
-        let pb = self.progress_bars.add_progress(message, ProgressBarStyle::Action, total_size as u64);
-        let pb = std::sync::Arc::new(pb);
-        let result = action(Box::new({
-            let pb = pb.clone();
-            move |size| pb.set_position(size as u64)
-        }));
-        pb.finish_and_clear();
-        self.progress_bars.finish_one().await?;
-        Ok(result)
+        log_action_with_progress(&self.progress_bars, message, action, total_size).await
     }
 
     fn log_error(&self, text: &str) {
@@ -284,38 +250,5 @@ impl dialoguer::theme::Theme for CustomDialoguerTheme {
             write!(f, "\n  * {}", sel)?;
         }
         Ok(())
-    }
-}
-
-/// This is necessary because Indicatif only supports messages on one line. If the lines span
-/// multiple lines then issue #278 occurs.
-///
-/// This takes a text like "Downloading " and "https://dprint.dev/somelongurl"
-/// and may truncate it to "Downloading https://dprint.dev...longurl"
-fn get_middle_truncted_text(prompt: &str, text: &str) -> String {
-    // For some reason, the "console" crate was not correctly returning
-    // the terminal size, so ended up using the terminal_size crate directly
-    use terminal_size::{Width, terminal_size};
-
-    let term_width = if let Some((Width(width), _)) = terminal_size() {
-        width as usize
-    } else {
-        return format!("{}{}", prompt, text);
-    };
-
-    let prompt_width = console::measure_text_width(prompt);
-    let text_width = console::measure_text_width(text);
-    let is_text_within_term_width = prompt_width + text_width < term_width;
-    let should_give_up = term_width < prompt_width || (term_width - prompt_width) / 2 < 3;
-
-    if is_text_within_term_width || should_give_up {
-        format!("{}{}", prompt, text)
-    } else {
-        let middle_point = (term_width - prompt_width) / 2;
-        let text_chars = text.chars().collect::<Vec<_>>();
-        let first_text: String = (&text_chars[0..middle_point - 2]).iter().collect();
-        let second_text: String = (&text_chars[text_chars.len() - middle_point + 1..]).iter().collect();
-        let text = format!("{}...{}", first_text, second_text);
-        format!("{}{}", prompt, text)
     }
 }

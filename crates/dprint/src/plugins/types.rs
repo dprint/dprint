@@ -1,5 +1,6 @@
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
+use dprint_cli_core::checksums::parse_checksum_path_or_url;
 
 use crate::utils::{PathSource, resolve_url_or_file_path_to_path_source};
 
@@ -46,14 +47,10 @@ impl PluginSourceReference {
 }
 
 pub fn parse_plugin_source_reference(text: &str, base: &PathSource) -> Result<PluginSourceReference, ErrBox> {
-    let parts = text.split("@").collect::<Vec<_>>();
+    let checksum_reference = parse_checksum_path_or_url(text);
+    let path_source = resolve_url_or_file_path_to_path_source(&checksum_reference.path_or_url, base)?;
 
-    if parts.len() > 2 {
-        return err!("Unexpected number of @ symbols in plugin text: {}", text);
-    }
-    let path_source = resolve_url_or_file_path_to_path_source(&parts[0], base)?;
-
-    if !path_source.is_wasm_plugin() && parts.len() == 1 {
+    if !path_source.is_wasm_plugin() && checksum_reference.checksum.is_none() {
         return err!(
             concat!(
                 "The plugin '{0}' must have a checksum specified for security reasons ",
@@ -67,7 +64,7 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource) -> Result<Pl
 
     Ok(PluginSourceReference {
         path_source,
-        checksum: parts.get(1).map(|x| x.to_string()),
+        checksum: checksum_reference.checksum,
     })
 }
 
@@ -95,10 +92,13 @@ mod tests {
     }
 
     #[test]
-    fn it_should_error_multiple_at_symbols() {
-        let plugin_text = "http://dprint.dev/wasm_plugin.wasm@checksum@other";
-        let err = parse_plugin_source_reference(&plugin_text, &PathSource::new_local(PathBuf::from("./"))).err().unwrap();
-        assert_eq!(err.to_string(), format!("Unexpected number of @ symbols in plugin text: {}", plugin_text));
+    fn it_should_not_error_multiple_at_symbols() {
+        let plugin_text = "http://dprint.dev/wasm_plugin.wasm@other@checksum";
+        let result = parse_plugin_source_reference(&plugin_text, &PathSource::new_local(PathBuf::from("./"))).unwrap();
+        assert_eq!(result, PluginSourceReference {
+            path_source: PathSource::new_remote_from_str("http://dprint.dev/wasm_plugin.wasm@other"),
+            checksum: Some(String::from("checksum")),
+        });
     }
 
     #[test]

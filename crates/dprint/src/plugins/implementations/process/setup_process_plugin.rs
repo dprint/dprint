@@ -5,9 +5,10 @@ use serde::{Serialize, Deserialize};
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::types::ErrBox;
+use dprint_cli_core::checksums::verify_sha256_checksum;
 
 use crate::environment::Environment;
-use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path_to_path_source, verify_sha256_checksum, extract_zip};
+use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path_to_path_source, extract_zip};
 
 use super::super::SetupPluginResult;
 
@@ -122,6 +123,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &Path
 }
 
 fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile, ErrBox> {
+    // todo: don't use serde because this should fail with a nice error message if the schema version is not equal
     let plugin_file: ProcessPluginFile = match serde_json::from_slice(&bytes) {
         Ok(plugin_file) => plugin_file,
         Err(err) => return err!("Error deserializing plugin file: {}", err.to_string()),

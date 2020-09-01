@@ -15,7 +15,7 @@ pub struct CreateCacheItemOptions<'a> {
     pub key: String,
     pub extension: &'a str,
     pub bytes: Option<&'a [u8]>,
-    pub meta_data: Option<String>,
+    pub meta_data: Option<String>, // todo: this is always none?
 }
 
 impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {

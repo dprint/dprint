@@ -230,8 +230,21 @@ impl Environment for TestEnvironment {
     }
 
     fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox> {
-        let mut deleted_directories = self.deleted_directories.lock().unwrap();
-        deleted_directories.push(dir_path.to_owned());
+        {
+            let mut deleted_directories = self.deleted_directories.lock().unwrap();
+            deleted_directories.push(dir_path.to_owned());
+        }
+        let dir_path = dir_path.clean();
+        let mut files = self.files.lock().unwrap();
+        let mut delete_paths = Vec::new();
+        for (file_path, _) in files.iter() {
+            if file_path.starts_with(&dir_path) {
+                delete_paths.push(file_path.clone());
+            }
+        }
+        for path in delete_paths {
+            files.remove(&path);
+        }
         Ok(())
     }
 

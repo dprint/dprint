@@ -5,10 +5,11 @@ use std::sync::RwLock;
 
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
+use dprint_cli_core::checksums::verify_sha256_checksum;
 
 use crate::environment::Environment;
 use crate::plugins::{PluginSourceReference};
-use crate::utils::{PathSource, get_bytes_hash, verify_sha256_checksum};
+use crate::utils::{PathSource, get_bytes_hash};
 use super::implementations::{setup_plugin, cleanup_plugin, get_file_path_from_plugin_info};
 use super::{PluginCacheManifest, PluginCacheManifestItem, read_manifest, write_manifest};
 

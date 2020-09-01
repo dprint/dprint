@@ -77,18 +77,12 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
     } else if matches.is_present("editor-info") {
         SubCommand::EditorInfo
     } else if matches.is_present("editor-service") {
-        let matches = match matches.subcommand_matches("editor-service") {
-            Some(matches) => matches,
-            None => return err!("Could not find stdin-fmt subcommand matches."),
-        };
+        let matches = matches.subcommand_matches("editor-service").unwrap();
         SubCommand::EditorService(EditorServiceInfo {
             parent_pid: matches.value_of("parent-pid").map(|v| v.parse::<u32>().ok()).flatten().unwrap()
         })
     } else if matches.is_present("stdin-fmt") {
-        let stdin_fmt_matches = match matches.subcommand_matches("stdin-fmt") {
-            Some(matches) => matches,
-            None => return err!("Could not find stdin-fmt subcommand matches."),
-        };
+        let stdin_fmt_matches = matches.subcommand_matches("stdin-fmt").unwrap();
         SubCommand::StdInFmt(StdInFmtInfo {
             file_name: stdin_fmt_matches.value_of("file-name").map(String::from).unwrap(),
             file_text: std_in_reader.read()?,

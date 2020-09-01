@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use dprint_core::types::ErrBox;
+use crate::types::ErrBox;
 
 struct ProgressState {
     progress: Arc<MultiProgress>,
@@ -91,8 +91,22 @@ impl ProgressBars {
                 ProgressStyle::default_bar()
                     .template("{wide_msg}\n{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}]")
                     .progress_chars("#>-")
-
             }
         }
     }
+}
+
+pub async fn log_action_with_progress<
+    TResult: std::marker::Send + std::marker::Sync,
+    TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
+>(progress_bars: &ProgressBars, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox> {
+    let pb = progress_bars.add_progress(message, ProgressBarStyle::Action, total_size as u64);
+    let pb = std::sync::Arc::new(pb);
+    let result = action(Box::new({
+        let pb = pb.clone();
+        move |size| pb.set_position(size as u64)
+    }));
+    pb.finish_and_clear();
+    progress_bars.finish_one().await?;
+    Ok(result)
 }

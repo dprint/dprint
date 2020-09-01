@@ -5,10 +5,7 @@ use dprint_core::configuration::{ConfigKeyMap, ConfigKeyValue};
 use super::{ConfigMapValue, ConfigMap};
 
 pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
-    let value = match jsonc_parser::parse_to_value(&config_file_text) {
-        Ok(c) => c,
-        Err(e) => return err!("{}", e.get_message_with_range(&config_file_text)),
-    };
+    let value = jsonc_parser::parse_to_value(&config_file_text)?;
 
     let root_object_node = match value {
         Some(JsonValue::Object(obj)) => obj,

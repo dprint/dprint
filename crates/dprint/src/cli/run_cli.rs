@@ -2353,16 +2353,16 @@ EXAMPLES:
 
     async fn get_process_plugin_checksum(environment: &TestEnvironment) -> String {
         let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").await.unwrap();
-        crate::utils::get_sha256_checksum(&plugin_file_bytes)
+        dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
     }
 
     async fn get_process_plugin_zip_checksum(environment: &TestEnvironment) -> String {
         let plugin_file_bytes = environment.download_file("https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip").await.unwrap();
-        crate::utils::get_sha256_checksum(&plugin_file_bytes)
+        dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
     }
 
     fn get_wasm_plugin_checksum() -> String {
-        crate::utils::get_sha256_checksum(WASM_PLUGIN_BYTES)
+        dprint_cli_core::checksums::get_sha256_checksum(WASM_PLUGIN_BYTES)
     }
 
     async fn get_initialized_test_environment_with_remote_process_plugin() -> Result<TestEnvironment, ErrBox> {
@@ -2421,7 +2421,7 @@ EXAMPLES:
         zip.start_file(if cfg!(target_os="windows") { "test-process-plugin.exe" } else { "test-process-plugin" }, options).unwrap();
         zip.write(PROCESS_PLUGIN_EXE_BYTES).unwrap();
         let result = zip.finish().unwrap().into_inner();
-        let zip_file_checksum = crate::utils::get_sha256_checksum(&result);
+        let zip_file_checksum = dprint_cli_core::checksums::get_sha256_checksum(&result);
         environment.add_remote_file_bytes(
             "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
             Bytes::from(result),

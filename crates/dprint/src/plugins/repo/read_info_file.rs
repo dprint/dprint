@@ -26,13 +26,9 @@ pub const REMOTE_INFO_URL: &'static str = "https://plugins.dprint.dev/info.json"
 pub async fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox> {
     let info_bytes = environment.download_file(REMOTE_INFO_URL).await?;
     let info_text = String::from_utf8(info_bytes.to_vec())?;
-    let json_value = match parse_to_value(&info_text) {
-        Ok(Some(value)) => value,
-        Ok(None) => return err!("Expected info.json to have a JSON value."),
-        Err(err) => return err!("{}", err.get_message_with_range(&info_text)),
-    };
+    let json_value = parse_to_value(&info_text)?;
     let mut obj = match json_value {
-        JsonValue::Object(obj) => obj,
+        Some(JsonValue::Object(obj)) => obj,
         _ => return err!("Expected object in root element."),
     };
 
