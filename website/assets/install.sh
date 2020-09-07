@@ -36,7 +36,7 @@ if [ ! -d "$bin_dir" ]; then
 fi
 
 # stop any running dprint editor services
-pkill -9 "dprint"
+pkill -9 "dprint" || true
 
 # download and install
 curl --fail --location --progress-bar --output "$exe.zip" "$dprint_uri"
