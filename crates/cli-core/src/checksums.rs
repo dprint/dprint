@@ -20,6 +20,7 @@ pub fn verify_sha256_checksum(bytes: &[u8], checksum: &str) -> Result<(), ErrBox
     }
 }
 
+#[derive(Clone)]
 pub struct ChecksumPathOrUrl {
     pub path_or_url: String,
     pub checksum: Option<String>,
