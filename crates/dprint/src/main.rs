@@ -1,3 +1,4 @@
+#[macro_use(err_obj)]
 #[macro_use(err)]
 extern crate dprint_core;
 #[cfg(test)]

@@ -1,5 +1,4 @@
 use crate::utils::PathSource;
-use bytes::Bytes;
 use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
@@ -17,7 +16,7 @@ pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &im
 
 pub async fn setup_wasm_plugin<TEnvironment: Environment>(
     url_or_file_path: &PathSource,
-    file_bytes: &Bytes,
+    file_bytes: &[u8],
     environment: &TEnvironment
 ) -> Result<SetupPluginResult, ErrBox> {
     let compile_result = environment.log_action_with_progress(&format!("Compiling {}", url_or_file_path.display()), |_| {

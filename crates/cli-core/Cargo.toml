@@ -1,6 +1,6 @@
 [package]
 name = "dprint-cli-core"
-version = "0.1.1"
+version = "0.2.1"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -12,7 +12,6 @@ repository = "https://github.com/dprint/dprint"
 [dependencies]
 app_dirs = { version = "2", package = "app_dirs2" }
 async-trait = "0.1.30"
-bytes = "0.5.4"
 console = "0.11.3"
 indicatif = "0.14.0"
 reqwest = { version = "0.10.8", features = ["rustls-tls"] }

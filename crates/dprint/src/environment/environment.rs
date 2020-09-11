@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::io::{Read, Write};
 use async_trait::async_trait;
-use bytes::Bytes;
 use dprint_core::types::ErrBox;
 
 use crate::plugins::CompilationResult;
@@ -10,10 +9,8 @@ use crate::plugins::CompilationResult;
 pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static {
     fn is_real(&self) -> bool;
     fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox>;
-    async fn read_file_async(&self, file_path: &PathBuf) -> Result<String, ErrBox>;
-    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox>;
+    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Vec<u8>, ErrBox>;
     fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox>;
-    async fn write_file_async(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox>;
     fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox>;
     fn remove_file(&self, file_path: &PathBuf) -> Result<(), ErrBox>;
     fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox>;
@@ -31,8 +28,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
         TResult: std::marker::Send + std::marker::Sync,
         TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
     >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox>;
-    async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox>;
-    // async fn download_files(&self, urls: Vec<&str>) -> Result<Vec<Result<Bytes, ErrBox>>, ErrBox>;
+    async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox>;
     fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;
     fn get_time_secs(&self) -> u64;
     fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox>;

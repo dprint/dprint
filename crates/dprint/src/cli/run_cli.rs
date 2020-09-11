@@ -19,7 +19,7 @@ use super::incremental::IncrementalFile;
 
 const BOM_CHAR: char = '\u{FEFF}';
 
-pub async fn run_cli<TEnvironment : Environment>(
+pub async fn run_cli<TEnvironment: Environment>(
     args: CliArgs,
     environment: &TEnvironment,
     cache: &Cache<TEnvironment>,
@@ -326,7 +326,7 @@ async fn run_editor_service<TEnvironment: Environment>(
     }
 }
 
-async fn get_plugins_from_args<TEnvironment : Environment>(
+async fn get_plugins_from_args<TEnvironment: Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
@@ -436,7 +436,7 @@ async fn format_with_plugin_pools<'a, TEnvironment: Environment>(
     })
 }
 
-async fn check_files<TEnvironment : Environment>(
+async fn check_files<TEnvironment: Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
@@ -468,7 +468,7 @@ async fn check_files<TEnvironment : Environment>(
                     }
                 }
             }
-            Ok(None)
+            Ok(())
         }
     }).await?;
 
@@ -481,7 +481,7 @@ async fn check_files<TEnvironment : Environment>(
     }
 }
 
-async fn format_files<TEnvironment : Environment>(
+async fn format_files<TEnvironment: Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
@@ -492,7 +492,7 @@ async fn format_files<TEnvironment : Environment>(
 
     run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file.clone(), {
         let formatted_files_count = formatted_files_count.clone();
-        move |_, file_text, formatted_text, had_bom, _, _| {
+        move |file_path, file_text, formatted_text, had_bom, _, environment| {
             if formatted_text != file_text {
                 let new_text = if had_bom {
                     // add back the BOM
@@ -502,13 +502,10 @@ async fn format_files<TEnvironment : Environment>(
                 };
 
                 formatted_files_count.fetch_add(1, Ordering::SeqCst);
-                 // todo: use environment.write_file_async here...
-                 // It was challenging to figure out how to make this
-                 // closure async so I gave up.
-                Ok(Some(new_text))
-            } else {
-                Ok(None)
+                environment.write_file(&file_path, &new_text)?;
             }
+
+            Ok(())
         }
     }).await?;
 
@@ -525,7 +522,7 @@ async fn format_files<TEnvironment : Environment>(
     Ok(())
 }
 
-async fn output_format_times<TEnvironment : Environment>(
+async fn output_format_times<TEnvironment: Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
@@ -538,7 +535,7 @@ async fn output_format_times<TEnvironment : Environment>(
             let duration = start_instant.elapsed().as_millis();
             let mut durations = durations.lock().unwrap();
             durations.push((file_path.to_owned(), duration));
-            Ok(None)
+            Ok(())
         }
     }).await?;
 
@@ -551,13 +548,13 @@ async fn output_format_times<TEnvironment : Environment>(
     Ok(())
 }
 
-async fn run_parallelized<F, TEnvironment : Environment>(
+async fn run_parallelized<F, TEnvironment: Environment>(
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
     incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
     f: F,
-) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
+) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
 
     let handles = file_paths_by_plugin.into_iter().map(|(plugin_name, file_paths)| {
@@ -592,7 +589,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     };
 
     #[inline]
-    async fn inner_run<F, TEnvironment : Environment>(
+    async fn inner_run<F, TEnvironment: Environment>(
         plugin_name: &str,
         file_paths: Vec<PathBuf>,
         plugin_pools: Arc<PluginPools<TEnvironment>>,
@@ -600,7 +597,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
         environment: &TEnvironment,
         f: F,
         error_count: Arc<AtomicUsize>,
-    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
+    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let plugin_pool = plugin_pools.get_pool(plugin_name).expect("Could not get the plugin pool.");
 
         // get a plugin from the pool then propagate up its configuration diagnostics if necessary
@@ -641,14 +638,14 @@ async fn run_parallelized<F, TEnvironment : Environment>(
     }
 
     #[inline]
-    async fn run_for_file_path<F, TEnvironment : Environment>(
+    async fn run_for_file_path<F, TEnvironment: Environment>(
         file_path: &PathBuf,
         environment: &TEnvironment,
         incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
         plugin_pool: Arc<InitializedPluginPool<TEnvironment>>,
         f: F
-    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<Option<String>, ErrBox> + Send + 'static + Clone {
-        let file_text = environment.read_file_async(&file_path).await?;
+    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
+        let file_text = environment.read_file(&file_path)?;
         let had_bom = file_text.starts_with(BOM_CHAR);
         let file_text = if had_bom {
             // strip BOM
@@ -694,12 +691,7 @@ async fn run_parallelized<F, TEnvironment : Environment>(
             incremental_file.update_file(file_path, &formatted_text);
         }
 
-        let result = f(&file_path, file_text, formatted_text, had_bom, start_instant, &environment)?;
-
-        // todo: make the `f` async... couldn't figure it out...
-        if let Some(result) = result {
-            environment.write_file_async(&file_path, &result).await?;
-        }
+        f(&file_path, file_text, formatted_text, had_bom, start_instant, &environment)?;
 
         Ok(())
     }
@@ -875,7 +867,6 @@ fn get_incremental_file<TEnvironment: Environment>(
 
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
     use colored::Colorize;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
@@ -2424,7 +2415,7 @@ EXAMPLES:
         let zip_file_checksum = dprint_cli_core::checksums::get_sha256_checksum(&result);
         environment.add_remote_file_bytes(
             "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-            Bytes::from(result),
+            result,
         );
         write_process_plugin_file(environment, &zip_file_checksum);
     }
@@ -2432,7 +2423,7 @@ EXAMPLES:
     fn write_process_plugin_file(environment: &TestEnvironment, zip_checksum: &str) {
         environment.add_remote_file_bytes(
             "https://plugins.dprint.dev/test-process.exe-plugin",
-            Bytes::from(format!(r#"{{
+            format!(r#"{{
     "schemaVersion": 1,
     "name": "test-process-plugin",
     "version": "0.1.0",
@@ -2448,7 +2439,7 @@ EXAMPLES:
         "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
         "checksum": "{0}"
     }}
-}}"#, zip_checksum))
+}}"#, zip_checksum).into_bytes()
         );
     }
 }

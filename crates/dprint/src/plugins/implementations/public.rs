@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,7 +17,7 @@ pub struct SetupPluginResult {
 
 pub async fn setup_plugin<TEnvironment: Environment>(
     url_or_file_path: &PathSource,
-    file_bytes: &Bytes,
+    file_bytes: &[u8],
     environment: &TEnvironment
 ) -> Result<SetupPluginResult, ErrBox> {
     if url_or_file_path.is_wasm_plugin() {

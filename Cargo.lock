@@ -572,11 +572,10 @@ dependencies = [
 
 [[package]]
 name = "dprint-cli-core"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "app_dirs2",
  "async-trait",
- "bytes 0.5.4",
  "console",
  "indicatif",
  "reqwest",

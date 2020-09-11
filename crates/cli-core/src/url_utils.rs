@@ -2,10 +2,9 @@ use crate::{ProgressBars, ProgressBarStyle};
 use crate::text_utils::get_middle_truncted_text;
 use crate::types::ErrBox;
 use reqwest::{Client, Response};
-use bytes::Bytes;
 use indicatif::ProgressBar;
 
-pub async fn download_url(url: &str, progress_bars: &ProgressBars) -> Result<Bytes, ErrBox> {
+pub async fn download_url(url: &str, progress_bars: &ProgressBars) -> Result<Vec<u8>, ErrBox> {
     let client = Client::new();
     let resp = client.get(url).send().await?;
     let total_size = {
@@ -29,14 +28,14 @@ pub async fn download_url(url: &str, progress_bars: &ProgressBars) -> Result<Byt
     result
 }
 
-async fn inner_download(resp: Response, total_size: u64, pb: &ProgressBar) -> Result<Bytes, ErrBox> {
+async fn inner_download(resp: Response, total_size: u64, pb: &ProgressBar) -> Result<Vec<u8>, ErrBox> {
     let mut resp = resp;
-    let mut final_bytes = bytes::BytesMut::with_capacity(total_size as usize);
+    let mut final_bytes = Vec::with_capacity(total_size as usize);
 
     while let Some(chunk) = resp.chunk().await? {
-        final_bytes.extend_from_slice(&chunk);
+        final_bytes.extend(chunk);
         pb.set_position(final_bytes.len() as u64);
     }
 
-    Ok(final_bytes.freeze())
+    Ok(final_bytes)
 }

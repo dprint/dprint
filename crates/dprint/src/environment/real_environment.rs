@@ -3,7 +3,6 @@ use std::time::SystemTime;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
-use bytes::Bytes;
 use dprint_core::types::ErrBox;
 use dprint_cli_core::{ProgressBars, download_url, log_action_with_progress};
 
@@ -38,32 +37,17 @@ impl Environment for RealEnvironment {
     }
 
     fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
-        log_verbose!(self, "Reading file: {}", file_path.display());
-        let text = fs::read_to_string(file_path)?;
-        Ok(text)
+        Ok(String::from_utf8(self.read_file_bytes(file_path)?)?)
     }
 
-    async fn read_file_async(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
+    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Vec<u8>, ErrBox> {
         log_verbose!(self, "Reading file: {}", file_path.display());
-        let text = tokio::fs::read_to_string(file_path).await?;
-        Ok(text)
-    }
-
-    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox> {
-        log_verbose!(self, "Reading file: {}", file_path.display());
-        let bytes = fs::read(file_path)?;
-        Ok(Bytes::from(bytes))
+        Ok(fs::read(file_path)?)
     }
 
     fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
         log_verbose!(self, "Writing file: {}", file_path.display());
         fs::write(file_path, file_text)?;
-        Ok(())
-    }
-
-    async fn write_file_async(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
-        log_verbose!(self, "Writing file: {}", file_path.display());
-        tokio::fs::write(file_path, file_text).await?;
         Ok(())
     }
 
@@ -85,7 +69,7 @@ impl Environment for RealEnvironment {
         Ok(())
     }
 
-    async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox> {
+    async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
         log_verbose!(self, "Downloading url: {}", url);
 
         download_url(url, &self.progress_bars).await

@@ -5,7 +5,6 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::io::{Read, Write, Error};
 use globset::{GlobSetBuilder, GlobSet, Glob};
 use async_trait::async_trait;
-use bytes::Bytes;
 use path_clean::{PathClean};
 use dprint_core::types::ErrBox;
 
@@ -75,10 +74,10 @@ impl Write for MockStdInOut {
 pub struct TestEnvironment {
     is_verbose: Arc<Mutex<bool>>,
     cwd: Arc<Mutex<String>>,
-    files: Arc<Mutex<HashMap<PathBuf, Bytes>>>,
+    files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
     logged_messages: Arc<Mutex<Vec<String>>>,
     logged_errors: Arc<Mutex<Vec<String>>>,
-    remote_files: Arc<Mutex<HashMap<String, Bytes>>>,
+    remote_files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
     selection_result: Arc<Mutex<usize>>,
     multi_selection_result: Arc<Mutex<Vec<usize>>>,
@@ -121,10 +120,10 @@ impl TestEnvironment {
     }
 
     pub fn add_remote_file(&self, path: &str, bytes: &'static [u8]) {
-        self.add_remote_file_bytes(path, Bytes::from(bytes));
+        self.add_remote_file_bytes(path, Vec::from(bytes));
     }
 
-    pub fn add_remote_file_bytes(&self, path: &str, bytes: Bytes) {
+    pub fn add_remote_file_bytes(&self, path: &str, bytes: Vec<u8>) {
         let mut remote_files = self.remote_files.lock().unwrap();
         remote_files.insert(String::from(path), bytes);
     }
@@ -195,11 +194,7 @@ impl Environment for TestEnvironment {
         Ok(String::from_utf8(file_bytes.to_vec()).unwrap())
     }
 
-    async fn read_file_async(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
-        self.read_file(file_path)
-    }
-
-    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Bytes, ErrBox> {
+    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Vec<u8>, ErrBox> {
         let files = self.files.lock().unwrap();
         // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
         let file_path = PathBuf::from(file_path.to_string_lossy().replace("\\", "/"));
@@ -213,13 +208,9 @@ impl Environment for TestEnvironment {
         self.write_file_bytes(file_path, file_text.as_bytes())
     }
 
-    async fn write_file_async(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
-        self.write_file(file_path, file_text)
-    }
-
     fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox> {
         let mut files = self.files.lock().unwrap();
-        files.insert(file_path.clean(), Bytes::from(bytes.to_vec()));
+        files.insert(file_path.clean(), Vec::from(bytes));
         Ok(())
     }
 
@@ -248,7 +239,7 @@ impl Environment for TestEnvironment {
         Ok(())
     }
 
-    async fn download_file(&self, url: &str) -> Result<Bytes, ErrBox> {
+    async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
         let remote_files = self.remote_files.lock().unwrap();
         match remote_files.get(&String::from(url)) {
             Some(bytes) => Ok(bytes.clone()),

@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use std::str;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
@@ -105,7 +104,7 @@ struct ProcessPluginPath {
 struct ProcessPluginZipBytes {
     name: String,
     version: String,
-    zip_bytes: Bytes,
+    zip_bytes: Vec<u8>,
 }
 
 async fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &TEnvironment) -> Result<ProcessPluginZipBytes, ErrBox> {

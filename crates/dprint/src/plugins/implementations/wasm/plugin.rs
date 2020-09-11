@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use bytes::Bytes;
 
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::{PluginInfo};
@@ -11,14 +10,14 @@ use crate::plugins::{Plugin, InitializedPlugin, PluginPools};
 use super::{WasmFunctions, FormatResult, load_instance, create_pools_import_object};
 
 pub struct WasmPlugin<TEnvironment: Environment> {
-    compiled_wasm_bytes: Bytes,
+    compiled_wasm_bytes: Vec<u8>,
     plugin_info: PluginInfo,
     config: Option<(ConfigKeyMap, GlobalConfiguration)>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-    pub fn new(compiled_wasm_bytes: Bytes, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
+    pub fn new(compiled_wasm_bytes: Vec<u8>, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
         WasmPlugin {
             compiled_wasm_bytes: compiled_wasm_bytes,
             plugin_info,

@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use futures::Future;
 use std::path::PathBuf;
 use std::sync::RwLock;
@@ -75,7 +74,7 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
     ) -> Result<PluginCacheItem, ErrBox>
         where
             F: Fn(PathSource, TEnvironment) -> Fut,
-            Fut: Future<Output = Result<Bytes, ErrBox>>
+            Fut: Future<Output = Result<Vec<u8>, ErrBox>>
     {
         let cache_key = self.get_cache_key(&source_reference.path_source)?;
         let cache_item = self.manifest.read().unwrap().get_item(&cache_key).map(|x| x.to_owned()); // drop lock
@@ -151,11 +150,11 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
 }
 
 // since async closures are not supported yet
-async fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Bytes, ErrBox> {
+async fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
     environment.download_file(path_source.unwrap_remote().url.as_str()).await
 }
 
-async fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Bytes, ErrBox> {
+async fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
     environment.read_file_bytes(&path_source.unwrap_local().path)
 }
 

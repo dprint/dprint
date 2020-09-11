@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use url::Url;
-use bytes::Bytes;
 
 use dprint_core::types::ErrBox;
 
@@ -93,7 +92,7 @@ async fn resolve_url<TEnvironment : Environment>(
 pub async fn fetch_file_or_url_bytes(
     url_or_file_path: &PathSource,
     environment: &impl Environment
-) -> Result<Bytes, ErrBox> {
+) -> Result<Vec<u8>, ErrBox> {
     match url_or_file_path {
         PathSource::Remote(path_source) => {
             environment.download_file(path_source.url.as_str()).await
