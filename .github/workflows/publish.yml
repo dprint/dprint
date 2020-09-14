@@ -1,3 +1,4 @@
+# Copyright 2020 David Sherret. All rights reserved. MIT license.
 name: Package Publish
 
 on:

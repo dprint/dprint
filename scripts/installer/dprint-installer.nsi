@@ -1,5 +1,5 @@
 # dprint installer script
-# Copyright 2020 by David Sherret. All rights reserved. MIT license.
+# Copyright 2020 David Sherret. All rights reserved. MIT license.
 
 Name "dprint"
 
@@ -17,14 +17,14 @@ InstallDir $PROFILE\.dprint
 
 Section
 
+    !insertmacro KillDprintProcess
+
     CreateDirectory $INSTDIR\bin
     SetOutPath $INSTDIR\bin
     File ..\..\target\release\dprint.exe
 
     EnVar::AddValue "PATH" "$INSTDIR\bin"
     Pop $0
-
-    !insertmacro KillDprintProcess
 
     SetOutPath $INSTDIR
     WriteUninstaller $INSTDIR\uninstall.exe

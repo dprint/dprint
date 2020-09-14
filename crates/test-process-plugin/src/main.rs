@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
-use dprint_core::err;
+use dprint_core::{err_obj, err};
 use dprint_core::types::ErrBox;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::{handle_process_stdin_stdout_messages, ProcessPluginHandler, start_parent_process_checker_thread};

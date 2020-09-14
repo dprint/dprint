@@ -1,7 +1,6 @@
 #!/bin/sh
-# Copy, paste, replace from Deno's install script at https://github.com/denoland/deno_install/blob/master/install.sh
-# Copyright 2019 the Deno authors. All rights reserved. MIT license.
-# Keep this script simple and easily auditable.
+# Adapted from Deno's install script at https://github.com/denoland/deno_install/blob/master/install.ps1
+# All rights reserved. MIT license.
 
 set -e
 

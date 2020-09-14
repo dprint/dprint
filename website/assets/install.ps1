@@ -1,7 +1,6 @@
 #!/usr/bin/env pwsh
-# Copy, paste, replace from Deno's install script at https://github.com/denoland/deno_install/blob/master/install.ps1
-# Copyright 2018 the Deno authors. All rights reserved. MIT license.
-# Keep this script simple and easily auditable.
+# Adapted from Deno's install script at https://github.com/denoland/deno_install/blob/master/install.ps1
+# All rights reserved. MIT license.
 
 $ErrorActionPreference = 'Stop'
 
