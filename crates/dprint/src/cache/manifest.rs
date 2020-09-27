@@ -62,7 +62,7 @@ pub fn write_manifest(manifest: &CacheManifest, environment: &impl Environment) 
 }
 
 fn get_manifest_file_path(environment: &impl Environment) -> Result<PathBuf, ErrBox> {
-    let cache_dir = environment.get_cache_dir()?;
+    let cache_dir = environment.get_cache_dir();
     Ok(cache_dir.join("cache-manifest.json"))
 }
 
@@ -75,7 +75,7 @@ mod test {
     fn it_should_read_ok_manifest() {
         let environment = TestEnvironment::new();
         environment.write_file(
-            &environment.get_cache_dir().unwrap().join("cache-manifest.json"),
+            &environment.get_cache_dir().join("cache-manifest.json"),
             r#"{
     "a": {
         "fileName": "b",
@@ -108,7 +108,7 @@ mod test {
     fn it_should_have_empty_manifest_for_deserialization_error() {
         let environment = TestEnvironment::new();
         environment.write_file(
-            &environment.get_cache_dir().unwrap().join("cache-manifest.json"),
+            &environment.get_cache_dir().join("cache-manifest.json"),
             r#"{ "a": { file_name: "b", "createdTime": 123 } }"#
         ).unwrap();
 

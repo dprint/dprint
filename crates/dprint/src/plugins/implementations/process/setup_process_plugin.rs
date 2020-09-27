@@ -11,14 +11,14 @@ use crate::utils::{PathSource, fetch_file_or_url_bytes, resolve_url_or_file_path
 
 use super::super::SetupPluginResult;
 
-pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
-    let dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment)?;
-    Ok(get_plugin_executable_file_path(&dir_path, &plugin_info.name))
+pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
+    let dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment);
+    get_plugin_executable_file_path(&dir_path, &plugin_info.name)
 }
 
-fn get_plugin_dir_path(name: &str, version: &str, environment: &impl Environment) -> Result<PathBuf, ErrBox> {
-    let cache_dir_path = environment.get_cache_dir()?;
-    Ok(cache_dir_path.join("plugins").join(&name).join(&version))
+fn get_plugin_dir_path(name: &str, version: &str, environment: &impl Environment) -> PathBuf {
+    let cache_dir_path = environment.get_cache_dir();
+    cache_dir_path.join("plugins").join(&name).join(&version)
 }
 
 fn get_plugin_executable_file_path(dir_path: &PathBuf, plugin_name: &str) -> PathBuf {
@@ -33,7 +33,7 @@ fn get_plugin_executable_file_path(dir_path: &PathBuf, plugin_name: &str) -> Pat
 /// Returns the executable file path once complete
 pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
     let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
-    let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment)?;
+    let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
     let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
 
@@ -75,7 +75,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
 }
 
 pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<(), ErrBox> {
-    let plugin_cache_dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment)?;
+    let plugin_cache_dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment);
     environment.remove_dir_all(&plugin_cache_dir_path)?;
     Ok(())
 }

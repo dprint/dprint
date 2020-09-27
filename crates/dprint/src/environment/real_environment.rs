@@ -18,17 +18,22 @@ pub struct RealEnvironment {
 }
 
 impl RealEnvironment {
-    pub fn new(is_verbose: bool, is_silent: bool) -> RealEnvironment {
-        RealEnvironment {
+    pub fn new(is_verbose: bool, is_silent: bool) -> Result<RealEnvironment, ErrBox> {
+        let environment = RealEnvironment {
             output_lock: Arc::new(Mutex::new(0)),
             progress_bars: Arc::new(ProgressBars::new()),
             is_verbose,
             is_silent,
+        };
+
+        // ensure the cache directory is created
+        if let Err(err) = environment.mk_dir_all(&get_cache_dir()?) {
+            return err!("Error creating cache directory: {:?}", err);
         }
+
+        Ok(environment)
     }
 }
-
-const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "dprint", author: "dprint" };
 
 #[async_trait]
 impl Environment for RealEnvironment {
@@ -147,12 +152,9 @@ impl Environment for RealEnvironment {
         eprintln!("{}", text);
     }
 
-    fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {
-        log_verbose!(self, "Getting cache directory.");
-        match app_dirs::app_dir(app_dirs::AppDataType::UserCache, &APP_INFO, "cache") {
-            Ok(path) => Ok(path),
-            Err(err) => err!("Error getting cache directory: {:?}", err),
-        }
+    fn get_cache_dir(&self) -> PathBuf {
+        // this would have errored in the constructor so it's ok to unwrap here
+        get_cache_dir().unwrap()
     }
 
     fn get_time_secs(&self) -> u64 {
@@ -194,6 +196,13 @@ impl Environment for RealEnvironment {
 
     fn stdin(&self) -> Box<dyn std::io::Read + Send> {
         Box::new(std::io::stdin())
+    }
+}
+
+fn get_cache_dir() -> Result<PathBuf, ErrBox> {
+    match dirs::cache_dir() {
+        Some(dir) => Ok(dir.join("dprint").join("cache")),
+        None => err!("Expected to find cache directory")
     }
 }
 

@@ -39,7 +39,7 @@ pub struct PluginCacheManifestItem {
 }
 
 pub fn read_manifest(environment: &impl Environment) -> Result<PluginCacheManifest, ErrBox> {
-    let file_path = get_manifest_file_path(environment)?;
+    let file_path = get_manifest_file_path(environment);
     match environment.read_file(&file_path) {
         Ok(text) => match serde_json::from_str(&text) {
             Ok(manifest) => Ok(manifest),
@@ -53,14 +53,14 @@ pub fn read_manifest(environment: &impl Environment) -> Result<PluginCacheManife
 }
 
 pub fn write_manifest(manifest: &PluginCacheManifest, environment: &impl Environment) -> Result<(), ErrBox> {
-    let file_path = get_manifest_file_path(environment)?;
+    let file_path = get_manifest_file_path(environment);
     let serialized_manifest = serde_json::to_string(&manifest)?;
     environment.write_file(&file_path, &serialized_manifest)
 }
 
-fn get_manifest_file_path(environment: &impl Environment) -> Result<PathBuf, ErrBox> {
-    let cache_dir = environment.get_cache_dir()?;
-    Ok(cache_dir.join("plugin-cache-manifest.json"))
+fn get_manifest_file_path(environment: &impl Environment) -> PathBuf {
+    let cache_dir = environment.get_cache_dir();
+    cache_dir.join("plugin-cache-manifest.json")
 }
 
 #[cfg(test)]
@@ -72,7 +72,7 @@ mod test {
     fn it_should_read_ok_manifest() {
         let environment = TestEnvironment::new();
         environment.write_file(
-            &environment.get_cache_dir().unwrap().join("plugin-cache-manifest.json"),
+            &environment.get_cache_dir().join("plugin-cache-manifest.json"),
             r#"{
     "a": {
         "createdTime": 123,
@@ -133,7 +133,7 @@ mod test {
     fn it_should_have_empty_manifest_for_deserialization_error() {
         let environment = TestEnvironment::new();
         environment.write_file(
-            &environment.get_cache_dir().unwrap().join("plugin-cache-manifest.json"),
+            &environment.get_cache_dir().join("plugin-cache-manifest.json"),
             r#"{ "a": { file_name: "b", } }"#
         ).unwrap();
 

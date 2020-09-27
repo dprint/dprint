@@ -188,7 +188,7 @@ mod test {
 
         // should have saved the manifest
         assert_eq!(
-            environment.read_file(&environment.get_cache_dir().unwrap().join("plugin-cache-manifest.json")).unwrap(),
+            environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
             r#"{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}"#,
         );
 
@@ -198,7 +198,7 @@ mod test {
         assert_eq!(environment.path_exists(&file_path), false);
         // should have saved the manifest
         assert_eq!(
-            environment.read_file(&environment.get_cache_dir().unwrap().join("plugin-cache-manifest.json")).unwrap(),
+            environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
             r#"{}"#,
         );
 
@@ -228,7 +228,7 @@ mod test {
 
         // should have saved the manifest
         assert_eq!(
-            environment.read_file(&environment.get_cache_dir().unwrap().join("plugin-cache-manifest.json")).unwrap(),
+            environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
             concat!(
                 r#"{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
                 r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
@@ -247,7 +247,7 @@ mod test {
         assert_eq!(file_path, expected_file_path);
 
         assert_eq!(
-            environment.read_file(&environment.get_cache_dir().unwrap().join("plugin-cache-manifest.json")).unwrap(),
+            environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
             concat!(
                 r#"{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
                 r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
@@ -263,7 +263,7 @@ mod test {
         assert_eq!(environment.path_exists(&file_path), false);
         // should have saved the manifest
         assert_eq!(
-            environment.read_file(&environment.get_cache_dir().unwrap().join("plugin-cache-manifest.json")).unwrap(),
+            environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
             r#"{}"#,
         );
 

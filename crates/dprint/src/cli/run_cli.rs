@@ -53,7 +53,7 @@ pub async fn run_cli<TEnvironment: Environment>(
 
     // clear cache
     if args.sub_command == SubCommand::ClearCache {
-        let cache_dir = environment.get_cache_dir()?; // this actually creates the directory, but whatever
+        let cache_dir = environment.get_cache_dir();
         environment.remove_dir_all(&cache_dir)?;
         environment.log(&format!("Deleted {}", cache_dir.display()));
         return Ok(());

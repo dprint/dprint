@@ -29,7 +29,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
         TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
     >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox>;
     async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox>;
-    fn get_cache_dir(&self) -> Result<PathBuf, ErrBox>;
+    fn get_cache_dir(&self) -> PathBuf;
     fn get_time_secs(&self) -> u64;
     fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox>;
     fn get_multi_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<Vec<usize>, ErrBox>;

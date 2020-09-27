@@ -21,7 +21,7 @@ pub struct CreateCacheItemOptions<'a> {
 impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
     pub fn new(environment: TEnvironment) -> Result<Self, ErrBox> {
         let cache_manifest = read_manifest(&environment)?;
-        let cache_dir_path = environment.get_cache_dir()?;
+        let cache_dir_path = environment.get_cache_dir();
         Ok(Cache {
             environment,
             cache_manifest: RwLock::new(cache_manifest),
@@ -136,7 +136,7 @@ mod test {
     fn it_should_get_item_from_cache_manifest() {
         let environment = TestEnvironment::new();
         environment.write_file(
-            &environment.get_cache_dir().unwrap().join("cache-manifest.json"),
+            &environment.get_cache_dir().join("cache-manifest.json"),
             r#"{ "some-value": {
     "fileName": "my-file.wasm",
     "createdTime": 123456
@@ -187,7 +187,7 @@ mod test {
         cache.forget_item("test").unwrap();
 
         assert_eq!(
-            environment.read_file(&environment.get_cache_dir().unwrap().join("cache-manifest.json")).unwrap(),
+            environment.read_file(&environment.get_cache_dir().join("cache-manifest.json")).unwrap(),
             r#"{}"#
         );
     }
@@ -213,7 +213,7 @@ mod test {
         assert_eq!(environment.read_file(&cache_item_file_path).is_err(), true);
 
         assert_eq!(
-            environment.read_file(&environment.get_cache_dir().unwrap().join("cache-manifest.json")).unwrap(),
+            environment.read_file(&environment.get_cache_dir().join("cache-manifest.json")).unwrap(),
             r#"{}"#
         );
     }

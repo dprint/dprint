@@ -35,9 +35,9 @@ pub fn get_file_path_from_plugin_info<TEnvironment: Environment>(
     environment: &TEnvironment,
 ) -> Result<PathBuf, ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        wasm::get_file_path_from_plugin_info(plugin_info, environment)
+        Ok(wasm::get_file_path_from_plugin_info(plugin_info, environment))
     } else if url_or_file_path.is_process_plugin() {
-        process::get_file_path_from_plugin_info(plugin_info, environment)
+        Ok(process::get_file_path_from_plugin_info(plugin_info, environment))
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }

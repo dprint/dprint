@@ -323,8 +323,8 @@ impl Environment for TestEnvironment {
         Ok(action(Box::new(|_| {})))
     }
 
-    fn get_cache_dir(&self) -> Result<PathBuf, ErrBox> {
-        Ok(PathBuf::from("/cache"))
+    fn get_cache_dir(&self) -> PathBuf {
+        PathBuf::from("/cache")
     }
 
     fn get_time_secs(&self) -> u64 {
