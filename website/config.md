@@ -28,7 +28,7 @@ See [Setup](/setup).
     "indentWidth": 2
   },
   "includes": [
-    "**/*.{ts,tsx,js,jsx,json}"
+    "**/*.{ts,tsx,js,jsx,mjs,json,md}"
   ],
   "excludes": [
     "**/node_modules",

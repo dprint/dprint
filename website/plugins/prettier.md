@@ -22,22 +22,7 @@ Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.h
 
 ## Install and Setup
 
-In _.dprintrc.json_:
-
-1. Specify the plugin url in the `"plugins"` array (follow instructions at [https://github.com/dprint/dprint-plugin-prettier/releases/](https://github.com/dprint/dprint-plugin-prettier/releases/)).
-2. Ensure the file extensions supported by prettier are matched in an `"includes"` pattern.
-3. Add a `"prettier"` configuration property if desired.
-
-```jsonc
-{
-  // ...etc...
-  "prettier": {
-    "trailingComma": "all",
-    "singleQuote": true,
-    "proseWrap": "always"
-  }
-}
-```
+Follow the instructions at [https://github.com/dprint/dprint-plugin-prettier/releases/](https://github.com/dprint/dprint-plugin-prettier/releases/)
 
 ## Configuration
 
