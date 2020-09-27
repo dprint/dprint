@@ -199,7 +199,10 @@ pub fn get_value<T>(
     get_nullable_value(config, key, diagnostics).unwrap_or(default_value)
 }
 
-fn get_nullable_value<T>(
+/// If the provided key exists, takes its value from the provided config and returns it.
+/// If the provided key does not exist, it returns None.
+/// Adds a diagnostic if there is any problem deserializing the value.
+pub fn get_nullable_value<T>(
     config: &mut ConfigKeyMap,
     key: &'static str,
     diagnostics: &mut Vec<ConfigurationDiagnostic>
