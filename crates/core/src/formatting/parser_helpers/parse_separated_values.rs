@@ -267,7 +267,10 @@ pub fn parse_separated_values(
             } else {
                 let (has_new_line, has_blank_line) = if let Some(last_lines_span) = last_lines_span {
                     if let Some(current_lines_span) = parsed_value.lines_span {
-                        (last_lines_span.end_line < current_lines_span.start_line, last_lines_span.end_line < current_lines_span.start_line - 1)
+                        (
+                            last_lines_span.end_line < current_lines_span.start_line,
+                            last_lines_span.end_line < std::cmp::max(current_lines_span.start_line, 1) - 1 // prevent subtracting with overflow
+                        )
                     } else { (false, false) }
                 } else { (false, false) };
                 let use_blank_line = allow_blank_lines && has_blank_line;

@@ -11,7 +11,7 @@ repository = "https://github.com/dprint/dprint"
 clap = "2.33.0"
 colored = "1.9.3" # todo: remove and use console (it's in dprint-cli-core)
 dunce = "1.0.1"
-dprint-core = { path = "../core", version = "0.31.0", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.31.1", features = ["process", "wasm"] }
 dprint-cli-core = { path = "../cli-core", version = "0.2.2" }
 dialoguer = "0.6.2"
 dissimilar = "1.0"
