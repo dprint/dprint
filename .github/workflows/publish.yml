@@ -11,6 +11,8 @@ jobs:
     - name: Get tag version
       id: get_tag_version
       run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
+    - name: Update bvm.land registry.json file
+      run: curl -s -o /dev/null -v https://bvm.land/refresh-registry/dprint/dprint
 
       # Homebrew publish
     - name: Checkout homebrew repo
