@@ -87,7 +87,8 @@ export function createImportObject(): any /*: WebAssembly.Imports*/ {
  * @param response - The streaming source to create the formatter from.
  */
 export function createStreaming(response: Promise<Response>): Promise<Formatter> {
-    if (WebAssembly.instantiateStreaming == null) {
+    // instantiateStreaming is not working in Deno, so revert back to the old way (issue #309)
+    if (WebAssembly.instantiateStreaming == null || typeof globalThis?.Deno != null) {
         return getArrayBuffer()
             .then(buffer => createFromBuffer(buffer));
     } else {
