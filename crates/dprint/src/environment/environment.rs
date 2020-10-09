@@ -21,7 +21,13 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn mk_dir_all(&self, path: &PathBuf) -> Result<(), ErrBox>;
     fn cwd(&self) -> Result<PathBuf, ErrBox>;
     fn log(&self, text: &str);
-    fn log_error(&self, text: &str);
+    fn log_error(&self, text: &str) {
+        self.log_error_with_context(text, "dprint");
+    }
+    /// Logs an error to the console providing the context name.
+    /// This will cause the logger to output the context name when appropriate.
+    /// Ex. Will log the dprint process plugin name.
+    fn log_error_with_context(&self, text: &str, context_name: &str);
     /// Information to output when logging is silent.
     fn log_silent(&self, text: &str);
     fn log_action_with_progress<

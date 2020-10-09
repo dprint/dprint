@@ -3,29 +3,27 @@ use std::time::SystemTime;
 use std::fs;
 use async_trait::async_trait;
 use dprint_core::types::ErrBox;
-use dprint_cli_core::{ProgressBars, download_url, log_action_with_progress, OutputLock};
+use dprint_cli_core::{download_url};
+use dprint_cli_core::logging::{Logger, ProgressBars, log_action_with_progress};
 
 use super::Environment;
 use crate::plugins::CompilationResult;
 
 #[derive(Clone)]
 pub struct RealEnvironment {
-    output_lock: OutputLock,
+    logger: Logger,
     progress_bars: Option<ProgressBars>,
     is_verbose: bool,
-    is_silent: bool,
 }
 
 impl RealEnvironment {
     pub fn new(is_verbose: bool, is_silent: bool) -> Result<RealEnvironment, ErrBox> {
-        let output_lock = OutputLock::new();
-
-        let progress_bars = ProgressBars::new(&output_lock);
+        let logger = Logger::new("dprint", is_silent);
+        let progress_bars = ProgressBars::new(&logger);
         let environment = RealEnvironment {
-            output_lock,
+            logger,
             progress_bars,
             is_verbose,
-            is_silent,
         };
 
         // ensure the cache directory is created
@@ -132,14 +130,15 @@ impl Environment for RealEnvironment {
     }
 
     fn log(&self, text: &str) {
-        if self.is_silent { return; }
-        let _g = self.output_lock.lock();
-        println!("{}", text);
+        self.logger.log(text, "dprint");
     }
 
     fn log_silent(&self, text: &str) {
-        let _g = self.output_lock.lock();
-        println!("{}", text);
+        self.logger.log_bypass_silent(text, "dprint");
+    }
+
+    fn log_error_with_context(&self, text: &str, context_name: &str) {
+        self.logger.log_err(text, context_name);
     }
 
     fn log_action_with_progress<
@@ -147,11 +146,6 @@ impl Environment for RealEnvironment {
         TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
     >(&self, message: &str, action: TCreate, total_size: usize) -> TResult {
         log_action_with_progress(&self.progress_bars, message, action, total_size)
-    }
-
-    fn log_error(&self, text: &str) {
-        let _g = self.output_lock.lock();
-        eprintln!("{}", text);
     }
 
     fn get_cache_dir(&self) -> PathBuf {

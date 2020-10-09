@@ -1,4 +1,4 @@
-use crate::{ProgressBars, ProgressBar, ProgressBarStyle};
+use crate::logging::{ProgressBars, ProgressBar, ProgressBarStyle};
 use crate::types::ErrBox;
 use reqwest::{Client, Response};
 

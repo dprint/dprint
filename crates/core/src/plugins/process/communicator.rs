@@ -18,25 +18,52 @@ impl Drop for ProcessPluginCommunicator {
 }
 
 impl ProcessPluginCommunicator {
-    pub fn new(executable_file_path: &PathBuf) -> Result<Self, ErrBox> {
-        ProcessPluginCommunicator::new_internal(executable_file_path, false)
+    pub fn new(
+        executable_file_path: &PathBuf,
+        on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static,
+    ) -> Result<Self, ErrBox> {
+        ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err)
     }
 
     /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
-    pub fn new_with_init(executable_file_path: &PathBuf) -> Result<Self, ErrBox> {
-        ProcessPluginCommunicator::new_internal(executable_file_path, true)
+    pub fn new_with_init(
+        executable_file_path: &PathBuf,
+        on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static,
+    ) -> Result<Self, ErrBox> {
+        ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err)
     }
 
-    fn new_internal(executable_file_path: &PathBuf, is_init: bool) -> Result<Self, ErrBox> {
+    fn new_internal(
+        executable_file_path: &PathBuf,
+        is_init: bool,
+        on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static,
+    ) -> Result<Self, ErrBox> {
         let mut args = vec!["--parent-pid".to_string(), std::process::id().to_string()];
         if is_init { args.push("--init".to_string()); }
 
-        let child = Command::new(executable_file_path)
+        let mut child = Command::new(executable_file_path)
             .args(&args)
             .stdin(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
+        let stderr = child.stderr.take().unwrap();
+        std::thread::spawn(move || {
+            use std::io::{BufRead, ErrorKind};
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => on_std_err(line),
+                    Err(err) => {
+                        if err.kind() == ErrorKind::BrokenPipe {
+                            return;
+                        } else {
+                            on_std_err(format!("Error reading line from process plugin stderr. {}", err.to_string()));
+                        }
+                    },
+                }
+            }
+        });
         let mut communicator = ProcessPluginCommunicator {
             child,
         };

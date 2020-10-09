@@ -12,7 +12,7 @@ async-trait = "0.1.30"
 clap = "2.33.0"
 crossterm = "0.18.0"
 dunce = "1.0.1"
-dprint-core = { path = "../core", version = "0.31.1", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.32.0", features = ["process", "wasm"] }
 dprint-cli-core = { path = "../cli-core", version = "0.4.0" }
 dialoguer = "0.6.2"
 dissimilar = "1.0"

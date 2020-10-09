@@ -3,22 +3,29 @@ use std::path::PathBuf;
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::types::ErrBox;
+use crate::environment::Environment;
 
 /// A communicator that can recreate the process if it's unresponsive
 /// and initializes the plugin with the configuration on each startup.
-pub struct InitializedProcessPluginCommunicator {
+pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
+    environment: TEnvironment,
+    plugin_name: String,
     executable_file_path: PathBuf,
     config: (ConfigKeyMap, GlobalConfiguration),
     communicator: RefCell<ProcessPluginCommunicator>,
 }
 
-impl InitializedProcessPluginCommunicator {
+impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
     pub fn new(
+        environment: TEnvironment,
+        plugin_name: String,
         executable_file_path: PathBuf,
         config: (ConfigKeyMap, GlobalConfiguration),
     ) -> Result<Self, ErrBox> {
-        let communicator = create_new_communicator(&executable_file_path, &config)?;
+        let communicator = create_new_communicator(environment.clone(), plugin_name.clone(), &executable_file_path, &config)?;
         let initialized_communicator = InitializedProcessPluginCommunicator {
+            environment,
+            plugin_name,
             executable_file_path,
             config,
             communicator: RefCell::new(communicator),
@@ -50,7 +57,12 @@ impl InitializedProcessPluginCommunicator {
     }
 
     pub fn force_recreate_process(&self) -> Result<(), ErrBox> {
-        let new_communicator = create_new_communicator(&self.executable_file_path, &self.config)?;
+        let new_communicator = create_new_communicator(
+            self.environment.clone(),
+            self.plugin_name.clone(),
+            &self.executable_file_path,
+            &self.config
+        )?;
         let mut communicator = self.communicator.borrow_mut();
         *communicator = new_communicator;
         Ok(())
@@ -61,12 +73,16 @@ impl InitializedProcessPluginCommunicator {
     }
 }
 
-fn create_new_communicator(
+fn create_new_communicator<TEnvironment: Environment>(
+    environment: TEnvironment,
+    plugin_name: String,
     executable_file_path: &PathBuf,
     config: &(ConfigKeyMap, GlobalConfiguration)
 ) -> Result<ProcessPluginCommunicator, ErrBox> {
     // ensure it's initialized each time
-    let mut communicator = ProcessPluginCommunicator::new(executable_file_path)?;
+    let mut communicator = ProcessPluginCommunicator::new(executable_file_path, move |error_message| {
+        environment.log_error_with_context(&error_message, &plugin_name);
+    })?;
     communicator.set_global_config(&config.1)?;
     communicator.set_plugin_config(&config.0)?;
     Ok(communicator)

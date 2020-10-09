@@ -2,10 +2,8 @@
 pub mod types;
 
 pub mod checksums;
-mod progress_bars;
-mod output_lock;
 mod url_utils;
+pub mod logging;
+pub(crate) mod terminal;
 
-pub use output_lock::*;
-pub use progress_bars::*;
 pub use url_utils::*;

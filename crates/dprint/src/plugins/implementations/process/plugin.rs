@@ -95,6 +95,8 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let config = self.config.as_ref().expect("Call set_config first.");
         let communicator = InitializedProcessPluginCommunicator::new(
+            self.environment.clone(),
+            self.plugin_info.name.clone(),
             self.executable_file_path.clone(),
             config.clone(),
         )?;
@@ -112,7 +114,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
 pub struct InitializedProcessPlugin<TEnvironment: Environment> {
     name: String,
     environment: TEnvironment,
-    communicator: InitializedProcessPluginCommunicator,
+    communicator: InitializedProcessPluginCommunicator<TEnvironment>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
@@ -120,7 +122,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
     pub fn new(
         name: String,
         environment: TEnvironment,
-        communicator: InitializedProcessPluginCommunicator,
+        communicator: InitializedProcessPluginCommunicator<TEnvironment>,
         plugin_pools: Arc<PluginPools<TEnvironment>>,
     ) -> Result<Self, ErrBox> {
         let initialized_plugin = InitializedProcessPlugin {

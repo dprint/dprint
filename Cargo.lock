@@ -543,12 +543,11 @@ dependencies = [
  "reqwest",
  "sha2",
  "strip-ansi-escapes",
- "tokio",
 ]
 
 [[package]]
 name = "dprint-core"
-version = "0.31.1"
+version = "0.32.0"
 dependencies = [
  "serde",
  "serde_json",
