@@ -21,7 +21,7 @@ pub async fn setup_plugin<TEnvironment: Environment>(
     environment: &TEnvironment
 ) -> Result<SetupPluginResult, ErrBox> {
     if url_or_file_path.is_wasm_plugin() {
-        wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await
+        wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment)
     } else if url_or_file_path.is_process_plugin() {
         process::setup_process_plugin(url_or_file_path, file_bytes, environment).await
     } else {

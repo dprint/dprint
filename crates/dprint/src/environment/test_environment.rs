@@ -315,12 +315,12 @@ impl Environment for TestEnvironment {
         self.logged_messages.lock().unwrap().push(String::from(text));
     }
 
-    async fn log_action_with_progress<
+    fn log_action_with_progress<
         TResult: std::marker::Send + std::marker::Sync,
         TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync
-    >(&self, message: &str, action: TCreate, _: usize) -> Result<TResult, ErrBox> {
+    >(&self, message: &str, action: TCreate, _: usize) -> TResult {
         self.log_error(message);
-        Ok(action(Box::new(|_| {})))
+        action(Box::new(|_| {}))
     }
 
     fn get_cache_dir(&self) -> PathBuf {

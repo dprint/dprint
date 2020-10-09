@@ -31,9 +31,6 @@ async fn main() -> Result<(), ErrBox> {
 }
 
 async fn run() -> Result<(), ErrBox> {
-    #[cfg(windows)]
-    colored::control::set_virtual_terminal(true).unwrap(); // the docs said this will always be Ok(())
-
     let stdin_reader = cli::RealStdInReader::new();
     let args = cli::parse_args(std::env::args().collect(), &stdin_reader)?;
     let environment = RealEnvironment::new(args.verbose, args.is_silent_output())?;

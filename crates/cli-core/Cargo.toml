@@ -1,6 +1,6 @@
 [package]
 name = "dprint-cli-core"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -10,10 +10,8 @@ repository = "https://github.com/dprint/dprint"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.30"
-console = "0.11.3"
-indicatif = "0.14.0"
+crossterm = "0.18.0"
 reqwest = { version = "0.10.8", features = ["rustls-tls"] }
 sha2 = "0.9.1"
-terminal_size = "0.1.13"
 tokio = { version = "0.2", features = ["full"] }
+strip-ansi-escapes = "0.1.0"

@@ -24,10 +24,10 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn log_error(&self, text: &str);
     /// Information to output when logging is silent.
     fn log_silent(&self, text: &str);
-    async fn log_action_with_progress<
+    fn log_action_with_progress<
         TResult: std::marker::Send + std::marker::Sync,
         TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
-    >(&self, message: &str, action: TCreate, total_size: usize) -> Result<TResult, ErrBox>;
+    >(&self, message: &str, action: TCreate, total_size: usize) -> TResult;
     async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox>;
     fn get_cache_dir(&self) -> PathBuf;
     fn get_time_secs(&self) -> u64;

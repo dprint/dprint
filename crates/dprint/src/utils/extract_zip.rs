@@ -43,7 +43,7 @@ pub async fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &PathBuf, en
         }
 
         Ok(())
-    }, length).await??;
+    }, length)?;
 
     Ok(())
 }

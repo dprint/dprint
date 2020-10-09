@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use colored::Colorize;
+use crossterm::style::{Colorize, Styler};
 use dprint_core::types::ErrBox;
 
 use crate::cache::{Cache, CreateCacheItemOptions};
@@ -867,7 +867,7 @@ fn get_incremental_file<TEnvironment: Environment>(
 
 #[cfg(test)]
 mod tests {
-    use colored::Colorize;
+    use crossterm::style::{Colorize, Styler};
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
     use std::sync::Arc;

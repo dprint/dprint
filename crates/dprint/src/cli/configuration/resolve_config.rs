@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
-use colored::Colorize;
+use crossterm::style::Styler;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::types::ErrBox;
 
