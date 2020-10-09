@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
@@ -30,7 +30,7 @@ impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
     }
 
     pub fn get_cache_item(&self, key: &str) -> Option<CacheItem> {
-        self.cache_manifest.read().unwrap().get_item(key).map(|x| x.to_owned())
+        self.cache_manifest.read().get_item(key).map(|x| x.to_owned())
     }
 
     pub fn resolve_cache_item_file_path(&self, cache_item: &CacheItem) -> PathBuf {
@@ -50,7 +50,7 @@ impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
             self.environment.write_file_bytes(&file_path, bytes)?;
         }
 
-        self.cache_manifest.write().unwrap().add_item(options.key, cache_item.clone());
+        self.cache_manifest.write().add_item(options.key, cache_item.clone());
         self.save_manifest()?;
 
         Ok(cache_item)
@@ -58,7 +58,7 @@ impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
 
     #[allow(dead_code)]
     pub fn forget_item(&self, key: &str) -> Result<(), ErrBox> {
-        if let Some(item) = self.cache_manifest.write().unwrap().remove_item(key) {
+        if let Some(item) = self.cache_manifest.write().remove_item(key) {
             let cache_file = self.cache_dir_path.join(&item.file_name);
             match self.environment.remove_file(&cache_file) {
                 _ => {}, // do nothing on success or failure
@@ -119,11 +119,11 @@ impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
     }
 
     fn has_file_name_cache_item(&self, file_name: &str) -> bool {
-        self.cache_manifest.read().unwrap().items().filter(|u| u.file_name == file_name).next().is_some()
+        self.cache_manifest.read().items().filter(|u| u.file_name == file_name).next().is_some()
     }
 
     fn save_manifest(&self) -> Result<(), ErrBox> {
-        write_manifest(&self.cache_manifest.read().unwrap(), &self.environment)
+        write_manifest(&self.cache_manifest.read(), &self.environment)
     }
 }
 

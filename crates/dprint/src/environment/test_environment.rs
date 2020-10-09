@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::io::{Read, Write, Error};
-use globset::{GlobSetBuilder, GlobSet, Glob};
 use async_trait::async_trait;
+use globset::{GlobSetBuilder, GlobSet, Glob};
+use parking_lot::Mutex;
 use path_clean::{PathClean};
 use dprint_core::types::ErrBox;
 
@@ -43,10 +44,10 @@ impl Read for MockStdInOut {
     }
 
     fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
-        let rx = self.receiver.lock().unwrap();
+        let rx = self.receiver.lock();
         rx.recv().unwrap();
 
-        let mut buffer_data = self.buffer_data.lock().unwrap();
+        let mut buffer_data = self.buffer_data.lock();
         buf.copy_from_slice(&buffer_data.data[buffer_data.read_pos..buffer_data.read_pos + buf.len()]);
         buffer_data.read_pos += buf.len();
 
@@ -57,10 +58,10 @@ impl Read for MockStdInOut {
 impl Write for MockStdInOut {
     fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
         let result = {
-            let mut buffer_data = self.buffer_data.lock().unwrap();
+            let mut buffer_data = self.buffer_data.lock();
             buffer_data.data.write(data)
         };
-        let tx = self.sender.lock().unwrap();
+        let tx = self.sender.lock();
         tx.send(0).unwrap();
         result
     }
@@ -107,16 +108,16 @@ impl TestEnvironment {
     }
 
     pub fn take_logged_messages(&self) -> Vec<String> {
-        self.logged_messages.lock().unwrap().drain(..).collect()
+        self.logged_messages.lock().drain(..).collect()
     }
 
     pub fn clear_logs(&self) {
-        self.logged_messages.lock().unwrap().clear();
-        self.logged_errors.lock().unwrap().clear();
+        self.logged_messages.lock().clear();
+        self.logged_errors.lock().clear();
     }
 
     pub fn take_logged_errors(&self) -> Vec<String> {
-        self.logged_errors.lock().unwrap().drain(..).collect()
+        self.logged_errors.lock().drain(..).collect()
     }
 
     pub fn add_remote_file(&self, path: &str, bytes: &'static [u8]) {
@@ -124,42 +125,42 @@ impl TestEnvironment {
     }
 
     pub fn add_remote_file_bytes(&self, path: &str, bytes: Vec<u8>) {
-        let mut remote_files = self.remote_files.lock().unwrap();
+        let mut remote_files = self.remote_files.lock();
         remote_files.insert(String::from(path), bytes);
     }
 
     pub fn is_dir_deleted(&self, path: &PathBuf) -> bool {
-        let deleted_directories = self.deleted_directories.lock().unwrap();
+        let deleted_directories = self.deleted_directories.lock();
         deleted_directories.contains(path)
     }
 
     pub fn set_selection_result(&self, index: usize) {
-        let mut selection_result = self.selection_result.lock().unwrap();
+        let mut selection_result = self.selection_result.lock();
         *selection_result = index;
     }
 
     pub fn set_multi_selection_result(&self, indexes: Vec<usize>) {
-        let mut multi_selection_result = self.multi_selection_result.lock().unwrap();
+        let mut multi_selection_result = self.multi_selection_result.lock();
         *multi_selection_result = indexes;
     }
 
     pub fn set_cwd(&self, new_path: &str) {
-        let mut cwd = self.cwd.lock().unwrap();
+        let mut cwd = self.cwd.lock();
         *cwd = String::from(new_path);
     }
 
     pub fn set_silent(&self, value: bool) {
-        let mut is_silent = self.is_silent.lock().unwrap();
+        let mut is_silent = self.is_silent.lock();
         *is_silent = value;
     }
 
     pub fn set_verbose(&self, value: bool) {
-        let mut is_verbose = self.is_verbose.lock().unwrap();
+        let mut is_verbose = self.is_verbose.lock();
         *is_verbose = value;
     }
 
     pub fn set_wasm_compile_result(&self, value: CompilationResult) {
-        let mut wasm_compile_result = self.wasm_compile_result.lock().unwrap();
+        let mut wasm_compile_result = self.wasm_compile_result.lock();
         *wasm_compile_result = Some(value);
     }
 
@@ -177,8 +178,8 @@ impl Drop for TestEnvironment {
         // If this panics that means the logged messages or errors weren't inspected for a test.
         // Use take_logged_messages() or take_logged_errors() and inspect the results.
         if !std::thread::panicking() && Arc::strong_count(&self.logged_messages) == 1 {
-            assert_eq!(self.logged_messages.lock().unwrap().clone(), Vec::<String>::new(), "should not have logged messages left on drop");
-            assert_eq!(self.logged_errors.lock().unwrap().clone(), Vec::<String>::new(), "should not have logged errors left on drop");
+            assert_eq!(self.logged_messages.lock().clone(), Vec::<String>::new(), "should not have logged messages left on drop");
+            assert_eq!(self.logged_errors.lock().clone(), Vec::<String>::new(), "should not have logged errors left on drop");
         }
     }
 }
@@ -195,7 +196,7 @@ impl Environment for TestEnvironment {
     }
 
     fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Vec<u8>, ErrBox> {
-        let files = self.files.lock().unwrap();
+        let files = self.files.lock();
         // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
         let file_path = PathBuf::from(file_path.to_string_lossy().replace("\\", "/"));
         match files.get(&file_path.clean()) {
@@ -209,24 +210,24 @@ impl Environment for TestEnvironment {
     }
 
     fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox> {
-        let mut files = self.files.lock().unwrap();
+        let mut files = self.files.lock();
         files.insert(file_path.clean(), Vec::from(bytes));
         Ok(())
     }
 
     fn remove_file(&self, file_path: &PathBuf) -> Result<(), ErrBox> {
-        let mut files = self.files.lock().unwrap();
+        let mut files = self.files.lock();
         files.remove(&file_path.clean());
         Ok(())
     }
 
     fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox> {
         {
-            let mut deleted_directories = self.deleted_directories.lock().unwrap();
+            let mut deleted_directories = self.deleted_directories.lock();
             deleted_directories.push(dir_path.to_owned());
         }
         let dir_path = dir_path.clean();
-        let mut files = self.files.lock().unwrap();
+        let mut files = self.files.lock();
         let mut delete_paths = Vec::new();
         for (file_path, _) in files.iter() {
             if file_path.starts_with(&dir_path) {
@@ -240,7 +241,7 @@ impl Environment for TestEnvironment {
     }
 
     async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
-        let remote_files = self.remote_files.lock().unwrap();
+        let remote_files = self.remote_files.lock();
         match remote_files.get(&String::from(url)) {
             Some(bytes) => Ok(bytes.clone()),
             None => err!("Could not find file at url {}", url),
@@ -252,7 +253,7 @@ impl Environment for TestEnvironment {
         let mut file_paths = Vec::new();
         let includes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| !p.starts_with("!")).map(|p| p.to_owned()))?;
         let excludes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| p.starts_with("!")).map(|p| String::from(&p[1..])))?;
-        let files = self.files.lock().unwrap();
+        let files = self.files.lock();
 
         for key in files.keys() {
             let mut has_exclude = false;
@@ -278,7 +279,7 @@ impl Environment for TestEnvironment {
     }
 
     fn path_exists(&self, file_path: &PathBuf) -> bool {
-        let files = self.files.lock().unwrap();
+        let files = self.files.lock();
         files.contains_key(&file_path.clean())
     }
 
@@ -297,22 +298,22 @@ impl Environment for TestEnvironment {
     }
 
     fn cwd(&self) -> Result<PathBuf, ErrBox> {
-        let cwd = self.cwd.lock().unwrap();
+        let cwd = self.cwd.lock();
         Ok(PathBuf::from(cwd.to_owned()))
     }
 
     fn log(&self, text: &str) {
-        if *self.is_silent.lock().unwrap() { return; }
-        self.logged_messages.lock().unwrap().push(String::from(text));
+        if *self.is_silent.lock() { return; }
+        self.logged_messages.lock().push(String::from(text));
     }
 
     fn log_error(&self, text: &str) {
-        if *self.is_silent.lock().unwrap() { return; }
-        self.logged_errors.lock().unwrap().push(String::from(text));
+        if *self.is_silent.lock() { return; }
+        self.logged_errors.lock().push(String::from(text));
     }
 
     fn log_silent(&self, text: &str) {
-        self.logged_messages.lock().unwrap().push(String::from(text));
+        self.logged_messages.lock().push(String::from(text));
     }
 
     fn log_action_with_progress<
@@ -333,20 +334,20 @@ impl Environment for TestEnvironment {
 
     fn get_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<usize, ErrBox> {
         self.log_error(prompt_message);
-        Ok(*self.selection_result.lock().unwrap())
+        Ok(*self.selection_result.lock())
     }
 
     fn get_multi_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
         self.log_error(prompt_message);
-        Ok(self.multi_selection_result.lock().unwrap().clone())
+        Ok(self.multi_selection_result.lock().clone())
     }
 
     fn is_verbose(&self) -> bool {
-        *self.is_verbose.lock().unwrap()
+        *self.is_verbose.lock()
     }
 
     fn compile_wasm(&self, _: &[u8]) -> Result<CompilationResult, ErrBox> {
-        let wasm_compile_result = self.wasm_compile_result.lock().unwrap();
+        let wasm_compile_result = self.wasm_compile_result.lock();
         Ok(wasm_compile_result.clone().expect("Expected compilation result to be set."))
     }
 

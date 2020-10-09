@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 use crate::environment::Environment;
 use crate::utils::get_bytes_hash;
@@ -73,12 +73,12 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
 
     fn add_to_write_data(&self, file_path: PathBuf, file_text: &str) {
         let hash = get_bytes_hash(file_text.as_bytes());
-        let mut write_data = self.write_data.lock().unwrap();
+        let mut write_data = self.write_data.lock();
         write_data.file_hashes.insert(file_path, hash);
     }
 
     pub fn write(&self) {
-        let write_data = self.write_data.lock().unwrap();
+        let write_data = self.write_data.lock();
         write_incremental(&self.file_path, &write_data, &self.environment);
     }
 

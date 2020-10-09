@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
+use parking_lot::{Mutex, RwLock};
 use crate::output_lock::OutputLock;
 use crossterm::{style::{self, Colorize}, cursor, terminal, QueueableCommand};
 use std::time::{Duration, SystemTime};
@@ -31,7 +32,7 @@ pub struct ProgressBar {
 
 impl ProgressBar {
     pub fn set_position(&self, new_pos: usize) {
-        let mut pos = self.pos.write().unwrap();
+        let mut pos = self.pos.write();
         *pos = new_pos;
     }
 
@@ -82,7 +83,7 @@ impl ProgressBars {
     }
 
     pub fn add_progress(&self, message: String, style: ProgressBarStyle, total_size: usize) -> ProgressBar {
-        let mut internal_state = self.state.write().unwrap();
+        let mut internal_state = self.state.write();
         let id = internal_state.progress_bar_counter;
         let pb = ProgressBar {
             id,
@@ -104,16 +105,16 @@ impl ProgressBars {
     }
 
     fn finish_progress(&self, progress_bar_id: usize) {
-        let mut internal_state = self.state.write().unwrap();
+        let mut internal_state = self.state.write();
 
         if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == progress_bar_id) {
             internal_state.progress_bars.remove(index);
         }
 
         if internal_state.progress_bars.is_empty() {
-            let mut draw_state = self.draw_state.lock().unwrap();
+            let mut draw_state = self.draw_state.lock();
 
-            let _g = self.output_lock.unwrap_lock();
+            let _g = self.output_lock.lock();
             let mut std_err = stderr();
             if let Some(draw_state) = draw_state.as_mut() {
                 queue_clear_previous_draw(&mut std_err, &draw_state);
@@ -137,7 +138,7 @@ impl ProgressBars {
             let mut std_err = stderr();
             loop {
                 {
-                    let internal_state = internal_state.read().unwrap();
+                    let internal_state = internal_state.read();
                     // exit if not the current draw thread or there are no more progress bars
                     if internal_state.drawer_id != drawer_id || internal_state.progress_bars.is_empty() {
                         break;
@@ -151,16 +152,16 @@ impl ProgressBars {
                         text.push_str("\n");
                         text.push_str(&get_progress_bar_text(
                             terminal_width,
-                            *progress_bar.pos.read().unwrap(),
+                            *progress_bar.pos.read(),
                             progress_bar.size,
                             progress_bar.style,
                             progress_bar.start_time.elapsed().unwrap()
                         ));
                     }
                     let escaped_text = String::from_utf8(strip_ansi_escapes::strip(&text).unwrap()).unwrap();
-                    let mut draw_state = draw_state.lock().unwrap();
+                    let mut draw_state = draw_state.lock();
 
-                    let _g = output_lock.unwrap_lock();
+                    let _g = output_lock.lock();
 
                     if let Some(draw_state) = draw_state.as_mut() {
                         queue_clear_previous_draw(&mut std_err, &draw_state);

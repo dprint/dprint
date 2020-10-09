@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
 use dprint_core::configuration::ConfigKeyMap;
@@ -48,7 +48,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     let host_clear_bytes = {
         let shared_bytes = shared_bytes.clone();
         move |length: u32| {
-            let mut shared_bytes = shared_bytes.lock().unwrap();
+            let mut shared_bytes = shared_bytes.lock();
             *shared_bytes = Vec::with_capacity(length as usize);
         }
     };
@@ -59,7 +59,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
             let memory_reader = buffer_pointer
                 .deref(ctx.memory(0), 0, length)
                 .unwrap();
-            let mut shared_bytes = shared_bytes.lock().unwrap();
+            let mut shared_bytes = shared_bytes.lock();
             for i in 0..length as usize {
                 shared_bytes.push(memory_reader[i].get());
             }
@@ -74,7 +74,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
                 .unwrap();
             let offset = offset as usize;
             let length = length as usize;
-            let shared_bytes = shared_bytes.lock().unwrap();
+            let shared_bytes = shared_bytes.lock();
             let byte_slice = &shared_bytes[offset..offset + length];
             for i in 0..length as usize {
                 memory_writer[i].set(byte_slice[i]);
@@ -86,11 +86,11 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         let shared_bytes = shared_bytes.clone();
         move || {
             let bytes = {
-                let mut shared_bytes = shared_bytes.lock().unwrap();
+                let mut shared_bytes = shared_bytes.lock();
                 std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
             };
             let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or(HashMap::new());
-            let mut override_config = override_config.lock().unwrap();
+            let mut override_config = override_config.lock();
             override_config.replace(config_key_map);
         }
     };
@@ -99,11 +99,11 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         let shared_bytes = shared_bytes.clone();
         move || {
             let bytes = {
-                let mut shared_bytes = shared_bytes.lock().unwrap();
+                let mut shared_bytes = shared_bytes.lock();
                 std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
             };
             let file_path_str = String::from_utf8(bytes).unwrap();
-            let mut file_path = file_path.lock().unwrap();
+            let mut file_path = file_path.lock();
             file_path.replace(PathBuf::from(file_path_str));
         }
     };
@@ -114,17 +114,17 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         let formatted_text_store = formatted_text_store.clone();
         let error_text_store = error_text_store.clone();
         move || {
-            let override_config = override_config.lock().unwrap().take().unwrap_or(HashMap::new());
-            let file_path = file_path.lock().unwrap().take().expect("Expected to have file path.");
+            let override_config = override_config.lock().take().unwrap_or(HashMap::new());
+            let file_path = file_path.lock().take().expect("Expected to have file path.");
             let bytes = {
-                let mut shared_bytes = shared_bytes.lock().unwrap();
+                let mut shared_bytes = shared_bytes.lock();
                 std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
             };
             let file_text = String::from_utf8(bytes).unwrap();
 
             match format_with_plugin_pool(&parent_plugin_name, &file_path, &file_text, &override_config, &pools) {
                 Ok(Some(formatted_text)) => {
-                    let mut formatted_text_store = formatted_text_store.lock().unwrap();
+                    let mut formatted_text_store = formatted_text_store.lock();
                     *formatted_text_store = formatted_text;
                     1 // change
                 },
@@ -132,7 +132,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
                     0 // no change
                 }
                 Err(err) => {
-                    let mut error_text_store = error_text_store.lock().unwrap();
+                    let mut error_text_store = error_text_store.lock();
                     *error_text_store = err.to_string();
                     2 // error
                 }
@@ -144,11 +144,11 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         let formatted_text_store = formatted_text_store.clone();
         move || {
             let formatted_text = {
-                let mut formatted_text_store = formatted_text_store.lock().unwrap();
+                let mut formatted_text_store = formatted_text_store.lock();
                 std::mem::replace(&mut *formatted_text_store, String::new())
             };
             let len = formatted_text.len();
-            let mut shared_bytes = shared_bytes.lock().unwrap();
+            let mut shared_bytes = shared_bytes.lock();
             *shared_bytes = formatted_text.into_bytes();
             len as u32
         }
@@ -159,11 +159,11 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         let error_text_store = error_text_store.clone();
         move || {
             let error_text = {
-                let mut error_text_store = error_text_store.lock().unwrap();
+                let mut error_text_store = error_text_store.lock();
                 std::mem::replace(&mut *error_text_store, String::new())
             };
             let len = error_text.len();
-            let mut shared_bytes = shared_bytes.lock().unwrap();
+            let mut shared_bytes = shared_bytes.lock();
             *shared_bytes = error_text.into_bytes();
             len as u32
         }

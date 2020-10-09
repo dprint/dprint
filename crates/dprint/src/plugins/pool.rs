@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::collections::HashMap;
+use parking_lot::Mutex;
 use tokio::sync::Semaphore;
 
 use dprint_core::types::ErrBox;
@@ -47,21 +48,21 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
 
     pub fn drop_plugins(&self) {
         {
-            let mut pools = self.pools.lock().unwrap();
+            let mut pools = self.pools.lock();
             for pool in pools.values() {
                 pool.drop_plugins();
             }
             pools.clear();
         }
         {
-            let mut plugins_for_plugins = self.plugins_for_plugins.lock().unwrap();
+            let mut plugins_for_plugins = self.plugins_for_plugins.lock();
             plugins_for_plugins.clear();
         }
     }
 
     pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>) {
-        let mut pools = self.pools.lock().unwrap();
-        let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.lock().unwrap();
+        let mut pools = self.pools.lock();
+        let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.lock();
         for plugin in plugins {
             let plugin_name = String::from(plugin.name());
             let plugin_extensions = plugin.file_extensions().clone();
@@ -76,12 +77,12 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     }
 
     pub fn get_pool(&self, plugin_name: &str) -> Option<Arc<InitializedPluginPool<TEnvironment>>> {
-        self.pools.lock().unwrap().get(plugin_name).map(|p| p.clone())
+        self.pools.lock().get(plugin_name).map(|p| p.clone())
     }
 
     pub fn take_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let plugin = {
-            let mut plugins_for_plugins = self.plugins_for_plugins.lock().unwrap(); // keep this lock short
+            let mut plugins_for_plugins = self.plugins_for_plugins.lock(); // keep this lock short
             let plugins_for_plugin = if let Some(plugins_for_plugin) = plugins_for_plugins.get_mut(parent_plugin_name) {
                 plugins_for_plugin
             } else {
@@ -106,18 +107,18 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     }
 
     pub fn release_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str, plugin: Box<dyn InitializedPlugin>) {
-        let mut plugins_for_plugins = self.plugins_for_plugins.lock().unwrap();
+        let mut plugins_for_plugins = self.plugins_for_plugins.lock();
         let plugins_for_plugin = plugins_for_plugins.get_mut(parent_plugin_name).unwrap();
         let plugins = plugins_for_plugin.get_mut(sub_plugin_name).unwrap();
         plugins.push(plugin);
     }
 
     pub fn get_plugin_name_from_extension(&self, ext: &str) -> Option<String> {
-        self.extension_to_plugin_name_map.lock().unwrap().get(ext).map(|name| name.to_owned())
+        self.extension_to_plugin_name_map.lock().get(ext).map(|name| name.to_owned())
     }
 
     pub fn release(&self, parent_plugin_name: &str) {
-        let plugins_for_plugin = self.plugins_for_plugins.lock().unwrap().remove(parent_plugin_name);
+        let plugins_for_plugin = self.plugins_for_plugins.lock().remove(parent_plugin_name);
         if let Some(plugins_for_plugin) = plugins_for_plugin {
             for (sub_plugin_name, initialized_plugins) in plugins_for_plugin.into_iter() {
                 if let Some(pool) = self.get_pool(&sub_plugin_name) {
@@ -132,7 +133,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
         use std::num::Wrapping;
         // yeah, I know adding hashes isn't right, but the chance of this not working
         // in order to tell when a plugin has changed is super low.
-        let pools = self.pools.lock().unwrap();
+        let pools = self.pools.lock();
         let mut hash_sum = Wrapping(0);
         for (_, pool) in pools.iter() {
             hash_sum += Wrapping(pool.plugin.get_hash());
@@ -162,12 +163,12 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     }
 
     pub fn drop_plugins(&self) {
-        let mut items = self.items.lock().unwrap();
+        let mut items = self.items.lock();
         items.clear();
     }
 
     pub fn take_or_create_no_sempahore(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let mut items = self.items.lock().unwrap();
+        let mut items = self.items.lock();
         if let Some(item) = items.pop() {
             Ok(item)
         } else {
@@ -176,7 +177,7 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     }
 
     pub fn release_no_semaphore(&self, plugin: Box<dyn InitializedPlugin>) {
-        let mut items = self.items.lock().unwrap();
+        let mut items = self.items.lock();
         items.push(plugin);
     }
 
@@ -189,7 +190,7 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     pub async fn try_take(&self) -> Result<Option<Box<dyn InitializedPlugin>>, ErrBox> {
         self.wait_and_reduce_semaphore().await?;
 
-        let mut items = self.items.lock().unwrap();
+        let mut items = self.items.lock();
         // try to get an item from the pool
         return Ok(items.pop());
     }
@@ -200,13 +201,13 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     }
 
     pub fn release(&self, plugin: Box<dyn InitializedPlugin>) {
-        let mut items = self.items.lock().unwrap();
+        let mut items = self.items.lock();
         items.push(plugin);
         self.semaphore.add_permits(1);
     }
 
     pub fn release_all(&self, plugins: Vec<Box<dyn InitializedPlugin>>) {
-        let mut items = self.items.lock().unwrap();
+        let mut items = self.items.lock();
         let plugins_len = plugins.len();
         items.extend(plugins);
         self.semaphore.add_permits(plugins_len);

@@ -2,7 +2,8 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::time::Instant;
 use crossterm::style::{Colorize, Styler};
 use dprint_core::types::ErrBox;
@@ -533,13 +534,13 @@ async fn output_format_times<TEnvironment: Environment>(
         let durations = durations.clone();
         move |file_path, _, _, _, start_instant, _| {
             let duration = start_instant.elapsed().as_millis();
-            let mut durations = durations.lock().unwrap();
+            let mut durations = durations.lock();
             durations.push((file_path.to_owned(), duration));
             Ok(())
         }
     }).await?;
 
-    let mut durations = durations.lock().unwrap();
+    let mut durations = durations.lock();
     durations.sort_by_key(|k| k.1);
     for (file_path, duration) in durations.iter() {
         environment.log(&format!("{}ms - {}", duration, file_path.display()));

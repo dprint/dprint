@@ -1,6 +1,6 @@
 [package]
 name = "dprint-cli-core"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -11,7 +11,8 @@ repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 crossterm = "0.18.0"
+parking_lot = "0.11.0"
 reqwest = { version = "0.10.8", features = ["rustls-tls"] }
 sha2 = "0.9.1"
-tokio = { version = "0.2", features = ["full"] }
 strip-ansi-escapes = "0.1.0"
+tokio = { version = "0.2", features = ["full"] }

@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
+use parking_lot::{Mutex, MutexGuard};
 
 /// Lock that can be used throughout an application to synchronize output
 /// to the console.
@@ -14,7 +15,7 @@ impl OutputLock {
         }
     }
 
-    pub fn unwrap_lock<'a>(&'a self) -> MutexGuard<'a, ()> {
-        self.output_lock.lock().unwrap()
+    pub fn lock<'a>(&'a self) -> MutexGuard<'a, ()> {
+        self.output_lock.lock()
     }
 }

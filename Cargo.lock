@@ -521,6 +521,7 @@ dependencies = [
  "globwalk",
  "jsonc-parser",
  "lazy_static",
+ "parking_lot 0.11.0",
  "path-clean",
  "pretty_assertions",
  "serde",
@@ -535,9 +536,10 @@ dependencies = [
 
 [[package]]
 name = "dprint-cli-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "crossterm",
+ "parking_lot 0.11.0",
  "reqwest",
  "sha2",
  "strip-ansi-escapes",

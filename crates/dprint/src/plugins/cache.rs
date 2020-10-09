@@ -1,6 +1,6 @@
 use futures::Future;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
@@ -33,7 +33,7 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
 
     pub fn forget(&self, source_reference: &PluginSourceReference) -> Result<(), ErrBox> {
         let cache_key = self.get_cache_key(&source_reference.path_source)?;
-        let mut manifest = self.manifest.write().unwrap();
+        let mut manifest = self.manifest.write();
         let cache_item = manifest.remove_item(&cache_key);
         write_manifest(&manifest, &self.environment)?;
 
@@ -77,7 +77,7 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
             Fut: Future<Output = Result<Vec<u8>, ErrBox>>
     {
         let cache_key = self.get_cache_key(&source_reference.path_source)?;
-        let cache_item = self.manifest.read().unwrap().get_item(&cache_key).map(|x| x.to_owned()); // drop lock
+        let cache_item = self.manifest.read().get_item(&cache_key).map(|x| x.to_owned()); // drop lock
         if let Some(cache_item) = cache_item {
             let file_path = get_file_path_from_plugin_info(
                 &source_reference.path_source,
@@ -128,7 +128,7 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
             created_time: self.environment.get_time_secs(),
         };
 
-        let mut manifest = self.manifest.write().unwrap();
+        let mut manifest = self.manifest.write();
         manifest.add_item(cache_key, cache_item);
         write_manifest(&manifest, &self.environment)?;
 

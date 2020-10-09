@@ -133,12 +133,12 @@ impl Environment for RealEnvironment {
 
     fn log(&self, text: &str) {
         if self.is_silent { return; }
-        let _g = self.output_lock.unwrap_lock();
+        let _g = self.output_lock.lock();
         println!("{}", text);
     }
 
     fn log_silent(&self, text: &str) {
-        let _g = self.output_lock.unwrap_lock();
+        let _g = self.output_lock.lock();
         println!("{}", text);
     }
 
@@ -150,7 +150,7 @@ impl Environment for RealEnvironment {
     }
 
     fn log_error(&self, text: &str) {
-        let _g = self.output_lock.unwrap_lock();
+        let _g = self.output_lock.lock();
         eprintln!("{}", text);
     }
 
