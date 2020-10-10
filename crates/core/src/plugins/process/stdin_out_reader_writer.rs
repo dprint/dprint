@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use crate::types::ErrBox;
 
 const BUFFER_SIZE: usize = 1024; // safe to assume
@@ -38,7 +38,7 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         self.send_variable_data(text.as_bytes())
     }
 
-    pub fn send_path_buf(&mut self, path_buf: &PathBuf) -> Result<(), ErrBox> {
+    pub fn send_path_buf(&mut self, path_buf: &Path) -> Result<(), ErrBox> {
         self.send_string(&path_buf.to_string_lossy())
     }
 

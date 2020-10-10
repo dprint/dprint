@@ -82,10 +82,10 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
        fn format_text<'a>(
            &'a self,
-           file_path: &PathBuf,
+           file_path: &Path,
            file_text: &str,
            config: &Configuration,
-           format_with_host: Box<dyn FnMut(&PathBuf, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>,
+           format_with_host: Box<dyn FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>,
        ) -> Result<String, ErrBox> {
            // format here
        }

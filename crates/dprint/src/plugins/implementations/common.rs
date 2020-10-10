@@ -1,5 +1,5 @@
 use dprint_core::configuration::ConfigKeyMap;
-use std::path::PathBuf;
+use std::path::Path;
 use dprint_core::types::ErrBox;
 
 use crate::plugins::pool::PluginPools;
@@ -8,7 +8,7 @@ use crate::utils::get_lowercase_file_extension;
 
 pub fn format_with_plugin_pool<TEnvironment: Environment>(
     parent_plugin_name: &str,
-    file_path: &PathBuf,
+    file_path: &Path,
     file_text: &str,
     override_config: &ConfigKeyMap,
     pools: &PluginPools<TEnvironment>,

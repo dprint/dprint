@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use crate::configuration::{ConfigKeyMap, GlobalConfiguration, ConfigurationDiagnostic};
@@ -19,7 +19,7 @@ impl Drop for ProcessPluginCommunicator {
 
 impl ProcessPluginCommunicator {
     pub fn new(
-        executable_file_path: &PathBuf,
+        executable_file_path: &Path,
         on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static,
     ) -> Result<Self, ErrBox> {
         ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err)
@@ -27,14 +27,14 @@ impl ProcessPluginCommunicator {
 
     /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
     pub fn new_with_init(
-        executable_file_path: &PathBuf,
+        executable_file_path: &Path,
         on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static,
     ) -> Result<Self, ErrBox> {
         ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err)
     }
 
     fn new_internal(
-        executable_file_path: &PathBuf,
+        executable_file_path: &Path,
         is_init: bool,
         on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static,
     ) -> Result<Self, ErrBox> {
@@ -120,7 +120,7 @@ impl ProcessPluginCommunicator {
 
     pub fn format_text(
         &mut self,
-        file_path: &PathBuf,
+        file_path: &Path,
         file_text: &str,
         override_config: &ConfigKeyMap,
         format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>, ErrBox>,

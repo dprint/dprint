@@ -9,7 +9,7 @@ pub mod macros {
         () => {
             // HOST FORMATTING
 
-            fn format_with_host(file_path: &PathBuf, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, String> {
+            fn format_with_host(file_path: &Path, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, String> {
                 #[link(wasm_import_module = "dprint")]
                 extern "C" {
                     fn host_clear_bytes(length: u32);

@@ -95,7 +95,7 @@ Implementing a WASM plugin is easier if you're using Rust as there are several h
    }
 
    fn format_text(
-       file_path: &PathBuf,
+       file_path: &Path,
        file_text: &str,
        config: &Configuration,
    ) -> Result<String, String> {

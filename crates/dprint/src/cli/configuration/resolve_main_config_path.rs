@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use dprint_core::types::ErrBox;
 
 use crate::cache::Cache;
@@ -71,7 +71,7 @@ pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
         None
     }
 
-    fn get_config_file_in_dir(dir: &PathBuf, environment: &impl Environment) -> Option<PathBuf> {
+    fn get_config_file_in_dir(dir: &Path, environment: &impl Environment) -> Option<PathBuf> {
         if let Some(path) = get_config_file_in_dir_with_name(dir, DEFAULT_CONFIG_FILE_NAME, environment) {
             Some(path)
         } else if let Some(path) = get_config_file_in_dir_with_name(dir, ALTERNATE_CONFIG_FILE_NAME, environment) {
@@ -81,7 +81,7 @@ pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
         }
     }
 
-    fn get_config_file_in_dir_with_name(dir: &PathBuf, file_name: &str, environment: &impl Environment) -> Option<PathBuf> {
+    fn get_config_file_in_dir_with_name(dir: &Path, file_name: &str, environment: &impl Environment) -> Option<PathBuf> {
         let config_path = dir.join(file_name);
         if environment.path_exists(&config_path) {
             return Some(config_path);

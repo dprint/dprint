@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+use std::path::Path;
 use std::io::prelude::*;
 
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 
-pub async fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &PathBuf, environment: &impl Environment) -> Result<(), ErrBox> {
+pub async fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment: &impl Environment) -> Result<(), ErrBox> {
     // adapted from https://github.com/mvdnes/zip-rs/blob/master/examples/extract.rs
     let reader = std::io::Cursor::new(&zip_bytes);
     let mut zip = zip::ZipArchive::new(reader)?;
@@ -16,7 +16,7 @@ pub async fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &PathBuf, en
         for i in 0..zip.len() {
             update_size(i);
             let mut file = zip.by_index(i).unwrap();
-            let file_name = file.sanitized_name();
+            let file_name = file.name();
             let file_path = dir_path.join(file_name);
 
             if !file.is_dir() {

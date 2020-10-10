@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::types::ErrBox;
@@ -68,7 +68,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
         Ok(())
     }
 
-    pub fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap, format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>, ErrBox>) -> Result<String, ErrBox> {
+    pub fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap, format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>, ErrBox>) -> Result<String, ErrBox> {
         self.communicator.borrow_mut().format_text(file_path, file_text, override_config, format_with_host)
     }
 }
@@ -76,7 +76,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
 fn create_new_communicator<TEnvironment: Environment>(
     environment: TEnvironment,
     plugin_name: String,
-    executable_file_path: &PathBuf,
+    executable_file_path: &Path,
     config: &(ConfigKeyMap, GlobalConfiguration)
 ) -> Result<ProcessPluginCommunicator, ErrBox> {
     // ensure it's initialized each time

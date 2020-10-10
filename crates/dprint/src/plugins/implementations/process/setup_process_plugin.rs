@@ -1,5 +1,5 @@
 use std::str;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde::{Serialize, Deserialize};
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
@@ -21,7 +21,7 @@ fn get_plugin_dir_path(name: &str, version: &str, environment: &impl Environment
     cache_dir_path.join("plugins").join(&name).join(&version)
 }
 
-fn get_plugin_executable_file_path(dir_path: &PathBuf, plugin_name: &str) -> PathBuf {
+fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBuf {
     dir_path.join(if cfg!(target_os="windows") {
         format!("{}.exe", plugin_name)
     } else {
@@ -47,7 +47,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
     };
 
     async fn setup_inner<TEnvironment: Environment>(
-        plugin_cache_dir_path: &PathBuf,
+        plugin_cache_dir_path: &Path,
         plugin_name: String,
         zip_bytes: &[u8],
         environment: &TEnvironment,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::borrow::Cow;
 use serde::{Serialize};
 
@@ -15,10 +15,10 @@ pub trait ProcessPluginHandler<TConfiguration: Clone + Serialize> {
     fn resolve_config(&self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
     fn format_text<'a>(
         &self,
-        file_path: &PathBuf,
+        file_path: &Path,
         file_text: &str,
         config: &TConfiguration,
-        format_with_host: Box<dyn FnMut(&PathBuf, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>
+        format_with_host: Box<dyn FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>
     ) -> Result<String, ErrBox>;
 }
 
@@ -162,7 +162,7 @@ fn get_resolved_config_result<'a, TConfiguration: Clone + Serialize>(
 
 fn format_with_host<'a, TRead: Read, TWrite: Write>(
     reader_writer: &mut StdInOutReaderWriter<'a, TRead, TWrite>,
-    file_path: &PathBuf,
+    file_path: &Path,
     file_text: String,
     override_config: &ConfigKeyMap,
 ) -> Result<String, ErrBox> {

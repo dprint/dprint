@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
@@ -64,10 +64,10 @@ impl ProcessPluginHandler<Configuration> for TestProcessPluginHandler {
 
     fn format_text<'a>(
         &'a self,
-        _: &PathBuf,
+        _: &Path,
         file_text: &str,
         config: &Configuration,
-        format_with_host: Box<dyn FnMut(&PathBuf, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>,
+        format_with_host: Box<dyn FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>,
     ) -> Result<String, ErrBox> {
         if file_text.starts_with("plugin: ") {
             let mut format_with_host = format_with_host;

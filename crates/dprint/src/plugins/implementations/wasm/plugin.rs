@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
@@ -179,7 +179,7 @@ impl InitializedPlugin for InitializedWasmPlugin {
         Ok(serde_json::from_str(&json_text)?)
     }
 
-    fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+    fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
         // send override config if necessary
         if !override_config.is_empty() {
             self.send_string(&serde_json::to_string(override_config)?);

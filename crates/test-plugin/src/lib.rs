@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use dprint_core::generate_plugin_code;
@@ -45,7 +45,7 @@ fn get_plugin_license_text() -> String {
     std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
 }
 
-fn format_text(_: &PathBuf, file_text: &str, config: &Configuration) -> Result<String, String> {
+fn format_text(_: &Path, file_text: &str, config: &Configuration) -> Result<String, String> {
     if file_text.starts_with("plugin: ") {
         format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin: ", ""), &HashMap::new())
     } else if file_text.starts_with("plugin-config: ") {

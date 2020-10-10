@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -129,9 +129,9 @@ impl TestEnvironment {
         remote_files.insert(String::from(path), bytes);
     }
 
-    pub fn is_dir_deleted(&self, path: &PathBuf) -> bool {
+    pub fn is_dir_deleted(&self, path: &Path) -> bool {
         let deleted_directories = self.deleted_directories.lock();
-        deleted_directories.contains(path)
+        deleted_directories.contains(&path.to_path_buf())
     }
 
     pub fn set_selection_result(&self, index: usize) {
@@ -190,12 +190,12 @@ impl Environment for TestEnvironment {
         false
     }
 
-    fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
+    fn read_file(&self, file_path: &Path) -> Result<String, ErrBox> {
         let file_bytes = self.read_file_bytes(file_path)?;
         Ok(String::from_utf8(file_bytes.to_vec()).unwrap())
     }
 
-    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Vec<u8>, ErrBox> {
+    fn read_file_bytes(&self, file_path: &Path) -> Result<Vec<u8>, ErrBox> {
         let files = self.files.lock();
         // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
         let file_path = PathBuf::from(file_path.to_string_lossy().replace("\\", "/"));
@@ -205,28 +205,28 @@ impl Environment for TestEnvironment {
         }
     }
 
-    fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
+    fn write_file(&self, file_path: &Path, file_text: &str) -> Result<(), ErrBox> {
         self.write_file_bytes(file_path, file_text.as_bytes())
     }
 
-    fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox> {
+    fn write_file_bytes(&self, file_path: &Path, bytes: &[u8]) -> Result<(), ErrBox> {
         let mut files = self.files.lock();
-        files.insert(file_path.clean(), Vec::from(bytes));
+        files.insert(file_path.to_path_buf().clean(), Vec::from(bytes));
         Ok(())
     }
 
-    fn remove_file(&self, file_path: &PathBuf) -> Result<(), ErrBox> {
+    fn remove_file(&self, file_path: &Path) -> Result<(), ErrBox> {
         let mut files = self.files.lock();
-        files.remove(&file_path.clean());
+        files.remove(&file_path.to_path_buf().clean());
         Ok(())
     }
 
-    fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox> {
+    fn remove_dir_all(&self, dir_path: &Path) -> Result<(), ErrBox> {
         {
             let mut deleted_directories = self.deleted_directories.lock();
             deleted_directories.push(dir_path.to_owned());
         }
-        let dir_path = dir_path.clean();
+        let dir_path = dir_path.to_path_buf().clean();
         let mut files = self.files.lock();
         let mut delete_paths = Vec::new();
         for (file_path, _) in files.iter() {
@@ -248,7 +248,7 @@ impl Environment for TestEnvironment {
         }
     }
 
-    fn glob(&self, _: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    fn glob(&self, _: &Path, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         // todo: would be nice to test the base parameter here somehow...
         let mut file_paths = Vec::new();
         let includes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| !p.starts_with("!")).map(|p| p.to_owned()))?;
@@ -278,22 +278,22 @@ impl Environment for TestEnvironment {
         Ok(file_paths)
     }
 
-    fn path_exists(&self, file_path: &PathBuf) -> bool {
+    fn path_exists(&self, file_path: &Path) -> bool {
         let files = self.files.lock();
-        files.contains_key(&file_path.clean())
+        files.contains_key(&file_path.to_path_buf().clean())
     }
 
-    fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox> {
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf, ErrBox> {
         // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
         let file_path = PathBuf::from(path.to_string_lossy().replace("\\", "/"));
         Ok(file_path.clean())
     }
 
-    fn is_absolute_path(&self, path: &PathBuf) -> bool {
+    fn is_absolute_path(&self, path: &Path) -> bool {
         path.to_string_lossy().starts_with("/")
     }
 
-    fn mk_dir_all(&self, _: &PathBuf) -> Result<(), ErrBox> {
+    fn mk_dir_all(&self, _: &Path) -> Result<(), ErrBox> {
         Ok(())
     }
 

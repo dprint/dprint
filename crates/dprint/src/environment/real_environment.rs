@@ -41,34 +41,34 @@ impl Environment for RealEnvironment {
         true
     }
 
-    fn read_file(&self, file_path: &PathBuf) -> Result<String, ErrBox> {
+    fn read_file(&self, file_path: &Path) -> Result<String, ErrBox> {
         Ok(String::from_utf8(self.read_file_bytes(file_path)?)?)
     }
 
-    fn read_file_bytes(&self, file_path: &PathBuf) -> Result<Vec<u8>, ErrBox> {
+    fn read_file_bytes(&self, file_path: &Path) -> Result<Vec<u8>, ErrBox> {
         log_verbose!(self, "Reading file: {}", file_path.display());
         Ok(fs::read(file_path)?)
     }
 
-    fn write_file(&self, file_path: &PathBuf, file_text: &str) -> Result<(), ErrBox> {
+    fn write_file(&self, file_path: &Path, file_text: &str) -> Result<(), ErrBox> {
         log_verbose!(self, "Writing file: {}", file_path.display());
         fs::write(file_path, file_text)?;
         Ok(())
     }
 
-    fn write_file_bytes(&self, file_path: &PathBuf, bytes: &[u8]) -> Result<(), ErrBox> {
+    fn write_file_bytes(&self, file_path: &Path, bytes: &[u8]) -> Result<(), ErrBox> {
         log_verbose!(self, "Writing file: {}", file_path.display());
         fs::write(file_path, bytes)?;
         Ok(())
     }
 
-    fn remove_file(&self, file_path: &PathBuf) -> Result<(), ErrBox> {
+    fn remove_file(&self, file_path: &Path) -> Result<(), ErrBox> {
         log_verbose!(self, "Deleting file: {}", file_path.display());
         fs::remove_file(file_path)?;
         Ok(())
     }
 
-    fn remove_dir_all(&self, dir_path: &PathBuf) -> Result<(), ErrBox> {
+    fn remove_dir_all(&self, dir_path: &Path) -> Result<(), ErrBox> {
         log_verbose!(self, "Deleting directory: {}", dir_path.display());
         fs::remove_dir_all(dir_path)?;
         Ok(())
@@ -80,7 +80,7 @@ impl Environment for RealEnvironment {
         download_url(url, &self.progress_bars).await
     }
 
-    fn glob(&self, base: &PathBuf, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    fn glob(&self, base: &Path, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         let start_instant = std::time::Instant::now();
         log_verbose!(self, "Globbing: {:?}", file_patterns);
         let base = self.canonicalize(base)?;
@@ -106,21 +106,21 @@ impl Environment for RealEnvironment {
         Ok(file_paths)
     }
 
-    fn path_exists(&self, file_path: &PathBuf) -> bool {
+    fn path_exists(&self, file_path: &Path) -> bool {
         log_verbose!(self, "Checking path exists: {}", file_path.display());
         file_path.exists()
     }
 
-    fn canonicalize(&self, path: &PathBuf) -> Result<PathBuf, ErrBox> {
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf, ErrBox> {
         // use this to avoid //?//C:/etc... like paths on windows (UNC)
         Ok(dunce::canonicalize(path)?)
     }
 
-    fn is_absolute_path(&self, path: &PathBuf) -> bool {
+    fn is_absolute_path(&self, path: &Path) -> bool {
         path.is_absolute()
     }
 
-    fn mk_dir_all(&self, path: &PathBuf) -> Result<(), ErrBox> {
+    fn mk_dir_all(&self, path: &Path) -> Result<(), ErrBox> {
         fs::create_dir_all(path)?;
         Ok(())
     }

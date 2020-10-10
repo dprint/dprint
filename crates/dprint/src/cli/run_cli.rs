@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -311,7 +311,7 @@ async fn run_editor_service<TEnvironment: Environment>(
         plugin_resolver: &PluginResolver<TEnvironment>,
         plugin_pools: &Arc<PluginPools<TEnvironment>>,
         past_config: &Option<ResolvedConfig>,
-        file_path: &PathBuf,
+        file_path: &Path,
         file_text: &'a str,
     ) -> Result<(Cow<'a, str>, ResolvedConfig), ErrBox> {
         let config = resolve_config_from_args(&args, cache, environment).await?;
@@ -406,7 +406,7 @@ async fn init_config_file(environment: &impl Environment, config_arg: &Option<St
 }
 
 async fn output_stdin_format<TEnvironment: Environment>(
-    file_name: &PathBuf,
+    file_name: &Path,
     file_text: &str,
     environment: &TEnvironment,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
@@ -417,7 +417,7 @@ async fn output_stdin_format<TEnvironment: Environment>(
 }
 
 async fn format_with_plugin_pools<'a, TEnvironment: Environment>(
-    file_name: &PathBuf,
+    file_name: &Path,
     file_text: &'a str,
     plugin_pools: &Arc<PluginPools<TEnvironment>>,
 ) -> Result<Cow<'a, str>, ErrBox> {
@@ -555,7 +555,7 @@ async fn run_parallelized<F, TEnvironment: Environment>(
     plugin_pools: Arc<PluginPools<TEnvironment>>,
     incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
     f: F,
-) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
+) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
     let error_count = Arc::new(AtomicUsize::new(0));
 
     let handles = file_paths_by_plugin.into_iter().map(|(plugin_name, file_paths)| {
@@ -598,7 +598,7 @@ async fn run_parallelized<F, TEnvironment: Environment>(
         environment: &TEnvironment,
         f: F,
         error_count: Arc<AtomicUsize>,
-    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
+    ) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let plugin_pool = plugin_pools.get_pool(plugin_name).expect("Could not get the plugin pool.");
 
         // get a plugin from the pool then propagate up its configuration diagnostics if necessary
@@ -640,12 +640,12 @@ async fn run_parallelized<F, TEnvironment: Environment>(
 
     #[inline]
     async fn run_for_file_path<F, TEnvironment: Environment>(
-        file_path: &PathBuf,
+        file_path: &Path,
         environment: &TEnvironment,
         incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
         plugin_pool: Arc<InitializedPluginPool<TEnvironment>>,
         f: F
-    ) -> Result<(), ErrBox> where F: Fn(&PathBuf, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
+    ) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let file_text = environment.read_file(&file_path)?;
         let had_bom = file_text.starts_with(BOM_CHAR);
         let file_text = if had_bom {
@@ -870,7 +870,7 @@ fn get_incremental_file<TEnvironment: Environment>(
 mod tests {
     use crossterm::style::{Colorize, Styler};
     use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::io::{Read, Write};
 
@@ -1978,14 +1978,14 @@ SOFTWARE.
             }
         }
 
-        pub fn check_file(&mut self, file_path: &PathBuf) -> Result<bool, ErrBox> {
+        pub fn check_file(&mut self, file_path: &Path) -> Result<bool, ErrBox> {
             let mut reader_writer = self.get_reader_writer();
             reader_writer.send_u32(1)?;
             reader_writer.send_path_buf(file_path)?;
             Ok(reader_writer.read_u32()? == 1)
         }
 
-        pub fn format_text(&mut self, file_path: &PathBuf, file_text: &str) -> Result<Option<String>, ErrBox> {
+        pub fn format_text(&mut self, file_path: &Path, file_text: &str) -> Result<Option<String>, ErrBox> {
             let mut reader_writer = self.get_reader_writer();
             reader_writer.send_u32(2)?;
             reader_writer.send_path_buf(file_path)?;

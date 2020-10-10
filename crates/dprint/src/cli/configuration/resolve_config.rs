@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use crossterm::style::Styler;
 use dprint_core::configuration::ConfigKeyValue;
@@ -237,7 +237,7 @@ fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>, ErrBox> {
     }
 }
 
-fn get_config_map_from_path(file_path: &PathBuf, environment: &impl Environment) -> Result<Result<ConfigMap, ErrBox>, ErrBox> {
+fn get_config_map_from_path(file_path: &Path, environment: &impl Environment) -> Result<Result<ConfigMap, ErrBox>, ErrBox> {
     let config_file_text = match environment.read_file(file_path) {
         Ok(file_text) => file_text,
         Err(err) => return Ok(Err(err)),

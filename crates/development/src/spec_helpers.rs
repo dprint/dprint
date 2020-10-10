@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs::{self};
 
 use super::*;
@@ -19,10 +19,10 @@ pub struct RunSpecsOptions {
 }
 
 pub fn run_specs(
-    directory_path: &PathBuf,
+    directory_path: &Path,
     parse_spec_options: &ParseSpecOptions,
     run_spec_options: &RunSpecsOptions,
-    format_text: impl Fn(&PathBuf, &str, &HashMap<String, String>) -> Result<String, String>
+    format_text: impl Fn(&Path, &str, &HashMap<String, String>) -> Result<String, String>
 ) {
     #[cfg(not(debug_assertions))]
     assert_not_fix_failures(run_spec_options);

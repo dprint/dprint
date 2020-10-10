@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use dprint_core::configuration::{ConfigurationDiagnostic, GlobalConfiguration, ConfigKeyMap};
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
@@ -135,7 +135,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
         Ok(initialized_plugin)
     }
 
-    fn inner_format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+    fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
         self.communicator.format_text(file_path, file_text, override_config, |file_path, file_text, override_config| {
             format_with_plugin_pool(&self.name, &file_path, &file_text, &override_config, &self.plugin_pools)
         })
@@ -155,7 +155,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
         self.communicator.get_config_diagnostics()
     }
 
-    fn format_text(&self, file_path: &PathBuf, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+    fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
         let result = self.inner_format_text(file_path, file_text, override_config);
 
         match result {
