@@ -35,6 +35,11 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: 1.47.0
+        override: true
     - name: Install wasm32 target
       run: rustup target add wasm32-unknown-unknown
 
