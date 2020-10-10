@@ -3,7 +3,7 @@ use parking_lot::RwLock;
 use crossterm::{style::Colorize};
 use std::time::{Duration, SystemTime};
 
-use crate::logging::Logger;
+use crate::logging::{Logger, LoggerRefreshItemKind};
 
 // Inspired by Indicatif, but this custom implementation allows for more control over
 // what's going on under the hood and it works better with the multi-threading model
@@ -102,7 +102,7 @@ impl ProgressBars {
         }
 
         if internal_state.progress_bars.is_empty() {
-            self.logger.clear_progress_bars();
+            self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars)
         }
     }
 
@@ -135,7 +135,7 @@ impl ProgressBars {
                         ));
                     }
 
-                    logger.draw_progress_bars(text);
+                    logger.set_refresh_item(LoggerRefreshItemKind::ProgressBars, text);
                 }
 
                 std::thread::sleep(Duration::from_millis(100));

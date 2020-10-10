@@ -1,10 +1,10 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use std::fs;
 use async_trait::async_trait;
 use dprint_core::types::ErrBox;
 use dprint_cli_core::{download_url};
-use dprint_cli_core::logging::{Logger, ProgressBars, log_action_with_progress};
+use dprint_cli_core::logging::{Logger, ProgressBars, log_action_with_progress, show_select, show_multi_select};
 
 use super::Environment;
 use crate::plugins::CompilationResult;
@@ -158,23 +158,11 @@ impl Environment for RealEnvironment {
     }
 
     fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox> {
-        use dialoguer::*;
-
-        let result = Select::with_theme(&CustomDialoguerTheme::new())
-            .with_prompt(prompt_message)
-            .items(items)
-            .default(0)
-            .interact()?;
-        Ok(result)
+        show_select(&self.logger, "dprint", prompt_message, items)
     }
 
     fn get_multi_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
-        use dialoguer::*;
-        let result = MultiSelect::with_theme(&CustomDialoguerTheme::new())
-            .with_prompt(prompt_message)
-            .items_checked(&items.iter().map(|item| (item, true)).collect::<Vec<_>>())
-            .interact()?;
-        Ok(result)
+        show_multi_select(&self.logger, "dprint", prompt_message, items.iter().map(|item| (true, item)).collect::<Vec<_>>())
     }
 
     #[inline]
@@ -202,42 +190,3 @@ fn get_cache_dir() -> Result<PathBuf, ErrBox> {
     }
 }
 
-struct CustomDialoguerTheme {
-}
-
-impl CustomDialoguerTheme {
-    pub fn new() -> Self {
-        CustomDialoguerTheme {}
-    }
-}
-
-impl dialoguer::theme::Theme for CustomDialoguerTheme {
-    #[inline]
-    fn format_prompt(&self, f: &mut dyn std::fmt::Write, prompt: &str) -> std::fmt::Result {
-        // render without colon
-        write!(f, "{}", prompt)
-    }
-
-    #[inline]
-    fn format_input_prompt_selection(
-        &self,
-        f: &mut dyn std::fmt::Write,
-        prompt: &str,
-        sel: &str,
-    ) -> std::fmt::Result {
-        write!(f, "{}\n  {}", prompt, sel)
-    }
-
-    fn format_multi_select_prompt_selection(
-        &self,
-        f: &mut dyn std::fmt::Write,
-        prompt: &str,
-        selections: &[&str],
-    ) -> std::fmt::Result {
-        write!(f, "{}", prompt)?;
-        for sel in selections.iter() {
-            write!(f, "\n  * {}", sel)?;
-        }
-        Ok(())
-    }
-}

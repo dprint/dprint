@@ -3,6 +3,19 @@ use std::sync::Arc;
 use crossterm::{style, cursor, terminal, QueueableCommand};
 use parking_lot::Mutex;
 
+#[derive(PartialOrd, Ord, PartialEq, Eq)]
+pub(crate) enum LoggerRefreshItemKind {
+    // numbered by display order
+    ProgressBars = 0,
+    Selection = 1,
+}
+
+struct LoggerRefreshItem {
+    kind: LoggerRefreshItemKind,
+    text: String,
+    escaped_text: String,
+}
+
 #[derive(Clone)]
 pub struct Logger {
     output_lock: Arc<Mutex<LoggerState>>,
@@ -13,8 +26,7 @@ struct LoggerState {
     last_context_name: String,
     std_out: Stdout,
     std_err: Stderr,
-    has_progress_bars: bool,
-    last_escaped_progress_bar_text: Option<String>,
+    refresh_items: Vec<LoggerRefreshItem>,
 }
 
 impl Logger {
@@ -25,8 +37,7 @@ impl Logger {
                 last_context_name: initial_context_name.to_string(),
                 std_out: stdout(),
                 std_err: stderr(),
-                has_progress_bars: false,
-                last_escaped_progress_bar_text: None,
+                refresh_items: Vec::new(),
             })),
         }
     }
@@ -34,88 +45,125 @@ impl Logger {
     pub fn log(&self, text: &str, context_name: &str) {
         let mut state = self.output_lock.lock();
         if state.is_silent { return; }
-        self.inner_log(&mut state, text, context_name);
+        self.inner_log(&mut state, true, text, context_name);
     }
 
     pub fn log_bypass_silent(&self, text: &str, context_name: &str) {
         let mut state = self.output_lock.lock();
-        self.inner_log(&mut state, text, context_name);
-    }
-
-    fn inner_log(&self, state: &mut LoggerState, text: &str, context_name: &str) {
-        if state.has_progress_bars {
-            // don't bother redrawing... it will draw back on its own
-            self.inner_queue_clear_progress_bars(state);
-            let _ = state.std_err.flush();
-        }
-        if state.last_context_name != context_name {
-            writeln!(&mut state.std_out, "[{}]", context_name).unwrap();
-            state.last_context_name = context_name.to_string();
-        }
-        writeln!(&mut state.std_out, "{}", text).unwrap();
+        self.inner_log(&mut state, true, text, context_name);
     }
 
     pub fn log_err(&self, text: &str, context_name: &str) {
         let mut state = self.output_lock.lock();
-        if state.is_silent { return; }
-        if state.has_progress_bars {
-            self.inner_queue_clear_progress_bars(&mut state);
-            let _ = state.std_err.flush();
-        }
-        if state.last_context_name != context_name {
-            writeln!(&mut state.std_err, "[{}]", context_name).unwrap();
-            state.last_context_name = context_name.to_string();
-        }
-        writeln!(&mut state.std_err, "{}", text).unwrap();
+        self.inner_log(&mut state, false, text, context_name);
     }
 
-    pub fn draw_progress_bars(&self, text: String) {
-        let escaped_text = String::from_utf8(strip_ansi_escapes::strip(&text).unwrap()).unwrap();
-        let mut state = self.output_lock.lock();
-        if state.is_silent { return; }
+    fn inner_log(&self, state: &mut LoggerState, is_std_out: bool, text: &str, context_name: &str) {
+        if !state.refresh_items.is_empty() {
+            self.inner_queue_clear_previous_draws(state);
+        }
 
-        if !state.has_progress_bars {
+        let mut output_text = String::new();
+        if state.last_context_name != context_name {
+            output_text.push_str(&format!("[{}]\n", context_name));
+            state.last_context_name = context_name.to_string();
+        }
+        output_text.push_str(text);
+        output_text.push_str("\n");
+
+        if is_std_out {
+            state.std_out.queue(style::Print(output_text)).unwrap();
+        } else {
+            state.std_err.queue(style::Print(output_text)).unwrap();
+        }
+
+        if !state.refresh_items.is_empty() {
+            self.inner_queue_draw_items(state);
+        }
+
+        if is_std_out {
+            state.std_out.flush().unwrap();
+            if !state.refresh_items.is_empty() {
+                state.std_err.flush().unwrap();
+            }
+        } else {
+            state.std_err.flush().unwrap();
+        }
+    }
+
+    pub(crate) fn set_refresh_item(&self, kind: LoggerRefreshItemKind, text: String) {
+        self.with_update_refresh_items(move |refresh_items| {
+            let escaped_text = String::from_utf8(strip_ansi_escapes::strip(&text).unwrap()).unwrap();
+            match refresh_items.binary_search_by(|i| i.kind.cmp(&kind)) {
+                Ok(pos) => {
+                    let mut refresh_item = refresh_items.get_mut(pos).unwrap();
+                    refresh_item.escaped_text = escaped_text;
+                    refresh_item.text = text;
+                },
+                Err(pos) => {
+                    let refresh_item = LoggerRefreshItem {
+                        kind,
+                        text,
+                        escaped_text,
+                    };
+                    refresh_items.insert(pos, refresh_item);
+                }
+            }
+        });
+    }
+
+    pub(crate) fn remove_refresh_item(&self, kind: LoggerRefreshItemKind) {
+        self.with_update_refresh_items(move |refresh_items| {
+            match refresh_items.binary_search_by(|i| i.kind.cmp(&kind)) {
+                Ok(pos) => {
+                    refresh_items.remove(pos);
+                },
+                _ => {}, // already removed
+            }
+        });
+    }
+
+    fn with_update_refresh_items(&self, update_refresh_items: impl FnOnce(&mut Vec<LoggerRefreshItem>)) {
+        let mut state = self.output_lock.lock();
+
+        // hide the cursor if showing a refresh item for the first time
+        if state.refresh_items.is_empty() {
             state.std_err.queue(cursor::Hide).unwrap();
         }
 
-        state.has_progress_bars = true;
+        self.inner_queue_clear_previous_draws(&mut state);
 
-        self.inner_queue_clear_progress_bars(&mut state);
+        update_refresh_items(&mut state.refresh_items);
 
-        state.std_err.queue(style::Print(text)).unwrap();
+        self.inner_queue_draw_items(&mut state);
+
+        // show the cursor if no longer showing a refresh item
+        if state.refresh_items.is_empty() {
+            state.std_err.queue(cursor::Show).unwrap();
+        }
         state.std_err.flush().unwrap();
-
-        state.std_err.flush().unwrap();
-        state.last_escaped_progress_bar_text = Some(escaped_text);
     }
 
-    pub fn clear_progress_bars(&self) {
-        let mut state = self.output_lock.lock();
-        if state.is_silent { return; }
-
-        self.inner_queue_clear_progress_bars(&mut state);
-        state.std_err.queue(cursor::Show).unwrap();
-
-        let _ = state.std_err.flush();
-        state.has_progress_bars = false;
-    }
-
-    fn inner_queue_clear_progress_bars(&self, state: &mut LoggerState) {
-        if let Some(last_escaped_progress_bar_text) = state.last_escaped_progress_bar_text.take() {
-            queue_clear_previous_draw(&mut state.std_err, &last_escaped_progress_bar_text);
+    fn inner_queue_clear_previous_draws(&self, state: &mut LoggerState) {
+        let terminal_width = crate::terminal::get_terminal_width().unwrap();
+        let mut last_line_count = 0;
+        for item in state.refresh_items.iter() {
+            last_line_count += get_text_line_count(&item.escaped_text, terminal_width)
+        }
+        if last_line_count > 0 {
+            if last_line_count > 1 {
+                state.std_err.queue(cursor::MoveUp(last_line_count - 1)).unwrap();
+            }
+            state.std_err.queue(cursor::MoveToColumn(0)).unwrap();
+            state.std_err.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
         }
     }
-}
 
-fn queue_clear_previous_draw(std_err: &mut Stderr, last_escaped_text: &str) {
-    let terminal_width = crate::terminal::get_terminal_width().unwrap();
-    let last_line_count = get_text_line_count(&last_escaped_text, terminal_width);
-    if last_line_count > 0 {
-        if last_line_count > 1 {
-            std_err.queue(cursor::MoveUp(last_line_count - 1)).unwrap();
+    fn inner_queue_draw_items(&self, state: &mut LoggerState) {
+        for (i, item) in state.refresh_items.iter().enumerate() {
+            if i > 0 { state.std_err.queue(style::Print("\n")).unwrap(); }
+            state.std_err.queue(style::Print(&item.text)).unwrap();
         }
-        std_err.queue(cursor::MoveToColumn(0)).unwrap();
-        std_err.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
     }
 }
 
