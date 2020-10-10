@@ -15,14 +15,14 @@ pub struct ResolvedConfigPath {
     pub base_path: PathBuf,
 }
 
-pub async fn resolve_main_config_path<'a, TEnvironment : Environment>(
+pub fn resolve_main_config_path<'a, TEnvironment : Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<ResolvedConfigPath, ErrBox> {
     return Ok(if let Some(config) = &args.config {
         let base_path = PathBuf::from("./"); // use cwd as base path
-        let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), cache, environment).await?;
+        let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), cache, environment)?;
         ResolvedConfigPath {
             resolved_path,
             base_path,

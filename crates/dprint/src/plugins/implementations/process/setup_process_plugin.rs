@@ -31,11 +31,11 @@ fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBu
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
 /// Returns the executable file path once complete
-pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
-    let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
+pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
+    let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment)?;
     let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
-    let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
+    let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment);
 
     return match result {
         Ok(result) => Ok(result),
@@ -46,7 +46,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
         }
     };
 
-    async fn setup_inner<TEnvironment: Environment>(
+    fn setup_inner<TEnvironment: Environment>(
         plugin_cache_dir_path: &Path,
         plugin_name: String,
         zip_bytes: &[u8],
@@ -56,7 +56,7 @@ pub async fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_byt
             environment.remove_dir_all(plugin_cache_dir_path)?;
         }
 
-        extract_zip(&format!("Extracting zip for {}", plugin_name), &zip_bytes, &plugin_cache_dir_path, environment).await?;
+        extract_zip(&format!("Extracting zip for {}", plugin_name), &zip_bytes, &plugin_cache_dir_path, environment)?;
 
         let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
         if !environment.path_exists(&plugin_executable_file_path) {
@@ -115,11 +115,11 @@ struct ProcessPluginZipBytes {
     zip_bytes: Vec<u8>,
 }
 
-async fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &TEnvironment) -> Result<ProcessPluginZipBytes, ErrBox> {
+fn get_plugin_zip_bytes<TEnvironment: Environment>(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &TEnvironment) -> Result<ProcessPluginZipBytes, ErrBox> {
     let plugin_file = deserialize_file(&plugin_file_bytes)?;
     let plugin_path = get_os_path(&plugin_file)?;
     let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent())?;
-    let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment).await?;
+    let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment)?;
     verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum)?;
 
     Ok(ProcessPluginZipBytes {

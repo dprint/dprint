@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use std::io::ErrorKind;
 use std::fs;
-use async_trait::async_trait;
 use dprint_core::types::ErrBox;
 use dprint_cli_core::{download_url};
 use dprint_cli_core::logging::{Logger, ProgressBars, log_action_with_progress, show_select, show_multi_select};
@@ -35,7 +35,6 @@ impl RealEnvironment {
     }
 }
 
-#[async_trait]
 impl Environment for RealEnvironment {
     fn is_real(&self) -> bool {
         true
@@ -47,37 +46,50 @@ impl Environment for RealEnvironment {
 
     fn read_file_bytes(&self, file_path: &Path) -> Result<Vec<u8>, ErrBox> {
         log_verbose!(self, "Reading file: {}", file_path.display());
-        Ok(fs::read(file_path)?)
+        match fs::read(file_path) {
+            Ok(bytes) => Ok(bytes),
+            Err(err) => err!("Error reading file {}: {}", file_path.display(), err.to_string()),
+        }
     }
 
     fn write_file(&self, file_path: &Path, file_text: &str) -> Result<(), ErrBox> {
-        log_verbose!(self, "Writing file: {}", file_path.display());
-        fs::write(file_path, file_text)?;
-        Ok(())
+        self.write_file_bytes(file_path, file_text.as_bytes())
     }
 
     fn write_file_bytes(&self, file_path: &Path, bytes: &[u8]) -> Result<(), ErrBox> {
         log_verbose!(self, "Writing file: {}", file_path.display());
-        fs::write(file_path, bytes)?;
-        Ok(())
+        match fs::write(file_path, bytes) {
+            Ok(_) => Ok(()),
+            Err(err) => err!("Error writing file {}: {}", file_path.display(), err.to_string()),
+        }
     }
 
     fn remove_file(&self, file_path: &Path) -> Result<(), ErrBox> {
         log_verbose!(self, "Deleting file: {}", file_path.display());
-        fs::remove_file(file_path)?;
-        Ok(())
+        match fs::remove_file(file_path) {
+            Ok(_) => Ok(()),
+            Err(err) => err!("Error deleting file {}: {}", file_path.display(), err.to_string()),
+        }
     }
 
     fn remove_dir_all(&self, dir_path: &Path) -> Result<(), ErrBox> {
         log_verbose!(self, "Deleting directory: {}", dir_path.display());
-        fs::remove_dir_all(dir_path)?;
-        Ok(())
+        match fs::remove_dir_all(dir_path) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                if err.kind() == ErrorKind::NotFound {
+                    Ok(())
+                } else {
+                    err!("Error removing directory {}: {}", dir_path.display(), err.to_string())
+                }
+            }
+        }
     }
 
-    async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
+    fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
         log_verbose!(self, "Downloading url: {}", url);
 
-        download_url(url, &self.progress_bars).await
+        download_url(url, &self.progress_bars)
     }
 
     fn glob(&self, base: &Path, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
@@ -121,12 +133,18 @@ impl Environment for RealEnvironment {
     }
 
     fn mk_dir_all(&self, path: &Path) -> Result<(), ErrBox> {
-        fs::create_dir_all(path)?;
-        Ok(())
+        log_verbose!(self, "Creating directory: {}", path.display());
+        match fs::create_dir_all(path) {
+            Ok(_) => Ok(()),
+            Err(err) => err!("Error creating directory {}: {}", path.display(), err.to_string()),
+        }
     }
 
     fn cwd(&self) -> Result<PathBuf, ErrBox> {
-        Ok(std::env::current_dir()?)
+        match std::env::current_dir() {
+            Ok(cwd) => Ok(cwd),
+            Err(err) => err!("Error getting current working: {}", err.to_string()),
+        }
     }
 
     fn log(&self, text: &str) {
@@ -189,4 +207,3 @@ fn get_cache_dir() -> Result<PathBuf, ErrBox> {
         None => err!("Expected to find cache directory")
     }
 }
-

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use parking_lot::RwLock;
 use crossterm::{style::Colorize};
+use crossterm::tty::IsTty;
 use std::time::{Duration, SystemTime};
 
 use crate::logging::{Logger, LoggerRefreshItemKind};
@@ -53,7 +54,7 @@ struct InternalState {
 impl ProgressBars {
     /// Checks if progress bars are supported
     pub fn are_supported() -> bool {
-        crate::terminal::get_terminal_width().is_some()
+        std::io::stderr().is_tty() && crate::terminal::get_terminal_width().is_some()
     }
 
     /// Creates a new ProgressBars or returns None when not supported.
@@ -145,7 +146,7 @@ impl ProgressBars {
 }
 
 fn get_progress_bar_text(terminal_width: u16, pos: usize, total: usize, pb_style: ProgressBarStyle, duration: Duration) -> String {
-    let pos = std::cmp::min(pos, total); // ignore when pos > total
+    let total = std::cmp::max(pos, total); // increase the total when pos > total
     let bytes_text = if pb_style == ProgressBarStyle::Download {
         format!(" {}/{}", get_bytes_text(pos, total), get_bytes_text(total, total))
     } else {

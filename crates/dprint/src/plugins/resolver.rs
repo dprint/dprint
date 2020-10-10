@@ -30,7 +30,7 @@ impl<TEnvironment : Environment> PluginResolver<TEnvironment> {
             let plugin_cache = self.plugin_cache.clone();
             let plugin_pools = self.plugin_pools.clone();
             handles.push(tokio::task::spawn(async move {
-                match create_plugin(plugin_pools, &plugin_cache, environment, &plugin_reference).await {
+                match create_plugin(plugin_pools, &plugin_cache, environment, &plugin_reference) {
                     Ok(plugin) => Ok(plugin),
                     Err(err) => {
                         match plugin_cache.forget(&plugin_reference) {

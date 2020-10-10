@@ -7,10 +7,10 @@ use crate::utils::get_table_text;
 
 use super::get_project_type_infos;
 
-pub async fn get_init_config_file_text(environment: &impl Environment) -> Result<String, ErrBox> {
+pub fn get_init_config_file_text(environment: &impl Environment) -> Result<String, ErrBox> {
     let project_type_name = get_project_type_name(environment)?;
 
-    let info = match read_info_file(environment).await {
+    let info = match read_info_file(environment) {
         Ok(info) => {
             // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
             if info.plugin_system_schema_version != wasm::PLUGIN_SYSTEM_SCHEMA_VERSION {
@@ -140,12 +140,12 @@ mod test {
     use crate::plugins::REMOTE_INFO_URL;
     use super::*;
 
-    #[tokio::test]
-    async fn should_get_initialization_text_when_can_access_url() {
+    #[test]
+    fn should_get_initialization_text_when_can_access_url() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
         environment.set_multi_selection_result(vec![0, 1, 2]);
-        let text = get_init_config_file_text(&environment).await.unwrap();
+        let text = get_init_config_file_text(&environment).unwrap();
         assert_eq!(
             text,
             r#"{
@@ -175,12 +175,12 @@ mod test {
         assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
-    #[tokio::test]
-    async fn should_get_initialization_text_when_selecting_one_plugin() {
+    #[test]
+    fn should_get_initialization_text_when_selecting_one_plugin() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
         environment.set_multi_selection_result(vec![1]);
-        let text = get_init_config_file_text(&environment).await.unwrap();
+        let text = get_init_config_file_text(&environment).unwrap();
         assert_eq!(
             text,
             r#"{
@@ -204,12 +204,12 @@ mod test {
         assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
-    #[tokio::test]
-    async fn should_get_initialization_text_when_selecting_no_plugins() {
+    #[test]
+    fn should_get_initialization_text_when_selecting_no_plugins() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
         environment.set_multi_selection_result(vec![]);
-        let text = get_init_config_file_text(&environment).await.unwrap();
+        let text = get_init_config_file_text(&environment).unwrap();
         assert_eq!(
             text,
             r#"{
@@ -228,10 +228,10 @@ mod test {
         assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
-    #[tokio::test]
-    async fn should_get_initialization_text_when_cannot_access_url() {
+    #[test]
+    fn should_get_initialization_text_when_cannot_access_url() {
         let environment = TestEnvironment::new();
-        let text = get_init_config_file_text(&environment).await.unwrap();
+        let text = get_init_config_file_text(&environment).unwrap();
         assert_eq!(
             text,
             r#"{
@@ -258,8 +258,8 @@ mod test {
         assert_eq!(environment.take_logged_errors(), expected_messages);
     }
 
-    #[tokio::test]
-    async fn should_get_initialization_text_when_selecting_other_option() {
+    #[test]
+    fn should_get_initialization_text_when_selecting_other_option() {
         let environment = TestEnvironment::new();
         environment.set_selection_result(1);
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
@@ -275,7 +275,7 @@ mod test {
     }]
 }"#.as_bytes());
         environment.set_multi_selection_result(vec![0]);
-        let text = get_init_config_file_text(&environment).await.unwrap();
+        let text = get_init_config_file_text(&environment).unwrap();
         assert_eq!(
             text,
             r#"{
@@ -298,8 +298,8 @@ mod test {
         assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
     }
 
-    #[tokio::test]
-    async fn should_get_initialization_text_when_old_plugin_system() {
+    #[test]
+    fn should_get_initialization_text_when_old_plugin_system() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
     "schemaVersion": 1,
@@ -314,7 +314,7 @@ mod test {
     }]
 }"#.as_bytes());
         environment.set_multi_selection_result(vec![0]);
-        let text = get_init_config_file_text(&environment).await.unwrap();
+        let text = get_init_config_file_text(&environment).unwrap();
         assert_eq!(
             text,
             r#"{

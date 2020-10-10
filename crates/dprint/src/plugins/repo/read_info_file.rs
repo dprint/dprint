@@ -23,8 +23,8 @@ pub struct InfoFilePluginInfo {
 const SCHEMA_VERSION: u8 = 1;
 pub const REMOTE_INFO_URL: &'static str = "https://plugins.dprint.dev/info.json";
 
-pub async fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox> {
-    let info_bytes = environment.download_file(REMOTE_INFO_URL).await?;
+pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox> {
+    let info_bytes = environment.download_file(REMOTE_INFO_URL)?;
     let info_text = String::from_utf8(info_bytes.to_vec())?;
     let json_value = parse_to_value(&info_text)?;
     let mut obj = match json_value {
@@ -110,8 +110,8 @@ mod test {
     use crate::environment::TestEnvironment;
     use super::*;
 
-    #[tokio::test]
-    async fn should_get_info() {
+    #[test]
+    fn should_get_info() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
     "schemaVersion": 1,
@@ -132,7 +132,7 @@ mod test {
         "configExcludes": ["**/*-lock.json"]
     }]
 }"#.as_bytes());
-        let info_file = read_info_file(&environment).await.unwrap();
+        let info_file = read_info_file(&environment).unwrap();
         assert_eq!(info_file, InfoFile {
             plugin_system_schema_version: 3,
             latest_plugins: vec![InfoFilePluginInfo {
@@ -155,36 +155,36 @@ mod test {
         })
     }
 
-    #[tokio::test]
-    async fn should_error_if_schema_version_is_different() {
+    #[test]
+    fn should_error_if_schema_version_is_different() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
     "schemaVersion": 2,
 }"#.as_bytes());
-        let message = read_info_file(&environment).await.err().unwrap();
+        let message = read_info_file(&environment).err().unwrap();
         assert_eq!(
             message.to_string(),
             "Cannot handle schema version 2. Expected 1. This might mean your dprint CLI version is old and isn't able to get the latest information."
         );
     }
 
-    #[tokio::test]
-    async fn should_error_if_no_plugin_system_set() {
+    #[test]
+    fn should_error_if_no_plugin_system_set() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
     "schemaVersion": 1,
 }"#.as_bytes());
-        let message = read_info_file(&environment).await.err().unwrap();
+        let message = read_info_file(&environment).err().unwrap();
         assert_eq!(
             message.to_string(),
             "Could not find plugin system schema version."
         );
     }
 
-    #[tokio::test]
-    async fn should_error_when_no_internet() {
+    #[test]
+    fn should_error_when_no_internet() {
         let environment = TestEnvironment::new();
-        let message = read_info_file(&environment).await.err().unwrap();
+        let message = read_info_file(&environment).err().unwrap();
         assert_eq!(
             message.to_string(),
             "Could not find file at url https://plugins.dprint.dev/info.json"

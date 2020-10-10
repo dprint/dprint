@@ -1,4 +1,3 @@
-use futures::Future;
 use std::path::PathBuf;
 use parking_lot::RwLock;
 
@@ -47,35 +46,31 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
         Ok(())
     }
 
-    pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem, ErrBox> {
+    pub fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem, ErrBox> {
         match &source_reference.path_source {
             PathSource::Remote(_) => {
                 self.get_plugin(
                     source_reference.clone(),
                     false,
                     download_url,
-                ).await
+                )
             },
             PathSource::Local(_) => {
                 self.get_plugin(
                     source_reference.clone(),
                     true,
                     get_file_bytes,
-                ).await
+                )
             },
         }
     }
 
-    async fn get_plugin<F, Fut>(
+    fn get_plugin(
         &self,
         source_reference: PluginSourceReference,
         check_file_hash: bool,
-        read_bytes: F
-    ) -> Result<PluginCacheItem, ErrBox>
-        where
-            F: Fn(PathSource, TEnvironment) -> Fut,
-            Fut: Future<Output = Result<Vec<u8>, ErrBox>>
-    {
+        read_bytes: impl Fn(PathSource, TEnvironment) -> Result<Vec<u8>, ErrBox>,
+    ) -> Result<PluginCacheItem, ErrBox> {
         let cache_key = self.get_cache_key(&source_reference.path_source)?;
         let cache_item = self.manifest.read().get_item(&cache_key).map(|x| x.to_owned()); // drop lock
         if let Some(cache_item) = cache_item {
@@ -86,7 +81,7 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
             )?;
 
             if check_file_hash {
-                let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
+                let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
                 let file_hash = get_bytes_hash(&file_bytes);
                 let cache_file_hash = match &cache_item.file_hash {
                     Some(file_hash) => *file_hash,
@@ -110,14 +105,14 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
         }
 
         // get bytes
-        let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
+        let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
 
         // check checksum only if provided (not required for WASM plugins)
         if let Some(checksum) = &source_reference.checksum {
             verify_sha256_checksum(&file_bytes, checksum)?;
         }
 
-        let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;
+        let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment)?;
         let cache_item = PluginCacheManifestItem {
             info: setup_result.plugin_info.clone(),
             file_hash: if check_file_hash {
@@ -149,12 +144,11 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
     }
 }
 
-// since async closures are not supported yet
-async fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
-    environment.download_file(path_source.unwrap_remote().url.as_str()).await
+fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
+    environment.download_file(path_source.unwrap_remote().url.as_str())
 }
 
-async fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
+fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
     environment.read_file_bytes(&path_source.unwrap_local().path)
 }
 
@@ -168,22 +162,22 @@ mod test {
     use dprint_core::types::ErrBox;
     use super::*;
 
-    #[tokio::test]
-    async fn it_should_download_remote_file() -> Result<(), ErrBox> {
+    #[test]
+    fn it_should_download_remote_file() -> Result<(), ErrBox> {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
         environment.set_wasm_compile_result(create_compilation_result("t".as_bytes()));
 
         let plugin_cache = PluginCache::new(environment.clone()).unwrap();
         let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
-        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
         let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("test-plugin-0.1.0.wat");
 
         assert_eq!(file_path, expected_file_path);
         assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
 
         // should be the same when requesting it again
-        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
         assert_eq!(file_path, expected_file_path);
 
         // should have saved the manifest
@@ -205,8 +199,8 @@ mod test {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn it_should_cache_local_file() -> Result<(), ErrBox> {
+    #[test]
+    fn it_should_cache_local_file() -> Result<(), ErrBox> {
         let environment = TestEnvironment::new();
         let original_file_path = PathBuf::from("/test.wasm");
         let file_bytes = "t".as_bytes();
@@ -215,7 +209,7 @@ mod test {
 
         let plugin_cache = PluginCache::new(environment.clone()).unwrap();
         let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
-        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
         let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("test-plugin-0.1.0.wat");
 
         assert_eq!(file_path, expected_file_path);
@@ -223,7 +217,7 @@ mod test {
         assert_eq!(environment.take_logged_errors(), vec!["Compiling /test.wasm"]);
 
         // should be the same when requesting it again
-        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+        let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
         assert_eq!(file_path, expected_file_path);
 
         // should have saved the manifest
@@ -243,7 +237,7 @@ mod test {
         environment.write_file_bytes(&original_file_path, file_bytes).unwrap();
 
         // should update the cache with the new file
-        let file_path = plugin_cache.get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone())).await?.file_path;
+        let file_path = plugin_cache.get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone()))?.file_path;
         assert_eq!(file_path, expected_file_path);
 
         assert_eq!(

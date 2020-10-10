@@ -8,12 +8,11 @@ description = "Binary for dprint."
 repository = "https://github.com/dprint/dprint"
 
 [dependencies]
-async-trait = "0.1.30"
 clap = "2.33.0"
 crossterm = "0.18.0"
 dunce = "1.0.1"
 dprint-core = { path = "../core", version = "0.32.0", features = ["process", "wasm"] }
-dprint-cli-core = { path = "../cli-core", version = "0.4.0" }
+dprint-cli-core = { path = "../cli-core", version = "0.5.1" }
 dissimilar = "1.0"
 globwalk = "0.8.0"
 jsonc-parser = { version = "0.14.0" }

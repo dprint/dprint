@@ -5,7 +5,7 @@ use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 
-pub async fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment: &impl Environment) -> Result<(), ErrBox> {
+pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment: &impl Environment) -> Result<(), ErrBox> {
     // adapted from https://github.com/mvdnes/zip-rs/blob/master/examples/extract.rs
     let reader = std::io::Cursor::new(&zip_bytes);
     let mut zip = zip::ZipArchive::new(reader)?;

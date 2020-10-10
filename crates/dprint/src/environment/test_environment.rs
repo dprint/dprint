@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::io::{Read, Write, Error};
-use async_trait::async_trait;
 use globset::{GlobSetBuilder, GlobSet, Glob};
 use parking_lot::Mutex;
 use path_clean::{PathClean};
@@ -184,7 +183,6 @@ impl Drop for TestEnvironment {
     }
 }
 
-#[async_trait]
 impl Environment for TestEnvironment {
     fn is_real(&self) -> bool {
         false
@@ -240,7 +238,7 @@ impl Environment for TestEnvironment {
         Ok(())
     }
 
-    async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
+    fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
         let remote_files = self.remote_files.lock();
         match remote_files.get(&String::from(url)) {
             Some(bytes) => Ok(bytes.clone()),

@@ -66,7 +66,7 @@ pub async fn run_cli<TEnvironment: Environment>(
     }
 
     // get configuration
-    let config = resolve_config_from_args(&args, cache, environment).await?;
+    let config = resolve_config_from_args(&args, cache, environment)?;
 
     // get project type diagnostic, but don't surface any issues yet
     let project_type_result = check_project_type_diagnostic(&config);
@@ -228,7 +228,7 @@ async fn output_editor_info<TEnvironment: Environment>(
     }
 
     environment.log_silent(&serde_json::to_string(&EditorInfo {
-        schema_version: 2,
+        schema_version: 3,
         plugins,
     })?);
 
@@ -261,7 +261,8 @@ async fn run_editor_service<TEnvironment: Environment>(
             // check path
             1 => {
                 let file_path = reader_writer.read_path_buf()?;
-                let config = resolve_config_from_args(&args, cache, environment).await?;
+                reader_writer.read_success_bytes()?;
+                let config = resolve_config_from_args(&args, cache, environment)?;
                 let file_paths = resolve_file_paths(&config, &args, environment)?;
 
                 // canonicalize the file path, then check if it's in the list of file paths.
@@ -288,6 +289,7 @@ async fn run_editor_service<TEnvironment: Environment>(
                         } else {
                             reader_writer.send_u32(1)?; // change
                             reader_writer.send_string(&formatted_text)?;
+                            reader_writer.send_success_bytes()?;
                         }
 
                         past_config.replace(config);
@@ -295,6 +297,7 @@ async fn run_editor_service<TEnvironment: Environment>(
                     Err(err) => {
                         reader_writer.send_u32(2)?; // error
                         reader_writer.send_string(&err.to_string())?;
+                        reader_writer.send_success_bytes()?;
                     }
                 }
             },
@@ -314,7 +317,7 @@ async fn run_editor_service<TEnvironment: Environment>(
         file_path: &Path,
         file_text: &'a str,
     ) -> Result<(Cow<'a, str>, ResolvedConfig), ErrBox> {
-        let config = resolve_config_from_args(&args, cache, environment).await?;
+        let config = resolve_config_from_args(&args, cache, environment)?;
         let has_config_changed = past_config.is_none() || *past_config.as_ref().unwrap() != config;
         if has_config_changed {
             plugin_pools.drop_plugins(); // clear the existing plugins
@@ -333,7 +336,7 @@ async fn get_plugins_from_args<TEnvironment: Environment>(
     environment: &TEnvironment,
     plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-    match resolve_config_from_args(args, cache, environment).await {
+    match resolve_config_from_args(args, cache, environment) {
         Ok(config) => {
             let plugins = resolve_plugins(&config, environment, plugin_resolver).await?;
             Ok(plugins)
@@ -373,7 +376,7 @@ fn output_resolved_config(
 async fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<(), ErrBox> {
     let config_file_path = get_config_path(environment, config_arg)?;
     return if !environment.path_exists(&config_file_path) {
-        environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment).await?)?;
+        environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment)?)?;
         environment.log(&format!("Created {}", config_file_path.display()));
         Ok(())
     } else {
@@ -1204,7 +1207,7 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
         let file_path1 = PathBuf::from("/file1.txt");
         let file_path2 = PathBuf::from("/file2.txt_ps");
-        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("/config.json"), &format!(r#"{{
             "projectType": "openSource",
             "test-plugin": {{
@@ -1311,7 +1314,7 @@ mod tests {
     #[tokio::test]
     async fn it_should_error_on_process_plugin_config_diagnostic() {
         let environment = get_initialized_test_environment_with_remote_process_plugin().await.unwrap();
-        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
             "testProcessPlugin": {{ "non-existent": 25 }},
@@ -1804,7 +1807,7 @@ mod tests {
                 "configExcludes": []
             }]
         }"#.as_bytes());
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment).unwrap();
         environment.clear_logs();
         run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.take_logged_errors(), vec![
@@ -1832,7 +1835,7 @@ mod tests {
                 "configExcludes": []
             }]
         }"#.as_bytes());
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment).unwrap();
         environment.clear_logs();
         run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).await.unwrap();
         assert_eq!(environment.take_logged_errors(), vec![
@@ -1857,7 +1860,7 @@ mod tests {
     async fn it_should_ask_to_initialize_in_config_dir() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("./config"), "").unwrap(); // hack for creating a directory with the test environment...
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment).unwrap();
         environment.clear_logs();
         run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
@@ -1876,7 +1879,7 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("./config"), "").unwrap(); // hack for creating a directory with the test environment...
         environment.set_selection_result(1);
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment).unwrap();
         environment.clear_logs();
         run_test_cli(vec!["init"], &environment).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
@@ -1948,7 +1951,7 @@ SOFTWARE.
         let environment = TestEnvironment::new();
         setup_test_environment_with_remote_process_plugin(&environment);
         setup_test_environment_with_remote_wasm_plugin(&environment);
-        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
             "plugins": [
@@ -2091,7 +2094,7 @@ SOFTWARE.
     async fn it_should_stdin_fmt_calling_other_plugin() {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
         environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
-        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
             "plugins": [
@@ -2145,7 +2148,7 @@ SOFTWARE.
     async fn it_should_error_if_process_plugin_has_wrong_checksum_in_config() {
         let environment = TestEnvironment::new();
         setup_test_environment_with_remote_process_plugin(&environment);
-        let actual_plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        let actual_plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
             "projectType": "openSource",
             "plugins": [
@@ -2223,8 +2226,8 @@ SOFTWARE.
             "plugins": [
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
-        }}"#, get_process_plugin_checksum(&environment).await)).unwrap();
-        let actual_plugin_zip_file_checksum = get_process_plugin_zip_checksum(&environment).await;
+        }}"#, get_process_plugin_checksum(&environment))).unwrap();
+        let actual_plugin_zip_file_checksum = get_process_plugin_zip_checksum(&environment);
         environment.write_file(&PathBuf::from("test.txt_ps"), "").unwrap();
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).await.err().unwrap();
 
@@ -2330,7 +2333,7 @@ EXAMPLES:
         let environment = TestEnvironment::new();
         setup_test_environment_with_remote_wasm_plugin(&environment);
         setup_test_environment_with_remote_process_plugin(&environment);
-        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
             "plugins": [
@@ -2343,13 +2346,13 @@ EXAMPLES:
         Ok(environment)
     }
 
-    async fn get_process_plugin_checksum(environment: &TestEnvironment) -> String {
-        let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").await.unwrap();
+    fn get_process_plugin_checksum(environment: &TestEnvironment) -> String {
+        let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").unwrap();
         dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
     }
 
-    async fn get_process_plugin_zip_checksum(environment: &TestEnvironment) -> String {
-        let plugin_file_bytes = environment.download_file("https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip").await.unwrap();
+    fn get_process_plugin_zip_checksum(environment: &TestEnvironment) -> String {
+        let plugin_file_bytes = environment.download_file("https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip").unwrap();
         dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
     }
 
@@ -2360,7 +2363,7 @@ EXAMPLES:
     async fn get_initialized_test_environment_with_remote_process_plugin() -> Result<TestEnvironment, ErrBox> {
         let environment = TestEnvironment::new();
         setup_test_environment_with_remote_process_plugin(&environment);
-        let plugin_file_checksum = get_process_plugin_checksum(&environment).await;
+        let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
             "plugins": [

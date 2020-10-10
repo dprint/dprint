@@ -1,11 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
-use async_trait::async_trait;
 use dprint_core::types::ErrBox;
 
 use crate::plugins::CompilationResult;
 
-#[async_trait]
 pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static {
     fn is_real(&self) -> bool;
     fn read_file(&self, file_path: &Path) -> Result<String, ErrBox>;
@@ -34,7 +32,7 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
         TResult: std::marker::Send + std::marker::Sync,
         TCreate : FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
     >(&self, message: &str, action: TCreate, total_size: usize) -> TResult;
-    async fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox>;
+    fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox>;
     fn get_cache_dir(&self) -> PathBuf;
     fn get_time_secs(&self) -> u64;
     fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox>;

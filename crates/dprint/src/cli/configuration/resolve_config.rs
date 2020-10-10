@@ -26,12 +26,12 @@ pub struct ResolvedConfig {
     pub config_map: ConfigMap,
 }
 
-pub async fn resolve_config_from_args<TEnvironment : Environment>(
+pub fn resolve_config_from_args<TEnvironment : Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ErrBox> {
-    let resolved_config_path = resolve_main_config_path(args, cache, environment).await?;
+    let resolved_config_path = resolve_main_config_path(args, cache, environment)?;
     let base_source = resolved_config_path.resolved_path.source.parent();
     let config_file_path = &resolved_config_path.resolved_path.file_path;
     let main_config_map = get_config_map_from_path(config_file_path, environment)?;
@@ -111,13 +111,13 @@ pub async fn resolve_config_from_args<TEnvironment : Environment>(
     };
 
     // resolve extends
-    resolve_extends(&mut resolved_config, extends, &base_source, cache, environment).await?;
+    resolve_extends(&mut resolved_config, extends, &base_source, cache, environment)?;
     remove_locked_properties(&mut resolved_config);
 
     Ok(resolved_config)
 }
 
-async fn resolve_extends<TEnvironment : Environment>(
+fn resolve_extends<TEnvironment : Environment>(
     resolved_config: &mut ResolvedConfig,
     extends: Vec<String>,
     base_path: &PathSource,
@@ -134,8 +134,8 @@ async fn resolve_extends<TEnvironment : Environment>(
             None => return Ok(()), // all done
         };
 
-        let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, cache, environment).await?;
-        let extends = match handle_config_file(&resolved_path, resolved_config, environment).await {
+        let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, cache, environment)?;
+        let extends = match handle_config_file(&resolved_path, resolved_config, environment) {
             Ok(extends) => extends,
             Err(err) => return err!("Error with '{}'. {}", resolved_path.source.display(), err.to_string())
         };
@@ -148,7 +148,7 @@ async fn resolve_extends<TEnvironment : Environment>(
     }
 }
 
-async fn handle_config_file<'a, TEnvironment : Environment>(
+fn handle_config_file<'a, TEnvironment : Environment>(
     resolved_path: &ResolvedPath,
     resolved_config: &mut ResolvedConfig,
     environment: &TEnvironment,
@@ -329,15 +329,15 @@ mod tests {
 
     use super::*;
 
-    async fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ErrBox> {
+    fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ErrBox> {
         let stdin_reader = TestStdInReader::new();
         let args = parse_args(vec![String::from(""), String::from("-c"), String::from(url)], &stdin_reader).unwrap();
         let cache = Cache::new(environment.to_owned()).unwrap();
-        resolve_config_from_args(&args, &cache, &environment).await
+        resolve_config_from_args(&args, &cache, &environment)
     }
 
-    #[tokio::test]
-    async fn it_should_get_local_config_file() {
+    #[test]
+    fn it_should_get_local_config_file() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "projectType": "openSource",
@@ -346,7 +346,7 @@ mod tests {
             "excludes": ["test"]
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_local(), true);
@@ -357,23 +357,23 @@ mod tests {
         assert_eq!(result.excludes, vec!["test"]);
     }
 
-    #[tokio::test]
-    async fn it_should_get_remote_config_file() {
+    #[test]
+    fn it_should_get_remote_config_file() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_remote(), true);
         assert_eq!(result.project_type, Some(String::from("openSource")));
     }
 
-    #[tokio::test]
-    async fn it_should_warn_on_first_download_for_remote_config_with_includes() {
+    #[test]
+    fn it_should_warn_on_first_download_for_remote_config_with_includes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -381,19 +381,19 @@ mod tests {
             "includes": ["test"]
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(environment.take_logged_errors(), vec![get_warn_includes_excludes_message()]);
         assert_eq!(result.includes.len(), 0);
 
         environment.clear_logs();
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_errors().len(), 0); // no warning this time
         assert_eq!(result.includes.len(), 0);
     }
 
-    #[tokio::test]
-    async fn it_should_warn_on_first_download_for_remote_config_with_excludes() {
+    #[test]
+    fn it_should_warn_on_first_download_for_remote_config_with_excludes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -401,18 +401,18 @@ mod tests {
             "excludes": ["test"]
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_errors(), vec![get_warn_includes_excludes_message()]);
         assert_eq!(result.excludes.len(), 0);
 
         environment.clear_logs();
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_errors().len(), 0); // no warning this time
         assert_eq!(result.excludes.len(), 0);
     }
 
-    #[tokio::test]
-    async fn it_should_warn_on_first_download_for_remote_config_with_includes_and_excludes() {
+    #[test]
+    fn it_should_warn_on_first_download_for_remote_config_with_includes_and_excludes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -421,32 +421,32 @@ mod tests {
             "excludes": []
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_errors(), vec![get_warn_includes_excludes_message()]);
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
 
         environment.clear_logs();
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_errors().len(), 0); // no warning this time
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
     }
 
-    #[tokio::test]
-    async fn it_should_not_warn_remove_config_no_includes_or_excludes() {
+    #[test]
+    fn it_should_not_warn_remove_config_no_includes_or_excludes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#.as_bytes());
 
-        get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_single_extends() {
+    #[test]
+    fn it_should_handle_single_extends() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -474,7 +474,7 @@ mod tests {
             },
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_local(), true);
@@ -505,8 +505,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_array_extends() {
+    #[test]
+    fn it_should_handle_array_extends() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "plugins": ["https://plugins.dprint.dev/test-plugin2.wasm"],
@@ -540,7 +540,7 @@ mod tests {
             },
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.project_type, None);
         assert_eq!(result.includes.len(), 0);
@@ -570,8 +570,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_extends_within_an_extends() {
+    #[test]
+    fn it_should_handle_extends_within_an_extends() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "extends": "https://dprint.dev/test2.json",
@@ -610,7 +610,7 @@ mod tests {
             },
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.project_type, None);
         assert_eq!(result.includes.len(), 0);
@@ -641,8 +641,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_relative_remote_extends() {
+    #[test]
+    fn it_should_handle_relative_remote_extends() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "extends": "dir/test.json",
@@ -670,7 +670,7 @@ mod tests {
             "prop6": 6,
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
@@ -683,8 +683,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_remote_in_local_extends() {
+    #[test]
+    fn it_should_handle_remote_in_local_extends() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "https://dprint.dev/dir/test.json",
@@ -698,7 +698,7 @@ mod tests {
             "prop3": 3
         }"#.as_bytes());
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
@@ -708,8 +708,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_relative_local_extends() {
+    #[test]
+    fn it_should_handle_relative_local_extends() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "dir/test.json",
@@ -723,7 +723,7 @@ mod tests {
             "prop3": 3
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
 
         let mut expected_config_map = HashMap::new();
@@ -733,8 +733,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_say_config_file_with_error() {
+    #[test]
+    fn it_should_say_config_file_with_error() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "extends": "dir/test.json",
@@ -744,15 +744,15 @@ mod tests {
             "prop2" 2
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).err().unwrap();
         assert_eq!(result.to_string(), concat!(
             "Error with 'https://dprint.dev/dir/test.json'. Error deserializing. ",
             "Expected a colon after the string or word in an object property on line 2 column 21."
         ));
     }
 
-    #[tokio::test]
-    async fn it_should_error_extending_locked_config() {
+    #[test]
+    fn it_should_error_extending_locked_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -769,7 +769,7 @@ mod tests {
             }
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.err().unwrap();
+        let result = get_result("/test.json", &environment).err().unwrap();
         assert_eq!(result.to_string(), concat!(
             "Error with 'https://dprint.dev/test.json'. ",
             "The configuration for \"test\" was locked, but a parent configuration specified it. ",
@@ -777,8 +777,8 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn it_should_get_locked_config() {
+    #[test]
+    fn it_should_get_locked_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -792,7 +792,7 @@ mod tests {
             "extends": "https://dprint.dev/test.json"
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
@@ -805,8 +805,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_locked_on_upstream_config() {
+    #[test]
+    fn it_should_handle_locked_on_upstream_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -823,7 +823,7 @@ mod tests {
             }
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
@@ -836,8 +836,8 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_get_locked_config_and_not_care_if_no_properties_set_in_parent_config() {
+    #[test]
+    fn it_should_get_locked_config_and_not_care_if_no_properties_set_in_parent_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
@@ -852,7 +852,7 @@ mod tests {
             "test": {}
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         let mut expected_config_map = HashMap::new();
         expected_config_map.insert(String::from("test"), ConfigMapValue::HashMap({
@@ -865,23 +865,23 @@ mod tests {
         assert_eq!(result.config_map, expected_config_map);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_relative_remote_plugin() {
+    #[test]
+    fn it_should_handle_relative_remote_plugin() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
             "plugins": ["./test-plugin.wasm"]
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_remote_from_str("https://dprint.dev/test-plugin.wasm")
         ]);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_relative_remote_plugin_in_extends() {
+    #[test]
+    fn it_should_handle_relative_remote_plugin_in_extends() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "extends": "dir/test.json"
@@ -895,30 +895,30 @@ mod tests {
             ]
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_remote_from_str("https://dprint.dev/test/plugin.wasm")
         ]);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_relative_local_plugins() {
+    #[test]
+    fn it_should_handle_relative_local_plugins() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "projectType": "openSource",
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_local(PathBuf::from("/testing/asdf.wasm"))
         ]);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_relative_local_plugins_in_extends() {
+    #[test]
+    fn it_should_handle_relative_local_plugins_in_extends() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "./other/test.json",
@@ -929,28 +929,28 @@ mod tests {
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![
             PluginSourceReference::new_local(PathBuf::from("/other/testing/asdf.wasm"))
         ]);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_incremental_flag_when_not_specified() {
+    #[test]
+    fn it_should_handle_incremental_flag_when_not_specified() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "projectType": "openSource",
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.incremental, false);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_incremental_flag_when_true() {
+    #[test]
+    fn it_should_handle_incremental_flag_when_true() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "projectType": "openSource",
@@ -958,13 +958,13 @@ mod tests {
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.incremental, true);
     }
 
-    #[tokio::test]
-    async fn it_should_handle_incremental_flag_when_false() {
+    #[test]
+    fn it_should_handle_incremental_flag_when_false() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "projectType": "openSource",
@@ -972,26 +972,26 @@ mod tests {
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.incremental, false);
     }
 
-    #[tokio::test]
-    async fn it_should_ignore_non_wasm_plugins_in_remote_config() {
+    #[test]
+    fn it_should_ignore_non_wasm_plugins_in_remote_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
             "projectType": "openSource",
             "plugins": ["./test-plugin.exe-plugin@checksum"]
         }"#.as_bytes());
 
-        let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+        let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
         assert_eq!(result.plugins, vec![]);
         assert_eq!(environment.take_logged_errors(), vec![get_warn_non_wasm_plugins_message()]);
     }
 
-    #[tokio::test]
-    async fn it_should_ignore_non_wasm_plugins_in_remote_extends() {
+    #[test]
+    fn it_should_ignore_non_wasm_plugins_in_remote_extends() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "https://dprint.dev/dir/test.json",
@@ -1001,13 +1001,13 @@ mod tests {
             "plugins": ["./test-plugin.exe-plugin@checksum"]
         }"#.as_bytes());
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_errors(), vec![get_warn_non_wasm_plugins_message()]);
         assert_eq!(result.plugins, vec![]);
     }
 
-    #[tokio::test]
-    async fn it_should_not_allow_non_wasm_plugins_in_local_extends() {
+    #[test]
+    fn it_should_not_allow_non_wasm_plugins_in_local_extends() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "dir/test.json",
@@ -1017,7 +1017,7 @@ mod tests {
             "plugins": ["./test-plugin.exe-plugin@checksum"]
         }"#).unwrap();
 
-        let result = get_result("/test.json", &environment).await.unwrap();
+        let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.plugins, vec![PluginSourceReference {
             path_source: PathSource::new_local(PathBuf::from("/dir/test-plugin.exe-plugin")),

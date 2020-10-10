@@ -15,7 +15,7 @@ pub struct SetupPluginResult {
     pub plugin_info: PluginInfo,
 }
 
-pub async fn setup_plugin<TEnvironment: Environment>(
+pub fn setup_plugin<TEnvironment: Environment>(
     url_or_file_path: &PathSource,
     file_bytes: &[u8],
     environment: &TEnvironment
@@ -23,7 +23,7 @@ pub async fn setup_plugin<TEnvironment: Environment>(
     if url_or_file_path.is_wasm_plugin() {
         wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment)
     } else if url_or_file_path.is_process_plugin() {
-        process::setup_process_plugin(url_or_file_path, file_bytes, environment).await
+        process::setup_process_plugin(url_or_file_path, file_bytes, environment)
     } else {
         return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
@@ -58,13 +58,13 @@ pub fn cleanup_plugin<TEnvironment: Environment>(
     }
 }
 
-pub async fn create_plugin<TEnvironment : Environment>(
+pub fn create_plugin<TEnvironment : Environment>(
     plugin_pools: Arc<PluginPools<TEnvironment>>,
     plugin_cache: &PluginCache<TEnvironment>,
     environment: TEnvironment,
     plugin_reference: &PluginSourceReference,
 ) -> Result<Box<dyn Plugin>, ErrBox> {
-    let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await;
+    let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference);
     let cache_item = match cache_item {
         Ok(cache_item) => Ok(cache_item),
         Err(err) => {
@@ -75,7 +75,7 @@ pub async fn create_plugin<TEnvironment : Environment>(
 
             // forget and try again
             plugin_cache.forget(plugin_reference)?;
-            plugin_cache.get_plugin_cache_item(plugin_reference).await
+            plugin_cache.get_plugin_cache_item(plugin_reference)
         }
     }?;
 
@@ -90,7 +90,7 @@ pub async fn create_plugin<TEnvironment : Environment>(
 
                 // forget and try again
                 plugin_cache.forget(plugin_reference)?;
-                let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await?;
+                let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference)?;
                 environment.read_file_bytes(&cache_item.file_path)?
             }
         };
@@ -105,7 +105,7 @@ pub async fn create_plugin<TEnvironment : Environment>(
 
             // forget and try again
             plugin_cache.forget(plugin_reference)?;
-            plugin_cache.get_plugin_cache_item(plugin_reference).await?
+            plugin_cache.get_plugin_cache_item(plugin_reference)?
         } else {
             cache_item
         };
