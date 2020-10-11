@@ -243,61 +243,62 @@ async fn run_editor_service<TEnvironment: Environment>(
     plugin_pools: Arc<PluginPools<TEnvironment>>,
     editor_service_info: &EditorServiceInfo,
 ) -> Result<(), ErrBox> {
-    use dprint_core::plugins::process::{StdInOutReaderWriter, start_parent_process_checker_thread};
+    use dprint_core::plugins::process::{StdIoReaderWriter, StdIoMessenger, start_parent_process_checker_thread};
 
     // poll for the existence of the parent process and terminate this process when that process no longer exists
     let _handle = start_parent_process_checker_thread("editor-service".to_string(), editor_service_info.parent_pid);
 
-    let mut stdin = environment.stdin();
-    let mut stdout = environment.stdout();
-    let mut reader_writer = StdInOutReaderWriter::new(&mut stdin, &mut stdout);
+    let stdin = environment.stdin();
+    let stdout = environment.stdout();
+    let reader_writer = StdIoReaderWriter::new(stdin, stdout);
+    let mut messenger = StdIoMessenger::new(reader_writer);
     let mut past_config: Option<ResolvedConfig> = None;
 
     loop {
-        let message_kind = reader_writer.read_u32()?;
+        let message_kind = messenger.read_code()?;
         match message_kind {
             // shutdown
             0 => return Ok(()),
             // check path
             1 => {
-                let file_path = reader_writer.read_path_buf()?;
-                reader_writer.read_success_bytes()?;
+                let file_path = messenger.read_single_part_path_buf_message()?;
                 let config = resolve_config_from_args(&args, cache, environment)?;
                 let file_paths = resolve_file_paths(&config, &args, environment)?;
 
                 // canonicalize the file path, then check if it's in the list of file paths.
                 match environment.canonicalize(&file_path) {
                     Ok(resolved_file_path) => {
-                        reader_writer.send_u32(if file_paths.contains(&resolved_file_path) { 1 } else { 0 })?;
+                        messenger.send_message(if file_paths.contains(&resolved_file_path) { 1 } else { 0 }, Vec::new())?;
                     }
                     Err(err) => {
                         environment.log_error(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
-                        reader_writer.send_u32(0)?; // don't format, something went wrong
+                        messenger.send_message(0, Vec::new())?; // don't format, something went wrong
                     },
                 }
             },
             // format
             2 => {
-                let file_path = PathBuf::from(reader_writer.read_string()?);
-                let file_text = reader_writer.read_string()?;
+                let mut parts = messenger.read_multi_part_message(2)?;
+                let file_path = parts.take_path_buf()?;
+                let file_text = parts.take_string()?;
 
                 let result = format_text(args, cache, environment, plugin_resolver, &plugin_pools, &past_config, &file_path, &file_text).await;
                 match result {
                     Ok((formatted_text, config)) => {
                         if formatted_text == file_text {
-                            reader_writer.send_u32(0)?; // no change
+                            messenger.send_message(0, Vec::new())?; // no change
                         } else {
-                            reader_writer.send_u32(1)?; // change
-                            reader_writer.send_string(&formatted_text)?;
-                            reader_writer.send_success_bytes()?;
+                            messenger.send_message(1, vec![ // change
+                                formatted_text.into()
+                            ])?;
                         }
 
                         past_config.replace(config);
                     },
                     Err(err) => {
-                        reader_writer.send_u32(2)?; // error
-                        reader_writer.send_string(&err.to_string())?;
-                        reader_writer.send_success_bytes()?;
+                        messenger.send_message(2, vec![ // error
+                            err.to_string().into()
+                        ])?;
                     }
                 }
             },
@@ -882,7 +883,7 @@ mod tests {
     use crate::configuration::*;
     use crate::plugins::{PluginsDropper, PluginPools, CompilationResult, PluginResolver, PluginCache};
     use dprint_core::types::ErrBox;
-    use dprint_core::plugins::process::StdInOutReaderWriter;
+    use dprint_core::plugins::process::{StdIoReaderWriter, StdIoMessenger};
     use crate::utils::get_difference;
 
     use super::run_cli;
@@ -1961,13 +1962,12 @@ SOFTWARE.
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
-            r#"{"schemaVersion":2,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]},{"name":"test-process-plugin","fileExtensions":["txt_ps"]}]}"#
+            r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]},{"name":"test-process-plugin","fileExtensions":["txt_ps"]}]}"#
         ]);
     }
 
     struct EditorServiceCommunicator {
-        stdin: Box<dyn Write + Send>,
-        stdout: Box<dyn Read + Send>,
+        messenger: StdIoMessenger<Box<dyn Read + Send>, Box<dyn Write + Send>>,
     }
 
     impl EditorServiceCommunicator {
@@ -1975,40 +1975,43 @@ SOFTWARE.
             stdin: Box<dyn Write + Send>,
             stdout: Box<dyn Read + Send>,
         ) -> Self {
+            let reader_writer = StdIoReaderWriter::new(stdout, stdin);
+            let messenger = StdIoMessenger::new(reader_writer);
             EditorServiceCommunicator {
-                stdin,
-                stdout,
+                messenger,
             }
         }
 
         pub fn check_file(&mut self, file_path: &Path) -> Result<bool, ErrBox> {
-            let mut reader_writer = self.get_reader_writer();
-            reader_writer.send_u32(1)?;
-            reader_writer.send_path_buf(file_path)?;
-            Ok(reader_writer.read_u32()? == 1)
+            self.messenger.send_message(1, vec![
+                file_path.into(),
+            ])?;
+            let response_code = self.messenger.read_code()?;
+            self.messenger.read_zero_part_message()?;
+            Ok(response_code == 1)
         }
 
         pub fn format_text(&mut self, file_path: &Path, file_text: &str) -> Result<Option<String>, ErrBox> {
-            let mut reader_writer = self.get_reader_writer();
-            reader_writer.send_u32(2)?;
-            reader_writer.send_path_buf(file_path)?;
-            reader_writer.send_string(file_text)?;
-            let result = reader_writer.read_u32()?;
-            match result {
-                0 => Ok(None),
-                1 => Ok(Some(reader_writer.read_string()?)),
-                2 => err!("{}", reader_writer.read_string()?),
-                _ => err!("Unknown result: {}", result),
+            self.messenger.send_message(2, vec![
+                file_path.into(),
+                file_text.into(),
+            ])?;
+            let response_code = self.messenger.read_code()?;
+            match response_code {
+                0 => {
+                    self.messenger.read_zero_part_message()?;
+                    Ok(None)
+                },
+                1 => {
+                    Ok(Some(self.messenger.read_single_part_string_message()?))
+                },
+                2 => err!("{}", self.messenger.read_single_part_error_message()?),
+                _ => err!("Unknown result: {}", response_code),
             }
         }
 
         pub fn exit(&mut self) {
-            let mut reader_writer = self.get_reader_writer();
-            reader_writer.send_u32(0).unwrap();
-        }
-
-        fn get_reader_writer(&mut self) -> StdInOutReaderWriter<Box<dyn Read + Send>, Box<dyn Write + Send>> {
-            StdInOutReaderWriter::new(&mut self.stdout, &mut self.stdin)
+            self.messenger.send_message(0, vec![]).unwrap();
         }
     }
 

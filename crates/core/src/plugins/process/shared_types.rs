@@ -1,5 +1,8 @@
+use std::path::Path;
+use std::borrow::Cow;
+
 /// The process plugin schema version.
-pub const PLUGIN_SCHEMA_VERSION: u32 = 2;
+pub const PLUGIN_SCHEMA_VERSION: u32 = 3;
 
 /// Kinds of messages that process plugins must handle.
 #[derive(Debug)]
@@ -93,6 +96,60 @@ impl From<u32> for HostFormatResult {
 }
 
 pub enum MessagePart<'a> {
-    VariableData(&'a [u8]),
+    VariableData(Cow<'a, [u8]>),
     Number(u32)
+}
+
+impl<'a> From<&'a Path> for MessagePart<'a> {
+    fn from(value: &'a Path) -> Self {
+        match value.to_string_lossy() {
+            Cow::Owned(value) => value.into(),
+            Cow::Borrowed(value) => value.into(),
+        }
+    }
+}
+
+impl<'a> From<String> for MessagePart<'a> {
+    fn from(value: String) -> Self {
+        MessagePart::VariableData(Cow::Owned(value.into_bytes()))
+    }
+}
+
+impl<'a> From<&'a str> for MessagePart<'a> {
+    fn from(value: &'a str) -> Self {
+        MessagePart::VariableData(Cow::Borrowed(value.as_bytes()))
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for MessagePart<'a> {
+    fn from(value: Cow<'a, str>) -> Self {
+        match value {
+            Cow::Owned(value) => value.into(),
+            Cow::Borrowed(value) => value.into(),
+        }
+    }
+}
+
+impl<'a> From<&'a [u8]> for MessagePart<'a> {
+    fn from(value: &'a [u8]) -> Self {
+        MessagePart::VariableData(Cow::Borrowed(value))
+    }
+}
+
+impl<'a> From<&'a Vec<u8>> for MessagePart<'a> {
+    fn from(value: &'a Vec<u8>) -> Self {
+        MessagePart::VariableData(Cow::Borrowed(value))
+    }
+}
+
+impl<'a> From<Vec<u8>> for MessagePart<'a> {
+    fn from(value: Vec<u8>) -> Self {
+        MessagePart::VariableData(Cow::Owned(value))
+    }
+}
+
+impl<'a> From<u32> for MessagePart<'a> {
+    fn from(value: u32) -> Self {
+        MessagePart::Number(value)
+    }
 }

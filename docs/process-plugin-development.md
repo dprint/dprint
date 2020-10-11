@@ -1,4 +1,4 @@
-# Creating a Process Plugin (Schema Version 2)
+# Creating a Process Plugin (Schema Version 3)
 
 Process plugins are created (as opposed to the recommended WASM plugins), when the language does not have good support for compiling to a single _.wasm_ file.
 
@@ -58,7 +58,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
                config_key: "keyGoesHere".to_string(),
                file_extensions: vec!["txt_ps".to_string()],
                help_url: "".to_string(), // fill this in
-               config_schema_url: "".to_string()
+               config_schema_url: "".to_string() // leave this empty for now
            }
        }
 
@@ -104,10 +104,10 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 5. Finally, use your created plugin handler to start reading and writing to stdin and stdout:
 
    ```rust
-   handle_process_stdin_stdout_messages(MyProcessPluginHandler::new())
+   handle_process_stdio_messages(MyProcessPluginHandler::new())
    ```
 
-## Schema Version 2 Overview
+## Schema Version 3 Overview
 
 TODO...
 

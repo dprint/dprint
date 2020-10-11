@@ -1,19 +1,19 @@
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
 use crate::types::ErrBox;
 
 const BUFFER_SIZE: usize = 1024; // safe to assume
 
+const SUCCESS_BYTES: &[u8; 4] = &[225, 255, 255, 255];
 // todo: unit tests
 
-pub struct StdInOutReaderWriter<'a, TRead: Read, TWrite: Write> {
-    writer: &'a mut TWrite,
-    reader: &'a mut TRead,
+pub struct StdIoReaderWriter<TRead: Read, TWrite: Write> {
+    writer: TWrite,
+    reader: TRead,
 }
 
-impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
-    pub fn new(reader: &'a mut TRead, writer: &'a mut TWrite) -> Self {
-        StdInOutReaderWriter {
+impl<TRead: Read, TWrite: Write> StdIoReaderWriter<TRead, TWrite> {
+    pub fn new(reader: TRead, writer: TWrite) -> Self {
+        StdIoReaderWriter {
             writer,
             reader
         }
@@ -22,7 +22,6 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
     /// Send a u32 value.
     pub fn send_u32(&mut self, value: u32) -> Result<(), ErrBox> {
         self.writer.write_all(&value.to_be_bytes())?;
-        self.writer.flush()?;
 
         Ok(())
     }
@@ -34,12 +33,40 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         Ok(u32::from_be_bytes(int_buf))
     }
 
-    pub fn send_string(&mut self, text: &str) -> Result<(), ErrBox> {
-        self.send_variable_data(text.as_bytes())
+    pub fn send_success_bytes(&mut self) -> Result<(), ErrBox> {
+        self.writer.write_all(SUCCESS_BYTES)?;
+        self.writer.flush()?;
+
+        Ok(())
     }
 
-    pub fn send_path_buf(&mut self, path_buf: &Path) -> Result<(), ErrBox> {
-        self.send_string(&path_buf.to_string_lossy())
+    pub fn read_success_bytes(&mut self) -> Result<(), ErrBox> {
+        let had_bytes = self.inner_read_success_bytes()?;
+        if had_bytes {
+            Ok(())
+        } else {
+            panic!("Catastrophic error reading from process. Did not receive the success bytes at end of message.")
+        }
+    }
+
+    pub fn read_success_bytes_with_message_on_error(&mut self, maybe_read_error_message: &Vec<u8>) -> Result<(), ErrBox> {
+        let had_bytes = self.inner_read_success_bytes()?;
+        if had_bytes {
+            Ok(())
+        } else {
+            let message = "Catastrophic error reading from process. Did not receive the success bytes at end of message.";
+            // attempt to convert the error message to a string
+            match std::str::from_utf8(maybe_read_error_message) {
+                Ok(error_message) => panic!("{} Received partial error: {}", message, error_message),
+                Err(_) => panic!("{}", message),
+            }
+        }
+    }
+
+    fn inner_read_success_bytes(&mut self) -> Result<bool, ErrBox> {
+        let mut read_buf: [u8; 4] = [0; 4];
+        self.reader.read_exact(&mut read_buf)?;
+        Ok(&read_buf == SUCCESS_BYTES)
     }
 
     /// Sends variable width data (4 bytes length, X bytes data)
@@ -67,16 +94,6 @@ impl<'a, TRead: Read, TWrite: Write> StdInOutReaderWriter<'a, TRead, TWrite> {
         }
 
         Ok(())
-    }
-
-    pub fn read_string(&mut self) -> Result<String, ErrBox> {
-        let message_part = self.read_variable_data()?;
-        Ok(String::from_utf8(message_part)?)
-    }
-
-    pub fn read_path_buf(&mut self) -> Result<PathBuf, ErrBox> {
-        let message_data = self.read_variable_data()?;
-        Ok(PathBuf::from(std::str::from_utf8(&message_data)?))
     }
 
     /// Gets the message part (4 bytes length, X bytes data)

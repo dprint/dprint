@@ -1,4 +1,4 @@
-# Developing an Editor Extension (Schema Version 2)
+# Developing an Editor Extension (Schema Version 3)
 
 Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
 
@@ -14,7 +14,7 @@ Outputs:
 
 ```
 {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "plugins":[{
         "name": "test-plugin",
         "fileExtensions": ["txt"]
@@ -54,6 +54,7 @@ After startup, send one of the following messages:
   - u32 (4 bytes) - Message kind `2` indicating to check if a path can be formatted by the CLI.
   - u32 (4 bytes) - Path file size
   - X bytes - Path as string
+  - <SUCCESS_BYTES>
 - CLI responds:
   - u32 (4 bytes) - 0 for cannot format, or 1 for can format
 
@@ -65,10 +66,12 @@ After startup, send one of the following messages:
   - X bytes - Path as string
   - u32 (4 bytes) - File text size
   - X bytes - File text
+  - <SUCCESS_BYTES>
 - CLI responds:
   - u32 (4 bytes) - 0 for no change (END, no more messages), 1 for change, 2 for error
   - u32 (4 bytes) - Formatted file text or error message size
   - X bytes - Formatted file text or error message
+  - <SUCCESS_BYTES>
 
 ### General
 
@@ -77,5 +80,6 @@ After startup, send one of the following messages:
   1. Write 1024 bytes.
   2. Wait for 4 byte ready response from CLI
   3. If there are still more than 1024 bytes to write, write 1024 bytes and go back to step 2. If not, write the remaining bytes and exit the loop.
+- <SUCCESS_BYTES> - The success bytes ensures the message was received as intended. The bytes are: `225, 255, 255, 255`
 
-If using Rust, there is a `StdInOutReaderWriter` in dprint-core that helps with this.
+If using Rust, there is a `StdIoMessenger` in dprint-core that helps with this.
