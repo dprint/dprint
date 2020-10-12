@@ -281,7 +281,7 @@ pub mod macros {
 
             fn take_from_shared_bytes() -> Vec<u8> {
                 unsafe {
-                    std::mem::replace(&mut SHARED_BYTES, Vec::with_capacity(0))
+                    std::mem::replace(&mut SHARED_BYTES, Vec::new())
                 }
             }
 

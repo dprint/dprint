@@ -14,7 +14,7 @@ use crate::configuration::{self, get_global_config, get_plugin_config_map};
 use crate::plugins::{InitializedPlugin, Plugin, PluginResolver, InitializedPluginPool, PluginPools};
 use crate::utils::{get_table_text, get_difference, pretty_print_json_text};
 
-use super::{CliArgs, SubCommand, EditorServiceInfo};
+use super::{CliArgs, SubCommand, EditorServiceSubCommand};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
 use super::incremental::IncrementalFile;
 
@@ -27,101 +27,79 @@ pub async fn run_cli<TEnvironment: Environment>(
     plugin_resolver: &PluginResolver<TEnvironment>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
-    // help
-    if let SubCommand::Help(help_text) = &args.sub_command {
-        return output_help(&args, cache, environment, plugin_resolver, help_text).await;
+    match &args.sub_command {
+        SubCommand::Help(help_text) => return output_help(&args, cache, environment, plugin_resolver, help_text).await,
+        SubCommand::License => return output_license(&args, cache, environment, plugin_resolver).await,
+        SubCommand::EditorInfo => return output_editor_info(&args, cache, environment, plugin_resolver).await,
+        SubCommand::EditorService(cmd) => return run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools, cmd).await,
+        SubCommand::ClearCache => return clear_cache(environment),
+        SubCommand::Init => return init_config_file(environment, &args.config).await,
+        SubCommand::Version => return output_version(environment),
+        SubCommand::StdInFmt(cmd) => {
+            let config = resolve_config_from_args(&args, cache, environment)?;
+            let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver).await?;
+            plugin_pools.set_plugins(plugins);
+            return output_stdin_format(&PathBuf::from(&cmd.file_name), &cmd.file_text, environment, plugin_pools).await;
+        }
+        SubCommand::OutputResolvedConfig => {
+            let config = resolve_config_from_args(&args, cache, environment)?;
+            let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver).await?;
+            return output_resolved_config(plugins, environment);
+        }
+        SubCommand::OutputFilePaths => {
+            let config = resolve_config_from_args(&args, cache, environment)?;
+            let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver).await?;
+            let file_paths = resolve_file_paths(&config, &args, environment)?;
+            let file_paths_by_plugin = get_file_paths_by_plugin(&plugins, file_paths);
+            output_file_paths(file_paths_by_plugin.values().flat_map(|x| x.iter()), environment);
+            return Ok(());
+        }
+        SubCommand::OutputFormatTimes => {
+            let config = resolve_config_from_args(&args, cache, environment)?;
+            let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver).await?;
+            let file_paths = resolve_file_paths(&config, &args, environment)?;
+            let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
+            plugin_pools.set_plugins(plugins);
+            return output_format_times(file_paths_by_plugin, environment, plugin_pools).await;
+        }
+        SubCommand::Check => {
+            let config = resolve_config_from_args(&args, cache, environment)?;
+            let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver).await?;
+            let file_paths = resolve_file_paths(&config, &args, environment)?;
+            let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
+            plugin_pools.set_plugins(plugins);
+
+            // throw the project type diagnostic if it exists
+            check_project_type_diagnostic(&config)?;
+
+            let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
+            check_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
+        }
+        SubCommand::Fmt => {
+            let config = resolve_config_from_args(&args, cache, environment)?;
+            let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver).await?;
+            let file_paths = resolve_file_paths(&config, &args, environment)?;
+            let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
+            plugin_pools.set_plugins(plugins);
+
+            // throw the project type diagnostic if it exists
+            check_project_type_diagnostic(&config)?;
+
+            let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
+            format_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
+        }
     }
+}
 
-    // version
-    if args.sub_command == SubCommand::Version {
-        return output_version(environment).await;
-    }
-
-    // license
-    if args.sub_command == SubCommand::License {
-        return output_license(&args, cache, environment, plugin_resolver).await;
-    }
-
-    // editor plugin info
-    if args.sub_command == SubCommand::EditorInfo {
-        return output_editor_info(&args, cache, environment, plugin_resolver).await;
-    }
-
-    // editor service
-    if let SubCommand::EditorService(info) = &args.sub_command {
-        return run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools, info).await;
-    }
-
-    // clear cache
-    if args.sub_command == SubCommand::ClearCache {
-        let cache_dir = environment.get_cache_dir();
-        environment.remove_dir_all(&cache_dir)?;
-        environment.log(&format!("Deleted {}", cache_dir.display()));
-        return Ok(());
-    }
-
-    // init
-    if args.sub_command == SubCommand::Init {
-        return init_config_file(environment, &args.config).await;
-    }
-
-    // get configuration
-    let config = resolve_config_from_args(&args, cache, environment)?;
-
-    // get project type diagnostic, but don't surface any issues yet
-    let project_type_result = check_project_type_diagnostic(&config);
-
-    // resolve plugins
-    let plugins = resolve_plugins(&config, environment, plugin_resolver).await?;
-    if plugins.is_empty() {
-        return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
-    }
-
-    // stdin format
-    if let SubCommand::StdInFmt(stdin_fmt) = &args.sub_command {
-        plugin_pools.set_plugins(plugins);
-        return output_stdin_format(&PathBuf::from(&stdin_fmt.file_name), &stdin_fmt.file_text, environment, plugin_pools).await;
-    }
-
-    // output resolved config
-    if args.sub_command == SubCommand::OutputResolvedConfig {
-        return output_resolved_config(plugins, environment);
-    }
-
-    // resolve file paths
-    let file_paths = resolve_file_paths(&config, &args, environment)?;
-
-    let file_paths_by_plugin = get_file_paths_by_plugin(&plugins, file_paths);
-    plugin_pools.set_plugins(plugins);
-
-    // output resolved file paths
-    if args.sub_command == SubCommand::OutputFilePaths {
-        output_file_paths(file_paths_by_plugin.values().flat_map(|x| x.iter()), environment);
-        return Ok(());
-    }
-
-    // error if no file paths
+fn get_file_paths_by_plugin_and_err_if_empty(
+    plugins: &Vec<Box<dyn Plugin>>,
+    file_paths: Vec<PathBuf>
+) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
+    let file_paths_by_plugin = get_file_paths_by_plugin(plugins, file_paths);
     if file_paths_by_plugin.is_empty() {
         return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
     }
-
-    // surface the project type error at this point
-    project_type_result?;
-
-    // check output format times
-    if args.sub_command == SubCommand::OutputFormatTimes {
-        return output_format_times(file_paths_by_plugin, environment, plugin_pools).await;
-    }
-
-    // check and format
-    let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
-    if args.sub_command == SubCommand::Check {
-        check_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
-    } else if args.sub_command == SubCommand::Fmt {
-        format_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
-    } else {
-        unreachable!()
-    }
+    Ok(file_paths_by_plugin)
 }
 
 fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
@@ -142,7 +120,7 @@ fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<Path
     file_paths_by_plugin
 }
 
-async fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<(), ErrBox> {
+fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<(), ErrBox> {
     environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
 
     Ok(())
@@ -241,12 +219,12 @@ async fn run_editor_service<TEnvironment: Environment>(
     environment: &TEnvironment,
     plugin_resolver: &PluginResolver<TEnvironment>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
-    editor_service_info: &EditorServiceInfo,
+    editor_service_cmd: &EditorServiceSubCommand,
 ) -> Result<(), ErrBox> {
     use dprint_core::plugins::process::{StdIoReaderWriter, StdIoMessenger, start_parent_process_checker_thread};
 
     // poll for the existence of the parent process and terminate this process when that process no longer exists
-    let _handle = start_parent_process_checker_thread("editor-service".to_string(), editor_service_info.parent_pid);
+    let _handle = start_parent_process_checker_thread("editor-service".to_string(), editor_service_cmd.parent_pid);
 
     let stdin = environment.stdin();
     let stdout = environment.stdout();
@@ -263,7 +241,7 @@ async fn run_editor_service<TEnvironment: Environment>(
             1 => {
                 let file_path = messenger.read_single_part_path_buf_message()?;
                 let config = resolve_config_from_args(&args, cache, environment)?;
-                let file_paths = resolve_file_paths(&config, &args, environment)?;
+                let file_paths = resolve_file_paths(&config, args, environment)?;
 
                 // canonicalize the file path, then check if it's in the list of file paths.
                 match environment.canonicalize(&file_path) {
@@ -329,6 +307,13 @@ async fn run_editor_service<TEnvironment: Environment>(
         let formatted_text = format_with_plugin_pools(&file_path, &file_text, &plugin_pools).await?;
         Ok((formatted_text, config))
     }
+}
+
+fn clear_cache(environment: &impl Environment) -> Result<(), ErrBox> {
+    let cache_dir = environment.get_cache_dir();
+    environment.remove_dir_all(&cache_dir)?;
+    environment.log(&format!("Deleted {}", cache_dir.display()));
+    Ok(())
 }
 
 async fn get_plugins_from_args<TEnvironment: Environment>(
@@ -702,6 +687,18 @@ async fn run_parallelized<F, TEnvironment: Environment>(
     }
 }
 
+async fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
+    config: &ResolvedConfig,
+    environment: &TEnvironment,
+    plugin_resolver: &PluginResolver<TEnvironment>,
+) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+    let plugins = resolve_plugins(config, environment, plugin_resolver).await?;
+    if plugins.is_empty() {
+        return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
+    }
+    Ok(plugins)
+}
+
 async fn resolve_plugins<TEnvironment: Environment>(
     config: &ResolvedConfig,
     environment: &TEnvironment,
@@ -913,6 +910,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn it_should_output_version_with_v() {
+        let environment = TestEnvironment::new();
+        run_test_cli(vec!["-v"], &environment).await.unwrap();
+        let logged_messages = environment.take_logged_messages();
+        assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
+    }
+
+    #[tokio::test]
     async fn it_should_output_version_with_no_plugins() {
         let environment = TestEnvironment::new();
         run_test_cli(vec!["--version"], &environment).await.unwrap();
@@ -1033,7 +1038,7 @@ mod tests {
             "projectType": "openSource",
             "plugins": ["/plugins/test-plugin.wasm"]
         }"#).unwrap();
-        run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
+        run_test_cli(vec!["license"], &environment).await.unwrap(); // cause initialization
         environment.clear_logs();
         let file_path = PathBuf::from("/file.txt");
         environment.write_file(&file_path, "text").unwrap();
@@ -2282,22 +2287,15 @@ SUBCOMMANDS:
     clear-cache               Deletes the plugin cache directory.
     license                   Outputs the software license.
 
+More details at `dprint help <SUBCOMMAND>`
+
 OPTIONS:
     -c, --config <config>            Path or url to JSON configuration file. Defaults to .dprintrc.json in current or
                                      ancestor directory when not provided.
-        --excludes <patterns>...     List of files or directories or globs in quotes to exclude when formatting. This
-                                     overrides what is specified in the config file.
-        --allow-node-modules         Allows traversing node module directories (unstable - This flag will be renamed to
-                                     be non-node specific in the future).
-        --incremental                Only format files only when they change. This may alternatively be specified in the
-                                     configuration file.
         --plugins <urls/files>...    List of urls or file paths of plugins to use. This overrides what is specified in
                                      the config file.
         --verbose                    Prints additional diagnostic information.
     -v, --version                    Prints the version.
-
-ARGS:
-    <files>...    List of files or globs in quotes to format. This overrides what is specified in the config file.
 
 GETTING STARTED:
     1. Navigate to the root directory of a code repository.
@@ -2344,7 +2342,7 @@ EXAMPLES:
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
-        run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
+        run_test_cli(vec!["license"], &environment).await.unwrap(); // cause initialization
         environment.clear_logs();
         Ok(environment)
     }
@@ -2373,7 +2371,7 @@ EXAMPLES:
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
         }}"#, plugin_file_checksum)).unwrap();
-        run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
+        run_test_cli(vec!["license"], &environment).await.unwrap(); // cause initialization
         environment.clear_logs();
         Ok(environment)
     }
@@ -2384,7 +2382,7 @@ EXAMPLES:
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
-        run_test_cli(vec!["help"], &environment).await.unwrap(); // cause initialization
+        run_test_cli(vec!["license"], &environment).await.unwrap(); // cause initialization
         environment.clear_logs();
         Ok(environment)
     }

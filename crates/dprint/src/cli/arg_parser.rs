@@ -3,13 +3,15 @@ use super::StdInReader;
 
 pub struct CliArgs {
     pub sub_command: SubCommand,
-    pub allow_node_modules: bool,
     pub verbose: bool,
+    pub plugins: Vec<String>,
+    pub config: Option<String>,
+    // It depends on the command whether these will exist... it
+    // was just a lot easier to store these on a global object.
     pub incremental: bool,
     pub file_patterns: Vec<String>,
     pub exclude_file_patterns: Vec<String>,
-    pub plugins: Vec<String>,
-    pub config: Option<String>,
+    pub allow_node_modules: bool,
 }
 
 impl CliArgs {
@@ -17,6 +19,19 @@ impl CliArgs {
         match self.sub_command {
             SubCommand::EditorInfo | SubCommand::EditorService(..) | SubCommand::StdInFmt(..) => true,
             _ => false
+        }
+    }
+
+    fn new_with_sub_command(sub_command: SubCommand) -> CliArgs {
+        CliArgs {
+            sub_command,
+            verbose: false,
+            config: None,
+            plugins: Vec::new(),
+            incremental: false,
+            allow_node_modules: false,
+            file_patterns: Vec::new(),
+            exclude_file_patterns: Vec::new(),
         }
     }
 }
@@ -34,91 +49,118 @@ pub enum SubCommand {
     License,
     Help(String),
     EditorInfo, // todo: deprecate
-    EditorService(EditorServiceInfo),
-    StdInFmt(StdInFmtInfo),
+    EditorService(EditorServiceSubCommand),
+    StdInFmt(StdInFmtSubCommand),
 }
 
 #[derive(Debug, PartialEq)]
-pub struct EditorServiceInfo {
+pub struct EditorServiceSubCommand {
     pub parent_pid: u32,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct StdInFmtInfo {
+pub struct StdInFmtSubCommand {
     pub file_name: String,
     pub file_text: String,
 }
 
 pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &TStdInReader) -> Result<CliArgs, ErrBox> {
-    let mut cli_parser = create_cli_parser();
-    let matches = match cli_parser.get_matches_from_safe_borrow(args) {
+    // this is all done because clap doesn't output exactly how I like
+    if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
+        let mut help_text = Vec::new();
+        let mut cli_parser = create_cli_parser(/* is outputting help */ true);
+        cli_parser.get_matches_from_safe_borrow(vec![""])?;
+        cli_parser.write_help(&mut help_text).unwrap();
+        return Ok(CliArgs::new_with_sub_command(SubCommand::Help(String::from_utf8(help_text).unwrap())));
+    } else if args.len() == 2 && (args[1] == "-v" || args[1] == "--version") {
+        return Ok(CliArgs::new_with_sub_command(SubCommand::Version));
+    }
+
+    let cli_parser = create_cli_parser(false);
+    let matches = match cli_parser.get_matches_from_safe(args) {
         Ok(result) => result,
         Err(err) => return err!("{}", err.to_string()),
     };
 
-    let sub_command = if matches.is_present("fmt") {
-        SubCommand::Fmt
-    } else if matches.is_present("check") {
-        SubCommand::Check
-    } else if matches.is_present("init") {
-        SubCommand::Init
-    } else if matches.is_present("clear-cache") {
-        SubCommand::ClearCache
-    } else if matches.is_present("output-file-paths") {
-        SubCommand::OutputFilePaths
-    } else if matches.is_present("output-resolved-config") {
-        SubCommand::OutputResolvedConfig
-    } else if matches.is_present("output-format-times") {
-        SubCommand::OutputFormatTimes
-    } else if matches.is_present("version") {
-        SubCommand::Version
-    } else if matches.is_present("license") {
-        SubCommand::License
-    } else if matches.is_present("editor-info") {
-        SubCommand::EditorInfo
-    } else if matches.is_present("editor-service") {
-        let matches = matches.subcommand_matches("editor-service").unwrap();
-        SubCommand::EditorService(EditorServiceInfo {
+    let sub_command = match matches.subcommand() {
+        ("fmt", Some(matches)) => {
+            // todo: add back in next commit :)
+            /*if let Some(file_name) = matches.value_of("file-name").map(String::from) {
+                SubCommand::StdInFmt(StdInFmtSubCommand {
+                    file_name,
+                    file_text: std_in_reader.read()?,
+                })
+            } else {*/
+                SubCommand::Fmt
+            //}
+        },
+        ("check", _) => SubCommand::Check,
+        ("init", _) => SubCommand::Init,
+        ("clear-cache", _) => SubCommand::ClearCache,
+        ("output-file-paths", _) => SubCommand::OutputFilePaths,
+        ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
+        ("output-format-times", _) => SubCommand::OutputFormatTimes,
+        ("version", _) => SubCommand::Version,
+        ("license", _) => SubCommand::License,
+        ("editor-info", _) => SubCommand::EditorInfo,
+        ("editor-service", Some(matches)) => SubCommand::EditorService(EditorServiceSubCommand {
             parent_pid: matches.value_of("parent-pid").map(|v| v.parse::<u32>().ok()).flatten().unwrap()
-        })
-    } else if matches.is_present("stdin-fmt") {
-        let stdin_fmt_matches = matches.subcommand_matches("stdin-fmt").unwrap();
-        SubCommand::StdInFmt(StdInFmtInfo {
-            file_name: stdin_fmt_matches.value_of("file-name").map(String::from).unwrap(),
-            file_text: std_in_reader.read()?,
-        })
-    } else {
-        SubCommand::Help({
-            let mut text = Vec::new();
-            cli_parser.write_help(&mut text).unwrap();
-            String::from_utf8(text).unwrap()
-        })
+        }),
+        ("stdin-fmt", Some(matches)) => {
+            eprintln!("This command is going away soon. Please use `dprint --stdin <file-path/file-name>`");
+            SubCommand::StdInFmt(StdInFmtSubCommand {
+                file_name: matches.value_of("file-name").map(String::from).unwrap(),
+                file_text: std_in_reader.read()?,
+            })
+        },
+        _ => {
+            unreachable!();
+        },
+    };
+    let sub_command_matches = match matches.subcommand() {
+        (_, Some(matches)) => Some(matches),
+        _ => None,
     };
 
     Ok(CliArgs {
         sub_command,
         verbose: matches.is_present("verbose"),
-        incremental: matches.is_present("incremental"),
-        allow_node_modules: matches.is_present("allow-node-modules"),
         config: matches.value_of("config").map(String::from),
-        file_patterns: values_to_vec(matches.values_of("files")),
-        exclude_file_patterns: values_to_vec(matches.values_of("excludes")),
         plugins: values_to_vec(matches.values_of("plugins")),
+        incremental: sub_command_matches.map(|m| m.is_present("incremental")).unwrap_or(false),
+        allow_node_modules: sub_command_matches.map(|m| m.is_present("allow-node-modules")).unwrap_or(false),
+        file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or(Vec::new()),
+        exclude_file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("excludes"))).unwrap_or(Vec::new()),
     })
 }
 
-fn create_cli_parser<'a, 'b>() -> clap::App<'a, 'b> {
+fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
+    values.map(|x| x.map(std::string::ToString::to_string).collect()).unwrap_or(Vec::new())
+}
+
+fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b> {
     use clap::{App, Arg, SubCommand, AppSettings};
-    App::new("dprint")
-        .setting(AppSettings::UnifiedHelpMessage)
-        .setting(AppSettings::DisableHelpFlags)
-        .setting(AppSettings::DisableHelpSubcommand)
+    let app = App::new("dprint");
+
+    // hack to get this to display the way I want
+    let app = if is_outputting_main_help {
+        app.setting(AppSettings::DisableHelpSubcommand)
+            .setting(AppSettings::DisableHelpFlags)
+            .setting(AppSettings::DisableVersion)
+    } else {
+        app.setting(AppSettings::SubcommandRequiredElseHelp)
+    };
+
+    app.setting(AppSettings::UnifiedHelpMessage)
         .setting(AppSettings::DeriveDisplayOrder)
         .bin_name("dprint")
+        .version_short("v")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Copyright 2020 by David Sherret")
         .about("Auto-formats source code based on the specified plugins.")
         .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [files]...")
+        // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
+        // .version_aboute("Prints the version.")
         .template(r#"{bin} {version}
 {author}
 
@@ -130,11 +172,10 @@ USAGE:
 SUBCOMMANDS:
 {subcommands}
 
+More details at `dprint help <SUBCOMMAND>`
+
 OPTIONS:
 {unified}
-
-ARGS:
-{positionals}
 
 {after-help}"#)
         .after_help(
@@ -168,14 +209,27 @@ EXAMPLES:
         .subcommand(
             SubCommand::with_name("fmt")
                 .about("Formats the source files and writes the result to the file system.")
+                .add_resolve_file_path_args()
+                .add_incremental_arg()
+                /*.arg(
+                    Arg::with_name("stdin")
+                        .long("stdin")
+                        .value_name("file-name/file-path")
+                        .help("The file name or file path of the text being formatted. Provide a file path to apply the include and exclusion rules.")
+                        .required(false)
+                        .takes_value(true)
+                )*/
         )
         .subcommand(
             SubCommand::with_name("check")
                 .about("Checks for any files that haven't been formatted.")
+                .add_resolve_file_path_args()
+                .add_incremental_arg()
         )
         .subcommand(
             SubCommand::with_name("output-file-paths")
                 .about("Prints the resolved file paths for the plugins based on the args and configuration.")
+                .add_resolve_file_path_args()
         )
         .subcommand(
             SubCommand::with_name("output-resolved-config")
@@ -184,6 +238,7 @@ EXAMPLES:
         .subcommand(
             SubCommand::with_name("output-format-times")
                 .about("Prints the amount of time it takes to format each file. Use this for debugging.")
+                .add_resolve_file_path_args()
         )
         .subcommand(
             SubCommand::with_name("clear-cache")
@@ -218,50 +273,12 @@ EXAMPLES:
                 )
         )
         .arg(
-            Arg::with_name("files")
-                .help("List of files or globs in quotes to format. This overrides what is specified in the config file.")
-                .takes_value(true)
-                .global(true)
-                .conflicts_with("stdin-fmt")
-                .multiple(true),
-        )
-        .arg(
             Arg::with_name("config")
                 .long("config")
                 .short("c")
                 .help("Path or url to JSON configuration file. Defaults to .dprintrc.json in current or ancestor directory when not provided.")
                 .global(true)
                 .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("help")
-                .long("help")
-                .short("h")
-                .hidden(true)
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("excludes")
-                .long("excludes")
-                .global(true)
-                .value_name("patterns")
-                .help("List of files or directories or globs in quotes to exclude when formatting. This overrides what is specified in the config file.")
-                .takes_value(true)
-                .multiple(true),
-        )
-        .arg(
-            Arg::with_name("allow-node-modules")
-                .long("allow-node-modules")
-                .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
-                .global(true)
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("incremental")
-                .long("incremental")
-                .help("Only format files only when they change. This may alternatively be specified in the configuration file.")
-                .global(true)
-                .takes_value(false),
         )
         .arg(
             Arg::with_name("plugins")
@@ -288,6 +305,43 @@ EXAMPLES:
         )
 }
 
-fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
-    values.map(|x| x.map(std::string::ToString::to_string).collect()).unwrap_or(Vec::new())
+trait ClapExtensions {
+    fn add_resolve_file_path_args(self) -> Self;
+    fn add_incremental_arg(self) -> Self;
+}
+
+impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
+    fn add_resolve_file_path_args(self) -> Self {
+        use clap::Arg;
+        self.arg(
+            Arg::with_name("files")
+                .help("List of files or globs in quotes to format. This overrides what is specified in the config file.")
+                .takes_value(true)
+                .multiple(true),
+        )
+        .arg(
+            Arg::with_name("excludes")
+                .long("excludes")
+                .value_name("patterns")
+                .help("List of files or directories or globs in quotes to exclude when formatting. This overrides what is specified in the config file.")
+                .takes_value(true)
+                .multiple(true),
+        )
+        .arg(
+            Arg::with_name("allow-node-modules")
+                .long("allow-node-modules")
+                .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
+                .takes_value(false),
+        )
+    }
+
+    fn add_incremental_arg(self) -> Self {
+        use clap::Arg;
+        self.arg(
+            Arg::with_name("incremental")
+                .long("incremental")
+                .help("Only format files only when they change. This may alternatively be specified in the configuration file.")
+                .takes_value(false),
+        )
+    }
 }

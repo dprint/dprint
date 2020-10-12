@@ -81,14 +81,14 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
             let message_data = messenger.read_single_part_message()?;
             state.global_config = Some(serde_json::from_slice(&message_data)?);
             state.resolved_config_result.take();
-            messenger.send_response(Vec::with_capacity(0))?;
+            messenger.send_response(Vec::new())?;
         },
         MessageKind::SetPluginConfig => {
             let message_data = messenger.read_single_part_message()?;
             let plugin_config = serde_json::from_slice(&message_data)?;
             state.resolved_config_result.take();
             state.config = Some(plugin_config);
-            messenger.send_response(Vec::with_capacity(0))?;
+            messenger.send_response(Vec::new())?;
         },
         MessageKind::GetResolvedConfig => {
             messenger.read_zero_part_message()?;

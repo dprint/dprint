@@ -41,7 +41,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     let parent_plugin_name = String::from(plugin_name);
     let override_config: Arc<Mutex<Option<ConfigKeyMap>>> = Arc::new(Mutex::new(None));
     let file_path: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
-    let shared_bytes: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::with_capacity(0)));
+    let shared_bytes: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
     let formatted_text_store: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let error_text_store: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 
@@ -87,7 +87,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         move || {
             let bytes = {
                 let mut shared_bytes = shared_bytes.lock();
-                std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
+                std::mem::replace(&mut *shared_bytes, Vec::new())
             };
             let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or(HashMap::new());
             let mut override_config = override_config.lock();
@@ -100,7 +100,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         move || {
             let bytes = {
                 let mut shared_bytes = shared_bytes.lock();
-                std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
+                std::mem::replace(&mut *shared_bytes, Vec::new())
             };
             let file_path_str = String::from_utf8(bytes).unwrap();
             let mut file_path = file_path.lock();
@@ -118,7 +118,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
             let file_path = file_path.lock().take().expect("Expected to have file path.");
             let bytes = {
                 let mut shared_bytes = shared_bytes.lock();
-                std::mem::replace(&mut *shared_bytes, Vec::with_capacity(0))
+                std::mem::replace(&mut *shared_bytes, Vec::new())
             };
             let file_text = String::from_utf8(bytes).unwrap();
 
