@@ -15,7 +15,7 @@ See [Install](/install) and [Setup](/setup).
 
 ## Help
 
-The information outlined here will only be for the latest version, so `dprint help` or `dprint --help` will output information on how to use the CLI and give more detail about some of the flags not mentioned here.
+The information outlined here will only be for the latest version, so `dprint help` or `dprint help <SUBCOMMAND>` (ex. `dprint help fmt`) will output information on how to use the CLI and give more detail about some of the flags not mentioned here.
 
 ## Formatting Files
 

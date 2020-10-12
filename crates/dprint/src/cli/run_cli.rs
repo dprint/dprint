@@ -18,6 +18,8 @@ use super::{CliArgs, SubCommand, EditorServiceSubCommand};
 use super::configuration::{resolve_config_from_args, ResolvedConfig};
 use super::incremental::IncrementalFile;
 
+// TODO: probably a lot of these functions could be moved into new files
+
 const BOM_CHAR: char = '\u{FEFF}';
 
 pub async fn run_cli<TEnvironment: Environment>(
@@ -27,6 +29,7 @@ pub async fn run_cli<TEnvironment: Environment>(
     plugin_resolver: &PluginResolver<TEnvironment>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
+    // todo: reduce code duplication in this function
     match &args.sub_command {
         SubCommand::Help(help_text) => return output_help(&args, cache, environment, plugin_resolver, help_text).await,
         SubCommand::License => return output_license(&args, cache, environment, plugin_resolver).await,
@@ -39,7 +42,22 @@ pub async fn run_cli<TEnvironment: Environment>(
             let config = resolve_config_from_args(&args, cache, environment)?;
             let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver).await?;
             plugin_pools.set_plugins(plugins);
-            return output_stdin_format(&PathBuf::from(&cmd.file_name), &cmd.file_text, environment, plugin_pools).await;
+            // if the path is absolute, then apply exclusion rules
+            if environment.is_absolute_path(&cmd.file_path) {
+                let file_paths = resolve_file_paths(&config, &args, environment)?;
+                // canonicalize the file path, then check if it's in the list of file paths.
+                match environment.canonicalize(&cmd.file_path) {
+                    Ok(resolved_file_path) => {
+                        // log the file text as-is since it's not in the list of files to format
+                        if !file_paths.contains(&resolved_file_path) {
+                            environment.log_silent(&cmd.file_text);
+                            return Ok(());
+                        }
+                    }
+                    Err(err) => return err!("Error canonicalizing file {}: {}", cmd.file_path.display(), err.to_string()),
+                }
+            }
+            return output_stdin_format(&cmd.file_path, &cmd.file_text, environment, plugin_pools).await;
         }
         SubCommand::OutputResolvedConfig => {
             let config = resolve_config_from_args(&args, cache, environment)?;
@@ -323,14 +341,8 @@ async fn get_plugins_from_args<TEnvironment: Environment>(
     plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
     match resolve_config_from_args(args, cache, environment) {
-        Ok(config) => {
-            let plugins = resolve_plugins(&config, environment, plugin_resolver).await?;
-            Ok(plugins)
-        },
-        Err(_) => {
-            // ignore
-            Ok(Vec::new())
-        }
+        Ok(config) => resolve_plugins(&config, environment, plugin_resolver).await,
+        Err(_) => Ok(Vec::new()), // ignore
     }
 }
 
@@ -2084,16 +2096,17 @@ SOFTWARE.
     }
 
     #[tokio::test]
-    async fn it_should_format_for_stdin_fmt() {
+    async fn it_should_format_for_stdin_fmt_with_file_name() {
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
             "projectType": "openSource",
+            "includes": ["/test/**.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         let test_std_in = TestStdInReader::new_with_text("text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.txt"], &environment, test_std_in).await.unwrap();
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).await.unwrap();
+        // should format even though it wasn't matched because an absolute path wasn't provided
         assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
         assert_eq!(environment.take_logged_errors().len(), 0);
     }
@@ -2101,7 +2114,6 @@ SOFTWARE.
     #[tokio::test]
     async fn it_should_stdin_fmt_calling_other_plugin() {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().await.unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./.dprintrc.json"), &format!(r#"{{
             "projectType": "openSource",
@@ -2111,7 +2123,7 @@ SOFTWARE.
             ]
         }}"#, plugin_file_checksum)).unwrap();
         let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
-        run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.txt"], &environment, test_std_in).await.unwrap();
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).await.unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["format this text_formatted_process"]);
     }
 
@@ -2123,10 +2135,34 @@ SOFTWARE.
             "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
         let test_std_in = TestStdInReader::new_with_text("should_error");
-        let error_message = run_test_cli_with_stdin(vec!["stdin-fmt", "--file-name", "file.txt"], &environment, test_std_in).await.err().unwrap();
+        let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).await.err().unwrap();
         assert_eq!(error_message.to_string(), "Did error.");
+    }
+
+    #[tokio::test]
+    async fn it_should_format_for_stdin_with_absolute_paths() {
+        // it should not output anything when downloading plugins
+        let environment = get_test_environment_with_remote_wasm_plugin();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["/src/**.*"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
+        environment.write_file(&PathBuf::from("/src/file.txt"), "").unwrap();
+        // not matching file
+        let test_std_in = TestStdInReader::new_with_text("text");
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt"], &environment, test_std_in.clone()).await.unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["text"]);
+
+        // make it matching on the cli
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt", "--", "**/*.txt"], &environment, test_std_in.clone()).await.unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
+
+        // matching file
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "/src/file.txt"], &environment, test_std_in).await.unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
     }
 
     #[tokio::test]

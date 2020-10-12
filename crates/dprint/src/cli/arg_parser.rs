@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use dprint_core::types::ErrBox;
 use super::StdInReader;
 
@@ -60,7 +61,7 @@ pub struct EditorServiceSubCommand {
 
 #[derive(Debug, PartialEq)]
 pub struct StdInFmtSubCommand {
-    pub file_name: String,
+    pub file_path: PathBuf,
     pub file_text: String,
 }
 
@@ -84,15 +85,14 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
 
     let sub_command = match matches.subcommand() {
         ("fmt", Some(matches)) => {
-            // todo: add back in next commit :)
-            /*if let Some(file_name) = matches.value_of("file-name").map(String::from) {
+            if let Some(file_name) = matches.value_of("stdin").map(String::from) {
                 SubCommand::StdInFmt(StdInFmtSubCommand {
-                    file_name,
+                    file_path: PathBuf::from(file_name),
                     file_text: std_in_reader.read()?,
                 })
-            } else {*/
+            } else {
                 SubCommand::Fmt
-            //}
+            }
         },
         ("check", _) => SubCommand::Check,
         ("init", _) => SubCommand::Init,
@@ -109,7 +109,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
         ("stdin-fmt", Some(matches)) => {
             eprintln!("This command is going away soon. Please use `dprint --stdin <file-path/file-name>`");
             SubCommand::StdInFmt(StdInFmtSubCommand {
-                file_name: matches.value_of("file-name").map(String::from).unwrap(),
+                file_path: PathBuf::from(matches.value_of("file-name").map(String::from).unwrap()),
                 file_text: std_in_reader.read()?,
             })
         },
@@ -211,14 +211,14 @@ EXAMPLES:
                 .about("Formats the source files and writes the result to the file system.")
                 .add_resolve_file_path_args()
                 .add_incremental_arg()
-                /*.arg(
+                .arg(
                     Arg::with_name("stdin")
                         .long("stdin")
                         .value_name("file-name/file-path")
-                        .help("The file name or file path of the text being formatted. Provide a file path to apply the include and exclusion rules.")
+                        .help("Format stdin. Provide an absolute file path to apply the inclusion and exclusion rules or a file name to always format the text.")
                         .required(false)
                         .takes_value(true)
-                )*/
+                )
         )
         .subcommand(
             SubCommand::with_name("check")
