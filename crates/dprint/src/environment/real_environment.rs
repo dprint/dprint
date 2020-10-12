@@ -19,7 +19,11 @@ pub struct RealEnvironment {
 impl RealEnvironment {
     pub fn new(is_verbose: bool, is_silent: bool) -> Result<RealEnvironment, ErrBox> {
         let logger = Logger::new("dprint", is_silent);
-        let progress_bars = ProgressBars::new(&logger);
+        let progress_bars = if is_silent {
+            None
+        } else {
+            ProgressBars::new(&logger)
+        };
         let environment = RealEnvironment {
             logger,
             progress_bars,
