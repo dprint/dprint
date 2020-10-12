@@ -88,7 +88,7 @@ pub async fn run_cli<TEnvironment: Environment>(
             plugin_pools.set_plugins(plugins);
 
             // throw the project type diagnostic if it exists
-            check_project_type_diagnostic(&config)?;
+            check_project_type_diagnostic(environment, &config)?;
 
             let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
             check_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
@@ -101,7 +101,7 @@ pub async fn run_cli<TEnvironment: Environment>(
             plugin_pools.set_plugins(plugins);
 
             // throw the project type diagnostic if it exists
-            check_project_type_diagnostic(&config)?;
+            check_project_type_diagnostic(environment, &config)?;
 
             let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
             format_files(file_paths_by_plugin, environment, plugin_pools, incremental_file).await
@@ -159,12 +159,14 @@ async fn output_help<TEnvironment: Environment>(
     match plugins_result {
         Ok(plugins) => {
             if !plugins.is_empty() {
-                let plugin_texts = get_table_text(plugins.iter().map(|plugin| (plugin.name(), plugin.help_url())).collect(), 4);
+                let table_text = get_table_text(plugins.iter().map(|plugin| (plugin.name(), plugin.help_url())).collect());
                 environment.log("\nPLUGINS HELP:");
-                for plugin_text in plugin_texts {
-                    // output their names and help urls
-                    environment.log(&format!("    {}", plugin_text));
-                }
+                environment.log(&table_text.render(
+                    4, // indent
+                    // don't render taking terminal width into account
+                    // as these are urls and we want them to be clickable
+                    None,
+                ));
             }
         }
         Err(err) => {
@@ -393,12 +395,12 @@ async fn init_config_file(environment: &impl Environment, config_arg: &Option<St
         fn use_config_dir(environment: &impl Environment) -> Result<bool, ErrBox> {
             if environment.path_exists(&PathBuf::from("./config")) {
                 let prompt_message = "Would you like to create the .dprintrc.json in the ./config directory?";
-                let options = get_table_text(vec![
-                    ("Yes", "Create it in the ./config directory."),
-                    ("No", "Create it in the current working directory.")
-                ], 2);
+                let table_text = get_table_text(vec![
+                    ("Yes", "Use the ./config directory."),
+                    ("No", "Use the current working directory.")
+                ]);
 
-                Ok(environment.get_selection(prompt_message, &options)? == 0)
+                Ok(environment.get_selection(prompt_message, table_text.hanging_indent, &table_text.lines)? == 0)
             } else {
                 Ok(false)
             }
@@ -743,8 +745,8 @@ async fn resolve_plugins<TEnvironment: Environment>(
     return Ok(plugins);
 }
 
-fn check_project_type_diagnostic(config: &ResolvedConfig) -> Result<(), ErrBox> {
-    if let Some(diagnostic) = configuration::handle_project_type_diagnostic(&config.project_type) {
+fn check_project_type_diagnostic(environment: &impl Environment, config: &ResolvedConfig) -> Result<(), ErrBox> {
+    if let Some(diagnostic) = configuration::handle_project_type_diagnostic(environment, &config.project_type) {
         return err!("{}", diagnostic.message);
     }
 
@@ -970,8 +972,7 @@ mod tests {
         assert_eq!(logged_messages, vec![
             get_expected_help_text(),
             "\nPLUGINS HELP:",
-            "    test-plugin         https://dprint.dev/plugins/test",
-            "    test-process-plugin https://dprint.dev/plugins/test-process"
+            "    test-plugin         https://dprint.dev/plugins/test\n    test-process-plugin https://dprint.dev/plugins/test-process"
         ]);
     }
 

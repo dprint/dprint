@@ -4,7 +4,7 @@ use crossterm::{style::Colorize};
 use crossterm::tty::IsTty;
 use std::time::{Duration, SystemTime};
 
-use crate::logging::{Logger, LoggerRefreshItemKind};
+use crate::logging::{Logger, LoggerRefreshItemKind, LoggerTextItem};
 
 // Inspired by Indicatif, but this custom implementation allows for more control over
 // what's going on under the hood and it works better with the multi-threading model
@@ -136,7 +136,7 @@ impl ProgressBars {
                         ));
                     }
 
-                    logger.set_refresh_item(LoggerRefreshItemKind::ProgressBars, text);
+                    logger.set_refresh_item(LoggerRefreshItemKind::ProgressBars, vec![LoggerTextItem::Text(text)]);
                 }
 
                 std::thread::sleep(Duration::from_millis(100));

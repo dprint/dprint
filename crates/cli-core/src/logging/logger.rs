@@ -3,6 +3,12 @@ use std::sync::Arc;
 use crossterm::{style, cursor, terminal, QueueableCommand};
 use parking_lot::Mutex;
 
+pub enum LoggerTextItem {
+    Text(String),
+    /// todo: currently doesn't support text with ANSI escape sequences.
+    HangingText { text: String, indent: u16, }
+}
+
 #[derive(PartialOrd, Ord, PartialEq, Eq)]
 pub(crate) enum LoggerRefreshItemKind {
     // numbered by display order
@@ -12,8 +18,7 @@ pub(crate) enum LoggerRefreshItemKind {
 
 struct LoggerRefreshItem {
     kind: LoggerRefreshItemKind,
-    text: String,
-    escaped_text: String,
+    text_items: Vec<LoggerTextItem>,
 }
 
 #[derive(Clone)]
@@ -27,6 +32,7 @@ struct LoggerState {
     std_out: Stdout,
     std_err: Stderr,
     refresh_items: Vec<LoggerRefreshItem>,
+    last_terminal_width: Option<u16>,
 }
 
 impl Logger {
@@ -38,6 +44,7 @@ impl Logger {
                 std_out: stdout(),
                 std_err: stderr(),
                 refresh_items: Vec::new(),
+                last_terminal_width: None,
             })),
         }
     }
@@ -56,6 +63,11 @@ impl Logger {
     pub fn log_err(&self, text: &str, context_name: &str) {
         let mut state = self.output_lock.lock();
         self.inner_log(&mut state, false, text, context_name);
+    }
+
+    pub fn log_text_items(&self, text_items: &Vec<LoggerTextItem>, context_name: &str, terminal_width: Option<u16>) {
+        let text = render_text_items_with_width(text_items, terminal_width);
+        self.log(&text, context_name);
     }
 
     fn inner_log(&self, state: &mut LoggerState, is_std_out: bool, text: &str, context_name: &str) {
@@ -91,20 +103,17 @@ impl Logger {
         }
     }
 
-    pub(crate) fn set_refresh_item(&self, kind: LoggerRefreshItemKind, text: String) {
+    pub(crate) fn set_refresh_item(&self, kind: LoggerRefreshItemKind, text_items: Vec<LoggerTextItem>) {
         self.with_update_refresh_items(move |refresh_items| {
-            let escaped_text = String::from_utf8(strip_ansi_escapes::strip(&text).unwrap()).unwrap();
             match refresh_items.binary_search_by(|i| i.kind.cmp(&kind)) {
                 Ok(pos) => {
                     let mut refresh_item = refresh_items.get_mut(pos).unwrap();
-                    refresh_item.escaped_text = escaped_text;
-                    refresh_item.text = text;
+                    refresh_item.text_items = text_items;
                 },
                 Err(pos) => {
                     let refresh_item = LoggerRefreshItem {
                         kind,
-                        text,
-                        escaped_text,
+                        text_items,
                     };
                     refresh_items.insert(pos, refresh_item);
                 }
@@ -148,7 +157,9 @@ impl Logger {
         let terminal_width = crate::terminal::get_terminal_width().unwrap();
         let mut last_line_count = 0;
         for item in state.refresh_items.iter() {
-            last_line_count += get_text_line_count(&item.escaped_text, terminal_width)
+            let rendered_text = render_text_items_with_width(&item.text_items, state.last_terminal_width);
+            let escaped_text = String::from_utf8(strip_ansi_escapes::strip(&rendered_text).unwrap()).unwrap();
+            last_line_count += get_text_line_count(&escaped_text, terminal_width)
         }
         if last_line_count > 0 {
             if last_line_count > 1 {
@@ -157,14 +168,125 @@ impl Logger {
             state.std_err.queue(cursor::MoveToColumn(0)).unwrap();
             state.std_err.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
         }
+
+        state.std_err.queue(cursor::MoveToColumn(0)).unwrap();
     }
 
     fn inner_queue_draw_items(&self, state: &mut LoggerState) {
+        let terminal_width = crate::terminal::get_terminal_width();
         for (i, item) in state.refresh_items.iter().enumerate() {
             if i > 0 { state.std_err.queue(style::Print("\n")).unwrap(); }
-            state.std_err.queue(style::Print(&item.text)).unwrap();
+            let rendered_text = render_text_items_with_width(&item.text_items, terminal_width);
+            state.std_err.queue(style::Print(&rendered_text)).unwrap();
+        }
+        state.std_err.queue(cursor::MoveToColumn(0)).unwrap();
+        state.last_terminal_width = terminal_width;
+    }
+}
+
+/// Renders the text items with the specified width.
+pub fn render_text_items_with_width(text_items: &Vec<LoggerTextItem>, terminal_width: Option<u16>) -> String {
+    // todo: This needs to be improved to handle ansi escape codes
+    let mut result = String::new();
+    for (i, item) in text_items.iter().enumerate() {
+        if i > 0 { result.push_str("\n"); }
+        match item {
+            LoggerTextItem::Text(text) => result.push_str(text), // todo: support word wrapping
+            LoggerTextItem::HangingText { text, indent } => {
+                if let Some(terminal_width) = terminal_width {
+                    let mut final_text = String::new();
+                    let mut line_width: u16 = 0;
+                    let mut current_whitespace = String::new();
+                    for token in tokenize_words(&text) {
+                        match token {
+                            WordToken::Word((word, word_width)) => {
+                                let is_word_longer_than_line = *indent + word_width > terminal_width;
+                                if is_word_longer_than_line {
+                                    // break it up onto multiple lines with indentation
+                                    if !current_whitespace.is_empty() {
+                                        if line_width < terminal_width {
+                                            final_text.push_str(&current_whitespace);
+                                        }
+                                        current_whitespace = String::new();
+                                    }
+                                    for c in word.chars() {
+                                        if line_width == terminal_width {
+                                            final_text.push('\n');
+                                            final_text.push_str(&" ".repeat(*indent as usize));
+                                            line_width = *indent;
+                                        }
+                                        final_text.push(c);
+                                        line_width += 1;
+                                    }
+                                }
+                                else {
+                                    if line_width + word_width > terminal_width {
+                                        final_text.push_str("\n");
+                                        final_text.push_str(&" ".repeat(*indent as usize));
+                                        line_width = *indent;
+                                        current_whitespace = String::new();
+                                    }
+                                    if !current_whitespace.is_empty() {
+                                        final_text.push_str(&current_whitespace);
+                                        current_whitespace = String::new();
+                                    }
+                                    final_text.push_str(&word);
+                                    line_width += word_width;
+                                }
+                            }
+                            WordToken::WhiteSpace(space_char) => {
+                                current_whitespace.push(space_char);
+                                line_width += 1;
+                            }
+                            WordToken::NewLine => {
+                                final_text.push('\n');
+                                line_width = 0;
+                            }
+                        }
+                    }
+                    result.push_str(&final_text);
+                } else {
+                    result.push_str(text);
+                }
+            },
         }
     }
+    result
+}
+
+enum WordToken<'a> {
+    Word((&'a str, u16)),
+    WhiteSpace(char),
+    NewLine,
+}
+
+fn tokenize_words<'a>(text: &'a str) -> Vec<WordToken<'a>> {
+    // todo: how to write an iterator version?
+    let mut start_index = 0;
+    let mut tokens = Vec::new();
+    let mut word_width = 0;
+    for (index, c) in text.char_indices() {
+        if c.is_whitespace() || c == '\n' {
+            if word_width > 0 {
+                tokens.push(WordToken::Word((&text[start_index..index], word_width)));
+                word_width = 0;
+            }
+
+            if c == '\n' {
+                tokens.push(WordToken::NewLine);
+            } else {
+                tokens.push(WordToken::WhiteSpace(c));
+            }
+
+            start_index = index + c.len_utf8(); // start at next char
+        } else {
+            word_width += 1;
+        }
+    }
+    if word_width > 0 {
+        tokens.push(WordToken::Word((&text[start_index..text.len()], word_width)));
+    }
+    tokens
 }
 
 fn get_text_line_count(text: &str, terminal_width: u16) -> u16 {

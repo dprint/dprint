@@ -1,23 +1,31 @@
-use crate::logging::{Logger, LoggerRefreshItemKind};
+use crate::logging::{Logger, LoggerRefreshItemKind, LoggerTextItem};
 use crate::types::ErrBox;
 use crossterm::event::{read, Event, KeyCode};
 
 struct MultiSelectData<'a> {
     prompt: &'a str,
+    item_hanging_indent: u16,
     items: Vec<(bool, &'a String)>,
     active_index: usize,
 }
 
-pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, items: Vec<(bool, &String)>) -> Result<Vec<usize>, ErrBox> {
+pub fn show_multi_select(
+    logger: &Logger,
+    context_name: &str,
+    prompt: &str,
+    item_hanging_indent: u16,
+    items: Vec<(bool, &String)>
+) -> Result<Vec<usize>, ErrBox> {
     let mut data = MultiSelectData {
         prompt,
         items,
+        item_hanging_indent,
         active_index: 0,
     };
 
     loop {
-        let text = render_multi_select(&data);
-        logger.set_refresh_item(LoggerRefreshItemKind::Selection, text);
+        let text_items = render_multi_select(&data);
+        logger.set_refresh_item(LoggerRefreshItemKind::Selection, text_items);
 
         match read()? {
             Event::Key(key_event) => {
@@ -44,41 +52,32 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
                         logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
                         return err!("Selection cancelled.");
                     }
-                    _ => {
-
-                    }
+                    _ => {}
                 }
             },
             _ => {
-                // cause a refresh anyway?
+                // cause a refresh anyway
             }
         }
     }
     logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
 
-    let mut result = Vec::new();
-    if data.items.iter().any(|(is_selected, _)| *is_selected) {
-        let mut text = String::new();
-        text.push_str(&data.prompt);
-        for (i, (is_selected, item_text)) in data.items.iter().enumerate() {
-            if *is_selected {
-                // todo: handle text wrapping
-                text.push_str(&format!("\n * {}", item_text));
-                result.push(i);
-            }
-        }
-        logger.log(&text, context_name);
-    }
+    logger.log_text_items(&render_complete(&data), context_name, crate::terminal::get_terminal_width());
 
+    // return the selected indexes
+    let mut result = Vec::new();
+    for (i, (is_selected, _)) in data.items.iter().enumerate() {
+        if *is_selected { result.push(i); }
+    }
     Ok(result)
 }
 
-fn render_multi_select(data: &MultiSelectData) -> String {
-    let mut text = String::new();
-    text.push_str(&data.prompt);
+fn render_multi_select(data: &MultiSelectData) -> Vec<LoggerTextItem> {
+    let mut result = Vec::new();
+    result.push(LoggerTextItem::Text(data.prompt.to_string()));
 
     for (i, (is_selected, item_text)) in data.items.iter().enumerate() {
-        text.push_str("\n");
+        let mut text = String::new();
         text.push_str(if i == data.active_index {
             ">"
         } else {
@@ -91,10 +90,29 @@ fn render_multi_select(data: &MultiSelectData) -> String {
             " "
         });
         text.push_str("] ");
-
-        // todo: handle text wrapping
         text.push_str(item_text);
+
+        result.push(LoggerTextItem::HangingText {
+            text,
+            indent: 7 + data.item_hanging_indent,
+        });
     }
 
-    text
+    result
+}
+
+fn render_complete(data: &MultiSelectData) -> Vec<LoggerTextItem> {
+    let mut result = Vec::new();
+    if data.items.iter().any(|(is_selected, _)| *is_selected) {
+        result.push(LoggerTextItem::Text(data.prompt.to_string()));
+        for (is_selected, item_text) in data.items.iter() {
+            if *is_selected {
+                result.push(LoggerTextItem::HangingText {
+                    text: format!(" * {}", item_text),
+                    indent: 3 + data.item_hanging_indent,
+                });
+            }
+        }
+    }
+    result
 }

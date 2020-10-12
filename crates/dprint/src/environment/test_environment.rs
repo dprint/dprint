@@ -330,12 +330,16 @@ impl Environment for TestEnvironment {
         123456
     }
 
-    fn get_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<usize, ErrBox> {
+    fn get_terminal_width(&self) -> u16 {
+        60
+    }
+
+    fn get_selection(&self, prompt_message: &str, _: u16, _: &Vec<String>) -> Result<usize, ErrBox> {
         self.log_error(prompt_message);
         Ok(*self.selection_result.lock())
     }
 
-    fn get_multi_selection(&self, prompt_message: &str, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+    fn get_multi_selection(&self, prompt_message: &str, _: u16, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
         self.log_error(prompt_message);
         Ok(self.multi_selection_result.lock().clone())
     }

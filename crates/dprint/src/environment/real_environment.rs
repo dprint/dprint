@@ -175,12 +175,28 @@ impl Environment for RealEnvironment {
         SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
     }
 
-    fn get_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<usize, ErrBox> {
-        show_select(&self.logger, "dprint", prompt_message, items)
+    fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<String>) -> Result<usize, ErrBox> {
+        show_select(
+            &self.logger,
+            "dprint",
+            prompt_message,
+            item_indent_width,
+            items
+        )
     }
 
-    fn get_multi_selection(&self, prompt_message: &str, items: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
-        show_multi_select(&self.logger, "dprint", prompt_message, items.iter().map(|item| (true, item)).collect::<Vec<_>>())
+    fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+        show_multi_select(
+            &self.logger,
+            "dprint",
+            prompt_message,
+            item_indent_width,
+            items.iter().map(|item| (true, item)).collect::<Vec<_>>()
+        )
+    }
+
+    fn get_terminal_width(&self) -> u16 {
+        dprint_cli_core::terminal::get_terminal_width().unwrap_or(60)
     }
 
     #[inline]
