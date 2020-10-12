@@ -72,7 +72,7 @@ jobs:
       run: cargo test --verbose
     - name: Test release
       if: matrix.config.kind == 'test_release'
-      run: cargo test --release --locked --all-targets --verbose -- --nocapture
+      run: cargo test --release --locked --all-targets --verbose
 
     # INSTALLER
     - name: Setup NSIS (Windows)
