@@ -1,5 +1,7 @@
+mod error_count_logger;
 mod extract_zip;
 mod file_path_utils;
+mod file_text;
 mod get_difference;
 mod get_bytes_hash;
 mod resolve_url_or_file_path;
@@ -7,8 +9,10 @@ mod pretty_print_json_text;
 mod path_source;
 mod table_text;
 
+pub use error_count_logger::*;
 pub use extract_zip::*;
 pub use file_path_utils::*;
+pub use file_text::*;
 pub use get_difference::*;
 pub use get_bytes_hash::*;
 pub use resolve_url_or_file_path::*;

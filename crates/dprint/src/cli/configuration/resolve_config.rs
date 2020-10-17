@@ -124,35 +124,22 @@ fn resolve_extends<TEnvironment : Environment>(
     cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
 ) -> Result<(), ErrBox> {
-    // Rust does not support async recursion without boxing, so this is done to avoid having to do recursion
-    let mut extends_items = extends.into_iter().map(|url_or_file_path| (base_path.clone(), url_or_file_path)).collect::<Vec<_>>();
-
-    let mut index = 0;
-    loop {
-        let (base_path, url_or_file_path) = match extends_items.get(index) {
-            Some(extends_item) => extends_item,
-            None => return Ok(()), // all done
-        };
-
+    for url_or_file_path in extends {
         let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, cache, environment)?;
-        let extends = match handle_config_file(&resolved_path, resolved_config, environment) {
+        match handle_config_file(&resolved_path, resolved_config, cache, environment) {
             Ok(extends) => extends,
             Err(err) => return err!("Error with '{}'. {}", resolved_path.source.display(), err.to_string())
-        };
-
-        // push the current extends onto the extends items
-        let parent = resolved_path.source.parent();
-        extends_items.splice(index + 1..index + 1, extends.into_iter().map(|url_or_file_path| (parent.clone(), url_or_file_path)));
-
-        index += 1;
+        }
     }
+    Ok(())
 }
 
 fn handle_config_file<'a, TEnvironment : Environment>(
     resolved_path: &ResolvedPath,
     resolved_config: &mut ResolvedConfig,
+    cache: &Cache<TEnvironment>,
     environment: &TEnvironment,
-) -> Result<Vec<String>, ErrBox> {
+) -> Result<(), ErrBox> {
     let config_file_path = &resolved_path.file_path;
     let mut new_config_map = match get_config_map_from_path(config_file_path, environment)? {
         Ok(config_map) => config_map,
@@ -225,7 +212,9 @@ fn handle_config_file<'a, TEnvironment : Environment>(
         }
     }
 
-    Ok(extends)
+    resolve_extends(resolved_config, extends, &resolved_path.source.parent(), cache, environment)?;
+
+    Ok(())
 }
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>, ErrBox> {

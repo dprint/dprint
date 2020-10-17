@@ -17,9 +17,8 @@ mod configuration;
 mod plugins;
 mod utils;
 
-#[tokio::main]
-async fn main() -> Result<(), ErrBox> {
-    match run().await {
+fn main() -> Result<(), ErrBox> {
+    match run() {
         Ok(_) => {},
         Err(err) => {
             eprintln!("{}", err.to_string());
@@ -30,7 +29,7 @@ async fn main() -> Result<(), ErrBox> {
     Ok(())
 }
 
-async fn run() -> Result<(), ErrBox> {
+fn run() -> Result<(), ErrBox> {
     let stdin_reader = cli::RealStdInReader::new();
     let args = cli::parse_args(std::env::args().collect(), &stdin_reader)?;
     let environment = RealEnvironment::new(args.verbose, args.is_silent_output())?;
@@ -40,5 +39,5 @@ async fn run() -> Result<(), ErrBox> {
     let _plugins_dropper = plugins::PluginsDropper::new(plugin_pools.clone());
     let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
 
-    cli::run_cli(args, &environment, &cache, &plugin_resolver, plugin_pools.clone()).await
+    cli::run_cli(args, &environment, &cache, &plugin_resolver, plugin_pools.clone())
 }

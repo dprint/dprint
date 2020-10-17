@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use rayon::prelude::*;
 
 use dprint_core::types::ErrBox;
 
@@ -21,33 +22,25 @@ impl<TEnvironment : Environment> PluginResolver<TEnvironment> {
         PluginResolver { environment, plugin_cache, plugin_pools }
     }
 
-    pub async fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-        let mut handles = Vec::with_capacity(plugin_references.len());
-        let mut plugins = Vec::with_capacity(plugin_references.len());
-
-        for plugin_reference in plugin_references.into_iter() {
-            let environment = self.environment.clone();
-            let plugin_cache = self.plugin_cache.clone();
-            let plugin_pools = self.plugin_pools.clone();
-            handles.push(tokio::task::spawn(async move {
-                match create_plugin(plugin_pools, &plugin_cache, environment, &plugin_reference) {
-                    Ok(plugin) => Ok(plugin),
-                    Err(err) => {
-                        match plugin_cache.forget(&plugin_reference) {
-                            Ok(()) => {},
-                            Err(inner_err) => return err!("Error resolving plugin {} and forgetting from cache: {}\n{}", plugin_reference.display(), err, inner_err),
-                        }
-                        return err!("Error resolving plugin {}: {}", plugin_reference.display(), err);
-                    }
-                }
-            }));
-        }
-
-        let result = futures::future::try_join_all(handles).await?;
-        for plugin_result in result {
-            plugins.push(plugin_result?);
-        }
+    pub fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+        let plugins = plugin_references
+            .into_par_iter()
+            .map(|plugin_reference| self.resolve_plugin(plugin_reference))
+            .collect::<Result<Vec<Box<dyn Plugin>>, ErrBox>>()?;
 
         Ok(plugins)
+    }
+
+    fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Box<dyn Plugin>, ErrBox> {
+        match create_plugin(self.plugin_pools.clone(), &self.plugin_cache, self.environment.clone(), &plugin_reference) {
+            Ok(plugin) => Ok(plugin),
+            Err(err) => {
+                match self.plugin_cache.forget(&plugin_reference) {
+                    Ok(()) => {},
+                    Err(inner_err) => return err!("Error resolving plugin {} and forgetting from cache: {}\n{}", plugin_reference.display(), err, inner_err),
+                }
+                return err!("Error resolving plugin {}: {}", plugin_reference.display(), err);
+            }
+        }
     }
 }

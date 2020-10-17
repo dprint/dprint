@@ -1,12 +1,13 @@
 use std::sync::Arc;
 use std::collections::HashMap;
-use parking_lot::Mutex;
-use tokio::sync::Semaphore;
+use std::time::Instant;
+use parking_lot::{Mutex, RwLock};
 
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
-use super::{Plugin, InitializedPlugin};
+use crate::utils::ErrorCountLogger;
+use super::{Plugin, InitializedPlugin, output_plugin_config_diagnostics};
 
 /// This is necessary because of a circular reference where
 /// PluginPools hold plugins and the plugins hold a PluginPools.
@@ -29,10 +30,9 @@ impl<TEnvironment: Environment> PluginsDropper<TEnvironment> {
 pub struct PluginPools<TEnvironment : Environment> {
     environment: TEnvironment,
     pools: Mutex<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>,
-    extension_to_plugin_name_map: Mutex<HashMap<String, String>>,
-    /// Plugins may format using other plugins. Since when plugins are formatting other plugins
-    /// they cannot use an async operation, they must be provided with an instance synchronously
-    /// and cannot get a plugin from the plugin pool below.
+    extension_to_plugin_name_map: RwLock<HashMap<String, String>>,
+    /// Plugins may format using other plugins. If so, they should have a locally
+    /// owned plugin instance that will be created on demand.
     plugins_for_plugins: Mutex<HashMap<String, HashMap<String, Vec<Box<dyn InitializedPlugin>>>>>,
 }
 
@@ -41,7 +41,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
         PluginPools {
             environment,
             pools: Mutex::new(HashMap::new()),
-            extension_to_plugin_name_map: Mutex::new(HashMap::new()),
+            extension_to_plugin_name_map: RwLock::new(HashMap::new()),
             plugins_for_plugins: Mutex::new(HashMap::new()),
         }
     }
@@ -62,7 +62,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
 
     pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>) {
         let mut pools = self.pools.lock();
-        let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.lock();
+        let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.write();
         for plugin in plugins {
             let plugin_name = String::from(plugin.name());
             let plugin_extensions = plugin.file_extensions().clone();
@@ -82,7 +82,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
 
     pub fn take_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let plugin = {
-            let mut plugins_for_plugins = self.plugins_for_plugins.lock(); // keep this lock short
+            let mut plugins_for_plugins = self.plugins_for_plugins.lock();
             let plugins_for_plugin = if let Some(plugins_for_plugin) = plugins_for_plugins.get_mut(parent_plugin_name) {
                 plugins_for_plugin
             } else {
@@ -102,7 +102,11 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
             Ok(plugin)
         } else {
             let pool = self.get_pool(sub_plugin_name).expect("Expected the plugin to exist in the pool.");
-            pool.force_create_instance()
+            if let Some(plugin) = pool.take_if_available() {
+                Ok(plugin)
+            } else {
+                pool.create_instance()
+            }
         }
     }
 
@@ -114,7 +118,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     }
 
     pub fn get_plugin_name_from_extension(&self, ext: &str) -> Option<String> {
-        self.extension_to_plugin_name_map.lock().get(ext).map(|name| name.to_owned())
+        self.extension_to_plugin_name_map.read().get(ext).map(|name| name.to_owned())
     }
 
     pub fn release(&self, parent_plugin_name: &str) {
@@ -142,24 +146,52 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     }
 }
 
+pub struct PoolTimeSnapshot {
+    pub startup_time: u64,
+    pub average_format_time: u64,
+    pub has_plugin_available: bool,
+}
+
+struct PluginTimeStats {
+    startup_time: u64,
+    total_format_time: u64,
+    format_count: u64,
+}
+
+pub enum TakePluginResult {
+    HadDiagnostics,
+    Success(Box<dyn InitializedPlugin>),
+}
+
 pub struct InitializedPluginPool<TEnvironment : Environment> {
     environment: TEnvironment,
+    name: String,
     plugin: Box<dyn Plugin>,
-    items: Mutex<Vec<Box<dyn InitializedPlugin>>>,
-    semaphore: Semaphore,
+    items: Mutex<Vec<Box<dyn InitializedPlugin>>>, // todo: RwLock
+    time_stats: RwLock<PluginTimeStats>,
+    checked_diagnostics: Mutex<Option<bool>>,
 }
 
 impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
     pub fn new(plugin: Box<dyn Plugin>, environment: TEnvironment) -> InitializedPluginPool<TEnvironment> {
-        // There is a performance cost associated with initializing a
-        // plugin, so for now it's being limited to 2 instances per plugin
-        let capacity = 2;
         InitializedPluginPool {
             environment,
+            name: plugin.name().to_string(),
             plugin: plugin,
-            items: Mutex::new(Vec::with_capacity(capacity)),
-            semaphore: Semaphore::new(capacity),
+            items: Mutex::new(Vec::new()),
+            time_stats: RwLock::new(PluginTimeStats {
+                // assume this if never created
+                startup_time: 250,
+                // give each plugin an average format time to start
+                total_format_time: 50,
+                format_count: 1,
+            }),
+            checked_diagnostics: Mutex::new(None),
         }
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 
     pub fn drop_plugins(&self) {
@@ -167,63 +199,78 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
         items.clear();
     }
 
-    pub fn take_or_create_no_sempahore(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let mut items = self.items.lock();
-        if let Some(item) = items.pop() {
-            Ok(item)
+    pub fn take_or_create_checking_config_diagnostics(
+        &self,
+        error_logger: &ErrorCountLogger<TEnvironment>
+    ) -> Result<TakePluginResult, ErrBox> {
+        if let Some(plugin) = self.take_if_available() {
+            Ok(TakePluginResult::Success(plugin))
         } else {
-            self.force_create_instance()
+            let instance = self.create_instance()?;
+
+            // only allow one thread to ever check and output the diagnostics (we don't want the messages being spammed)
+            let mut has_checked_diagnostics = self.checked_diagnostics.lock();
+            match *has_checked_diagnostics {
+                Some(was_success) => if !was_success {
+                    return Ok(TakePluginResult::HadDiagnostics);
+                },
+                None => {
+                    let result = output_plugin_config_diagnostics(self.name(), &instance, &error_logger);
+                    *has_checked_diagnostics = Some(result.is_ok());
+                    if let Err(err) = result {
+                        self.environment.log_error(&err.to_string());
+                        return Ok(TakePluginResult::HadDiagnostics);
+                    }
+                }
+            }
+
+            Ok(TakePluginResult::Success(instance))
         }
     }
 
-    pub fn release_no_semaphore(&self, plugin: Box<dyn InitializedPlugin>) {
+    pub fn take_if_available(&self) -> Option<Box<dyn InitializedPlugin>> {
         let mut items = self.items.lock();
-        items.push(plugin);
-    }
-
-    pub async fn initialize_first(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let initialized_plugin = self.force_create_instance()?;
-        self.wait_and_reduce_semaphore().await?;
-        Ok(initialized_plugin)
-    }
-
-    pub async fn try_take(&self) -> Result<Option<Box<dyn InitializedPlugin>>, ErrBox> {
-        self.wait_and_reduce_semaphore().await?;
-
-        let mut items = self.items.lock();
-        // try to get an item from the pool
-        return Ok(items.pop());
-    }
-
-    pub fn create_pool_item(&self) -> Result<(), ErrBox> {
-        self.release(self.force_create_instance()?);
-        Ok(())
+        items.pop()
     }
 
     pub fn release(&self, plugin: Box<dyn InitializedPlugin>) {
         let mut items = self.items.lock();
         items.push(plugin);
-        self.semaphore.add_permits(1);
     }
 
     pub fn release_all(&self, plugins: Vec<Box<dyn InitializedPlugin>>) {
         let mut items = self.items.lock();
-        let plugins_len = plugins.len();
         items.extend(plugins);
-        self.semaphore.add_permits(plugins_len);
     }
 
-    async fn wait_and_reduce_semaphore(&self) -> Result<(), ErrBox> {
-        let permit = self.semaphore.acquire().await;
-        permit.forget(); // reduce the number of permits (consumers must call .release)
-        Ok(())
+    pub fn get_time_snapshot(&self) -> PoolTimeSnapshot {
+        let has_plugin_available = !self.items.lock().is_empty();
+        let time_stats = self.time_stats.read();
+        let average_format_time = (time_stats.total_format_time as f64 / time_stats.format_count as f64) as u64;
+        PoolTimeSnapshot {
+            startup_time: time_stats.startup_time,
+            average_format_time,
+            has_plugin_available,
+        }
     }
 
-    pub fn force_create_instance(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let start_instant = std::time::Instant::now();
+    fn create_instance(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+        let start_instant = Instant::now();
         log_verbose!(self.environment, "Creating instance of {}", self.plugin.name());
         let plugin = self.plugin.initialize()?;
-        log_verbose!(self.environment, "Created instance of {} in {}ms", self.plugin.name(), start_instant.elapsed().as_millis());
+        let startup_duration = start_instant.elapsed().as_millis() as u64;
+        log_verbose!(self.environment, "Created instance of {} in {}ms", self.plugin.name(), startup_duration);
+        self.time_stats.write().startup_time = startup_duration; // store the latest duration
         Ok(plugin)
+    }
+
+    pub fn format_measuring_time<TResult>(&self, action: impl Fn() -> TResult) -> TResult {
+        let start_instant = Instant::now();
+        let result = action();
+        let elapsed_time = start_instant.elapsed();
+        let mut time_stats = self.time_stats.write();
+        time_stats.total_format_time += elapsed_time.as_millis() as u64;
+        time_stats.format_count += 1;
+        result
     }
 }
