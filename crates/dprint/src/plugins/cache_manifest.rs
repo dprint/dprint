@@ -8,23 +8,30 @@ use dprint_core::types::ErrBox;
 use crate::environment::Environment;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct PluginCacheManifest(HashMap<String, PluginCacheManifestItem>);
+#[serde(rename_all = "camelCase")]
+pub struct PluginCacheManifest {
+    schema_version: u16,
+    plugins: HashMap<String, PluginCacheManifestItem>,
+}
 
 impl PluginCacheManifest {
     pub(super) fn new() -> PluginCacheManifest {
-        PluginCacheManifest(HashMap::new())
+        PluginCacheManifest {
+            schema_version: 1,
+            plugins: HashMap::new(),
+        }
     }
 
     pub fn add_item(&mut self, key: String, item: PluginCacheManifestItem) {
-        self.0.insert(key, item);
+        self.plugins.insert(key, item);
     }
 
     pub fn get_item(&self, key: &str) -> Option<&PluginCacheManifestItem> {
-        self.0.get(key)
+        self.plugins.get(key)
     }
 
     pub fn remove_item(&mut self, key: &str) -> Option<PluginCacheManifestItem> {
-        self.0.remove(key)
+        self.plugins.remove(key)
     }
 }
 
@@ -38,17 +45,37 @@ pub struct PluginCacheManifestItem {
     pub info: PluginInfo,
 }
 
-pub fn read_manifest(environment: &impl Environment) -> Result<PluginCacheManifest, ErrBox> {
-    let file_path = get_manifest_file_path(environment);
-    match environment.read_file(&file_path) {
-        Ok(text) => match serde_json::from_str(&text) {
-            Ok(manifest) => Ok(manifest),
-            Err(err) => {
-                environment.log_error(&format!("Error deserializing plugin cache manifest, but ignoring: {}", err));
-                Ok(PluginCacheManifest::new())
+pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
+    return match try_deserialize(environment) {
+        Ok(manifest) => {
+            if manifest.schema_version != 1 {
+                environment.log_error(&format!("Error deserializing plugin cache manifest, but ignoring: Schema version was {}, but expected 1", manifest.schema_version));
+                let _ = environment.remove_dir_all(&environment.get_cache_dir().join("plugins"));
+                PluginCacheManifest::new()
+            } else {
+                manifest
             }
         },
-        Err(_) => Ok(PluginCacheManifest::new()),
+        Err(err) => {
+            environment.log_error(&format!("Error deserializing plugin cache manifest, but ignoring: {}", err));
+            let _ = environment.remove_dir_all(&environment.get_cache_dir());
+            PluginCacheManifest::new()
+        }
+    };
+
+    fn try_deserialize(environment: &impl Environment) -> Result<PluginCacheManifest, ErrBox> {
+        let file_path = get_manifest_file_path(environment);
+        return match environment.read_file(&file_path) {
+            Ok(text) => {
+                let manifest = serde_json::from_str::<PluginCacheManifest>(&text)?;
+                if manifest.schema_version != 1 {
+                    return err!("Schema version was {}, but expected 1", manifest.schema_version);
+                } else {
+                    Ok(manifest)
+                }
+            },
+            Err(_) => Ok(PluginCacheManifest::new()),
+        };
     }
 }
 
@@ -74,27 +101,30 @@ mod test {
         environment.write_file(
             &environment.get_cache_dir().join("plugin-cache-manifest.json"),
             r#"{
-    "a": {
-        "createdTime": 123,
-        "info": {
-            "name": "dprint-plugin-typescript",
-            "version": "0.1.0",
-            "configKey": "typescript",
-            "fileExtensions": [".ts"],
-            "helpUrl": "help url",
-            "configSchemaUrl": "schema url"
-        }
-    },
-    "c": {
-        "createdTime": 456,
-        "fileHash": 10,
-        "info": {
-            "name": "dprint-plugin-json",
-            "version": "0.2.0",
-            "configKey": "json",
-            "fileExtensions": [".json"],
-            "helpUrl": "help url 2",
-            "configSchemaUrl": "schema url 2"
+    "schemaVersion": 1,
+    "plugins": {
+        "a": {
+            "createdTime": 123,
+            "info": {
+                "name": "dprint-plugin-typescript",
+                "version": "0.1.0",
+                "configKey": "typescript",
+                "fileExtensions": [".ts"],
+                "helpUrl": "help url",
+                "configSchemaUrl": "schema url"
+            }
+        },
+        "c": {
+            "createdTime": 456,
+            "fileHash": 10,
+            "info": {
+                "name": "dprint-plugin-json",
+                "version": "0.2.0",
+                "configKey": "json",
+                "fileExtensions": [".json"],
+                "helpUrl": "help url 2",
+                "configSchemaUrl": "schema url 2"
+            }
         }
     }
 }"#
@@ -126,7 +156,7 @@ mod test {
             }
         });
 
-        assert_eq!(read_manifest(&environment).unwrap(), expected_manifest);
+        assert_eq!(read_manifest(&environment), expected_manifest);
     }
 
     #[test]
@@ -134,12 +164,12 @@ mod test {
         let environment = TestEnvironment::new();
         environment.write_file(
             &environment.get_cache_dir().join("plugin-cache-manifest.json"),
-            r#"{ "a": { file_name: "b", } }"#
+            r#"{ "plugins": { "a": { file_name: "b", } } }"#
         ).unwrap();
 
-        assert_eq!(read_manifest(&environment).unwrap(), PluginCacheManifest::new());
+        assert_eq!(read_manifest(&environment), PluginCacheManifest::new());
         assert_eq!(environment.take_logged_errors(), vec![
-            String::from("Error deserializing plugin cache manifest, but ignoring: key must be a string at line 1 column 10")
+            String::from("Error deserializing plugin cache manifest, but ignoring: key must be a string at line 1 column 23")
         ]);
     }
 
@@ -147,7 +177,7 @@ mod test {
     fn it_should_deal_with_non_existent_manifest() {
         let environment = TestEnvironment::new();
 
-        assert_eq!(read_manifest(&environment).unwrap(), PluginCacheManifest::new());
+        assert_eq!(read_manifest(&environment), PluginCacheManifest::new());
         assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
@@ -183,6 +213,6 @@ mod test {
 
         // Just read and compare again because the hash map will serialize properties
         // in a non-deterministic order.
-        assert_eq!(read_manifest(&environment).unwrap(), manifest);
+        assert_eq!(read_manifest(&environment), manifest);
     }
 }

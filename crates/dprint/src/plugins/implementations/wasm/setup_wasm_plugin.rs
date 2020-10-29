@@ -11,7 +11,7 @@ use super::super::SetupPluginResult;
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
     let cache_dir_path = environment.get_cache_dir();
     let plugin_cache_dir_path = cache_dir_path.join("plugins").join(&plugin_info.name);
-    plugin_cache_dir_path.join(format!("{}-{}.wat", plugin_info.name, plugin_info.version))
+    plugin_cache_dir_path.join(format!("{}-{}.cached", plugin_info.name, plugin_info.version))
 }
 
 pub fn setup_wasm_plugin<TEnvironment: Environment>(

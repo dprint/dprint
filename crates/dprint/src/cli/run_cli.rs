@@ -828,7 +828,7 @@ mod tests {
         args.insert(0, String::from(""));
         environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
         let cache = Arc::new(Cache::new(environment.clone()).unwrap());
-        let plugin_cache = Arc::new(PluginCache::new(environment.clone())?);
+        let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
         let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
         let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());

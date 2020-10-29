@@ -95,7 +95,7 @@ pub fn create_plugin<TEnvironment : Environment>(
             }
         };
 
-        Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, plugin_pools)))
+        Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, plugin_pools)?))
     } else if plugin_reference.is_process_plugin() {
         let cache_item = if !environment.path_exists(&cache_item.file_path) {
             environment.log_error(&format!(
