@@ -9,7 +9,7 @@ repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 clap = "2.33.0"
-crossterm = "0.18.0"
+crossterm = "0.18.2"
 dunce = "1.0.1"
 dprint-core = { path = "../core", version = "0.32.0", features = ["process", "wasm"] }
 dprint-cli-core = { path = "../cli-core", version = "0.5.1" }
