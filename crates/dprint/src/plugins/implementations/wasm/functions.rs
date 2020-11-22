@@ -148,7 +148,7 @@ impl WasmFunctions {
         wasm_runtime_error_to_err_box(add_to_shared_bytes_from_buffer_func.call(length as u32))
     }
 
-    fn get_export<'a, Args, Rets>(&'a self, name: &str) -> Result<NativeFunc<'a, Args, Rets>, ErrBox> where Args: WasmTypeList, Rets: WasmTypeList {
+    fn get_export<'a, Args, Rets>(&'a self, name: &str) -> Result<NativeFunc<Args, Rets>, ErrBox> where Args: WasmTypeList, Rets: WasmTypeList {
         match self.instance.exports.get_function(name) {
             Ok(func) => {
                 match func.native::<Args, Rets>() {

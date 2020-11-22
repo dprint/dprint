@@ -3,7 +3,7 @@ use crate::types::ErrBox;
 
 const BUFFER_SIZE: usize = 1024; // safe to assume
 
-const SUCCESS_BYTES: &[u8; 4] = &[225, 255, 255, 255];
+const SUCCESS_BYTES: &[u8; 4] = &[255, 255, 255, 255];
 // todo: unit tests
 
 pub struct StdIoReaderWriter<TRead: Read, TWrite: Write> {
@@ -41,32 +41,32 @@ impl<TRead: Read, TWrite: Write> StdIoReaderWriter<TRead, TWrite> {
     }
 
     pub fn read_success_bytes(&mut self) -> Result<(), ErrBox> {
-        let had_bytes = self.inner_read_success_bytes()?;
-        if had_bytes {
+        let read_bytes = self.inner_read_success_bytes()?;
+        if &read_bytes == SUCCESS_BYTES {
             Ok(())
         } else {
-            panic!("Catastrophic error reading from process. Did not receive the success bytes at end of message.")
+            panic!("Catastrophic error reading from process. Did not receive the success bytes at end of message. Found: {:?}", read_bytes)
         }
     }
 
     pub fn read_success_bytes_with_message_on_error(&mut self, maybe_read_error_message: &Vec<u8>) -> Result<(), ErrBox> {
-        let had_bytes = self.inner_read_success_bytes()?;
-        if had_bytes {
+        let read_bytes = self.inner_read_success_bytes()?;
+        if &read_bytes == SUCCESS_BYTES {
             Ok(())
         } else {
             let message = "Catastrophic error reading from process. Did not receive the success bytes at end of message.";
             // attempt to convert the error message to a string
             match std::str::from_utf8(maybe_read_error_message) {
-                Ok(error_message) => panic!("{} Received partial error: {}", message, error_message),
+                Ok(error_message) => panic!("{} Found: {:?}. Received partial error: {}", message, read_bytes, error_message),
                 Err(_) => panic!("{}", message),
             }
         }
     }
 
-    fn inner_read_success_bytes(&mut self) -> Result<bool, ErrBox> {
+    fn inner_read_success_bytes(&mut self) -> Result<[u8; 4], ErrBox> {
         let mut read_buf: [u8; 4] = [0; 4];
         self.reader.read_exact(&mut read_buf)?;
-        Ok(&read_buf == SUCCESS_BYTES)
+        Ok(read_buf)
     }
 
     /// Sends variable width data (4 bytes length, X bytes data)

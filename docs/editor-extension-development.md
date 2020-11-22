@@ -80,6 +80,6 @@ After startup, send one of the following messages:
   1. Write 1024 bytes.
   2. Wait for 4 byte ready response from CLI
   3. If there are still more than 1024 bytes to write, write 1024 bytes and go back to step 2. If not, write the remaining bytes and exit the loop.
-- <SUCCESS_BYTES> - The success bytes ensures the message was received as intended. The bytes are: `225, 255, 255, 255`
+- <SUCCESS_BYTES> - The success bytes ensures the message was received as intended. The bytes are: `255, 255, 255, 255`
 
 If using Rust, there is a `StdIoMessenger` in dprint-core that helps with this.
