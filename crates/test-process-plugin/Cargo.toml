@@ -6,5 +6,5 @@ edition = "2018"
 
 [dependencies]
 dprint-core = { path = "../core", features = ["process"] }
-serde = { version = "1.0.88", features = ["derive"] }
+serde = { version = "1.0.117", features = ["derive"] }
 serde_json = "1.0"

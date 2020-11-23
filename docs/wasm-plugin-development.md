@@ -10,7 +10,7 @@ Implementing a WASM plugin is easier if you're using Rust as there are several h
 
    ```toml
    dprint-core = { version = "...", features = ["wasm"] }
-   serde = { version = "1.0.88", features = ["derive"] }
+   serde = { version = "1.0.117", features = ["derive"] }
    serde_json = "1.0"
    ```
 

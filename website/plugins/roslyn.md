@@ -22,21 +22,7 @@ Wrapper plugin that formats C# and Visual Basic code via [Roslyn](https://github
 
 ## Install and Setup
 
-In _.dprintrc.json_:
-
-1. Specify the plugin url in the `"plugins"` array (follow instructions at [https://github.com/dprint/dprint-plugin-roslyn/releases/](https://github.com/dprint/dprint-plugin-roslyn/releases/)).
-2. Ensure `.cs` and `.vb` file extensions are matched in an `"includes"` pattern.
-3. Add a `"roslyn"` configuration property if desired.
-
-```jsonc
-{
-  // ...etc...
-  "roslyn": {
-    "csharp.indentBlock": false,
-    "visualBasic.indentWidth": 2
-  }
-}
-```
+Follow the instructions at [https://github.com/dprint/dprint-plugin-roslyn/releases/](https://github.com/dprint/dprint-plugin-roslyn/releases/)
 
 ## Configuration
 

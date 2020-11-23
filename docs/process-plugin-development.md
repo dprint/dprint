@@ -10,7 +10,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
    ```toml
    dprint-core = { version = "...", features = ["process"] }
-   serde = { version = "1.0.88", features = ["derive"] }
+   serde = { version = "1.0.117", features = ["derive"] }
    serde_json = "1.0"
    ```
 

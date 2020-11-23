@@ -9,5 +9,5 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 dprint-core = { path = "../core", features = ["wasm"] }
-serde = { version = "1.0.88", features = ["derive"] }
+serde = { version = "1.0.117", features = ["derive"] }
 serde_json = "1.0"

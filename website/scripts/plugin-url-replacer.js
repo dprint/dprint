@@ -5,7 +5,7 @@
     var markdownUrl = "https://plugins.dprint.dev/markdown-x.x.x.wasm";
     var rustFmtUrl = "https://plugins.dprint.dev/rustfmt-x.x.x.wasm";
     var pluginInfoUrl = "https://plugins.dprint.dev/info.json";
-    var schemaVersion = 1;
+    var schemaVersion = 2;
 
     Dprint.replacePluginUrls = function() {
         var elements = getPluginUrlElements();

@@ -23,10 +23,10 @@ You may select the sponsorship tier that you believe is fair taking into conside
 
 Recommended tier based on number of developers:
 
-- Small Sponsorship: < 10 developers
-- Medium Sponsorship: 10-49 developers
-- Large Sponsorship: 50-99 developers
-- Enterprise Sponsorship: 100+ developers
+- Small Sponsorship: < 50 developers
+- Medium Sponsorship: 50-99 developers
+- Large Sponsorship: 100-199 developers
+- Enterprise Sponsorship: 200+ developers
 
 ## PayPay
 
