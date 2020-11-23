@@ -18,9 +18,10 @@ pub struct InfoFilePluginInfo {
     pub config_key: Option<String>,
     pub file_extensions: Vec<String>,
     pub config_excludes: Vec<String>,
+    pub is_process_plugin: bool,
 }
 
-const SCHEMA_VERSION: u8 = 1;
+const SCHEMA_VERSION: u8 = 2;
 pub const REMOTE_INFO_URL: &'static str = "https://plugins.dprint.dev/info.json";
 
 pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox> {
@@ -76,8 +77,18 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     let config_schema_url = obj.take_string("configSchemaUrl").unwrap_or(String::new());
     let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
     let config_excludes = get_string_array(&mut obj, "configExcludes")?;
+    let is_process_plugin = obj.take_boolean("isProcessPlugin").unwrap_or(false);
 
-    Ok(InfoFilePluginInfo { name, version, url, config_key, file_extensions, config_schema_url, config_excludes })
+    Ok(InfoFilePluginInfo {
+        name,
+        version,
+        url,
+        config_key,
+        file_extensions,
+        config_schema_url,
+        config_excludes,
+        is_process_plugin,
+    })
 }
 
 fn get_string_array(value: &mut JsonObject, key: &str) -> Result<Vec<String>, ErrBox> {
@@ -114,7 +125,7 @@ mod test {
     fn should_get_info() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "pluginSystemSchemaVersion": 3,
     "latest": [{
         "name": "dprint-plugin-typescript",
@@ -129,7 +140,8 @@ mod test {
         "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
         "fileExtensions": ["json"],
         "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
-        "configExcludes": ["**/*-lock.json"]
+        "configExcludes": ["**/*-lock.json"],
+        "isProcessPlugin": true
     }]
 }"#.as_bytes());
         let info_file = read_info_file(&environment).unwrap();
@@ -143,6 +155,7 @@ mod test {
                 file_extensions: vec![String::from("ts"), String::from("tsx")],
                 config_schema_url: String::new(),
                 config_excludes: vec![String::from("**/node_modules")],
+                is_process_plugin: false,
             }, InfoFilePluginInfo {
                 name: String::from("dprint-plugin-jsonc"),
                 version: String::from("0.2.3"),
@@ -151,6 +164,7 @@ mod test {
                 file_extensions: vec![String::from("json")],
                 config_schema_url: String::from("https://plugins.dprint.dev/schemas/json-v1.json"),
                 config_excludes: vec![String::from("**/*-lock.json")],
+                is_process_plugin: true, // lies for testing purposes
             }],
         })
     }
@@ -159,12 +173,12 @@ mod test {
     fn should_error_if_schema_version_is_different() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 2,
+    "schemaVersion": 6,
 }"#.as_bytes());
         let message = read_info_file(&environment).err().unwrap();
         assert_eq!(
             message.to_string(),
-            "Cannot handle schema version 2. Expected 1. This might mean your dprint CLI version is old and isn't able to get the latest information."
+            "Cannot handle schema version 6. Expected 2. This might mean your dprint CLI version is old and isn't able to get the latest information."
         );
     }
 
@@ -172,7 +186,7 @@ mod test {
     fn should_error_if_no_plugin_system_set() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 1,
+    "schemaVersion": 2,
 }"#.as_bytes());
         let message = read_info_file(&environment).err().unwrap();
         assert_eq!(

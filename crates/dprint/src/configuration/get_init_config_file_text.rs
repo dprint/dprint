@@ -44,7 +44,11 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
     let selected_plugins = if let Some(info) = info {
         let latest_plugins = info.latest_plugins;
         let prompt_message = "Select plugins (use the spacebar to select/deselect and then press enter when finished):";
-        let plugin_indexes = environment.get_multi_selection(prompt_message, 0, &latest_plugins.iter().map(|x| String::from(&x.name)).collect())?;
+        let plugin_indexes = environment.get_multi_selection(
+            prompt_message,
+            0,
+            &latest_plugins.iter().map(|x| (!x.is_process_plugin, String::from(&x.name))).collect(),
+        )?;
         let mut selected_plugins = Vec::new();
         for index in plugin_indexes {
             selected_plugins.push(latest_plugins[index].clone());
@@ -263,7 +267,7 @@ mod test {
         let environment = TestEnvironment::new();
         environment.set_selection_result(1);
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "pluginSystemSchemaVersion": 3,
     "latest": [{
         "name": "dprint-plugin-typescript",
@@ -302,7 +306,7 @@ mod test {
     fn should_get_initialization_text_when_old_plugin_system() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "pluginSystemSchemaVersion": 9, // this is 9 instead of 3
     "latest": [{
         "name": "dprint-plugin-typescript",
@@ -354,7 +358,7 @@ mod test {
 
     fn get_multi_plugins_config() -> &'static str {
         return r#"{
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "pluginSystemSchemaVersion": 3,
             "latest": [{
                 "name": "dprint-plugin-typescript",

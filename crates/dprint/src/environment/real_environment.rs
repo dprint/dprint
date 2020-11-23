@@ -189,13 +189,13 @@ impl Environment for RealEnvironment {
         )
     }
 
-    fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+    fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<(bool, String)>) -> Result<Vec<usize>, ErrBox> {
         show_multi_select(
             &self.logger,
             "dprint",
             prompt_message,
             item_indent_width,
-            items.iter().map(|item| (true, item)).collect::<Vec<_>>()
+            items.iter().map(|(value, text)| (value.to_owned(), text)).collect(),
         )
     }
 

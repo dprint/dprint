@@ -339,7 +339,7 @@ impl Environment for TestEnvironment {
         Ok(*self.selection_result.lock())
     }
 
-    fn get_multi_selection(&self, prompt_message: &str, _: u16, _: &Vec<String>) -> Result<Vec<usize>, ErrBox> {
+    fn get_multi_selection(&self, prompt_message: &str, _: u16, _: &Vec<(bool, String)>) -> Result<Vec<usize>, ErrBox> {
         self.log_error(prompt_message);
         Ok(self.multi_selection_result.lock().clone())
     }
