@@ -9,7 +9,7 @@ pub mod macros {
         () => {
             // HOST FORMATTING
 
-            fn format_with_host(file_path: &Path, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, String> {
+            fn format_with_host(file_path: &std::path::Path, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, String> {
                 #[link(wasm_import_module = "dprint")]
                 extern "C" {
                     fn host_clear_bytes(length: u32);
@@ -83,7 +83,7 @@ pub mod macros {
             // FORMATTING
 
             static mut OVERRIDE_CONFIG: Option<dprint_core::configuration::ConfigKeyMap> = None;
-            static mut FILE_PATH: Option<PathBuf> = None;
+            static mut FILE_PATH: Option<std::path::PathBuf> = None;
             static mut FORMATTED_TEXT: Option<String> = None;
             static mut ERROR_TEXT: Option<String> = None;
 
@@ -97,7 +97,7 @@ pub mod macros {
             #[no_mangle]
             pub fn set_file_path() {
                 let text = take_string_from_shared_bytes();
-                unsafe { FILE_PATH.replace(PathBuf::from(text)) };
+                unsafe { FILE_PATH.replace(std::path::PathBuf::from(text)) };
             }
 
             #[no_mangle]

@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.33.0"
+version = "0.33.1"
 dependencies = [
  "serde",
  "serde_json",
