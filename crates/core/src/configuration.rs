@@ -229,6 +229,25 @@ pub fn get_nullable_value<T>(
     }
 }
 
+/// If it exists, moves over the configuration value over from the old key
+/// to the new key and adds a diagnostic.
+pub fn handle_renamed_config_property(
+    config: &mut ConfigKeyMap,
+    old_key: &'static str,
+    new_key: &'static str,
+    diagnostics: &mut Vec<ConfigurationDiagnostic>
+) {
+    if let Some(raw_value) = config.remove(old_key) {
+        if !config.contains_key(new_key) {
+            config.insert(new_key.to_string(), raw_value);
+        }
+        diagnostics.push(ConfigurationDiagnostic {
+            property_name: String::from(old_key),
+            message: format!("The configuration key '{}' was renamed to '{}'.", old_key, new_key),
+        });
+    }
+}
+
 /// Resolves the `NewLineKind` text from the provided file text and `NewLineKind`.
 pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'static str {
     match new_line_kind {
@@ -336,5 +355,30 @@ mod test {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "Unknown property in configuration: something");
         assert_eq!(diagnostics[0].property_name, "something");
+    }
+
+    #[test]
+    fn add_diagnostic_for_renamed_property() {
+        let mut config = HashMap::new();
+        let mut diagnostics = Vec::new();
+        config.insert("oldProp".to_string(), ConfigKeyValue::from_str("value"));
+        handle_renamed_config_property(&mut config, "oldProp", "newProp", &mut diagnostics);
+        assert_eq!(config.len(), 1);
+        assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "The configuration key 'oldProp' was renamed to 'newProp'.");
+    }
+
+    #[test]
+    fn add_diagnostic_for_renamed_property_when_already_exists() {
+        let mut config = HashMap::new();
+        let mut diagnostics = Vec::new();
+        config.insert("oldProp".to_string(), ConfigKeyValue::from_str("new_value"));
+        config.insert("newProp".to_string(), ConfigKeyValue::from_str("value"));
+        handle_renamed_config_property(&mut config, "oldProp", "newProp", &mut diagnostics);
+        assert_eq!(config.len(), 1);
+        assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "The configuration key 'oldProp' was renamed to 'newProp'.");
     }
 }
