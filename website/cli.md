@@ -31,6 +31,12 @@ Or to override the configuration file's `includes` and `excludes`, you may speci
 dprint fmt **/*.js --excludes **/data
 ```
 
+### Formatting Standard Input
+
+Use `dprint fmt --stdin <file-path/file-name>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.
+
+Provide a full file path to format with inclusion/exclusion rules of your `.dprintrc.json` file or provide only a file name to always format the file.
+
 ## Checking What Files Aren't Formatted
 
 Instead of formatting files, you can get a report of any files that aren't formatted by running:
