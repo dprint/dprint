@@ -1,6 +1,7 @@
 use crate::logging::{Logger, LoggerRefreshItemKind, LoggerTextItem};
 use crate::types::ErrBox;
-use crossterm::event::{read, Event, KeyCode};
+use crate::terminal::read_terminal_event;
+use crossterm::event::{Event, KeyCode};
 
 struct SelectData<'a> {
     prompt: &'a str,
@@ -27,7 +28,7 @@ pub fn show_select(
         let text_items = render_select(&data);
         logger.set_refresh_item(LoggerRefreshItemKind::Selection, text_items);
 
-        match read()? {
+        match read_terminal_event()? {
             Event::Key(key_event) => {
                 match &key_event.code {
                     KeyCode::Up => {
