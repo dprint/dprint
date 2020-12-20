@@ -154,7 +154,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialEvaluation",
+  "projectType": "commercialSponsored",
   "incremental": true,
   "typescript": {
   },
@@ -189,7 +189,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialEvaluation",
+  "projectType": "commercialSponsored",
   "incremental": true,
   "json": {
     "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
@@ -218,7 +218,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialEvaluation",
+  "projectType": "commercialSponsored",
   "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [],
@@ -240,7 +240,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialEvaluation",
+  "projectType": "commercialSponsored",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
@@ -284,7 +284,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
+  "projectType": "commercialDidNotSponsor",
   "incremental": true,
   "typescript": {
   },
@@ -323,7 +323,7 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialEvaluation",
+  "projectType": "commercialSponsored",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [

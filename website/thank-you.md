@@ -1,6 +1,6 @@
 ---
 title: Thank You
-description: Thank you page for people who pay for a subscription.
+description: Thank you page for sponsoring.
 robots: false
 ---
 

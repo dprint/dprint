@@ -15,23 +15,23 @@
       "oneOf": [
         {
           "const": "openSource",
-          "description": "Dprint is formatting an open source project whose primary maintainer is not a for-profit company (free)."
+          "description": "dprint is formatting an open source project whose primary maintainer is not a for-profit company or individual."
         },
         {
           "const": "educational",
-          "description": "Dprint is formatting a project run by a student or being used for educational purposes (free)."
+          "description": "dprint is formatting a project run by a student or being used for educational purposes."
         },
         {
           "const": "nonProfit",
-          "description": "Dprint is formatting a project whose primary maintainer is a non-profit organization (free)."
+          "description": "dprint is formatting a project whose primary maintainer is a non-profit organization."
         },
         {
           "const": "commercialSponsored",
-          "description": "Dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!"
+          "description": "dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!"
         },
         {
-          "const": "commercialEvaluation",
-          "description": "Dprint is formatting a project whose primary maintainer is a for-profit company or individual and it is being evaluated for 30 days."
+          "const": "commercialDidNotSponsor",
+          "description": "dprint is formatting a project whose primary maintainer is a for-profit company or individual and you don't want to support dprint's development financially."
         }
       ]
     },

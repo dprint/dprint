@@ -49,21 +49,21 @@ This property is optional and provides auto-completion support in Visual Studio 
 
 ## Project Type
 
-The `"projectType"` specifies the type of license being used to format the project.
+The `"projectType"` specifies the type of project dprint is formatting.
 
-You must specify any of the following values:
+You may specify any of the following values according to your conscience:
 
-- `"openSource"` - Dprint is formatting an open source project whose primary maintainer is not a for-profit company (no sponsorship requirement).
-- `"educational"` - Dprint is formatting a project run by a student or being used for educational purposes (no sponsorship requirement).
-- `"nonProfit"` - Dprint is formatting a project whose primary maintainer is a non-profit organization (no sponsorship requirement).
-- `"commercialSponsored"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!
-- `"commercialEvaluation"` - Dprint is formatting a project whose primary maintainer is a for-profit company or individual and it is being evaluated for 30 days.
+- `"openSource"` - dprint is formatting an open source project whose primary maintainer is not a for-profit company or individual.
+- `"educational"` - dprint is formatting a project run by a student or being used for educational purposes.
+- `"nonProfit"` - dprint is formatting a project whose primary maintainer is a non-profit organization.
+- `"commercialSponsored"` - dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!
+- `"commercialDidNotSponsor"` - dprint is formatting a project whose primary maintainer is a for-profit company or individual and you do not want to support dprint's development financially.
 
 See [Sponsor](/sponsor) for more details.
 
 ## Plugins
 
-The `plugins` property specifies which plugins to use for formatting. These may be URLs or file paths to a web assembly file of the plugin.
+The `plugins` property specifies which plugins to use for formatting. These may be URLs or file paths to a WebAssembly file of the plugin.
 
 ```json
 {

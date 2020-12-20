@@ -93,7 +93,7 @@ function postError(err) {
 // TODO: DON'T COPY AND PASTE THIS HERE
 
 /**
- * Creates the web assembly import object, if necessary.
+ * Creates the WebAssembly import object, if necessary.
  */
 function createImportObject() {
     // for now, use an identity object
@@ -127,7 +127,7 @@ function createFromBuffer(wasmModuleBuffer) {
 }
 /**
  * Creates a formatter from the specified wasm instance.
- * @param wasmInstance - The web assembly instance.
+ * @param wasmInstance - The WebAssembly instance.
  */
 function createFromInstance(wasmInstance) {
     var _a = wasmInstance.exports, get_plugin_schema_version = _a.get_plugin_schema_version, set_file_path = _a.set_file_path,

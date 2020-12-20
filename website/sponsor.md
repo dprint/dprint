@@ -5,28 +5,7 @@ description: Information on sponsoring dprint.
 
 # Sponsor
 
-Dprint's CLI will always be **free** for formatting open source projects whose primary maintainer is not a for-profit company.
-
-If you are using dprint's CLI on a project whose primary maintainer is a for-profit company or individual, then there is a sponsorship requirement for the primary maintainer in order to use this software.
-
-- _Open source_ - No sponsorship requirement if the primary maintainer of the code being formatted is not a for-profit company.
-- _Non-profit_ - No sponsorship requirement for formatting code primarily maintained by a non-profit company.
-- _Educational_ - No sponsorship requirement for formatting code maintained by students or for educational purposes.
-- _Commercial_ - Primary maintainer must sponsor the project to use if the primary maintainer is a for-profit company or individual.
-
-## Recommended Sponsorship Tier
-
-You may select the sponsorship tier that you believe is fair taking into consideration:
-
-1. The value dprint brings to your company and the number of developers it serves.
-2. How much support your company wants to give to support this project's future development.
-
-Recommended tier based on number of developers:
-
-- Small Sponsorship: < 50 developers
-- Medium Sponsorship: 50-99 developers
-- Large Sponsorship: 100-199 developers
-- Enterprise Sponsorship: 200+ developers
+Dprint's CLI is open source and free, but strongly encourages sponsorship from for-project companies and individuals in order to help drive its development forward.
 
 ## PayPay
 

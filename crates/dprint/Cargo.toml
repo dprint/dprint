@@ -1,11 +1,13 @@
 [package]
 name = "dprint"
-version = "0.10.1"
-authors = ["Dprint Code Formatting <david@dprint.dev>"]
+version = "0.11.0"
+authors = ["dprint code formatting <david@dprint.dev>"]
 edition = "2018"
-license-file = "LICENSE"
-description = "Binary for dprint."
+license = "MIT"
+description = "Binary for dprint code formatter—a pluggable and configurable code formatting platform."
 repository = "https://github.com/dprint/dprint"
+keywords = ["code-formatter", "formatter"]
+categories = ["development-tools"]
 
 [dependencies]
 clap = "2.33.0"

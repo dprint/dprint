@@ -63,7 +63,7 @@ export interface PluginInfo {
 }
 
 /**
- * Creates the web assembly import object, if necessary.
+ * Creates the WebAssembly import object, if necessary.
  */
 export function createImportObject(): any /*: WebAssembly.Imports*/ {
     // for now, use an identity object
@@ -121,7 +121,7 @@ export function createFromBuffer(wasmModuleBuffer: BufferSource): Formatter {
 
 /**
  * Creates a formatter from the specified wasm instance.
- * @param wasmInstance - The web assembly instance.
+ * @param wasmInstance - The WebAssembly instance.
  */
 export function createFromInstance(wasmInstance: WebAssembly.Instance): Formatter {
     const {

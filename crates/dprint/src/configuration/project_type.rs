@@ -29,7 +29,7 @@ pub fn handle_project_type_diagnostic(environment: &impl Environment, project_ty
 fn build_message(environment: &impl Environment, project_type_infos: &Vec<ProjectTypeInfo>, property_name: &str) -> String {
     let mut message = String::new();
     message.push_str(&format!("The '{}' property is missing in the configuration file.\n\n", property_name));
-    message.push_str("You may specify any of the following values and that will suppress this error:\n");
+    message.push_str("You may specify any of the following values according to your conscience and that will suppress this error:\n");
     let options = project_type_infos.iter().map(|info| (format!("* {}", info.name), info.description.to_string())).collect::<Vec<_>>();
     let option_texts = get_table_text(options.iter().map(|(name, description)| (name.as_str(), description.as_str())).collect());
     message.push_str("\n");
@@ -45,35 +45,35 @@ pub struct ProjectTypeInfo {
 
 pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
     vec![ProjectTypeInfo {
-        name: "commercialEvaluation",
-        description: concat!(
-            "Dprint is formatting a project whose primary maintainer is a for-profit ",
-            "company or individual and it is being evaluated for 30 days.",
-        )
-    }, ProjectTypeInfo {
         name: "commercialSponsored",
         description: concat!(
-            "Dprint is formatting a project whose primary maintainer is a for-profit ",
-            "company or individual AND the primary maintainer sponsored the project. ",
+            "dprint is formatting a project whose primary maintainer is a for-profit ",
+            "company or individual and the primary maintainer sponsored the project. ",
             "Thank you for being part of moving this project forward!"
         ),
     }, ProjectTypeInfo {
+        name: "commercialDidNotSponsor",
+        description: concat!(
+            "dprint is formatting a project whose primary maintainer is a for-profit ",
+            "company or individual and you don't want to support dprint's development financially.",
+        )
+    }, ProjectTypeInfo {
         name: "openSource",
         description: concat!(
-            "Dprint is formatting an open source project whose primary ",
-            "maintainer is not a for-profit company (no sponsorship requirement)."
+            "dprint is formatting an open source project whose primary ",
+            "maintainer is not a for-profit company or individual."
         )
     }, ProjectTypeInfo {
         name: "educational",
         description: concat!(
-            "Dprint is formatting a project run by a student or being used for ",
-            "educational purposes (no sponsorship requirement)."
+            "dprint is formatting a project run by a student or being used for ",
+            "educational purposes."
         )
     }, ProjectTypeInfo {
         name: "nonProfit",
         description: concat!(
-            "Dprint is formatting a project whose primary maintainer is a non-profit ",
-            "organization (no sponsorship requirement)."
+            "dprint is formatting a project whose primary maintainer is a non-profit ",
+            "organization."
         )
     }]
 }
@@ -108,30 +108,30 @@ mod tests {
         assert_eq!(result.property_name, "projectType");
         assert_eq!(result.message, r#"The 'projectType' property is missing in the configuration file.
 
-You may specify any of the following values and that will suppress this error:
+You may specify any of the following values according to your conscience and that will suppress this error:
 
- * commercialEvaluation Dprint is formatting a project whose
-                        primary maintainer is a for-profit
-                        company or individual and it is
-                        being evaluated for 30 days.
- * commercialSponsored  Dprint is formatting a project whose
-                        primary maintainer is a for-profit
-                        company or individual AND the
-                        primary maintainer sponsored the
-                        project. Thank you for being part of
-                        moving this project forward!
- * openSource           Dprint is formatting an open source
-                        project whose primary maintainer is
-                        not a for-profit company (no
-                        sponsorship requirement).
- * educational          Dprint is formatting a project run
-                        by a student or being used for
-                        educational purposes (no sponsorship
-                        requirement).
- * nonProfit            Dprint is formatting a project whose
-                        primary maintainer is a non-profit
-                        organization (no sponsorship
-                        requirement).
+ * commercialSponsored     dprint is formatting a project
+                           whose primary maintainer is a
+                           for-profit company or individual
+                           and the primary maintainer
+                           sponsored the project. Thank you
+                           for being part of moving this
+                           project forward!
+ * commercialDidNotSponsor dprint is formatting a project
+                           whose primary maintainer is a
+                           for-profit company or individual
+                           and you don't want to support
+                           dprint's development financially.
+ * openSource              dprint is formatting an open
+                           source project whose primary
+                           maintainer is not a for-profit
+                           company or individual.
+ * educational             dprint is formatting a project
+                           run by a student or being used
+                           for educational purposes.
+ * nonProfit               dprint is formatting a project
+                           whose primary maintainer is a
+                           non-profit organization.
 
 More information: https://dprint.dev/sponsor"#);
     }
