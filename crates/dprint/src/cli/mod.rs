@@ -1,6 +1,8 @@
 mod arg_parser;
 mod configuration;
 pub mod incremental;
+#[cfg(target_os = "windows")]
+mod install;
 mod run_cli;
 mod stdin_reader;
 

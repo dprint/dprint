@@ -52,6 +52,8 @@ pub enum SubCommand {
     EditorInfo, // todo: deprecate
     EditorService(EditorServiceSubCommand),
     StdInFmt(StdInFmtSubCommand),
+    #[cfg(target_os="windows")]
+    Hidden(HiddenSubCommand),
 }
 
 #[derive(Debug, PartialEq)]
@@ -63,6 +65,15 @@ pub struct EditorServiceSubCommand {
 pub struct StdInFmtSubCommand {
     pub file_path: PathBuf,
     pub file_text: String,
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg(target_os="windows")]
+pub enum HiddenSubCommand {
+    #[cfg(target_os="windows")]
+    WindowsInstall(String),
+    #[cfg(target_os="windows")]
+    WindowsUninstall(String),
 }
 
 pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &TStdInReader) -> Result<CliArgs, ErrBox> {
@@ -113,6 +124,14 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
                 file_text: std_in_reader.read()?,
             })
         },
+        #[cfg(target_os = "windows")]
+        ("hidden", Some(matches)) => {
+            SubCommand::Hidden(match matches.subcommand() {
+                ("windows-install", Some(matches)) => HiddenSubCommand::WindowsInstall(matches.value_of("install-path").map(String::from).unwrap()),
+                ("windows-uninstall", Some(matches)) => HiddenSubCommand::WindowsUninstall(matches.value_of("install-path").map(String::from).unwrap()),
+                _ => unreachable!(),
+            })
+        }
         _ => {
             unreachable!();
         },
@@ -262,16 +281,6 @@ EXAMPLES:
                         .takes_value(true)
                 )
         )
-        .subcommand(
-            SubCommand::with_name("stdin-fmt")
-                .setting(AppSettings::Hidden)
-                .arg(
-                    Arg::with_name("file-name")
-                        .long("file-name")
-                        .required(true)
-                        .takes_value(true)
-                )
-        )
         .arg(
             Arg::with_name("config")
                 .long("config")
@@ -302,6 +311,26 @@ EXAMPLES:
                 .long("version")
                 .help("Prints the version.")
                 .takes_value(false),
+        )
+        .subcommand(
+            SubCommand::with_name("hidden")
+                .setting(AppSettings::Hidden)
+                .subcommand(
+                    SubCommand::with_name("windows-install")
+                        .arg(
+                            Arg::with_name("install-path")
+                                .takes_value(true)
+                                .required(true)
+                        )
+                )
+                .subcommand(
+                    SubCommand::with_name("windows-uninstall")
+                        .arg(
+                            Arg::with_name("install-path")
+                                .takes_value(true)
+                                .required(true)
+                        )
+                )
         )
 }
 

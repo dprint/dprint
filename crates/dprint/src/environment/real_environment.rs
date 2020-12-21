@@ -219,6 +219,48 @@ impl Environment for RealEnvironment {
     fn stdin(&self) -> Box<dyn std::io::Read + Send> {
         Box::new(std::io::stdin())
     }
+
+    #[cfg(windows)]
+    fn ensure_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
+        // from bvm (https://github.com/bvm/bvm)
+        use winreg::{enums::*, RegKey};
+        log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (env, _) = hkcu.create_subkey("Environment")?;
+        let mut path: String = env.get_value("Path")?;
+
+        // add to the path if it doesn't have this entry
+        if !path.split(";").any(|p| p == directory_path) {
+            if !path.is_empty() && !path.ends_with(';') {
+                path.push_str(";")
+            }
+            path.push_str(&directory_path);
+            env.set_value("Path", &path)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn remove_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
+        // from bvm (https://github.com/bvm/bvm)
+        use winreg::{enums::*, RegKey};
+        log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (env, _) = hkcu.create_subkey("Environment")?;
+        let path: String = env.get_value("Path")?;
+        let mut paths = path.split(";").collect::<Vec<_>>();
+        let original_len = paths.len();
+
+        paths.retain(|p| p != &directory_path);
+
+        let was_removed = original_len != paths.len();
+        if was_removed {
+            env.set_value("Path", &paths.join(";"))?;
+        }
+        Ok(())
+    }
 }
 
 fn get_cache_dir() -> Result<PathBuf, ErrBox> {

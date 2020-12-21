@@ -105,6 +105,13 @@ pub fn run_cli<TEnvironment: Environment>(
             let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
             format_files(file_paths_by_plugin, environment, plugin_pools, incremental_file)
         }
+        #[cfg(target_os = "windows")]
+        SubCommand::Hidden(hidden_command) => {
+            match hidden_command {
+                super::HiddenSubCommand::WindowsInstall(install_path) => super::install::handle_windows_install(environment, &install_path),
+                super::HiddenSubCommand::WindowsUninstall(install_path) => super::install::handle_windows_uninstall(environment, &install_path),
+            }
+        }
     }
 }
 
@@ -2267,6 +2274,17 @@ SOFTWARE.
             "[test-plugin]: Unknown property in configuration: non-existent",
             "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
         ]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn it_should_install_and_uninstall_on_windows() {
+        let environment = TestEnvironment::new();
+        environment.ensure_system_path("C:\\other").unwrap();
+        run_test_cli(vec!["hidden", "windows-install", "C:\\test"], &environment).unwrap();
+        assert_eq!(environment.get_system_path_dirs(), vec![PathBuf::from("C:\\other"), PathBuf::from("C:\\test")]);
+        run_test_cli(vec!["hidden", "windows-uninstall", "C:\\test"], &environment).unwrap();
+        assert_eq!(environment.get_system_path_dirs(), vec![PathBuf::from("C:\\other")]);
     }
 
     fn get_singular_formatted_text() -> String {

@@ -44,14 +44,15 @@ jobs:
       run: rustup target add wasm32-unknown-unknown
 
     # CACHE SETUP
-    - name: Cache cargo
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ matrix.config.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    # todo: Renable. Caching was causing failed builds...
+    # - name: Cache cargo
+    #  uses: actions/cache@v2
+    #  with:
+    #    path: |
+    #      ~/.cargo/registry
+    #      ~/.cargo/git
+    #      target
+    #    key: ${{ matrix.config.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # BUILD
     - name: Build test plugins
@@ -75,27 +76,11 @@ jobs:
       run: cargo test --release --locked --all-targets --verbose
 
     # INSTALLER
-    - name: Setup NSIS (Windows)
-      if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
-      run: |
-        mkdir NSIS_Plugins
-        cd NSIS_Plugins
-        iwr https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip -OutFile envar_plugin.zip
-        powershell -command "if ((CertUtil -hashfile envar_plugin.zip SHA1)[1] -replace ' ','' -ne '586c52fd2f44dcf1b5b0556bbd5dd3442f9301cd') { exit 1 }"
-        tar -xf envar_plugin.zip
-        rm envar_plugin.zip
     - name: Create installer (Windows)
       uses: joncloud/makensis-action@v2.0
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       with:
-        additional-plugin-paths: ${{ github.workspace }}/NSIS_Plugins/Plugins/
         script-file: ${{ github.workspace }}/scripts/installer/dprint-installer.nsi
-    - name: Sign installer (Windows)
-      if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
-      run: |
-        "${{ secrets.SELF_SIGNED_CERT_PFX }}" | Out-File -FilePath cert.txt
-        CertUtil -decode cert.txt cert.pfx
-        & 'C:\Program Files (x86)\Windows Kits\10\bin\x86\signtool' sign /f "cert.pfx" /p ${{ secrets.SELF_SIGNED_CERT_PFX_PASSWORD }} /td sha256 /fd sha256 scripts/installer/dprint-x86_64-pc-windows-msvc-installer.exe
 
     # PRE-RELEASE
     - name: Pre-release (Linux)
@@ -251,7 +236,7 @@ jobs:
           brew install dprint
           ```
 
-          [bvm](https://github.com/dsherret/bvm):
+          [bvm](https://github.com/dsherret/bvm) (Experimental):
 
           ```bash
           bvm install https://bvm.land/dprint/${{steps.get_tag_version.outputs.TAG_VERSION}}.json

@@ -85,6 +85,8 @@ pub struct TestEnvironment {
     wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
     std_in: MockStdInOut,
     std_out: MockStdInOut,
+    #[cfg(windows)]
+    path_dirs: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl TestEnvironment {
@@ -103,6 +105,8 @@ impl TestEnvironment {
             wasm_compile_result: Arc::new(Mutex::new(None)),
             std_in: MockStdInOut::new(),
             std_out: MockStdInOut::new(),
+            #[cfg(windows)]
+            path_dirs: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -169,6 +173,11 @@ impl TestEnvironment {
 
     pub fn stdin_writer(&self) -> Box<dyn Write + Send> {
         Box::new(self.std_in.clone())
+    }
+
+    #[cfg(windows)]
+    pub fn get_system_path_dirs(&self) -> Vec<PathBuf> {
+        self.path_dirs.lock().clone()
     }
 }
 
@@ -359,6 +368,26 @@ impl Environment for TestEnvironment {
 
     fn stdin(&self) -> Box<dyn Read + Send> {
         Box::new(self.std_in.clone())
+    }
+
+    #[cfg(windows)]
+    fn ensure_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
+        let mut path_dirs = self.path_dirs.lock();
+        let directory_path = PathBuf::from(directory_path);
+        if !path_dirs.contains(&directory_path) {
+            path_dirs.push(directory_path);
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn remove_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
+        let mut path_dirs = self.path_dirs.lock();
+        let directory_path = PathBuf::from(directory_path);
+        if let Some(pos) = path_dirs.iter().position(|p| p == &directory_path) {
+            path_dirs.remove(pos);
+        }
+        Ok(())
     }
 }
 

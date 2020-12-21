@@ -23,8 +23,9 @@ Section
     SetOutPath $INSTDIR\bin
     File ..\..\target\release\dprint.exe
 
-    EnVar::AddValue "PATH" "$INSTDIR\bin"
+    nsExec::ExecToStack '"$INSTDIR\bin\dprint" hidden windows-install "$INSTDIR\bin"'
     Pop $0
+    Pop $1
 
     SetOutPath $INSTDIR
     WriteUninstaller $INSTDIR\uninstall.exe
@@ -40,8 +41,9 @@ SectionEnd
 
 Section "Uninstall"
 
-    EnVar::DeleteValue "PATH" "$INSTDIR\bin"
+    nsExec::ExecToStack '"$INSTDIR\bin\dprint" hidden windows-uninstall "$INSTDIR\bin"'
     Pop $0
+    Pop $1
 
     !insertmacro KillDprintProcess
 

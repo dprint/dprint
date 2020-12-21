@@ -42,6 +42,10 @@ pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static 
     fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox>;
     fn stdout(&self) -> Box<dyn Write + Send>;
     fn stdin(&self) -> Box<dyn Read + Send>;
+    #[cfg(windows)]
+    fn ensure_system_path(&self, directory_path: &str) -> Result<(), ErrBox>;
+    #[cfg(windows)]
+    fn remove_system_path(&self, directory_path: &str) -> Result<(), ErrBox>;
 }
 
 // use a macro here so the expression provided is only evaluated when in verbose mode
