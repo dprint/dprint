@@ -12,7 +12,7 @@ repository = "https://github.com/dprint/dprint"
 [features]
 default = ["formatting"]
 
-formatting = []
+formatting = ["bumpalo"]
 process = ["serde_json", "sysinfo"]
 wasm = []
 
@@ -20,3 +20,4 @@ wasm = []
 serde = { version = "1.0.117", features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 sysinfo = { version = "0.15.0", optional = true }
+bumpalo = { version = "3.4.0", optional = true }

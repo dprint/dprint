@@ -1,67 +1,30 @@
-use std::rc::Rc;
-use std::mem::{self, MaybeUninit};
-
 #[derive(Clone)]
-pub struct GraphNode<T> {
+pub struct GraphNode<'a, T> {
     item: T,
-    previous: Option<Rc<GraphNode<T>>>,
+    previous: Option<&'a GraphNode<'a, T>>,
 }
 
-impl<T> GraphNode<T> {
-    pub fn new(item: T, previous: Option<Rc<GraphNode<T>>>) -> GraphNode<T> {
+impl<'a, T> GraphNode<'a, T> {
+    pub fn new(item: T, previous: Option<&'a GraphNode<'a, T>>) -> GraphNode<'a, T> {
         GraphNode {
             item,
             previous,
         }
     }
 
-    /// Takes the item and previous item out of the node by bypassing
-    /// the `Drop` implementation since properties cannot be moved out
-    /// of objects that implement `Drop`.
-    fn take(mut self) -> (T, Option<Rc<GraphNode<T>>>) {
-        // See here: https://phaazon.net/blog/rust-no-drop
-        let item = mem::replace(&mut self.item, unsafe { MaybeUninit::zeroed().assume_init() });
-        let previous = mem::replace(&mut self.previous, None);
-
-        mem::forget(self);
-
-        (item, previous)
-    }
-
     #[cfg(debug_assertions)]
-    pub fn borrow_item<'a>(&'a self) -> &'a T {
+    pub fn borrow_item(&self) -> &T {
         &self.item
     }
 
-    pub fn borrow_previous<'a>(&'a self) -> &'a Option<Rc<GraphNode<T>>> {
+    pub fn borrow_previous(&self) -> &Option<&'a GraphNode<'a, T>> {
         &self.previous
     }
 }
 
-// Drop needs to be manually implemented because otherwise it
-// will overflow the stack when dropping the item.
-// Read more: https://stackoverflow.com/questions/28660362/thread-main-has-overflowed-its-stack-when-constructing-a-large-tree
-impl<T> Drop for GraphNode<T> {
-    fn drop(&mut self) {
-        let mut previous = mem::replace(&mut self.previous, None);
-
-        loop {
-            previous = match previous {
-                Some(l) => {
-                    match Rc::try_unwrap(l) {
-                        Ok(mut l) => mem::replace(&mut l.previous, None),
-                        Err(_) => break,
-                    }
-                },
-                None => break
-            }
-        }
-    }
-}
-
-impl<T> IntoIterator for GraphNode<T> {
-    type Item = T;
-    type IntoIter = GraphNodeIterator<T>;
+impl<'a, T> IntoIterator for &'a GraphNode<'a, T> {
+    type Item = &'a T;
+    type IntoIter = GraphNodeIterator<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         GraphNodeIterator {
@@ -70,33 +33,26 @@ impl<T> IntoIterator for GraphNode<T> {
     }
 }
 
-pub struct GraphNodeIterator<T> {
-    node: Option<GraphNode<T>>,
+pub struct GraphNodeIterator<'a, T> {
+    node: Option<&'a GraphNode<'a, T>>,
 }
 
-impl<T> GraphNodeIterator<T> {
-    pub fn empty() -> GraphNodeIterator<T> {
+impl<'a, T> GraphNodeIterator<'a, T> {
+    pub fn empty() -> GraphNodeIterator<'a, T> {
         GraphNodeIterator {
             node: None,
         }
     }
 }
 
-impl<T> Iterator for GraphNodeIterator<T> {
-    type Item = T;
+impl<'a, T> Iterator for GraphNodeIterator<'a, T> {
+    type Item = &'a T;
 
-    fn next(&mut self) -> Option<T> {
-        let node = mem::replace(&mut self.node, None);
-        match node {
+    fn next(&mut self) -> Option<&'a T> {
+        match self.node.take() {
             Some(node) => {
-                let (item, previous) = node.take();
-
-                self.node = previous.map(
-                    |x| Rc::try_unwrap(x).ok()
-                        .expect("Need to drop the other reference before iterating over the final iterator.")
-                );
-
-                Some(item)
+                self.node = node.previous;
+                Some(&node.item)
             },
             None => None
         }

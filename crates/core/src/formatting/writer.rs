@@ -1,10 +1,12 @@
+use bumpalo::Bump;
+use std::rc::Rc;
+
 use super::collections::{GraphNode, GraphNodeIterator};
 use super::StringContainer;
 use super::WriteItem;
 use super::print_items::WriterInfo;
-use std::rc::Rc;
 
-pub struct WriterState {
+pub struct WriterState<'a> {
     current_line_column: u32,
     current_line_number: u32,
     last_line_indent_level: u8,
@@ -13,10 +15,10 @@ pub struct WriterState {
     indent_queue_count: u8,
     last_was_not_trailing_space: bool,
     ignore_indent_count: u8,
-    items: Option<Rc<GraphNode<WriteItem>>>,
+    items: Option<&'a GraphNode<'a, WriteItem>>,
 }
 
-impl WriterState {
+impl<'a> WriterState<'a> {
     pub fn get_writer_info(&self, indent_width: u8) -> WriterInfo {
         WriterInfo {
             line_number: self.current_line_number,
@@ -28,8 +30,8 @@ impl WriterState {
     }
 }
 
-impl Clone for WriterState {
-    fn clone(&self) -> WriterState {
+impl<'a> Clone for WriterState<'a> {
+    fn clone(&self) -> WriterState<'a> {
         WriterState {
             current_line_column: self.current_line_column,
             current_line_number: self.current_line_number,
@@ -48,14 +50,19 @@ pub struct WriterOptions {
     pub indent_width: u8,
 }
 
-pub struct Writer {
-    state: WriterState,
+pub struct Writer<'a> {
+    bump: &'a Bump,
+    state: WriterState<'a>,
     indent_width: u8,
 }
 
-impl Writer {
-    pub fn new(options: WriterOptions) -> Writer {
+impl<'a> Writer<'a> {
+    pub fn new(
+        bump: &'a Bump,
+        options: WriterOptions,
+    ) -> Writer<'a> {
         Writer {
+            bump,
             indent_width: options.indent_width,
             state: WriterState {
                 current_line_column: 0,
@@ -71,11 +78,11 @@ impl Writer {
         }
     }
 
-    pub fn get_state(&self) -> WriterState {
+    pub fn get_state(&self) -> WriterState<'a> {
         self.state.clone()
     }
 
-    pub fn set_state(&mut self, state: WriterState) {
+    pub fn set_state(&mut self, state: WriterState<'a>) {
         self.state = state;
     }
 
@@ -229,7 +236,8 @@ impl Writer {
 
     fn push_item(&mut self, item: WriteItem) {
         let previous = std::mem::replace(&mut self.state.items, None);
-        self.state.items = Some(Rc::new(GraphNode::new(item, previous)));
+        let graph_node = self.bump.alloc(GraphNode::new(item, previous));
+        self.state.items = Some(graph_node);
 
         if self.state.indent_queue_count > 0 {
             let indent_count = self.state.indent_queue_count;
@@ -244,9 +252,9 @@ impl Writer {
         }
     }
 
-    pub fn get_items(self) -> impl Iterator<Item = WriteItem> {
+    pub fn get_items(self) -> impl Iterator<Item = &'a WriteItem> {
         match self.state.items {
-            Some(items) => Rc::try_unwrap(items).ok().expect("Expected to unwrap from RC at this point.").into_iter().collect::<Vec<_>>().into_iter().rev(),
+            Some(items) => items.into_iter().collect::<Vec<_>>().into_iter().rev(),
             None => GraphNodeIterator::empty().collect::<Vec<_>>().into_iter().rev(),
         }
     }
@@ -255,7 +263,7 @@ impl Writer {
     #[allow(dead_code)]
     pub fn to_string_for_debugging(&self) -> String {
         let write_items = self.get_items_cloned();
-        super::print_write_items(write_items.into_iter(), super::PrintWriteItemsOptions {
+        super::print_write_items(write_items.iter(), super::PrintWriteItemsOptions {
             use_tabs: false,
             new_line_text: "\n",
             indent_width: self.indent_width,
@@ -282,6 +290,7 @@ fn get_line_start_column_number(writer_state: &WriterState, indent_width: u8) ->
 
 #[cfg(test)]
 mod test {
+    use bumpalo::Bump;
     use std::rc::Rc;
     use super::*;
     use super::super::{print_write_items, StringContainer, PrintWriteItemsOptions};
@@ -290,14 +299,16 @@ mod test {
 
     #[test]
     fn write_singleword_writes() {
-        let mut writer = create_writer();
+        let bump = Bump::new();
+        let mut writer = create_writer(&bump);
         write_text(&mut writer, "test");
         assert_writer_equal(writer, "test");
     }
 
     #[test]
     fn write_multiple_lines_writes() {
-        let mut writer = create_writer();
+        let bump = Bump::new();
+        let mut writer = create_writer(&bump);
         write_text(&mut writer, "1");
         writer.new_line();
         write_text(&mut writer, "2");
@@ -306,7 +317,8 @@ mod test {
 
     #[test]
     fn write_indented_writes() {
-        let mut writer = create_writer();
+        let bump = Bump::new();
+        let mut writer = create_writer(&bump);
         write_text(&mut writer, "1");
         writer.new_line();
         writer.start_indent();
@@ -319,7 +331,8 @@ mod test {
 
     #[test]
     fn write_singleindent_writes() {
-        let mut writer = create_writer();
+        let bump = Bump::new();
+        let mut writer = create_writer(&bump);
         writer.single_indent();
         write_text(&mut writer, "t");
         assert_writer_equal(writer, "  t");
@@ -327,7 +340,8 @@ mod test {
 
     #[test]
     fn markexpectnewline_writesnewline() {
-        let mut writer = create_writer();
+        let bump = Bump::new();
+        let mut writer = create_writer(&bump);
         write_text(&mut writer, "1");
         writer.mark_expect_new_line();
         write_text(&mut writer, "2");
@@ -347,7 +361,7 @@ mod test {
         writer.write(Rc::new(StringContainer::new(String::from(text))));
     }
 
-    fn create_writer() -> Writer {
-        Writer::new(WriterOptions { indent_width: 2 })
+    fn create_writer<'a>(bump: &'a Bump) -> Writer<'a> {
+        Writer::new(bump, WriterOptions { indent_width: 2 })
     }
 }

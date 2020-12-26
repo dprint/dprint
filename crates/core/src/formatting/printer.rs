@@ -4,21 +4,19 @@ use super::print_items::*;
 use super::writer::*;
 use super::get_write_items::{GetWriteItemsOptions};
 use std::collections::HashMap;
-use std::mem::{self, MaybeUninit};
 use std::rc::Rc;
+use bumpalo::Bump;
 
-// todo: Needs slight redesign. See issue #71 and #195.
-
-struct SavePoint {
+struct SavePoint<'a> {
     /// Name for debugging purposes.
     pub name: &'static str,
     pub new_line_group_depth: u16,
     pub force_no_newlines_depth: u8,
-    pub writer_state: WriterState,
-    pub possible_new_line_save_point: Option<Rc<SavePoint>>,
+    pub writer_state: WriterState<'a>,
+    pub possible_new_line_save_point: Option<&'a SavePoint<'a>>,
     pub node: Option<PrintItemPath>,
-    pub look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint>>,
-    pub look_ahead_info_save_points: HashMap<usize, Rc<SavePoint>>,
+    pub look_ahead_condition_save_points: HashMap<usize, &'a SavePoint<'a>>,
+    pub look_ahead_info_save_points: HashMap<usize, &'a SavePoint<'a>>,
     pub next_node_stack: Vec<Option<PrintItemPath>>,
 }
 
@@ -36,32 +34,40 @@ impl<'a> Clone for PrintItemContainer<'a> {
     }
 }
 
-pub struct Printer {
-    possible_new_line_save_point: Option<Rc<SavePoint>>,
+// todo: Needs slight redesign. See issue #71 and #195.
+
+pub struct Printer<'a> {
+    bump: &'a Bump,
+    possible_new_line_save_point: Option<&'a SavePoint<'a>>,
     new_line_group_depth: u16,
     force_no_newlines_depth: u8,
     current_node: Option<PrintItemPath>,
-    writer: Writer,
+    writer: Writer<'a>,
     resolved_conditions: HashMap<usize, Option<bool>>,
     resolved_infos: HashMap<usize, WriterInfo>,
-    look_ahead_condition_save_points: HashMap<usize, Rc<SavePoint>>,
-    look_ahead_info_save_points: FastCellMap<usize, SavePoint>,
+    look_ahead_condition_save_points: HashMap<usize, &'a SavePoint<'a>>,
+    look_ahead_info_save_points: FastCellMap<'a, usize, SavePoint<'a>>,
     next_node_stack: Vec<Option<PrintItemPath>>,
-    conditions_for_infos: HashMap<usize, HashMap<usize, (Rc<Condition>, Rc<SavePoint>)>>,
+    conditions_for_infos: HashMap<usize, HashMap<usize, (Rc<Condition>, &'a SavePoint<'a>)>>,
     max_width: u32,
     skip_moving_next: bool,
-    resolving_save_point: Option<Rc<SavePoint>>,
+    resolving_save_point: Option<&'a SavePoint<'a>>,
     stored_info_positions: HashMap<usize, (u32, u32)>,
 }
 
-impl Printer {
-    pub fn new(start_node: Option<PrintItemPath>, options: GetWriteItemsOptions) -> Printer {
+impl<'a> Printer<'a> {
+    pub fn new(
+        bump: &'a Bump,
+        start_node: Option<PrintItemPath>,
+        options: GetWriteItemsOptions,
+    ) -> Printer<'a> {
         Printer {
+            bump,
             possible_new_line_save_point: None,
             new_line_group_depth: 0,
             force_no_newlines_depth: 0,
             current_node: start_node,
-            writer: Writer::new(WriterOptions {
+            writer: Writer::new(bump, WriterOptions {
                 indent_width: options.indent_width,
             }),
             resolved_conditions: HashMap::new(),
@@ -78,7 +84,7 @@ impl Printer {
     }
 
     /// Turns the print items into a collection of writer items according to the options.
-    pub fn print(mut self) -> impl Iterator<Item = WriteItem> {
+    pub fn print(mut self) -> impl Iterator<Item = &'a WriteItem> {
         while let Some(current_node) = &self.current_node {
             let current_node = unsafe { &*current_node.get_node() }; // ok because values won't be mutated while printing
             self.handle_print_node(current_node);
@@ -101,9 +107,7 @@ impl Printer {
         #[cfg(debug_assertions)]
         self.ensure_counts_zero();
 
-        let writer = mem::replace(&mut self.writer, unsafe { MaybeUninit::zeroed().assume_init() });
-        mem::drop(self);
-        writer.get_items()
+        self.writer.get_items()
     }
 
     pub fn get_writer_info(&self) -> WriterInfo {
@@ -170,8 +174,8 @@ impl Printer {
         self.possible_new_line_save_point = None;
     }
 
-    fn create_save_point(&self, name: &'static str, next_node: Option<PrintItemPath>) -> Rc<SavePoint> {
-        Rc::new(SavePoint {
+    fn create_save_point(&self, name: &'static str, next_node: Option<PrintItemPath>) -> &'a SavePoint<'a> {
+        self.bump.alloc(SavePoint {
             name,
             possible_new_line_save_point: self.possible_new_line_save_point.clone(),
             new_line_group_depth: self.new_line_group_depth,
@@ -185,9 +189,9 @@ impl Printer {
     }
 
     #[inline]
-    fn get_save_point_for_restoring_condition(&self, name: &'static str) -> Rc<SavePoint> {
+    fn get_save_point_for_restoring_condition(&self, name: &'static str) -> &'a SavePoint<'a> {
         if let Some(save_point) = &self.resolving_save_point {
-            save_point.clone()
+            save_point
         } else {
             self.create_save_point(name, self.current_node.clone())
         }
@@ -209,29 +213,15 @@ impl Printer {
         self.writer.get_line_column() + offset > self.max_width
     }
 
-    fn update_state_to_save_point(&mut self, save_point: Rc<SavePoint>, is_for_new_line: bool) {
-        match Rc::try_unwrap(save_point) {
-            Ok(save_point) => {
-                self.writer.set_state(save_point.writer_state);
-                self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point };
-                self.current_node = save_point.node;
-                self.new_line_group_depth = save_point.new_line_group_depth;
-                self.force_no_newlines_depth = save_point.force_no_newlines_depth;
-                self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points;
-                self.look_ahead_info_save_points.replace_map(save_point.look_ahead_info_save_points);
-                self.next_node_stack = save_point.next_node_stack;
-            },
-            Err(save_point) => {
-                self.writer.set_state(save_point.writer_state.clone());
-                self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point.clone() };
-                self.current_node = save_point.node.clone();
-                self.new_line_group_depth = save_point.new_line_group_depth;
-                self.force_no_newlines_depth = save_point.force_no_newlines_depth;
-                self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
-                self.look_ahead_info_save_points.replace_map(save_point.look_ahead_info_save_points.clone());
-                self.next_node_stack = save_point.next_node_stack.clone();
-            }
-        }
+    fn update_state_to_save_point(&mut self, save_point: &'a SavePoint<'a>, is_for_new_line: bool) {
+        self.writer.set_state(save_point.writer_state.clone());
+        self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point.clone() };
+        self.current_node = save_point.node.clone();
+        self.new_line_group_depth = save_point.new_line_group_depth;
+        self.force_no_newlines_depth = save_point.force_no_newlines_depth;
+        self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
+        self.look_ahead_info_save_points.replace_map(save_point.look_ahead_info_save_points.clone());
+        self.next_node_stack = save_point.next_node_stack.clone();
 
         if is_for_new_line {
             self.write_new_line();
@@ -254,7 +244,7 @@ impl Printer {
             Signal::SpaceOrNewLine => {
                 if self.allow_new_lines() {
                     if self.is_above_max_width(1) {
-                        let optional_save_state = mem::replace(&mut self.possible_new_line_save_point, None);
+                        let optional_save_state = std::mem::replace(&mut self.possible_new_line_save_point, None);
                         if optional_save_state.is_none() {
                             self.write_new_line();
                         } else if let Some(save_state) = optional_save_state {
@@ -381,7 +371,7 @@ impl Printer {
         self.validate_string(&text.text);
 
         if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
-            let save_point = mem::replace(&mut self.possible_new_line_save_point, Option::None);
+            let save_point = std::mem::replace(&mut self.possible_new_line_save_point, Option::None);
             self.update_state_to_save_point(save_point.unwrap(), true);
         } else {
             self.writer.write(text.clone());
@@ -420,7 +410,7 @@ impl Printer {
     }
 
     #[cfg(debug_assertions)]
-    fn panic_for_save_point_existing(&self, save_point: &SavePoint) {
+    fn panic_for_save_point_existing(&self, save_point: &SavePoint<'a>) {
         panic!(
             concat!(
                 "Debug panic! '{}' was never added to the print items in this scenario. This can ",

@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 use super::printer::*;
 use super::PrintItems;
 use super::WriteItem;
@@ -11,7 +13,15 @@ pub struct GetWriteItemsOptions {
 }
 
 /// Gets write items from the print items.
-pub fn get_write_items(print_items: &PrintItems, options: GetWriteItemsOptions) -> impl Iterator<Item = WriteItem> {
-    let printer = Printer::new(print_items.first_node.clone(), options);
+pub fn get_write_items<'a>(
+    bump: &'a Bump,
+    print_items: &PrintItems,
+    options: GetWriteItemsOptions,
+) -> impl Iterator<Item = &'a WriteItem> {
+    let printer = Printer::new(
+        bump,
+        print_items.first_node.clone(),
+        options,
+    );
     printer.print()
 }

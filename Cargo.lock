@@ -569,6 +569,7 @@ dependencies = [
 name = "dprint-core"
 version = "0.33.1"
 dependencies = [
+ "bumpalo",
  "serde",
  "serde_json",
  "sysinfo",

@@ -548,14 +548,14 @@ pub struct ConditionProperties {
 pub type ConditionResolver = dyn Fn(&mut ConditionResolverContext) -> Option<bool>;
 
 /// Context used when resolving a condition.
-pub struct ConditionResolverContext<'a> {
-    printer: &'a mut Printer,
+pub struct ConditionResolverContext<'a, 'b> {
+    printer: &'a mut Printer<'b>,
     /// Gets the writer info at the condition's location.
     pub writer_info: WriterInfo,
 }
 
-impl<'a> ConditionResolverContext<'a> {
-    pub(super) fn new(printer: &'a mut Printer, writer_info: WriterInfo) -> Self {
+impl<'a, 'b> ConditionResolverContext<'a, 'b> {
+    pub(super) fn new(printer: &'a mut Printer<'b>, writer_info: WriterInfo) -> Self {
         ConditionResolverContext {
             printer,
             writer_info,

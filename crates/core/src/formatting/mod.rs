@@ -17,6 +17,6 @@ pub mod utils;
 
 pub use print_items::*;
 pub use write_items::*;
-pub use get_write_items::{get_write_items, GetWriteItemsOptions};
-pub use print_write_items::{print_write_items, PrintWriteItemsOptions};
+use get_write_items::{get_write_items, GetWriteItemsOptions};
+use print_write_items::{print_write_items, PrintWriteItemsOptions};
 pub use print::{print, PrintOptions};
