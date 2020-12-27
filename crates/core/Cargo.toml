@@ -2,7 +2,7 @@
 name = "dprint-core"
 description = "Core rust library for dprint."
 keywords = ["formatting", "formatter"]
-version = "0.33.1"
+version = "0.34.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -12,7 +12,7 @@ repository = "https://github.com/dprint/dprint"
 [features]
 default = ["formatting"]
 
-formatting = ["bumpalo"]
+formatting = ["bumpalo", "fnv"]
 process = ["serde_json", "sysinfo"]
 wasm = []
 
@@ -21,3 +21,4 @@ serde = { version = "1.0.117", features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 sysinfo = { version = "0.15.0", optional = true }
 bumpalo = { version = "3.4.0", optional = true }
+fnv = { version = "1.0.3", optional = true }

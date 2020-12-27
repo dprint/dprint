@@ -1,9 +1,8 @@
-use std::rc::Rc;
 use super::StringContainer;
 
 #[derive(Clone)]
-pub enum WriteItem {
-    String(Rc<StringContainer>),
+pub enum WriteItem<'a> {
+    String(&'a StringContainer),
     Indent(u8),
     NewLine,
     Tab,

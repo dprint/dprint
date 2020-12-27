@@ -1,5 +1,4 @@
 use bumpalo::Bump;
-use std::rc::Rc;
 
 use super::collections::{GraphNode, GraphNodeIterator};
 use super::StringContainer;
@@ -15,7 +14,7 @@ pub struct WriterState<'a> {
     indent_queue_count: u8,
     last_was_not_trailing_space: bool,
     ignore_indent_count: u8,
-    items: Option<&'a GraphNode<'a, WriteItem>>,
+    items: Option<&'a GraphNode<'a, WriteItem<'a>>>,
 }
 
 impl<'a> WriterState<'a> {
@@ -205,7 +204,7 @@ impl<'a> Writer<'a> {
         self.push_item(WriteItem::Space);
     }
 
-    pub fn write(&mut self, text: Rc<StringContainer>) {
+    pub fn write(&mut self, text: &'a StringContainer) {
         self.handle_first_column();
         self.state.current_line_column += text.char_count;
         self.push_item(WriteItem::String(text));
@@ -234,7 +233,7 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn push_item(&mut self, item: WriteItem) {
+    fn push_item(&mut self, item: WriteItem<'a>) {
         let previous = std::mem::replace(&mut self.state.items, None);
         let graph_node = self.bump.alloc(GraphNode::new(item, previous));
         self.state.items = Some(graph_node);
@@ -252,7 +251,7 @@ impl<'a> Writer<'a> {
         }
     }
 
-    pub fn get_items(self) -> impl Iterator<Item = &'a WriteItem> {
+    pub fn get_items(self) -> impl Iterator<Item = &'a WriteItem<'a>> {
         match self.state.items {
             Some(items) => items.into_iter().collect::<Vec<_>>().into_iter().rev(),
             None => GraphNodeIterator::empty().collect::<Vec<_>>().into_iter().rev(),
@@ -290,62 +289,70 @@ fn get_line_start_column_number(writer_state: &WriterState, indent_width: u8) ->
 
 #[cfg(test)]
 mod test {
-    use bumpalo::Bump;
-    use std::rc::Rc;
     use super::*;
-    use super::super::{print_write_items, StringContainer, PrintWriteItemsOptions};
+    use super::super::{print_write_items, StringContainer, PrintWriteItemsOptions, utils::with_bump_allocator_mut};
 
     // todo: some basic unit tests just to make sure I'm not way off
 
     #[test]
     fn write_singleword_writes() {
-        let bump = Bump::new();
-        let mut writer = create_writer(&bump);
-        write_text(&mut writer, "test");
-        assert_writer_equal(writer, "test");
+        with_bump_allocator_mut(|bump| {
+            let mut writer = create_writer(&bump);
+            write_text(&mut writer, "test", &bump);
+            assert_writer_equal(writer, "test");
+            bump.reset();
+        });
     }
 
     #[test]
     fn write_multiple_lines_writes() {
-        let bump = Bump::new();
-        let mut writer = create_writer(&bump);
-        write_text(&mut writer, "1");
-        writer.new_line();
-        write_text(&mut writer, "2");
-        assert_writer_equal(writer, "1\n2");
+        with_bump_allocator_mut(|bump| {
+            let mut writer = create_writer(&bump);
+            write_text(&mut writer, "1", &bump);
+            writer.new_line();
+            write_text(&mut writer, "2", &bump);
+            assert_writer_equal(writer, "1\n2");
+            bump.reset();
+        });
     }
 
     #[test]
     fn write_indented_writes() {
-        let bump = Bump::new();
-        let mut writer = create_writer(&bump);
-        write_text(&mut writer, "1");
-        writer.new_line();
-        writer.start_indent();
-        write_text(&mut writer, "2");
-        writer.finish_indent();
-        writer.new_line();
-        write_text(&mut writer, "3");
-        assert_writer_equal(writer, "1\n  2\n3");
+        with_bump_allocator_mut(|bump| {
+            let mut writer = create_writer(&bump);
+            write_text(&mut writer, "1", &bump);
+            writer.new_line();
+            writer.start_indent();
+            write_text(&mut writer, "2", &bump);
+            writer.finish_indent();
+            writer.new_line();
+            write_text(&mut writer, "3", &bump);
+            assert_writer_equal(writer, "1\n  2\n3");
+            bump.reset();
+        });
     }
 
     #[test]
     fn write_singleindent_writes() {
-        let bump = Bump::new();
-        let mut writer = create_writer(&bump);
-        writer.single_indent();
-        write_text(&mut writer, "t");
-        assert_writer_equal(writer, "  t");
+        with_bump_allocator_mut(|bump| {
+            let mut writer = create_writer(&bump);
+            writer.single_indent();
+            write_text(&mut writer, "t", &bump);
+            assert_writer_equal(writer, "  t");
+            bump.reset();
+        });
     }
 
     #[test]
     fn markexpectnewline_writesnewline() {
-        let bump = Bump::new();
-        let mut writer = create_writer(&bump);
-        write_text(&mut writer, "1");
-        writer.mark_expect_new_line();
-        write_text(&mut writer, "2");
-        assert_writer_equal(writer, "1\n2");
+        with_bump_allocator_mut(|bump| {
+            let mut writer = create_writer(&bump);
+            write_text(&mut writer, "1", &bump);
+            writer.mark_expect_new_line();
+            write_text(&mut writer, "2", &bump);
+            assert_writer_equal(writer, "1\n2");
+            bump.reset();
+        });
     }
 
     fn assert_writer_equal(writer: Writer, text: &str) {
@@ -357,8 +364,12 @@ mod test {
         assert_eq!(result, String::from(text));
     }
 
-    fn write_text(writer: &mut Writer, text: &'static str) {
-        writer.write(Rc::new(StringContainer::new(String::from(text))));
+    fn write_text(writer: &mut Writer, text: &'static str, bump: &Bump) {
+        let string_container = {
+            let result = bump.alloc(StringContainer::new(String::from(text)));
+            unsafe { std::mem::transmute::<&StringContainer, &'static StringContainer>(result) }
+        };
+        writer.write(string_container);
     }
 
     fn create_writer<'a>(bump: &'a Bump) -> Writer<'a> {

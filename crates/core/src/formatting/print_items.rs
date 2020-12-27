@@ -1,8 +1,10 @@
-use super::printer::Printer;
 use std::rc::Rc;
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem;
+
+use super::printer::Printer;
+use super::utils::with_bump_allocator;
 
 /** Print Items */
 
@@ -27,12 +29,14 @@ impl PrintItems {
         self.push_item_internal(item);
     }
 
-    // seems marginally faster to inline this? probably not worth it
     #[inline]
     fn push_item_internal(&mut self, item: PrintItem) {
-        let node = Rc::new(PrintNodeCell::new(item));
+        let node = with_bump_allocator(|bump| {
+            let result = bump.alloc(PrintNodeCell::new(item));
+            unsafe { std::mem::transmute::<&PrintNodeCell, UnsafePrintLifetime<PrintNodeCell>>(result) }
+        });
         if let Some(first_node) = &self.first_node {
-            let new_last_node = node.get_last_next().unwrap_or(node.clone());
+            let new_last_node = node.get_last_next().unwrap_or(node);
             self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
             self.last_node = Some(new_last_node);
         } else {
@@ -54,15 +58,23 @@ impl PrintItems {
     }
 
     pub fn push_str(&mut self, item: &str) {
-        self.push_item_internal(PrintItem::String(Rc::from(StringContainer::new(String::from(item)))));
+        let string_container = with_bump_allocator(|bump| {
+            let result = bump.alloc(StringContainer::new(String::from(item)));
+            unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(result) }
+        });
+        self.push_item_internal(PrintItem::String(string_container));
     }
 
     pub fn push_condition(&mut self, condition: Condition) {
-        self.push_item_internal(PrintItem::Condition(Rc::from(condition)));
+        let condition = with_bump_allocator(|bump| {
+            let result = bump.alloc(condition);
+            unsafe { std::mem::transmute::<&Condition, UnsafePrintLifetime<Condition>>(result) }
+        });
+        self.push_item_internal(PrintItem::Condition(condition));
     }
 
     pub fn push_info(&mut self, info: Info) {
-        self.push_item_internal(PrintItem::Info(Rc::from(info)));
+        self.push_item_internal(PrintItem::Info(info));
     }
 
     pub fn push_signal(&mut self, signal: Signal) {
@@ -214,23 +226,6 @@ pub struct PrintNode {
     pub(super) item: PrintItem,
 }
 
-impl Drop for PrintNode {
-    // Implement a custom drop in order to prevent a stack overflow error when dropping objects of this type
-    fn drop(&mut self) {
-        let mut next = mem::replace(&mut self.next, None);
-
-        loop {
-            next = match next {
-                Some(node) => match Rc::try_unwrap(node) {
-                    Ok(node) => node.take_next(),
-                    Err(_) => break,
-                },
-                None => break
-            }
-        }
-    }
-}
-
 impl PrintNode {
     fn new(item: PrintItem) -> PrintNode {
         PrintNode {
@@ -312,16 +307,26 @@ impl PrintNodeCell {
     }
 }
 
-pub type PrintItemPath = Rc<PrintNodeCell>;
+pub type PrintItemPath = UnsafePrintLifetime<PrintNodeCell>;
+
+/// This lifetime value is a lie that is not represented or enforced by the compiler.
+/// What actually happens is the reference will remain active until the print
+/// items are printed. At that point, it's unsafe to use them anymore.
+///
+/// To get around this unsafeness, the API would have to be sacrificed by passing
+/// around an object that wraps an arena. Perhaps that will be the way going forward
+/// in the future, but for now this was an easy way to get the big performance
+/// boost from an arena without changing the API much.
+type UnsafePrintLifetime<T> = &'static T;
 
 /* Print item and kinds */
 
 /// The different items the printer could encounter.
 #[derive(Clone)]
 pub enum PrintItem {
-    String(Rc<StringContainer>),
-    Condition(Rc<Condition>),
-    Info(Rc<Info>),
+    String(UnsafePrintLifetime<StringContainer>),
+    Condition(UnsafePrintLifetime<Condition>),
+    Info(Info),
     Signal(Signal),
     RcPath(PrintItemPath),
 }

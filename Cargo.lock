@@ -567,9 +567,10 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.33.1"
+version = "0.34.0"
 dependencies = [
  "bumpalo",
+ "fnv",
  "serde",
  "serde_json",
  "sysinfo",

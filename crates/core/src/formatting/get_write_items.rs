@@ -17,7 +17,7 @@ pub fn get_write_items<'a>(
     bump: &'a Bump,
     print_items: &PrintItems,
     options: GetWriteItemsOptions,
-) -> impl Iterator<Item = &'a WriteItem> {
+) -> impl Iterator<Item = &'a WriteItem<'a>> {
     let printer = Printer::new(
         bump,
         print_items.first_node.clone(),

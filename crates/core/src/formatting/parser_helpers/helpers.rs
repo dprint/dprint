@@ -139,7 +139,7 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
         let non_slash_index = get_first_non_slash_index(&original_text);
         let skip_space = force_space_after_slashes && original_text.chars().skip(non_slash_index).next() == Some(' ');
         let start_text_index = if skip_space { non_slash_index + 1 } else { non_slash_index };
-        let comment_text_original = original_text.chars().skip(start_text_index).collect::<String>();
+        let comment_text_original = &original_text[start_text_index..]; // pref: ok to index here since slashes are 1 byte each
         let comment_text = comment_text_original.trim_end();
         let prefix = format!("//{}", original_text.chars().take(non_slash_index).collect::<String>());
 

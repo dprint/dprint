@@ -1,22 +1,22 @@
 use std::cell::UnsafeCell;
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 
 /// This fast cell map performs faster than a regular RefCell<HashMap<TKey, Rc<TValue>>
 /// because it avoids doing runtime checks on borrowing and mutation. This collection
 /// remains safe to the user because the value in the hashmap is a reference.
 /// Additionally, the underlying collection is never exposed to the user.
 pub struct FastCellMap<'a, TKey, TValue> {
-    value: UnsafeCell<HashMap<TKey, &'a TValue>>,
+    value: UnsafeCell<FnvHashMap<TKey, &'a TValue>>,
 }
 
 impl<'a, TKey, TValue> FastCellMap<'a, TKey, TValue> where TKey : std::cmp::Eq + std::hash::Hash + Clone {
     pub fn new() -> FastCellMap<'a, TKey, TValue> {
         FastCellMap {
-            value: UnsafeCell::new(HashMap::new()),
+            value: UnsafeCell::new(FnvHashMap::default()),
         }
     }
 
-    pub fn replace_map(&mut self, new_map: HashMap<TKey, &'a TValue>) {
+    pub fn replace_map(&mut self, new_map: FnvHashMap<TKey, &'a TValue>) {
         self.value = UnsafeCell::new(new_map);
     }
 
@@ -38,7 +38,7 @@ impl<'a, TKey, TValue> FastCellMap<'a, TKey, TValue> where TKey : std::cmp::Eq +
         }
     }
 
-    pub fn clone_map(&self) -> HashMap<TKey, &'a TValue> {
+    pub fn clone_map(&self) -> FnvHashMap<TKey, &'a TValue> {
         unsafe {
             (*self.value.get()).clone()
         }

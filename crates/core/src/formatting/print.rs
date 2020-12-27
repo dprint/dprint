@@ -1,5 +1,5 @@
 use super::*;
-use bumpalo::Bump;
+use super::utils::with_bump_allocator_mut;
 
 /// Options for printing the print items.
 pub struct PrintOptions {
@@ -13,15 +13,10 @@ pub struct PrintOptions {
     pub new_line_text: &'static str,
 }
 
-thread_local! {
-    static LOCAL_BUMP_ALLOCATOR: std::cell::RefCell<Bump> = std::cell::RefCell::new(Bump::new());
-}
-
 /// Prints out the print items using the provided
 pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
-    LOCAL_BUMP_ALLOCATOR.with(|bump_cell| {
-        let mut bump_borrow = bump_cell.borrow_mut();
-        let write_items = get_write_items(&bump_borrow, &print_items, GetWriteItemsOptions {
+    with_bump_allocator_mut(|bump| {
+        let write_items = get_write_items(bump, &print_items, GetWriteItemsOptions {
             indent_width: options.indent_width,
             max_width: options.max_width,
         });
@@ -32,7 +27,7 @@ pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
             indent_width: options.indent_width,
         });
 
-        bump_borrow.reset();
+        bump.reset();
         result
     })
 }

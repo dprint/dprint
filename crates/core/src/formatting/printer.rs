@@ -1,13 +1,14 @@
+use fnv::FnvHashMap;
+use bumpalo::Bump;
+
 use super::collections::{FastCellMap};
 use super::WriteItem;
 use super::print_items::*;
 use super::writer::*;
 use super::get_write_items::{GetWriteItemsOptions};
-use std::collections::HashMap;
-use std::rc::Rc;
-use bumpalo::Bump;
 
 struct SavePoint<'a> {
+    #[cfg(debug_assertions)]
     /// Name for debugging purposes.
     pub name: &'static str,
     pub new_line_group_depth: u16,
@@ -15,8 +16,8 @@ struct SavePoint<'a> {
     pub writer_state: WriterState<'a>,
     pub possible_new_line_save_point: Option<&'a SavePoint<'a>>,
     pub node: Option<PrintItemPath>,
-    pub look_ahead_condition_save_points: HashMap<usize, &'a SavePoint<'a>>,
-    pub look_ahead_info_save_points: HashMap<usize, &'a SavePoint<'a>>,
+    pub look_ahead_condition_save_points: FnvHashMap<usize, &'a SavePoint<'a>>,
+    pub look_ahead_info_save_points: FnvHashMap<usize, &'a SavePoint<'a>>,
     pub next_node_stack: Vec<Option<PrintItemPath>>,
 }
 
@@ -43,16 +44,16 @@ pub struct Printer<'a> {
     force_no_newlines_depth: u8,
     current_node: Option<PrintItemPath>,
     writer: Writer<'a>,
-    resolved_conditions: HashMap<usize, Option<bool>>,
-    resolved_infos: HashMap<usize, WriterInfo>,
-    look_ahead_condition_save_points: HashMap<usize, &'a SavePoint<'a>>,
+    resolved_conditions: FnvHashMap<usize, Option<bool>>,
+    resolved_infos: FnvHashMap<usize, WriterInfo>,
+    look_ahead_condition_save_points: FnvHashMap<usize, &'a SavePoint<'a>>,
     look_ahead_info_save_points: FastCellMap<'a, usize, SavePoint<'a>>,
     next_node_stack: Vec<Option<PrintItemPath>>,
-    conditions_for_infos: HashMap<usize, HashMap<usize, (Rc<Condition>, &'a SavePoint<'a>)>>,
+    conditions_for_infos: FnvHashMap<usize, FnvHashMap<usize, (&'a Condition, &'a SavePoint<'a>)>>,
     max_width: u32,
     skip_moving_next: bool,
     resolving_save_point: Option<&'a SavePoint<'a>>,
-    stored_info_positions: HashMap<usize, (u32, u32)>,
+    stored_info_positions: FnvHashMap<usize, (u32, u32)>,
 }
 
 impl<'a> Printer<'a> {
@@ -70,21 +71,21 @@ impl<'a> Printer<'a> {
             writer: Writer::new(bump, WriterOptions {
                 indent_width: options.indent_width,
             }),
-            resolved_conditions: HashMap::new(),
-            resolved_infos: HashMap::new(),
-            look_ahead_condition_save_points: HashMap::new(),
+            resolved_conditions: FnvHashMap::default(),
+            resolved_infos: FnvHashMap::default(),
+            look_ahead_condition_save_points: FnvHashMap::default(),
             look_ahead_info_save_points: FastCellMap::new(),
-            conditions_for_infos: HashMap::new(),
+            conditions_for_infos: FnvHashMap::default(),
             next_node_stack: Vec::new(),
             max_width: options.max_width,
             skip_moving_next: false,
             resolving_save_point: None,
-            stored_info_positions: HashMap::new(),
+            stored_info_positions: FnvHashMap::default(),
         }
     }
 
     /// Turns the print items into a collection of writer items according to the options.
-    pub fn print(mut self) -> impl Iterator<Item = &'a WriteItem> {
+    pub fn print(mut self) -> impl Iterator<Item = &'a WriteItem<'a>> {
         while let Some(current_node) = &self.current_node {
             let current_node = unsafe { &*current_node.get_node() }; // ok because values won't be mutated while printing
             self.handle_print_node(current_node);
@@ -174,9 +175,10 @@ impl<'a> Printer<'a> {
         self.possible_new_line_save_point = None;
     }
 
-    fn create_save_point(&self, name: &'static str, next_node: Option<PrintItemPath>) -> &'a SavePoint<'a> {
+    fn create_save_point(&self, _name: &'static str, next_node: Option<PrintItemPath>) -> &'a SavePoint<'a> {
         self.bump.alloc(SavePoint {
-            name,
+            #[cfg(debug_assertions)]
+            name: _name,
             possible_new_line_save_point: self.possible_new_line_save_point.clone(),
             new_line_group_depth: self.new_line_group_depth,
             force_no_newlines_depth: self.force_no_newlines_depth,
@@ -295,13 +297,13 @@ impl<'a> Printer<'a> {
                 let condition_id = condition.get_unique_id();
 
                 if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).map(|x| x.to_owned()).flatten() {
-                    self.resolving_save_point.replace(save_point.clone());
+                    self.resolving_save_point.replace(save_point);
                     let mut context = ConditionResolverContext::new(self, save_point.writer_state.get_writer_info(self.writer.get_indent_width()));
                     let condition_value = condition.resolve(&mut context);
                     self.resolving_save_point.take();
                     if let Some(condition_value) = condition_value {
                         if condition_value != resolved_condition_value {
-                            self.update_state_to_save_point(save_point.clone(), false);
+                            self.update_state_to_save_point(save_point, false);
                             return;
                         }
                     } else {
@@ -313,7 +315,7 @@ impl<'a> Printer<'a> {
     }
 
     #[inline]
-    fn handle_condition(&mut self, condition: &Rc<Condition>, next_node: &Option<PrintItemPath>) {
+    fn handle_condition(&mut self, condition: &'a Condition, next_node: &Option<PrintItemPath>) {
         let condition_id = condition.get_unique_id();
         if let Some(dependent_infos) = &condition.dependent_infos {
             for info in dependent_infos {
@@ -322,12 +324,12 @@ impl<'a> Printer<'a> {
                 let conditions_for_info = if let Some(conditions) = self.conditions_for_infos.get_mut(&info_id) {
                     conditions
                 } else {
-                    self.conditions_for_infos.insert(info_id, HashMap::new());
+                    self.conditions_for_infos.insert(info_id, Default::default());
                     self.conditions_for_infos.get_mut(&info_id).unwrap()
                 };
 
                 let condition_id = condition.get_unique_id();
-                conditions_for_info.insert(condition_id, (condition.clone(), save_point));
+                conditions_for_info.insert(condition_id, (condition, save_point));
             }
         }
 
@@ -361,12 +363,12 @@ impl<'a> Printer<'a> {
     #[inline]
     fn handle_rc_path(&mut self, print_item_path: &PrintItemPath, next_node: &Option<PrintItemPath>) {
         self.next_node_stack.push(next_node.clone());
-        self.current_node = Some(print_item_path.clone());
+        self.current_node = Some(print_item_path);
         self.skip_moving_next = true;
     }
 
     #[inline]
-    fn handle_string(&mut self, text: &Rc<StringContainer>) {
+    fn handle_string(&mut self, text: &'a StringContainer) {
         #[cfg(debug_assertions)]
         self.validate_string(&text.text);
 
@@ -374,7 +376,7 @@ impl<'a> Printer<'a> {
             let save_point = std::mem::replace(&mut self.possible_new_line_save_point, Option::None);
             self.update_state_to_save_point(save_point.unwrap(), true);
         } else {
-            self.writer.write(text.clone());
+            self.writer.write(text);
         }
     }
 
@@ -401,7 +403,7 @@ impl<'a> Printer<'a> {
         // never added to the print items. In this scenario, the look ahead hash maps will
         // be cloned when creating a save point and contain items that don't need to exist
         // in them thus having an unnecessary performance impact.
-        if let Some((_, save_point)) = self.look_ahead_condition_save_points.iter().next() {
+        if let Some(save_point) = self.look_ahead_condition_save_points.values().next() {
             self.panic_for_save_point_existing(save_point)
         }
         if let Some(save_point) = self.look_ahead_info_save_points.get_any_item() {
