@@ -1,6 +1,7 @@
 # dprint
 
 [![CI](https://github.com/dprint/dprint/workflows/CI/badge.svg)](https://github.com/dprint/dprint/actions?query=workflow%3ACI)
+[![Homebrew](https://img.shields.io/badge/dynamic/json.svg?url=https://formulae.brew.sh/api/formula/dprint.json&query=$.versions.stable&label=homebrew)](https://formulae.brew.sh/formula/dprint)
 
 Monorepo for dprint—a pluggable and configurable code formatting platform.
 
