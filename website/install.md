@@ -20,10 +20,9 @@ Install using one of the methods below.
       ```powershell
       iwr https://dprint.dev/install.ps1 -useb | iex
       ```
-- Homebrew (Mac):
+- [Homebrew](https://brew.sh/) (Mac):
 
       ```bash
-      brew tap dprint/dprint
       brew install dprint
       ```
 - Cargo (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
