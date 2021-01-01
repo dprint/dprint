@@ -229,10 +229,9 @@ jobs:
           iwr https://dprint.dev/install.ps1 -useb | iex
           ```
 
-          Homebrew (Mac):
+          [Homebrew](https://brew.sh/) (Mac):
 
           ```bash
-          brew tap dprint/dprint
           brew install dprint
           ```
 
