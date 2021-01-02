@@ -79,7 +79,9 @@ $User = [EnvironmentVariableTarget]::User
 $Path = [Environment]::GetEnvironmentVariable('Path', $User)
 if (!(";$Path;".ToLower() -like "*;$BinDir;*".ToLower())) {
   [Environment]::SetEnvironmentVariable('Path', "$Path;$BinDir", $User)
+}
+if (!(";$Env:Path;".ToLower() -like "*;$BinDir;*".ToLower())) {
   $Env:Path += ";$BinDir"
 }
-Write-Output "Dprint was installed successfully to $DprintExe"
+Write-Output "dprint was installed successfully to $DprintExe"
 Write-Output "Run 'dprint --help' to get started"
