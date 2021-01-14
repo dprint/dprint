@@ -17,7 +17,7 @@ pub struct PluginCacheManifest {
 impl PluginCacheManifest {
     pub(super) fn new() -> PluginCacheManifest {
         PluginCacheManifest {
-            schema_version: 1,
+            schema_version: 2,
             plugins: HashMap::new(),
         }
     }
@@ -48,8 +48,8 @@ pub struct PluginCacheManifestItem {
 pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
     return match try_deserialize(environment) {
         Ok(manifest) => {
-            if manifest.schema_version != 1 {
-                environment.log_error(&format!("Error deserializing plugin cache manifest, but ignoring: Schema version was {}, but expected 1", manifest.schema_version));
+            if manifest.schema_version != 2 {
+                environment.log_error(&format!("Error deserializing plugin cache manifest, but ignoring: Schema version was {}, but expected 2", manifest.schema_version));
                 let _ = environment.remove_dir_all(&environment.get_cache_dir().join("plugins"));
                 PluginCacheManifest::new()
             } else {
@@ -67,12 +67,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
         let file_path = get_manifest_file_path(environment);
         return match environment.read_file(&file_path) {
             Ok(text) => {
-                let manifest = serde_json::from_str::<PluginCacheManifest>(&text)?;
-                if manifest.schema_version != 1 {
-                    return err!("Schema version was {}, but expected 1", manifest.schema_version);
-                } else {
-                    Ok(manifest)
-                }
+                Ok(serde_json::from_str::<PluginCacheManifest>(&text)?)
             },
             Err(_) => Ok(PluginCacheManifest::new()),
         };
@@ -101,7 +96,7 @@ mod test {
         environment.write_file(
             &environment.get_cache_dir().join("plugin-cache-manifest.json"),
             r#"{
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "plugins": {
         "a": {
             "createdTime": 123,

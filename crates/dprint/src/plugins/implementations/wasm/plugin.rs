@@ -66,7 +66,6 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
         let import_obj_env = ImportObjectEnvironment::new(self.name(), self.plugin_pools.clone());
         let import_object = create_pools_import_object(&store, &import_obj_env);
         let wasm_plugin = InitializedWasmPlugin::new(&self.module, &import_object)?;
-        import_obj_env.set_memory(wasm_plugin.wasm_functions.get_memory().clone());
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 
         wasm_plugin.set_global_config(&global_config)?;

@@ -2,9 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::collections::HashMap;
 use dprint_core::configuration::ConfigKeyMap;
-use wasmer::{Function, Store, Memory};
-use std::rc::Rc;
-use std::cell::RefCell;
+use wasmer::{Function, Store, LazyInit, Instance, Memory, WasmerEnv, HostEnvInitError};
+use parking_lot::Mutex;
 
 use crate::plugins::pool::PluginPools;
 use crate::environment::Environment;
@@ -36,7 +35,6 @@ pub fn create_identity_import_object(store: &Store) -> wasmer::ImportObject {
 }
 
 pub struct ImportObjectEnvironmentCellItems {
-    memory: Option<Memory>,
     override_config: Option<ConfigKeyMap>,
     file_path: Option<PathBuf>,
     shared_bytes: Vec<u8>,
@@ -47,8 +45,17 @@ pub struct ImportObjectEnvironmentCellItems {
 #[derive(Clone)]
 pub struct ImportObjectEnvironment<TEnvironment: Environment> {
     parent_plugin_name: String,
+    memory: LazyInit<Memory>,
     pools: Arc<PluginPools<TEnvironment>>,
-    cell: Rc<RefCell<ImportObjectEnvironmentCellItems>>,
+    cell: Arc<Mutex<ImportObjectEnvironmentCellItems>>,
+}
+
+impl<TEnvironment: Environment> WasmerEnv for ImportObjectEnvironment<TEnvironment> {
+    fn init_with_instance(&mut self, instance: &Instance) -> Result<(), HostEnvInitError> {
+        let memory = instance.exports.get_memory("memory").unwrap();
+        self.memory.initialize(memory.clone());
+        Ok(())
+    }
 }
 
 impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
@@ -56,8 +63,8 @@ impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
         ImportObjectEnvironment {
             parent_plugin_name: plugin_name.to_string(),
             pools,
-            cell: Rc::new(RefCell::new(ImportObjectEnvironmentCellItems {
-                memory: None,
+            memory: LazyInit::new(),
+            cell: Arc::new(Mutex::new(ImportObjectEnvironmentCellItems {
                 override_config: None,
                 file_path: None,
                 shared_bytes: Vec::new(),
@@ -65,10 +72,6 @@ impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
                 error_text_store: String::new(),
             }))
         }
-    }
-
-    pub fn set_memory(&self, memory: Memory) {
-        self.cell.borrow_mut().memory = Some(memory);
     }
 }
 
@@ -78,33 +81,30 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     import_object_env: &ImportObjectEnvironment<TEnvironment>,
 ) -> wasmer::ImportObject {
     let host_clear_bytes = {
-        |env: &mut ImportObjectEnvironment<TEnvironment>, length: u32| {
-            env.cell.borrow_mut().shared_bytes = Vec::with_capacity(length as usize);
+        |env: &ImportObjectEnvironment<TEnvironment>, length: u32| {
+            env.cell.lock().shared_bytes = Vec::with_capacity(length as usize);
         }
     };
     let host_read_buffer = {
-        |env: &mut ImportObjectEnvironment<TEnvironment>, buffer_pointer: u32, length: u32| {
+        |env: &ImportObjectEnvironment<TEnvironment>, buffer_pointer: u32, length: u32| {
             let buffer_pointer: wasmer::WasmPtr<u8, wasmer::Array> = wasmer::WasmPtr::new(buffer_pointer);
-            let mut cell = env.cell.borrow_mut();
-            // take the memory to prevent mutating while borrowing
-            let memory = cell.memory.take().unwrap();
+            let mut cell = env.cell.lock();
+            let memory = env.memory.get_ref().unwrap();
             let memory_reader = buffer_pointer
-                .deref(&memory, 0, length)
+                .deref(memory, 0, length)
                 .unwrap();
             for i in 0..length as usize {
                 cell.shared_bytes.push(memory_reader[i].get());
             }
-            // put back the memory
-            cell.memory = Some(memory);
         }
     };
     let host_write_buffer = {
-        |env: &mut ImportObjectEnvironment<TEnvironment>, buffer_pointer: u32, offset: u32, length: u32| {
+        |env: &ImportObjectEnvironment<TEnvironment>, buffer_pointer: u32, offset: u32, length: u32| {
             let buffer_pointer: wasmer::WasmPtr<u8, wasmer::Array> = wasmer::WasmPtr::new(buffer_pointer);
-            let cell = env.cell.borrow_mut();
-            let memory = cell.memory.as_ref().unwrap();
+            let cell = env.cell.lock();
+            let memory = env.memory.get_ref().unwrap();
             let memory_writer = buffer_pointer
-                .deref(&memory, 0, length)
+                .deref(memory, 0, length)
                 .unwrap();
             let offset = offset as usize;
             let length = length as usize;
@@ -115,25 +115,25 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         }
     };
     let host_take_override_config = {
-        |env: &mut ImportObjectEnvironment<TEnvironment>| {
-            let mut cell = env.cell.borrow_mut();
+        |env: &ImportObjectEnvironment<TEnvironment>| {
+            let mut cell = env.cell.lock();
             let bytes = std::mem::replace(&mut cell.shared_bytes, Vec::new());
             let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or(HashMap::new());
             cell.override_config.replace(config_key_map);
         }
     };
     let host_take_file_path = {
-        |env: &mut ImportObjectEnvironment<TEnvironment>| {
-            let mut cell = env.cell.borrow_mut();
+        |env: &ImportObjectEnvironment<TEnvironment>| {
+            let mut cell = env.cell.lock();
             let bytes = std::mem::replace(&mut cell.shared_bytes, Vec::new());
             let file_path_str = String::from_utf8(bytes).unwrap();
             cell.file_path.replace(PathBuf::from(file_path_str));
         }
     };
     let host_format = {
-        |env: &mut ImportObjectEnvironment<TEnvironment>| {
+        |env: &ImportObjectEnvironment<TEnvironment>| {
             let (override_config, file_path, file_text) = {
-                let mut cell = env.cell.borrow_mut();
+                let mut cell = env.cell.lock();
                 let override_config = cell.override_config.take().unwrap_or(HashMap::new());
                 let file_path = cell.file_path.take().expect("Expected to have file path.");
                 let bytes = std::mem::replace(&mut cell.shared_bytes, Vec::new());
@@ -143,7 +143,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
 
             match format_with_plugin_pool(&env.parent_plugin_name, &file_path, &file_text, &override_config, &env.pools) {
                 Ok(Some(formatted_text)) => {
-                    let mut cell = env.cell.borrow_mut();
+                    let mut cell = env.cell.lock();
                     cell.formatted_text_store = formatted_text;
                     1 // change
                 },
@@ -151,7 +151,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
                     0 // no change
                 }
                 Err(err) => {
-                    let mut cell = env.cell.borrow_mut();
+                    let mut cell = env.cell.lock();
                     cell.error_text_store = err.to_string();
                     2 // error
                 }
@@ -159,8 +159,8 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         }
     };
     let host_get_formatted_text = {
-        |env: &mut ImportObjectEnvironment<TEnvironment>| {
-            let mut cell = env.cell.borrow_mut();
+        |env: &ImportObjectEnvironment<TEnvironment>| {
+            let mut cell = env.cell.lock();
             let formatted_text = std::mem::replace(&mut cell.formatted_text_store, String::new());
             let len = formatted_text.len();
             cell.shared_bytes = formatted_text.into_bytes();
@@ -169,8 +169,8 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     };
     let host_get_error_text = {
         // todo: reduce code duplication with above function
-        |env: &mut ImportObjectEnvironment<TEnvironment>| {
-            let mut cell = env.cell.borrow_mut();
+        |env: &ImportObjectEnvironment<TEnvironment>| {
+            let mut cell = env.cell.lock();
             let error_text = std::mem::replace(&mut cell.error_text_store, String::new());
             let len = error_text.len();
             cell.shared_bytes = error_text.into_bytes();

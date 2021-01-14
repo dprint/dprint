@@ -2192,6 +2192,7 @@ SOFTWARE.
         run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
 
         assert_eq!(environment.read_file(&PathBuf::from("test.txt")).unwrap(), "text_formatted");
+        assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
     }
 
