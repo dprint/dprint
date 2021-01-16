@@ -30,7 +30,7 @@ wasmer = "=1.0.0"
 zip = "0.5.8"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.7.0"
+winreg = "0.8.0"
 
 [dev-dependencies]
 globset = "0.4.5"
