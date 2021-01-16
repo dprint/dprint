@@ -77,7 +77,7 @@ jobs:
 
     # INSTALLER
     - name: Create installer (Windows)
-      uses: joncloud/makensis-action@v2.0
+      uses: joncloud/makensis-action@v3.4
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       with:
         script-file: ${{ github.workspace }}/scripts/installer/dprint-installer.nsi
