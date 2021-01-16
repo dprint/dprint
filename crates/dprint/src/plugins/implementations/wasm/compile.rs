@@ -15,8 +15,8 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
 
     // load the plugin and get the info
     let plugin = InitializedWasmPlugin::new(
-        &module,
-        &create_identity_import_object(&store), // we're not formatting anything so this is ok
+        module,
+        Box::new(move || create_identity_import_object(&store)), // we're not formatting anything so this is ok
     )?;
     let plugin_info = plugin.get_plugin_info()?;
 

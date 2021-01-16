@@ -264,7 +264,7 @@ impl<TEnvironment : Environment> InitializedPluginPool<TEnvironment> {
         Ok(plugin)
     }
 
-    pub fn format_measuring_time<TResult>(&self, action: impl Fn() -> TResult) -> TResult {
+    pub fn format_measuring_time<TResult>(&self, mut action: impl FnMut() -> TResult) -> TResult {
         let start_instant = Instant::now();
         let result = action();
         let elapsed_time = start_instant.elapsed();

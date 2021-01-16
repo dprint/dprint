@@ -16,7 +16,7 @@ pub fn do_batch_format<TEnvironment: Environment, F>(
     plugin_pools: &Arc<PluginPools<TEnvironment>>,
     file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
     action: F
-) -> Result<(), ErrBox> where F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &Box<dyn InitializedPlugin>) + Send + 'static + Clone {
+) -> Result<(), ErrBox> where F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &mut Box<dyn InitializedPlugin>) + Send + 'static + Clone {
     let registry: Arc<WorkerRegistry<TEnvironment>> = Arc::new(WorkerRegistry {
         plugin_pools: plugin_pools.clone(),
         workers: RwLock::new(Vec::new()),
@@ -39,7 +39,10 @@ pub fn do_batch_format<TEnvironment: Environment, F>(
     // wait for the other threads to finish
     for handle in thread_handles {
         if let Err(_) = handle.join() {
-            return err!("A panic occurred."); // todo: how to return error message?
+            // todo: how to return error message?
+            return err!(
+                "A panic occurred. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.",
+            );
         }
     }
 
@@ -91,7 +94,7 @@ fn run_thread<TEnvironment: Environment, F>(
     error_logger: &ErrorCountLogger<TEnvironment>,
     worker: &Worker<TEnvironment>,
     action: F,
-) where F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &Box<dyn InitializedPlugin>) + Send + 'static + Clone {
+) where F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &mut Box<dyn InitializedPlugin>) + Send + 'static + Clone {
     let mut current_plugin: Option<(Box<dyn InitializedPlugin>, Arc<InitializedPluginPool<TEnvironment>>)> = None;
     loop {
         if let Err(err) = do_local_work(error_logger, &worker, action.clone(), current_plugin.take()) {
@@ -115,7 +118,7 @@ fn do_local_work<TEnvironment: Environment, F>(
     worker: &Worker<TEnvironment>,
     action: F,
     current_plugin: Option<(Box<dyn InitializedPlugin>, Arc<InitializedPluginPool<TEnvironment>>)>,
-) -> Result<(), ErrBox> where F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &Box<dyn InitializedPlugin>) + Send + 'static + Clone {
+) -> Result<(), ErrBox> where F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &mut Box<dyn InitializedPlugin>) + Send + 'static + Clone {
     let mut current_plugin = current_plugin;
 
     loop {
@@ -162,9 +165,9 @@ fn do_local_work<TEnvironment: Environment, F>(
         }
 
         // now do the work using it
-        let (plugin, pool) = current_plugin.as_ref().unwrap();
+        let plugin_and_pool = current_plugin.as_mut().unwrap();
 
-        action(pool, &file_path, &plugin);
+        action(&plugin_and_pool.1, &file_path, &mut plugin_and_pool.0);
 
         // are we all done local work for this plugin?
         if should_release {

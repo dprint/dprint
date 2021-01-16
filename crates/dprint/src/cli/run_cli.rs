@@ -440,7 +440,7 @@ fn format_with_plugin_pools<'a, TEnvironment: Environment>(
         let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
         let error_logger = ErrorCountLogger::from_environment(environment);
         match plugin_pool.take_or_create_checking_config_diagnostics(&error_logger)? {
-            TakePluginResult::Success(initialized_plugin) => {
+            TakePluginResult::Success(mut initialized_plugin) => {
                 let result = initialized_plugin.format_text(file_name, file_text, &HashMap::new());
                 plugin_pool.release(initialized_plugin);
                 Ok(Cow::Owned(result?)) // release plugin above, then propagate this error
@@ -575,7 +575,7 @@ fn run_parallelized<F, TEnvironment: Environment>(
 ) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
     let error_logger = ErrorCountLogger::from_environment(environment);
 
-    let result = do_batch_format(&error_logger, &plugin_pools, file_paths_by_plugin, {
+    do_batch_format(&error_logger, &plugin_pools, file_paths_by_plugin, {
         let environment = environment.clone();
         let incremental_file = incremental_file.clone();
         let error_logger = error_logger.clone();
@@ -585,14 +585,7 @@ fn run_parallelized<F, TEnvironment: Environment>(
                 error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err.to_string()));
             }
         }
-    });
-
-    if let Err(err) = result {
-        return err!(
-            "A panic occurred. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.\n  Error: {}",
-            err.to_string()
-        );
-    }
+    })?;
 
     let error_count = error_logger.get_error_count();
     return if error_count == 0 {
@@ -607,7 +600,7 @@ fn run_parallelized<F, TEnvironment: Environment>(
         incremental_file: &Option<Arc<IncrementalFile<TEnvironment>>>,
         plugin_pool: &InitializedPluginPool<TEnvironment>,
         file_path: &Path,
-        initialized_plugin: &Box<dyn InitializedPlugin>,
+        initialized_plugin: &mut Box<dyn InitializedPlugin>,
         f: F
     ) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
         let file_text = FileText::new(environment.read_file(&file_path)?);
@@ -1003,6 +996,20 @@ mod tests {
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(environment.take_logged_errors(), vec![String::from("Error formatting /file.txt_ps. Message: Did error.")]);
         assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    }
+
+    #[test]
+    fn it_should_handle_wasm_plugin_panicking() {
+        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
+        environment.write_file(&PathBuf::from("/file1.txt"), "should_panic").unwrap();
+        environment.write_file(&PathBuf::from("/file2.txt"), "test").unwrap();
+        let error_message = run_test_cli(vec!["fmt", "**.txt"], &environment).err().unwrap();
+        assert_eq!(environment.take_logged_messages().len(), 0);
+        let logged_errors = environment.take_logged_errors();
+        assert_eq!(logged_errors.len(), 1);
+        assert_eq!(logged_errors[0].starts_with("Error formatting /file1.txt. Message: RuntimeError: unreachable"), true);
+        assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+        assert_eq!(environment.read_file(&PathBuf::from("/file2.txt")).unwrap(), "test_formatted");
     }
 
     #[test]

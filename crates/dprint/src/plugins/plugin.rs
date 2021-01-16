@@ -51,7 +51,7 @@ pub trait InitializedPlugin : std::marker::Send {
     /// Gets the configuration diagnostics.
     fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox>;
     /// Formats the text in memory based on the file path and file text.
-    fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox>;
+    fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox>;
 }
 
 #[cfg(test)]
@@ -115,7 +115,7 @@ impl InitializedPlugin for InitializedTestPlugin {
     fn get_license_text(&self) -> Result<String, ErrBox> { Ok(String::from("License Text")) }
     fn get_resolved_config(&self) -> Result<String, ErrBox> { Ok(String::from("{}")) }
     fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> { Ok(vec![]) }
-    fn format_text(&self, _: &Path, text: &str, _: &ConfigKeyMap) -> Result<String, ErrBox> {
+    fn format_text(&mut self, _: &Path, text: &str, _: &ConfigKeyMap) -> Result<String, ErrBox> {
         Ok(format!("{}_formatted", text))
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -63,9 +64,14 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 
     fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
         let store = wasmer::Store::default();
-        let import_obj_env = ImportObjectEnvironment::new(self.name(), self.plugin_pools.clone());
-        let import_object = create_pools_import_object(&store, &import_obj_env);
-        let wasm_plugin = InitializedWasmPlugin::new(&self.module, &import_object)?;
+        let mut wasm_plugin = InitializedWasmPlugin::new(self.module.clone(), Box::new({
+            let name = self.name().to_string();
+            let plugin_pools = self.plugin_pools.clone();
+            move || {
+                let import_obj_env = ImportObjectEnvironment::new(&name, plugin_pools.clone());
+                create_pools_import_object(&store, &import_obj_env)
+            }
+        }))?;
         let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 
         wasm_plugin.set_global_config(&global_config)?;
@@ -78,28 +84,44 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 pub struct InitializedWasmPlugin {
     wasm_functions: WasmFunctions,
     buffer_size: usize,
+
+    // below is for recreating an instance after panic
+    module: wasmer::Module,
+    create_import_object: Box<dyn Fn() -> wasmer::ImportObject + Send>,
+    global_config: GlobalConfiguration,
+    plugin_config: ConfigKeyMap,
 }
 
 impl InitializedWasmPlugin {
-    pub fn new(module: &wasmer::Module, import_object: &wasmer::ImportObject) -> Result<Self, ErrBox> {
-        let instance = load_instance(module, import_object)?;
+    pub fn new(module: wasmer::Module, create_import_object: Box<dyn Fn() -> wasmer::ImportObject + Send>) -> Result<Self, ErrBox> {
+        let instance = load_instance(&module, &create_import_object())?;
         let wasm_functions = WasmFunctions::new(instance)?;
         let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
         Ok(InitializedWasmPlugin {
             wasm_functions,
             buffer_size,
+            module,
+            create_import_object,
+            global_config: GlobalConfiguration {
+                line_width: None,
+                use_tabs: None,
+                indent_width: None,
+                new_line_kind: None,
+            },
+            plugin_config: HashMap::new(),
         })
     }
 
-    pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
+    pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
         let json = serde_json::to_string(global_config)?;
         self.send_string(&json);
         self.wasm_functions.set_global_config()?;
+        self.global_config = global_config.clone();
         Ok(())
     }
 
-    pub fn set_plugin_config(&self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
+    pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
         let json = serde_json::to_string(plugin_config)?;
         self.send_string(&json);
         self.wasm_functions.set_plugin_config()?;
@@ -163,6 +185,30 @@ impl InitializedWasmPlugin {
             bytes[i] = memory_reader[i].get();
         }
     }
+
+    fn reinitialize_due_to_panic(&mut self, original_err: &ErrBox) {
+        if let Err(reinitialize_err) = self.try_reinitialize_due_to_panic() {
+            panic!(
+                "Originally panicked, then failed reinitialize. Cannot recover.\nOriginal error: {}\nReinitialize error: {}",
+                original_err.to_string(),
+                reinitialize_err.to_string(),
+            )
+        }
+    }
+
+    fn try_reinitialize_due_to_panic(&mut self) -> Result<(), ErrBox> {
+        let instance = load_instance(&self.module, &(self.create_import_object)())?;
+        let wasm_functions = WasmFunctions::new(instance)?;
+        let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
+
+        self.wasm_functions = wasm_functions;
+        self.buffer_size = buffer_size;
+
+        self.set_global_config(&self.global_config.clone())?;
+        self.set_plugin_config(&self.plugin_config.clone())?;
+
+        Ok(())
+    }
 }
 
 impl InitializedPlugin for InitializedWasmPlugin {
@@ -182,31 +228,68 @@ impl InitializedPlugin for InitializedWasmPlugin {
         Ok(serde_json::from_str(&json_text)?)
     }
 
-    fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+    fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
         // send override config if necessary
         if !override_config.is_empty() {
             self.send_string(&serde_json::to_string(override_config)?);
-            self.wasm_functions.set_override_config()?;
+            if let Err(err) = self.wasm_functions.set_override_config() {
+                self.reinitialize_due_to_panic(&err);
+                return Err(err);
+            }
         }
 
         // send file path
         self.send_string(&file_path.to_string_lossy());
-        self.wasm_functions.set_file_path()?;
+
+        if let Err(err) = self.wasm_functions.set_file_path() {
+            self.reinitialize_due_to_panic(&err);
+            return Err(err);
+        }
 
         // send file text and format
         self.send_string(file_text);
-        let response_code = self.wasm_functions.format()?;
+        let response_code = match self.wasm_functions.format() {
+            Ok(code) => code,
+            Err(err) => {
+                self.reinitialize_due_to_panic(&err);
+                return Err(err);
+            }
+        };
 
         // handle the response
         match response_code {
             FormatResult::NoChange => Ok(String::from(file_text)),
             FormatResult::Change => {
-                let len = self.wasm_functions.get_formatted_text()?;
-                Ok(self.receive_string(len)?)
+                let len = match self.wasm_functions.get_formatted_text() {
+                    Ok(len) => len,
+                    Err(err) => {
+                        self.reinitialize_due_to_panic(&err);
+                        return Err(err);
+                    },
+                };
+                match self.receive_string(len) {
+                    Ok(text) => Ok(text),
+                    Err(err) => {
+                        self.reinitialize_due_to_panic(&err);
+                        return Err(err);
+                    },
+                }
             }
             FormatResult::Error => {
-                let len = self.wasm_functions.get_error_text()?;
-                err!("{}", self.receive_string(len)?)
+                let len = match self.wasm_functions.get_error_text() {
+                    Ok(len) => len,
+                    Err(err) => {
+                        self.reinitialize_due_to_panic(&err);
+                        return Err(err);
+                    },
+                };
+                match self.receive_string(len) {
+                    Ok(text) => err!("{}", text),
+                    Err(err) => {
+                        self.reinitialize_due_to_panic(&err);
+                        return Err(err);
+                    },
+                }
             }
         }
     }

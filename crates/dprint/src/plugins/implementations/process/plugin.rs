@@ -155,7 +155,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
         self.communicator.get_config_diagnostics()
     }
 
-    fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+    fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
         let result = self.inner_format_text(file_path, file_text, override_config);
 
         match result {

@@ -22,7 +22,7 @@ pub fn format_with_plugin_pool<TEnvironment: Environment>(
     if let Some(sub_plugin_name) = sub_plugin_name {
         let initialized_plugin = pools.take_instance_for_plugin(&parent_plugin_name, &sub_plugin_name);
         match initialized_plugin {
-            Ok(initialized_plugin) => {
+            Ok(mut initialized_plugin) => {
                 let format_result = initialized_plugin.format_text(&file_path, &file_text, &override_config);
                 pools.release_instance_for_plugin(&parent_plugin_name, &sub_plugin_name, initialized_plugin);
                 let formatted_text = format_result?; // do this after releasing

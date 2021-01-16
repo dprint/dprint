@@ -45,8 +45,12 @@ fn get_plugin_license_text() -> String {
     std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
 }
 
+static mut HAS_PANICKED: bool = false;
+
 fn format_text(_: &Path, file_text: &str, config: &Configuration) -> Result<String, String> {
-    if file_text.starts_with("plugin: ") {
+    if unsafe { HAS_PANICKED } {
+        panic!("Previously panicked. Plugin should not have been used by the CLI again.")
+    } else if file_text.starts_with("plugin: ") {
         format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin: ", ""), &HashMap::new())
     } else if file_text.starts_with("plugin-config: ") {
         let mut config_map = HashMap::new();
@@ -54,6 +58,9 @@ fn format_text(_: &Path, file_text: &str, config: &Configuration) -> Result<Stri
         format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin-config: ", ""), &config_map)
     } else if file_text == "should_error" {
         Err(String::from("Did error."))
+    } else if file_text == "should_panic" {
+        unsafe { HAS_PANICKED = true };
+        panic!("Test panic")
     } else if file_text.ends_with(&config.ending) {
         Ok(String::from(file_text))
     } else {
