@@ -10,7 +10,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/cache@v2
+      - uses: actions/cache@v2.1.3
         with:
           path: ~/.npm
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
