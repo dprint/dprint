@@ -13,4 +13,4 @@ repository = "https://github.com/dprint/dprint"
 crossterm = "0.18.2"
 parking_lot = "0.11.0"
 sha2 = "0.9.1"
-ureq = { version = "1.5.1", features = ["tls"] }
+ureq = { version = "2.0.1", features = ["tls"] }
