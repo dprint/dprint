@@ -27,7 +27,7 @@ serde_json = "1.0"
 twox-hash = "1.6.0"
 url = "2.1.1"
 wasmer = "=1.0.0"
-zip = "0.5.8"
+zip = "0.5.9"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.7.0"
