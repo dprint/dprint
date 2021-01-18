@@ -146,11 +146,9 @@ Here's some example IR generation:
 use dprint_core::formatting::*;
 
 pub fn format(expr: &ArrayLiteralExpression) -> String {
-    // parse out the print items from the AST
-    let print_items = parse_node(Node::ArrayLiteralExpression(expr));
-
-    // print them
-    dprint_core::print(print_items, PrintOptions {
+    dprint_core::formatting::format(|| {
+        parse_node(Node::ArrayLiteralExpression(expr))
+    }, PrintOptions {
         indent_width: 4,
         max_width: 10,
         use_tabs: false,

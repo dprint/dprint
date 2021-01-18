@@ -89,8 +89,9 @@ fn it_formats_as_multi_line_when_items_exceed_print_width() {
 }
 
 fn do_test(expr: &ArrayLiteralExpression, expected_text: &str) {
-    let print_items = parse_node(Node::ArrayLiteralExpression(expr));
-    let result = dprint_core::formatting::print(print_items, PrintOptions {
+    let result = dprint_core::formatting::format(|| {
+        parse_node(Node::ArrayLiteralExpression(expr))
+    }, PrintOptions {
         indent_width: 2,
         max_width: 40,
         use_tabs: false,

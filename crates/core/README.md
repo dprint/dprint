@@ -15,8 +15,10 @@ Features:
 Use:
 
 ```rust
-let print_items = ...; // parsed out IR (see example below)
-let result = dprint_core::formatting::print(print_items, PrintOptions {
+let result = dprint_core::formatting::format(|| {
+    let print_items = ...; // parsed out IR (see example below)
+    print_items
+}, PrintOptions {
     indent_width: 4,
     max_width: 10,
     use_tabs: false,
