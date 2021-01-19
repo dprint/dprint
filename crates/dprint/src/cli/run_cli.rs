@@ -2054,6 +2054,21 @@ SOFTWARE.
     }
 
     #[test]
+    fn it_should_format_for_stdin_fmt_with_extension() {
+        let environment = get_test_environment_with_remote_wasm_plugin();
+        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["/test/**.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        let test_std_in = TestStdInReader::new_with_text("text");
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "txt"], &environment, test_std_in).unwrap();
+        // should format even though it wasn't matched because an absolute path wasn't provided
+        assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+    }
+
+    #[test]
     fn it_should_stdin_fmt_calling_other_plugin() {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
         let plugin_file_checksum = get_process_plugin_checksum(&environment);

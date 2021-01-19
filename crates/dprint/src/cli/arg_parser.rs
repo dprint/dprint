@@ -96,9 +96,15 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
 
     let sub_command = match matches.subcommand() {
         ("fmt", Some(matches)) => {
-            if let Some(file_name) = matches.value_of("stdin").map(String::from) {
+            if let Some(file_name_path_or_extension) = matches.value_of("stdin").map(String::from) {
+                let file_name_or_path = if file_name_path_or_extension.contains(".") {
+                    file_name_path_or_extension
+                } else {
+                    // convert extension to file path
+                    format!("file.{}", file_name_path_or_extension)
+                };
                 SubCommand::StdInFmt(StdInFmtSubCommand {
-                    file_path: PathBuf::from(file_name),
+                    file_path: PathBuf::from(file_name_or_path),
                     file_text: std_in_reader.read()?,
                 })
             } else {
@@ -118,7 +124,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
             parent_pid: matches.value_of("parent-pid").map(|v| v.parse::<u32>().ok()).flatten().unwrap()
         }),
         ("stdin-fmt", Some(matches)) => {
-            eprintln!("This command is going away soon. Please use `dprint --stdin <file-path/file-name>`");
+            eprintln!("This command is going away soon. Please use `dprint --stdin <extension/file-path/file-name>`");
             SubCommand::StdInFmt(StdInFmtSubCommand {
                 file_path: PathBuf::from(matches.value_of("file-name").map(String::from).unwrap()),
                 file_text: std_in_reader.read()?,
@@ -233,8 +239,8 @@ EXAMPLES:
                 .arg(
                     Arg::with_name("stdin")
                         .long("stdin")
-                        .value_name("file-name/file-path")
-                        .help("Format stdin. Provide an absolute file path to apply the inclusion and exclusion rules or a file name to always format the text.")
+                        .value_name("extension/file-name/file-path")
+                        .help("Format stdin. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
                         .required(false)
                         .takes_value(true)
                 )
