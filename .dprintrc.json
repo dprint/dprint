@@ -21,9 +21,9 @@
     "**/*-lock.json"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.33.0.wasm",
-    "https://plugins.dprint.dev/json-0.7.2.wasm",
-    "https://plugins.dprint.dev/markdown-0.4.3.wasm",
+    "https://plugins.dprint.dev/typescript-0.38.4.wasm",
+    "https://plugins.dprint.dev/json-0.7.3.wasm",
+    "https://plugins.dprint.dev/markdown-0.5.1.wasm",
     "https://plugins.dprint.dev/prettier-0.2.0.exe-plugin@5fc84274198107b5464477803eea335ab3c978738ff40058294b105d2e32d5ae"
   ]
 }

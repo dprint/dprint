@@ -1,4 +1,4 @@
-import { decompressFromEncodedURIComponent, compressToEncodedURIComponent } from "lz-string";
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
 
 export class UrlSaver {
     getUrlInfo() {

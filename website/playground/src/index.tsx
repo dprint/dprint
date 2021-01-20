@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
+import { Spinner } from "./components";
+import * as formatterWorker from "./FormatterWorker";
 import "./index.css";
 import { Playground } from "./Playground";
+import { getPluginDefaultConfig, getPluginInfo, PluginInfo } from "./plugins";
 import * as serviceWorker from "./serviceWorker";
-import { Spinner } from "./components";
-import { getPluginInfo, PluginInfo, getPluginDefaultConfig } from "./plugins";
 import { UrlSaver } from "./utils";
-import * as formatterWorker from "./FormatterWorker";
 
 const urlSaver = new UrlSaver();
 const initialUrl = urlSaver.getUrlInfo();

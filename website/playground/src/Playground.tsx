@@ -1,11 +1,11 @@
-import React, { useState, useCallback, useMemo, useEffect, ChangeEvent } from "react";
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import SplitPane from "react-split-pane";
 import { CodeEditor, ExternalLink, Language } from "./components";
 import { Spinner } from "./components";
-import "./Playground.css";
 import "./external/react-splitpane.css";
-import { PluginInfo } from "./plugins";
 import * as formatterWorker from "./FormatterWorker";
+import "./Playground.css";
+import { PluginInfo } from "./plugins";
 
 export interface PlaygroundProps {
     configText: string;
