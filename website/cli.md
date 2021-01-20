@@ -33,9 +33,9 @@ dprint fmt **/*.js --excludes **/data
 
 ### Formatting Standard Input
 
-Use `dprint fmt --stdin <file-path/file-name>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.
+Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.
 
-Provide a full file path to format with inclusion/exclusion rules of your `.dprintrc.json` file or provide only a file name to always format the file.
+Provide a full file path to format with inclusion/exclusion rules of your `.dprintrc.json` file or provide only a file name or extension to always format the file.
 
 ## Checking What Files Aren't Formatted
 
