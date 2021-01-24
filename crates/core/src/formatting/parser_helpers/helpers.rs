@@ -5,6 +5,8 @@ use super::super::conditions;
 use super::super::condition_resolvers;
 
 pub fn surround_with_new_lines(item: PrintItems) -> PrintItems {
+    if item.is_empty() { return item; }
+
     let mut items = PrintItems::new();
     items.push_signal(Signal::NewLine);
     items.extend(item);
@@ -17,6 +19,8 @@ pub fn with_indent(item: PrintItems) -> PrintItems {
 }
 
 pub fn with_queued_indent(item: PrintItems) -> PrintItems {
+    if item.is_empty() { return item; }
+
     let mut items = PrintItems::new();
     items.push_signal(Signal::QueueStartIndent);
     items.extend(item);
@@ -25,6 +29,8 @@ pub fn with_queued_indent(item: PrintItems) -> PrintItems {
 }
 
 pub fn with_indent_times(item: PrintItems, times: u32) -> PrintItems {
+    if item.is_empty() { return item; }
+
     let mut items = PrintItems::new();
     for _ in 0..times { items.push_signal(Signal::StartIndent); }
     items.extend(item);
@@ -33,6 +39,8 @@ pub fn with_indent_times(item: PrintItems, times: u32) -> PrintItems {
 }
 
 pub fn with_no_new_lines(item: PrintItems) -> PrintItems {
+    if item.is_empty() { return item; }
+
     let mut items = PrintItems::new();
     items.push_signal(Signal::StartForceNoNewLines);
     items.extend(item);
@@ -41,6 +49,8 @@ pub fn with_no_new_lines(item: PrintItems) -> PrintItems {
 }
 
 pub fn new_line_group(item: PrintItems) -> PrintItems {
+    if item.is_empty() { return item; }
+
     let mut items = PrintItems::new();
     items.push_signal(Signal::StartNewLineGroup);
     items.extend(item);
@@ -99,6 +109,8 @@ pub fn parse_string(text: &str) -> PrintItems {
 /// Note: This currently inserts a possible newline at the start, but that might change or be made
 /// conditional in the future.
 pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, indent_width: u8) -> PrintItems {
+    if inner_items.is_empty() { return inner_items; }
+
     let mut items = PrintItems::new();
     let start_info = Info::new("surroundWithNewLinesIndentedIfMultiLineStart");
     let end_info = Info::new("surroundWithNewLineIndentedsIfMultiLineEnd");

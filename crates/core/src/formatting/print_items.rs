@@ -48,12 +48,19 @@ impl PrintItems {
 
 impl PrintItems {
     pub fn extend(&mut self, items: PrintItems) {
-        if let Some(first_node) = &self.first_node {
-            self.last_node.as_ref().unwrap_or(first_node).set_next(items.first_node.clone());
-            self.last_node = items.last_node.or(items.first_node.or(self.last_node.clone())); // todo: fix this
-        } else {
-            self.first_node = items.first_node;
-            self.last_node = items.last_node;
+        if let Some(first_node) = items.first_node {
+            if let Some(current_first_node) = &self.first_node {
+                self.last_node.as_ref().unwrap_or(current_first_node).set_next(Some(first_node));
+
+                if items.last_node.is_some() {
+                    self.last_node = items.last_node;
+                } else if items.first_node.is_some() {
+                    self.last_node = items.first_node;
+                }
+            } else {
+                self.first_node = items.first_node;
+                self.last_node = items.last_node;
+            }
         }
     }
 
