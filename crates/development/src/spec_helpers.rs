@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs::{self};
+use std::fmt::Display;
 
+use console::Style;
+use similar::text::{ChangeTag, TextDiff};
 use super::*;
 
 struct FailedTestResult {
@@ -11,7 +14,32 @@ struct FailedTestResult {
     actual_second: Option<String>,
     message: String,
 }
+struct DiffFailedMessage<'a> {
+    expected: &'a str,
+    actual: &'a str
+}
+impl<'a> Display for DiffFailedMessage<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let diff = TextDiff::from_lines(self.expected, self.actual);
 
+        for op in diff.ops() {
+            for change in diff.iter_changes(op) {
+                let (sign, style) = match change.tag() {
+                    ChangeTag::Delete => ("-", Style::new().red()),
+                    ChangeTag::Insert => ("+", Style::new().green()),
+                    ChangeTag::Equal => (" ", Style::new()),
+                };
+                write!(
+                    f,
+                    "{}{}",
+                    style.apply_to(sign).bold(),
+                    style.apply_to(change),
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
 pub struct RunSpecsOptions {
     /// Set to true to overwrite the failing tests with the actual result.
     pub fix_failures: bool,
@@ -75,11 +103,15 @@ pub fn run_specs(
     for failed_test in &failed_tests {
         println!("---");
         let mut failed_message = format!(
-            "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`",
+            "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`,\ndiff:\n{}",
             failed_test.message,
             failed_test.file_path,
             failed_test.expected,
             failed_test.actual,
+            DiffFailedMessage {
+                actual: &failed_test.actual, 
+                expected:&failed_test.expected
+            }
         );
         if let Some(actual_second) = &failed_test.actual_second {
             failed_message.push_str(&format!(
