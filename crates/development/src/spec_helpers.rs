@@ -103,7 +103,7 @@ pub fn run_specs(
     for failed_test in &failed_tests {
         println!("---");
         let mut failed_message = format!(
-            "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`,\ndiff:\n{}",
+            "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`,\nDiff:\n{}",
             failed_test.message,
             failed_test.file_path,
             failed_test.expected,
