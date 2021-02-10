@@ -25,8 +25,8 @@ impl<'a> Display for DiffFailedMessage<'a> {
         for op in diff.ops() {
             for change in diff.iter_changes(op) {
                 let (sign, style) = match change.tag() {
-                    ChangeTag::Delete => ("-", Style::new().red()),
-                    ChangeTag::Insert => ("+", Style::new().green()),
+                    ChangeTag::Delete => ("-", Style::new().green()),
+                    ChangeTag::Insert => ("+", Style::new().red()),
                     ChangeTag::Equal => (" ", Style::new()),
                 };
                 write!(
@@ -109,7 +109,7 @@ pub fn run_specs(
             failed_test.expected,
             failed_test.actual,
             DiffFailedMessage {
-                actual: &failed_test.actual, 
+                actual: &failed_test.actual,
                 expected:&failed_test.expected
             }
         );
