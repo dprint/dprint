@@ -174,7 +174,7 @@ jobs:
                 "path": "dprint.exe"
               }]
             },
-            "linux": {
+            "linux-x86_64": {
               "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-unknown-linux-gnu.zip",
               "type": "zip",
               "checksum": "${{needs.build.outputs.LINUX_ZIP_CHECKSUM}}",
@@ -183,7 +183,7 @@ jobs:
                 "path": "dprint"
               }]
             },
-            "mac": {
+            "darwin-x86_64": {
               "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-apple-darwin.zip",
               "type": "zip",
               "checksum": "${{needs.build.outputs.MAC_ZIP_CHECKSUM}}",
