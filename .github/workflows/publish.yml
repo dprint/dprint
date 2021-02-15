@@ -14,25 +14,6 @@ jobs:
     - name: Update bvm.land registry.json file
       run: curl -s -o /dev/null -v https://bvm.land/refresh-registry/dprint/dprint
 
-      # Homebrew publish
-    - name: Checkout homebrew repo
-      uses: actions/checkout@v2
-      with:
-        repository: dprint/homebrew-dprint
-        token: ${{ secrets.CI_REPO_PAT }} # github.token is scoped to current repo, so use this to push to other repo
-        path: homebrew-dprint
-    - name: Homebrew Publish
-      run: |
-          cd homebrew-dprint
-          chmod +x scripts/update-formula.sh
-          scripts/update-formula.sh ${{ steps.get_tag_version.outputs.TAG_VERSION }}
-          git add .
-          git config user.name "David Sherret"
-          git config user.email "dsherret@users.noreply.github.com"
-          git commit -m "${{ steps.get_tag_version.outputs.TAG_VERSION }}"
-          git tag ${{ steps.get_tag_version.outputs.TAG_VERSION }} master
-          git push --tags origin master
-
       # CARGO PUBLISH
     - name: Checkout
       uses: actions/checkout@v2
