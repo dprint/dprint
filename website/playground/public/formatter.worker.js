@@ -45,7 +45,9 @@ function setConfig(config) {
     if (formatter) {
         formatter.then(f => {
             setConfigSync(f, config);
-            formatSync(f, nextFormat.filePath, nextFormat.fileText);
+            if (nextFormat) {
+                formatSync(f, nextFormat.filePath, nextFormat.fileText);
+            }
         });
     }
 }
