@@ -47,7 +47,7 @@ pub fn read_manifest(environment: &impl Environment) -> Result<CacheManifest, Er
         Ok(text) => match serde_json::from_str(&text) {
             Ok(manifest) => Ok(manifest),
             Err(err) => {
-                environment.log_error(&format!("Error deserializing cache manifest, but ignoring: {}", err));
+                environment.log_error(&format!("Resetting cache manifest. Message: {}", err));
                 Ok(CacheManifest::new())
             }
         },
@@ -114,7 +114,7 @@ mod test {
 
         assert_eq!(read_manifest(&environment).unwrap(), CacheManifest::new());
         assert_eq!(environment.take_logged_errors(), vec![
-            String::from("Error deserializing cache manifest, but ignoring: key must be a string at line 1 column 10")
+            String::from("Resetting cache manifest. Message: key must be a string at line 1 column 10")
         ]);
     }
 

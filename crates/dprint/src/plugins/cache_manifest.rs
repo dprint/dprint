@@ -49,7 +49,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
     return match try_deserialize(environment) {
         Ok(manifest) => {
             if manifest.schema_version != 2 {
-                environment.log_error(&format!("Error deserializing plugin cache manifest, but ignoring: Schema version was {}, but expected 2", manifest.schema_version));
+                environment.log_error(&format!("Resetting plugin cache. Schema version was {}, but expected 2", manifest.schema_version));
                 let _ = environment.remove_dir_all(&environment.get_cache_dir().join("plugins"));
                 PluginCacheManifest::new()
             } else {
@@ -57,7 +57,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
             }
         },
         Err(err) => {
-            environment.log_error(&format!("Error deserializing plugin cache manifest, but ignoring: {}", err));
+            environment.log_error(&format!("Resetting plugin cache. Message: {}", err));
             let _ = environment.remove_dir_all(&environment.get_cache_dir());
             PluginCacheManifest::new()
         }
@@ -164,7 +164,7 @@ mod test {
 
         assert_eq!(read_manifest(&environment), PluginCacheManifest::new());
         assert_eq!(environment.take_logged_errors(), vec![
-            String::from("Error deserializing plugin cache manifest, but ignoring: key must be a string at line 1 column 23")
+            String::from("Resetting plugin cache. Message: key must be a string at line 1 column 23")
         ]);
     }
 
