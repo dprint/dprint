@@ -81,7 +81,7 @@ export function Playground({
 
     return (
         <div className="App">
-            <SplitPane split="horizontal" defaultSize={50} allowResize={false}>
+            <SplitPane split="horizontal" defaultSize={53} allowResize={false}>
                 <header className="appHeader">
                     <h1 id="title">dprint - Playground</h1>
                     <div id="headerRight">
