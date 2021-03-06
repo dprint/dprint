@@ -46,9 +46,9 @@ pub fn format_diagnostic(range: Option<(usize, usize)>, message: &str, file_text
     return result;
 }
 
-fn get_range_text_highlight(file_text: &str, range: (usize, usize)) -> String {
+fn get_range_text_highlight(file_text: &str, byte_range: (usize, usize)) -> String {
     // todo: cleanup... kind of confusing
-    let ((text_start, text_end), (error_start, error_end)) = get_text_and_error_range(range, file_text);
+    let ((text_start, text_end), (error_start, error_end)) = get_text_and_error_range(byte_range, file_text);
     if text_end > file_text.len() {
         return format!("Error formatting diagnostic. Position {} was outside the length of the string.", text_end);
     }
@@ -68,15 +68,16 @@ fn get_range_text_highlight(file_text: &str, range: (usize, usize)) -> String {
         }
         result.push_str(line);
         result.push_str("\n");
-        let start_pos = if i == 0 { error_start } else { 0 };
-        let end_pos = if is_last_line { get_column_number_of_pos(sub_text, error_end) - 1 } else { line.chars().count() };
-        result.push_str(&" ".repeat(start_pos));
-        result.push_str(&"~".repeat(end_pos - start_pos));
+
+        let start_char_index = if i == 0 { get_column_number_of_pos(sub_text, error_start) - 1 } else { 0 };
+        let end_char_index = if is_last_line { get_column_number_of_pos(sub_text, error_end) - 1 } else { line.chars().count() };
+        result.push_str(&" ".repeat(start_char_index));
+        result.push_str(&"~".repeat(end_char_index - start_char_index));
     }
     return result;
 
-    fn get_text_and_error_range(range: (usize, usize), file_text: &str) -> ((usize, usize), (usize, usize)) {
-        let (start, end) = range;
+    fn get_text_and_error_range(byte_range: (usize, usize), file_text: &str) -> ((usize, usize), (usize, usize)) {
+        let (start, end) = byte_range;
         let start_column_number_byte_count = start - get_line_start_byte_pos(file_text, start);
         let line_end = get_line_end(file_text, end);
         let text_start = start - std::cmp::min(20, start_column_number_byte_count);
@@ -268,6 +269,30 @@ mod tests {
             concat!(
                 "test asdf 1234 fdsa dsfa\n",
                 "          ~~~~",
+            )
+        );
+    }
+
+    #[test]
+    fn should_handle_multi_byte_characters_on_the_first_line() {
+        let message = get_range_text_highlight("test ≥ ; test", (9, 10));
+        assert_eq!(
+            message,
+            concat!(
+                "test ≥ ; te\n",
+                "       ~",
+            )
+        );
+    }
+
+    #[test]
+    fn should_handle_multi_byte_characters_on_the_second_line() {
+        let message = get_range_text_highlight("≥a\ntest ≥ ; test", (14, 15));
+        assert_eq!(
+            message,
+            concat!(
+                "test ≥ ; \n",
+                "       ~",
             )
         );
     }
