@@ -31,7 +31,7 @@ fn main() -> Result<(), ErrBox> {
 
 fn run() -> Result<(), ErrBox> {
     let stdin_reader = cli::RealStdInReader::new();
-    let args = cli::parse_args(std::env::args().collect(), &stdin_reader)?;
+    let args = cli::parse_args(wild::args().collect(), &stdin_reader)?;
     let environment = RealEnvironment::new(args.verbose, args.is_silent_output())?;
     let cache = Arc::new(cache::Cache::new(environment.clone())?);
     let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
