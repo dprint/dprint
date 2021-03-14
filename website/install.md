@@ -3,7 +3,7 @@ title: Install
 description: Documentation on installing dprint.
 ---
 
-# Install Dprint
+# Install dprint
 
 Install using one of the methods below.
 

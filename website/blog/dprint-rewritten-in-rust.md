@@ -5,7 +5,7 @@ publish_date: 2020-07-15
 author: David Sherret
 ---
 
-Dprint is a pluggable, configurable, and fast code formatting platform now written in Rust.
+dprint is a pluggable, configurable, and fast code formatting platform now written in Rust.
 
 I've been working on dprint since June 2019. It started as a Node project creating a TypeScript code formatter that worked the way I wanted in my personal open source projects. It's progressed a long way and I'll walk through some of the highlights in this post.
 
@@ -27,7 +27,7 @@ CLI demo:
 
 ## Single Executable
 
-Dprint is distributed as a single executable with no dependencies. You may build it from the source or install it using one of the methods outlined on the [install page](/install).
+dprint is distributed as a single executable with no dependencies. You may build it from the source or install it using one of the methods outlined on the [install page](/install).
 
 ## WebAssembly Formatter Plugins
 
@@ -63,7 +63,7 @@ More languages will be added over time.
 
 ## Performance
 
-Dprint is the fastest code formatter for TypeScript, JSON, and Markdown code that I know of.
+dprint is the fastest code formatter for TypeScript, JSON, and Markdown code that I know of.
 
 For example, [Deno](https://deno.land/) recently switched from prettier to dprint for their internal code formatting and TypeScript, JSON, and Markdown formatting time dropped from **14.7s** to **2.2s** on my machine.
 
@@ -158,7 +158,7 @@ Referencing multiple configuration files is also supported. These should be orde
 
 ## Opinionated Configuration
 
-The decision to use an opinionated configuration is one you can make within dprint itself. Dprint provides a way to distribute "locked" configurations.
+The decision to use an opinionated configuration is one you can make within dprint itself. dprint provides a way to distribute "locked" configurations.
 
 This can be done by specifying a `"locked": true` property on the plugin's configuration.
 
@@ -224,11 +224,11 @@ If you wish to have an opinionated white-labeled binaries locked to a specific c
 
 ## Sponsorship Requirement for Commercial Maintainers
 
-Dprint is and will always be free for formatting open source projects whose primary maintainer is not a for-profit company. Unfortunately dprint's growth isn't sustainable without support from for-profit companies and this support would help drive this project forward. If you wish to use dprint on a code base whose primary maintainer is a for-profit company or individual, then you must sponsor the project. See [https://dprint.dev/sponsor](https://dprint.dev/sponsor) for more details.
+dprint is and will always be free for formatting open source projects whose primary maintainer is not a for-profit company. Unfortunately dprint's growth isn't sustainable without support from for-profit companies and this support would help drive this project forward. If you wish to use dprint on a code base whose primary maintainer is a for-profit company or individual, then you must sponsor the project. See [https://dprint.dev/sponsor](https://dprint.dev/sponsor) for more details. _Edit:_ The CLI is now open source, so this requirement no longer exists.
 
 ## Future
 
-Dprint is still in the early stages, so there's still a lot of work to do. Overall, the main goals are to...
+dprint is still in the early stages, so there's still a lot of work to do. Overall, the main goals are to...
 
 1. Continue improving support for existing languages.
 2. Expand support to other languages.

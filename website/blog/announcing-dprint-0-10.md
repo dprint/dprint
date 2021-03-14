@@ -5,7 +5,7 @@ publish_date: 2020-12-02
 author: David Sherret
 ---
 
-Dprint is a pluggable, configurable, and fast code formatting platform written in Rust.
+dprint is a pluggable, configurable, and fast code formatting platform written in Rust.
 
 This post outlines what's new in dprint 0.10.
 

@@ -20,7 +20,27 @@ Supports:
 
 ## Install and Setup
 
-Follow the instructions at [https://github.com/dprint/dprint-plugin-typescript/releases/](https://github.com/dprint/dprint-plugin-typescript/releases/)
+In _.dprintrc.json_:
+
+1. Specify the plugin url in the `"plugins"` array.
+2. Ensure `.ts,.tsx,.js,.jsx,.mjs` file extensions are matched in an `"includes"` pattern.
+3. Add a `"typescript"` configuration property if desired.
+
+```jsonc
+{
+  // ...etc...
+  "typescript": {
+    // TypeScript & JavaScript config goes here
+  },
+  "includes": [
+    "**/*.{ts,tsx,js,jsx,mjs}"
+  ],
+  "plugins": [
+    // ...etc...
+    "https://plugins.dprint.dev/typescript-x.x.x.wasm"
+  ]
+}
+```
 
 ## Configuration
 

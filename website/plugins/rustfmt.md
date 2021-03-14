@@ -28,6 +28,9 @@ In _.dprintrc.json_:
   "rustfmt": {
     "brace_style": "AlwaysNextLine"
   },
+  "includes": [
+    "**/*.{rs}"
+  ],
   "plugins": [
     // ...etc...
     "https://plugins.dprint.dev/rustfmt-x.x.x.wasm"

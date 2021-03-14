@@ -5,7 +5,7 @@ description: Getting started with dprint.
 
 # Overview
 
-Dprint is a command line application that automatically formats code.
+dprint is a command line application that automatically formats code.
 
 ```bash
 dprint fmt

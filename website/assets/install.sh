@@ -44,7 +44,7 @@ unzip -o "$exe.zip"
 chmod +x "$exe"
 rm "$exe.zip"
 
-echo "Dprint was installed successfully to $exe"
+echo "dprint was installed successfully to $exe"
 if command -v dprint >/dev/null; then
 	echo "Run 'dprint --help' to get started"
 else

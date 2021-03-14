@@ -5,7 +5,7 @@ publish_date: 2020-08-05
 author: David Sherret
 ---
 
-Dprint is a pluggable, configurable, and fast code formatting platform written in Rust.
+dprint is a pluggable, configurable, and fast code formatting platform written in Rust.
 
 This post will outline the new features in dprint 0.7.
 
@@ -13,7 +13,7 @@ This post will outline the new features in dprint 0.7.
 
 When formatting a collection of files, there's not much point formatting a file that hasn't changed.
 
-Dprint now has an "incremental" feature that only formats files that haven't changed since the last time they were formatted.
+The CLI now has an "incremental" feature that only formats files that haven't changed since the last time they were formatted.
 
 To use it, you may specify `"incremental": true` in your `.dprintrc.json` file (recommended):
 
@@ -39,7 +39,7 @@ This incremental information is stored in dprint's cache folder. You may clear t
 
 ## Process Plugins
 
-Dprint has previously only supported plugins compiled to a single `.wasm` file. Unfortunately, this has been limiting because not many languages support cleanly compiling to a `.wasm` file yet (for example, it's impossible to do this in C# at the time of this post).
+dprint has previously only supported plugins compiled to a single `.wasm` file. Unfortunately, this has been limiting because not many languages support cleanly compiling to a `.wasm` file yet (for example, it's impossible to do this in C# at the time of this post).
 
 To get around this, a new type of plugin called "process plugins" has been introduced. These are plugins that work by the CLI executing a separate process and then communicating with it via stdin and stdout.
 

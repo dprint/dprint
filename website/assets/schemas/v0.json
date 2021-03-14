@@ -10,7 +10,7 @@
       "type": "string"
     },
     "projectType": {
-      "description": "The type of project Dprint is formatting.",
+      "description": "The type of project dprint is formatting.",
       "type": "string",
       "oneOf": [
         {

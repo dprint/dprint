@@ -31,6 +31,9 @@ In _.dprintrc.json_:
   "json": {
     // json config goes here
   },
+  "includes": [
+    "**/*.{json}"
+  ],
   "plugins": [
     "https://plugins.dprint.dev/json-x.x.x.wasm"
   ]

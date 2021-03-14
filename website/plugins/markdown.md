@@ -26,6 +26,9 @@ In _.dprintrc.json_:
   "markdown": {
     // markdown config goes here
   },
+  "includes": [
+    "**/*.{md}"
+  ],
   "plugins": [
     "https://plugins.dprint.dev/markdown-x.x.x.wasm"
   ]
