@@ -99,8 +99,14 @@ impl Environment for RealEnvironment {
     fn glob(&self, base: &Path, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         let start_instant = std::time::Instant::now();
         log_verbose!(self, "Globbing: {:?}", file_patterns);
+        let os_file_patterns = if cfg!(windows) {
+            file_patterns.iter().map(|v| v.replace("\\", "/")).collect::<Vec<String>>()
+        } else {
+            file_patterns.to_vec()
+        };
         let base = self.canonicalize(base)?;
-        let walker = globwalk::GlobWalkerBuilder::from_patterns(base, file_patterns)
+        let walker = globwalk::GlobWalkerBuilder::from_patterns(base, &os_file_patterns)
+            .case_insensitive(if cfg!(windows) { true } else { false })
             .follow_links(false)
             .file_type(globwalk::FileType::FILE)
             .build();
@@ -117,6 +123,7 @@ impl Environment for RealEnvironment {
             }
         }
 
+        log_verbose!(self, "File(s) matched: {:?}", file_paths);
         log_verbose!(self, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
 
         Ok(file_paths)
