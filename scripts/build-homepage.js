@@ -51,6 +51,7 @@ function buildWebsite() {
     buildForPath("blog", fullPageHtmlPageText);
 
     buildForPath("cli", documentationHtmlPageText);
+    buildForPath("ci", documentationHtmlPageText);
     buildForPath("config", documentationHtmlPageText);
     buildForPath("install", documentationHtmlPageText);
     buildForPath("overview", documentationHtmlPageText);
