@@ -77,6 +77,7 @@ pub enum HiddenSubCommand {
 }
 
 pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &TStdInReader) -> Result<CliArgs, ErrBox> {
+    println!("Args: {:?}", args);
     // this is all done because clap doesn't output exactly how I like
     if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
         let mut help_text = Vec::new();

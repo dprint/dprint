@@ -3,7 +3,10 @@ use crate::types::ErrBox;
 use std::io::Read;
 
 pub fn download_url(url: &str, progress_bars: &Option<ProgressBars>) -> Result<Vec<u8>, ErrBox> {
-    let resp = ureq::get(url).call();
+    let resp = match ureq::get(url).call() {
+        Ok(resp) => resp,
+        Err(err) => return err!("Error downloading {}. Error: {:?}", url, err),
+    };
     let total_size = {
         if resp.status() == 200 {
             resp.header("Content-Length")
