@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use dprint_core::types::ErrBox;
 
 use crate::cache::Cache;
-use crate::cli::CliArgs;
+use crate::cli::{CliArgs, SubCommand};
 use crate::environment::Environment;
 use crate::utils::{resolve_url_or_file_path, ResolvedPath, PathSource};
 
@@ -27,16 +27,17 @@ pub fn resolve_main_config_path<'a, TEnvironment : Environment>(
             base_path,
         }
     } else {
-        get_default_paths(environment)
+        get_default_paths(args, environment)
     });
 
-    fn get_default_paths(environment: &impl Environment) -> ResolvedConfigPath {
-        let config_file_path = get_config_file_in_dir(&PathBuf::from("./"), environment);
+    fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> ResolvedConfigPath {
+        let start_search_dir = get_start_search_directory(args);
+        let config_file_path = get_config_file_in_dir(&start_search_dir, environment);
 
         if let Some(config_file_path) = config_file_path {
             ResolvedConfigPath {
                 resolved_path: ResolvedPath::local(config_file_path),
-                base_path: PathBuf::from("./"),
+                base_path: start_search_dir,
             }
         } else if let Some(resolved_config_path) = get_default_config_file_in_ancestor_directories(environment) {
             resolved_config_path
@@ -46,6 +47,15 @@ pub fn resolve_main_config_path<'a, TEnvironment : Environment>(
                 resolved_path: ResolvedPath::local(PathBuf::from(format!("./{}", DEFAULT_CONFIG_FILE_NAME))),
                 base_path: PathBuf::from("./"),
             }
+        }
+    }
+
+    fn get_start_search_directory(args: &CliArgs) -> PathBuf {
+        if let SubCommand::StdInFmt(command) = &args.sub_command {
+            // resolve the config file based on the file path provided to the command
+            command.file_path.parent().map(|p| p.to_owned()).unwrap_or(PathBuf::from("./"))
+        } else {
+            PathBuf::from("./") // cwd
         }
     }
 

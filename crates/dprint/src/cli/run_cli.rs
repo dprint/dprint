@@ -380,7 +380,7 @@ fn output_resolved_config(
 }
 
 fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<(), ErrBox> {
-    let config_file_path = get_config_path(environment, config_arg)?;
+    let config_file_path = get_config_path(config_arg)?;
     return if !environment.path_exists(&config_file_path) {
         environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment)?)?;
         environment.log(&format!("Created {}", config_file_path.display()));
@@ -389,7 +389,7 @@ fn init_config_file(environment: &impl Environment, config_arg: &Option<String>)
         err!("Configuration file '{}' already exists.", config_file_path.display())
     };
 
-    fn get_config_path(environment: &impl Environment, config_arg: &Option<String>) -> Result<PathBuf, ErrBox> {
+    fn get_config_path(config_arg: &Option<String>) -> Result<PathBuf, ErrBox> {
         return Ok(if let Some(config_arg) = config_arg.as_ref() {
             PathBuf::from(config_arg)
         } else {
@@ -2093,6 +2093,51 @@ SOFTWARE.
         // matching file
         run_test_cli_with_stdin(vec!["fmt", "--stdin", "/src/file.txt"], &environment, test_std_in).unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
+    }
+
+    #[test]
+    fn it_should_format_stdin_resolving_config_file_from_provided_path_when_relative() {
+        let environment = get_test_environment_with_remote_wasm_plugin();
+        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["./**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("./sub-dir/dprint.json"), r#"{
+            "projectType": "openSource",
+            "test-plugin": {
+                "ending": "new_ending"
+            },
+            "includes": ["./**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        let test_std_in = TestStdInReader::new_with_text("text");
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "sub-dir/file.txt"], &environment, test_std_in).unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["text_new_ending"]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+    }
+
+    #[test]
+    fn it_should_format_stdin_resolving_config_file_from_provided_path_when_absolute() {
+        let environment = get_test_environment_with_remote_wasm_plugin();
+        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["./**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/sub-dir/dprint.json"), r#"{
+            "projectType": "openSource",
+            "test-plugin": {
+                "ending": "new_ending"
+            },
+            "includes": ["./**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.write_file(&PathBuf::from("/sub-dir/file.txt"), "test").unwrap();
+        let test_std_in = TestStdInReader::new_with_text("text");
+        run_test_cli_with_stdin(vec!["fmt", "--stdin", "/sub-dir/file.txt"], &environment, test_std_in).unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["text_new_ending"]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
     #[test]
