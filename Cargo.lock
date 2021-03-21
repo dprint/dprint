@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "bumpalo",
  "fnv",
@@ -1477,11 +1477,10 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.15.9"
+version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de94457a09609f33fec5e7fceaf907488967c6c7c75d64da6a7ce6ffdb8b5abd"
+checksum = "567e910ef0207be81a4e1bb0491e9a8d9866cf45b20fe1a52c03d347da9ea51b"
 dependencies = [
- "cc",
  "cfg-if 1.0.0",
  "core-foundation-sys",
  "doc-comment",
