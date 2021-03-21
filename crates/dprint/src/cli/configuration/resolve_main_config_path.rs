@@ -6,9 +6,8 @@ use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::utils::{resolve_url_or_file_path, ResolvedPath, PathSource};
 
-const DEFAULT_CONFIG_FILE_NAME: &'static str = ".dprintrc.json";
-// todo: remove this in 0.6
-const ALTERNATE_CONFIG_FILE_NAME: &'static str = "dprint.config.json";
+const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.json";
+const OLD_CONFIG_FILE_NAME: &'static str = ".dprintrc.json";
 
 pub struct ResolvedConfigPath {
     pub resolved_path: ResolvedPath,
@@ -74,7 +73,8 @@ pub fn resolve_main_config_path<'a, TEnvironment : Environment>(
     fn get_config_file_in_dir(dir: &Path, environment: &impl Environment) -> Option<PathBuf> {
         if let Some(path) = get_config_file_in_dir_with_name(dir, DEFAULT_CONFIG_FILE_NAME, environment) {
             Some(path)
-        } else if let Some(path) = get_config_file_in_dir_with_name(dir, ALTERNATE_CONFIG_FILE_NAME, environment) {
+        } else if let Some(path) = get_config_file_in_dir_with_name(dir, OLD_CONFIG_FILE_NAME, environment) {
+            environment.log_error("WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json");
             Some(path)
         } else {
             None
@@ -88,6 +88,7 @@ pub fn resolve_main_config_path<'a, TEnvironment : Environment>(
         }
         let config_path = dir.join(format!("config/{}", file_name));
         if environment.path_exists(&config_path) {
+            environment.log_error("WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.");
             return Some(config_path);
         }
         None
