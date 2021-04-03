@@ -1,3 +1,4 @@
+use crate::utils::to_absolute_glob;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
@@ -668,26 +669,29 @@ fn check_project_type_diagnostic(environment: &impl Environment, config: &Resolv
 }
 
 fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
-    let mut file_patterns = get_file_patterns(config, args);
+    let cwd = environment.cwd()?;
+    let mut file_patterns = get_file_patterns(config, args, &cwd.to_string_lossy());
     let absolute_paths = take_absolute_paths(&mut file_patterns, environment);
 
     let mut file_paths = environment.glob(&config.base_path, &file_patterns)?;
     file_paths.extend(absolute_paths);
     return Ok(file_paths);
 
-    fn get_file_patterns(config: &ResolvedConfig, args: &CliArgs) -> Vec<String> {
+    fn get_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
         let mut file_patterns = Vec::new();
 
         file_patterns.extend(if args.file_patterns.is_empty() {
-            config.includes.clone() // todo: take from array?
+            config.includes.clone()
         } else {
-            args.file_patterns.clone()
+            // resolve CLI patterns based on the current working directory
+            to_absolute_globs(&args.file_patterns, cwd)
         });
 
         file_patterns.extend(if args.exclude_file_patterns.is_empty() {
             config.excludes.clone()
         } else {
-            args.exclude_file_patterns.clone()
+            // resolve CLI patterns based on the current working directory
+            to_absolute_globs(&args.exclude_file_patterns, cwd)
         }.into_iter().map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }));
 
         if !args.allow_node_modules {
@@ -699,11 +703,12 @@ fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &imp
         }
 
         for file_pattern in file_patterns.iter_mut() {
-            // Convert all backslashes to forward slashes. It is true that
-            // this means someone cannot specify patterns that match files with backslashes
-            // in their name on Linux, however, it is more desirable for this CLI
-            // to work the same way no matter what operation system the user is on and for the
-            // CLI to match backslashes as a path separator.
+            // Convert all backslashes to forward slashes.
+            // It is true that this means someone cannot specify patterns that
+            // match files with backslashes in their name on Linux, however,
+            // it is more desirable for this CLI to work the same way no matter
+            // what operation system the user is on and for the CLI to match
+            // backslashes as a path separator.
             *file_pattern = file_pattern.replace("\\", "/");
 
             // glob walker doesn't support having `./` at the front of paths, so just remove them when they appear
@@ -715,7 +720,11 @@ fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &imp
             }
         }
 
-        file_patterns
+        return file_patterns;
+
+        fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
+            file_patterns.iter().map(|p| to_absolute_glob(p, base_dir)).collect()
+        }
     }
 
     fn take_absolute_paths(file_patterns: &mut Vec<String>, environment: &impl Environment) -> Vec<PathBuf> {
@@ -2168,7 +2177,7 @@ SOFTWARE.
                 "https://plugins.dprint.dev/test-process.exe-plugin"
             ]
         }"#).unwrap();
-        environment.write_file(&PathBuf::from("test.txt_ps"), "").unwrap();
+        environment.write_file(&PathBuf::from("/test.txt_ps"), "").unwrap();
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(
@@ -2193,7 +2202,7 @@ SOFTWARE.
                 "https://plugins.dprint.dev/test-process.exe-plugin@asdf"
             ]
         }"#).unwrap();
-        environment.write_file(&PathBuf::from("test.txt_ps"), "").unwrap();
+        environment.write_file(&PathBuf::from("/test.txt_ps"), "").unwrap();
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(
@@ -2220,7 +2229,7 @@ SOFTWARE.
                 "https://plugins.dprint.dev/test-plugin.wasm@asdf"
             ]
         }"#).unwrap();
-        environment.write_file(&PathBuf::from("test.txt"), "").unwrap();
+        environment.write_file(&PathBuf::from("/test.txt"), "").unwrap();
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(
@@ -2247,10 +2256,10 @@ SOFTWARE.
                 "https://plugins.dprint.dev/test-plugin.wasm@{}"
             ]
         }}"#, actual_plugin_file_checksum)).unwrap();
-        environment.write_file(&PathBuf::from("test.txt"), "text").unwrap();
+        environment.write_file(&PathBuf::from("/test.txt"), "text").unwrap();
         run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
 
-        assert_eq!(environment.read_file(&PathBuf::from("test.txt")).unwrap(), "text_formatted");
+        assert_eq!(environment.read_file(&PathBuf::from("/test.txt")).unwrap(), "text_formatted");
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
     }
@@ -2267,7 +2276,7 @@ SOFTWARE.
             ]
         }}"#, get_process_plugin_checksum(&environment))).unwrap();
         let actual_plugin_zip_file_checksum = get_process_plugin_zip_checksum(&environment);
-        environment.write_file(&PathBuf::from("test.txt_ps"), "").unwrap();
+        environment.write_file(&PathBuf::from("/test.txt_ps"), "").unwrap();
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(

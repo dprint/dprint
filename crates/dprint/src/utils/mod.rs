@@ -8,6 +8,7 @@ mod resolve_url_or_file_path;
 mod pretty_print_json_text;
 mod path_source;
 mod table_text;
+mod glob_utils;
 
 pub use error_count_logger::*;
 pub use extract_zip::*;
@@ -19,3 +20,4 @@ pub use resolve_url_or_file_path::*;
 pub use pretty_print_json_text::*;
 pub use path_source::*;
 pub use table_text::*;
+pub use glob_utils::*;
