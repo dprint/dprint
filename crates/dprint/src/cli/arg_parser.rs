@@ -181,9 +181,9 @@ fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b>
         .bin_name("dprint")
         .version_short("v")
         .version(env!("CARGO_PKG_VERSION"))
-        .author("Copyright 2020 by David Sherret")
+        .author("Copyright 2020-2021 by David Sherret")
         .about("Auto-formats source code based on the specified plugins.")
-        .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [files]...")
+        .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
         // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
         // .version_aboute("Prints the version.")
         .template(r#"{bin} {version}
@@ -350,7 +350,7 @@ impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
         use clap::Arg;
         self.arg(
             Arg::with_name("files")
-                .help("List of files or globs in quotes to format. This overrides what is specified in the config file.")
+                .help("List of file patterns in quotes to format. This overrides what is specified in the config file.")
                 .takes_value(true)
                 .multiple(true),
         )
@@ -358,7 +358,7 @@ impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
             Arg::with_name("excludes")
                 .long("excludes")
                 .value_name("patterns")
-                .help("List of files or directories or globs in quotes to exclude when formatting. This overrides what is specified in the config file.")
+                .help("List of file patterns or directories in quotes to exclude when formatting. This overrides what is specified in the config file.")
                 .takes_value(true)
                 .multiple(true),
         )
@@ -375,7 +375,7 @@ impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
         self.arg(
             Arg::with_name("incremental")
                 .long("incremental")
-                .help("Only format files only when they change. This may alternatively be specified in the configuration file.")
+                .help("Only format files when they change. This may alternatively be specified in the configuration file.")
                 .takes_value(false),
         )
     }

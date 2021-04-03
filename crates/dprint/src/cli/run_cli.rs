@@ -698,8 +698,15 @@ fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &imp
             }
         }
 
-        // glob walker doesn't support having `./` at the front of paths, so just remove them when they appear
         for file_pattern in file_patterns.iter_mut() {
+            // Convert all backslashes to forward slashes. It is true that
+            // this means someone cannot specify patterns that match files with backslashes
+            // in their name on Linux, however, it is more desirable for this CLI
+            // to work the same way no matter what operation system the user is on and for the
+            // CLI to match backslashes as a path separator.
+            *file_pattern = file_pattern.replace("\\", "/");
+
+            // glob walker doesn't support having `./` at the front of paths, so just remove them when they appear
             if file_pattern.starts_with("./") {
                 *file_pattern = String::from(&file_pattern[2..]);
             }
@@ -905,6 +912,18 @@ mod tests {
         environment.write_file(&PathBuf::from("/file2.ts"), "const t=4;").unwrap();
         run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
+    }
+
+    #[test]
+    fn it_should_output_resolved_file_paths_when_using_backslashes() {
+        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
+        environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
+        environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
+        environment.write_file(&PathBuf::from("/file3.txt_ps"), "const t=4;").unwrap();
+        run_test_cli(vec!["output-file-paths", "**\\*.*"], &environment).unwrap();
+        let mut logged_messages = environment.take_logged_messages();
+        logged_messages.sort();
+        assert_eq!(logged_messages, vec!["/file.txt", "/file2.txt", "/file3.txt_ps"]);
     }
 
     #[test]
@@ -2346,12 +2365,12 @@ SOFTWARE.
 
     fn get_expected_help_text() -> &'static str {
         concat!("dprint ", env!("CARGO_PKG_VERSION"), r#"
-Copyright 2020 by David Sherret
+Copyright 2020-2021 by David Sherret
 
 Auto-formats source code based on the specified plugins.
 
 USAGE:
-    dprint <SUBCOMMAND> [OPTIONS] [--] [files]...
+    dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...
 
 SUBCOMMANDS:
     init                      Initializes a configuration file in the current directory.
