@@ -241,7 +241,7 @@ jobs:
           bvm install https://bvm.land/dprint/${{steps.get_tag_version.outputs.TAG_VERSION}}.json
           ```
 
-          Or project specific in `.bvmrc.json`:
+          Or project specific in `bvm.json`:
 
           ```json
           {
