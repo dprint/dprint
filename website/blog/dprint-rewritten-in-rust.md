@@ -33,7 +33,7 @@ dprint is distributed as a single executable with no dependencies. You may build
 
 The dprint CLI (command line interface/executable) has no knowledge of how to format code in a specific language. This is left up to the plugins. For example, if you want to format JSON code then you must specify to use a JSON code formatting plugin.
 
-Plugins are specified per codebase in a configuration file (_.dprintrc.json_) found at the root directory or `config` folder of a codebase.
+Plugins are specified per codebase in a configuration file (_dprint.json_) found at the root directory of a codebase.
 
 ```json
 {
@@ -95,7 +95,7 @@ console.log(rustFormatter.formatText("file.rs", "fn test() {println!(\"test\")}"
 
 The amount of configuration a plugin offers is up to the plugin itself. A plugin may have zero configuration or a lot. The existing plugins are highly configurable to allow you to format code closer to your preferences rather than my prescriptions.
 
-Here's an example of how a `.dprintrc.json` file might look like:
+Here's an example of how a `dprint.json` file might look like:
 
 ```json
 {
@@ -130,7 +130,7 @@ Here's an example of how a `.dprintrc.json` file might look like:
 }
 ```
 
-To help create a `.dprintrc.json` file in your codebase, you may consider running the `dprint init` command.
+To help create a `dprint.json` file in your codebase, you may consider running the `dprint init` command.
 
 ## Extending Configurations
 

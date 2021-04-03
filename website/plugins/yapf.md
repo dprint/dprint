@@ -26,7 +26,7 @@ Follow the instructions at [https://github.com/dprint/dprint-plugin-yapf/release
 
 ## Configuration
 
-See YAPF's configuration [here](https://github.com/google/yapf#knobs) and specify the `"yapf"` property in _.dprintrc.json_.
+See YAPF's configuration [here](https://github.com/google/yapf#knobs) and specify the `"yapf"` property in your dprint configuration file.
 
 ```jsonc
 {

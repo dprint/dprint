@@ -1,5 +1,5 @@
 ---
-title: Announcing dprint 0.10
+title: dprint 0.10
 description: Overview of the new features in dprint 0.10
 publish_date: 2020-12-02
 author: David Sherret
@@ -19,7 +19,7 @@ This flag does what you might expect and allows you to provide text via stdin, w
 
 ### Providing a file path
 
-When you provide a file path (ex. `/home/david/dev/project/src/my-file.ts`), the CLI will check the `.dprintrc.json` file to see if the file path should be formatted. If it should, it formats it. If not, it returns back the file text as-is.
+When you provide a file path (ex. `/home/david/dev/project/src/my-file.ts`), the CLI will check the dprint configuration file to see if the file path should be formatted. If it should, it formats it. If not, it returns back the file text as-is.
 
 ### Providing a file name
 

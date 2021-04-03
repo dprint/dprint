@@ -38,7 +38,7 @@ Alternatively, some other sponsorship tiers are available through GitHub sponsor
 
 ## After Sponsoring
 
-After you've sponsored, update your commercial project's configuration file (ex. _.dprintrc.json_) to be `commercialSponsored`.
+After you've sponsored, update your commercial project's dprint configuration file to be `commercialSponsored`.
 
 <!-- dprint-ignore -->
 

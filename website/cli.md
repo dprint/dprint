@@ -35,7 +35,7 @@ dprint fmt **/*.js --excludes **/data
 
 Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.
 
-Provide a full file path to format with inclusion/exclusion rules of your `.dprintrc.json` file or provide only a file name or extension to always format the file.
+Provide a full file path to format with inclusion/exclusion rules of your `dprint.json` file or provide only a file name or extension to always format the file.
 
 ## Checking What Files Aren't Formatted
 
@@ -57,7 +57,7 @@ You may specify to only format files that have changed since the last time you f
 dprint fmt --incremental
 ```
 
-Alternatively, you may specify this in the `.dprintrc.json` configuration file (recommended):
+Alternatively, you may specify this in the `dprint.json` configuration file (recommended):
 
 ```jsonc
 {
@@ -71,7 +71,7 @@ Doing this will drastically improve performance.
 
 ## Using a Custom Config File Path or URL
 
-Instead of the default path of _.dprintrc.json_ or _config/.dprintrc.json_, you can specify a path to a configuration file via the `--config` or `-c` flag.
+Instead of the default path of _dprint.json_ you may specify a path to a configuration file via the `--config` or `-c` flag.
 
 ```bash
 dprint fmt --config path/to/my/config.json
@@ -145,7 +145,7 @@ dprint output-format-times
 Example output:
 
 ```text
-0ms - C:\dev\my-project\.dprintrc.json
+0ms - C:\dev\my-project\dprint.json
 0ms - C:\dev\my-project\README.md
 1ms - C:\dev\my-project\other-file.md
 2ms - C:\dev\my-project\package.json
@@ -172,8 +172,8 @@ Example output:
 ```text
 [VERBOSE]: Getting cache directory.
 [VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\cache-manifest.json
-[VERBOSE]: Checking path exists: ./.dprintrc.json
-[VERBOSE]: Reading file: V:\dev\my-project\.dprintrc.json
+[VERBOSE]: Checking path exists: ./dprint.json
+[VERBOSE]: Reading file: V:\dev\my-project\dprint.json
 [VERBOSE]: Globbing: ["**/*.{ts,tsx,js,jsx,json}", "!website/playground/build", "!scripts/build-website", "!**/dist", "!**/target", "!**/wasm", "!**/*-lock.json", "!**/node_modules"]
 [VERBOSE]: Finished globbing in 12ms
 [VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\typescript-0.19.2.compiled_wasm
@@ -183,9 +183,9 @@ Example output:
 [VERBOSE]: Created instance of dprint-plugin-jsonc in 9ms
 [VERBOSE]: Reading file: V:\dev\my-project\website\playground\tsconfig.json
 [VERBOSE]: Reading file: V:\dev\my-project\website\assets\schemas\v0.json
-[VERBOSE]: Reading file: V:\dev\my-project\.dprintrc.json
+[VERBOSE]: Reading file: V:\dev\my-project\dprint.json
 [VERBOSE]: Formatted file: V:\dev\my-project\website\assets\schemas\v0.json in 2ms
-[VERBOSE]: Formatted file: V:\dev\my-project\.dprintrc.json in 0ms
+[VERBOSE]: Formatted file: V:\dev\my-project\dprint.json in 0ms
 [VERBOSE]: Formatted file: V:\dev\my-project\website\playground\tsconfig.json in 0ms
 [VERBOSE]: Created instance of dprint-plugin-typescript in 35ms
 [VERBOSE]: Reading file: V:\dev\my-project\website\playground\public\formatter.worker.js

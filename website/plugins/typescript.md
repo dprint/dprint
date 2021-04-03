@@ -20,7 +20,7 @@ Supports:
 
 ## Install and Setup
 
-In _.dprintrc.json_:
+In _dprint.json_:
 
 1. Specify the plugin url in the `"plugins"` array.
 2. Ensure `.ts,.tsx,.js,.jsx,.mjs` file extensions are matched in an `"includes"` pattern.

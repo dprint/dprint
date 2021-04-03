@@ -149,7 +149,7 @@ Initialization functions:
 - `get_plugin_info() -> usize` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
   - `name` - String saying the plugin name.
   - `version` - Version of the plugin (ex. `"0.1.0"`)
-  - `configKey` - Configuration key to use for this plugin in `.dprintrc.json`
+  - `configKey` - Configuration key to use for this plugin in the dprint configuration file.
   - `fileExtensions` - An array of strings that say the file extensions this plugin supports (it should NOT have a leading period on the extension)
   - `helpUrl` - A string containing the URL to some web help.
   - `configSchemaUrl` - Return an empty string for now.

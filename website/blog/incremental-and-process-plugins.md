@@ -15,7 +15,7 @@ When formatting a collection of files, there's not much point formatting a file 
 
 The CLI now has an "incremental" feature that only formats files that haven't changed since the last time they were formatted.
 
-To use it, you may specify `"incremental": true` in your `.dprintrc.json` file (recommended):
+To use it, you may specify `"incremental": true` in your dprint configuration file (recommended):
 
 ```jsonc
 {
