@@ -259,10 +259,10 @@ impl<'a> Printer<'a> {
                         }
                     } else {
                         self.mark_possible_new_line_if_able();
-                        self.writer.space();
+                        self.writer.space_if_not_trailing();
                     }
                 } else {
-                    self.writer.space();
+                    self.writer.space_if_not_trailing();
                 }
             }
             Signal::QueueStartIndent => self.writer.queue_indent(),

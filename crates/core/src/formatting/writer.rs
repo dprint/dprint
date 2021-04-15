@@ -198,7 +198,7 @@ impl<'a> Writer<'a> {
         self.push_item(WriteItem::Tab);
     }
 
-    pub fn space(&mut self) {
+    fn space(&mut self) {
         self.handle_first_column();
         self.state.current_line_column += 1;
         self.push_item(WriteItem::Space);
