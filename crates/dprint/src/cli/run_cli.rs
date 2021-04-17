@@ -1521,6 +1521,23 @@ mod tests {
     }
 
     #[test]
+    fn it_should_format_using_hidden_config_file_name() {
+        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
+        environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
+        environment.write_file(&PathBuf::from("./.dprint.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+        environment.set_cwd("/test/other/");
+        let file_path = PathBuf::from("/test/other/file.txt");
+        environment.write_file(&file_path, "text").unwrap();
+        run_test_cli(vec!["fmt"], &environment).unwrap();
+        assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    }
+
+    #[test]
     fn it_should_format_files_with_config_in_config_sub_dir_and_warn() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
