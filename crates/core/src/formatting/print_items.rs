@@ -228,7 +228,7 @@ impl Into<PrintItems> for Option<PrintItemPath> {
 
 /** Tracing */
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Trace {
@@ -239,7 +239,7 @@ pub struct Trace {
     pub writer_node_id: Option<usize>,
 }
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceWriterNode {
@@ -249,7 +249,7 @@ pub struct TraceWriterNode {
     pub text: String,
 }
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TracePrintNode {
@@ -259,7 +259,7 @@ pub struct TracePrintNode {
     pub print_item: TracePrintItem,
 }
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(tag = "kind", content = "content", rename_all = "camelCase")]
 pub enum TracePrintItem {
@@ -271,7 +271,7 @@ pub enum TracePrintItem {
     RcPath(usize),
 }
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceInfo {
@@ -279,7 +279,7 @@ pub struct TraceInfo {
     pub name: String,
 }
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceCondition {
@@ -303,12 +303,12 @@ pub struct TraceCondition {
 pub struct PrintNode {
     pub(super) next: Option<PrintItemPath>,
     pub(super) item: PrintItem,
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     pub print_node_id: usize,
 }
 
 // todo: thread local?
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 static PRINT_NODE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl PrintNode {
@@ -316,7 +316,7 @@ impl PrintNode {
         PrintNode {
             item,
             next: None,
-            #[cfg(any(feature = "tracing", debug_assertions))]
+            #[cfg(feature = "tracing")]
             print_node_id: PRINT_NODE_COUNTER.fetch_add(1, Ordering::SeqCst),
         }
     }
@@ -381,7 +381,7 @@ impl PrintNodeCell {
         return current;
     }
 
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     pub(super) fn get_node_id(&self) -> usize {
         unsafe {
             (*self.get_node()).print_node_id

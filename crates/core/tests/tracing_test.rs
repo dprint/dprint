@@ -1,5 +1,5 @@
 #[test]
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 fn test_tracing() {
     use dprint_core::formatting::*;
 

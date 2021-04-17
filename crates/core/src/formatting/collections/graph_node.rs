@@ -1,12 +1,12 @@
 // todo: thread_local?
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 static GRAPH_NODE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[derive(Clone)]
 pub struct GraphNode<'a, T> {
     item: T,
     previous: Option<&'a GraphNode<'a, T>>,
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     pub graph_node_id: usize,
 }
 
@@ -15,7 +15,7 @@ impl<'a, T> GraphNode<'a, T> {
         GraphNode {
             item,
             previous,
-            #[cfg(any(feature = "tracing", debug_assertions))]
+            #[cfg(feature = "tracing")]
             graph_node_id: GRAPH_NODE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         }
     }

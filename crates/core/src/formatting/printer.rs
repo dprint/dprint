@@ -34,7 +34,7 @@ impl<'a> Clone for PrintItemContainer<'a> {
     }
 }
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 pub struct PrintTracingResult<'a> {
     pub traces: Vec<Trace>,
     pub writer_nodes: Vec<&'a GraphNode<'a, WriteItem<'a>>>,
@@ -46,7 +46,7 @@ pub struct PrinterOptions {
     pub max_width: u32,
     /// The number of columns to count when indenting or using a tab.
     pub indent_width: u8,
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     pub enable_tracing: bool,
 }
 
@@ -69,9 +69,9 @@ pub struct Printer<'a> {
     skip_moving_next: bool,
     resolving_save_point: Option<&'a SavePoint<'a>>,
     stored_info_positions: FnvHashMap<usize, (u32, u32)>,
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     traces: Option<Vec<Trace>>,
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     start_time: std::time::Instant,
 }
 
@@ -89,7 +89,7 @@ impl<'a> Printer<'a> {
             current_node: start_node,
             writer: Writer::new(bump, WriterOptions {
                 indent_width: options.indent_width,
-                #[cfg(any(feature = "tracing", debug_assertions))]
+                #[cfg(feature = "tracing")]
                 enable_tracing: options.enable_tracing,
             }),
             resolved_conditions: FnvHashMap::default(),
@@ -102,9 +102,9 @@ impl<'a> Printer<'a> {
             skip_moving_next: false,
             resolving_save_point: None,
             stored_info_positions: FnvHashMap::default(),
-            #[cfg(any(feature = "tracing", debug_assertions))]
+            #[cfg(feature = "tracing")]
             traces: if options.enable_tracing { Some(Vec::new()) } else { None },
-            #[cfg(any(feature = "tracing", debug_assertions))]
+            #[cfg(feature = "tracing")]
             start_time: std::time::Instant::now(),
         }
     }
@@ -116,7 +116,7 @@ impl<'a> Printer<'a> {
     }
 
     /// Turns the print items into a collection of writer items according to the options along with traces.
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     pub fn print_for_tracing(mut self) -> PrintTracingResult<'a> {
         self.inner_print();
 
@@ -131,7 +131,7 @@ impl<'a> Printer<'a> {
             let current_node = unsafe { &*current_node.get_node() }; // ok because values won't be mutated while printing
             self.handle_print_node(current_node);
 
-            #[cfg(any(feature = "tracing", debug_assertions))]
+            #[cfg(feature = "tracing")]
             self.create_trace(current_node);
 
             // println!("{}", self.writer.to_string_for_debugging());
@@ -153,7 +153,7 @@ impl<'a> Printer<'a> {
         self.ensure_counts_zero();
     }
 
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(feature = "tracing")]
     fn create_trace(&mut self, current_node: &PrintNode) {
         if let Some(traces) = self.traces.as_mut() {
             traces.push(Trace {

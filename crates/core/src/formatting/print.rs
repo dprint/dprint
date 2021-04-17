@@ -21,7 +21,7 @@ impl PrintOptions {
         PrinterOptions {
             indent_width: self.indent_width,
             max_width: self.max_width,
-            #[cfg(any(feature = "tracing", debug_assertions))]
+            #[cfg(feature = "tracing")]
             enable_tracing: false,
         }
     }
@@ -77,7 +77,7 @@ fn print_with_allocator(bump: &Bump, print_items: &PrintItems, options: &PrintOp
     print_write_items(write_items, options.to_write_items_printer_options())
 }
 
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TracingResult {
@@ -87,7 +87,7 @@ pub struct TracingResult {
 }
 
 /// Gets trace information for analysis purposes.
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: PrintOptions) -> TracingResult {
     increment_formatting_count();
     let print_items = get_print_items();

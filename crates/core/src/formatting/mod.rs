@@ -10,7 +10,7 @@ mod writer;
 mod write_items;
 mod print_write_items;
 mod print;
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 mod tracing;
 
 pub mod tokens;
@@ -20,8 +20,8 @@ pub use print_items::*;
 pub use write_items::*;
 use printer::*;
 use print_write_items::*;
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 use tracing::*;
-#[cfg(any(feature = "tracing", debug_assertions))]
+#[cfg(feature = "tracing")]
 pub use print::{trace_printing, TracingResult};
 pub use print::{format, print, PrintOptions};

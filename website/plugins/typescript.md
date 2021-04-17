@@ -35,6 +35,9 @@ In dprint configuration file:
   "includes": [
     "**/*.{ts,tsx,js,jsx,mjs}"
   ],
+  "excludes": [
+    "**/node_modules" // if necessary
+  ],
   "plugins": [
     // ...etc...
     "https://plugins.dprint.dev/typescript-x.x.x.wasm"
