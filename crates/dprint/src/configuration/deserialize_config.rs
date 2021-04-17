@@ -20,7 +20,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
             JsonValue::Object(obj) => ConfigMapValue::HashMap(json_obj_to_hash_map(&property_name, obj)?),
             JsonValue::Array(arr) => ConfigMapValue::Vec(json_array_to_vec(&property_name, arr)?),
             JsonValue::Boolean(value) => ConfigMapValue::from_bool(value),
-            JsonValue::String(value) => ConfigMapValue::KeyValue(ConfigKeyValue::String(value)),
+            JsonValue::String(value) => ConfigMapValue::KeyValue(ConfigKeyValue::String(value.into_owned())),
             JsonValue::Number(value) => ConfigMapValue::from_i32(match value.parse::<i32>() {
                 Ok(value) => value,
                 Err(err) => return err!(
@@ -69,7 +69,7 @@ fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<Str
 
 fn value_to_string(value: JsonValue) -> Result<String, ErrBox> {
     match value {
-        JsonValue::String(value) => Ok(value),
+        JsonValue::String(value) => Ok(value.into_owned()),
         _ => return err!("Expected a string"),
     }
 }
@@ -77,7 +77,7 @@ fn value_to_string(value: JsonValue) -> Result<String, ErrBox> {
 fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue, ErrBox> {
     Ok(match value {
         JsonValue::Boolean(value) => ConfigKeyValue::Bool(value),
-        JsonValue::String(value) => ConfigKeyValue::String(value),
+        JsonValue::String(value) => ConfigKeyValue::String(value.into_owned()),
         JsonValue::Number(value) => ConfigKeyValue::Number(value.parse::<i32>()?),
         _ => return err!("Expected a boolean, string, or number"),
     })

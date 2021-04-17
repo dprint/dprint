@@ -73,8 +73,8 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     let name = get_string(&mut obj, "name")?;
     let version = get_string(&mut obj, "version")?;
     let url = get_string(&mut obj, "url")?;
-    let config_key = obj.take_string("configKey");
-    let config_schema_url = obj.take_string("configSchemaUrl").unwrap_or(String::new());
+    let config_key = obj.take_string("configKey").map(|k| k.into_owned());
+    let config_schema_url = obj.take_string("configSchemaUrl").map(|s| s.into_owned()).unwrap_or(String::new());
     let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
     let config_excludes = get_string_array(&mut obj, "configExcludes")?;
     let is_process_plugin = obj.take_boolean("isProcessPlugin").unwrap_or(false);
@@ -95,7 +95,7 @@ fn get_string_array(value: &mut JsonObject, key: &str) -> Result<Vec<String>, Er
     let mut result = Vec::new();
     for item in get_array(value, key)? {
         match item {
-            JsonValue::String(item) => result.push(item),
+            JsonValue::String(item) => result.push(item.into_owned()),
             _ => return err!("Unexpected non-string in {} array.", key),
         }
     }
@@ -104,12 +104,12 @@ fn get_string_array(value: &mut JsonObject, key: &str) -> Result<Vec<String>, Er
 
 fn get_string(value: &mut JsonObject, name: &str) -> Result<String, ErrBox> {
     match value.take_string(name) {
-        Some(text) => Ok(text),
+        Some(text) => Ok(text.into_owned()),
         _ => return err!("Could not find string: {}", name),
     }
 }
 
-fn get_array(value: &mut JsonObject, name: &str) -> Result<JsonArray, ErrBox> {
+fn get_array<'a>(value: &mut JsonObject<'a>, name: &str) -> Result<JsonArray<'a>, ErrBox> {
     match value.take_array(name) {
         Some(arr) => Ok(arr),
         _ => return err!("Could not find array: {}", name),
