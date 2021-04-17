@@ -79,8 +79,13 @@ impl Logger {
             output_text.push_str(&format!("[{}]\n", context_name));
             state.last_context_name = context_name.to_string();
         }
+
         output_text.push_str(text);
-        output_text.push_str("\n");
+
+        // only add a newline if the logged text does not end with one
+        if !output_text.ends_with("\n") {
+            output_text.push_str("\n");
+        }
 
         if is_std_out {
             state.std_out.queue(style::Print(output_text)).unwrap();
