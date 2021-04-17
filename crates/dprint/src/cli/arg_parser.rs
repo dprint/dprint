@@ -291,7 +291,7 @@ EXAMPLES:
             Arg::with_name("config")
                 .long("config")
                 .short("c")
-                .help("Path or url to JSON configuration file. Defaults to dprint.json in current or ancestor directory when not provided.")
+                .help("Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.")
                 .global(true)
                 .takes_value(true),
         )

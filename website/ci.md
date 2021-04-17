@@ -18,6 +18,7 @@ It is easy to get dprint working on a CI by running the install script then `dpr
 For example:
 
 ```bash
-curl -fsSL https://dprint.dev/install.sh | sh -s 0.11.1 > /dev/null 2>&1
+# replace X.X.X with the version of dprint to use
+curl -fsSL https://dprint.dev/install.sh | sh -s X.X.X > /dev/null 2>&1
 $HOME/.dprint/bin/dprint check
 ```

@@ -35,7 +35,7 @@ dprint fmt **/*.js --excludes **/data
 
 Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.
 
-Provide a full file path to format with inclusion/exclusion rules of your `dprint.json` file or provide only a file name or extension to always format the file.
+Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.
 
 ## Checking What Files Aren't Formatted
 
@@ -57,7 +57,7 @@ You may specify to only format files that have changed since the last time you f
 dprint fmt --incremental
 ```
 
-Alternatively, you may specify this in the `dprint.json` configuration file (recommended):
+Alternatively, you may specify this in the dprint configuration file (recommended):
 
 ```jsonc
 {
@@ -71,13 +71,15 @@ Doing this will drastically improve performance.
 
 ## Using a Custom Config File Path or URL
 
-Instead of the default path of _dprint.json_ you may specify a path to a configuration file via the `--config` or `-c` flag.
+Instead of the default dprint configuration paths you may specify a path to a configuration file via the `--config` or `-c` flag.
 
 ```bash
 dprint fmt --config path/to/my/config.json
 # or specify a URL
 dprint fmt --config https://dprint.dev/path/to/some/config.json
 ```
+
+This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.
 
 ## Diagnostic Commands and Flags
 
