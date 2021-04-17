@@ -16,6 +16,25 @@ pub struct PrintOptions {
     pub new_line_text: &'static str,
 }
 
+impl PrintOptions {
+    pub(super) fn to_printer_options(&self) -> PrinterOptions {
+        PrinterOptions {
+            indent_width: self.indent_width,
+            max_width: self.max_width,
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            enable_tracing: false,
+        }
+    }
+
+    pub(super) fn to_write_items_printer_options(&self) -> WriteItemsPrinterOptions {
+        WriteItemsPrinterOptions {
+            use_tabs: self.use_tabs,
+            new_line_text: self.new_line_text,
+            indent_width: self.indent_width,
+        }
+    }
+}
+
 /// Function to create the provided print items and print them out as a string.
 ///
 /// Note: It is unsafe to use the print items created within `get_print_items`
@@ -50,15 +69,61 @@ pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
 }
 
 fn print_with_allocator(bump: &Bump, print_items: &PrintItems, options: &PrintOptions) -> String {
-    let write_items = get_write_items(bump, print_items, GetWriteItemsOptions {
-        indent_width: options.indent_width,
-        max_width: options.max_width,
+    let write_items = Printer::new(
+        bump,
+        print_items.first_node.clone(),
+        options.to_printer_options(),
+    ).print();
+    print_write_items(write_items, options.to_write_items_printer_options())
+}
+
+#[cfg(any(feature = "tracing", debug_assertions))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TracingResult {
+    pub traces: Vec<Trace>,
+    pub writer_nodes: Vec<TraceWriterNode>,
+    pub print_nodes: Vec<TracePrintNode>,
+}
+
+/// Gets trace information for analysis purposes.
+#[cfg(any(feature = "tracing", debug_assertions))]
+pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: PrintOptions) -> TracingResult {
+    increment_formatting_count();
+    let print_items = get_print_items();
+
+    let result = with_bump_allocator_mut(|bump| {
+        let tracing_result = Printer::new(
+            bump,
+            print_items.first_node.clone(),
+            {
+                let mut printer_options = options.to_printer_options();
+                printer_options.enable_tracing = true;
+                printer_options
+            },
+        ).print_for_tracing();
+        let writer_items_printer = WriteItemsPrinter::new(options.to_write_items_printer_options());
+
+        let result = TracingResult {
+            traces: tracing_result.traces,
+            writer_nodes: tracing_result.writer_nodes.into_iter().map(|node| {
+                let mut text = String::new();
+                writer_items_printer.write_to_string(&mut text, node.borrow_item());
+                TraceWriterNode {
+                    writer_node_id: node.graph_node_id,
+                    previous_node_id: node.borrow_previous().map(|n| n.graph_node_id),
+                    text,
+                }
+            }).collect(),
+            print_nodes: super::get_trace_print_nodes(print_items.first_node.clone()),
+        };
+
+        if decrement_formatting_count() {
+            bump.reset();
+        }
+        result
     });
-    print_write_items(write_items, PrintWriteItemsOptions {
-        use_tabs: options.use_tabs,
-        new_line_text: options.new_line_text,
-        indent_width: options.indent_width,
-    })
+    result
 }
 
 thread_local! {

@@ -226,18 +226,98 @@ impl Into<PrintItems> for Option<PrintItemPath> {
     }
 }
 
+/** Tracing */
+
+#[cfg(any(feature = "tracing", debug_assertions))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Trace {
+    /// The relative time of the trace from the start of printing in nanoseconds.
+    pub nanos: u128,
+    pub print_node_id: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writer_node_id: Option<usize>,
+}
+
+#[cfg(any(feature = "tracing", debug_assertions))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceWriterNode {
+    pub writer_node_id: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_node_id: Option<usize>,
+    pub text: String,
+}
+
+#[cfg(any(feature = "tracing", debug_assertions))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TracePrintNode {
+    pub print_node_id: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_print_node_id: Option<usize>,
+    pub print_item: TracePrintItem,
+}
+
+#[cfg(any(feature = "tracing", debug_assertions))]
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "content", rename_all = "camelCase")]
+pub enum TracePrintItem {
+    String(String),
+    Condition(TraceCondition),
+    Info(TraceInfo),
+    Signal(Signal),
+    /// Identifier to the print node.
+    RcPath(usize),
+}
+
+#[cfg(any(feature = "tracing", debug_assertions))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceInfo {
+    pub info_id: usize,
+    pub name: String,
+}
+
+#[cfg(any(feature = "tracing", debug_assertions))]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceCondition {
+    pub condition_id: usize,
+    pub name: String,
+    pub is_stored: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Identifier to the true path print node.
+    pub true_path: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Identifier to the false path print node.
+    pub false_path: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Any infos that should cause the re-evaluation of this condition.
+    /// This is only done on request for performance reasons.
+    pub dependent_infos: Option<Vec<usize>>,
+}
+
 /** Print Node */
 
 pub struct PrintNode {
     pub(super) next: Option<PrintItemPath>,
     pub(super) item: PrintItem,
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    pub print_node_id: usize,
 }
+
+// todo: thread local?
+#[cfg(any(feature = "tracing", debug_assertions))]
+static PRINT_NODE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl PrintNode {
     fn new(item: PrintItem) -> PrintNode {
         PrintNode {
             item,
             next: None,
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            print_node_id: PRINT_NODE_COUNTER.fetch_add(1, Ordering::SeqCst),
         }
     }
 
@@ -301,6 +381,13 @@ impl PrintNodeCell {
         return current;
     }
 
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    pub(super) fn get_node_id(&self) -> usize {
+        unsafe {
+            (*self.get_node()).print_node_id
+        }
+    }
+
     /// Gets the node unsafely. Be careful when using this and ensure no mutation is
     /// happening during the borrow.
     #[inline]
@@ -339,6 +426,7 @@ pub enum PrintItem {
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(serde::Serialize)]
 pub enum Signal {
     /// Signal that a new line should occur based on the printer settings.
     NewLine,
@@ -389,6 +477,7 @@ pub struct Info {
     name: &'static str,
 }
 
+// todo: thread local?
 static INFO_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl Info {
@@ -410,7 +499,7 @@ impl Info {
         #[cfg(debug_assertions)]
         return self.name;
         #[cfg(not(debug_assertions))]
-        return "";
+        return "info";
     }
 }
 
@@ -439,6 +528,7 @@ pub struct Condition {
     pub(super) dependent_infos: Option<Vec<Info>>,
 }
 
+// todo: thread local?
 static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl Condition {

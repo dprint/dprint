@@ -7,6 +7,7 @@ pub struct Spec {
     pub file_text: String,
     pub expected_text: String,
     pub is_only: bool,
+    pub is_trace: bool,
     pub show_tree: bool,
     pub skip: bool,
     pub skip_format_twice: bool,
@@ -91,13 +92,15 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
         let expected_text = parts[1]["\n".len()..].into(); // remove first newline
         let lower_case_message_line = message_line.to_ascii_lowercase();
         let message_separator = get_message_separator(file_name);
+        let is_trace = lower_case_message_line.find("(trace)").is_some();
 
         Spec {
             file_name: String::from(file_name),
             message: message_line[message_separator.len()..message_line.len() - message_separator.len()].trim().into(),
             file_text: start_text,
             expected_text,
-            is_only: lower_case_message_line.find("(only)").is_some(),
+            is_only: lower_case_message_line.find("(only)").is_some() || is_trace,
+            is_trace,
             skip: lower_case_message_line.find("(skip)").is_some(),
             skip_format_twice: lower_case_message_line.find("(skip-format-twice)").is_some(),
             show_tree: lower_case_message_line.find("(tree)").is_some(),
@@ -135,15 +138,22 @@ mod tests {
             "[expect]",
             "expected2",
             "",
+            "== message 3 (trace) ==",
+            "test",
+            "",
+            "[expect]",
+            "test",
+            "",
         ].join("\n"), &ParseSpecOptions { default_file_name: "test.ts" });
 
-        assert_eq!(specs.len(), 2);
+        assert_eq!(specs.len(), 3);
         assert_eq!(specs[0], Spec {
             file_name: "test.ts".into(),
             file_text: "start\nmultiple\n".into(),
             expected_text: "expected\nmultiple\n".into(),
             message: "message 1".into(),
             is_only: false,
+            is_trace: false,
             show_tree: false,
             skip: false,
             skip_format_twice: false,
@@ -155,9 +165,22 @@ mod tests {
             expected_text: "expected2\n".into(),
             message: "message 2 (only) (tree) (skip) (skip-format-twice)".into(),
             is_only: true,
+            is_trace: false,
             show_tree: true,
             skip: true,
             skip_format_twice: true,
+            config: HashMap::new(),
+        });
+        assert_eq!(specs[2], Spec {
+            file_name: "test.ts".into(),
+            file_text: "test\n".into(),
+            expected_text: "test\n".into(),
+            message: "message 3 (trace)".into(),
+            is_only: true,
+            is_trace: true,
+            show_tree: false,
+            skip: false,
+            skip_format_twice: false,
             config: HashMap::new(),
         });
     }
@@ -179,6 +202,7 @@ mod tests {
             expected_text: "expected".into(),
             message: "message".into(),
             is_only: false,
+            is_trace: false,
             show_tree: false,
             skip: false,
             skip_format_twice: false,
@@ -204,6 +228,7 @@ mod tests {
             expected_text: "expected".into(),
             message: "message".into(),
             is_only: false,
+            is_trace: false,
             show_tree: false,
             skip: false,
             skip_format_twice: false,
@@ -237,6 +262,7 @@ mod tests {
             expected_text: "expected\nmultiple\n".into(),
             message: "message 1".into(),
             is_only: false,
+            is_trace: false,
             show_tree: false,
             skip: false,
             skip_format_twice: false,
@@ -248,6 +274,7 @@ mod tests {
             expected_text: "expected2\n".into(),
             message: "message 2 (only) (tree) (skip) (skip-format-twice)".into(),
             is_only: true,
+            is_trace: false,
             show_tree: true,
             skip: true,
             skip_format_twice: true,

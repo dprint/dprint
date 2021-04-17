@@ -1,6 +1,6 @@
 # Copyright 2020-2021 David Sherret. All rights reserved. MIT license.
 name: Website
-on: [push]
+on: [push, pull_request]
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -39,6 +39,7 @@ jobs:
           cd ../
 
       - name: Deploy
+        if: github.ref == 'refs/heads/master'
         uses: JamesIves/github-pages-deploy-action@releases/v3
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -4,19 +4,24 @@ pub mod parser_helpers;
 
 
 mod collections;
-mod get_write_items;
 mod print_items;
 mod printer;
 mod writer;
 mod write_items;
 mod print_write_items;
 mod print;
+#[cfg(any(feature = "tracing", debug_assertions))]
+mod tracing;
 
 pub mod tokens;
 pub mod utils;
 
 pub use print_items::*;
 pub use write_items::*;
-use get_write_items::{get_write_items, GetWriteItemsOptions};
-use print_write_items::{print_write_items, PrintWriteItemsOptions};
+use printer::*;
+use print_write_items::*;
+#[cfg(any(feature = "tracing", debug_assertions))]
+use tracing::*;
+#[cfg(any(feature = "tracing", debug_assertions))]
+pub use print::{trace_printing, TracingResult};
 pub use print::{format, print, PrintOptions};

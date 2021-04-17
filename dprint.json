@@ -10,7 +10,7 @@
     "arrowFunction.useParentheses": "preferNone"
   },
   "includes": [
-    "**/*.{ts,tsx,js,jsx,json,md,html,scss}"
+    "**/*.{ts,tsx,js,jsx,json,md,html,scss,css}"
   ],
   "excludes": [
     "website/playground/build",

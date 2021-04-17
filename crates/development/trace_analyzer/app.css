@@ -1,0 +1,83 @@
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.writer-node {
+  white-space: pre;
+}
+
+.writer-node-space,
+.writer-node-tab {
+  color: #aaa;
+}
+
+#main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#split-view {
+  flex-grow: 1;
+  display: flex;
+}
+
+#code-view {
+  flex: 1;
+  margin: 10px;
+  padding: 2px;
+  overflow-y: scroll;
+  font-family: "Consolas", "Courier New";
+  border: 1px solid black;
+}
+
+#graph-container {
+  flex: 1;
+  position: relative;
+}
+
+#graph {
+  flex: 1;
+}
+
+#info-area {
+  padding: 0px 12px;
+}
+
+#info-area label {
+  font-weight: bold;
+  padding-right: 3px;
+}
+
+#slider {
+  flex-shrink: 0;
+  display: flex;
+  padding: 10px 10px 20px 10px;
+}
+
+#slider input {
+  flex: 1;
+}
+
+#node-info-area {
+  position: absolute;
+  top: 10px;
+  left: 0;
+}
+
+#node-info-area span {
+  display: inline-block;
+  height: 20px;
+  line-height: 20px;
+  vertical-align: middle;
+}
+
+#color-rectangle {
+  width: 20px;
+  height: 20px;
+  margin-right: 5px;
+  border: 1px solid black;
+}

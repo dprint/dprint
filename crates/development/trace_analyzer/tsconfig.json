@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "es6",
+    "module": "esnext",
+    "strict": true,
+    "checkJs": true,
+    "noEmit": true,
+    "noImplicitThis": false
+  }
+}

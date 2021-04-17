@@ -1,11 +1,10 @@
 use fnv::FnvHashMap;
 use bumpalo::Bump;
 
-use super::collections::{FastCellMap};
+use super::collections::*;
 use super::WriteItem;
 use super::print_items::*;
 use super::writer::*;
-use super::get_write_items::{GetWriteItemsOptions};
 
 struct SavePoint<'a> {
     #[cfg(debug_assertions)]
@@ -35,6 +34,22 @@ impl<'a> Clone for PrintItemContainer<'a> {
     }
 }
 
+#[cfg(any(feature = "tracing", debug_assertions))]
+pub struct PrintTracingResult<'a> {
+    pub traces: Vec<Trace>,
+    pub writer_nodes: Vec<&'a GraphNode<'a, WriteItem<'a>>>,
+}
+
+/// Options for printing.
+pub struct PrinterOptions {
+    /// The width the printer will attempt to keep the line under.
+    pub max_width: u32,
+    /// The number of columns to count when indenting or using a tab.
+    pub indent_width: u8,
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    pub enable_tracing: bool,
+}
+
 // todo: Needs slight redesign. See issue #71 and #195.
 
 pub struct Printer<'a> {
@@ -54,13 +69,17 @@ pub struct Printer<'a> {
     skip_moving_next: bool,
     resolving_save_point: Option<&'a SavePoint<'a>>,
     stored_info_positions: FnvHashMap<usize, (u32, u32)>,
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    traces: Option<Vec<Trace>>,
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    start_time: std::time::Instant,
 }
 
 impl<'a> Printer<'a> {
     pub fn new(
         bump: &'a Bump,
         start_node: Option<PrintItemPath>,
-        options: GetWriteItemsOptions,
+        options: PrinterOptions,
     ) -> Printer<'a> {
         Printer {
             bump,
@@ -70,6 +89,8 @@ impl<'a> Printer<'a> {
             current_node: start_node,
             writer: Writer::new(bump, WriterOptions {
                 indent_width: options.indent_width,
+                #[cfg(any(feature = "tracing", debug_assertions))]
+                enable_tracing: options.enable_tracing,
             }),
             resolved_conditions: FnvHashMap::default(),
             resolved_infos: FnvHashMap::default(),
@@ -81,14 +102,37 @@ impl<'a> Printer<'a> {
             skip_moving_next: false,
             resolving_save_point: None,
             stored_info_positions: FnvHashMap::default(),
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            traces: if options.enable_tracing { Some(Vec::new()) } else { None },
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            start_time: std::time::Instant::now(),
         }
     }
 
     /// Turns the print items into a collection of writer items according to the options.
     pub fn print(mut self) -> impl Iterator<Item = &'a WriteItem<'a>> {
+        self.inner_print();
+        self.writer.get_items()
+    }
+
+    /// Turns the print items into a collection of writer items according to the options along with traces.
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    pub fn print_for_tracing(mut self) -> PrintTracingResult<'a> {
+        self.inner_print();
+
+        PrintTracingResult {
+            traces: self.traces.expect("Should have set enable_tracing to true when creating the printer."),
+            writer_nodes: self.writer.get_nodes(),
+        }
+    }
+
+    fn inner_print(&mut self) {
         while let Some(current_node) = &self.current_node {
             let current_node = unsafe { &*current_node.get_node() }; // ok because values won't be mutated while printing
             self.handle_print_node(current_node);
+
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            self.create_trace(current_node);
 
             // println!("{}", self.writer.to_string_for_debugging());
 
@@ -107,8 +151,17 @@ impl<'a> Printer<'a> {
         self.verify_no_look_ahead_save_points();
         #[cfg(debug_assertions)]
         self.ensure_counts_zero();
+    }
 
-        self.writer.get_items()
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    fn create_trace(&mut self, current_node: &PrintNode) {
+        if let Some(traces) = self.traces.as_mut() {
+            traces.push(Trace {
+                nanos: (std::time::Instant::now() - self.start_time).as_nanos(),
+                print_node_id: current_node.print_node_id,
+                writer_node_id: self.writer.get_current_node_id(),
+            });
+        }
     }
 
     pub fn get_writer_info(&self) -> WriterInfo {

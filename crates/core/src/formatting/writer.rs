@@ -47,12 +47,16 @@ impl<'a> Clone for WriterState<'a> {
 
 pub struct WriterOptions {
     pub indent_width: u8,
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    pub enable_tracing: bool,
 }
 
 pub struct Writer<'a> {
     bump: &'a Bump,
     state: WriterState<'a>,
     indent_width: u8,
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    nodes: Option<Vec<&'a GraphNode<'a, WriteItem<'a>>>>,
 }
 
 impl<'a> Writer<'a> {
@@ -74,6 +78,8 @@ impl<'a> Writer<'a> {
                 ignore_indent_count: 0,
                 items: None,
             },
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            nodes: if options.enable_tracing { Some(Vec::new()) } else { None },
         }
     }
 
@@ -238,6 +244,11 @@ impl<'a> Writer<'a> {
         let graph_node = self.bump.alloc(GraphNode::new(item, previous));
         self.state.items = Some(graph_node);
 
+        #[cfg(any(feature = "tracing", debug_assertions))]
+        if let Some(nodes) = self.nodes.as_mut() {
+            nodes.push(graph_node);
+        }
+
         if self.state.indent_queue_count > 0 {
             let indent_count = self.state.indent_queue_count;
             self.state.indent_queue_count = 0;
@@ -258,11 +269,21 @@ impl<'a> Writer<'a> {
         }
     }
 
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    pub fn get_current_node_id(&self) -> Option<usize> {
+        self.state.items.as_ref().map(|node| node.graph_node_id)
+    }
+
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    pub fn get_nodes(self) -> Vec<&'a GraphNode<'a, WriteItem<'a>>> {
+        self.nodes.expect("Should have set enable_tracing to true.")
+    }
+
     #[cfg(debug_assertions)]
     #[allow(dead_code)]
     pub fn to_string_for_debugging(&self) -> String {
         let write_items = self.get_items_cloned();
-        super::print_write_items(write_items.iter(), super::PrintWriteItemsOptions {
+        super::print_write_items(write_items.iter(), super::WriteItemsPrinterOptions {
             use_tabs: false,
             new_line_text: "\n",
             indent_width: self.indent_width,
@@ -290,7 +311,7 @@ fn get_line_start_column_number(writer_state: &WriterState, indent_width: u8) ->
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::{print_write_items, StringContainer, PrintWriteItemsOptions, utils::with_bump_allocator_mut};
+    use super::super::{print_write_items, StringContainer, WriteItemsPrinterOptions, utils::with_bump_allocator_mut};
 
     // todo: some basic unit tests just to make sure I'm not way off
 
@@ -356,7 +377,7 @@ mod test {
     }
 
     fn assert_writer_equal(writer: Writer, text: &str) {
-        let result = print_write_items(writer.get_items(), PrintWriteItemsOptions {
+        let result = print_write_items(writer.get_items(), WriteItemsPrinterOptions {
             indent_width: 2,
             use_tabs: false,
             new_line_text: "\n",
@@ -373,6 +394,10 @@ mod test {
     }
 
     fn create_writer<'a>(bump: &'a Bump) -> Writer<'a> {
-        Writer::new(bump, WriterOptions { indent_width: 2 })
+        Writer::new(bump, WriterOptions {
+            indent_width: 2,
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            enable_tracing: false,
+        })
     }
 }

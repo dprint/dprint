@@ -70,10 +70,10 @@ jobs:
     # TEST
     - name: Test debug
       if: matrix.config.kind == 'test_debug'
-      run: cargo test --verbose
+      run: cargo test --verbose --all-features
     - name: Test release
       if: matrix.config.kind == 'test_release'
-      run: cargo test --release --locked --all-targets --verbose
+      run: cargo test --release --locked --all-targets --verbose --all-features
 
     # INSTALLER
     - name: Create installer (Windows)

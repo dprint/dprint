@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.35.3"
+version = "0.36.0"
 dependencies = [
  "bumpalo",
  "fnv",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-development"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "console",
  "similar",
