@@ -41,29 +41,29 @@ pub struct CacheItem {
     pub meta_data: Option<String>,
 }
 
-pub fn read_manifest(environment: &impl Environment) -> Result<CacheManifest, ErrBox> {
-    let file_path = get_manifest_file_path(environment)?;
+pub fn read_manifest(environment: &impl Environment) -> CacheManifest {
+    let file_path = get_manifest_file_path(environment);
     match environment.read_file(&file_path) {
         Ok(text) => match serde_json::from_str(&text) {
-            Ok(manifest) => Ok(manifest),
+            Ok(manifest) => manifest,
             Err(err) => {
                 environment.log_error(&format!("Resetting cache manifest. Message: {}", err));
-                Ok(CacheManifest::new())
+                CacheManifest::new()
             }
         },
-        Err(_) => Ok(CacheManifest::new()),
+        Err(_) => CacheManifest::new(),
     }
 }
 
 pub fn write_manifest(manifest: &CacheManifest, environment: &impl Environment) -> Result<(), ErrBox> {
-    let file_path = get_manifest_file_path(environment)?;
+    let file_path = get_manifest_file_path(environment);
     let serialized_manifest = serde_json::to_string(&manifest)?;
     environment.write_file(&file_path, &serialized_manifest)
 }
 
-fn get_manifest_file_path(environment: &impl Environment) -> Result<PathBuf, ErrBox> {
+fn get_manifest_file_path(environment: &impl Environment) -> PathBuf {
     let cache_dir = environment.get_cache_dir();
-    Ok(cache_dir.join("cache-manifest.json"))
+    cache_dir.join("cache-manifest.json")
 }
 
 #[cfg(test)]
@@ -101,7 +101,7 @@ mod test {
             meta_data: Some(String::from("{\"test\":5}")),
         });
 
-        assert_eq!(read_manifest(&environment).unwrap(), expected_manifest);
+        assert_eq!(read_manifest(&environment), expected_manifest);
     }
 
     #[test]
@@ -112,7 +112,7 @@ mod test {
             r#"{ "a": { file_name: "b", "createdTime": 123 } }"#
         ).unwrap();
 
-        assert_eq!(read_manifest(&environment).unwrap(), CacheManifest::new());
+        assert_eq!(read_manifest(&environment), CacheManifest::new());
         assert_eq!(environment.take_logged_errors(), vec![
             String::from("Resetting cache manifest. Message: key must be a string at line 1 column 10")
         ]);
@@ -122,7 +122,7 @@ mod test {
     fn it_should_deal_with_non_existent_manifest() {
         let environment = TestEnvironment::new();
 
-        assert_eq!(read_manifest(&environment).unwrap(), CacheManifest::new());
+        assert_eq!(read_manifest(&environment), CacheManifest::new());
         assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
@@ -144,6 +144,6 @@ mod test {
 
         // Just read and compare again because the hash map will serialize properties
         // in a non-deterministic order.
-        assert_eq!(read_manifest(&environment).unwrap(), manifest);
+        assert_eq!(read_manifest(&environment), manifest);
     }
 }

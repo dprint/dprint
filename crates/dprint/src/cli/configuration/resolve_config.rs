@@ -321,7 +321,7 @@ mod tests {
     fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ErrBox> {
         let stdin_reader = TestStdInReader::new();
         let args = parse_args(vec![String::from(""), String::from("check"), String::from("-c"), String::from(url)], &stdin_reader).unwrap();
-        let cache = Cache::new(environment.to_owned()).unwrap();
+        let cache = Cache::new(environment.to_owned());
         resolve_config_from_args(&args, &cache, &environment)
     }
 

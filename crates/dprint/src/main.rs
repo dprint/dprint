@@ -33,7 +33,7 @@ fn run() -> Result<(), ErrBox> {
     let stdin_reader = cli::RealStdInReader::new();
     let args = cli::parse_args(wild::args().collect(), &stdin_reader)?;
     let environment = RealEnvironment::new(args.verbose, args.is_silent_output())?;
-    let cache = Arc::new(cache::Cache::new(environment.clone())?);
+    let cache = Arc::new(cache::Cache::new(environment.clone()));
     let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
     let plugin_pools = Arc::new(plugins::PluginPools::new(environment.clone()));
     let _plugins_dropper = plugins::PluginsDropper::new(plugin_pools.clone());

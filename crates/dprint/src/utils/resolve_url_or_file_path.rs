@@ -150,7 +150,7 @@ mod tests {
     fn it_should_resolve_a_url() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", "t".as_bytes());
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let base = PathSource::new_local(PathBuf::from("/"));
         let result = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &cache, &environment).unwrap();
         assert_eq!(result.file_path, PathBuf::from("/cache/test.tmp"));
@@ -169,7 +169,7 @@ mod tests {
     fn it_should_resolve_a_relative_path_to_base_url() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/asdf/test/test.json", "t".as_bytes());
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let base = PathSource::new_remote(Url::parse("https://dprint.dev/asdf/").unwrap());
         let result = resolve_url_or_file_path("test/test.json", &base, &cache, &environment).unwrap();
         assert_eq!(result.is_remote(), true);
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn it_should_resolve_a_file_url_on_windows() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let base = PathSource::new_local(PathBuf::from("C:\\"));
         let result = resolve_url_or_file_path("file://C:/test/test.json", &base, &cache, &environment).unwrap();
         assert_eq!(result.is_local(), true);
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn it_should_resolve_a_file_url_on_linux() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(&environment).unwrap();
+        let cache = Cache::new(&environment);
         let base = PathSource::new_local(PathBuf::from("/"));
         let result = resolve_url_or_file_path("file:///test/test.json", &base, &cache, &environment).unwrap();
         assert_eq!(result.is_local(), true);
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn it_should_resolve_a_file_path() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let base = PathSource::new_local(PathBuf::from("/"));
         let result = resolve_url_or_file_path("test/test.json", &base, &cache, &environment).unwrap();
         assert_eq!(result.is_local(), true);
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn it_should_resolve_a_file_path_relative_to_base_path() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let base = PathSource::new_local(PathBuf::from("/other"));
         let result = resolve_url_or_file_path("test/test.json", &base, &cache, &environment).unwrap();
         assert_eq!(result.is_local(), true);
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn it_should_error_when_url_cannot_be_resolved() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let base = PathSource::new_local(PathBuf::from("/other"));
         let err = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &cache, &environment).err().unwrap();
         assert_eq!(err.to_string(), "Could not find file at url https://dprint.dev/test.json");

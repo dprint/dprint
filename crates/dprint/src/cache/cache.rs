@@ -19,14 +19,14 @@ pub struct CreateCacheItemOptions<'a> {
 }
 
 impl<TEnvironment> Cache<TEnvironment> where TEnvironment : Environment {
-    pub fn new(environment: TEnvironment) -> Result<Self, ErrBox> {
-        let cache_manifest = read_manifest(&environment)?;
+    pub fn new(environment: TEnvironment) -> Self {
+        let cache_manifest = read_manifest(&environment);
         let cache_dir_path = environment.get_cache_dir();
-        Ok(Cache {
+        Cache {
             environment,
             cache_manifest: RwLock::new(cache_manifest),
             cache_dir_path,
-        })
+        }
     }
 
     pub fn get_cache_item(&self, key: &str) -> Option<CacheItem> {
@@ -143,7 +143,7 @@ mod test {
 }}"#
         ).unwrap();
 
-        let cache = Cache::new(environment).unwrap();
+        let cache = Cache::new(environment);
         let cache_item = cache.get_cache_item("some-value").unwrap();
 
         assert_eq!(cache_item.file_name, "my-file.wasm");
@@ -153,7 +153,7 @@ mod test {
     fn it_should_handle_multiple_keys_with_similar_names() {
         let environment = TestEnvironment::new();
 
-        let cache = Cache::new(environment).unwrap();
+        let cache = Cache::new(environment);
         let cache_item1 = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("prefix/test"),
             extension: "test",
@@ -174,7 +174,7 @@ mod test {
     #[test]
     fn it_should_delete_key_from_manifest_when_no_file() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let cache_item = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("test"),
             extension: ".test",
@@ -195,7 +195,7 @@ mod test {
     #[test]
     fn it_should_delete_key_from_manifest_when_file_exists() {
         let environment = TestEnvironment::new();
-        let cache = Cache::new(environment.clone()).unwrap();
+        let cache = Cache::new(environment.clone());
         let cache_item = cache.create_cache_item(CreateCacheItemOptions {
             key: String::from("test"),
             extension: ".test",

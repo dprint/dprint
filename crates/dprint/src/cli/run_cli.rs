@@ -31,13 +31,13 @@ pub fn run_cli<TEnvironment: Environment>(
 ) -> Result<(), ErrBox> {
     // todo: reduce code duplication in this function
     match &args.sub_command {
-        SubCommand::Help(help_text) => return output_help(&args, cache, environment, plugin_resolver, help_text),
-        SubCommand::License => return output_license(&args, cache, environment, plugin_resolver),
-        SubCommand::EditorInfo => return output_editor_info(&args, cache, environment, plugin_resolver),
-        SubCommand::EditorService(cmd) => return run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools, cmd),
-        SubCommand::ClearCache => return clear_cache(environment),
-        SubCommand::Init => return init_config_file(environment, &args.config),
-        SubCommand::Version => return output_version(environment),
+        SubCommand::Help(help_text) => output_help(&args, cache, environment, plugin_resolver, help_text),
+        SubCommand::License => output_license(&args, cache, environment, plugin_resolver),
+        SubCommand::EditorInfo => output_editor_info(&args, cache, environment, plugin_resolver),
+        SubCommand::EditorService(cmd) => run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools, cmd),
+        SubCommand::ClearCache => clear_cache(environment),
+        SubCommand::Init => init_config_file(environment, &args.config),
+        SubCommand::Version => output_version(environment),
         SubCommand::StdInFmt(cmd) => {
             let config = resolve_config_from_args(&args, cache, environment)?;
             let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
@@ -57,12 +57,12 @@ pub fn run_cli<TEnvironment: Environment>(
                     Err(err) => return err!("Error canonicalizing file {}: {}", cmd.file_path.display(), err.to_string()),
                 }
             }
-            return output_stdin_format(&cmd.file_path, &cmd.file_text, environment, plugin_pools);
+            output_stdin_format(&cmd.file_path, &cmd.file_text, environment, plugin_pools)
         }
         SubCommand::OutputResolvedConfig => {
             let config = resolve_config_from_args(&args, cache, environment)?;
             let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
-            return output_resolved_config(plugins, environment);
+            output_resolved_config(plugins, environment)
         }
         SubCommand::OutputFilePaths => {
             let config = resolve_config_from_args(&args, cache, environment)?;
@@ -70,7 +70,7 @@ pub fn run_cli<TEnvironment: Environment>(
             let file_paths = resolve_file_paths(&config, &args, environment)?;
             let file_paths_by_plugin = get_file_paths_by_plugin(&plugins, file_paths);
             output_file_paths(file_paths_by_plugin.values().flat_map(|x| x.iter()), environment);
-            return Ok(());
+            Ok(())
         }
         SubCommand::OutputFormatTimes => {
             let config = resolve_config_from_args(&args, cache, environment)?;
@@ -78,7 +78,7 @@ pub fn run_cli<TEnvironment: Environment>(
             let file_paths = resolve_file_paths(&config, &args, environment)?;
             let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
             plugin_pools.set_plugins(plugins);
-            return output_format_times(file_paths_by_plugin, environment, plugin_pools);
+            output_format_times(file_paths_by_plugin, environment, plugin_pools)
         }
         SubCommand::Check => {
             let config = resolve_config_from_args(&args, cache, environment)?;
@@ -827,7 +827,7 @@ mod tests {
         let mut args: Vec<String> = args.into_iter().map(String::from).collect();
         args.insert(0, String::from(""));
         environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
-        let cache = Arc::new(Cache::new(environment.clone()).unwrap());
+        let cache = Arc::new(Cache::new(environment.clone()));
         let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
         let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
         let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
