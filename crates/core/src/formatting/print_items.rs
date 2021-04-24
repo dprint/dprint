@@ -1,10 +1,9 @@
 use std::rc::Rc;
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem;
 
 use super::printer::Printer;
-use super::utils::with_bump_allocator;
+use super::utils::{CounterCell, with_bump_allocator};
 
 /** Print Items */
 
@@ -307,9 +306,10 @@ pub struct PrintNode {
     pub print_node_id: usize,
 }
 
-// todo: thread local?
 #[cfg(feature = "tracing")]
-static PRINT_NODE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    static PRINT_NODE_COUNTER: CounterCell = CounterCell::new();
+}
 
 impl PrintNode {
     fn new(item: PrintItem) -> PrintNode {
@@ -317,7 +317,7 @@ impl PrintNode {
             item,
             next: None,
             #[cfg(feature = "tracing")]
-            print_node_id: PRINT_NODE_COUNTER.fetch_add(1, Ordering::SeqCst),
+            print_node_id: PRINT_NODE_COUNTER.with(|counter| counter.increment()),
         }
     }
 
@@ -477,13 +477,14 @@ pub struct Info {
     name: &'static str,
 }
 
-// todo: thread local?
-static INFO_COUNTER: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    static INFO_COUNTER: CounterCell = CounterCell::new();
+}
 
 impl Info {
     pub fn new(_name: &'static str) -> Info {
         Info {
-            id: INFO_COUNTER.fetch_add(1, Ordering::SeqCst),
+            id: INFO_COUNTER.with(|counter| counter.increment()),
             #[cfg(debug_assertions)]
             name: _name
         }
@@ -528,8 +529,9 @@ pub struct Condition {
     pub(super) dependent_infos: Option<Vec<Info>>,
 }
 
-// todo: thread local?
-static CONDITION_COUNTER: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    static CONDITION_COUNTER: CounterCell = CounterCell::new();
+}
 
 impl Condition {
     pub fn new(name: &'static str, properties: ConditionProperties) -> Condition {
@@ -558,7 +560,7 @@ impl Condition {
 
     fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
         Condition {
-            id: CONDITION_COUNTER.fetch_add(1, Ordering::SeqCst),
+            id: CONDITION_COUNTER.with(|counter| counter.increment()),
             is_stored: dependent_infos.is_some(),
             #[cfg(debug_assertions)]
             name: _name,

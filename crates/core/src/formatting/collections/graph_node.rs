@@ -1,6 +1,7 @@
-// todo: thread_local?
 #[cfg(feature = "tracing")]
-static GRAPH_NODE_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    static GRAPH_NODE_COUNTER: super::super::utils::CounterCell = super::super::utils::CounterCell::new();
+}
 
 #[derive(Clone)]
 pub struct GraphNode<'a, T> {
@@ -16,7 +17,7 @@ impl<'a, T> GraphNode<'a, T> {
             item,
             previous,
             #[cfg(feature = "tracing")]
-            graph_node_id: GRAPH_NODE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            graph_node_id: GRAPH_NODE_COUNTER.with(|counter| counter.increment()),
         }
     }
 
