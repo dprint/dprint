@@ -60,49 +60,63 @@ pub fn new_line_group(item: PrintItems) -> PrintItems {
 
 /// Parses a string as is and ignores its indent.
 pub fn parse_raw_string(text: &str) -> PrintItems {
+    parse_raw_string_lines(text, parse_string)
+}
+
+/// Parses a string trimming the end of each line and ignores its indent.
+pub fn parse_raw_string_trim_line_ends(text: &str) -> PrintItems {
+    parse_raw_string_lines(text, |line_text| parse_string_line(line_text.trim_end()))
+}
+
+fn parse_raw_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> PrintItems {
     let add_ignore_indent = text.find("\n").is_some();
     let mut items = PrintItems::new();
     if add_ignore_indent { items.push_signal(Signal::StartIgnoringIndent); }
-    items.extend(parse_string(text));
+    items.extend(parse_string_lines(text, parse_line));
     if add_ignore_indent { items.push_signal(Signal::FinishIgnoringIndent); }
-
-    return items;
+    items
 }
 
 /// Parses a string to a series of PrintItems.
 pub fn parse_string(text: &str) -> PrintItems {
+    parse_string_lines(text, parse_string_line)
+}
+
+/// Parses a string to a series of PrintItems trimming the end of each line for whitespace.
+pub fn parse_string_trim_line_ends(text: &str) -> PrintItems {
+    parse_string_lines(text, |line_text| parse_string_line(line_text.trim_end()))
+}
+
+fn parse_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> PrintItems {
     let mut items = PrintItems::new();
-    let mut lines = text.lines().collect::<Vec<&str>>();
 
-    // todo: this is kind of hacky...
-    // using .lines() will remove the last line, so add it back if it exists
-    if text.ends_with("\n") {
-        lines.push("");
-    }
-
-    for i in 0..lines.len() {
+    for (i, line) in text.lines().enumerate() {
         if i > 0 {
             items.push_signal(Signal::NewLine);
         }
 
-        items.extend(parse_line(&lines[i]));
+        items.extend(parse_line(line));
     }
 
-    return items;
+    // using .lines() will remove the last line, so add it back if it exists
+    if text.ends_with("\n") {
+        items.push_signal(Signal::NewLine)
+    }
 
-    fn parse_line(line: &str) -> PrintItems {
-        let mut items = PrintItems::new();
-        let parts = line.split("\t").collect::<Vec<&str>>();
-        for i in 0..parts.len() {
-            if i > 0 {
-                items.push_signal(Signal::Tab);
-            }
-            if !parts[i].is_empty() {
-                items.push_str(parts[i]);
-            }
+    items
+}
+
+fn parse_string_line(line: &str) -> PrintItems {
+    let mut items = PrintItems::new();
+    for (i, line) in line.split("\t").enumerate() {
+        if i > 0 {
+            items.push_signal(Signal::Tab);
         }
-        items.into()
+        if !line.is_empty() {
+            items.push_str(line);
+        }
     }
+    items
 }
 
 /// Surrounds the items with newlines and indentation if its on multiple lines.
@@ -141,6 +155,7 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
     items
 }
 
+/// Parses the provided text to a JS-like comment line (ex. `// some text`)
 pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -> PrintItems {
     let mut items = PrintItems::new();
     items.extend(parse_raw_string(&get_comment_text(text, force_space_after_slashes)));
@@ -175,7 +190,37 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
                 i += 1;
             }
 
-            return i;
+            i
+        }
+    }
+}
+
+/// Parses the provided text to a JS-like comment block (ex. `/** some text */`)
+pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
+    let mut items = PrintItems::new();
+    let add_ignore_indent = text.find("\n").is_some();
+    let last_line_trailing_whitespace = get_last_line_trailing_whitespace(&text);
+
+    items.push_str("/*");
+    if add_ignore_indent { items.push_signal(Signal::StartIgnoringIndent); }
+    items.extend(parse_string_trim_line_ends(text));
+
+    // add back the last line's trailing whitespace
+    if last_line_trailing_whitespace.len() > 0 {
+        items.push_str(last_line_trailing_whitespace);
+    }
+
+    if add_ignore_indent { items.push_signal(Signal::FinishIgnoringIndent); }
+    items.push_str("*/");
+
+    return items;
+
+    fn get_last_line_trailing_whitespace<'a>(text: &'a str) -> &'a str {
+        let end_text = &text[text.trim_end().len()..];
+        if let Some(last_index) = end_text.rfind('\n') {
+            &end_text[last_index + 1..]
+        } else {
+            end_text
         }
     }
 }
