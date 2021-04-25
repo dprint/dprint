@@ -20,6 +20,10 @@ onmessage = function(e) {
 };
 
 function loadUrl(url) {
+    // This special download route will load the plugins from the plugins.dprint.dev server
+    // to allow CORs instead of doing a redirect to GitHub, which won't allow CORs.
+    url = url.replace("https://plugins.dprint.dev/", "https://plugins.dprint.dev/download/");
+
     formatter = fetch(url)
         .then(response => response.arrayBuffer())
         .then(wasmModuleBuffer => {
