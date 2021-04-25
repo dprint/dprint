@@ -188,4 +188,4 @@ High level functions:
 - `host_get_formatted_text() -> u32` - Tell the host to store the formatted text in its local byte array and return back the byte length of that text.
 - `host_get_error_text() -> u32` - Tell the host to store the error text in its local byte array and return back the byte length of that error message.
 
-I recommend looking in the [`dprint-core` wasm module](https://github.com/dprint/dprint/blob/master/crates/core/src/plugins/wasm/mod.rs) for how to use these.
+I recommend looking in the [`dprint-core` wasm module](https://github.com/dprint/dprint/blob/main/crates/core/src/plugins/wasm/mod.rs) for how to use these.

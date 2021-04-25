@@ -6,7 +6,7 @@ version = "0.38.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
-homepage = "https://github.com/dprint/dprint/tree/master/crates/core"
+homepage = "https://github.com/dprint/dprint/tree/main/crates/core"
 repository = "https://github.com/dprint/dprint"
 
 [features]

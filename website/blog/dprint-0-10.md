@@ -27,7 +27,7 @@ If you provide only a file name (ex. `my-file.ts`) then the CLI will always form
 
 ## Process Plugin Interface Change
 
-The interface between process plugins and the CLI has changed in order to be more robust. Previously if a process plugin had a problem while sending the formatted file text back to the CLI and the error output was longer than the rest of the formatted file text, then this error message would end up in the file. Now all messages must end with "success bytes" to signify the end of a successfully sent message. Read more [here](https://github.com/dprint/dprint/blob/master/docs/process-plugin-development.md).
+The interface between process plugins and the CLI has changed in order to be more robust. Previously if a process plugin had a problem while sending the formatted file text back to the CLI and the error output was longer than the rest of the formatted file text, then this error message would end up in the file. Now all messages must end with "success bytes" to signify the end of a successfully sent message. Read more [here](https://github.com/dprint/dprint/blob/main/docs/process-plugin-development.md).
 
 Due to this change, process plugins must now be above the following versions in order to work with dprint 0.10.0:
 

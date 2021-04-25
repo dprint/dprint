@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Adapted from Deno's install script at https://github.com/denoland/deno_install/blob/master/install.ps1
+# Adapted from Deno's install script at https://github.com/denoland/deno_install/blob/main/install.ps1
 # All rights reserved. MIT license.
 
 $ErrorActionPreference = 'Stop'
