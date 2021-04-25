@@ -43,7 +43,7 @@ dprint has previously only supported plugins compiled to a single `.wasm` file. 
 
 To get around this, a new type of plugin called "process plugins" has been introduced. These are plugins that work by the CLI executing a separate process and then communicating with it via stdin and stdout.
 
-Obviously, process plugins are not as secure as WASM plugins since they don't run sandboxed. To at least ensure the process plugin being used is the same that was built with the CI pipeline, you must specify the checksum of the file in addition to a URL. For example:
+Obviously, process plugins are not as secure as Wasm plugins since they don't run sandboxed. To at least ensure the process plugin being used is the same that was built with the CI pipeline, you must specify the checksum of the file in addition to a URL. For example:
 
 ```jsonc
 {

@@ -107,7 +107,7 @@ impl<TEnvironment> PluginCache<TEnvironment> where TEnvironment : Environment {
         // get bytes
         let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
 
-        // check checksum only if provided (not required for WASM plugins)
+        // check checksum only if provided (not required for Wasm plugins)
         if let Some(checksum) = &source_reference.checksum {
             verify_sha256_checksum(&file_bytes, checksum)?;
         }

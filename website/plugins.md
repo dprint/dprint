@@ -5,16 +5,16 @@ description: Links to dprint formatting plugins.
 
 # Plugins
 
-Dprint is made up of WASM and process plugins.
+Dprint is made up of Wasm and process plugins.
 
-- WASM plugins are compiled to a `.wasm` file and run sandboxed.
+- Wasm plugins are compiled to a `.wasm` file and run sandboxed.
 - Process plugins are compiled to an executable file and do not run sandboxed.
 
-It would be ideal for all plugins to be WASM plugins, but unfortunately many languages don't support compiling to a single `.wasm` file. Until then, process plugins exist.
+It would be ideal for all plugins to be Wasm plugins, but unfortunately many languages don't support compiling to a single `.wasm` file. Until then, process plugins exist.
 
 The setup for both is the same except process plugins require a checksum to be specified to ensure the downloaded file is the same as what was built on the CI pipeline.
 
-## WASM Plugins
+## Wasm Plugins
 
 - [Typescript / JavaScript](/plugins/typescript)
 - [JSON](/plugins/json)
@@ -26,9 +26,9 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Roslyn](/plugins/roslyn) (C#/VB)
 - [Prettier](/plugins/prettier)
 
-## Using WASM Plugins in Deno
+## Using Wasm Plugins in Deno
 
-WASM plugins may be used to format text in Deno like so:
+Wasm plugins may be used to format text in Deno like so:
 
 ```ts
 import { createStreaming } from "https://dprint.dev/formatter/v2.ts";

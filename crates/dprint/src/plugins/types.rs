@@ -54,7 +54,7 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource) -> Result<Pl
         return err!(
             concat!(
                 "The plugin '{0}' must have a checksum specified for security reasons ",
-                "since it is not a WASM plugin. You may specify one by writing \"{0}@checksum-goes-here\" ",
+                "since it is not a Wasm plugin. You may specify one by writing \"{0}@checksum-goes-here\" ",
                 "when providing the url in the configuration file. Check the plugin's release notes for what ",
                 "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
             ),
@@ -117,7 +117,7 @@ mod tests {
             err.to_string(),
             concat!(
                 "The plugin 'http://dprint.dev/plugin.exe-plugin' must have a checksum specified for security reasons ",
-                "since it is not a WASM plugin. You may specify one by writing \"http://dprint.dev/plugin.exe-plugin@checksum-goes-here\" ",
+                "since it is not a Wasm plugin. You may specify one by writing \"http://dprint.dev/plugin.exe-plugin@checksum-goes-here\" ",
                 "when providing the url in the configuration file. Check the plugin's release notes for what ",
                 "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
             )

@@ -2201,7 +2201,7 @@ SOFTWARE.
             error_message.to_string(),
             concat!(
                 "The plugin 'https://plugins.dprint.dev/test-process.exe-plugin' must have a checksum specified for security reasons ",
-                "since it is not a WASM plugin. You may specify one by writing \"https://plugins.dprint.dev/test-process.exe-plugin@checksum-goes-here\" ",
+                "since it is not a Wasm plugin. You may specify one by writing \"https://plugins.dprint.dev/test-process.exe-plugin@checksum-goes-here\" ",
                 "when providing the url in the configuration file. Check the plugin's release notes for what ",
                 "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
             )

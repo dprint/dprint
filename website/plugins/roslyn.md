@@ -16,7 +16,7 @@ Wrapper plugin that formats C# and Visual Basic code via [Roslyn](https://github
 
 <div class="message is-warning">
   <div class="message-body">
-    This is a process plugin. Using this will cause the CLI to download, run, and communicate with a separate process that is not sandboxed (unlike WASM plugins).
+    This is a process plugin. Using this will cause the CLI to download, run, and communicate with a separate process that is not sandboxed (unlike Wasm plugins).
   </div>
 </div>
 

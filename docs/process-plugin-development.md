@@ -1,6 +1,6 @@
 # Creating a Process Plugin (Schema Version 3)
 
-Process plugins are created (as opposed to the recommended WASM plugins), when the language does not have good support for compiling to a single _.wasm_ file.
+Process plugins are created (as opposed to the recommended Wasm plugins), when the language does not have good support for compiling to a single _.wasm_ file.
 
 ## Rust - Using `dprint-core`
 

@@ -4,7 +4,7 @@ use wasmer::{Store, Module};
 use crate::plugins::CompilationResult;
 use super::{InitializedWasmPlugin, create_identity_import_object};
 
-/// Compiles a WASM module.
+/// Compiles a Wasm module.
 pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
     let store = Store::default();
     let module = Module::new(&store, wasm_bytes)?;

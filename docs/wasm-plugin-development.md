@@ -1,10 +1,10 @@
-# Creating a WASM Plugin (Schema Version 3)
+# Creating a Wasm Plugin (Schema Version 3)
 
-WASM plugins are the preferred way of developing plugins (as opposed to process plugins) because they are portable and run sandboxed in a WASM runtime. They can be written in any language that supports compiling to a WebAssembly file (_.wasm_)—emscripten solutions do not work.
+Wasm plugins are the preferred way of developing plugins (as opposed to process plugins) because they are portable and run sandboxed in a Wasm runtime. They can be written in any language that supports compiling to a WebAssembly file (_.wasm_)—emscripten solutions do not work.
 
 ## Rust - Using `dprint-core`
 
-Implementing a WASM plugin is easier if you're using Rust as there are several helpers in `dprint-core`.
+Implementing a Wasm plugin is easier if you're using Rust as there are several helpers in `dprint-core`.
 
 1. Use the `wasm` feature from `dprint-core` in _Cargo.toml_:
 
@@ -123,20 +123,20 @@ If you are not using `Rust`, then you must implement a lot of low level function
 
 How it works:
 
-1. The WASM plugin initializes a shared memory buffer. Data between the CLI and WASM plugin is transferred in here.
-2. Generally, the WASM plugin stores its own local byte array. The plugin should copy from the shared memory buffer into this byte array for composing the final received data or copy from this array into the shared memory buffer for sending back data. This is referred to as "shared bytes" below, but that could probably have used a better name like "local bytes" or something.
-3. The CLI/host will communicate by calling the WASM exports.
-4. The plugin may get the CLI/host to format other text by using the provided WASM imports.
+1. The Wasm plugin initializes a shared memory buffer. Data between the CLI and Wasm plugin is transferred in here.
+2. Generally, the Wasm plugin stores its own local byte array. The plugin should copy from the shared memory buffer into this byte array for composing the final received data or copy from this array into the shared memory buffer for sending back data. This is referred to as "shared bytes" below, but that could probably have used a better name like "local bytes" or something.
+3. The CLI/host will communicate by calling the Wasm exports.
+4. The plugin may get the CLI/host to format other text by using the provided Wasm imports.
 
-## WASM Exports
+## Wasm Exports
 
 Low level communication:
 
-- `get_wasm_memory_buffer_size() -> usize` - Called to get the size of the shared WASM memory buffer.
-- `get_wasm_memory_buffer() -> *const u8` - Called to get a pointer to the WASM memory buffer.
+- `get_wasm_memory_buffer_size() -> usize` - Called to get the size of the shared Wasm memory buffer.
+- `get_wasm_memory_buffer() -> *const u8` - Called to get a pointer to the Wasm memory buffer.
 - `clear_shared_bytes(capacity: usize)` - Called to get the plugin to clear its local byte array.
-- `set_buffer_with_shared_bytes(offset: usize, length: usize)` - Gets the plugin to set the WASM memory buffer with the local byte array at the specified position and length.
-- `add_to_shared_bytes_from_buffer(length: usize)` - Gets the plugin to add to its shared bytes from the WASM memory buffer. The plugin should keep track of the current index.
+- `set_buffer_with_shared_bytes(offset: usize, length: usize)` - Gets the plugin to set the Wasm memory buffer with the local byte array at the specified position and length.
+- `add_to_shared_bytes_from_buffer(length: usize)` - Gets the plugin to add to its shared bytes from the Wasm memory buffer. The plugin should keep track of the current index.
 
 Initialization functions:
 
@@ -165,17 +165,17 @@ Formatting functions:
 - `get_formatted_text() -> usize` - Plugin should put the formatted text into its local byte array and return the size of that data.
 - `get_error_text() -> usize` - Plugin should put the error text into its local byte array and return the size of that data.
 
-### WASM Imports
+### Wasm Imports
 
-These functions are provided by the dprint CLI on the `dprint` module of the WASM imports. They may be used for getting the CLI to format code with another plugin. The WASM plugin must expect these otherwise the CLI will error. You don't have to implement using them though.
+These functions are provided by the dprint CLI on the `dprint` module of the Wasm imports. They may be used for getting the CLI to format code with another plugin. The Wasm plugin must expect these otherwise the CLI will error. You don't have to implement using them though.
 
-Communication is done by using a shared WASM buffer. Essentially, the plugin stores its data somewhere, then writes to the shared WASM buffer, and communicates this information to the host. The host does what the plugin tells it to do and stores its information in a local byte array.
+Communication is done by using a shared Wasm buffer. Essentially, the plugin stores its data somewhere, then writes to the shared Wasm buffer, and communicates this information to the host. The host does what the plugin tells it to do and stores its information in a local byte array.
 
 Low level communication:
 
 - `host_clear_bytes(length: u32)` - Tell the host to clear its local byte array and reinitialize it with the provided length.
-- `host_read_buffer(pointer: u32, length: u32)` - Tell the host to read from provided WASM memory address and store it in its local byte array.
-- `host_write_buffer(pointer: u32, offset: u32, length: u32)` - Tell the host to write to the provided WASM memory address using the provided offset and length of its local byte array.
+- `host_read_buffer(pointer: u32, length: u32)` - Tell the host to read from provided Wasm memory address and store it in its local byte array.
+- `host_write_buffer(pointer: u32, offset: u32, length: u32)` - Tell the host to write to the provided Wasm memory address using the provided offset and length of its local byte array.
 
 High level functions:
 
