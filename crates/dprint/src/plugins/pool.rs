@@ -81,22 +81,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     }
 
     pub fn take_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
-        let plugin = {
-            let mut plugins_for_plugins = self.plugins_for_plugins.lock();
-            let plugins_for_plugin = if let Some(plugins_for_plugin) = plugins_for_plugins.get_mut(parent_plugin_name) {
-                plugins_for_plugin
-            } else {
-                plugins_for_plugins.insert(parent_plugin_name.to_string(), HashMap::new());
-                plugins_for_plugins.get_mut(parent_plugin_name).unwrap()
-            };
-            let plugins = if let Some(plugins) = plugins_for_plugin.get_mut(sub_plugin_name) {
-                plugins
-            } else {
-                plugins_for_plugin.insert(sub_plugin_name.to_string(), Vec::new());
-                plugins_for_plugin.get_mut(sub_plugin_name).unwrap()
-            };
-            plugins.pop()
-        };
+        let plugin = self.with_plugins_for_parent_and_sub_plugin(parent_plugin_name, sub_plugin_name, |plugins| plugins.pop());
 
         if let Some(plugin) = plugin {
             Ok(plugin)
@@ -111,10 +96,35 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     }
 
     pub fn release_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str, plugin: Box<dyn InitializedPlugin>) {
+        // There is a chance the data in plugins_for_plugins was already cleared by another thread.
+        // If that occurs, ensure it is recreated to allow this plugin to be released into the
+        // main pool once the `release` method is called by the worker.
+        self.with_plugins_for_parent_and_sub_plugin(parent_plugin_name, sub_plugin_name, |plugins| {
+            plugins.push(plugin);
+        });
+    }
+
+    fn with_plugins_for_parent_and_sub_plugin<TResult>(
+        &self,
+        parent_plugin_name: &str,
+        sub_plugin_name: &str,
+        with_plugins: impl FnOnce(&mut Vec<Box<dyn InitializedPlugin>>) -> TResult,
+    ) -> TResult {
         let mut plugins_for_plugins = self.plugins_for_plugins.lock();
-        let plugins_for_plugin = plugins_for_plugins.get_mut(parent_plugin_name).unwrap();
-        let plugins = plugins_for_plugin.get_mut(sub_plugin_name).unwrap();
-        plugins.push(plugin);
+        let plugins_for_plugin = if let Some(plugins_for_plugin) = plugins_for_plugins.get_mut(parent_plugin_name) {
+            plugins_for_plugin
+        } else {
+            plugins_for_plugins.insert(parent_plugin_name.to_string(), HashMap::new());
+            plugins_for_plugins.get_mut(parent_plugin_name).unwrap()
+        };
+        let mut plugins = if let Some(plugins) = plugins_for_plugin.get_mut(sub_plugin_name) {
+            plugins
+        } else {
+            plugins_for_plugin.insert(sub_plugin_name.to_string(), Vec::new());
+            plugins_for_plugin.get_mut(sub_plugin_name).unwrap()
+        };
+
+        with_plugins(&mut plugins)
     }
 
     pub fn get_plugin_name_from_extension(&self, ext: &str) -> Option<String> {
