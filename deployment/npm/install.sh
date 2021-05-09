@@ -7,7 +7,7 @@ Darwin) target="x86_64-apple-darwin" ;;
 esac
 
 if [ $(uname -m) != "x86_64" ]; then
-	echo "Unsupported architecture $(uname -m). Only x64 binaries are available."
+	echo "[dprint]: Unsupported architecture $(uname -m). Only x64 binaries are available."
 	exit 1
 fi
 

@@ -4,6 +4,10 @@
 
 $ErrorActionPreference = 'Stop'
 
+if ((Get-WmiObject win32_operatingsystem | select osarchitecture).osarchitecture -notlike "64*") {
+  throw "[dprint]: Only 64 bit operating systems are currently supported."
+}
+
 $Version = $args.Get(0)
 $DprintZip = "dprint.zip"
 $DprintExe = "dprint.exe"
