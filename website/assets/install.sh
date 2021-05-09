@@ -11,7 +11,7 @@ esac
 
 if [ $(uname -m) != "x86_64" ]; then
 	echo "Unsupported architecture $(uname -m). Only x64 binaries are available."
-	exit
+	exit 1
 fi
 
 if [ $# -eq 0 ]; then
