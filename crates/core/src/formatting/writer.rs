@@ -293,7 +293,7 @@ impl<'a> Writer<'a> {
     #[cfg(debug_assertions)]
     fn get_items_cloned(&self) -> Vec<WriteItem> {
         let mut items = Vec::new();
-        let mut current_item = self.state.items.clone();
+        let mut current_item = self.state.items;
         while let Some(item) = current_item {
             // insert at the start since items are stored last to first
             items.insert(0, item.borrow_item().clone());

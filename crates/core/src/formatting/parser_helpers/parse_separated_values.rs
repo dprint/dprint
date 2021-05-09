@@ -23,7 +23,7 @@ pub struct ParseSeparatedValuesOptions {
 
 pub enum BoolOrCondition {
     Bool(bool),
-    Condition(Rc<Box<ConditionResolver>>)
+    Condition(Rc<ConditionResolver>)
 }
 
 pub struct MultiLineOptions {
@@ -230,7 +230,7 @@ pub fn parse_separated_values(
 
     fn inner_parse(
         parsed_values: Vec<ParsedValue>,
-        is_multi_line: Rc<Box<ConditionResolver>>,
+        is_multi_line: Rc<ConditionResolver>,
         single_line_separator: PrintItems,
         multi_line_options: &MultiLineOptions,
         allow_blank_lines: bool,
@@ -360,16 +360,16 @@ pub fn parse_separated_values(
             last_start_info.replace(start_info);
         }
 
-        return InnerParseResult {
+        InnerParseResult {
             items,
             value_datas,
-        };
+        }
     }
 }
 
 fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, start_info: Info, end_info: Info) -> Condition {
     Condition::new("clearWhenStartInfoChanges", ConditionProperties {
-        condition: Rc::new(Box::new(move |condition_context| {
+        condition: Rc::new(move |condition_context| {
             // when the start info position changes, clear all the infos so they get re-evaluated again
             if condition_context.has_info_moved(&start_info)? {
                 for value_data in value_datas.borrow().iter() {
@@ -378,8 +378,8 @@ fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec
                 condition_context.clear_info(&end_info);
             }
 
-            return None;
-        })),
+            None
+        }),
         false_path: None,
         true_path: None,
     })
@@ -387,10 +387,10 @@ fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec
 
 fn get_is_start_standalone_line(start_info: Info) -> Condition {
     Condition::new("isStartStandaloneLine", ConditionProperties {
-        condition: Rc::new(Box::new(move |condition_context| {
+        condition: Rc::new(move |condition_context| {
             let start_info = condition_context.get_resolved_info(&start_info)?;
             Some(start_info.is_start_of_line())
-        })),
+        }),
         false_path: None,
         true_path: None,
     })
@@ -398,11 +398,11 @@ fn get_is_start_standalone_line(start_info: Info) -> Condition {
 
 fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
     Condition::new_with_dependent_infos("isMultiLineForHanging", ConditionProperties {
-        condition: Rc::new(Box::new(move |condition_context| {
+        condition: Rc::new(move |condition_context| {
             let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
             if is_start_standalone_line {
                 // check if the second value is on a newline
-                if let Some(second_value_data) = value_datas.borrow().iter().skip(1).next() {
+                if let Some(second_value_data) = value_datas.borrow().iter().nth(1) {
                     let second_value_start_info = condition_context.get_resolved_info(&second_value_data.start_info)?;
                     return Some(second_value_start_info.is_start_of_line());
                 }
@@ -415,7 +415,7 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>,
             }
 
             Some(false)
-        })),
+        }),
         false_path: None,
         true_path: None,
     }, vec![end_info])
@@ -423,7 +423,7 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<ParsedValueData>>>,
 
 fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Vec<ParsedValueData>>>, is_start_standalone_line_ref: ConditionReference, end_info: Info) -> Condition {
     return Condition::new_with_dependent_infos("isMultiLineForMultiLine", ConditionProperties {
-        condition: Rc::new(Box::new(move |condition_context| {
+        condition: Rc::new(move |condition_context| {
             // todo: This is slightly confusing because it works on the "last" value rather than the current
             let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
             let start_info = condition_context.get_resolved_info(&start_info)?;
@@ -476,7 +476,7 @@ fn get_is_multi_line_for_multi_line(start_info: Info, value_datas: Rc<RefCell<Ve
                 last_allows_single_line,
                 has_multi_line_value,
             ))
-        })),
+        }),
         false_path: None,
         true_path: None,
     }, vec![end_info]);

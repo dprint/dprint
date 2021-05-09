@@ -45,8 +45,8 @@ impl WriteItemsPrinter {
         match item {
             WriteItem::Indent(times) => final_string.push_str(&self.indent_string.repeat(*times as usize)),
             WriteItem::NewLine => final_string.push_str(&self.new_line_text),
-            WriteItem::Tab => final_string.push_str("\t"),
-            WriteItem::Space => final_string.push_str(" "),
+            WriteItem::Tab => final_string.push('\t'),
+            WriteItem::Space => final_string.push(' '),
             WriteItem::String(text) => final_string.push_str(&text.text),
         }
     }

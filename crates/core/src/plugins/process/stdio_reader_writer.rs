@@ -49,7 +49,7 @@ impl<TRead: Read, TWrite: Write> StdIoReaderWriter<TRead, TWrite> {
         }
     }
 
-    pub fn read_success_bytes_with_message_on_error(&mut self, maybe_read_error_message: &Vec<u8>) -> Result<(), ErrBox> {
+    pub fn read_success_bytes_with_message_on_error(&mut self, maybe_read_error_message: &[u8]) -> Result<(), ErrBox> {
         let read_bytes = self.inner_read_success_bytes()?;
         if &read_bytes == SUCCESS_BYTES {
             Ok(())

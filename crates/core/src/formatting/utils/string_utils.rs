@@ -3,7 +3,7 @@ pub fn get_line_number_of_pos(text: &str, pos: usize) -> usize {
     let mut line_count = 1; // 1-indexed
 
     for i in 0..pos {
-        if text_bytes.get(i) == Some(&('\n' as u8)) {
+        if text_bytes.get(i) == Some(&(b'\n')) {
             line_count += 1;
         }
     }
@@ -19,7 +19,7 @@ pub fn get_column_number_of_pos(text: &str, pos: usize) -> usize {
 fn get_line_start_byte_pos(text: &str, pos: usize) -> usize {
     let text_bytes = text.as_bytes();
     for i in (0..pos).rev() {
-        if text_bytes.get(i) == Some(&('\n' as u8)) {
+        if text_bytes.get(i) == Some(&(b'\n')) {
             return i + 1;
         }
     }
@@ -43,7 +43,7 @@ pub fn format_diagnostic(range: Option<(usize, usize)>, message: &str, file_text
             .join("\n");
         result.push_str(&code);
     }
-    return result;
+    result
 }
 
 fn get_range_text_highlight(file_text: &str, byte_range: (usize, usize)) -> String {
@@ -61,13 +61,13 @@ fn get_range_text_highlight(file_text: &str, byte_range: (usize, usize)) -> Stri
         let is_last_line = i == line_count - 1;
         // don't show all the lines if there are more than 3 lines
         if i > 2 && !is_last_line { continue; }
-        if i > 0 { result.push_str("\n"); }
+        if i > 0 { result.push('\n'); }
         if i == 2 && !is_last_line {
             result.push_str("...");
             continue;
         }
         result.push_str(line);
-        result.push_str("\n");
+        result.push('\n');
 
         let start_char_index = if i == 0 { get_column_number_of_pos(sub_text, error_start) - 1 } else { 0 };
         let end_char_index = if is_last_line { get_column_number_of_pos(sub_text, error_end) - 1 } else { line.chars().count() };

@@ -38,7 +38,7 @@ impl<'a, TTokenCollection> TokenFinder<TTokenCollection> where TTokenCollection 
         is_match: impl FnOnce(&'a TTokenCollection::TToken) -> bool
     ) -> Option<&'a TTokenCollection::TToken> {
         let next_token = self.get_next_token(end)?;
-        return if is_match(next_token) { Some(next_token) } else { None };
+        if is_match(next_token) { Some(next_token) } else { None }
     }
 
     #[inline]
@@ -53,7 +53,7 @@ impl<'a, TTokenCollection> TokenFinder<TTokenCollection> where TTokenCollection 
         is_match: impl FnOnce(&'a TTokenCollection::TToken) -> bool
     ) -> Option<&'a TTokenCollection::TToken> {
         let previous_token = self.get_previous_token(start)?;
-        return if is_match(&previous_token) { Some(previous_token) } else { None };
+        if is_match(&previous_token) { Some(previous_token) } else { None }
     }
 
     #[inline]
@@ -140,7 +140,7 @@ impl<'a, TTokenCollection> TokenFinder<TTokenCollection> where TTokenCollection 
             }
         }
 
-        return None;
+        None
     }
 
     pub fn get_first_token_after(

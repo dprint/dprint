@@ -134,7 +134,7 @@ impl PrintItems {
 
             return text;
 
-            fn get_line(text: String, indent_text: &String) -> String {
+            fn get_line(text: String, indent_text: &str) -> String {
                 format!("{}{}\n", indent_text, text)
             }
         }
@@ -378,7 +378,7 @@ impl PrintNodeCell {
             break;
         }
 
-        return current;
+        current
     }
 
     #[cfg(feature = "tracing")]
@@ -519,7 +519,7 @@ pub struct Condition {
     /// will store the condition and it will be retrievable via a condition resolver.
     pub(super) is_stored: bool,
     /// The condition to resolve.
-    pub(super) condition: Rc<Box<ConditionResolver>>,
+    pub(super) condition: Rc<ConditionResolver>,
     /// The items to print when the condition is true.
     pub(super) true_path: Option<PrintItemPath>,
     /// The items to print when the condition is false or undefined (not yet resolved).
@@ -540,7 +540,7 @@ impl Condition {
 
     pub fn new_true() -> Condition {
         Condition::new_internal("trueCondition", ConditionProperties {
-            condition: Rc::new(Box::new(|_| Some(true))),
+            condition: Rc::new(|_| Some(true)),
             true_path: None,
             false_path: None,
         }, None)
@@ -548,7 +548,7 @@ impl Condition {
 
     pub fn new_false() -> Condition {
         Condition::new_internal("falseCondition", ConditionProperties {
-            condition: Rc::new(Box::new(|_| Some(false))),
+            condition: Rc::new(|_| Some(false)),
             true_path: None,
             false_path: None,
         }, None)
@@ -641,7 +641,7 @@ impl ConditionReference {
 /// Properties for the condition.
 pub struct ConditionProperties {
     /// The condition to resolve.
-    pub condition: Rc<Box<ConditionResolver>>,
+    pub condition: Rc<ConditionResolver>,
     /// The items to print when the condition is true.
     pub true_path: Option<PrintItems>,
     /// The items to print when the condition is false or undefined (not yet resolved).

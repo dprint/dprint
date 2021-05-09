@@ -44,14 +44,13 @@ pub fn format(get_print_items: impl FnOnce() -> PrintItems, options: PrintOption
     increment_formatting_count();
     let print_items = get_print_items();
 
-    let result = with_bump_allocator_mut(|bump| {
+    with_bump_allocator_mut(|bump| {
         let result = print_with_allocator(bump, &print_items, &options);
         if decrement_formatting_count() {
             bump.reset();
         }
         result
-    });
-    result
+    })
 }
 
 /// Prints out the print items using the provided options.
@@ -71,7 +70,7 @@ pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
 fn print_with_allocator(bump: &Bump, print_items: &PrintItems, options: &PrintOptions) -> String {
     let write_items = Printer::new(
         bump,
-        print_items.first_node.clone(),
+        print_items.first_node,
         options.to_printer_options(),
     ).print();
     print_write_items(write_items, options.to_write_items_printer_options())

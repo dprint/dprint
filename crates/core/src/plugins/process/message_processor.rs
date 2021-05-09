@@ -165,9 +165,9 @@ fn create_resolved_config_result<TConfiguration: Clone + Serialize, THandler: Pr
     ))
 }
 
-fn get_resolved_config_result<'a, TConfiguration: Clone + Serialize>(
-    state: &'a MessageProcessorState<TConfiguration>,
-) -> Result<&'a ResolveConfigurationResult<TConfiguration>, ErrBox> {
+fn get_resolved_config_result<TConfiguration: Clone + Serialize>(
+    state: &MessageProcessorState<TConfiguration>,
+) -> Result<&ResolveConfigurationResult<TConfiguration>, ErrBox> {
     Ok(state.resolved_config_result.as_ref().ok_or("Expected the config to be resolved at this point.")?)
 }
 

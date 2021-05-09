@@ -1,6 +1,6 @@
 use super::print_items::*;
 
-// todo: the condition resolvers that only accept a condition_context should be lazy static and of type Rc<Box<ConditionResolver>>
+// todo: the condition resolvers that only accept a condition_context should be lazy static and of type Rc<ConditionResolver>
 
 pub fn is_start_of_line(condition_context: &ConditionResolverContext) -> bool {
     condition_context.writer_info.is_start_of_line()
@@ -40,22 +40,22 @@ pub fn are_infos_not_equal(condition_context: &mut ConditionResolverContext, sta
 pub fn are_infos_equal(condition_context: &mut ConditionResolverContext, start_info: &Info, end_info: &Info) -> Option<bool> {
     let start_info = condition_context.get_resolved_info(start_info)?;
     let end_info = condition_context.get_resolved_info(end_info)?;
-    return Some(start_info.line_number == end_info.line_number
-        && start_info.column_number == end_info.column_number);
+    Some(start_info.line_number == end_info.line_number
+        && start_info.column_number == end_info.column_number)
 }
 
 pub fn is_at_same_position(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
     let start_info = condition_context.get_resolved_info(start_info)?;
-    return Some(start_info.line_number == condition_context.writer_info.line_number
-        && start_info.column_number == condition_context.writer_info.column_number);
+    Some(start_info.line_number == condition_context.writer_info.line_number
+        && start_info.column_number == condition_context.writer_info.column_number)
 }
 
 pub fn is_on_same_line(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
     let start_info = condition_context.get_resolved_info(start_info)?;
-    return Some(start_info.line_number == condition_context.writer_info.line_number);
+    Some(start_info.line_number == condition_context.writer_info.line_number)
 }
 
 pub fn is_on_different_line(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
     let start_info = condition_context.get_resolved_info(start_info)?;
-    return Some(start_info.line_number != condition_context.writer_info.line_number);
+    Some(start_info.line_number != condition_context.writer_info.line_number)
 }

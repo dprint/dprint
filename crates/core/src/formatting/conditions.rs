@@ -30,7 +30,7 @@ pub struct NewLineIfHangingSpaceOtherwiseOptions {
 }
 
 pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseOptions) -> Condition {
-    let space_char = opts.space_char.unwrap_or(" ".into());
+    let space_char = opts.space_char.unwrap_or_else(|| " ".into());
     let start_info = opts.start_info;
     let end_info = opts.end_info;
 
@@ -54,10 +54,10 @@ pub fn new_line_if_hanging(start_info: Info, end_info: Option<Info>) -> Conditio
 /// this condition exists at once the provided info is resolved.
 pub fn force_reevaluation_once_resolved(info: Info) -> Condition {
     Condition::new("forceReevaluationOnceInfoResolved", ConditionProperties {
-        condition: Rc::new(Box::new(move |context| {
+        condition: Rc::new(move |context| {
             let resolved_info = context.get_resolved_info(&info);
             if resolved_info.is_some() { Some(false) } else { None }
-        })),
+        }),
         true_path: None,
         false_path: None,
     })
@@ -76,7 +76,7 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, 
                 }
             };
 
-            return Some(end_info.line_number > start_info.line_number);
+            Some(end_info.line_number > start_info.line_number)
         },
         Signal::NewLine.into(),
         Signal::SpaceOrNewLine.into(),
@@ -101,11 +101,11 @@ pub fn if_above_width(width: u8, items: PrintItems) -> Condition {
 /// the specified width or prints the false_items otherwise.
 pub fn if_above_width_or(width: u8, true_items: PrintItems, false_items: PrintItems) -> Condition {
     Condition::new("ifAboveWidth", ConditionProperties {
-        condition: Rc::new(Box::new(move |context| {
+        condition: Rc::new(move |context| {
             let writer_info = &context.writer_info;
             let first_indent_col = writer_info.line_start_column_number + (width as u32);
             Some(writer_info.column_number > first_indent_col)
-        })),
+        }),
         true_path: Some(true_items),
         false_path: if false_items.is_empty() { None } else { Some(false_items) }
     })

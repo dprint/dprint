@@ -69,7 +69,7 @@ pub fn parse_raw_string_trim_line_ends(text: &str) -> PrintItems {
 }
 
 fn parse_raw_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> PrintItems {
-    let add_ignore_indent = text.find("\n").is_some();
+    let add_ignore_indent = text.contains('\n');
     let mut items = PrintItems::new();
     if add_ignore_indent { items.push_signal(Signal::StartIgnoringIndent); }
     items.extend(parse_string_lines(text, parse_line));
@@ -99,7 +99,7 @@ fn parse_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> Pr
     }
 
     // using .lines() will remove the last line, so add it back if it exists
-    if text.ends_with("\n") {
+    if text.ends_with('\n') {
         items.push_signal(Signal::NewLine)
     }
 
@@ -108,7 +108,7 @@ fn parse_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> Pr
 
 fn parse_string_line(line: &str) -> PrintItems {
     let mut items = PrintItems::new();
-    for (i, line) in line.split("\t").enumerate() {
+    for (i, line) in line.split('\t').enumerate() {
         if i > 0 {
             items.push_signal(Signal::Tab);
         }
@@ -142,13 +142,13 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
             items.extend(inner_items.into());
             items
         }),
-        condition: Rc::new(Box::new(move |context| {
+        condition: Rc::new(move |context| {
             // clear the end info when the start info changes
             if context.has_info_moved(&start_info)? {
                 context.clear_info(&end_info);
             }
             condition_resolvers::is_multiple_lines(context, &start_info, &end_info)
-        }))
+        })
     }, vec![end_info]));
     items.push_info(end_info);
 
@@ -164,7 +164,7 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
 
     fn get_comment_text(original_text: &str, force_space_after_slashes: bool) -> String {
         let non_slash_index = get_first_non_slash_index(&original_text);
-        let skip_space = force_space_after_slashes && original_text.chars().skip(non_slash_index).next() == Some(' ');
+        let skip_space = force_space_after_slashes && original_text.chars().nth(non_slash_index) == Some(' ');
         let start_text_index = if skip_space { non_slash_index + 1 } else { non_slash_index };
         let comment_text_original = &original_text[start_text_index..]; // pref: ok to index here since slashes are 1 byte each
         let comment_text = comment_text_original.trim_end();
@@ -198,7 +198,7 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
 /// Parses the provided text to a JS-like comment block (ex. `/** some text */`)
 pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
     let mut items = PrintItems::new();
-    let add_ignore_indent = text.find("\n").is_some();
+    let add_ignore_indent = text.contains('\n');
     let last_line_trailing_whitespace = get_last_line_trailing_whitespace(&text);
 
     items.push_str("/*");
@@ -206,7 +206,7 @@ pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
     items.extend(parse_string_trim_line_ends(text));
 
     // add back the last line's trailing whitespace
-    if last_line_trailing_whitespace.len() > 0 {
+    if !last_line_trailing_whitespace.is_empty() {
         items.push_str(last_line_trailing_whitespace);
     }
 
@@ -215,7 +215,7 @@ pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
 
     return items;
 
-    fn get_last_line_trailing_whitespace<'a>(text: &'a str) -> &'a str {
+    fn get_last_line_trailing_whitespace(text: &str) -> &str {
         let end_text = &text[text.trim_end().len()..];
         if let Some(last_index) = end_text.rfind('\n') {
             &end_text[last_index + 1..]
@@ -247,6 +247,6 @@ pub fn text_has_dprint_ignore(text: &str, searching_text: &str) -> bool {
                 return char_after.is_alphanumeric();
             }
         }
-        return false;
+        false
     }
 }

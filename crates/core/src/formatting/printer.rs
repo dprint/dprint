@@ -399,13 +399,13 @@ impl<'a> Printer<'a> {
         }
 
         if condition_value.is_some() && condition_value.unwrap() {
-            if let Some(true_path) = &condition.true_path {
+            if let Some(true_path) = condition.true_path {
                 self.current_node = Some(true_path.clone());
                 self.next_node_stack.push(next_node.clone());
                 self.skip_moving_next = true;
             }
         } else {
-            if let Some(false_path) = &condition.false_path {
+            if let Some(false_path) = condition.false_path {
                 self.current_node = Some(false_path.clone());
                 self.next_node_stack.push(next_node.clone());
                 self.skip_moving_next = true;
@@ -441,10 +441,10 @@ impl<'a> Printer<'a> {
     #[cfg(debug_assertions)]
     fn validate_string(&self, text: &str) {
         // The parser_helpers::parse_raw_string(...) helper function might be useful if you get either of these panics.
-        if text.contains("\t") {
+        if text.contains('\t') {
             panic!("Debug panic! Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}", text);
         }
-        if text.contains("\n") {
+        if text.contains('\n') {
             panic!("Debug panic! Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}", text);
         }
     }

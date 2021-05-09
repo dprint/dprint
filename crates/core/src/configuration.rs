@@ -257,19 +257,19 @@ pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'s
             let mut found_slash_n = false;
             for c in file_text.as_bytes().iter().rev() {
                 if found_slash_n {
-                    if c == &('\r' as u8) {
+                    if c == &(b'\r') {
                         return "\r\n";
                     } else {
                         return "\n";
                     }
                 }
 
-                if c == &('\n' as u8) {
+                if c == &(b'\n') {
                     found_slash_n = true;
                 }
             }
 
-            return "\n";
+            "\n"
         },
         NewLineKind::System => {
             if cfg!(windows) {
