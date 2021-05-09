@@ -80,7 +80,7 @@ jobs:
       uses: joncloud/makensis-action@v2.0
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       with:
-        script-file: ${{ github.workspace }}/scripts/installer/dprint-installer.nsi
+        script-file: ${{ github.workspace }}/deployment/installer/dprint-installer.nsi
 
     # PRE-RELEASE
     - name: Pre-release (Linux)
@@ -102,7 +102,7 @@ jobs:
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       run: |
           Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip
-          mv scripts/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/release/dprint-x86_64-pc-windows-msvc-installer.exe
+          mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/release/dprint-x86_64-pc-windows-msvc-installer.exe
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
           echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
 
