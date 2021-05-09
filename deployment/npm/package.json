@@ -2,7 +2,7 @@
   "name": "dprint",
   "version": "0.13.1",
   "description": "Pluggable and configurable code formatting platform written in Rust.",
-  "main": "index.js",
+  "bin": "bin.js",
   "scripts": {
     "postinstall": "node ./install.js"
   },

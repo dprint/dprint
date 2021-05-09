@@ -10,22 +10,20 @@ const version = "0.13.1";
 
 if (os.platform() === "win32") {
     if (!fs.existsSync("dprint.exe")) {
-        const child = child_process.spawn("powershell.exe", [
+        const result = child_process.spawnSync("powershell.exe", [
             "-noprofile",
             "-file",
             path.join(__dirname, "install.ps1"),
             version,
-        ]);
-        child.stdout.on("data", data => {
-            console.log(data.toString());
+        ], {
+            stdio: "inherit",
         });
-        child.stderr.on("data", data => {
-            console.error(data.toString());
-        });
-        child.stdin.end();
+        process.exitCode = result.status;
     }
 } else {
     if (!fs.existsSync("dprint")) {
-        child_process.exec(`./install.sh ${version}`);
+        const installScriptPath = path.join(__dirname, "install.sh");
+        fs.chmodSync(installScriptPath, "755");
+        child_process.execSync(`${installScriptPath} ${version}`, { stdio: "inherit" });
     }
 }
