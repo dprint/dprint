@@ -6,7 +6,7 @@ use crossterm::event::{Event, KeyCode};
 struct SelectData<'a> {
     prompt: &'a str,
     item_hanging_indent: u16,
-    items: &'a Vec<String>,
+    items: &'a [String],
     active_index: usize,
 }
 
@@ -80,7 +80,7 @@ fn render_select(data: &SelectData) -> Vec<LoggerTextItem> {
         } else {
             " "
         });
-        text.push_str(" ");
+        text.push(' ');
         text.push_str(item_text);
         result.push(LoggerTextItem::HangingText {
             text,

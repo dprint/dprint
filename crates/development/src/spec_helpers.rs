@@ -70,7 +70,7 @@ pub fn run_specs(
         let file_path_buf = PathBuf::from(&spec.file_name);
         let format = |file_text: &str| {
             format_text(&file_path_buf, &file_text, &spec.config)
-                .expect(&format!("Could not parse spec '{}' in {}", spec.message, file_path))
+                .unwrap_or_else(|_| panic!("Could not parse spec '{}' in {}", spec.message, file_path))
         };
 
         if spec.is_trace {

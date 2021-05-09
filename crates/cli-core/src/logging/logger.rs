@@ -64,7 +64,7 @@ impl Logger {
         self.inner_log(&mut state, false, text, context_name);
     }
 
-    pub fn log_text_items(&self, text_items: &Vec<LoggerTextItem>, context_name: &str, terminal_width: Option<u16>) {
+    pub fn log_text_items(&self, text_items: &[LoggerTextItem], context_name: &str, terminal_width: Option<u16>) {
         let text = render_text_items_with_width(text_items, terminal_width);
         self.log(&text, context_name);
     }
@@ -83,8 +83,8 @@ impl Logger {
         output_text.push_str(text);
 
         // only add a newline if the logged text does not end with one
-        if !output_text.ends_with("\n") {
-            output_text.push_str("\n");
+        if !output_text.ends_with('\n') {
+            output_text.push('\n');
         }
 
         if is_std_out {
@@ -185,7 +185,7 @@ impl Logger {
 }
 
 /// Renders the text items with the specified width.
-pub fn render_text_items_with_width(text_items: &Vec<LoggerTextItem>, terminal_width: Option<u16>) -> String {
+pub fn render_text_items_with_width(text_items: &[LoggerTextItem], terminal_width: Option<u16>) -> String {
     render_text_items_to_lines(text_items.iter(), terminal_width).join("\n")
 }
 
@@ -287,7 +287,7 @@ enum WordToken<'a> {
     NewLine,
 }
 
-fn tokenize_words<'a>(text: &'a str) -> Vec<WordToken<'a>> {
+fn tokenize_words(text: &str) -> Vec<WordToken> {
     // todo: how to write an iterator version?
     let mut start_index = 0;
     let mut tokens = Vec::new();
@@ -306,10 +306,8 @@ fn tokenize_words<'a>(text: &'a str) -> Vec<WordToken<'a>> {
             }
 
             start_index = index + c.len_utf8(); // start at next char
-        } else {
-            if !c.is_ascii_control() {
-                word_width += 1;
-            }
+        } else if !c.is_ascii_control() {
+            word_width += 1;
         }
     }
     if word_width > 0 {

@@ -24,7 +24,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     let file_text = file_text.replace("\r\n", "\n");
     let (file_path, file_text) = parse_file_path(file_text, options);
     let (config, file_text) = parse_config(file_text);
-    let lines = file_text.split("\n").collect();
+    let lines = file_text.split('\n').collect::<Vec<_>>();
     let spec_starts = get_spec_starts(&file_path, &lines);
     let mut specs = Vec::new();
 
@@ -57,8 +57,8 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
         let config_text = file_text["~~".len()..last_index].replace("\n", "");
         let mut config: HashMap<String, String> = HashMap::new();
 
-        for item in config_text.split(",") {
-            let first_colon = item.find(":").expect("Could not find colon in config option.");
+        for item in config_text.split(',') {
+            let first_colon = item.find(':').expect("Could not find colon in config option.");
             let key = item[0..first_colon].trim();
             let value = item[first_colon + ":".len()..].trim();
 
@@ -68,7 +68,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
         (config, file_text[(last_index + "~~\n".len())..].into())
     }
 
-    fn get_spec_starts(file_name: &str, lines: &Vec<&str>) -> Vec<usize> {
+    fn get_spec_starts(file_name: &str, lines: &[&str]) -> Vec<usize> {
         let mut result = Vec::new();
         let message_separator = get_message_separator(file_name);
 
@@ -76,8 +76,8 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
             panic!("All spec files should start with a message. (ex. {0} Message {0})", message_separator);
         }
 
-        for i in 0..lines.len() {
-            if lines[i].starts_with(message_separator) {
+        for (i, line) in lines.iter().enumerate() {
+            if line.starts_with(message_separator) {
                 result.push(i);
             }
         }
@@ -92,28 +92,28 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
         let expected_text = parts[1]["\n".len()..].into(); // remove first newline
         let lower_case_message_line = message_line.to_ascii_lowercase();
         let message_separator = get_message_separator(file_name);
-        let is_trace = lower_case_message_line.find("(trace)").is_some();
+        let is_trace = lower_case_message_line.contains("(trace)");
 
         Spec {
             file_name: String::from(file_name),
             message: message_line[message_separator.len()..message_line.len() - message_separator.len()].trim().into(),
             file_text: start_text,
             expected_text,
-            is_only: lower_case_message_line.find("(only)").is_some() || is_trace,
+            is_only: lower_case_message_line.contains("(only)") || is_trace,
             is_trace,
-            skip: lower_case_message_line.find("(skip)").is_some(),
-            skip_format_twice: lower_case_message_line.find("(skip-format-twice)").is_some(),
-            show_tree: lower_case_message_line.find("(tree)").is_some(),
+            skip: lower_case_message_line.contains("(skip)"),
+            skip_format_twice: lower_case_message_line.contains("(skip-format-twice)"),
+            show_tree: lower_case_message_line.contains("(tree)"),
             config: config.clone(),
         }
     }
 
     fn get_message_separator(file_name: &str) -> &'static str {
-        return if file_name.ends_with(".md") {
+        if file_name.ends_with(".md") {
             "!!"
         } else {
             "=="
-        };
+        }
     }
 }
 

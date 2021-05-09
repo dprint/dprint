@@ -124,9 +124,9 @@ impl ProgressBars {
                     let terminal_width = crate::terminal::get_terminal_width().unwrap();
                     let mut text = String::new();
                     for (i, progress_bar) in internal_state.progress_bars.iter().enumerate() {
-                        if i > 0 { text.push_str("\n"); }
+                        if i > 0 { text.push('\n'); }
                         text.push_str(&progress_bar.message);
-                        text.push_str("\n");
+                        text.push('\n');
                         text.push_str(&get_progress_bar_text(
                             terminal_width,
                             *progress_bar.pos.read(),
@@ -170,7 +170,7 @@ fn get_progress_bar_text(terminal_width: u16, pos: usize, total: usize, pb_style
     } else {
         text.push_str(&format!("{}", "#".repeat(completed_bars).cyan()))
     }
-    text.push_str("]");
+    text.push(']');
 
     // bytes text
     text.push_str(&bytes_text);

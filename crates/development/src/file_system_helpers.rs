@@ -29,14 +29,12 @@ pub fn get_files_in_dir_recursive(path: &Path) -> Vec<(String, String)> {
     fn read_dir_recursively(dir_path: &Path) -> Vec<(String, String)> {
         let mut result = Vec::new();
 
-        for entry in dir_path.read_dir().expect("read dir failed") {
-            if let Ok(entry) = entry {
-                let entry_path = entry.path();
-                if entry_path.is_file() {
-                    result.push((entry_path.to_str().unwrap().into(), fs::read_to_string(entry_path).unwrap().into()));
-                } else {
-                    result.extend(read_dir_recursively(&entry_path));
-                }
+        for entry in dir_path.read_dir().expect("read dir failed").flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_file() {
+                result.push((entry_path.to_str().unwrap().into(), fs::read_to_string(entry_path).unwrap()));
+            } else {
+                result.extend(read_dir_recursively(&entry_path));
             }
         }
 
