@@ -17,6 +17,7 @@ if (os.platform() === "win32") {
             version,
         ], {
             stdio: "inherit",
+            cwd: __dirname,
         });
         process.exitCode = result.status;
     }
@@ -24,6 +25,9 @@ if (os.platform() === "win32") {
     if (!fs.existsSync("dprint")) {
         const installScriptPath = path.join(__dirname, "install.sh");
         fs.chmodSync(installScriptPath, "755");
-        child_process.execSync(`${installScriptPath} ${version}`, { stdio: "inherit" });
+        child_process.execSync(`${installScriptPath} ${version}`, {
+            stdio: "inherit",
+            cwd: __dirname,
+        });
     }
 }
