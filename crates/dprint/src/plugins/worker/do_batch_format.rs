@@ -122,7 +122,6 @@ fn do_local_work<TEnvironment: Environment, F>(
     let mut current_plugin = current_plugin;
 
     loop {
-        let mut should_release = false;
         let (pool, file_path) = {
             let mut local_work = worker.local_work.write();
             if let Some(work_by_plugin) = local_work.work_by_plugin.get_mut(0) {
@@ -130,10 +129,11 @@ fn do_local_work<TEnvironment: Environment, F>(
                 let file_path = work_by_plugin.items.dequeue().unwrap().to_owned();
                 if work_by_plugin.items.len() == 0 {
                     local_work.work_by_plugin.remove(0);
-                    should_release = true;
                 }
                 (pool, file_path)
             } else {
+                // release the current plugin before exiting
+                release_current_plugin(&mut current_plugin, worker);
                 return Ok(()); // finished the local work
             }
         };
@@ -141,9 +141,7 @@ fn do_local_work<TEnvironment: Environment, F>(
         // release the current plugin if it's changed
         if let Some((_, current_pool)) = current_plugin.as_ref() {
             if current_pool.name() != pool.name() {
-                if let Some((current_plugin, pool)) = current_plugin.take() {
-                    pool.release(current_plugin);
-                }
+                release_current_plugin(&mut current_plugin, worker);
             }
         }
 
@@ -168,15 +166,17 @@ fn do_local_work<TEnvironment: Environment, F>(
         let plugin_and_pool = current_plugin.as_mut().unwrap();
 
         action(&plugin_and_pool.1, &file_path, &mut plugin_and_pool.0);
+    }
 
-        // are we all done local work for this plugin?
-        if should_release {
-            if let Some((current_plugin, pool)) = current_plugin.take() {
-                pool.release(current_plugin);
+    fn release_current_plugin<TEnvironment: Environment>(
+        current_plugin: &mut Option<(Box<dyn InitializedPlugin>, Arc<InitializedPluginPool<TEnvironment>>)>,
+        worker: &Worker<TEnvironment>,
+    ) {
+        if let Some((current_plugin, pool)) = current_plugin.take() {
+            pool.release(current_plugin);
 
-                // if no other worker is working on this pool, then release the pool's resources
-                worker.registry.release_pool_if_no_work_in_registry(worker.id, pool.name());
-            }
+            // if no other worker is working on this pool, then release the pool's resources
+            worker.registry.release_pool_if_no_work_in_registry(worker.id, pool.name());
         }
     }
 }
