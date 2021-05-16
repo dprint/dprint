@@ -560,7 +560,7 @@ fn run_parallelized<F, TEnvironment: Environment>(
 ) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
     let error_logger = ErrorCountLogger::from_environment(environment);
 
-    do_batch_format(&error_logger, &plugin_pools, file_paths_by_plugin, {
+    do_batch_format(environment, &error_logger, &plugin_pools, file_paths_by_plugin, {
         let environment = environment.clone();
         let incremental_file = incremental_file.clone();
         let error_logger = error_logger.clone();
