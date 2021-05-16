@@ -194,14 +194,12 @@ jobs:
             }
           }
 
-    - uses: finnp/create-file-action@1.0.0
-      env:
-        FILE_NAME: SHASUMS256.txt
-        FILE_DATA: |
-          ${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip
-          ${{needs.build.outputs.LINUX_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip
-          ${{needs.build.outputs.MAC_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip
-          ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe
+    - name: Create SHASUM256.txt file
+      run: |
+        echo "${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip" > SHASUM256.txt
+        echo "${{needs.build.outputs.LINUX_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip" >> SHASUM256.txt
+        echo "${{needs.build.outputs.MAC_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip" >> SHASUM256.txt
+        echo "${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe" >> SHASUM256.txt
 
     - name: Get bvm.json checksum
       id: get_bvm_checksum

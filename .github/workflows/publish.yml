@@ -42,7 +42,7 @@ jobs:
         cd crates/dprint
         cargo publish
 
-    - name: NPM publish
+    - name: npm publish
       env:
         NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       run: |
