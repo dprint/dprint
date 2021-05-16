@@ -5,7 +5,7 @@ description: Information on sponsoring dprint.
 
 # Sponsor
 
-dprint's CLI is open source and free, but strongly encourages sponsorship from for-project companies and individuals in order to help drive its development forward.
+dprint's CLI is open source and free, but strongly encourages sponsorship from for-profit companies and individuals in order to help drive its development forward.
 
 ## PayPay
 
