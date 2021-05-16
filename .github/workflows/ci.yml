@@ -38,13 +38,13 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: 1.49.0
+        toolchain: 1.52.0
         override: true
     - name: Install wasm32 target
       run: rustup target add wasm32-unknown-unknown
 
     # CACHE SETUP
-    # todo: Renable. Caching was causing failed builds...
+    # todo: Re-enable. Caching was causing failed builds...
     # - name: Cache cargo
     #  uses: actions/cache@v2
     #  with:
@@ -194,6 +194,15 @@ jobs:
             }
           }
 
+    - uses: finnp/create-file-action@1.0.0
+      env:
+        FILE_NAME: SHASUMS256.txt
+        FILE_DATA: |
+          ${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip
+          ${{needs.build.outputs.LINUX_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip
+          ${{needs.build.outputs.MAC_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip
+          ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe
+
     - name: Get bvm.json checksum
       id: get_bvm_checksum
       run: echo "::set-output name=CHECKSUM::$(shasum -a 256 bvm.json | awk '{print $1}')"
@@ -210,6 +219,7 @@ jobs:
           mac-artifacts/dprint-x86_64-apple-darwin.zip
           mac-artifacts/dprint-x86_64-apple-darwin.tar.gz
           bvm.json
+          SHASUMS256.txt
         body: |
           ## Changes
 

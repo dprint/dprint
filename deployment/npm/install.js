@@ -6,15 +6,21 @@ const os = require("os");
 const path = require("path");
 const child_process = require("child_process");
 
-const version = "0.13.1";
+const info = JSON.parse(fs.readFileSync(path.join(__dirname, "info.json"), "utf8"));
+const platform = os.platform();
 
-if (os.platform() === "win32") {
+if (os.arch() !== "x64") {
+    throw new Error("Unsupported architecture " + os.arch() + ". Only x64 binaries are available.");
+}
+
+if (platform === "win32") {
     if (!fs.existsSync("dprint.exe")) {
         const result = child_process.spawnSync("powershell.exe", [
             "-noprofile",
             "-file",
             path.join(__dirname, "install.ps1"),
-            version,
+            info.version,
+            getZipChecksum(),
         ], {
             stdio: "inherit",
             cwd: __dirname,
@@ -25,9 +31,20 @@ if (os.platform() === "win32") {
     if (!fs.existsSync("dprint")) {
         const installScriptPath = path.join(__dirname, "install.sh");
         fs.chmodSync(installScriptPath, "755");
-        child_process.execSync(`${installScriptPath} ${version}`, {
+        child_process.execSync(`${installScriptPath} ${info.version} ${getZipChecksum()}`, {
             stdio: "inherit",
             cwd: __dirname,
         });
+    }
+}
+
+function getZipChecksum() {
+    switch (platform) {
+        case "win32":
+            return info.checksums.windows;
+        case "darwin":
+            return info.checksums.mac;
+        default:
+            return info.checksums.linux;
     }
 }
