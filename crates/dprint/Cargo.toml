@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.13.1"
+version = "0.14.0"
 authors = ["dprint code formatting <david@dprint.dev>"]
 edition = "2018"
 license = "MIT"
