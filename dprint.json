@@ -3,12 +3,6 @@
   "projectType": "openSource",
   "incremental": true,
   "lineWidth": 160,
-  "typescript": {
-    "singleBodyPosition": "nextLine",
-    "preferHanging": true,
-    "semiColons": "always",
-    "arrowFunction.useParentheses": "preferNone"
-  },
   "includes": [
     "**/*.{ts,tsx,js,jsx,json,md,html,scss,css}"
   ],
@@ -21,9 +15,9 @@
     "**/*-lock.json"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.40.3.wasm",
-    "https://plugins.dprint.dev/json-0.8.0.wasm",
-    "https://plugins.dprint.dev/markdown-0.5.1.wasm",
+    "https://plugins.dprint.dev/typescript-0.45.0.wasm",
+    "https://plugins.dprint.dev/json-0.10.2.wasm",
+    "https://plugins.dprint.dev/markdown-0.7.1.wasm",
     "https://plugins.dprint.dev/prettier-0.2.1.exe-plugin@c051918d0c4cf082b5ccdf92e89af3dcb2859e18f75073ba16dda6366e493a03"
   ]
 }

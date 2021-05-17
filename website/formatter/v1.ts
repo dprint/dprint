@@ -217,7 +217,7 @@ export function createFromInstance(wasmInstance: WebAssembly.Instance): Formatte
         function getPluginConfigWithStringProps() {
             // Need to convert all the properties to strings so
             // they can be deserialized to a HashMap<String, String>.
-            const newPluginConfig: { [key: string]: string; } = {};
+            const newPluginConfig: { [key: string]: string } = {};
             for (const key of Object.keys(pluginConfig)) {
                 newPluginConfig[key] = (pluginConfig as any)[key].toString();
             }
