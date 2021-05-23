@@ -6,10 +6,10 @@ use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult
 use dprint_core::{err_obj, err};
 use dprint_core::types::ErrBox;
 use dprint_core::plugins::{PluginHandler, PluginInfo};
-use dprint_core::plugins::process::{handle_process_stdio_messages, start_parent_process_checker_thread};
+use dprint_core::plugins::process::{get_parent_process_id_from_cli_args, handle_process_stdio_messages, start_parent_process_checker_thread};
 
 fn main() -> Result<(), ErrBox> {
-    if let Some(parent_process_id) = get_parent_process_id_from_args() {
+    if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
         start_parent_process_checker_thread(String::from(env!("CARGO_PKG_NAME")), parent_process_id);
     }
 
@@ -83,17 +83,4 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
             Ok(format!("{}_{}", file_text, config.ending))
         }
     }
-}
-
-fn get_parent_process_id_from_args() -> Option<u32> {
-    let args: Vec<String> = std::env::args().collect();
-    for i in 0..args.len() {
-        if args[i] == "--parent-pid" {
-            if let Some(parent_pid) = args.get(i + 1) {
-                return parent_pid.parse::<u32>().map(|x| Some(x)).unwrap_or(None);
-            }
-        }
-    }
-
-    return None;
 }
