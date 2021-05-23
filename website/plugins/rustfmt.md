@@ -14,29 +14,15 @@ description: Documentation on the rustfmt code formatting plugin for dprint.
 
 Wrapper plugin that formats Rust code via [rustfmt](https://github.com/rust-lang/rustfmt).
 
+<div class="message is-warning">
+  <div class="message-body">
+    This is a process plugin. Using this will cause the CLI to download, run, and communicate with a separate process that is not sandboxed (unlike Wasm plugins).
+  </div>
+</div>
+
 ## Install and Setup
 
-In dprint configuration file:
-
-1. Specify the plugin url in the `"plugins"` array.
-2. Ensure `.rs` file extensions are matched in an `"includes"` pattern.
-3. Add a `"rustfmt"` configuration property if desired.
-
-```jsonc
-{
-  // ...etc...
-  "rustfmt": {
-    "brace_style": "AlwaysNextLine"
-  },
-  "includes": [
-    "**/*.{rs}"
-  ],
-  "plugins": [
-    // ...etc...
-    "https://plugins.dprint.dev/rustfmt-x.x.x.wasm"
-  ]
-}
-```
+Follow the instructions at [https://github.com/dprint/dprint-plugin-rustfmt/releases/](https://github.com/dprint/dprint-plugin-rustfmt/releases/)
 
 ## Configuration
 
