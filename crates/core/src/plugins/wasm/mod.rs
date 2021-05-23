@@ -1,6 +1,3 @@
-mod wasm_plugin;
-pub use wasm_plugin::*;
-
 /// The plugin system schema version that is incremented
 /// when there are any breaking changes.
 pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 3;
@@ -34,7 +31,7 @@ pub mod macros {
 
             // HOST FORMATTING
 
-            fn format_with_host(file_path: &std::path::Path, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, String> {
+            fn format_with_host(file_path: &std::path::Path, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, ErrBox> {
                 #[link(wasm_import_module = "dprint")]
                 extern "C" {
                     fn host_clear_bytes(length: u32);
@@ -75,7 +72,7 @@ pub mod macros {
                     2 => { // error
                         let length = unsafe { host_get_error_text() };
                         let error_text = get_string_from_host(length);
-                        Err(error_text)
+                        Err(dprint_core::types::Error::new(error_text))
                     },
                     _ => unreachable!(),
                 };
@@ -138,7 +135,7 @@ pub mod macros {
                 let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
                 let file_text = take_string_from_shared_bytes();
 
-                let formatted_text = unsafe { WASM_PLUGIN.get().format_text(&file_path, &file_text, &config) };
+                let formatted_text = unsafe { WASM_PLUGIN.get().format_text(&file_path, &file_text, &config, format_with_host) };
                 match formatted_text {
                     Ok(formatted_text) => {
                         if formatted_text == file_text {
@@ -149,7 +146,7 @@ pub mod macros {
                         }
                     },
                     Err(err_text) => {
-                        unsafe { ERROR_TEXT.get().replace(err_text) };
+                        unsafe { ERROR_TEXT.get().replace(err_text.to_string()) };
                         2 // error
                     }
                 }
@@ -174,20 +171,14 @@ pub mod macros {
             #[no_mangle]
             pub fn get_plugin_info() -> usize {
                 use dprint_core::plugins::PluginInfo;
-                let info_json = serde_json::to_string(&PluginInfo {
-                    name: String::from(env!("CARGO_PKG_NAME")),
-                    version: String::from(env!("CARGO_PKG_VERSION")),
-                    config_key: unsafe { WASM_PLUGIN.get().get_plugin_config_key() },
-                    file_extensions: unsafe { WASM_PLUGIN.get().get_plugin_file_extensions() },
-                    help_url: unsafe { WASM_PLUGIN.get().get_plugin_help_url() },
-                    config_schema_url: unsafe { WASM_PLUGIN.get().get_plugin_config_schema_url() },
-                }).unwrap();
+                let plugin_info = unsafe { WASM_PLUGIN.get().get_plugin_info() };
+                let info_json = serde_json::to_string(&plugin_info).unwrap();
                 set_shared_bytes_str(info_json)
             }
 
             #[no_mangle]
             pub fn get_license_text() -> usize {
-                set_shared_bytes_str(unsafe { WASM_PLUGIN.get().get_plugin_license_text() })
+                set_shared_bytes_str(unsafe { WASM_PLUGIN.get().get_license_text() })
             }
 
             #[no_mangle]

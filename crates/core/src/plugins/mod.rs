@@ -1,4 +1,5 @@
 mod plugin_info;
+mod plugin_handler;
 
 #[cfg(feature = "process")]
 pub mod process;
@@ -6,3 +7,4 @@ pub mod process;
 pub mod wasm;
 
 pub use plugin_info::*;
+pub use plugin_handler::*;

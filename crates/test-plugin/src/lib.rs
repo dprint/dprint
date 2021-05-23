@@ -1,8 +1,13 @@
+#[macro_use(err_obj)]
+#[macro_use(err)]
+extern crate dprint_core;
+
 use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use dprint_core::generate_plugin_code;
-use dprint_core::plugins::wasm::WasmPlugin;
+use dprint_core::types::ErrBox;
+use dprint_core::plugins::{PluginHandler, PluginInfo};
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -24,7 +29,7 @@ impl TestWasmPlugin {
     }
 }
 
-impl WasmPlugin<Configuration> for TestWasmPlugin {
+impl PluginHandler<Configuration> for TestWasmPlugin {
     fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
         let mut config = config;
         let mut diagnostics = Vec::new();
@@ -39,27 +44,28 @@ impl WasmPlugin<Configuration> for TestWasmPlugin {
         }
     }
 
-    fn get_plugin_config_key(&mut self) -> String {
-        String::from("test-plugin")
+    fn get_plugin_info(&mut self) -> PluginInfo {
+        PluginInfo {
+            name: env!("CARGO_PKG_NAME").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            config_key: "test-plugin".to_string(),
+            file_extensions: vec!["txt".to_string()],
+            help_url: "https://dprint.dev/plugins/test".to_string(),
+            config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string()
+        }
     }
 
-    fn get_plugin_file_extensions(&mut self) -> Vec<String> {
-        vec![String::from("txt")]
-    }
-
-    fn get_plugin_help_url(&mut self) -> String {
-        String::from("https://dprint.dev/plugins/test")
-    }
-
-    fn get_plugin_config_schema_url(&mut self) -> String {
-        String::from("https://plugins.dprint.dev/schemas/test.json")
-    }
-
-    fn get_plugin_license_text(&mut self) -> String {
+    fn get_license_text(&mut self) -> String {
         std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
     }
 
-    fn format_text(&mut self, _: &Path, file_text: &str, config: &Configuration) -> Result<String, String> {
+    fn format_text(
+        &mut self,
+        _: &Path,
+        file_text: &str,
+        config: &Configuration,
+        mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
+    ) -> Result<String, ErrBox> {
         if self.has_panicked {
             panic!("Previously panicked. Plugin should not have been used by the CLI again.")
         } else if file_text.starts_with("plugin: ") {
@@ -69,7 +75,7 @@ impl WasmPlugin<Configuration> for TestWasmPlugin {
             config_map.insert("ending".to_string(), "custom_config".into());
             format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin-config: ", ""), &config_map)
         } else if file_text == "should_error" {
-            Err(String::from("Did error."))
+            err!("Did error.")
         } else if file_text == "should_panic" {
             self.has_panicked = true;
             panic!("Test panic")

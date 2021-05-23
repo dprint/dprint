@@ -27,7 +27,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    }
    ```
 
-3. Implement `ProcessPluginHandler`
+3. Implement `PluginHandler`
 
    ```rust
    use std::path::PathBuf;
@@ -36,8 +36,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
    use dprint_core::err;
    use dprint_core::types::ErrBox;
-   use dprint_core::plugins::PluginInfo;
-   use dprint_core::plugins::process::ProcessPluginHandler;
+   use dprint_core::plugins::{PluginHandler, PluginInfo};
 
    use super::configuration::Configuration; // import the Configuration from above somehow
 
@@ -50,11 +49,11 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        }
    }
 
-   impl ProcessPluginHandler<Configuration> for MyProcessPluginHandler {
-       fn get_plugin_info(&self) -> PluginInfo {
+   impl PluginHandler<Configuration> for MyProcessPluginHandler {
+       fn get_plugin_info(&mut self) -> PluginInfo {
            PluginInfo {
-               name: String::from(env!("CARGO_PKG_NAME")),
-               version: String::from(env!("CARGO_PKG_VERSION")),
+               name: env!("CARGO_PKG_NAME").to_string(),
+               version: env!("CARGO_PKG_VERSION").to_string(),
                config_key: "keyGoesHere".to_string(),
                file_extensions: vec!["txt_ps".to_string()],
                help_url: "".to_string(), // fill this in
@@ -62,11 +61,11 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
            }
        }
 
-       fn get_license_text(&self) -> &str {
-           "License text goes here."
+       fn get_license_text(&mut self) -> String {
+           "License text goes here.".to_string()
        }
 
-       fn resolve_config(&self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+       fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
            // implement this... for example
            let mut config = config;
            let mut diagnostics = Vec::new();
@@ -80,12 +79,12 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
            }
        }
 
-       fn format_text<'a>(
-           &'a self,
+       fn format_text(
+           &mut self,
            file_path: &Path,
            file_text: &str,
            config: &Configuration,
-           format_with_host: Box<dyn FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>,
+           mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
        ) -> Result<String, ErrBox> {
            // format here
        }

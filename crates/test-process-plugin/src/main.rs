@@ -5,8 +5,8 @@ use serde::{Serialize, Deserialize};
 use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
 use dprint_core::{err_obj, err};
 use dprint_core::types::ErrBox;
-use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::process::{handle_process_stdio_messages, ProcessPluginHandler, start_parent_process_checker_thread};
+use dprint_core::plugins::{PluginHandler, PluginInfo};
+use dprint_core::plugins::process::{handle_process_stdio_messages, start_parent_process_checker_thread};
 
 fn main() -> Result<(), ErrBox> {
     if let Some(parent_process_id) = get_parent_process_id_from_args() {
@@ -32,8 +32,8 @@ impl TestProcessPluginHandler {
     }
 }
 
-impl ProcessPluginHandler<Configuration> for TestProcessPluginHandler {
-    fn get_plugin_info(&self) -> PluginInfo {
+impl PluginHandler<Configuration> for TestProcessPluginHandler {
+    fn get_plugin_info(&mut self) -> PluginInfo {
         PluginInfo {
             name: String::from(env!("CARGO_PKG_NAME")),
             version: String::from(env!("CARGO_PKG_VERSION")),
@@ -44,11 +44,11 @@ impl ProcessPluginHandler<Configuration> for TestProcessPluginHandler {
         }
     }
 
-    fn get_license_text(&self) -> &str {
-        "License text."
+    fn get_license_text(&mut self) -> String {
+        "License text.".to_string()
     }
 
-    fn resolve_config(&self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+    fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
         let mut config = config;
         let mut diagnostics = Vec::new();
         let ending = get_value(&mut config, "ending", String::from("formatted_process"), &mut diagnostics);
@@ -62,20 +62,18 @@ impl ProcessPluginHandler<Configuration> for TestProcessPluginHandler {
         }
     }
 
-    fn format_text<'a>(
-        &'a self,
+    fn format_text(
+        &mut self,
         _: &Path,
         file_text: &str,
         config: &Configuration,
-        format_with_host: Box<dyn FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>,
+        mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
     ) -> Result<String, ErrBox> {
         if file_text.starts_with("plugin: ") {
-            let mut format_with_host = format_with_host;
             format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""), &HashMap::new())
         } else if file_text.starts_with("plugin-config: ") {
             let mut config_map = HashMap::new();
             config_map.insert("ending".to_string(), "custom_config".into());
-            let mut format_with_host = format_with_host;
             format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin-config: ", ""), &config_map)
         } else if file_text == "should_error" {
             err!("Did error.")

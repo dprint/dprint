@@ -6,22 +6,9 @@ use serde::{Serialize};
 
 use crate::configuration::{GlobalConfiguration, ResolveConfigurationResult, ConfigKeyMap};
 use crate::types::ErrBox;
-use crate::plugins::PluginInfo;
+use crate::plugins::PluginHandler;
 use super::{MessageKind, StdIoMessenger, FormatResult, HostFormatResult, StdIoReaderWriter, PLUGIN_SCHEMA_VERSION,
     MessagePart, ResponseKind};
-
-pub trait ProcessPluginHandler<TConfiguration: Clone + Serialize> {
-    fn get_plugin_info(&self) -> PluginInfo;
-    fn get_license_text(&self) -> &str;
-    fn resolve_config(&self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
-    fn format_text<'a>(
-        &self,
-        file_path: &Path,
-        file_text: &str,
-        config: &TConfiguration,
-        format_with_host: Box<dyn FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox> + 'a>
-    ) -> Result<String, ErrBox>;
-}
 
 struct MessageProcessorState<TConfiguration: Clone + Serialize> {
     global_config: Option<GlobalConfiguration>,
@@ -30,8 +17,8 @@ struct MessageProcessorState<TConfiguration: Clone + Serialize> {
 }
 
 /// Handles the process' messages based on the provided handler.
-pub fn handle_process_stdio_messages<THandler: ProcessPluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(
-    handler: THandler
+pub fn handle_process_stdio_messages<THandler: PluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(
+    mut handler: THandler
 ) -> Result<(), ErrBox> {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -46,7 +33,7 @@ pub fn handle_process_stdio_messages<THandler: ProcessPluginHandler<TConfigurati
     loop {
         let message_kind = messenger.read_code()?.into();
 
-        match handle_message_kind(message_kind, &mut messenger, &handler, &mut state) {
+        match handle_message_kind(message_kind, &mut messenger, &mut handler, &mut state) {
             Err(err) => messenger.send_error_response(&err.to_string())?,
             Ok(true) => {},
             Ok(false) => return Ok(()),
@@ -54,10 +41,10 @@ pub fn handle_process_stdio_messages<THandler: ProcessPluginHandler<TConfigurati
     }
 }
 
-fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>>(
+fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler: PluginHandler<TConfiguration>>(
     message_kind: MessageKind,
     messenger: &mut StdIoMessenger<TRead, TWrite>,
-    handler: &THandler,
+    handler: &mut THandler,
     state: &mut MessageProcessorState<TConfiguration>,
 ) -> Result<bool, ErrBox> {
     match message_kind {
@@ -118,9 +105,9 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
                 &file_path,
                 &file_text,
                 &config,
-                Box::new(|file_path, file_text, override_config| {
+                |file_path, file_text, override_config| {
                     format_with_host(messenger, file_path, file_text, override_config)
-                })
+                }
             )?;
 
             if formatted_text == file_text {
@@ -139,8 +126,8 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
     Ok(true)
 }
 
-fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>>(
-    handler: &THandler,
+fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: PluginHandler<TConfiguration>>(
+    handler: &mut THandler,
     state: &mut MessageProcessorState<TConfiguration>,
 ) -> Result<(), ErrBox> {
     if state.resolved_config_result.is_none() {
@@ -150,8 +137,8 @@ fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: ProcessPl
     Ok(())
 }
 
-fn create_resolved_config_result<TConfiguration: Clone + Serialize, THandler: ProcessPluginHandler<TConfiguration>>(
-    handler: &THandler,
+fn create_resolved_config_result<TConfiguration: Clone + Serialize, THandler: PluginHandler<TConfiguration>>(
+    handler: &mut THandler,
     state: &MessageProcessorState<TConfiguration>,
     override_config: ConfigKeyMap,
 ) -> Result<ResolveConfigurationResult<TConfiguration>, ErrBox> {

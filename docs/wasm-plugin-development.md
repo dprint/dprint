@@ -46,12 +46,12 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        ConfigKeyMap,
    };
    use dprint_core::generate_plugin_code;
-   use dprint_core::plugins::wasm::WasmPlugin;
+   use dprint_core::plugins::{PluginHandler, PluginInfo};
 
    use crate::configuration::Configuration; // import the Configuration from above
 
    struct MyWasmPlugin {
-       // optionally add methods here
+       // optionally add fields here
    }
 
    impl MyWasmPlugin {
@@ -75,33 +75,34 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
            }
        }
 
-       fn get_plugin_config_key(&mut self) -> String {
-           // return the JSON object key name used in the configuration file
-           // ex. "json".to_string()
+       fn get_plugin_info(&mut self) -> PluginInfo {
+           PluginInfo {
+               name: env!("CARGO_PKG_NAME").to_string(),
+               version: env!("CARGO_PKG_VERSION").to_string(),
+                // return the JSON object key name used in the configuration file
+               config_key: "test-plugin".to_string(),
+                // file extensions this plugin supports
+               file_extensions: vec!["txt".to_string()],
+                // the help url of the plugin
+               help_url: "https://dprint.dev/plugins/my-plugin".to_string(),
+               // for now, use an empty string. Return a schema url once VSCode
+               // supports $schema properties in descendant objects:
+               // https://github.com/microsoft/vscode/issues/98443
+               config_schema_url: "".to_string()
+           }
        }
 
-       fn get_plugin_file_extensions(&mut self) -> Vec<String> {
-           // return the file extensions this plugin will format
-           // ex. vec!["json".to_string()]
-       }
-
-       fn get_plugin_help_url(&mut self) -> String {
-           // return the help url of the plugin
-           // ex. "https://dprint.dev/plugins/json".to_string()
-       }
-
-       fn get_plugin_config_schema_url(&mut self) -> String {
-           // for now, return an empty string. Return a schema url once VSCode
-           // supports $schema properties in descendant objects:
-           // https://github.com/microsoft/vscode/issues/98443
-           String::new()
-       }
-
-       fn get_plugin_license_text(&mut self) -> String {
+       fn get_license_text(&mut self) -> String {
            std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
        }
 
-       fn format_text(&mut self, file_path: &Path, file_text: &str, config: &Configuration) -> Result<String, String> {
+       fn format_text(
+           &mut self,
+           file_path: &Path,
+           file_text: &str,
+           config: &Configuration,
+           mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
+       ) -> Result<String, String> {
            // implement...
        }
    }
