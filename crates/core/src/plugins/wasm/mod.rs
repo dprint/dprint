@@ -1,3 +1,6 @@
+mod wasm_plugin;
+pub use wasm_plugin::*;
+
 /// The plugin system schema version that is incremented
 /// when there are any breaking changes.
 pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 3;
@@ -6,7 +9,29 @@ pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 3;
 pub mod macros {
     #[macro_export]
     macro_rules! generate_plugin_code {
-        () => {
+        ($wasm_plugin_struct:ident, $wasm_plugin_creation:expr) => {
+            // This is ok to do because Wasm plugins are only ever executed on a single thread.
+            // https://github.com/rust-lang/rust/issues/53639#issuecomment-790091647
+            struct StaticCell<T>(std::cell::UnsafeCell<T>);
+
+            impl<T> StaticCell<T> {
+                const fn new(value: T) -> Self {
+                    StaticCell(std::cell::UnsafeCell::new(value))
+                }
+
+                unsafe fn get(&self) -> &mut T {
+                    &mut *self.0.get()
+                }
+
+                fn replace(&self, value: T) -> T {
+                    std::mem::replace(unsafe { self.get() }, value)
+                }
+            }
+
+            unsafe impl<T> Sync for StaticCell<T> {}
+
+            static WASM_PLUGIN: StaticCell<$wasm_plugin_struct> = StaticCell::new($wasm_plugin_creation);
+
             // HOST FORMATTING
 
             fn format_with_host(file_path: &std::path::Path, file_text: String, override_config: &dprint_core::configuration::ConfigKeyMap) -> Result<String, String> {
@@ -82,49 +107,49 @@ pub mod macros {
 
             // FORMATTING
 
-            static mut OVERRIDE_CONFIG: Option<dprint_core::configuration::ConfigKeyMap> = None;
-            static mut FILE_PATH: Option<std::path::PathBuf> = None;
-            static mut FORMATTED_TEXT: Option<String> = None;
-            static mut ERROR_TEXT: Option<String> = None;
+            static OVERRIDE_CONFIG: StaticCell<Option<dprint_core::configuration::ConfigKeyMap>> = StaticCell::new(None);
+            static FILE_PATH: StaticCell<Option<std::path::PathBuf>> = StaticCell::new(None);
+            static FORMATTED_TEXT: StaticCell<Option<String>> = StaticCell::new(None);
+            static ERROR_TEXT: StaticCell<Option<String>> = StaticCell::new(None);
 
             #[no_mangle]
             pub fn set_override_config() {
                 let bytes = take_from_shared_bytes();
                 let config = serde_json::from_slice(&bytes).unwrap();
-                unsafe { OVERRIDE_CONFIG.replace(config) };
+                unsafe { OVERRIDE_CONFIG.get().replace(config) };
             }
 
             #[no_mangle]
             pub fn set_file_path() {
                 let text = take_string_from_shared_bytes();
-                unsafe { FILE_PATH.replace(std::path::PathBuf::from(text)) };
+                unsafe { FILE_PATH.get().replace(std::path::PathBuf::from(text)) };
             }
 
             #[no_mangle]
             pub fn format() -> u8 {
                 ensure_initialized();
                 let config = unsafe {
-                    if let Some(override_config) = OVERRIDE_CONFIG.take() {
+                    if let Some(override_config) = OVERRIDE_CONFIG.get().take() {
                         std::borrow::Cow::Owned(create_resolved_config_result(override_config).config)
                     } else {
                         std::borrow::Cow::Borrowed(&get_resolved_config_result().config)
                     }
                 };
-                let file_path = unsafe { FILE_PATH.take().expect("Expected the file path to be set.") };
+                let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
                 let file_text = take_string_from_shared_bytes();
 
-                let formatted_text = format_text(&file_path, &file_text, &config);
+                let formatted_text = unsafe { WASM_PLUGIN.get().format_text(&file_path, &file_text, &config) };
                 match formatted_text {
                     Ok(formatted_text) => {
                         if formatted_text == file_text {
                             0 // no change
                         } else {
-                            unsafe { FORMATTED_TEXT.replace(formatted_text) };
+                            unsafe { FORMATTED_TEXT.get().replace(formatted_text) };
                             1 // change
                         }
                     },
                     Err(err_text) => {
-                        unsafe { ERROR_TEXT.replace(err_text) };
+                        unsafe { ERROR_TEXT.get().replace(err_text) };
                         2 // error
                     }
                 }
@@ -132,19 +157,19 @@ pub mod macros {
 
             #[no_mangle]
             pub fn get_formatted_text() -> usize {
-                let formatted_text = unsafe { FORMATTED_TEXT.take().expect("Expected to have formatted text.") };
+                let formatted_text = unsafe { FORMATTED_TEXT.get().take().expect("Expected to have formatted text.") };
                 set_shared_bytes_str(formatted_text)
             }
 
             #[no_mangle]
             pub fn get_error_text() -> usize {
-                let error_text = unsafe { ERROR_TEXT.take().expect("Expected to have error text.") };
+                let error_text = unsafe { ERROR_TEXT.get().take().expect("Expected to have error text.") };
                 set_shared_bytes_str(error_text)
             }
 
             // INFORMATION & CONFIGURATION
 
-            static mut RESOLVE_CONFIGURATION_RESULT: Option<dprint_core::configuration::ResolveConfigurationResult<Configuration>> = None;
+            static RESOLVE_CONFIGURATION_RESULT: StaticCell<Option<dprint_core::configuration::ResolveConfigurationResult<Configuration>>> = StaticCell::new(None);
 
             #[no_mangle]
             pub fn get_plugin_info() -> usize {
@@ -152,17 +177,17 @@ pub mod macros {
                 let info_json = serde_json::to_string(&PluginInfo {
                     name: String::from(env!("CARGO_PKG_NAME")),
                     version: String::from(env!("CARGO_PKG_VERSION")),
-                    config_key: get_plugin_config_key(),
-                    file_extensions: get_plugin_file_extensions(),
-                    help_url: get_plugin_help_url(),
-                    config_schema_url: get_plugin_config_schema_url(),
+                    config_key: unsafe { WASM_PLUGIN.get().get_plugin_config_key() },
+                    file_extensions: unsafe { WASM_PLUGIN.get().get_plugin_file_extensions() },
+                    help_url: unsafe { WASM_PLUGIN.get().get_plugin_help_url() },
+                    config_schema_url: unsafe { WASM_PLUGIN.get().get_plugin_config_schema_url() },
                 }).unwrap();
                 set_shared_bytes_str(info_json)
             }
 
             #[no_mangle]
             pub fn get_license_text() -> usize {
-                set_shared_bytes_str(get_plugin_license_text())
+                set_shared_bytes_str(unsafe { WASM_PLUGIN.get().get_plugin_license_text() })
             }
 
             #[no_mangle]
@@ -180,28 +205,28 @@ pub mod macros {
             fn get_resolved_config_result<'a>() -> &'a dprint_core::configuration::ResolveConfigurationResult<Configuration> {
                 unsafe {
                     ensure_initialized();
-                    return RESOLVE_CONFIGURATION_RESULT.as_ref().unwrap();
+                    return RESOLVE_CONFIGURATION_RESULT.get().as_ref().unwrap();
                 }
             }
 
             fn ensure_initialized() {
                 unsafe {
-                    if RESOLVE_CONFIGURATION_RESULT.is_none() {
+                    if RESOLVE_CONFIGURATION_RESULT.get().is_none() {
                         let config_result = create_resolved_config_result(std::collections::HashMap::new());
-                        RESOLVE_CONFIGURATION_RESULT.replace(config_result);
+                        RESOLVE_CONFIGURATION_RESULT.get().replace(config_result);
                     }
                 }
             }
 
             fn create_resolved_config_result(override_config: dprint_core::configuration::ConfigKeyMap) -> dprint_core::configuration::ResolveConfigurationResult<Configuration> {
                 unsafe {
-                    if let Some(global_config) = &GLOBAL_CONFIG {
-                        if let Some(plugin_config) = &PLUGIN_CONFIG {
+                    if let Some(global_config) = GLOBAL_CONFIG.get().as_ref() {
+                        if let Some(plugin_config) = PLUGIN_CONFIG.get().as_ref() {
                             let mut plugin_config = plugin_config.clone();
                             for (key, value) in override_config {
                                 plugin_config.insert(key, value);
                             }
-                            return resolve_config(plugin_config, global_config);
+                            return unsafe { WASM_PLUGIN.get().resolve_config(plugin_config, global_config) };
                         }
                     }
                 }
@@ -211,16 +236,16 @@ pub mod macros {
 
             // INITIALIZATION
 
-            static mut GLOBAL_CONFIG: Option<dprint_core::configuration::GlobalConfiguration> = None;
-            static mut PLUGIN_CONFIG: Option<dprint_core::configuration::ConfigKeyMap> = None;
+            static GLOBAL_CONFIG: StaticCell<Option<dprint_core::configuration::GlobalConfiguration>> = StaticCell::new(None);
+            static PLUGIN_CONFIG: StaticCell<Option<dprint_core::configuration::ConfigKeyMap>> = StaticCell::new(None);
 
             #[no_mangle]
             pub fn set_global_config() {
                 let bytes = take_from_shared_bytes();
                 let global_config: dprint_core::configuration::GlobalConfiguration = serde_json::from_slice(&bytes).unwrap();
                 unsafe {
-                    GLOBAL_CONFIG.replace(global_config);
-                    RESOLVE_CONFIGURATION_RESULT.take(); // clear
+                    GLOBAL_CONFIG.get().replace(global_config);
+                    RESOLVE_CONFIGURATION_RESULT.get().take(); // clear
                 }
             }
 
@@ -229,8 +254,8 @@ pub mod macros {
                 let bytes = take_from_shared_bytes();
                 let plugin_config: dprint_core::configuration::ConfigKeyMap = serde_json::from_slice(&bytes).unwrap();
                 unsafe {
-                    PLUGIN_CONFIG.replace(plugin_config);
-                    RESOLVE_CONFIGURATION_RESULT.take(); // clear
+                    PLUGIN_CONFIG.get().replace(plugin_config);
+                    RESOLVE_CONFIGURATION_RESULT.get().take(); // clear
                 }
             }
 
@@ -238,11 +263,11 @@ pub mod macros {
 
             const WASM_MEMORY_BUFFER_SIZE: usize = 4 * 1024;
             static mut WASM_MEMORY_BUFFER: [u8; WASM_MEMORY_BUFFER_SIZE] = [0; WASM_MEMORY_BUFFER_SIZE];
-            static mut SHARED_BYTES: Vec<u8> = Vec::new();
+            static SHARED_BYTES: StaticCell<Vec<u8>> = StaticCell::new(Vec::new());
 
             #[no_mangle]
             pub fn get_plugin_schema_version() -> u32 {
-                dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION // version 1
+                dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION
             }
 
             #[no_mangle]
@@ -258,21 +283,21 @@ pub mod macros {
             #[no_mangle]
             pub fn add_to_shared_bytes_from_buffer(length: usize) {
                 unsafe {
-                    SHARED_BYTES.extend(&WASM_MEMORY_BUFFER[..length])
+                    SHARED_BYTES.get().extend(&WASM_MEMORY_BUFFER[..length])
                 }
             }
 
             #[no_mangle]
             pub fn set_buffer_with_shared_bytes(offset: usize, length: usize) {
                 unsafe {
-                    let bytes = &SHARED_BYTES[offset..(offset+length)];
+                    let bytes = &SHARED_BYTES.get()[offset..(offset+length)];
                     &WASM_MEMORY_BUFFER[..length].copy_from_slice(bytes);
                 }
             }
 
             #[no_mangle]
             pub fn clear_shared_bytes(capacity: usize) {
-                unsafe { SHARED_BYTES = Vec::with_capacity(capacity); }
+                SHARED_BYTES.replace(Vec::with_capacity(capacity));
             }
 
             fn take_string_from_shared_bytes() -> String {
@@ -280,9 +305,7 @@ pub mod macros {
             }
 
             fn take_from_shared_bytes() -> Vec<u8> {
-                unsafe {
-                    std::mem::replace(&mut SHARED_BYTES, Vec::new())
-                }
+                SHARED_BYTES.replace(Vec::new())
             }
 
             fn set_shared_bytes_str(text: String) -> usize {
@@ -291,7 +314,7 @@ pub mod macros {
 
             fn set_shared_bytes(bytes: Vec<u8>) -> usize {
                 let length = bytes.len();
-                unsafe { SHARED_BYTES = bytes }
+                SHARED_BYTES.replace(bytes);
                 length
             }
         }

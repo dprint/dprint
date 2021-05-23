@@ -24,9 +24,9 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 3. Create a `Configuration` struct somewhere in your project:
 
    ```rust
-   use serde::{Serialize, Deserialize};
+   use serde::Serialize;
 
-   #[derive(Clone, Serialize, Deserialize)]
+   #[derive(Clone, Serialize)]
    #[serde(rename_all = "camelCase")]
    pub struct Configuration {
        // add configuration properties here...
@@ -34,12 +34,9 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    }
    ```
 
-4. Use the `generate_plugin_code` macro:
+4. Implement the `WasmPlugin<Configuration>` trait:
 
    ```rust
-   use std::path::PathBuf;
-   use std::collections::HashMap;
-   use dprint_core::generate_plugin_code;
    use dprint_core::configuration::{
        GlobalConfiguration,
        ResolveConfigurationResult,
@@ -48,64 +45,76 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        get_value,
        ConfigKeyMap,
    };
+   use dprint_core::generate_plugin_code;
+   use dprint_core::plugins::wasm::WasmPlugin;
 
-   use super::configuration::Configuration; // import the Configuration from above
+   use crate::configuration::Configuration; // import the Configuration from above
 
-   fn resolve_config(
-       config: HashMap<String, ConfigKeyMap>,
-       global_config: &GlobalConfiguration,
-   ) -> ResolveConfigurationResult<Configuration> {
-       // implement. For example...
-       let mut config = config;
-       let mut diagnostics = Vec::new();
-       let line_width = get_value(&mut config, "line_width", global_config.line_width.unwrap_or(120), &mut diagnostics);
+   struct MyWasmPlugin {
+       // optionally add methods here
+   }
 
-       diagnostics.extend(get_unknown_property_diagnostics(config));
-
-       ResolveConfigurationResult {
-           config: Configuration { line_width },
-           diagnostics,
+   impl MyWasmPlugin {
+       pub const fn new() -> Self {
+           MyWasmPlugin {}
        }
    }
 
-   fn get_plugin_config_key() -> String {
-       // return the JSON object key name used in the configuration file
-       // ex. String::from("json")
-   }
+   impl WasmPlugin<Configuration> for MyWasmPlugin {
+       fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+           // implement. For example...
+           let mut config = config;
+           let mut diagnostics = Vec::new();
+           let line_width = get_value(&mut config, "line_width", global_config.line_width.unwrap_or(120), &mut diagnostics);
 
-   fn get_plugin_file_extensions() -> Vec<String> {
-       // return the file extensions this plugin will format
-       // ex. vec![String::from("json")]
-   }
+           diagnostics.extend(get_unknown_property_diagnostics(config));
 
-   fn get_plugin_help_url() -> String {
-       // return the help url of the plugin
-       // ex. String::from("https://dprint.dev/plugins/json")
-   }
+           ResolveConfigurationResult {
+               config: Configuration { line_width },
+               diagnostics,
+           }
+       }
 
-   fn get_plugin_config_schema_url() -> String {
-       // for now, return an empty string. Return a schema url once VSCode
-       // supports $schema properties in descendant objects:
-       // https://github.com/microsoft/vscode/issues/98443
-       String::new()
-   }
+       fn get_plugin_config_key(&mut self) -> String {
+           // return the JSON object key name used in the configuration file
+           // ex. "json".to_string()
+       }
 
-   fn get_plugin_license_text() -> String {
-       std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
-   }
+       fn get_plugin_file_extensions(&mut self) -> Vec<String> {
+           // return the file extensions this plugin will format
+           // ex. vec!["json".to_string()]
+       }
 
-   fn format_text(
-       file_path: &Path,
-       file_text: &str,
-       config: &Configuration,
-   ) -> Result<String, String> {
-       // implement...
-   }
+       fn get_plugin_help_url(&mut self) -> String {
+           // return the help url of the plugin
+           // ex. "https://dprint.dev/plugins/json".to_string()
+       }
 
-   generate_plugin_code!();
+       fn get_plugin_config_schema_url(&mut self) -> String {
+           // for now, return an empty string. Return a schema url once VSCode
+           // supports $schema properties in descendant objects:
+           // https://github.com/microsoft/vscode/issues/98443
+           String::new()
+       }
+
+       fn get_plugin_license_text(&mut self) -> String {
+           std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
+       }
+
+       fn format_text(&mut self, file_path: &Path, file_text: &str, config: &Configuration) -> Result<String, String> {
+           // implement...
+       }
+   }
    ```
 
-5. Finally, compile with:
+5. Use the `generate_plugin_code` macro to generate the functions used by the plugin system to communicate with your struct:
+
+   ```rust
+   // specify the plugin struct name and then an expression to create it
+   generate_plugin_code!(MyPlugin, MyPlugin::new());
+   ```
+
+6. Finally, compile with:
 
    ```bash
    cargo build --release --target=wasm32-unknown-unknown
@@ -113,7 +122,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
 ### Format using other plugin
 
-To format code using a different plugin, call the `format_with_host(file_path, file_text)` method that is exposed via the `generate_plugin_code!()` macro.
+To format code using a different plugin, call the `format_with_host(file_path, file_text)` function that is exposed via the `generate_plugin_code!()` macro.
 
 For example, this function is used by the markdown plugin to format code blocks.
 
