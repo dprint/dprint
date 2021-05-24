@@ -15,7 +15,7 @@
       "oneOf": [
         {
           "const": "openSource",
-          "description": "dprint is formatting an open source project whose primary maintainer is not a for-profit company or individual."
+          "description": "dprint is formatting an open source project."
         },
         {
           "const": "educational",
@@ -27,11 +27,11 @@
         },
         {
           "const": "commercialSponsored",
-          "description": "dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!"
+          "description": "dprint is formatting a closed source for-profit project and the primary maintainer sponsored the project. Thank you for being part of moving dprint project forward!"
         },
         {
           "const": "commercialDidNotSponsor",
-          "description": "dprint is formatting a project whose primary maintainer is a for-profit company or individual and you don't want to support dprint's development financially."
+          "description": "dprint is formatting a closed source for-profit project and the primary maintainer does not want to support dprint's development financially."
         }
       ]
     },

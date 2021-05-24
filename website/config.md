@@ -53,11 +53,11 @@ The `"projectType"` specifies the type of project dprint is formatting.
 
 You may specify any of the following values according to your conscience:
 
-- `"openSource"` - dprint is formatting an open source project whose primary maintainer is not a for-profit company or individual.
+- `"openSource"` - dprint is formatting an open source project.
 - `"educational"` - dprint is formatting a project run by a student or being used for educational purposes.
 - `"nonProfit"` - dprint is formatting a project whose primary maintainer is a non-profit organization.
-- `"commercialSponsored"` - dprint is formatting a project whose primary maintainer is a for-profit company or individual and the primary maintainer sponsored the project. Thank you for being part of moving this project forward!
-- `"commercialDidNotSponsor"` - dprint is formatting a project whose primary maintainer is a for-profit company or individual and you do not want to support dprint's development financially.
+- `"commercialSponsored"` - dprint is formatting a closed source for-profit project and the primary maintainer sponsored the project. Thank you for being part of moving dprint forward!
+- `"commercialDidNotSponsor"` - dprint is formatting a closed source for-profit project and the primary maintainer does not want to support dprint's development financially.
 
 See [Sponsor](/sponsor) for more details.
 

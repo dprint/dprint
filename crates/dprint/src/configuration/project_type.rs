@@ -47,21 +47,21 @@ pub fn get_project_type_infos() -> Vec<ProjectTypeInfo> {
     vec![ProjectTypeInfo {
         name: "commercialSponsored",
         description: concat!(
-            "dprint is formatting a project whose primary maintainer is a for-profit ",
-            "company or individual and the primary maintainer sponsored the project. ",
-            "Thank you for being part of moving this project forward!"
+            "dprint is formatting a closed source for-profit project ",
+            "and the primary maintainer sponsored the project. ",
+            "Thank you for being part of moving dprint forward!"
         ),
     }, ProjectTypeInfo {
         name: "commercialDidNotSponsor",
         description: concat!(
-            "dprint is formatting a project whose primary maintainer is a for-profit ",
-            "company or individual and you don't want to support dprint's development financially.",
+            "dprint is formatting a closed source for-profit project ",
+            "and the primary maintainer does not want to support ",
+            "dprint's development financially.",
         )
     }, ProjectTypeInfo {
         name: "openSource",
         description: concat!(
-            "dprint is formatting an open source project whose primary ",
-            "maintainer is not a for-profit company or individual."
+            "dprint is formatting an open source project.",
         )
     }, ProjectTypeInfo {
         name: "educational",
@@ -110,22 +110,18 @@ mod tests {
 
 You may specify any of the following values according to your conscience and that will suppress this error:
 
- * commercialSponsored     dprint is formatting a project
-                           whose primary maintainer is a
-                           for-profit company or individual
-                           and the primary maintainer
-                           sponsored the project. Thank you
-                           for being part of moving this
-                           project forward!
- * commercialDidNotSponsor dprint is formatting a project
-                           whose primary maintainer is a
-                           for-profit company or individual
-                           and you don't want to support
-                           dprint's development financially.
+ * commercialSponsored     dprint is formatting a closed
+                           source for-profit project and the
+                           primary maintainer sponsored the
+                           project. Thank you for being part
+                           of moving dprint forward!
+ * commercialDidNotSponsor dprint is formatting a closed
+                           source for-profit project and the
+                           primary maintainer does not want
+                           to support dprint's development
+                           financially.
  * openSource              dprint is formatting an open
-                           source project whose primary
-                           maintainer is not a for-profit
-                           company or individual.
+                           source project.
  * educational             dprint is formatting a project
                            run by a student or being used
                            for educational purposes.
