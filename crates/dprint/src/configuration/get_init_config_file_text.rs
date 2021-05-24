@@ -79,18 +79,20 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         }
 
         json_text.push_str("  \"includes\": [");
-        if selected_plugins.is_empty() {
+        let includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.to_owned()).collect::<Vec<_>>());
+        if includes.is_empty() {
             json_text.push_str("\"**/*.*\"");
         } else {
             json_text.push_str("\"**/*.{");
-            json_text.push_str(&get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.to_owned()).collect::<Vec<_>>()).join(","));
+            json_text.push_str(&includes.join(","));
             json_text.push_str("}\"");
         }
         json_text.push_str("],\n");
         json_text.push_str("  \"excludes\": [");
-        if !selected_plugins.is_empty() {
+        let excludes = get_unique_items(selected_plugins.iter().flat_map(|p| p.config_excludes.iter()).map(|x| format!("    \"{}\"", x)).collect::<Vec<_>>());
+        if !excludes.is_empty() {
             json_text.push_str("\n");
-            json_text.push_str(&get_unique_items(selected_plugins.iter().flat_map(|p| p.config_excludes.iter()).map(|x| format!("    \"{}\"", x)).collect::<Vec<_>>()).join(",\n"));
+            json_text.push_str(&excludes.join(",\n"));
             json_text.push_str("\n  ");
         }
         json_text.push_str("],\n");
@@ -100,7 +102,12 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         } else {
             for (i, plugin) in selected_plugins.iter().enumerate() {
                 if i > 0 { json_text.push_str(",\n"); }
-                json_text.push_str(&format!("    \"{}\"", plugin.url));
+                let url = if let Some(checksum) = &plugin.checksum {
+                    format!("{}@{}", plugin.url, checksum)
+                } else {
+                    plugin.url.to_string()
+                };
+                json_text.push_str(&format!("    \"{}\"", url));
             }
             json_text.push_str("\n");
         }
@@ -224,6 +231,30 @@ mod test {
   "excludes": [],
   "plugins": [
     // specify plugin urls here
+  ]
+}
+"#
+        );
+
+        assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
+    }
+
+    #[test]
+    fn should_get_initialization_text_when_selecting_process_plugin() {
+        let environment = TestEnvironment::new();
+        environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
+        environment.set_multi_selection_result(vec![3]);
+        let text = get_init_config_file_text(&environment).unwrap();
+        assert_eq!(
+            text,
+            r#"{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "projectType": "commercialSponsored",
+  "incremental": true,
+  "includes": ["**/*.{ps}"],
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/process-0.1.0.exe-plugin@test-checksum"
   ]
 }
 "#
@@ -381,6 +412,14 @@ mod test {
                 "url": "https://plugins.dprint.dev/final-0.1.2.wasm",
                 "fileExtensions": ["tsx", "rs"],
                 "configExcludes": ["**/something", "**other"]
+            }, {
+                "name": "dprint-process-plugin",
+                "version": "0.1.0",
+                "url": "https://plugins.dprint.dev/process-0.1.0.exe-plugin",
+                "fileExtensions": ["ps"],
+                "configExcludes": [],
+                "isProcessPlugin": true,
+                "checksum": "test-checksum"
             }]
         }"#;
     }
