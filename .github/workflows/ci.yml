@@ -194,12 +194,12 @@ jobs:
             }
           }
 
-    - name: Create SHASUM256.txt file
+    - name: Create SHASUMS256.txt file
       run: |
-        echo "${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip" > SHASUM256.txt
-        echo "${{needs.build.outputs.LINUX_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip" >> SHASUM256.txt
-        echo "${{needs.build.outputs.MAC_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip" >> SHASUM256.txt
-        echo "${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe" >> SHASUM256.txt
+        echo "${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip" > SHASUMS256.txt
+        echo "${{needs.build.outputs.LINUX_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip" >> SHASUMS256.txt
+        echo "${{needs.build.outputs.MAC_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip" >> SHASUMS256.txt
+        echo "${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe" >> SHASUMS256.txt
 
     - name: Get bvm.json checksum
       id: get_bvm_checksum
