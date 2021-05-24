@@ -18,8 +18,13 @@ pub struct InfoFilePluginInfo {
     pub config_key: Option<String>,
     pub file_extensions: Vec<String>,
     pub config_excludes: Vec<String>,
-    pub is_process_plugin: bool,
     pub checksum: Option<String>,
+}
+
+impl InfoFilePluginInfo {
+    pub fn is_process_plugin(&self) -> bool {
+        !self.url.to_lowercase().ends_with(".wasm")
+    }
 }
 
 const SCHEMA_VERSION: u8 = 2;
@@ -78,7 +83,6 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     let config_schema_url = obj.take_string("configSchemaUrl").map(|s| s.into_owned()).unwrap_or(String::new());
     let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
     let config_excludes = get_string_array(&mut obj, "configExcludes")?;
-    let is_process_plugin = obj.take_boolean("isProcessPlugin").unwrap_or(false);
     let checksum = obj.take_string("checksum").map(|s| s.into_owned());
 
     Ok(InfoFilePluginInfo {
@@ -89,7 +93,6 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
         file_extensions,
         config_schema_url,
         config_excludes,
-        is_process_plugin,
         checksum,
     })
 }
@@ -144,7 +147,6 @@ mod test {
         "fileExtensions": ["json"],
         "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
         "configExcludes": ["**/*-lock.json"],
-        "isProcessPlugin": true,
         "checksum": "test-checksum"
     }]
 }"#.as_bytes());
@@ -159,7 +161,6 @@ mod test {
                 file_extensions: vec![String::from("ts"), String::from("tsx")],
                 config_schema_url: String::new(),
                 config_excludes: vec![String::from("**/node_modules")],
-                is_process_plugin: false,
                 checksum: None,
             }, InfoFilePluginInfo {
                 name: String::from("dprint-plugin-jsonc"),
@@ -169,7 +170,6 @@ mod test {
                 file_extensions: vec![String::from("json")],
                 config_schema_url: String::from("https://plugins.dprint.dev/schemas/json-v1.json"),
                 config_excludes: vec![String::from("**/*-lock.json")],
-                is_process_plugin: true, // lies for testing purposes
                 checksum: Some("test-checksum".to_string()),
             }],
         })

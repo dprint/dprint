@@ -47,7 +47,7 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         let plugin_indexes = environment.get_multi_selection(
             prompt_message,
             0,
-            &latest_plugins.iter().map(|x| (!x.is_process_plugin, String::from(&x.name))).collect(),
+            &latest_plugins.iter().map(|x| (!x.is_process_plugin(), String::from(&x.name))).collect(),
         )?;
         let mut selected_plugins = Vec::new();
         for index in plugin_indexes {
@@ -102,8 +102,8 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         } else {
             for (i, plugin) in selected_plugins.iter().enumerate() {
                 if i > 0 { json_text.push_str(",\n"); }
-                let url = if let Some(checksum) = &plugin.checksum {
-                    format!("{}@{}", plugin.url, checksum)
+                let url = if plugin.is_process_plugin() && plugin.checksum.is_some() {
+                    format!("{}@{}", plugin.url, plugin.checksum.as_ref().unwrap())
                 } else {
                     plugin.url.to_string()
                 };
@@ -418,7 +418,6 @@ mod test {
                 "url": "https://plugins.dprint.dev/process-0.1.0.exe-plugin",
                 "fileExtensions": ["ps"],
                 "configExcludes": [],
-                "isProcessPlugin": true,
                 "checksum": "test-checksum"
             }]
         }"#;
