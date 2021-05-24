@@ -45,6 +45,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        get_value,
        ConfigKeyMap,
    };
+   use dprint_core::types::ErrBox;
    use dprint_core::generate_plugin_code;
    use dprint_core::plugins::{PluginHandler, PluginInfo};
 

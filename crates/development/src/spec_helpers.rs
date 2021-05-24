@@ -7,6 +7,8 @@ use console::Style;
 use similar::text::{ChangeTag, TextDiff};
 use super::*;
 
+pub type ErrBox = Box<dyn std::error::Error + Send + Sync>;
+
 struct FailedTestResult {
     file_path: String,
     expected: String,
@@ -53,7 +55,7 @@ pub fn run_specs(
     directory_path: &Path,
     parse_spec_options: &ParseSpecOptions,
     run_spec_options: &RunSpecsOptions,
-    format_text: impl Fn(&Path, &str, &HashMap<String, String>) -> Result<String, String>,
+    format_text: impl Fn(&Path, &str, &HashMap<String, String>) -> Result<String, ErrBox>,
     get_trace_json: impl Fn(&Path, &str, &HashMap<String, String>) -> String,
 ) {
     #[cfg(not(debug_assertions))]

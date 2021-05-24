@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-development"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "console",
  "similar",

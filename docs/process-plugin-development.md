@@ -34,7 +34,6 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::collections::HashMap;
 
    use dprint_core::configuration::{GlobalConfiguration, ResolveConfigurationResult, get_unknown_property_diagnostics, ConfigKeyMap, get_value};
-   use dprint_core::err;
    use dprint_core::types::ErrBox;
    use dprint_core::plugins::{PluginHandler, PluginInfo};
 
