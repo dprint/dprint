@@ -40,16 +40,16 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
    use super::configuration::Configuration; // import the Configuration from above somehow
 
-   pub struct MyProcessPluginHandler {
+   pub struct MyPluginHandler {
    }
 
-   impl MyProcessPluginHandler {
+   impl MyPluginHandler {
        fn new() -> Self {
-           MyProcessPluginHandler {}
+           MyPluginHandler {}
        }
    }
 
-   impl PluginHandler<Configuration> for MyProcessPluginHandler {
+   impl PluginHandler<Configuration> for MyPluginHandler {
        fn get_plugin_info(&mut self) -> PluginInfo {
            PluginInfo {
                name: env!("CARGO_PKG_NAME").to_string(),
@@ -103,7 +103,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 5. Finally, use your created plugin handler to start reading and writing to stdin and stdout:
 
    ```rust
-   handle_process_stdio_messages(MyProcessPluginHandler::new())
+   handle_process_stdio_messages(MyPluginHandler::new())
    ```
 
 ## Schema Version 3 Overview

@@ -34,7 +34,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    }
    ```
 
-4. Implement the `WasmPlugin<Configuration>` trait:
+4. Implement `PluginHandler`:
 
    ```rust
    use dprint_core::configuration::{
@@ -50,19 +50,33 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
    use crate::configuration::Configuration; // import the Configuration from above
 
-   struct MyWasmPlugin {
-       // optionally add fields here
+   pub struct MyPluginHandler {
    }
 
-   impl MyWasmPlugin {
-       pub const fn new() -> Self {
-           MyWasmPlugin {}
+   impl MyPluginHandler {
+       fn new() -> Self {
+           MyPluginHandler {}
        }
    }
 
-   impl WasmPlugin<Configuration> for MyWasmPlugin {
+   impl PluginHandler<Configuration> for MyPluginHandler {
+       fn get_plugin_info(&mut self) -> PluginInfo {
+           PluginInfo {
+               name: env!("CARGO_PKG_NAME").to_string(),
+               version: env!("CARGO_PKG_VERSION").to_string(),
+               config_key: "keyGoesHere".to_string(),
+               file_extensions: vec!["txt_ps".to_string()],
+               help_url: "".to_string(), // fill this in
+               config_schema_url: "".to_string() // leave this empty for now
+           }
+       }
+
+       fn get_license_text(&mut self) -> String {
+           "License text goes here.".to_string()
+       }
+
        fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
-           // implement. For example...
+           // implement this... for example
            let mut config = config;
            let mut diagnostics = Vec::new();
            let line_width = get_value(&mut config, "line_width", global_config.line_width.unwrap_or(120), &mut diagnostics);
@@ -70,30 +84,9 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
            diagnostics.extend(get_unknown_property_diagnostics(config));
 
            ResolveConfigurationResult {
-               config: Configuration { line_width },
+               config: Configuration { ending, line_width },
                diagnostics,
            }
-       }
-
-       fn get_plugin_info(&mut self) -> PluginInfo {
-           PluginInfo {
-               name: env!("CARGO_PKG_NAME").to_string(),
-               version: env!("CARGO_PKG_VERSION").to_string(),
-                // return the JSON object key name used in the configuration file
-               config_key: "test-plugin".to_string(),
-                // file extensions this plugin supports
-               file_extensions: vec!["txt".to_string()],
-                // the help url of the plugin
-               help_url: "https://dprint.dev/plugins/my-plugin".to_string(),
-               // for now, use an empty string. Return a schema url once VSCode
-               // supports $schema properties in descendant objects:
-               // https://github.com/microsoft/vscode/issues/98443
-               config_schema_url: "".to_string()
-           }
-       }
-
-       fn get_license_text(&mut self) -> String {
-           std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
        }
 
        fn format_text(
@@ -102,8 +95,8 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
            file_text: &str,
            config: &Configuration,
            mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
-       ) -> Result<String, String> {
-           // implement...
+       ) -> Result<String, ErrBox> {
+           // format here
        }
    }
    ```
@@ -112,7 +105,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
    ```rust
    // specify the plugin struct name and then an expression to create it
-   generate_plugin_code!(MyPlugin, MyPlugin::new());
+   generate_plugin_code!(MyPluginHandler, MyPluginHandler::new());
    ```
 
 6. Finally, compile with:
