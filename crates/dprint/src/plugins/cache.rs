@@ -277,6 +277,7 @@ mod test {
             version: String::from("0.1.0"),
             config_key: String::from("test-plugin"),
             file_extensions: vec![String::from("txt"), String::from("dat")],
+            file_fullnames: vec![],
             help_url: String::from("test-url"),
             config_schema_url: String::from("schema-url"),
         }

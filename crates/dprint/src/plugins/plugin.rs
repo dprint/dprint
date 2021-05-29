@@ -12,6 +12,8 @@ pub trait Plugin : std::marker::Send + std::marker::Sync {
     fn config_key(&self) -> &str;
     /// Gets the file extensions.
     fn file_extensions(&self) -> &Vec<String>;
+    /// Gets the file fullnames.
+    fn file_fullnames(&self) -> &Vec<String>;
     /// Gets the help url.
     fn help_url(&self) -> &str;
     /// Gets the configuration schema url.
@@ -59,6 +61,7 @@ pub struct TestPlugin {
     name: &'static str,
     config_key: String,
     file_extensions: Vec<String>,
+    file_fullnames: Vec<String>,
     initialized_test_plugin: Option<InitializedTestPlugin>,
     config: (ConfigKeyMap, GlobalConfiguration),
 }
@@ -70,6 +73,7 @@ impl TestPlugin {
             name,
             config_key: String::from(config_key),
             file_extensions: file_extensions.into_iter().map(String::from).collect(),
+            file_fullnames: vec![],
             initialized_test_plugin: Some(InitializedTestPlugin::new()),
             config: (std::collections::HashMap::new(), GlobalConfiguration {
                 line_width: None,
@@ -89,6 +93,7 @@ impl Plugin for TestPlugin {
     fn config_schema_url(&self) -> &str { "https://plugins.dprint.dev/schemas/test.json" }
     fn config_key(&self) -> &str { &self.config_key }
     fn file_extensions(&self) -> &Vec<String> { &self.file_extensions }
+    fn file_fullnames(&self) -> &Vec<String> { &self.file_fullnames }
     fn set_config(&mut self, _: ConfigKeyMap, _: GlobalConfiguration) {}
     fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration) {
         &self.config

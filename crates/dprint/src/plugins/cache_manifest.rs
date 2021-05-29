@@ -133,6 +133,7 @@ mod test {
                 name: "dprint-plugin-typescript".to_string(),
                 version: "0.1.0".to_string(),
                 config_key: "typescript".to_string(),
+                file_fullnames: vec![],
                 file_extensions: vec![".ts".to_string()],
                 help_url: "help url".to_string(),
                 config_schema_url: "schema url".to_string()
@@ -146,6 +147,7 @@ mod test {
                 version: "0.2.0".to_string(),
                 config_key: "json".to_string(),
                 file_extensions: vec![".json".to_string()],
+                file_fullnames: vec![],
                 help_url: "help url 2".to_string(),
                 config_schema_url: "schema url 2".to_string()
             }
@@ -188,6 +190,7 @@ mod test {
                 version: "0.1.0".to_string(),
                 config_key: "typescript".to_string(),
                 file_extensions: vec![".ts".to_string()],
+                file_fullnames: vec![],
                 help_url: "help url".to_string(),
                 config_schema_url: "schema url".to_string()
             }
@@ -200,6 +203,7 @@ mod test {
                 version: "0.2.0".to_string(),
                 config_key: "json".to_string(),
                 file_extensions: vec![".json".to_string()],
+                file_fullnames: vec![],
                 help_url: "help url 2".to_string(),
                 config_schema_url: "schema url 2".to_string()
             }

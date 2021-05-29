@@ -138,6 +138,16 @@ fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<Path
                 } else {
                     file_paths_by_plugin.insert(String::from(plugin.name()), vec![file_path]);
                 }
+                continue;
+            }
+        }
+        if let Some(file_fullname) = file_path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()) {
+            if let Some(plugin) = plugins.iter().filter(|p| p.file_fullnames().contains(&file_fullname)).next() {
+                if let Some(file_paths) = file_paths_by_plugin.get_mut(plugin.name()) {
+                    file_paths.push(file_path);
+                } else {
+                    file_paths_by_plugin.insert(String::from(plugin.name()), vec![file_path]);
+                }
             }
         }
     }
