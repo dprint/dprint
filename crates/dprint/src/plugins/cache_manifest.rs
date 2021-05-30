@@ -120,6 +120,19 @@ mod test {
                 "helpUrl": "help url 2",
                 "configSchemaUrl": "schema url 2"
             }
+        },
+        "cargo": {
+            "createdTime": 210530,
+            "fileHash": 1226,
+            "info": {
+                "name": "dprint-plugin-cargo",
+                "version": "0.2.1",
+                "configKey": "cargo",
+                "fileExtensions": [],
+                "exactFileNames": ["Cargo.toml"],
+                "helpUrl": "cargo help url",
+                "configSchemaUrl": "cargo schema url"
+            }
         }
     }
 }"#
@@ -133,8 +146,8 @@ mod test {
                 name: "dprint-plugin-typescript".to_string(),
                 version: "0.1.0".to_string(),
                 config_key: "typescript".to_string(),
-                file_fullnames: vec![],
                 file_extensions: vec![".ts".to_string()],
+                exact_file_names: vec![],
                 help_url: "help url".to_string(),
                 config_schema_url: "schema url".to_string()
             }
@@ -147,9 +160,22 @@ mod test {
                 version: "0.2.0".to_string(),
                 config_key: "json".to_string(),
                 file_extensions: vec![".json".to_string()],
-                file_fullnames: vec![],
+                exact_file_names: vec![],
                 help_url: "help url 2".to_string(),
                 config_schema_url: "schema url 2".to_string()
+            }
+        });
+        expected_manifest.add_item(String::from("cargo"), PluginCacheManifestItem {
+            created_time: 210530,
+            file_hash: Some(1226),
+            info: PluginInfo {
+                name: "dprint-plugin-cargo".to_string(),
+                version: "0.2.1".to_string(),
+                config_key: "cargo".to_string(),
+                file_extensions: vec![],
+                exact_file_names: vec!["Cargo.toml".to_string()],
+                help_url: "cargo help url".to_string(),
+                config_schema_url: "cargo schema url".to_string()
             }
         });
 
@@ -190,7 +216,7 @@ mod test {
                 version: "0.1.0".to_string(),
                 config_key: "typescript".to_string(),
                 file_extensions: vec![".ts".to_string()],
-                file_fullnames: vec![],
+                exact_file_names: vec![],
                 help_url: "help url".to_string(),
                 config_schema_url: "schema url".to_string()
             }
@@ -203,7 +229,7 @@ mod test {
                 version: "0.2.0".to_string(),
                 config_key: "json".to_string(),
                 file_extensions: vec![".json".to_string()],
-                file_fullnames: vec![],
+                exact_file_names: vec![],
                 help_url: "help url 2".to_string(),
                 config_schema_url: "schema url 2".to_string()
             }

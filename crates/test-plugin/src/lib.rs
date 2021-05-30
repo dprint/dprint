@@ -50,6 +50,7 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
             version: env!("CARGO_PKG_VERSION").to_string(),
             config_key: "test-plugin".to_string(),
             file_extensions: vec!["txt".to_string()],
+            exact_file_names: vec![],
             help_url: "https://dprint.dev/plugins/test".to_string(),
             config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string()
         }

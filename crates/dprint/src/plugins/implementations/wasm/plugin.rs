@@ -46,8 +46,8 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
         &self.plugin_info.file_extensions
     }
 
-    fn file_fullnames(&self) -> &Vec<String> {
-        &self.plugin_info.file_fullnames
+    fn exact_file_names(&self) -> &Vec<String> {
+        &self.plugin_info.exact_file_names
     }
 
     fn help_url(&self) -> &str {

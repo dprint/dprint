@@ -17,6 +17,7 @@ pub struct InfoFilePluginInfo {
     pub config_schema_url: String,
     pub config_key: Option<String>,
     pub file_extensions: Vec<String>,
+    pub exact_file_names: Vec<String>,
     pub config_excludes: Vec<String>,
     pub checksum: Option<String>,
 }
@@ -82,6 +83,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     let config_key = obj.take_string("configKey").map(|k| k.into_owned());
     let config_schema_url = obj.take_string("configSchemaUrl").map(|s| s.into_owned()).unwrap_or(String::new());
     let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
+    let exact_file_names = get_string_array(&mut obj, "exactFileNames").unwrap_or_default(); // compatible with old configuration
     let config_excludes = get_string_array(&mut obj, "configExcludes")?;
     let checksum = obj.take_string("checksum").map(|s| s.into_owned());
 
@@ -91,6 +93,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
         url,
         config_key,
         file_extensions,
+        exact_file_names,
         config_schema_url,
         config_excludes,
         checksum,
@@ -159,6 +162,7 @@ mod test {
                 url: String::from("https://plugins.dprint.dev/typescript-0.17.2.wasm"),
                 config_key: Some(String::from("typescript")),
                 file_extensions: vec![String::from("ts"), String::from("tsx")],
+                exact_file_names: vec![],
                 config_schema_url: String::new(),
                 config_excludes: vec![String::from("**/node_modules")],
                 checksum: None,
@@ -168,6 +172,7 @@ mod test {
                 url: String::from("https://plugins.dprint.dev/json-0.2.3.wasm"),
                 config_key: None,
                 file_extensions: vec![String::from("json")],
+                exact_file_names: vec![],
                 config_schema_url: String::from("https://plugins.dprint.dev/schemas/json-v1.json"),
                 config_excludes: vec![String::from("**/*-lock.json")],
                 checksum: Some("test-checksum".to_string()),

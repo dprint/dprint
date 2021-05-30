@@ -67,6 +67,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
                version: env!("CARGO_PKG_VERSION").to_string(),
                config_key: "keyGoesHere".to_string(),
                file_extensions: vec!["txt_ps".to_string()],
+               exact_file_names: vec![],
                help_url: "".to_string(), // fill this in
                config_schema_url: "".to_string() // leave this empty for now
            }

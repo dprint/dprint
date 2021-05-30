@@ -128,28 +128,30 @@ fn get_file_paths_by_plugin_and_err_if_empty(
 }
 
 fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
+    let mut plugin_by_file_extension: HashMap<&str, &str> = HashMap::new();
+    let mut plugin_by_exact_file_name: HashMap<&str, &str> = HashMap::new();
+
+    for plugin in plugins.iter() {
+        for file_extension in plugin.file_extensions() {
+            plugin_by_file_extension.entry(file_extension).or_insert(plugin.name());
+        }
+        for exact_file_name in plugin.exact_file_names() {
+            plugin_by_exact_file_name.entry(exact_file_name).or_insert(plugin.name());
+        }
+    }
+
     let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for file_path in file_paths.into_iter() {
-        if let Some(file_extension) = crate::utils::get_lowercase_file_extension(&file_path) {
-            if let Some(plugin) = plugins.iter().filter(|p| p.file_extensions().contains(&file_extension)).next() {
-                if let Some(file_paths) = file_paths_by_plugin.get_mut(plugin.name()) {
-                    file_paths.push(file_path);
-                } else {
-                    file_paths_by_plugin.insert(String::from(plugin.name()), vec![file_path]);
-                }
-                continue;
-            }
-        }
-        if let Some(file_fullname) = file_path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()) {
-            if let Some(plugin) = plugins.iter().filter(|p| p.file_fullnames().contains(&file_fullname)).next() {
-                if let Some(file_paths) = file_paths_by_plugin.get_mut(plugin.name()) {
-                    file_paths.push(file_path);
-                } else {
-                    file_paths_by_plugin.insert(String::from(plugin.name()), vec![file_path]);
-                }
-            }
-        }
+        let plugin = if let Some(plugin) = crate::utils::get_lowercase_exact_file_names(&file_path).and_then(|k| plugin_by_exact_file_name.get(k.as_str())) {
+            plugin
+        } else if let Some(plugin) = crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())) {
+            plugin
+        } else {
+            continue;
+        };
+        let file_paths = file_paths_by_plugin.entry(plugin.to_string()).or_insert(vec![]);
+        file_paths.push(file_path);
     }
 
     file_paths_by_plugin
@@ -231,6 +233,8 @@ fn output_editor_info<TEnvironment: Environment>(
     struct EditorPluginInfo {
         name: String,
         file_extensions: Vec<String>,
+        #[serde(default = "Vec::new")]
+        exact_file_names: Vec<String>,
     }
 
     let mut plugins = Vec::new();
@@ -239,6 +243,7 @@ fn output_editor_info<TEnvironment: Environment>(
         plugins.push(EditorPluginInfo {
             name: plugin.name().to_string(),
             file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
+            exact_file_names: plugin.exact_file_names().iter().map(|ext| ext.to_string()).collect(),
         });
     }
 
@@ -426,12 +431,16 @@ fn format_with_plugin_pools<'a, TEnvironment: Environment>(
     environment: &TEnvironment,
     plugin_pools: &Arc<PluginPools<TEnvironment>>,
 ) -> Result<Cow<'a, str>, ErrBox> {
-    let ext = match file_name.extension() {
-        Some(ext) => ext.to_string_lossy().to_string(),
+    let name = match crate::utils::get_lowercase_exact_file_names(file_name) {
+        Some(s) => s,
+        None => return err!("Could not find exact name for {}", file_name.display()),
+    };
+    let ext = match crate::utils::get_lowercase_file_extension(file_name)  {
+        Some(s) => s,
         None => return err!("Could not find extension for {}", file_name.display()),
     };
 
-    if let Some(plugin_name) = plugin_pools.get_plugin_name_from_extension(&ext) {
+    if let Some(plugin_name) = plugin_pools.get_plugin_name_from_file_name(&name).or(plugin_pools.get_plugin_name_from_extension(&ext)) {
         let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
         let error_logger = ErrorCountLogger::from_environment(environment);
         match plugin_pool.take_or_create_checking_config_diagnostics(&error_logger)? {
@@ -1816,6 +1825,7 @@ mod tests {
                 "version": "0.2.3",
                 "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
                 "fileExtensions": ["json"],
+                "exactFileNames": [],
                 "configKey": "json",
                 "configExcludes": []
             }]
@@ -1949,7 +1959,7 @@ SOFTWARE.
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
-            r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"]},{"name":"test-process-plugin","fileExtensions":["txt_ps"]}]}"#
+            r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"exactFileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"exactFileNames":[]}]}"#
         ]);
     }
 

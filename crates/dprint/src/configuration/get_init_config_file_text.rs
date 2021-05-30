@@ -79,13 +79,21 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         }
 
         json_text.push_str("  \"includes\": [");
-        let includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.to_owned()).collect::<Vec<_>>());
-        if includes.is_empty() {
+        let extension_includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.as_str()).collect::<Vec<_>>());
+        let file_name_includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.exact_file_names.iter()).map(|x| x.as_str()).collect::<Vec<_>>());
+        if extension_includes.is_empty() && file_name_includes.is_empty() {
             json_text.push_str("\"**/*.*\"");
         } else {
-            json_text.push_str("\"**/*.{");
-            json_text.push_str(&includes.join(","));
-            json_text.push_str("}\"");
+            if !extension_includes.is_empty() {
+                json_text.push_str("\"**/*.{");
+                json_text.push_str(&extension_includes.join(","));
+                json_text.push_str("}\"");
+            }
+            if !file_name_includes.is_empty() {
+                json_text.push_str("\"**/{");
+                json_text.push_str(&file_name_includes.join(","));
+                json_text.push_str("}\"");
+            }
         }
         json_text.push_str("],\n");
         json_text.push_str("  \"excludes\": [");
