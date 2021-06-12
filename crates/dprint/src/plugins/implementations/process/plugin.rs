@@ -76,8 +76,8 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
         &self.plugin_info.file_extensions
     }
 
-    fn exact_file_names(&self) -> &Vec<String> {
-        &self.plugin_info.exact_file_names
+    fn file_names(&self) -> &Vec<String> {
+        &self.plugin_info.file_names
     }
 
     fn help_url(&self) -> &str {

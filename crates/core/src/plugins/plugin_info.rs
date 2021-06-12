@@ -14,7 +14,7 @@ pub struct PluginInfo {
     pub file_extensions: Vec<String>,
     /// The file names this plugin should format.
     #[serde(default = "Vec::new")]
-    pub exact_file_names: Vec<String>,
+    pub file_names: Vec<String>,
     /// A url the user can go to in order to get help information about the plugin.
     pub help_url: String,
     /// Schema url for the plugin configuration.

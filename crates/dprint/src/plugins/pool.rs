@@ -76,7 +76,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
         for plugin in plugins {
             let plugin_name = String::from(plugin.name());
             let plugin_extensions = plugin.file_extensions().clone();
-            let plugin_file_names = plugin.exact_file_names().clone();
+            let plugin_file_names = plugin.file_names().clone();
             pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
             for extension in plugin_extensions.iter() {
                 // first added plugin takes precedence

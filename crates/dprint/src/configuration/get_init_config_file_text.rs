@@ -79,7 +79,7 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         }
 
         let extension_includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.as_str()).collect::<Vec<_>>());
-        let file_name_includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.exact_file_names.iter()).map(|x| x.as_str()).collect::<Vec<_>>());
+        let file_name_includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.file_names.iter()).map(|x| x.as_str()).collect::<Vec<_>>());
 
         let mut json_includes = vec![];
         if !extension_includes.is_empty() {
@@ -419,7 +419,7 @@ mod test {
                 "version": "0.1.2",
                 "url": "https://plugins.dprint.dev/final-0.1.2.wasm",
                 "fileExtensions": ["tsx", "rs"],
-                "exactFileNames": ["Cargo.toml"],
+                "fileNames": ["Cargo.toml"],
                 "configExcludes": ["**/something", "**other"]
             }, {
                 "name": "dprint-process-plugin",

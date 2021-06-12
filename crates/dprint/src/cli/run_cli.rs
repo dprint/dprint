@@ -129,21 +129,21 @@ fn get_file_paths_by_plugin_and_err_if_empty(
 
 fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
     let mut plugin_by_file_extension: HashMap<&str, &str> = HashMap::new();
-    let mut plugin_by_exact_file_name: HashMap<&str, &str> = HashMap::new();
+    let mut plugin_by_file_name: HashMap<&str, &str> = HashMap::new();
 
     for plugin in plugins.iter() {
         for file_extension in plugin.file_extensions() {
             plugin_by_file_extension.entry(file_extension).or_insert(plugin.name());
         }
-        for exact_file_name in plugin.exact_file_names() {
-            plugin_by_exact_file_name.entry(exact_file_name).or_insert(plugin.name());
+        for file_name in plugin.file_names() {
+            plugin_by_file_name.entry(file_name).or_insert(plugin.name());
         }
     }
 
     let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for file_path in file_paths.into_iter() {
-        let plugin = if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_exact_file_name.get(k.as_str())) {
+        let plugin = if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_file_name.get(k.as_str())) {
             plugin
         } else if let Some(plugin) = crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())) {
             plugin
@@ -234,7 +234,7 @@ fn output_editor_info<TEnvironment: Environment>(
         name: String,
         file_extensions: Vec<String>,
         #[serde(default = "Vec::new")]
-        exact_file_names: Vec<String>,
+        file_names: Vec<String>,
     }
 
     let mut plugins = Vec::new();
@@ -243,7 +243,7 @@ fn output_editor_info<TEnvironment: Environment>(
         plugins.push(EditorPluginInfo {
             name: plugin.name().to_string(),
             file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
-            exact_file_names: plugin.exact_file_names().iter().map(|ext| ext.to_string()).collect(),
+            file_names: plugin.file_names().iter().map(|ext| ext.to_string()).collect(),
         });
     }
 
@@ -1828,7 +1828,7 @@ mod tests {
                 "version": "0.2.3",
                 "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
                 "fileExtensions": ["json"],
-                "exactFileNames": [],
+                "fileNames": [],
                 "configKey": "json",
                 "configExcludes": []
             }]
@@ -1962,7 +1962,7 @@ SOFTWARE.
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
-            r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"exactFileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"exactFileNames":["test-process-plugin-exact-file"]}]}"#
+            r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"fileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"]}]}"#
         ]);
     }
 

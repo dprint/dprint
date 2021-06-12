@@ -17,7 +17,7 @@ pub struct InfoFilePluginInfo {
     pub config_schema_url: String,
     pub config_key: Option<String>,
     pub file_extensions: Vec<String>,
-    pub exact_file_names: Vec<String>,
+    pub file_names: Vec<String>,
     pub config_excludes: Vec<String>,
     pub checksum: Option<String>,
 }
@@ -83,7 +83,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     let config_key = obj.take_string("configKey").map(|k| k.into_owned());
     let config_schema_url = obj.take_string("configSchemaUrl").map(|s| s.into_owned()).unwrap_or(String::new());
     let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
-    let exact_file_names = get_string_array(&mut obj, "exactFileNames").unwrap_or_default(); // compatible with old configuration
+    let file_names = get_string_array(&mut obj, "fileNames").unwrap_or_default(); // compatible with old configuration
     let config_excludes = get_string_array(&mut obj, "configExcludes")?;
     let checksum = obj.take_string("checksum").map(|s| s.into_owned());
 
@@ -93,7 +93,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
         url,
         config_key,
         file_extensions,
-        exact_file_names,
+        file_names,
         config_schema_url,
         config_excludes,
         checksum,
@@ -148,7 +148,7 @@ mod test {
         "version": "0.2.3",
         "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
         "fileExtensions": ["json"],
-        "exactFileNames": ["test-file"],
+        "fileNames": ["test-file"],
         "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
         "configExcludes": ["**/*-lock.json"],
         "checksum": "test-checksum"
@@ -163,7 +163,7 @@ mod test {
                 url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
                 config_key: Some("typescript".to_string()),
                 file_extensions: vec!["ts".to_string(), "tsx".to_string()],
-                exact_file_names: vec![],
+                file_names: vec![],
                 config_schema_url: String::new(),
                 config_excludes: vec!["**/node_modules".to_string()],
                 checksum: None,
@@ -173,7 +173,7 @@ mod test {
                 url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
                 config_key: None,
                 file_extensions: vec!["json".to_string()],
-                exact_file_names: vec!["test-file".to_string()],
+                file_names: vec!["test-file".to_string()],
                 config_schema_url: "https://plugins.dprint.dev/schemas/json-v1.json".to_string(),
                 config_excludes: vec!["**/*-lock.json".to_string()],
                 checksum: Some("test-checksum".to_string()),
