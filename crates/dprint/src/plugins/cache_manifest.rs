@@ -229,7 +229,7 @@ mod test {
                 version: "0.2.0".to_string(),
                 config_key: "json".to_string(),
                 file_extensions: vec![".json".to_string()],
-                exact_file_names: vec![],
+                exact_file_names: vec!["file.test".to_string()],
                 help_url: "help url 2".to_string(),
                 config_schema_url: "schema url 2".to_string()
             }

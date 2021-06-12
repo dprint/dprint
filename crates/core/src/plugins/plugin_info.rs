@@ -10,9 +10,9 @@ pub struct PluginInfo {
     pub version: String,
     /// Gets the key that can be used in the configuration JSON.
     pub config_key: String,
-    /// The file extensions this plugin supports.
+    /// The file extensions this plugin should format.
     pub file_extensions: Vec<String>,
-    /// The file exact names this plugin supports.
+    /// The file names this plugin should format.
     #[serde(default = "Vec::new")]
     pub exact_file_names: Vec<String>,
     /// A url the user can go to in order to get help information about the plugin.

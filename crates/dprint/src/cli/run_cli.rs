@@ -143,7 +143,7 @@ fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<Path
     let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
     for file_path in file_paths.into_iter() {
-        let plugin = if let Some(plugin) = crate::utils::get_lowercase_exact_file_names(&file_path).and_then(|k| plugin_by_exact_file_name.get(k.as_str())) {
+        let plugin = if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_exact_file_name.get(k.as_str())) {
             plugin
         } else if let Some(plugin) = crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())) {
             plugin
@@ -431,16 +431,7 @@ fn format_with_plugin_pools<'a, TEnvironment: Environment>(
     environment: &TEnvironment,
     plugin_pools: &Arc<PluginPools<TEnvironment>>,
 ) -> Result<Cow<'a, str>, ErrBox> {
-    let name = match crate::utils::get_lowercase_exact_file_names(file_name) {
-        Some(s) => s,
-        None => return err!("Could not find exact name for {}", file_name.display()),
-    };
-    let ext = match crate::utils::get_lowercase_file_extension(file_name)  {
-        Some(s) => s,
-        None => return err!("Could not find extension for {}", file_name.display()),
-    };
-
-    if let Some(plugin_name) = plugin_pools.get_plugin_name_from_file_name(&name).or(plugin_pools.get_plugin_name_from_extension(&ext)) {
+    if let Some(plugin_name) = plugin_pools.get_plugin_name_from_file_name(file_name) {
         let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
         let error_logger = ErrorCountLogger::from_environment(environment);
         match plugin_pool.take_or_create_checking_config_diagnostics(&error_logger)? {
@@ -988,6 +979,18 @@ mod tests {
         assert_eq!(environment.take_logged_errors().len(), 0);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted_process");
+    }
+
+    #[test]
+    fn it_should_format_plugin_explicitly_specified_files() {
+        let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
+        // this file name is mentioned in test-process-plugin's PluginInfo
+        let file_path1 = PathBuf::from("/test-process-plugin-exact-file");
+        environment.write_file(&file_path1, "text").unwrap();
+        run_test_cli(vec!["fmt", "*"], &environment).unwrap();
+        assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted_process");
     }
 
     #[test]
@@ -1959,7 +1962,7 @@ SOFTWARE.
         }}"#, plugin_file_checksum)).unwrap();
         run_test_cli(vec!["editor-info"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
-            r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"exactFileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"exactFileNames":[]}]}"#
+            r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"exactFileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"exactFileNames":["test-process-plugin-exact-file"]}]}"#
         ]);
     }
 

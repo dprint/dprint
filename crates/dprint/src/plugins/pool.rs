@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Instant;
+use std::path::Path;
 use parking_lot::{Mutex, RwLock};
 
 use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
+use crate::utils::{get_lowercase_file_extension, get_lowercase_file_name};
 use crate::utils::ErrorCountLogger;
 use super::{Plugin, InitializedPlugin, output_plugin_config_diagnostics};
 
@@ -27,11 +29,15 @@ impl<TEnvironment: Environment> PluginsDropper<TEnvironment> {
     }
 }
 
+struct PluginNameResolutionMaps {
+    extension_to_plugin_name_map: HashMap<String, String>,
+    file_name_to_plugin_name_map: HashMap<String, String>,
+}
+
 pub struct PluginPools<TEnvironment : Environment> {
     environment: TEnvironment,
     pools: Mutex<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>,
-    extension_to_plugin_name_map: RwLock<HashMap<String, String>>,
-    file_name_to_plugin_name_map: RwLock<HashMap<String, String>>,
+    plugin_name_maps: RwLock<PluginNameResolutionMaps>,
     /// Plugins may format using other plugins. If so, they should have a locally
     /// owned plugin instance that will be created on demand.
     plugins_for_plugins: Mutex<HashMap<String, HashMap<String, Vec<Box<dyn InitializedPlugin>>>>>,
@@ -42,8 +48,10 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
         PluginPools {
             environment,
             pools: Mutex::new(HashMap::new()),
-            extension_to_plugin_name_map: RwLock::new(HashMap::new()),
-            file_name_to_plugin_name_map: RwLock::new(HashMap::new()),
+            plugin_name_maps: RwLock::new(PluginNameResolutionMaps {
+                extension_to_plugin_name_map: HashMap::new(),
+                file_name_to_plugin_name_map: HashMap::new(),
+            }),
             plugins_for_plugins: Mutex::new(HashMap::new()),
         }
     }
@@ -64,8 +72,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
 
     pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>) {
         let mut pools = self.pools.lock();
-        let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.write();
-        let mut file_name_to_plugin_name_map = self.file_name_to_plugin_name_map.write();
+        let mut plugin_name_maps = self.plugin_name_maps.write();
         for plugin in plugins {
             let plugin_name = String::from(plugin.name());
             let plugin_extensions = plugin.file_extensions().clone();
@@ -73,11 +80,11 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
             pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
             for extension in plugin_extensions.iter() {
                 // first added plugin takes precedence
-                extension_to_plugin_name_map.entry(extension.to_owned()).or_insert(plugin_name.clone());
+                plugin_name_maps.extension_to_plugin_name_map.entry(extension.to_owned()).or_insert(plugin_name.clone());
             }
             for file_name in plugin_file_names.iter() {
                 // first added plugin takes precedence
-                file_name_to_plugin_name_map.entry(file_name.to_owned()).or_insert(plugin_name.clone());
+                plugin_name_maps.file_name_to_plugin_name_map.entry(file_name.to_owned()).or_insert(plugin_name.clone());
             }
         }
     }
@@ -133,12 +140,16 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
         with_plugins(&mut plugins)
     }
 
-    pub fn get_plugin_name_from_extension(&self, ext: &str) -> Option<String> {
-        self.extension_to_plugin_name_map.read().get(ext).map(|name| name.to_owned())
-    }
-
-    pub fn get_plugin_name_from_file_name(&self, name: &str) -> Option<String> {
-        self.file_name_to_plugin_name_map.read().get(name).map(|name| name.to_owned())
+    pub fn get_plugin_name_from_file_name(&self, file_name: &Path) -> Option<String> {
+        let plugin_name_maps = self.plugin_name_maps.read();
+        get_lowercase_file_name(file_name)
+            .map(|file_name| plugin_name_maps.file_name_to_plugin_name_map.get(&file_name))
+            .flatten()
+            .or_else(|| get_lowercase_file_extension(file_name)
+                .map(|ext| plugin_name_maps.extension_to_plugin_name_map.get(&ext))
+                .flatten()
+            )
+            .map(|name| name.to_owned())
     }
 
     pub fn release(&self, parent_plugin_name: &str) {
