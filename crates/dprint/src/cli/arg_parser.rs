@@ -123,13 +123,6 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
         ("editor-service", Some(matches)) => SubCommand::EditorService(EditorServiceSubCommand {
             parent_pid: matches.value_of("parent-pid").map(|v| v.parse::<u32>().ok()).flatten().unwrap()
         }),
-        ("stdin-fmt", Some(matches)) => {
-            eprintln!("This command is going away soon. Please use `dprint --stdin <extension/file-path/file-name>`");
-            SubCommand::StdInFmt(StdInFmtSubCommand {
-                file_path: PathBuf::from(matches.value_of("file-name").map(String::from).unwrap()),
-                file_text: std_in_reader.read()?,
-            })
-        },
         #[cfg(target_os = "windows")]
         ("hidden", Some(matches)) => {
             SubCommand::Hidden(match matches.subcommand() {
