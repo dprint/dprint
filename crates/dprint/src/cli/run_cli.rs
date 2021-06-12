@@ -1499,6 +1499,44 @@ mod tests {
     }
 
     #[test]
+    fn it_should_support_clearing_config_excludes_with_cli_excludes_arg() {
+        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        environment.write_file(&file_path1, "text1").unwrap();
+        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "excludes": ["/file1.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+
+        run_test_cli(vec!["fmt", "--excludes="], &environment).unwrap();
+
+        assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+    }
+
+    #[test]
+    fn it_should_format_explicitly_specified_file_even_if_excluded() {
+        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
+        let file_path1 = PathBuf::from("/file1.txt");
+        environment.write_file(&file_path1, "text1").unwrap();
+        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
+            "projectType": "openSource",
+            "includes": ["**/*.txt"],
+            "excludes": ["/file1.txt"],
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#).unwrap();
+
+        run_test_cli(vec!["fmt", "file1.txt"], &environment).unwrap();
+
+        assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+        assert_eq!(environment.take_logged_errors().len(), 0);
+        assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+    }
+
+    #[test]
     fn it_should_override_config_includes_and_excludes_with_cli() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         let file_path1 = PathBuf::from("/file1.txt");
