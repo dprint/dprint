@@ -80,7 +80,8 @@ mod tests {
         TestPlugin::new(
             "dprint-plugin-typescript",
             "typescript",
-            vec![".ts"]
+            vec![".ts"],
+            vec![],
         )
     }
 }

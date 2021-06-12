@@ -39,6 +39,7 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
             version: String::from(env!("CARGO_PKG_VERSION")),
             config_key: "testProcessPlugin".to_string(),
             file_extensions: vec!["txt_ps".to_string()],
+            exact_file_names: vec![],
             help_url: "https://dprint.dev/plugins/test-process".to_string(),
             config_schema_url: "".to_string()
         }

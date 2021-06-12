@@ -31,6 +31,7 @@ pub struct PluginPools<TEnvironment : Environment> {
     environment: TEnvironment,
     pools: Mutex<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>,
     extension_to_plugin_name_map: RwLock<HashMap<String, String>>,
+    file_name_to_plugin_name_map: RwLock<HashMap<String, String>>,
     /// Plugins may format using other plugins. If so, they should have a locally
     /// owned plugin instance that will be created on demand.
     plugins_for_plugins: Mutex<HashMap<String, HashMap<String, Vec<Box<dyn InitializedPlugin>>>>>,
@@ -42,6 +43,7 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
             environment,
             pools: Mutex::new(HashMap::new()),
             extension_to_plugin_name_map: RwLock::new(HashMap::new()),
+            file_name_to_plugin_name_map: RwLock::new(HashMap::new()),
             plugins_for_plugins: Mutex::new(HashMap::new()),
         }
     }
@@ -63,15 +65,19 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
     pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>) {
         let mut pools = self.pools.lock();
         let mut extension_to_plugin_name_map = self.extension_to_plugin_name_map.write();
+        let mut file_name_to_plugin_name_map = self.file_name_to_plugin_name_map.write();
         for plugin in plugins {
             let plugin_name = String::from(plugin.name());
             let plugin_extensions = plugin.file_extensions().clone();
+            let plugin_file_names = plugin.exact_file_names().clone();
             pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
-            for extension in plugin_extensions.into_iter() {
+            for extension in plugin_extensions.iter() {
                 // first added plugin takes precedence
-                if !extension_to_plugin_name_map.contains_key(&extension) {
-                    extension_to_plugin_name_map.insert(extension, plugin_name.clone());
-                }
+                extension_to_plugin_name_map.entry(extension.to_owned()).or_insert(plugin_name.clone());
+            }
+            for file_name in plugin_file_names.iter() {
+                // first added plugin takes precedence
+                file_name_to_plugin_name_map.entry(file_name.to_owned()).or_insert(plugin_name.clone());
             }
         }
     }
@@ -129,6 +135,10 @@ impl<TEnvironment : Environment> PluginPools<TEnvironment> {
 
     pub fn get_plugin_name_from_extension(&self, ext: &str) -> Option<String> {
         self.extension_to_plugin_name_map.read().get(ext).map(|name| name.to_owned())
+    }
+
+    pub fn get_plugin_name_from_file_name(&self, name: &str) -> Option<String> {
+        self.file_name_to_plugin_name_map.read().get(name).map(|name| name.to_owned())
     }
 
     pub fn release(&self, parent_plugin_name: &str) {

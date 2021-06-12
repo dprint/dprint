@@ -78,14 +78,22 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
             }
         }
 
+        let extension_includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.as_str()).collect::<Vec<_>>());
+        let file_name_includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.exact_file_names.iter()).map(|x| x.as_str()).collect::<Vec<_>>());
+
+        let mut json_includes = vec![];
+        if !extension_includes.is_empty() {
+            json_includes.push(format!("\"**/*.{{{}}}\"", extension_includes.join(",")));
+        }
+        if !file_name_includes.is_empty() {
+            json_includes.push(format!("\"**/{{{}}}\"", file_name_includes.join(",")));
+        }
+
         json_text.push_str("  \"includes\": [");
-        let includes = get_unique_items(selected_plugins.iter().flat_map(|p| p.file_extensions.iter()).map(|x| x.to_owned()).collect::<Vec<_>>());
-        if includes.is_empty() {
+        if json_includes.is_empty() {
             json_text.push_str("\"**/*.*\"");
         } else {
-            json_text.push_str("\"**/*.{");
-            json_text.push_str(&includes.join(","));
-            json_text.push_str("}\"");
+            json_text.push_str(&json_includes.join(","));
         }
         json_text.push_str("],\n");
         json_text.push_str("  \"excludes\": [");
@@ -168,7 +176,7 @@ mod test {
   "json": {
     "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
   },
-  "includes": ["**/*.{ts,tsx,json,rs}"],
+  "includes": ["**/*.{ts,tsx,json,rs}","**/{Cargo.toml}"],
   "excludes": [
     "**/something",
     "**/*-asdf.json",
@@ -411,6 +419,7 @@ mod test {
                 "version": "0.1.2",
                 "url": "https://plugins.dprint.dev/final-0.1.2.wasm",
                 "fileExtensions": ["tsx", "rs"],
+                "exactFileNames": ["Cargo.toml"],
                 "configExcludes": ["**/something", "**other"]
             }, {
                 "name": "dprint-process-plugin",

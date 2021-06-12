@@ -183,7 +183,7 @@ mod test {
         // should have saved the manifest
         assert_eq!(
             environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-            r#"{"schemaVersion":2,"plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
+            r#"{"schemaVersion":2,"plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"exactFileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
         );
 
         // should forget it afterwards
@@ -226,7 +226,7 @@ mod test {
             concat!(
                 r#"{"schemaVersion":2,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
                 r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-                r#""fileExtensions":["txt","dat"],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
+                r#""fileExtensions":["txt","dat"],"exactFileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
             )
         );
 
@@ -245,7 +245,7 @@ mod test {
             concat!(
                 r#"{"schemaVersion":2,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
                 r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-                r#""fileExtensions":["txt","dat"],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
+                r#""fileExtensions":["txt","dat"],"exactFileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
             )
         );
 
@@ -277,6 +277,7 @@ mod test {
             version: String::from("0.1.0"),
             config_key: String::from("test-plugin"),
             file_extensions: vec![String::from("txt"), String::from("dat")],
+            exact_file_names: vec![],
             help_url: String::from("test-url"),
             config_schema_url: String::from("schema-url"),
         }
