@@ -25,10 +25,28 @@ Install using one of the methods below.
       ```bash
       brew install dprint
       ```
-- Cargo (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
+- [Cargo](https://crates.io/) (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
 
       ```bash
       cargo install dprint
+      ```
+
+- [npm](https://www.npmjs.com/):
+
+      ```bash
+      npm install dprint
+      npx dprint help
+
+      # or install globally
+      npm install -g dprint
+      dprint help
+      ```
+
+- [bvm](https://github.com/bvm/bvm) (Experimental)
+
+      ```bash
+      bvm registry add https://bvm.land/dprint/registry.json
+      bvm install dprint
       ```
 
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).

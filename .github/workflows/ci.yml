@@ -243,10 +243,31 @@ jobs:
           brew install dprint
           ```
 
+          Cargo (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
+
+          ```bash
+          cargo install dprint
+          ```
+
+          [npm](https://www.npmjs.com/):
+
+          ```bash
+          npm install dprint
+          npx dprint help
+
+          # or install globally
+          npm install -g dprint
+          dprint help
+          ```
+
           [bvm](https://github.com/dsherret/bvm) (Experimental):
 
           ```bash
           bvm install https://bvm.land/dprint/${{steps.get_tag_version.outputs.TAG_VERSION}}.json
+
+          # or install via the registry
+          bvm registry add https://bvm.land/dprint/registry.json
+          bvm install dprint
           ```
 
           Or project specific in `bvm.json`:
