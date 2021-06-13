@@ -118,14 +118,14 @@ mod tests {
     #[test]
     fn it_should_deserialize_full_object() {
         let mut expected_props = HashMap::new();
-        expected_props.insert(String::from("projectType"), ConfigMapValue::from_str("openSource"));
+        expected_props.insert(String::from("includes"), ConfigMapValue::Vec(Vec::new()));
         let mut ts_hash_map = HashMap::new();
         ts_hash_map.insert(String::from("lineWidth"), ConfigKeyValue::from_i32(40));
         ts_hash_map.insert(String::from("preferSingleLine"), ConfigKeyValue::from_bool(true));
         ts_hash_map.insert(String::from("other"), ConfigKeyValue::from_str("test"));
         expected_props.insert(String::from("typescript"), ConfigMapValue::HashMap(ts_hash_map));
         assert_deserializes(
-            "{'projectType': 'openSource', 'typescript': { 'lineWidth': 40, 'preferSingleLine': true, 'other': 'test' }}",
+            "{'includes': [], 'typescript': { 'lineWidth': 40, 'preferSingleLine': true, 'other': 'test' }}",
             expected_props
         );
     }

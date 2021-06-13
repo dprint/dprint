@@ -35,18 +35,3 @@ Sponsorship is available via PayPal:
 ## GitHub Sponsors
 
 Alternatively, some other sponsorship tiers are available through GitHub sponsors: [https://github.com/sponsors/dprint](https://github.com/sponsors/dprint)
-
-## After Sponsoring
-
-After you've sponsored, update your commercial project's dprint configuration file to be `commercialSponsored`.
-
-<!-- dprint-ignore -->
-
-```json
-{
-  "projectType": "commercialSponsored",
-  // etc...
-}
-```
-
-Thank you for moving this project forward!

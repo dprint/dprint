@@ -3,13 +3,8 @@ use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
-use crate::utils::get_table_text;
-
-use super::get_project_type_infos;
 
 pub fn get_init_config_file_text(environment: &impl Environment) -> Result<String, ErrBox> {
-    let project_type_name = get_project_type_name(environment)?;
-
     let info = match read_info_file(environment) {
         Ok(info) => {
             // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
@@ -60,7 +55,6 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
 
     let mut json_text = String::from("{\n");
     json_text.push_str("  \"$schema\": \"https://dprint.dev/schemas/v0.json\",\n");
-    json_text.push_str(&format!("  \"projectType\": \"{}\",\n", project_type_name));
     json_text.push_str("  \"incremental\": true,\n");
 
     if let Some(selected_plugins) = &selected_plugins {
@@ -144,14 +138,6 @@ fn get_unique_items<T>(vec: Vec<T>) -> Vec<T> where T : PartialEq {
     new_vec
 }
 
-fn get_project_type_name(environment: &impl Environment) -> Result<&'static str, ErrBox> {
-    let project_type_infos = get_project_type_infos();
-    let prompt_message = "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n";
-    let table_text = get_table_text(project_type_infos.iter().map(|info| (info.name, info.description)).collect());
-    let project_type_index = environment.get_selection(prompt_message, table_text.hanging_indent, &table_text.lines)?;
-    Ok(project_type_infos[project_type_index].name)
-}
-
 #[cfg(test)]
 mod test {
     use pretty_assertions::assert_eq;
@@ -169,7 +155,6 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
   "incremental": true,
   "typescript": {
   },
@@ -204,7 +189,6 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
   "incremental": true,
   "json": {
     "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
@@ -233,7 +217,6 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
   "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [],
@@ -257,7 +240,6 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
   "incremental": true,
   "includes": ["**/*.{ps}"],
   "excludes": [],
@@ -279,7 +261,6 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
@@ -323,7 +304,6 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialDidNotSponsor",
   "incremental": true,
   "typescript": {
   },
@@ -362,7 +342,6 @@ mod test {
             text,
             r#"{
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
@@ -385,14 +364,11 @@ mod test {
     }
 
     fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {
-        vec!["What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n"]
+        vec![]
     }
 
     fn get_standard_logged_messages() -> Vec<&'static str> {
-        vec![
-            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
-            "Select plugins (use the spacebar to select/deselect and then press enter when finished):"
-        ]
+        vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
     }
 
     fn get_multi_plugins_config() -> &'static str {

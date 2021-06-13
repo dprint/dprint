@@ -9,32 +9,6 @@
       "description": "The JSON schema reference.",
       "type": "string"
     },
-    "projectType": {
-      "description": "The type of project dprint is formatting.",
-      "type": "string",
-      "oneOf": [
-        {
-          "const": "openSource",
-          "description": "dprint is formatting an open source project."
-        },
-        {
-          "const": "educational",
-          "description": "dprint is formatting a project run by a student or being used for educational purposes."
-        },
-        {
-          "const": "nonProfit",
-          "description": "dprint is formatting a project whose primary maintainer is a non-profit organization."
-        },
-        {
-          "const": "commercialSponsored",
-          "description": "dprint is formatting a closed source for-profit project and the primary maintainer sponsored the project. Thank you for being part of moving dprint project forward!"
-        },
-        {
-          "const": "commercialDidNotSponsor",
-          "description": "dprint is formatting a closed source for-profit project and the primary maintainer does not want to support dprint's development financially."
-        }
-      ]
-    },
     "incremental": {
       "description": "Whether to format files only when they change. Setting this to `true` will dramatically speed up formatting.",
       "type": "boolean",

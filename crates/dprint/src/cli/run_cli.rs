@@ -87,9 +87,6 @@ pub fn run_cli<TEnvironment: Environment>(
             let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
             plugin_pools.set_plugins(plugins);
 
-            // throw the project type diagnostic if it exists
-            check_project_type_diagnostic(environment, &config)?;
-
             let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
             check_files(file_paths_by_plugin, environment, plugin_pools, incremental_file)
         }
@@ -99,9 +96,6 @@ pub fn run_cli<TEnvironment: Environment>(
             let file_paths = resolve_file_paths(&config, &args, environment)?;
             let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
             plugin_pools.set_plugins(plugins);
-
-            // throw the project type diagnostic if it exists
-            check_project_type_diagnostic(environment, &config)?;
 
             let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
             format_files(file_paths_by_plugin, environment, plugin_pools, incremental_file)
@@ -399,7 +393,8 @@ fn init_config_file(environment: &impl Environment, config_arg: &Option<String>)
     let config_file_path = get_config_path(config_arg)?;
     return if !environment.path_exists(&config_file_path) {
         environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment)?)?;
-        environment.log(&format!("Created {}", config_file_path.display()));
+        environment.log(&format!("\nCreated {}", config_file_path.display()));
+        environment.log("\nIf you are working in a commercial environment, please consider sponsoring dprint: https://dprint.dev/sponsor");
         Ok(())
     } else {
         err!("Configuration file '{}' already exists.", config_file_path.display())
@@ -668,14 +663,6 @@ fn resolve_plugins<TEnvironment: Environment>(
     }
 
     return Ok(plugins);
-}
-
-fn check_project_type_diagnostic(environment: &impl Environment, config: &ResolvedConfig) -> Result<(), ErrBox> {
-    if let Some(diagnostic) = configuration::handle_project_type_diagnostic(environment, &config.project_type) {
-        return err!("{}", diagnostic.message);
-    }
-
-    Ok(())
 }
 
 fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
@@ -997,7 +984,6 @@ mod tests {
     fn it_should_format_files_with_local_plugin() {
         let environment = get_test_environment_with_local_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": ["/plugins/test-plugin.wasm"]
         }"#).unwrap();
         run_test_cli(vec!["license"], &environment).unwrap(); // cause initialization
@@ -1191,7 +1177,6 @@ mod tests {
         let file_path2 = PathBuf::from("/file2.txt_ps");
         let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("/config.json"), &format!(r#"{{
-            "projectType": "openSource",
             "test-plugin": {{
                 "ending": "custom-formatted"
             }},
@@ -1220,7 +1205,6 @@ mod tests {
         let file_path1 = PathBuf::from("/file1.txt");
         environment.write_file(&file_path1, "text").unwrap();
         environment.write_file(&PathBuf::from("/config.json"), r#"{
-            "projectType": "openSource",
             "test-plugin": { "ending": "custom-formatted" },
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1256,7 +1240,6 @@ mod tests {
         let file_path1 = PathBuf::from("/file1.txt");
         let file_path2 = PathBuf::from("/file2.txt");
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "test-plugin": {
                 "ending": "custom-formatted"
             },
@@ -1277,7 +1260,6 @@ mod tests {
     fn it_should_error_on_wasm_plugin_config_diagnostic() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "test-plugin": { "non-existent": 25 },
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1298,7 +1280,6 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
         let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "projectType": "openSource",
             "testProcessPlugin": {{ "non-existent": 25 }},
             "plugins": [
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
@@ -1320,7 +1301,6 @@ mod tests {
     fn it_should_error_when_no_plugins_specified() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": []
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
@@ -1336,7 +1316,6 @@ mod tests {
     fn it_should_use_plugins_specified_in_cli_args() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/other.wasm"]
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
@@ -1383,7 +1362,6 @@ mod tests {
         environment.set_cwd("D:\\test\\other\\");
         environment.write_file(&file_path, "text1").unwrap();
         environment.write_file(&PathBuf::from("D:\\test\\other\\dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1403,7 +1381,6 @@ mod tests {
         environment.set_cwd("/test/other/");
         environment.write_file(&file_path, "text1").unwrap();
         environment.write_file(&PathBuf::from("/test/other/dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1423,7 +1400,6 @@ mod tests {
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&file_path2, "text2").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1443,7 +1419,6 @@ mod tests {
         let file_path1 = PathBuf::from("/file1.txt");
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**\\*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1463,7 +1438,6 @@ mod tests {
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&file_path2, "text2").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1484,7 +1458,6 @@ mod tests {
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&file_path2, "text2").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "excludes": ["/file1.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1504,7 +1477,6 @@ mod tests {
         let file_path1 = PathBuf::from("/file1.txt");
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "excludes": ["/file1.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1523,7 +1495,6 @@ mod tests {
         let file_path1 = PathBuf::from("/file1.txt");
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "excludes": ["/file1.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1544,7 +1515,6 @@ mod tests {
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&file_path2, "text2").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["/file2.txt"],
             "excludes": ["/file1.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1566,7 +1536,6 @@ mod tests {
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&file_path2, "text2").unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "excludes": ["/file2.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1585,7 +1554,6 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
         environment.write_file(&PathBuf::from("./.dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1606,7 +1574,6 @@ mod tests {
         environment.write_file(&file_path1, "text1").unwrap();
         environment.write_file(&file_path2, "text2").unwrap();
         environment.write_file(&PathBuf::from("./config/.dprintrc.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1626,7 +1593,6 @@ mod tests {
     fn it_should_format_using_config_in_ancestor_directory() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1644,7 +1610,6 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
         environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1664,7 +1629,6 @@ mod tests {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
         environment.write_file(&PathBuf::from("./config/.dprintrc.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1684,7 +1648,6 @@ mod tests {
     fn it_should_format_incrementally_when_specified_on_cli() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -1711,7 +1674,6 @@ mod tests {
 
         // update the global config and ensure it's formatted
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "indentWidth": 2,
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1722,7 +1684,6 @@ mod tests {
 
         // update the plugin config and ensure it's formatted
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "indentWidth": 2,
             "test-plugin": {
                 "ending": "custom-formatted",
@@ -1756,7 +1717,6 @@ mod tests {
     fn it_should_format_incrementally_when_specified_via_config() {
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "incremental": true,
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1773,19 +1733,6 @@ mod tests {
         environment.clear_logs();
         run_test_cli(vec!["fmt", "--verbose"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
-    }
-
-    #[test]
-    fn it_should_error_when_missing_project_type() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/file1.txt"), "text1_formatted").unwrap();
-        let error_message = run_test_cli(vec!["fmt", "/file1.txt"], &environment).err().unwrap();
-        assert_eq!(error_message.to_string().find("The 'projectType' property").is_some(), true);
-        assert_eq!(environment.take_logged_messages().len(), 0);
-        assert_eq!(environment.take_logged_errors().len(), 0);
     }
 
     #[test]
@@ -1875,11 +1822,11 @@ mod tests {
         environment.clear_logs();
         run_test_cli(vec!["init"], &environment).unwrap();
         assert_eq!(environment.take_logged_errors(), vec![
-            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
             "Select plugins (use the spacebar to select/deselect and then press enter when finished):"
         ]);
         assert_eq!(environment.take_logged_messages(), vec![
-            "Created ./dprint.json"
+            "\nCreated ./dprint.json",
+            "\nIf you are working in a commercial environment, please consider sponsoring dprint: https://dprint.dev/sponsor"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./dprint.json")).unwrap(), expected_text);
     }
@@ -1903,11 +1850,11 @@ mod tests {
         environment.clear_logs();
         run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
         assert_eq!(environment.take_logged_errors(), vec![
-            "What kind of project will dprint be formatting?\n\nMore information: https://dprint.dev/sponsor\n",
             "Select plugins (use the spacebar to select/deselect and then press enter when finished):"
         ]);
         assert_eq!(environment.take_logged_messages(), vec![
-            "Created ./test.config.json"
+            "\nCreated ./test.config.json",
+            "\nIf you are working in a commercial environment, please consider sponsoring dprint: https://dprint.dev/sponsor"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./test.config.json")).unwrap(), expected_text);
     }
@@ -1992,7 +1939,6 @@ SOFTWARE.
         setup_test_environment_with_remote_wasm_plugin(&environment);
         let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
@@ -2057,7 +2003,6 @@ SOFTWARE.
     fn it_should_format_for_editor_service() {
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["**/*.{txt,ts}"],
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
@@ -2093,7 +2038,6 @@ SOFTWARE.
 
                 // write a new file and make sure the service picks up the changes
                 environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-                    "projectType": "openSource",
                     "includes": ["**/*.txt"],
                     "test-plugin": {
                         "ending": "new_ending"
@@ -2121,7 +2065,6 @@ SOFTWARE.
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["/test/**.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -2136,7 +2079,6 @@ SOFTWARE.
     fn it_should_format_for_stdin_fmt_with_extension() {
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["/test/**.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -2152,7 +2094,6 @@ SOFTWARE.
         let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
         let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
@@ -2168,7 +2109,6 @@ SOFTWARE.
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
         let test_std_in = TestStdInReader::new_with_text("should_error");
@@ -2181,7 +2121,6 @@ SOFTWARE.
         // it should not output anything when downloading plugins
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["/src/**.*"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -2205,12 +2144,10 @@ SOFTWARE.
     fn it_should_format_stdin_resolving_config_file_from_provided_path_when_relative() {
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["./**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
         environment.write_file(&PathBuf::from("./sub-dir/dprint.json"), r#"{
-            "projectType": "openSource",
             "test-plugin": {
                 "ending": "new_ending"
             },
@@ -2227,12 +2164,10 @@ SOFTWARE.
     fn it_should_format_stdin_resolving_config_file_from_provided_path_when_absolute() {
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "includes": ["./**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/sub-dir/dprint.json"), r#"{
-            "projectType": "openSource",
             "test-plugin": {
                 "ending": "new_ending"
             },
@@ -2250,7 +2185,6 @@ SOFTWARE.
     fn it_should_error_if_process_plugin_has_no_checksum_in_config() {
         let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-process.exe-plugin"
             ]
@@ -2275,7 +2209,6 @@ SOFTWARE.
         setup_test_environment_with_remote_process_plugin(&environment);
         let actual_plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-process.exe-plugin@asdf"
             ]
@@ -2302,7 +2235,6 @@ SOFTWARE.
         setup_test_environment_with_remote_wasm_plugin(&environment);
         let actual_plugin_file_checksum = get_wasm_plugin_checksum();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm@asdf"
             ]
@@ -2329,7 +2261,6 @@ SOFTWARE.
         setup_test_environment_with_remote_wasm_plugin(&environment);
         let actual_plugin_file_checksum = get_wasm_plugin_checksum();
         environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm@{}"
             ]
@@ -2348,7 +2279,6 @@ SOFTWARE.
         setup_test_environment_with_remote_process_plugin(&environment);
         write_process_plugin_file(&environment, "asdf");
         environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
@@ -2403,7 +2333,6 @@ SOFTWARE.
         // configuration diagnostic should only be shown by one thread
         let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "test-plugin": { "non-existent": 25 },
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
@@ -2518,7 +2447,6 @@ EXAMPLES:
         setup_test_environment_with_remote_process_plugin(&environment);
         let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-plugin.wasm",
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
@@ -2548,7 +2476,6 @@ EXAMPLES:
         setup_test_environment_with_remote_process_plugin(&environment);
         let plugin_file_checksum = get_process_plugin_checksum(&environment);
         environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "projectType": "openSource",
             "plugins": [
                 "https://plugins.dprint.dev/test-process.exe-plugin@{}"
             ]
@@ -2561,7 +2488,6 @@ EXAMPLES:
     fn get_initialized_test_environment_with_remote_wasm_plugin() -> Result<TestEnvironment, ErrBox> {
         let environment = get_test_environment_with_remote_wasm_plugin();
         environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
         run_test_cli(vec!["license"], &environment).unwrap(); // cause initialization

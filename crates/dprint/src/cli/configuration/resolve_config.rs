@@ -22,7 +22,6 @@ pub struct ResolvedConfig {
     pub excludes: Vec<String>,
     pub plugins: Vec<PluginSourceReference>,
     pub incremental: bool,
-    pub project_type: Option<String>,
     pub config_map: ConfigMap,
 }
 
@@ -41,10 +40,7 @@ pub fn resolve_config_from_args<TEnvironment : Environment>(
         Err(err) => {
             // allow no config file when plugins are specified
             if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
-                let mut config_map = HashMap::new();
-                // hack: easy way to supress project type diagnostic check
-                config_map.insert(String::from("projectType"), ConfigMapValue::from_str("openSource"));
-                config_map
+                HashMap::new()
             } else {
                 return err!(
                     "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
@@ -93,11 +89,7 @@ pub fn resolve_config_from_args<TEnvironment : Environment>(
     let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
     let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
     let incremental = take_bool_from_config_map(&mut main_config_map, "incremental", false)?;
-    let project_type = match main_config_map.remove("projectType") {
-        Some(ConfigMapValue::KeyValue(ConfigKeyValue::String(project_type))) => Some(project_type),
-        None => None,
-        _ => return err!("The projectType configuration should be a string."),
-    };
+    main_config_map.remove("projectType"); // this was an old config property that's no longer used
     let extends = take_extends(&mut main_config_map)?;
     let mut resolved_config = ResolvedConfig {
         resolved_path: resolved_config_path.resolved_path,
@@ -107,7 +99,6 @@ pub fn resolve_config_from_args<TEnvironment : Environment>(
         excludes,
         plugins,
         incremental,
-        project_type,
     };
 
     // resolve extends
@@ -329,7 +320,6 @@ mod tests {
     fn it_should_get_local_config_file() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
             "includes": ["test"],
             "excludes": ["test"]
@@ -339,7 +329,6 @@ mod tests {
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_local(), true);
-        assert_eq!(result.project_type, Some(String::from("openSource")));
         assert_eq!(result.config_map.contains_key("includes"), false);
         assert_eq!(result.config_map.contains_key("excludes"), false);
         assert_eq!(result.includes, vec!["test"]);
@@ -350,7 +339,6 @@ mod tests {
     fn it_should_get_remote_config_file() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#.as_bytes());
 
@@ -358,14 +346,12 @@ mod tests {
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_remote(), true);
-        assert_eq!(result.project_type, Some(String::from("openSource")));
     }
 
     #[test]
     fn it_should_warn_on_first_download_for_remote_config_with_includes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
             "includes": ["test"]
         }"#.as_bytes());
@@ -385,7 +371,6 @@ mod tests {
     fn it_should_warn_on_first_download_for_remote_config_with_excludes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
             "excludes": ["test"]
         }"#.as_bytes());
@@ -404,7 +389,6 @@ mod tests {
     fn it_should_warn_on_first_download_for_remote_config_with_includes_and_excludes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
             "includes": [],
             "excludes": []
@@ -426,7 +410,6 @@ mod tests {
     fn it_should_not_warn_remove_config_no_includes_or_excludes() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#.as_bytes());
 
@@ -438,7 +421,6 @@ mod tests {
     fn it_should_handle_single_extends() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["https://plugins.dprint.dev/test-plugin2.wasm"],
             "lineWidth": 4,
             "otherProp": { "test": 4 }, // should ignore
@@ -467,7 +449,6 @@ mod tests {
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(result.base_path, PathBuf::from("./"));
         assert_eq!(result.resolved_path.is_local(), true);
-        assert_eq!(result.project_type, None); // should always come from main config
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
@@ -531,7 +512,6 @@ mod tests {
 
         let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
-        assert_eq!(result.project_type, None);
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
@@ -601,7 +581,6 @@ mod tests {
 
         let result = get_result("/test.json", &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
-        assert_eq!(result.project_type, None);
         assert_eq!(result.includes.len(), 0);
         assert_eq!(result.excludes.len(), 0);
         assert_eq!(result.plugins, vec![
@@ -744,7 +723,6 @@ mod tests {
     fn it_should_error_extending_locked_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "test": {
                 "locked": true,
                 "prop": 6,
@@ -770,7 +748,6 @@ mod tests {
     fn it_should_get_locked_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "test": {
                 "locked": true,
                 "prop": 6,
@@ -798,7 +775,6 @@ mod tests {
     fn it_should_handle_locked_on_upstream_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "test": {
                 "prop": 6,
                 "other": "test"
@@ -829,7 +805,6 @@ mod tests {
     fn it_should_get_locked_config_and_not_care_if_no_properties_set_in_parent_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "test": {
                 "locked": true,
                 "prop": 6,
@@ -858,7 +833,6 @@ mod tests {
     fn it_should_handle_relative_remote_plugin() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["./test-plugin.wasm"]
         }"#.as_bytes());
 
@@ -895,7 +869,6 @@ mod tests {
     fn it_should_handle_relative_local_plugins() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
-            "projectType": "openSource",
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
@@ -911,10 +884,9 @@ mod tests {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
             "extends": "./other/test.json",
-            "projectType": "openSource",
         }"#).unwrap();
         environment.write_file(&PathBuf::from("/other/test.json"), r#"{
-            "projectType": "openSource",
+            "projectType": "openSource", // test having this in base config
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
@@ -929,7 +901,6 @@ mod tests {
     fn it_should_handle_incremental_flag_when_not_specified() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
-            "projectType": "openSource",
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
 
@@ -942,7 +913,6 @@ mod tests {
     fn it_should_handle_incremental_flag_when_true() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
-            "projectType": "openSource",
             "incremental": true,
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
@@ -956,7 +926,6 @@ mod tests {
     fn it_should_handle_incremental_flag_when_false() {
         let environment = TestEnvironment::new();
         environment.write_file(&PathBuf::from("/test.json"), r#"{
-            "projectType": "openSource",
             "incremental": false,
             "plugins": ["./testing/asdf.wasm"],
         }"#).unwrap();
@@ -970,7 +939,6 @@ mod tests {
     fn it_should_ignore_non_wasm_plugins_in_remote_config() {
         let environment = TestEnvironment::new();
         environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "projectType": "openSource",
             "plugins": ["./test-plugin.exe-plugin@checksum"]
         }"#.as_bytes());
 
@@ -1012,5 +980,21 @@ mod tests {
             path_source: PathSource::new_local(PathBuf::from("/dir/test-plugin.exe-plugin")),
             checksum: Some(String::from("checksum")),
         }]);
+    }
+
+    #[test]
+    fn it_should_ignore_project_type() {
+        // ignore the projectType property
+        let environment = TestEnvironment::new();
+        environment.write_file(&PathBuf::from("/test.json"), r#"{
+            "projectType": "openSource",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
+            "includes": ["test"],
+            "excludes": ["test"]
+        }"#).unwrap();
+
+        let result = get_result("/test.json", &environment).unwrap();
+        assert_eq!(environment.take_logged_messages().len(), 0);
+        assert_eq!(result.config_map.is_empty(), true); // should not include projectType
     }
 }

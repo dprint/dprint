@@ -16,7 +16,6 @@ See [Setup](/setup).
 ```json
 {
   "$schema": "https://dprint.dev/schemas/v0.json",
-  "projectType": "commercialSponsored",
   "incremental": true,
   "lineWidth": 80,
   "typescript": {
@@ -46,20 +45,6 @@ See [Setup](/setup).
 ## `$schema`
 
 This property is optional and provides auto-completion support in Visual Studio Code.
-
-## Project Type
-
-The `"projectType"` specifies the type of project dprint is formatting.
-
-You may specify any of the following values according to your conscience:
-
-- `"openSource"` - dprint is formatting an open source project.
-- `"educational"` - dprint is formatting a project run by a student or being used for educational purposes.
-- `"nonProfit"` - dprint is formatting a project whose primary maintainer is a non-profit organization.
-- `"commercialSponsored"` - dprint is formatting a closed source for-profit project and the primary maintainer sponsored the project. Thank you for being part of moving dprint forward!
-- `"commercialDidNotSponsor"` - dprint is formatting a closed source for-profit project and the primary maintainer does not want to support dprint's development financially.
-
-See [Sponsor](/sponsor) for more details.
 
 ## Plugins
 
@@ -154,7 +139,6 @@ For example:
 
 ```json
 {
-  "projectType": "openSource",
   "lineWidth": 160,
   "useTabs": true,
   "typescript": {
