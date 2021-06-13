@@ -3,7 +3,7 @@ import { Language } from "../components";
 export async function getPluginInfo(): Promise<PluginInfo[]> {
     const response = await fetch("https://plugins.dprint.dev/info.json");
     const json = await response.json();
-    const expectedSchemaVersion = 2;
+    const expectedSchemaVersion = 3;
 
     if (json.schemaVersion !== expectedSchemaVersion) {
         throw new Error(`Expected schema version ${expectedSchemaVersion}, but found ${json.schemaVersion}.`);
