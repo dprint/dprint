@@ -13,6 +13,7 @@ impl ConfigMapValue {
         ConfigMapValue::KeyValue(ConfigKeyValue::from_i32(value))
     }
 
+    #[cfg(test)]
     pub fn from_str(value: &str) -> ConfigMapValue {
         ConfigMapValue::KeyValue(ConfigKeyValue::from_str(value))
     }
