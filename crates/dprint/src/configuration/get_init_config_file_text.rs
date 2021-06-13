@@ -287,7 +287,7 @@ mod test {
         let environment = TestEnvironment::new();
         environment.set_selection_result(1);
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "pluginSystemSchemaVersion": 3,
     "latest": [{
         "name": "dprint-plugin-typescript",
@@ -325,7 +325,7 @@ mod test {
     fn should_get_initialization_text_when_old_plugin_system() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "pluginSystemSchemaVersion": 9, // this is 9 instead of 3
     "latest": [{
         "name": "dprint-plugin-typescript",
@@ -373,7 +373,7 @@ mod test {
 
     fn get_multi_plugins_config() -> &'static str {
         return r#"{
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "pluginSystemSchemaVersion": 3,
             "latest": [{
                 "name": "dprint-plugin-typescript",

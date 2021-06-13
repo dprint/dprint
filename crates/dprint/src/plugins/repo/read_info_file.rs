@@ -28,7 +28,7 @@ impl InfoFilePluginInfo {
     }
 }
 
-const SCHEMA_VERSION: u8 = 2;
+const SCHEMA_VERSION: u8 = 3;
 pub const REMOTE_INFO_URL: &'static str = "https://plugins.dprint.dev/info.json";
 
 pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox> {
@@ -134,7 +134,7 @@ mod test {
     fn should_get_info() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "pluginSystemSchemaVersion": 3,
     "latest": [{
         "name": "dprint-plugin-typescript",
@@ -185,12 +185,12 @@ mod test {
     fn should_error_if_schema_version_is_different() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 6,
+    "schemaVersion": 1,
 }"#.as_bytes());
         let message = read_info_file(&environment).err().unwrap();
         assert_eq!(
             message.to_string(),
-            "Cannot handle schema version 6. Expected 2. This might mean your dprint CLI version is old and isn't able to get the latest information."
+            "Cannot handle schema version 1. Expected 3. This might mean your dprint CLI version is old and isn't able to get the latest information."
         );
     }
 
@@ -198,7 +198,7 @@ mod test {
     fn should_error_if_no_plugin_system_set() {
         let environment = TestEnvironment::new();
         environment.add_remote_file(REMOTE_INFO_URL, r#"{
-    "schemaVersion": 2,
+    "schemaVersion": 3,
 }"#.as_bytes());
         let message = read_info_file(&environment).err().unwrap();
         assert_eq!(
