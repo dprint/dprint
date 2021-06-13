@@ -26,12 +26,19 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Roslyn](/plugins/roslyn) (C#/VB)
 - [Prettier](/plugins/prettier)
 
-## Using Wasm Plugins in Deno
+## Using Wasm Plugins in the Browser, Deno, or Node.js
 
-Wasm plugins may be used to format text in Deno like so:
+See https://github.com/dprint/js-formatter
+
+- Import _mod.ts_ in [https://deno.land/x/dprint](https://deno.land/x/dprint) for Deno or the browser.
+- Use the [@dprint/formatter](https://www.npmjs.com/package/@dprint/formatter) package in npm for Node.js.
+- [Documentation](https://doc.deno.land/https/deno.land/x/dprint/mod.ts)
+
+Deno/Browser example:
 
 ```ts
-import { createStreaming } from "https://dprint.dev/formatter/v2.ts";
+// see current version at https://github.com/dprint/js-formatter/releases
+import { createStreaming } from "https://deno.land/x/dprint@x.x.x/mod.ts";
 
 const globalConfig = {
     indentWidth: 2,
@@ -48,8 +55,3 @@ tsFormatter.setConfig(globalConfig, {
 // outputs: "const t = 5\n"
 console.log(tsFormatter.formatText("file.ts", "const   t    = 5;"));
 ```
-
-Notes:
-
-- [Documentation](https://doc.deno.land/https/dprint.dev/formatter/v2.ts)
-- Make sure to check the license of a plugin when you use it to see if use is permitted this way. You may read a plugin's license text by running `#getLicenseText()` on the returned formatter object. For example, `tsFormatter.getLicenseText()` in this case returns the MIT license.
