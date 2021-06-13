@@ -26,9 +26,6 @@ function buildWebsite() {
     const fullPageHtmlPageFilePath = "../website/templates/full-page.html";
     const fullPageHtmlPageText = fs.readFileSync(fullPageHtmlPageFilePath, { encoding: "utf8" });
 
-    const blogPostHtmlPageFilePath = "../website/templates/blog-post.html";
-    const blogPostHtmlPageText = fs.readFileSync(blogPostHtmlPageFilePath, { encoding: "utf8" });
-
     const converter = new showdown.Converter({ extensions: ["codehighlight"], metadata: true });
     converter.setFlavor("github");
 
@@ -46,7 +43,6 @@ function buildWebsite() {
 
     buildForPath("sponsor", fullPageHtmlPageText);
     buildForPath("thank-you", fullPageHtmlPageText);
-    buildForPath("privacy-policy", fullPageHtmlPageText);
     buildForPath("contact", fullPageHtmlPageText);
     buildForPath("blog", fullPageHtmlPageText);
 
@@ -68,12 +64,6 @@ function buildWebsite() {
     buildForPath("plugins/roslyn", documentationHtmlPageText);
     buildForPath("plugins/rustfmt", documentationHtmlPageText);
     buildForPath("plugins/yapf", documentationHtmlPageText);
-
-    buildForPath("blog/dprint-0-13", blogPostHtmlPageText);
-    buildForPath("blog/dprint-0-12", blogPostHtmlPageText);
-    buildForPath("blog/dprint-0-10", blogPostHtmlPageText);
-    buildForPath("blog/dprint-rewritten-in-rust", blogPostHtmlPageText);
-    buildForPath("blog/incremental-and-process-plugins", blogPostHtmlPageText);
 
     createRedirect("pricing", "sponsor");
 

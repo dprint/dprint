@@ -279,19 +279,3 @@ code {
 #sponsor-subscribe {
   margin-left: 0.5rem;
 }
-
-// blog
-
-article {
-  @media (min-width: $tablet) {
-    padding: 0 2.5rem;
-  }
-
-  h1.title {
-    margin-bottom: 0.5rem !important;
-  }
-
-  .blog-date-author {
-    color: #ccc;
-  }
-}
