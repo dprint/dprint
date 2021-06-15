@@ -5,7 +5,6 @@ import * as formatterWorker from "./FormatterWorker";
 import "./index.css";
 import { Playground } from "./Playground";
 import { getPluginDefaultConfig, getPluginInfo, PluginInfo } from "./plugins";
-import * as serviceWorker from "./serviceWorker";
 import { UrlSaver } from "./utils";
 
 const urlSaver = new UrlSaver();
@@ -102,5 +101,3 @@ function Loader() {
 }
 
 ReactDOM.render(<Loader />, document.getElementById("root"));
-
-serviceWorker.unregister();
