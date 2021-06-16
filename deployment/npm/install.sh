@@ -9,9 +9,13 @@ esac
 dprint_uri="https://github.com/dprint/dprint/releases/download/${1}/dprint-${target}.zip"
 exe="dprint"
 
-# download and install
+# download
 curl --fail --location --progress-bar --output "$exe.zip" "$dprint_uri"
-echo "$2 $exe.zip" | sha256sum --check
+
+# verify zip checksum
+node install_verify_checksum.js
+
+# unzip
 unzip -o "$exe.zip"
 chmod +x "$exe"
 rm "$exe.zip"
