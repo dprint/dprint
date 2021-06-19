@@ -1,6 +1,6 @@
 [package]
 name = "dprint-core"
-description = "Core rust library for dprint."
+description = "Core library for dprint."
 keywords = ["formatting", "formatter"]
 version = "0.43.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
@@ -13,13 +13,18 @@ repository = "https://github.com/dprint/dprint"
 default = ["formatting"]
 
 formatting = ["bumpalo", "fnv"]
-process = ["serde_json", "sysinfo"]
+process = ["serde_json", "libc", "winapi"]
 wasm = []
 tracing = ["formatting"]
 
 [dependencies]
 serde = { version = "1.0.126", features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
-sysinfo = { version = "0.17.5", optional = true }
 bumpalo = { version = "3.6.1", optional = true }
 fnv = { version = "1.0.7", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3.9", features = ["handleapi", "synchapi", "winbase", "winerror"], optional=true }
+
+[target.'cfg(not(any(target_os = "unknown", target_arch = "wasm32")))'.dependencies]
+libc = { version = "0.2.97", optional = true }

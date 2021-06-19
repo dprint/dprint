@@ -16,19 +16,6 @@ pub fn start_parent_process_checker_thread(current_process_name: String, parent_
     })
 }
 
-fn is_process_active(process_id: u32) -> bool {
-    use sysinfo::{SystemExt, RefreshKind};
-    let system = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes());
-
-    // this seems silly
-    #[cfg(target_os="windows")]
-    let process_id = process_id as usize;
-    #[cfg(not(target_os="windows"))]
-    let process_id = process_id as i32;
-
-    system.get_process(process_id).is_some()
-}
-
 /// Gets the parent process id from the CLI arguments.
 ///
 /// The dprint cli will provide a `--parent-pid <value>` flag to specify the parent PID.
@@ -43,4 +30,76 @@ pub fn get_parent_process_id_from_cli_args() -> Option<u32> {
     }
 
     return None;
+}
+
+// code below is from my implementation when adding this to Deno
+
+#[cfg(unix)]
+fn is_process_active(process_id: u32) -> bool {
+    unsafe {
+        // signal of 0 checks for the existence of the process id
+        libc::kill(process_id as i32, 0) == 0
+    }
+}
+
+#[cfg(windows)]
+fn is_process_active(process_id: u32) -> bool {
+    use winapi::shared::minwindef::DWORD;
+    use winapi::shared::minwindef::FALSE;
+    use winapi::shared::ntdef::NULL;
+    use winapi::shared::winerror::WAIT_TIMEOUT;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::processthreadsapi::OpenProcess;
+    use winapi::um::synchapi::WaitForSingleObject;
+    use winapi::um::winnt::SYNCHRONIZE;
+
+    unsafe {
+        let process = OpenProcess(SYNCHRONIZE, FALSE, process_id as DWORD);
+        let result = if process == NULL {
+            false
+        } else {
+            WaitForSingleObject(process, 0) == WAIT_TIMEOUT
+        };
+
+        CloseHandle(process);
+        result
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::is_process_active;
+    use std::process::Command;
+    use std::path::PathBuf;
+
+    #[test]
+    fn should_tell_when_process_active() {
+        // launch a long running process
+        let mut child = Command::new(get_dprint_exe())
+            .arg("editor-service")
+            .arg("--parent-pid")
+            .arg(std::process::id().to_string())
+            .spawn().unwrap();
+
+        let pid = child.id();
+        assert_eq!(is_process_active(pid), true);
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(is_process_active(pid), false);
+    }
+
+    fn get_dprint_exe() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR").to_string())
+            .join("../../target")
+            .join(if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            })
+            .join(if cfg!(target_os = "windows") {
+                "dprint.exe"
+            } else {
+                "dprint"
+            })
+    }
 }
