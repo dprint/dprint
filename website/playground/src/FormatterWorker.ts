@@ -1,4 +1,7 @@
-const formatterWorker = new Worker("/playground/formatter.worker.js");
+// eslint-disable-next-line import/no-webpack-loader-syntax
+import createWorker from "workerize-loader!./formatter.worker";
+
+const formatterWorker = createWorker();
 const formatListeners: ((text: string) => void)[] = [];
 const errorListeners: ((err: string) => void)[] = [];
 

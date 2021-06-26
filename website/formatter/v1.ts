@@ -2,7 +2,10 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
-// DEPRECATED. Does not support plugin schemas > 1
+console.warn(
+    "[dprint]: Apologies for the warn. This module will be deprecated and 404 starting September 2021. "
+        + "Please upgrade to the immutable deno.land url. For more details see: https://github.com/dprint/js-formatter",
+);
 
 /** Formats code. */
 export interface Formatter {

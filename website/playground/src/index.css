@@ -28,10 +28,8 @@ code {
   align-items: center;
 }
 
-.horizontallyCenter > div {
-  margin-left: auto;
-  margin-right: auto;
-  text-align: center;
+.horizontallyCenter {
+  justify-content: center;
 }
 
 .fillHeight {
