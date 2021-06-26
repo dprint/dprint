@@ -233,7 +233,7 @@ EXAMPLES:
                     Arg::with_name("stdin")
                         .long("stdin")
                         .value_name("extension/file-name/file-path")
-                        .help("Format stdin. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
+                        .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
                         .required(false)
                         .takes_value(true)
                 )

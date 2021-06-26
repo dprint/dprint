@@ -394,7 +394,7 @@ fn init_config_file(environment: &impl Environment, config_arg: &Option<String>)
     return if !environment.path_exists(&config_file_path) {
         environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment)?)?;
         environment.log(&format!("\nCreated {}", config_file_path.display()));
-        environment.log("\nIf you are working in a commercial environment, please consider sponsoring dprint: https://dprint.dev/sponsor");
+        environment.log("\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor");
         Ok(())
     } else {
         err!("Configuration file '{}' already exists.", config_file_path.display())
@@ -1826,7 +1826,7 @@ mod tests {
         ]);
         assert_eq!(environment.take_logged_messages(), vec![
             "\nCreated ./dprint.json",
-            "\nIf you are working in a commercial environment, please consider sponsoring dprint: https://dprint.dev/sponsor"
+            "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./dprint.json")).unwrap(), expected_text);
     }
@@ -1854,7 +1854,7 @@ mod tests {
         ]);
         assert_eq!(environment.take_logged_messages(), vec![
             "\nCreated ./test.config.json",
-            "\nIf you are working in a commercial environment, please consider sponsoring dprint: https://dprint.dev/sponsor"
+            "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
         ]);
         assert_eq!(environment.read_file(&PathBuf::from("./test.config.json")).unwrap(), expected_text);
     }
