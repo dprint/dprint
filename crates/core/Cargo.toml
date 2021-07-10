@@ -24,7 +24,7 @@ bumpalo = { version = "3.6.1", optional = true }
 fnv = { version = "1.0.7", optional = true }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.9", features = ["handleapi", "synchapi", "winbase", "winerror"], optional=true }
+winapi = { version = "0.3.9", features = ["handleapi", "synchapi", "winbase", "winerror"], optional = true }
 
 [target.'cfg(not(any(target_os = "unknown", target_arch = "wasm32")))'.dependencies]
 libc = { version = "0.2.97", optional = true }
