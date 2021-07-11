@@ -1,13 +1,22 @@
 #!/bin/sh
-# Adapted from Deno's install script at https://github.com/denoland/deno_install/blob/main/install.ps1
+# Adapted from Deno's install script at https://github.com/denoland/deno_install/blob/main/install.sh
 # All rights reserved. MIT license.
 
 set -e
 
-case $(uname -s) in
-Darwin) target="x86_64-apple-darwin" ;;
-*) target="x86_64-unknown-linux-gnu" ;;
-esac
+if ! command -v unzip >/dev/null; then
+	echo "Error: unzip is required to install dprint." 1>&2
+	exit 1
+fi
+
+if [ "$OS" = "Windows_NT" ]; then
+	target="x86_64-pc-windows-msvc"
+else
+	case $(uname -s) in
+	"Darwin x86_64") target="x86_64-apple-darwin" ;;
+	*) target="x86_64-unknown-linux-gnu" ;;
+	esac
+fi
 
 if [ $(uname -m) != "x86_64" ]; then
 	echo "Unsupported architecture $(uname -m). Only x64 binaries are available."
@@ -15,13 +24,7 @@ if [ $(uname -m) != "x86_64" ]; then
 fi
 
 if [ $# -eq 0 ]; then
-	dprint_asset_path=$(
-		command curl -sSf https://github.com/dprint/dprint/releases |
-			command grep -o "/dprint/dprint/releases/download/.*/dprint-${target}\\.zip" |
-			command head -n 1
-	)
-	if [ ! "$dprint_asset_path" ]; then exit 1; fi
-	dprint_uri="https://github.com${dprint_asset_path}"
+	dprint_uri="https://github.com/dprint/dprint/releases/latest/download/dprint-${target}.zip"
 else
 	dprint_uri="https://github.com/dprint/dprint/releases/download/${1}/dprint-${target}.zip"
 fi
