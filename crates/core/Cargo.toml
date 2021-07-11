@@ -20,11 +20,11 @@ tracing = ["formatting"]
 [dependencies]
 serde = { version = "1.0.126", features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
-bumpalo = { version = "3.6.1", optional = true }
+bumpalo = { version = "3.7.0", optional = true }
 fnv = { version = "1.0.7", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["handleapi", "synchapi", "winbase", "winerror"], optional = true }
 
 [target.'cfg(not(any(target_os = "unknown", target_arch = "wasm32")))'.dependencies]
-libc = { version = "0.2.97", optional = true }
+libc = { version = "0.2.98", optional = true }

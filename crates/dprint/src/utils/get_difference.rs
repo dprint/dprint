@@ -1,5 +1,5 @@
 use dissimilar::*;
-use crossterm::style::Colorize;
+use crossterm::style::Stylize;
 
 use dprint_core::types::ErrBox;
 

@@ -4,7 +4,7 @@ use std::fs::{self};
 use std::fmt::Display;
 
 use console::Style;
-use similar::text::{ChangeTag, TextDiff};
+use similar::{ChangeTag, TextDiff};
 use super::*;
 
 pub type ErrBox = Box<dyn std::error::Error + Send + Sync>;

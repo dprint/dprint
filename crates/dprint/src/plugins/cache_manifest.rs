@@ -7,17 +7,19 @@ use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 
+const PLUGIN_SCHEMA_VERSION: usize = 3;
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginCacheManifest {
-    schema_version: u16,
+    schema_version: usize,
     plugins: HashMap<String, PluginCacheManifestItem>,
 }
 
 impl PluginCacheManifest {
     pub(super) fn new() -> PluginCacheManifest {
         PluginCacheManifest {
-            schema_version: 2,
+            schema_version: PLUGIN_SCHEMA_VERSION,
             plugins: HashMap::new(),
         }
     }
@@ -48,16 +50,14 @@ pub struct PluginCacheManifestItem {
 pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
     return match try_deserialize(environment) {
         Ok(manifest) => {
-            if manifest.schema_version != 2 {
-                environment.log_error(&format!("Resetting plugin cache. Schema version was {}, but expected 2", manifest.schema_version));
+            if manifest.schema_version != PLUGIN_SCHEMA_VERSION {
                 let _ = environment.remove_dir_all(&environment.get_cache_dir().join("plugins"));
                 PluginCacheManifest::new()
             } else {
                 manifest
             }
         },
-        Err(err) => {
-            environment.log_error(&format!("Resetting plugin cache. Message: {}", err));
+        Err(_) => {
             let _ = environment.remove_dir_all(&environment.get_cache_dir());
             PluginCacheManifest::new()
         }
@@ -96,7 +96,7 @@ mod test {
         environment.write_file(
             &environment.get_cache_dir().join("plugin-cache-manifest.json"),
             r#"{
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "plugins": {
         "a": {
             "createdTime": 123,
@@ -183,6 +183,33 @@ mod test {
     }
 
     #[test]
+    fn it_should_not_error_for_old_manifest() {
+        let environment = TestEnvironment::new();
+        environment.write_file(
+            &environment.get_cache_dir().join("plugin-cache-manifest.json"),
+            r#"{
+    "schemaVersion": 1,
+    "plugins": {
+        "a": {
+            "createdTime": 123,
+            "info": {
+                "name": "dprint-plugin-typescript",
+                "version": "0.1.0",
+                "configKey": "typescript",
+                "fileExtensions": [".ts"],
+                "helpUrl": "help url",
+                "configSchemaUrl": "schema url"
+            }
+        }
+    }
+}"#
+        ).unwrap();
+
+        let expected_manifest = PluginCacheManifest::new();
+        assert_eq!(read_manifest(&environment), expected_manifest);
+    }
+
+    #[test]
     fn it_should_have_empty_manifest_for_deserialization_error() {
         let environment = TestEnvironment::new();
         environment.write_file(
@@ -191,9 +218,6 @@ mod test {
         ).unwrap();
 
         assert_eq!(read_manifest(&environment), PluginCacheManifest::new());
-        assert_eq!(environment.take_logged_errors(), vec![
-            String::from("Resetting plugin cache. Message: key must be a string at line 1 column 23")
-        ]);
     }
 
     #[test]

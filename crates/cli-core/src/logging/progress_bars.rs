@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use parking_lot::RwLock;
-use crossterm::{style::Colorize};
+use crossterm::style::Stylize;
 use crossterm::tty::IsTty;
 use std::time::{Duration, SystemTime};
 
