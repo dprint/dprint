@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+if ! command -v unzip >/dev/null; then
+	echo "Error: unzip is required to install dprint." 1>&2
+	exit 1
+fi
+
 case $(uname -s) in
 Darwin) target="x86_64-apple-darwin" ;;
 *) target="x86_64-unknown-linux-gnu" ;;
