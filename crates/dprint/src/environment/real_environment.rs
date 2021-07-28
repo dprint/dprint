@@ -81,13 +81,8 @@ impl Environment for RealEnvironment {
         log_verbose!(self, "Deleting directory: {}", dir_path.display());
         match fs::remove_dir_all(dir_path) {
             Ok(_) => Ok(()),
-            Err(err) => {
-                if err.kind() == ErrorKind::NotFound {
-                    Ok(())
-                } else {
-                    err!("Error removing directory {}: {}", dir_path.display(), err.to_string())
-                }
-            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => err!("Error removing directory {}: {}", dir_path.display(), err.to_string()),
         }
     }
 
