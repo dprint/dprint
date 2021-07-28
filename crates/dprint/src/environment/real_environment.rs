@@ -72,6 +72,7 @@ impl Environment for RealEnvironment {
         log_verbose!(self, "Deleting file: {}", file_path.display());
         match fs::remove_file(file_path) {
             Ok(_) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(err) => err!("Error deleting file {}: {}", file_path.display(), err.to_string()),
         }
     }
