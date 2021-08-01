@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use std::io::ErrorKind;
 use std::fs;
 use dprint_core::types::ErrBox;
 use dprint_cli_core::{download_url};

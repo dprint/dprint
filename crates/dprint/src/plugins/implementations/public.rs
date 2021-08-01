@@ -7,8 +7,8 @@ use dprint_core::types::ErrBox;
 use crate::environment::Environment;
 use crate::plugins::{Plugin, PluginSourceReference, PluginCache, PluginPools};
 use crate::utils::PathSource;
-use super::process::{self};
-use super::wasm::{self};
+use super::process;
+use super::wasm;
 
 pub struct SetupPluginResult {
     pub file_path: PathBuf,
@@ -68,10 +68,11 @@ pub fn create_plugin<TEnvironment : Environment>(
     let cache_item = match cache_item {
         Ok(cache_item) => Ok(cache_item),
         Err(err) => {
-            environment.log_error(&format!(
+            log_verbose!(
+                environment,
                 "Error getting plugin from cache. Forgetting from cache and retrying. Message: {}",
                 err.to_string()
-            ));
+            );
 
             // forget and try again
             plugin_cache.forget(plugin_reference)?;
@@ -83,10 +84,11 @@ pub fn create_plugin<TEnvironment : Environment>(
         let file_bytes = match environment.read_file_bytes(&cache_item.file_path) {
             Ok(file_bytes) => file_bytes,
             Err(err) => {
-                environment.log_error(&format!(
+                log_verbose!(
+                    environment,
                     "Error reading plugin file bytes. Forgetting from cache and retrying. Message: {}",
                     err.to_string()
-                ));
+                );
 
                 // forget and try again
                 plugin_cache.forget(plugin_reference)?;
@@ -98,10 +100,11 @@ pub fn create_plugin<TEnvironment : Environment>(
         Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, plugin_pools)?))
     } else if plugin_reference.is_process_plugin() {
         let cache_item = if !environment.path_exists(&cache_item.file_path) {
-            environment.log_error(&format!(
+            log_verbose!(
+                environment,
                 "Could not find process plugin at {}. Forgetting from cache and retrying.",
                 cache_item.file_path.display()
-            ));
+            );
 
             // forget and try again
             plugin_cache.forget(plugin_reference)?;

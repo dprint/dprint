@@ -2223,10 +2223,6 @@ SOFTWARE.
                 actual_plugin_file_checksum,
             )
         );
-        assert_eq!(environment.take_logged_errors(), vec![format!(
-            "Error getting plugin from cache. Forgetting from cache and retrying. Message: The checksum {} did not match the expected checksum of asdf.",
-            actual_plugin_file_checksum
-        )]);
     }
 
     #[test]
@@ -2249,10 +2245,6 @@ SOFTWARE.
                 actual_plugin_file_checksum,
             )
         );
-        assert_eq!(environment.take_logged_errors(), vec![format!(
-            "Error getting plugin from cache. Forgetting from cache and retrying. Message: The checksum {} did not match the expected checksum of asdf.",
-            actual_plugin_file_checksum
-        )]);
     }
 
     #[test]
@@ -2294,10 +2286,6 @@ SOFTWARE.
                 actual_plugin_zip_file_checksum,
             )
         );
-        assert_eq!(environment.take_logged_errors(), vec![format!(
-            "Error getting plugin from cache. Forgetting from cache and retrying. Message: The checksum {} did not match the expected checksum of asdf.",
-            actual_plugin_zip_file_checksum
-        )]);
     }
 
     // todo: implement way of running these tests all on their own
