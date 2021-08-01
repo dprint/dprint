@@ -10,7 +10,7 @@ use dprint_core::plugins::process::{get_parent_process_id_from_cli_args, handle_
 
 fn main() -> Result<(), ErrBox> {
     if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
-        start_parent_process_checker_thread(String::from(env!("CARGO_PKG_NAME")), parent_process_id);
+        start_parent_process_checker_thread(parent_process_id);
     }
 
     handle_process_stdio_messages(TestProcessPluginHandler::new())

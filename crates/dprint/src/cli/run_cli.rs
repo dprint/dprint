@@ -260,7 +260,7 @@ fn run_editor_service<TEnvironment: Environment>(
     use dprint_core::plugins::process::{StdIoReaderWriter, StdIoMessenger, start_parent_process_checker_thread};
 
     // poll for the existence of the parent process and terminate this process when that process no longer exists
-    let _handle = start_parent_process_checker_thread("editor-service".to_string(), editor_service_cmd.parent_pid);
+    let _handle = start_parent_process_checker_thread(editor_service_cmd.parent_pid);
 
     let stdin = environment.stdin();
     let stdout = environment.stdout();

@@ -3,13 +3,12 @@ use std::thread;
 
 /// Starts a thread that polls for the existence of the parent process.
 /// If the parent process no longer exists, then it will exit the current process.
-pub fn start_parent_process_checker_thread(current_process_name: String, parent_process_id: u32) -> thread::JoinHandle<()> {
+pub fn start_parent_process_checker_thread(parent_process_id: u32) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         loop {
             thread::sleep(Duration::from_secs(30));
 
             if !is_process_active(parent_process_id) {
-                eprintln!("[{}]: Parent process lost. Exiting.", current_process_name);
                 std::process::exit(1);
             }
         }
