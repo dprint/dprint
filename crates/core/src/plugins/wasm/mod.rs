@@ -118,7 +118,8 @@ pub mod macros {
 
             #[no_mangle]
             pub fn set_file_path() {
-                let text = take_string_from_shared_bytes();
+                // convert windows back slashes to forward slashes so it works with PathBuf
+                let text = take_string_from_shared_bytes().replace("\\", "/");
                 unsafe { FILE_PATH.get().replace(std::path::PathBuf::from(text)) };
             }
 
