@@ -5,7 +5,7 @@
     var markdownUrl = "https://plugins.dprint.dev/markdown-x.x.x.wasm";
     var tomlUrl = "https://plugins.dprint.dev/toml-x.x.x.wasm";
     var pluginInfoUrl = "https://plugins.dprint.dev/info.json";
-    var schemaVersion = 2;
+    var schemaVersion = 3;
 
     Dprint.replacePluginUrls = function() {
         var elements = getPluginUrlElements();
@@ -42,7 +42,6 @@
                 case getWithQuotes(jsonUrl):
                 case getWithQuotes(markdownUrl):
                 case getWithQuotes(tomlUrl):
-                case getWithQuotes(rustFmtUrl):
                     result.push(stringElement);
                     break;
             }
@@ -68,6 +67,7 @@
                     typescript: getUrlForPlugin(data, "dprint-plugin-typescript"),
                     json: getUrlForPlugin(data, "dprint-plugin-json"),
                     markdown: getUrlForPlugin(data, "dprint-plugin-markdown"),
+                    toml: getUrlForPlugin(data, "dprint-plugin-toml"),
                 };
             });
 
