@@ -4,8 +4,8 @@ version = "0.6.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
-description = "Core Dprint CLI library for reuse."
 repository = "https://github.com/dprint/dprint"
+description = "Core Dprint CLI library for reuse."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

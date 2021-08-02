@@ -3,6 +3,7 @@
     var typescriptUrl = "https://plugins.dprint.dev/typescript-x.x.x.wasm";
     var jsonUrl = "https://plugins.dprint.dev/json-x.x.x.wasm";
     var markdownUrl = "https://plugins.dprint.dev/markdown-x.x.x.wasm";
+    var tomlUrl = "https://plugins.dprint.dev/toml-x.x.x.wasm";
     var pluginInfoUrl = "https://plugins.dprint.dev/info.json";
     var schemaVersion = 2;
 
@@ -22,6 +23,9 @@
                         case getWithQuotes(markdownUrl):
                             element.textContent = getWithQuotes(urls["markdown"]);
                             break;
+                        case getWithQuotes(tomlUrl):
+                            element.textContent = getWithQuotes(urls["toml"]);
+                            break;
                     }
                 }
             });
@@ -37,6 +41,7 @@
                 case getWithQuotes(typescriptUrl):
                 case getWithQuotes(jsonUrl):
                 case getWithQuotes(markdownUrl):
+                case getWithQuotes(tomlUrl):
                 case getWithQuotes(rustFmtUrl):
                     result.push(stringElement);
                     break;

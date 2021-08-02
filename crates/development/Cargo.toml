@@ -1,10 +1,10 @@
 [package]
 name = "dprint-development"
-description = "Helper functions for testing dprint plugins."
 version = "0.4.1"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 license = "MIT"
+description = "Helper functions for testing dprint plugins."
 
 [dependencies]
 console = "0.14.1"

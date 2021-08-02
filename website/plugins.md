@@ -19,12 +19,13 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Typescript / JavaScript](/plugins/typescript)
 - [JSON](/plugins/json)
 - [Markdown](/plugins/markdown)
-- [Rustfmt](/plugins/rustfmt)
+- [TOML](/plugins/toml)
 
 ## Process Plugins
 
-- [Roslyn](/plugins/roslyn) (C#/VB)
 - [Prettier](/plugins/prettier)
+- [Roslyn](/plugins/roslyn) (C#/VB)
+- [Rustfmt](/plugins/rustfmt)
 
 ## Using Wasm Plugins in the Browser, Deno, or Node.js
 

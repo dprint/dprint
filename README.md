@@ -18,6 +18,7 @@ This project is under active early development. I recommend you check its output
 - [dprint-plugin-typescript](https://github.com/dprint/dprint-plugin-typescript) - TypeScript/JavaScript code formatter.
 - [dprint-plugin-json](https://github.com/dprint/dprint-plugin-json) - JSON/JSONC code formatter.
 - [dprint-plugin-markdown](https://github.com/dprint/dprint-plugin-markdown) - Markdown code formatter.
+- [dprint-plugin-toml](https://github.com/dprint/dprint-plugin-toml) - TOML code formatter.
 - [dprint-plugin-rustfmt](https://github.com/dprint/dprint-plugin-rustfmt) - Rustfmt wrapper plugin.
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.

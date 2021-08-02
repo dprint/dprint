@@ -12,6 +12,7 @@ export async function getPluginInfo(): Promise<PluginInfo[]> {
     const typescriptPlugin = json.latest.find((p: any) => p.configKey === "typescript")!;
     const jsonPlugin = json.latest.find((p: any) => p.configKey === "json")!;
     const markdownPlugin = json.latest.find((p: any) => p.configKey === "markdown")!;
+    const tomlPlugin = json.latest.find((p: any) => p.configKey === "toml")!;
 
     return [{
         url: typescriptPlugin.url,
@@ -28,6 +29,11 @@ export async function getPluginInfo(): Promise<PluginInfo[]> {
         configSchemaUrl: "https://plugins.dprint.dev/schemas/markdown-v0.json",
         language: Language.Markdown,
         fileExtensions: markdownPlugin.fileExtensions,
+    }, {
+        url: tomlPlugin.url,
+        configSchemaUrl: "https://plugins.dprint.dev/schemas/toml-v0.json",
+        language: Language.Toml,
+        fileExtensions: tomlPlugin.fileExtensions,
     }];
 }
 

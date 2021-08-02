@@ -38,7 +38,7 @@ export class UrlSaver {
             }
         }
 
-        function getLanguage(): "typescript" | "json" | "markdown" {
+        function getLanguage(): "typescript" | "json" | "markdown" | "toml" {
             const matches = /language\/([^/]+)/.exec(locationHash);
             if (matches == null || matches.length !== 2) {
                 return "typescript";
@@ -50,6 +50,8 @@ export class UrlSaver {
                         return "json";
                     case "markdown":
                         return "markdown";
+                    case "toml":
+                        return "toml";
                     case "typescript":
                     default:
                         return "typescript";
@@ -61,7 +63,7 @@ export class UrlSaver {
         }
     }
 
-    updateUrl({ text, configText, language }: { text: string; configText?: string; language?: "typescript" | "json" | "markdown" }) {
+    updateUrl({ text, configText, language }: { text: string; configText?: string; language?: "typescript" | "json" | "markdown" | "toml" }) {
         if (language == null) {
             window.history.replaceState(
                 undefined,

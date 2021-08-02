@@ -18,6 +18,7 @@ export enum Language {
     TypeScript = "typescript",
     Json = "json",
     Markdown = "markdown",
+    Toml = "toml",
 }
 
 export interface CodeEditorState {
