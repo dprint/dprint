@@ -260,9 +260,34 @@ impl Environment for RealEnvironment {
     }
 }
 
+const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
+
 fn get_cache_dir() -> Result<PathBuf, ErrBox> {
+    if let Ok(dir_path) = std::env::var(CACHE_DIR_ENV_VAR_NAME) {
+        if !dir_path.trim().is_empty() {
+            return Ok(PathBuf::from(dir_path));
+        }
+    }
+
     match dirs::cache_dir() {
         Some(dir) => Ok(dir.join("dprint").join("cache")),
         None => err!("Expected to find cache directory")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn should_get_cache_dir_based_on_env_var() {
+        let default_dir = dirs::cache_dir().unwrap().join("dprint").join("cache");
+        let value = "/home/david/.dprint-cache";
+        std::env::set_var(CACHE_DIR_ENV_VAR_NAME, value);
+        assert_eq!(get_cache_dir().unwrap().to_string_lossy(), value);
+        std::env::set_var(CACHE_DIR_ENV_VAR_NAME, "");
+        assert_eq!(get_cache_dir().unwrap(), default_dir);
+        std::env::remove_var(CACHE_DIR_ENV_VAR_NAME);
+        assert_eq!(get_cache_dir().unwrap(), default_dir);
     }
 }
