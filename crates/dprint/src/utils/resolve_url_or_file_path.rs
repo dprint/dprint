@@ -107,8 +107,7 @@ pub fn resolve_url_or_file_path_to_path_source(
     url_or_file_path: &str,
     base: &PathSource,
 ) -> Result<PathSource, ErrBox> {
-    let url = Url::parse(url_or_file_path);
-    if let Ok(url) = url {
+    if let Some(url) = try_parse_url(url_or_file_path) {
         if url.cannot_be_a_base() { // relative url
             if let PathSource::Remote(remote_base) = base {
                 let url = remote_base.url.join(&url_or_file_path)?;
@@ -134,6 +133,30 @@ pub fn resolve_url_or_file_path_to_path_source(
         PathSource::Local(local_base) => {
             return Ok(PathSource::new_local(local_base.path.join(url_or_file_path)));
         }
+    }
+}
+
+fn try_parse_url(url_or_file_path: &str) -> Option<Url> {
+    if is_absolute_windows_file_path(url_or_file_path) {
+        return None;
+    }
+
+    Url::parse(url_or_file_path).ok()
+}
+
+fn is_absolute_windows_file_path(value: &str) -> bool {
+    let chars = value.chars().collect::<Vec<_>>();
+    return is_alpha(&chars, 0)
+        && matches!(chars.get(1), Some(':'))
+        && is_slash(&chars, 2)
+        && !is_slash(&chars, 3);
+
+    fn is_alpha(chars: &[char], index: usize) -> bool {
+        chars.get(index).map(|c| c.is_alphabetic()).unwrap_or(false)
+    }
+
+    fn is_slash(chars: &[char], index: usize) -> bool {
+        chars.get(index).map(|c| matches!(c, '/' | '\\')).unwrap_or(false)
     }
 }
 
@@ -181,7 +204,7 @@ mod tests {
     fn it_should_resolve_a_file_url_on_windows() {
         let environment = TestEnvironment::new();
         let cache = Cache::new(environment.clone());
-        let base = PathSource::new_local(PathBuf::from("C:\\"));
+        let base = PathSource::new_local(PathBuf::from("V:\\"));
         let result = resolve_url_or_file_path("file://C:/test/test.json", &base, &cache, &environment).unwrap();
         assert_eq!(result.is_local(), true);
         assert_eq!(result.file_path, PathBuf::from("C:\\test\\test.json"));
@@ -198,8 +221,30 @@ mod tests {
         assert_eq!(result.file_path, PathBuf::from("/test/test.json"));
     }
 
+    #[cfg(windows)]
     #[test]
-    fn it_should_resolve_a_file_path() {
+    fn it_should_resolve_an_absolute_path_on_windows() {
+        let environment = TestEnvironment::new();
+        let cache = Cache::new(environment.clone());
+        let base = PathSource::new_local(PathBuf::from("V:\\"));
+        let result = resolve_url_or_file_path("C:\\test\\test.json", &base, &cache, &environment).unwrap();
+        assert_eq!(result.is_local(), true);
+        assert_eq!(result.file_path, PathBuf::from("C:\\test\\test.json"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn it_should_resolve_an_absolute_path_on_windows_using_forward_slashes() {
+        let environment = TestEnvironment::new();
+        let cache = Cache::new(environment.clone());
+        let base = PathSource::new_local(PathBuf::from("V:\\"));
+        let result = resolve_url_or_file_path("C:/test/test.json", &base, &cache, &environment).unwrap();
+        assert_eq!(result.is_local(), true);
+        assert_eq!(result.file_path, PathBuf::from("C:\\test\\test.json"));
+    }
+
+    #[test]
+    fn it_should_resolve_a_relative_file_path() {
         let environment = TestEnvironment::new();
         let cache = Cache::new(environment.clone());
         let base = PathSource::new_local(PathBuf::from("/"));
@@ -225,5 +270,13 @@ mod tests {
         let base = PathSource::new_local(PathBuf::from("/other"));
         let err = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &cache, &environment).err().unwrap();
         assert_eq!(err.to_string(), "Could not find file at url https://dprint.dev/test.json");
+    }
+
+    #[test]
+    fn should_get_if_absolute_windows_file_path() {
+        assert!(is_absolute_windows_file_path("C:/test"));
+        assert!(is_absolute_windows_file_path("C:\\test"));
+        assert!(!is_absolute_windows_file_path("C://test"));
+        assert!(!is_absolute_windows_file_path("C:\\\\test"));
     }
 }
