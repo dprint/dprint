@@ -2396,6 +2396,10 @@ OPTIONS:
         --verbose                    Prints additional diagnostic information.
     -v, --version                    Prints the version.
 
+ENVIRONMENT VARIABLES:
+    DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
+                        this directory may be periodically deleted by the CLI.
+
 GETTING STARTED:
     1. Navigate to the root directory of a code repository.
     2. Run `dprint init` to create a dprint.json file in that directory.

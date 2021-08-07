@@ -195,6 +195,10 @@ More details at `dprint help <SUBCOMMAND>`
 OPTIONS:
 {unified}
 
+ENVIRONMENT VARIABLES:
+    DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
+                        this directory may be periodically deleted by the CLI.
+
 {after-help}"#)
         .after_help(
             r#"GETTING STARTED:
