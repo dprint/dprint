@@ -263,9 +263,19 @@ impl Environment for RealEnvironment {
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
 fn get_cache_dir() -> Result<PathBuf, ErrBox> {
-    if let Ok(dir_path) = std::env::var(CACHE_DIR_ENV_VAR_NAME) {
+    get_cache_dir_internal(|var_name| std::env::var(var_name).ok())
+}
+
+fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Result<PathBuf, ErrBox> {
+    if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME) {
         if !dir_path.trim().is_empty() {
-            return Ok(PathBuf::from(dir_path));
+            let dir_path = PathBuf::from(dir_path);
+            // seems dangerous to allow a relative path as this directory may be deleted
+            return if !dir_path.is_absolute() {
+                err!("The {} environment variable must specify an absolute path.", CACHE_DIR_ENV_VAR_NAME)
+            } else {
+                Ok(dir_path)
+            };
         }
     }
 
@@ -282,12 +292,20 @@ mod test {
     #[test]
     fn should_get_cache_dir_based_on_env_var() {
         let default_dir = dirs::cache_dir().unwrap().join("dprint").join("cache");
-        let value = "/home/david/.dprint-cache";
-        std::env::set_var(CACHE_DIR_ENV_VAR_NAME, value);
-        assert_eq!(get_cache_dir().unwrap().to_string_lossy(), value);
-        std::env::set_var(CACHE_DIR_ENV_VAR_NAME, "");
-        assert_eq!(get_cache_dir().unwrap(), default_dir);
-        std::env::remove_var(CACHE_DIR_ENV_VAR_NAME);
-        assert_eq!(get_cache_dir().unwrap(), default_dir);
+        let value = if cfg!(target_os="windows") {
+            "C:/.dprint-cache"
+        } else {
+            "/home/david/.dprint-cache"
+        };
+        assert_eq!(get_cache_dir_internal(|_| Some(value.to_string())).unwrap().to_string_lossy(), value);
+        assert_eq!(get_cache_dir_internal(|_| Some("".to_string())).unwrap(), default_dir);
+        assert_eq!(get_cache_dir_internal(|_| Some("  ".to_string())).unwrap(), default_dir);
+        assert_eq!(get_cache_dir_internal(|_| None).unwrap(), default_dir);
+    }
+
+    #[test]
+    fn should_error_when_cache_dir_env_var_relative() {
+        let result = get_cache_dir_internal(|_| Some("./dir".to_string())).err();
+        assert_eq!(result.unwrap().to_string(), "The DPRINT_CACHE_DIR environment variable must specify an absolute path.");
     }
 }
