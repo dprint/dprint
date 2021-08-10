@@ -6,17 +6,17 @@ use crate::plugins::CompilationResult;
 
 pub trait Environment : Clone + std::marker::Send + std::marker::Sync + 'static {
     fn is_real(&self) -> bool;
-    fn read_file(&self, file_path: &Path) -> Result<String, ErrBox>;
-    fn read_file_bytes(&self, file_path: &Path) -> Result<Vec<u8>, ErrBox>;
-    fn write_file(&self, file_path: &Path, file_text: &str) -> Result<(), ErrBox>;
-    fn write_file_bytes(&self, file_path: &Path, bytes: &[u8]) -> Result<(), ErrBox>;
-    fn remove_file(&self, file_path: &Path) -> Result<(), ErrBox>;
-    fn remove_dir_all(&self, dir_path: &Path) -> Result<(), ErrBox>;
-    fn glob(&self, base: &Path, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox>;
-    fn path_exists(&self, file_path: &Path) -> bool;
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf, ErrBox>;
-    fn is_absolute_path(&self, path: &Path) -> bool;
-    fn mk_dir_all(&self, path: &Path) -> Result<(), ErrBox>;
+    fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String, ErrBox>;
+    fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>, ErrBox>;
+    fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<(), ErrBox>;
+    fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<(), ErrBox>;
+    fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<(), ErrBox>;
+    fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<(), ErrBox>;
+    fn glob(&self, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox>;
+    fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
+    fn canonicalize(&self, path: impl AsRef<Path>) -> Result<PathBuf, ErrBox>;
+    fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
+    fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<(), ErrBox>;
     fn cwd(&self) -> Result<PathBuf, ErrBox>;
     fn log(&self, text: &str);
     fn log_error(&self, text: &str) {

@@ -43,45 +43,45 @@ impl Environment for RealEnvironment {
         true
     }
 
-    fn read_file(&self, file_path: &Path) -> Result<String, ErrBox> {
+    fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String, ErrBox> {
         Ok(String::from_utf8(self.read_file_bytes(file_path)?)?)
     }
 
-    fn read_file_bytes(&self, file_path: &Path) -> Result<Vec<u8>, ErrBox> {
-        log_verbose!(self, "Reading file: {}", file_path.display());
-        match fs::read(file_path) {
+    fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>, ErrBox> {
+        log_verbose!(self, "Reading file: {}", file_path.as_ref().display());
+        match fs::read(&file_path) {
             Ok(bytes) => Ok(bytes),
-            Err(err) => err!("Error reading file {}: {}", file_path.display(), err.to_string()),
+            Err(err) => err!("Error reading file {}: {}", file_path.as_ref().display(), err.to_string()),
         }
     }
 
-    fn write_file(&self, file_path: &Path, file_text: &str) -> Result<(), ErrBox> {
+    fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<(), ErrBox> {
         self.write_file_bytes(file_path, file_text.as_bytes())
     }
 
-    fn write_file_bytes(&self, file_path: &Path, bytes: &[u8]) -> Result<(), ErrBox> {
-        log_verbose!(self, "Writing file: {}", file_path.display());
-        match fs::write(file_path, bytes) {
+    fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<(), ErrBox> {
+        log_verbose!(self, "Writing file: {}", file_path.as_ref().display());
+        match fs::write(&file_path, bytes) {
             Ok(_) => Ok(()),
-            Err(err) => err!("Error writing file {}: {}", file_path.display(), err.to_string()),
+            Err(err) => err!("Error writing file {}: {}", file_path.as_ref().display(), err.to_string()),
         }
     }
 
-    fn remove_file(&self, file_path: &Path) -> Result<(), ErrBox> {
-        log_verbose!(self, "Deleting file: {}", file_path.display());
-        match fs::remove_file(file_path) {
+    fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<(), ErrBox> {
+        log_verbose!(self, "Deleting file: {}", file_path.as_ref().display());
+        match fs::remove_file(&file_path) {
             Ok(_) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(err) => err!("Error deleting file {}: {}", file_path.display(), err.to_string()),
+            Err(err) => err!("Error deleting file {}: {}", file_path.as_ref().display(), err.to_string()),
         }
     }
 
-    fn remove_dir_all(&self, dir_path: &Path) -> Result<(), ErrBox> {
-        log_verbose!(self, "Deleting directory: {}", dir_path.display());
-        match fs::remove_dir_all(dir_path) {
+    fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<(), ErrBox> {
+        log_verbose!(self, "Deleting directory: {}", dir_path.as_ref().display());
+        match fs::remove_dir_all(&dir_path) {
             Ok(_) => Ok(()),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(err) => err!("Error removing directory {}: {}", dir_path.display(), err.to_string()),
+            Err(err) => err!("Error removing directory {}: {}", dir_path.as_ref().display(), err.to_string()),
         }
     }
 
@@ -91,7 +91,7 @@ impl Environment for RealEnvironment {
         download_url(url, &self.progress_bars, |env_var_name| std::env::var(env_var_name).ok())
     }
 
-    fn glob(&self, base: &Path, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    fn glob(&self, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
         let start_instant = std::time::Instant::now();
         log_verbose!(self, "Globbing: {:?}", file_patterns);
         let base = self.canonicalize(base)?;
@@ -119,25 +119,25 @@ impl Environment for RealEnvironment {
         Ok(file_paths)
     }
 
-    fn path_exists(&self, file_path: &Path) -> bool {
-        log_verbose!(self, "Checking path exists: {}", file_path.display());
-        file_path.exists()
+    fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
+        log_verbose!(self, "Checking path exists: {}", file_path.as_ref().display());
+        file_path.as_ref().exists()
     }
 
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf, ErrBox> {
+    fn canonicalize(&self, path: impl AsRef<Path>) -> Result<PathBuf, ErrBox> {
         // use this to avoid //?//C:/etc... like paths on windows (UNC)
         Ok(dunce::canonicalize(path)?)
     }
 
-    fn is_absolute_path(&self, path: &Path) -> bool {
-        path.is_absolute()
+    fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
+        path.as_ref().is_absolute()
     }
 
-    fn mk_dir_all(&self, path: &Path) -> Result<(), ErrBox> {
-        log_verbose!(self, "Creating directory: {}", path.display());
-        match fs::create_dir_all(path) {
+    fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<(), ErrBox> {
+        log_verbose!(self, "Creating directory: {}", path.as_ref().display());
+        match fs::create_dir_all(&path) {
             Ok(_) => Ok(()),
-            Err(err) => err!("Error creating directory {}: {}", path.display(), err.to_string()),
+            Err(err) => err!("Error creating directory {}: {}", path.as_ref().display(), err.to_string()),
         }
     }
 

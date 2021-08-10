@@ -737,7 +737,7 @@ fn resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &imp
 
     fn is_absolute_path(file_pattern: &str, environment: &impl Environment) -> bool {
         return !has_glob_chars(file_pattern)
-            && environment.is_absolute_path(&PathBuf::from(file_pattern));
+            && environment.is_absolute_path(file_pattern);
 
         fn has_glob_chars(text: &str) -> bool {
             for c in text.chars() {
@@ -796,44 +796,17 @@ fn get_incremental_file<TEnvironment: Environment>(
 #[cfg(test)]
 mod tests {
     use crossterm::style::Stylize;
-    use pretty_assertions::assert_eq;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-    use std::io::{Read, Write};
-
-    use crate::cache::Cache;
-    use crate::environment::{Environment, TestEnvironment};
-    use crate::configuration::*;
-    use crate::plugins::{PluginsDropper, PluginPools, CompilationResult, PluginResolver, PluginCache};
     use dprint_core::types::ErrBox;
     use dprint_core::plugins::process::{StdIoReaderWriter, StdIoMessenger};
+    use pretty_assertions::assert_eq;
+    use std::path::{Path, PathBuf};
+    use std::io::{Read, Write};
+
+    use crate::environment::{Environment, TestEnvironment, TestEnvironmentBuilder};
+    use crate::configuration::*;
+    use crate::cli::TestStdInReader;
+    use crate::test_helpers::{self, run_test_cli, run_test_cli_with_stdin};
     use crate::utils::get_difference;
-
-    use super::run_cli;
-    use super::super::{parse_args, TestStdInReader};
-
-    fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<(), ErrBox> {
-        run_test_cli_with_stdin(args, environment, TestStdInReader::new())
-    }
-
-    fn run_test_cli_with_stdin(
-        args: Vec<&str>,
-        environment: &TestEnvironment,
-        stdin_reader: TestStdInReader, // todo: no clue why this can't be passed in by reference
-    ) -> Result<(), ErrBox> {
-        let mut args: Vec<String> = args.into_iter().map(String::from).collect();
-        args.insert(0, String::from(""));
-        environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
-        let cache = Arc::new(Cache::new(environment.clone()));
-        let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-        let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
-        let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
-        let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
-        let args = parse_args(args, &stdin_reader)?;
-        environment.set_silent(args.is_silent_output());
-        environment.set_verbose(args.verbose);
-        run_cli(args, environment, &cache, &plugin_resolver, plugin_pools)
-    }
 
     #[test]
     fn it_should_output_version_with_v() {
@@ -853,7 +826,7 @@ mod tests {
 
     #[test]
     fn it_should_output_version_and_ignore_plugins() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
         run_test_cli(vec!["--version"], &environment).unwrap();
         let logged_messages = environment.take_logged_messages();
         assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
@@ -877,11 +850,10 @@ mod tests {
 
     #[test]
     fn it_should_output_help_with_plugins() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
 
         run_test_cli(vec!["--help"], &environment).unwrap();
-        let logged_messages = environment.take_logged_messages();
-        assert_eq!(logged_messages, vec![
+        assert_eq!(environment.take_logged_messages(), vec![
             get_expected_help_text(),
             "\nPLUGINS HELP:",
             "    test-plugin         https://dprint.dev/plugins/test\n    test-process-plugin https://dprint.dev/plugins/test-process"
@@ -890,10 +862,9 @@ mod tests {
 
     #[test]
     fn it_should_output_resolved_config() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
         run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
-        let logged_messages = environment.take_logged_messages();
-        assert_eq!(logged_messages, vec![
+        assert_eq!(environment.take_logged_messages(), vec![
             "test-plugin: {\n  \"ending\": \"formatted\",\n  \"lineWidth\": 120\n}",
             "testProcessPlugin: {\n  \"ending\": \"formatted_process\",\n  \"lineWidth\": 120\n}",
         ]);
@@ -901,10 +872,11 @@ mod tests {
 
     #[test]
     fn it_should_output_resolved_file_paths() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file3.txt_ps"), "const t=4;").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file("/file.txt", "const t=4;")
+            .write_file("/file2.txt", "const t=4;")
+            .write_file("/file3.txt_ps", "const t=4;")
+            .build();
         run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
         let mut logged_messages = environment.take_logged_messages();
         logged_messages.sort();
@@ -913,19 +885,21 @@ mod tests {
 
     #[test]
     fn it_should_not_output_file_paths_not_supported_by_plugins() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file.ts"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file2.ts"), "const t=4;").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file("/file.ts", "const t=4;")
+            .write_file("/file2.ts", "const t=4;")
+            .build();
         run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
     }
 
     #[test]
     fn it_should_output_resolved_file_paths_when_using_backslashes() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file3.txt_ps"), "const t=4;").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file("/file.txt", "const t=4;")
+            .write_file("/file2.txt", "const t=4;")
+            .write_file("/file3.txt_ps", "const t=4;")
+            .build();
         run_test_cli(vec!["output-file-paths", "**\\*.*"], &environment).unwrap();
         let mut logged_messages = environment.take_logged_messages();
         logged_messages.sort();
@@ -934,10 +908,11 @@ mod tests {
 
     #[test]
     fn it_should_output_format_times() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file2.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file3.txt_ps"), "const t=4;").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file("/file.txt", "const t=4;")
+            .write_file("/file2.txt", "const t=4;")
+            .write_file("/file3.txt_ps", "const t=4;")
+            .build();
         run_test_cli(vec!["output-format-times", "**/*.*"], &environment).unwrap();
         let logged_messages = environment.take_logged_messages();
         assert_eq!(logged_messages.len(), 3); // good enough
@@ -945,9 +920,10 @@ mod tests {
 
     #[test]
     fn it_should_format_file() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file.txt");
-        environment.write_file(&file_path1, "text").unwrap();
+        let file_path1 = "/file.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(file_path1, "text")
+            .build();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -956,11 +932,12 @@ mod tests {
 
     #[test]
     fn it_should_format_files() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file.txt");
-        environment.write_file(&file_path1, "text").unwrap();
-        let file_path2 = PathBuf::from("/file.txt_ps");
-        environment.write_file(&file_path2, "text2").unwrap();
+        let file_path1 = "/file.txt";
+        let file_path2 = "/file.txt_ps";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file(&file_path1, "text")
+            .write_file(&file_path2, "text2")
+            .build();
         run_test_cli(vec!["fmt", "/file.*"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -970,10 +947,11 @@ mod tests {
 
     #[test]
     fn it_should_format_plugin_explicitly_specified_files() {
-        let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
         // this file name is mentioned in test-process-plugin's PluginInfo
-        let file_path1 = PathBuf::from("/test-process-plugin-exact-file");
-        environment.write_file(&file_path1, "text").unwrap();
+        let file_path1 = "/test-process-plugin-exact-file";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+            .write_file(&file_path1, "text")
+            .build();
         run_test_cli(vec!["fmt", "*"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -982,14 +960,15 @@ mod tests {
 
     #[test]
     fn it_should_format_files_with_local_plugin() {
-        let environment = get_test_environment_with_local_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": ["/plugins/test-plugin.wasm"]
-        }"#).unwrap();
-        run_test_cli(vec!["license"], &environment).unwrap(); // cause initialization
-        environment.clear_logs();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "text").unwrap();
+        let file_path = "/file.txt";
+        let environment = TestEnvironmentBuilder::new()
+            .add_local_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_local_wasm_plugin();
+            })
+            .write_file(&file_path, "text")
+            .initialize()
+            .build();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -998,9 +977,9 @@ mod tests {
 
     #[test]
     fn it_should_handle_wasm_plugin_erroring() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "should_error").unwrap(); // special text that makes the plugin error
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file("/file.txt", "should_error") // special text that makes the plugin error
+            .build();
         let error_message = run_test_cli(vec!["fmt", "/file.txt"], &environment).err().unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(environment.take_logged_errors(), vec![String::from("Error formatting /file.txt. Message: Did error.")]);
@@ -1009,9 +988,9 @@ mod tests {
 
     #[test]
     fn it_should_handle_process_plugin_erroring() {
-        let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt_ps");
-        environment.write_file(&file_path, "should_error").unwrap(); // special text that makes the plugin error
+        let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+            .write_file("/file.txt_ps", "should_error") // special text that makes the plugin error
+            .build();
         let error_message = run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).err().unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(environment.take_logged_errors(), vec![String::from("Error formatting /file.txt_ps. Message: Did error.")]);
@@ -1020,23 +999,25 @@ mod tests {
 
     #[test]
     fn it_should_handle_wasm_plugin_panicking() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file1.txt"), "should_panic").unwrap();
-        environment.write_file(&PathBuf::from("/file2.txt"), "test").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file("/file1.txt", "should_panic") // special text to make it panic
+            .write_file("/file2.txt", "test")
+            .build();
         let error_message = run_test_cli(vec!["fmt", "**.txt"], &environment).err().unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         let logged_errors = environment.take_logged_errors();
         assert_eq!(logged_errors.len(), 1);
         assert_eq!(logged_errors[0].starts_with("Error formatting /file1.txt. Message: RuntimeError: unreachable"), true);
         assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
-        assert_eq!(environment.read_file(&PathBuf::from("/file2.txt")).unwrap(), "test_formatted");
+        assert_eq!(environment.read_file("/file2.txt").unwrap(), "test_formatted");
     }
 
     #[test]
     fn it_should_format_calling_process_plugin_with_wasm_plugin_and_no_plugin_exists() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "plugin: format this text").unwrap();
+        let file_path = "/file.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(&file_path, "plugin: format this text")
+            .build();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1045,9 +1026,10 @@ mod tests {
 
     #[test]
     fn it_should_format_calling_process_plugin_with_wasm_plugin_and_process_plugin_exists() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "plugin: format this text").unwrap();
+        let file_path = "/file.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file(&file_path, "plugin: format this text")
+            .build();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1056,11 +1038,12 @@ mod tests {
 
     #[test]
     fn it_should_format_calling_process_plugin_with_wasm_plugin_using_additional_plugin_specified_config() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        environment.write_file(&file_path1, "plugin-config: format this text").unwrap();
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path2, "plugin: format this text").unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file(&file_path1, "plugin-config: format this text")
+            .write_file(&file_path2, "plugin: format this text")
+            .build();
         run_test_cli(vec!["fmt", "/*.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1070,9 +1053,9 @@ mod tests {
 
     #[test]
     fn it_should_error_calling_process_plugin_with_wasm_plugin_and_process_plugin_errors() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "plugin: should_error").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file("/file.txt", "plugin: should_error")
+            .build();
         let error_message = run_test_cli(vec!["fmt", "/file.txt"], &environment).err().unwrap();
         assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
         assert_eq!(environment.take_logged_errors(), vec![String::from("Error formatting /file.txt. Message: Did error.")]);
@@ -1080,9 +1063,10 @@ mod tests {
 
     #[test]
     fn it_should_format_calling_other_plugin_with_process_plugin_and_no_plugin_exists() {
-        let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt_ps");
-        environment.write_file(&file_path, "plugin: format this text").unwrap();
+        let file_path = "/file.txt_ps";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+            .write_file(&file_path, "plugin: format this text")
+            .build();
         run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1091,9 +1075,10 @@ mod tests {
 
     #[test]
     fn it_should_format_calling_wasm_plugin_with_process_plugin_and_wasm_plugin_exists() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt_ps");
-        environment.write_file(&file_path, "plugin: format this text").unwrap();
+        let file_path = "/file.txt_ps";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file(&file_path, "plugin: format this text")
+            .build();
         run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1102,11 +1087,12 @@ mod tests {
 
     #[test]
     fn it_should_format_calling_wasm_plugin_with_process_plugin_using_additional_plugin_specified_config() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt_ps");
-        environment.write_file(&file_path1, "plugin-config: format this text").unwrap();
-        let file_path2 = PathBuf::from("/file2.txt_ps");
-        environment.write_file(&file_path2, "plugin: format this text").unwrap();
+        let file_path1 = "/file1.txt_ps";
+        let file_path2 = "/file2.txt_ps";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file(&file_path1, "plugin-config: format this text")
+            .write_file(&file_path2, "plugin: format this text")
+            .build();
         run_test_cli(vec!["fmt", "*.txt_ps"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1116,9 +1102,9 @@ mod tests {
 
     #[test]
     fn it_should_error_calling_wasm_plugin_with_process_plugin_and_wasm_plugin_errors() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt_ps");
-        environment.write_file(&file_path, "plugin: should_error").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .write_file("/file.txt_ps", "plugin: should_error")
+            .build();
         let error_message = run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).err().unwrap();
         assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
         assert_eq!(environment.take_logged_errors(), vec![String::from("Error formatting /file.txt_ps. Message: Did error.")]);
@@ -1126,9 +1112,10 @@ mod tests {
 
     #[test]
     fn it_should_format_when_specifying_dot_slash_paths() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "text").unwrap();
+        let file_path = "/file.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(&file_path, "text")
+            .build();
         run_test_cli(vec!["fmt", "./file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1137,11 +1124,12 @@ mod tests {
 
     #[test]
     fn it_should_exclude_a_specified_dot_slash_path() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "text").unwrap();
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path2, "text").unwrap();
+        let file_path = "/file.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(&file_path, "text")
+            .write_file(&file_path2, "text")
+            .build();
         run_test_cli(vec!["fmt", "./**/*.txt", "--excludes", "./file2.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1151,10 +1139,11 @@ mod tests {
 
     #[test]
     fn it_should_ignore_files_in_node_modules_by_default() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/node_modules/file.txt"), "").unwrap();
-        environment.write_file(&PathBuf::from("/test/node_modules/file.txt"), "").unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file("/node_modules/file.txt", "")
+            .write_file("/test/node_modules/file.txt", "")
+            .write_file("/file.txt", "")
+            .build();
         run_test_cli(vec!["fmt", "**/*.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1162,9 +1151,10 @@ mod tests {
 
     #[test]
     fn it_should_not_ignore_files_in_node_modules_when_allowed() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/node_modules/file.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/test/node_modules/file.txt"), "const t=4;").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file("/node_modules/file.txt", "const t=4;")
+            .write_file("/test/node_modules/file.txt", "const t=4;")
+            .build();
         run_test_cli(vec!["fmt", "--allow-node-modules", "**/*.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1172,24 +1162,22 @@ mod tests {
 
     #[test]
     fn it_should_format_files_with_config() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt_ps");
-        let plugin_file_checksum = get_process_plugin_checksum(&environment);
-        environment.write_file(&PathBuf::from("/config.json"), &format!(r#"{{
-            "test-plugin": {{
-                "ending": "custom-formatted"
-            }},
-            "testProcessPlugin": {{
-                "ending": "custom-formatted2"
-            }},
-            "plugins": [
-                "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }}"#, plugin_file_checksum)).unwrap();
-        environment.write_file(&file_path1, "text").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt_ps";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+            .with_local_config("/config.json", |c| {
+                c.add_remote_wasm_plugin()
+                    .add_remote_process_plugin()
+                    .add_config_section("test-plugin", r#"{
+                        "ending": "custom-formatted"
+                    }"#)
+                    .add_config_section("testProcessPlugin", r#"{
+                        "ending": "custom-formatted2"
+                    }"#);
+            })
+            .write_file(&file_path1, "text")
+            .write_file(&file_path2, "text2")
+            .build();
 
         run_test_cli(vec!["fmt", "--config", "/config.json", "/file1.txt", "/file2.txt_ps"], &environment).unwrap();
 
@@ -1201,13 +1189,14 @@ mod tests {
 
     #[test]
     fn it_should_format_files_with_config_using_c() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        environment.write_file(&file_path1, "text").unwrap();
-        environment.write_file(&PathBuf::from("/config.json"), r#"{
-            "test-plugin": { "ending": "custom-formatted" },
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(file_path1, "text")
+            .write_file("/config.json", r#"{
+                "test-plugin": { "ending": "custom-formatted" },
+                "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+            }"#)
+            .build();
 
         run_test_cli(vec!["fmt", "-c", "/config.json", "/file1.txt"], &environment).unwrap();
 
@@ -1219,7 +1208,7 @@ mod tests {
     #[test]
     fn it_should_error_when_config_file_does_not_exist() {
         let environment = TestEnvironment::new();
-        environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
+        environment.write_file("/test.txt", "test").unwrap();
 
         let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
@@ -1236,34 +1225,33 @@ mod tests {
 
     #[test]
     fn it_should_support_config_file_urls() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.add_remote_file("https://dprint.dev/test.json", r#"{
-            "test-plugin": {
-                "ending": "custom-formatted"
-            },
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#.as_bytes());
-        environment.write_file(&file_path1, "text").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_remote_config("https://dprint.dev/test.json", |c| {
+                c.add_remote_wasm_plugin()
+                    .add_config_section("test-plugin", r#"{ "ending": "custom-formatted" }"#);
+            })
+            .write_file(&file_path1, "text")
+            .write_file(&file_path2, "text2")
+            .build();
 
         run_test_cli(vec!["fmt", "--config", "https://dprint.dev/test.json", "/file1.txt", "/file2.txt"], &environment).unwrap();
 
         assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-        assert_eq!(environment.take_logged_errors().len(), 0);
+        assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
         assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
         assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted");
     }
 
     #[test]
     fn it_should_error_on_wasm_plugin_config_diagnostic() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "test-plugin": { "non-existent": 25 },
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_config_section("test-plugin", r#"{ "non-existent": 25 }"#);
+            })
+            .write_file("/test.txt", "test")
+            .build();
 
         let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
@@ -1277,15 +1265,19 @@ mod tests {
 
     #[test]
     fn it_should_error_on_process_plugin_config_diagnostic() {
-        let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
-        let plugin_file_checksum = get_process_plugin_checksum(&environment);
-        environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "testProcessPlugin": {{ "non-existent": 25 }},
-            "plugins": [
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }}"#, plugin_file_checksum)).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt_ps"), "test").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+            .with_default_config(|c| {
+                // Add this same plugin a few times in the configuration file for
+                // some additional testing. It should handle it gracefully.
+                c.add_remote_process_plugin();
+                c.add_remote_process_plugin();
+
+                c.add_config_section("testProcessPlugin", r#"{
+                    "non-existent": 25
+                }"#);
+            })
+            .write_file("/test.txt_ps", "test")
+            .build();
 
         let error_message = run_test_cli(vec!["fmt", "**/*.txt_ps"], &environment).err().unwrap();
 
@@ -1299,11 +1291,12 @@ mod tests {
 
     #[test]
     fn it_should_error_when_no_plugins_specified() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": []
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
+        let environment = TestEnvironmentBuilder::new()
+            .with_default_config(|c| {
+                c.ensure_plugins_section();
+            })
+            .write_file("/test.txt", "test")
+            .build();
 
         let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
@@ -1314,11 +1307,12 @@ mod tests {
 
     #[test]
     fn it_should_use_plugins_specified_in_cli_args() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": ["https://plugins.dprint.dev/other.wasm"]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_plugin("https://plugins.dprint.dev/other.wasm");
+            })
+            .write_file("/test.txt", "test")
+            .build();
 
         run_test_cli(vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).unwrap();
 
@@ -1328,19 +1322,20 @@ mod tests {
 
     #[test]
     fn it_should_allow_using_no_config_when_plugins_specified() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt"), "test").unwrap();
+        let environment = TestEnvironmentBuilder::new()
+            .add_remote_wasm_plugin()
+            .write_file("/test.txt", "test")
+            .build();
 
         run_test_cli(vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).unwrap();
 
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-        assert_eq!(environment.take_logged_errors().len(), 0);
+        assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
     }
 
     #[test]
     fn it_should_error_when_no_files_match_glob() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
         let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
         assert_eq!(
@@ -1357,14 +1352,16 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn it_should_format_absolute_paths_on_windows() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("E:\\file1.txt");
-        environment.set_cwd("D:\\test\\other\\");
-        environment.write_file(&file_path, "text1").unwrap();
-        environment.write_file(&PathBuf::from("D:\\test\\other\\dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path = "E:\\file1.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_local_config("D:\\test\\other\\dprint.json", |c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .write_file(file_path, "text1")
+            .set_cwd("D:\\test\\other\\")
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt", "--", "E:\\file1.txt"], &environment).unwrap();
 
@@ -1376,14 +1373,16 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn it_should_format_absolute_paths_on_linux() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("/asdf/file1.txt");
-        environment.set_cwd("/test/other/");
-        environment.write_file(&file_path, "text1").unwrap();
-        environment.write_file(&PathBuf::from("/test/other/dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path = "/asdf/file1.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_local_config("/test/other/dprint.json", |c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .write_file(&file_path, "text1")
+            .set_cwd("/test/other/")
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt", "--", "/asdf/file1.txt"], &environment).unwrap();
 
@@ -1394,15 +1393,17 @@ mod tests {
 
     #[test]
     fn it_should_format_files_with_config_includes() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .write_file(file_path1, "text1")
+            .write_file(file_path2, "text2")
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt"], &environment).unwrap();
 
@@ -1415,13 +1416,15 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn it_should_format_files_with_config_includes_when_using_back_slashes() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**\\*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("**\\\\*.txt") // escape for the json
+                    .add_remote_wasm_plugin();
+            })
+            .write_file(file_path1, "text1")
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt"], &environment).unwrap();
 
@@ -1432,15 +1435,16 @@ mod tests {
 
     #[test]
     fn it_should_override_config_includes_with_cli_includes() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(&file_path1, "text1")
+            .write_file(&file_path2, "text2")
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .build();
 
         run_test_cli(vec!["fmt", "/file1.txt"], &environment).unwrap();
 
@@ -1452,16 +1456,18 @@ mod tests {
 
     #[test]
     fn it_should_override_config_excludes_with_cli_excludes() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "excludes": ["/file1.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .write_file(&file_path1, "text1")
+            .write_file(&file_path2, "text2")
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_excludes("/file1.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt", "--excludes", "/file2.txt"], &environment).unwrap();
 
@@ -1473,14 +1479,16 @@ mod tests {
 
     #[test]
     fn it_should_support_clearing_config_excludes_with_cli_excludes_arg() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "excludes": ["/file1.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .write_file(&file_path1, "text1")
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_excludes("/file1.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt", "--excludes="], &environment).unwrap();
 
@@ -1491,14 +1499,16 @@ mod tests {
 
     #[test]
     fn it_should_format_explicitly_specified_file_even_if_excluded() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "excludes": ["/file1.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .write_file(&file_path1, "text1")
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_excludes("/file1.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt", "file1.txt"], &environment).unwrap();
 
@@ -1509,17 +1519,18 @@ mod tests {
 
     #[test]
     fn it_should_override_config_includes_and_excludes_with_cli() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["/file2.txt"],
-            "excludes": ["/file1.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .write_file(&file_path1, "text1")
+            .write_file(&file_path2, "text2")
+            .with_default_config(|c| {
+                c.add_includes("/file2.txt")
+                    .add_excludes("/file1.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .build();
         run_test_cli(vec!["fmt", "/file1.txt", "--excludes", "/file2.txt"], &environment).unwrap();
 
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
@@ -1530,16 +1541,18 @@ mod tests {
 
     #[test]
     fn it_should_format_files_with_config_excludes() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "excludes": ["/file2.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .write_file(file_path1, "text1")
+            .write_file(file_path2, "text2")
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_excludes("/file2.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt"], &environment).unwrap();
 
@@ -1551,15 +1564,16 @@ mod tests {
 
     #[test]
     fn it_should_format_using_hidden_config_file_name() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
-        environment.write_file(&PathBuf::from("./.dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.set_cwd("/test/other/");
-        let file_path = PathBuf::from("/test/other/file.txt");
-        environment.write_file(&file_path, "text").unwrap();
+        let file_path = "/test/other/file.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .set_cwd("/test/other/")
+            .write_file(file_path, "text")
+            .build();
+
         run_test_cli(vec!["fmt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
@@ -1567,16 +1581,17 @@ mod tests {
 
     #[test]
     fn it_should_format_files_with_config_in_config_sub_dir_and_warn() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        let file_path2 = PathBuf::from("/file2.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
-        environment.write_file(&file_path2, "text2").unwrap();
-        environment.write_file(&PathBuf::from("./config/.dprintrc.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path1 = "/file1.txt";
+        let file_path2 = "/file2.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .write_file(file_path1, "text1")
+            .write_file(file_path2, "text2")
+            .with_local_config("./config/.dprintrc.json", |c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt"], &environment).unwrap();
 
@@ -1591,14 +1606,14 @@ mod tests {
 
     #[test]
     fn it_should_format_using_config_in_ancestor_directory() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let file_path = "/test/other/file.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt");
+            })
+            .write_file(&file_path, "text")
+            .build();
         environment.set_cwd("/test/other/");
-        let file_path = PathBuf::from("/test/other/file.txt");
-        environment.write_file(&file_path, "text").unwrap();
         run_test_cli(vec!["fmt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1607,15 +1622,16 @@ mod tests {
 
     #[test]
     fn it_should_format_using_old_config_file_name_and_warn() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
-        environment.write_file(&PathBuf::from("./.dprintrc.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.set_cwd("/test/other/");
-        let file_path = PathBuf::from("/test/other/file.txt");
-        environment.write_file(&file_path, "text").unwrap();
+        let file_path = "/test/other/file.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_local_config("/.dprintrc.json", |c| {
+                c.add_remote_wasm_plugin()
+                    .add_includes("**/*.txt");
+            })
+            .initialize()
+            .set_cwd("/test/other/")
+            .write_file(&file_path, "text")
+            .build();
         run_test_cli(vec!["fmt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors(), vec![
@@ -1626,15 +1642,16 @@ mod tests {
 
     #[test]
     fn it_should_format_using_config_in_ancestor_directory_config_folder_and_warn() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.remove_file(&PathBuf::from("./dprint.json")).unwrap();
-        environment.write_file(&PathBuf::from("./config/.dprintrc.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.set_cwd("/test/other/");
-        let file_path = PathBuf::from("/test/other/file.txt");
-        environment.write_file(&file_path, "text").unwrap();
+        let file_path = "/test/other/file.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_local_config("./config/.dprintrc.json", |c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .initialize()
+            .set_cwd("/test/other/")
+            .write_file(&file_path, "text")
+            .build();
         run_test_cli(vec!["fmt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors(), vec![
@@ -1646,13 +1663,15 @@ mod tests {
 
     #[test]
     fn it_should_format_incrementally_when_specified_on_cli() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
+        let file_path1 = "/file1.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .write_file(&file_path1, "text1")
+            .initialize()
+            .build();
 
         run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
 
@@ -1673,7 +1692,7 @@ mod tests {
         assert_eq!(environment.read_file(&file_path1).unwrap(), "asdf_formatted");
 
         // update the global config and ensure it's formatted
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
+        environment.write_file("./dprint.json", r#"{
             "indentWidth": 2,
             "includes": ["**/*.txt"],
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
@@ -1683,7 +1702,7 @@ mod tests {
         assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), false);
 
         // update the plugin config and ensure it's formatted
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
+        environment.write_file("./dprint.json", r#"{
             "indentWidth": 2,
             "test-plugin": {
                 "ending": "custom-formatted",
@@ -1715,14 +1734,16 @@ mod tests {
 
     #[test]
     fn it_should_format_incrementally_when_specified_via_config() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "incremental": true,
-            "includes": ["**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        let file_path1 = PathBuf::from("/file1.txt");
-        environment.write_file(&file_path1, "text1").unwrap();
+        let file_path1 = "/file1.txt";
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_remote_wasm_plugin()
+                    .add_includes("**/*.txt")
+                    .set_incremental(true);
+            })
+            .initialize()
+            .write_file(&file_path1, "text1")
+            .build();
 
         run_test_cli(vec!["fmt"], &environment).unwrap();
 
@@ -1737,8 +1758,9 @@ mod tests {
 
     #[test]
     fn it_should_not_output_when_no_files_need_formatting() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "text_formatted").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file("/file.txt", "text_formatted")
+            .build();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1746,9 +1768,10 @@ mod tests {
 
     #[test]
     fn it_should_not_output_when_no_files_need_formatting_for_check() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "text_formatted").unwrap();
+        let file_path = "/file.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(&file_path, "text_formatted")
+            .build();
         run_test_cli(vec!["check", "/file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages().len(), 0);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1756,8 +1779,9 @@ mod tests {
 
     #[test]
     fn it_should_output_when_a_file_need_formatting_for_check() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "const t=4;").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file("/file.txt", "const t=4;")
+            .build();
         let error_message = run_test_cli(vec!["check", "/file.txt"], &environment).err().unwrap();
         assert_eq!(error_message.to_string(), get_singular_check_text());
         assert_eq!(environment.take_logged_messages(), vec![
@@ -1772,9 +1796,10 @@ mod tests {
 
     #[test]
     fn it_should_output_when_files_need_formatting_for_check() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("/file1.txt"), "const t=4;").unwrap();
-        environment.write_file(&PathBuf::from("/file2.txt"), "const t=5;").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file("/file1.txt", "const t=4;")
+            .write_file("/file2.txt", "const t=5;")
+            .build();
 
         let error_message = run_test_cli(vec!["check", "/file1.txt", "/file2.txt"], &environment).err().unwrap();
         assert_eq!(error_message.to_string(), get_plural_check_text(2));
@@ -1828,7 +1853,7 @@ mod tests {
             "\nCreated ./dprint.json",
             "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
         ]);
-        assert_eq!(environment.read_file(&PathBuf::from("./dprint.json")).unwrap(), expected_text);
+        assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
     }
 
     #[test]
@@ -1856,13 +1881,16 @@ mod tests {
             "\nCreated ./test.config.json",
             "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
         ]);
-        assert_eq!(environment.read_file(&PathBuf::from("./test.config.json")).unwrap(), expected_text);
+        assert_eq!(environment.read_file("./test.config.json").unwrap(), expected_text);
     }
 
     #[test]
     fn it_should_error_when_config_file_exists_on_initialize() {
-        let environment = TestEnvironment::new();
-        environment.write_file(&PathBuf::from("./dprint.json"), "{}").unwrap();
+        let environment = TestEnvironmentBuilder::new()
+            .with_default_config(|c| {
+                c.add_includes("**/*.txt");
+            })
+            .build();
         let error_message = run_test_cli(vec!["init"], &environment).err().unwrap();
         assert_eq!(error_message.to_string(), "Configuration file './dprint.json' already exists.");
     }
@@ -1872,14 +1900,15 @@ mod tests {
         let environment = TestEnvironment::new();
         run_test_cli(vec!["clear-cache"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["Deleted /cache"]);
-        assert_eq!(environment.is_dir_deleted(&PathBuf::from("/cache")), true);
+        assert_eq!(environment.is_dir_deleted("/cache"), true);
     }
 
     #[test]
     fn it_should_handle_bom() {
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        let file_path = PathBuf::from("/file.txt");
-        environment.write_file(&file_path, "\u{FEFF}text").unwrap();
+        let file_path = "/file.txt";
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+            .write_file(&file_path, "\u{FEFF}text")
+            .build();
         run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors().len(), 0);
@@ -1898,7 +1927,7 @@ mod tests {
 
     #[test]
     fn it_should_output_license_for_sub_command_with_plugins() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
         run_test_cli(vec!["license"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
             "==== DPRINT CLI LICENSE ====",
@@ -1934,16 +1963,14 @@ SOFTWARE.
     #[test]
     fn it_should_output_editor_plugin_info() {
         // it should not output anything when downloading plugins
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_process_plugin(&environment);
-        setup_test_environment_with_remote_wasm_plugin(&environment);
-        let plugin_file_checksum = get_process_plugin_checksum(&environment);
-        environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "plugins": [
-                "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }}"#, plugin_file_checksum)).unwrap();
+        let environment = TestEnvironmentBuilder::new()
+            .add_remote_process_plugin()
+            .add_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_remote_wasm_plugin()
+                    .add_remote_process_plugin();
+            })
+            .build(); // build only, don't initialize
         run_test_cli(vec!["editor-info"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
             r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"fileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"]}]}"#
@@ -2001,20 +2028,22 @@ SOFTWARE.
 
     #[test]
     fn it_should_format_for_editor_service() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["**/*.{txt,ts}"],
-            "plugins": [
-                "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }"#).unwrap();
         let txt_file_path = PathBuf::from("/file.txt");
-        environment.write_file(&txt_file_path, "").unwrap();
         let ts_file_path = PathBuf::from("/file.ts");
-        environment.write_file(&ts_file_path, "").unwrap();
         let other_ext_path = PathBuf::from("/file.asdf");
-        environment.write_file(&other_ext_path, "").unwrap();
+        let environment = TestEnvironmentBuilder::new()
+            .add_remote_wasm_plugin()
+            .add_remote_process_plugin()
+            .with_default_config(|c| {
+                c.add_remote_wasm_plugin()
+                    .add_remote_process_plugin()
+                    .add_includes("**/*.{txt,ts}");
+            })
+            .write_file(&txt_file_path, "")
+            .write_file(&ts_file_path, "")
+            .write_file(&other_ext_path, "")
+            .initialize()
+            .build();
         let stdin = environment.stdin_writer();
         let stdout = environment.stdout_reader();
 
@@ -2063,11 +2092,13 @@ SOFTWARE.
     #[test]
     fn it_should_format_for_stdin_fmt_with_file_name() {
         // it should not output anything when downloading plugins
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["/test/**.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("/test/**.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .build();
+
         let test_std_in = TestStdInReader::new_with_text("text");
         run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
         // should format even though it wasn't matched because an absolute path wasn't provided
@@ -2077,11 +2108,13 @@ SOFTWARE.
 
     #[test]
     fn it_should_format_for_stdin_fmt_with_extension() {
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["/test/**.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("/test/**.txt")
+                    .add_remote_wasm_plugin();
+            })
+            .build();
+
         let test_std_in = TestStdInReader::new_with_text("text");
         run_test_cli_with_stdin(vec!["fmt", "--stdin", "txt"], &environment, test_std_in).unwrap();
         // should format even though it wasn't matched because an absolute path wasn't provided
@@ -2091,14 +2124,7 @@ SOFTWARE.
 
     #[test]
     fn it_should_stdin_fmt_calling_other_plugin() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
-        let plugin_file_checksum = get_process_plugin_checksum(&environment);
-        environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "plugins": [
-                "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }}"#, plugin_file_checksum)).unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
         let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
         run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["format this text_formatted_process"]);
@@ -2107,10 +2133,12 @@ SOFTWARE.
     #[test]
     fn it_should_handle_error_for_stdin_fmt() {
         // it should not output anything when downloading plugins
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let environment = TestEnvironmentBuilder::new()
+            .add_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_remote_wasm_plugin();
+            })
+            .build(); // don't initialize
         let test_std_in = TestStdInReader::new_with_text("should_error");
         let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).err().unwrap();
         assert_eq!(error_message.to_string(), "Did error.");
@@ -2119,13 +2147,14 @@ SOFTWARE.
     #[test]
     fn it_should_format_for_stdin_with_absolute_paths() {
         // it should not output anything when downloading plugins
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["/src/**.*"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/file.txt"), "").unwrap();
-        environment.write_file(&PathBuf::from("/src/file.txt"), "").unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("/src/**.*")
+                    .add_remote_wasm_plugin();
+            })
+            .write_file("/file.txt", "")
+            .write_file("/src/file.txt", "")
+            .build();
         // not matching file
         let test_std_in = TestStdInReader::new_with_text("text");
         run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt"], &environment, test_std_in.clone()).unwrap();
@@ -2142,18 +2171,17 @@ SOFTWARE.
 
     #[test]
     fn it_should_format_stdin_resolving_config_file_from_provided_path_when_relative() {
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["./**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("./sub-dir/dprint.json"), r#"{
-            "test-plugin": {
-                "ending": "new_ending"
-            },
-            "includes": ["./**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("./**/*.txt")
+                .add_remote_wasm_plugin();
+            })
+            .with_local_config("./sub-dir/dprint.json", |c| {
+                c.add_includes("./**/*.txt")
+                    .add_remote_wasm_plugin()
+                    .add_config_section("test-plugin", r#"{ "ending": "new_ending" }"#);
+            })
+            .build();
         let test_std_in = TestStdInReader::new_with_text("text");
         run_test_cli_with_stdin(vec!["fmt", "--stdin", "sub-dir/file.txt"], &environment, test_std_in).unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["text_new_ending"]);
@@ -2162,19 +2190,19 @@ SOFTWARE.
 
     #[test]
     fn it_should_format_stdin_resolving_config_file_from_provided_path_when_absolute() {
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "includes": ["./**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/sub-dir/dprint.json"), r#"{
-            "test-plugin": {
-                "ending": "new_ending"
-            },
-            "includes": ["./**/*.txt"],
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/sub-dir/file.txt"), "test").unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_includes("./**/*.txt")
+                .add_remote_wasm_plugin();
+            })
+            .with_local_config("/sub-dir/dprint.json", |c| {
+                c.add_includes("./**/*.txt")
+                    .add_remote_wasm_plugin()
+                    .add_config_section("test-plugin", r#"{ "ending": "new_ending" }"#);
+            })
+            .write_file("/sub-dir/file.txt", "test")
+            .initialize()
+            .build();
         let test_std_in = TestStdInReader::new_with_text("text");
         run_test_cli_with_stdin(vec!["fmt", "--stdin", "/sub-dir/file.txt"], &environment, test_std_in).unwrap();
         assert_eq!(environment.take_logged_messages(), vec!["text_new_ending"]);
@@ -2183,13 +2211,12 @@ SOFTWARE.
 
     #[test]
     fn it_should_error_if_process_plugin_has_no_checksum_in_config() {
-        let environment = get_initialized_test_environment_with_remote_process_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": [
-                "https://plugins.dprint.dev/test-process.exe-plugin"
-            ]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt_ps"), "").unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+            .with_default_config(|c| {
+                c.add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
+            })
+            .write_file("/test.txt_ps", "")
+            .build();
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(
@@ -2205,15 +2232,13 @@ SOFTWARE.
 
     #[test]
     fn it_should_error_if_process_plugin_has_wrong_checksum_in_config() {
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_process_plugin(&environment);
-        let actual_plugin_file_checksum = get_process_plugin_checksum(&environment);
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": [
-                "https://plugins.dprint.dev/test-process.exe-plugin@asdf"
-            ]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt_ps"), "").unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_process_plugin()
+            .with_default_config(|c| {
+                c.add_remote_process_plugin_with_checksum("asdf");
+            })
+            .write_file("/test.txt_ps", "")
+            .build();
+        let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum(&environment);
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(
@@ -2227,15 +2252,13 @@ SOFTWARE.
 
     #[test]
     fn it_should_error_if_wasm_plugin_has_wrong_checksum_in_config() {
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_wasm_plugin(&environment);
-        let actual_plugin_file_checksum = get_wasm_plugin_checksum();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": [
-                "https://plugins.dprint.dev/test-plugin.wasm@asdf"
-            ]
-        }"#).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt"), "").unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_remote_wasm_plugin_with_checksum("asdf");
+            })
+            .write_file("/test.txt", "")
+            .build();
+        let actual_plugin_file_checksum = test_helpers::get_test_wasm_plugin_checksum();
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(
@@ -2249,34 +2272,30 @@ SOFTWARE.
 
     #[test]
     fn it_should_not_error_if_wasm_plugin_has_correct_checksum_in_config() {
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_wasm_plugin(&environment);
-        let actual_plugin_file_checksum = get_wasm_plugin_checksum();
-        environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "plugins": [
-                "https://plugins.dprint.dev/test-plugin.wasm@{}"
-            ]
-        }}"#, actual_plugin_file_checksum)).unwrap();
-        environment.write_file(&PathBuf::from("/test.txt"), "text").unwrap();
+        let actual_plugin_file_checksum = test_helpers::get_test_wasm_plugin_checksum();
+        let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+            .with_default_config(|c| {
+                c.add_remote_wasm_plugin_with_checksum(&actual_plugin_file_checksum);
+            })
+            .write_file("/test.txt", "text")
+            .build();
         run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
 
-        assert_eq!(environment.read_file(&PathBuf::from("/test.txt")).unwrap(), "text_formatted");
+        assert_eq!(environment.read_file("/test.txt").unwrap(), "text_formatted");
         assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
         assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
     }
 
     #[test]
     fn it_should_error_if_process_plugin_has_wrong_checksum_in_file_for_zip() {
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_process_plugin(&environment);
-        write_process_plugin_file(&environment, "asdf");
-        environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "plugins": [
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }}"#, get_process_plugin_checksum(&environment))).unwrap();
-        let actual_plugin_zip_file_checksum = get_process_plugin_zip_checksum(&environment);
-        environment.write_file(&PathBuf::from("/test.txt_ps"), "").unwrap();
+        let environment = TestEnvironmentBuilder::with_remote_process_plugin()
+            .write_process_plugin_file("asdf")
+            .with_default_config(|c| {
+                c.add_remote_process_plugin();
+            })
+            .write_file("/test.txt_ps", "")
+            .build();
+        let actual_plugin_zip_file_checksum = test_helpers::get_test_process_plugin_zip_checksum(&environment);
         let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
         assert_eq!(
@@ -2292,13 +2311,13 @@ SOFTWARE.
 
     #[test]
     fn it_should_format_many_files() {
-        let environment = get_initialized_test_environment_with_remote_wasm_and_process_plugin().unwrap();
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
         for i in 0..100 {
-            let file_path = PathBuf::from(format!("/file{}.txt", i));
+            let file_path = format!("/file{}.txt", i);
             environment.write_file(&file_path, &format!("text{}", i)).unwrap();
         }
         for i in 0..100 {
-            let file_path = PathBuf::from(format!("/file{}.txt_ps", i));
+            let file_path = format!("/file{}.txt_ps", i);
             environment.write_file(&file_path, &format!("text{}", i)).unwrap();
         }
 
@@ -2307,11 +2326,11 @@ SOFTWARE.
         assert_eq!(environment.take_logged_errors().len(), 0);
 
         for i in 0..100 {
-            let file_path = PathBuf::from(format!("/file{}.txt", i));
+            let file_path = format!("/file{}.txt", i);
             assert_eq!(environment.read_file(&file_path).unwrap(), format!("text{}_formatted", i));
         }
         for i in 0..100 {
-            let file_path = PathBuf::from(format!("/file{}.txt_ps", i));
+            let file_path = format!("/file{}.txt_ps", i);
             assert_eq!(environment.read_file(&file_path).unwrap(), format!("text{}_formatted_process", i));
         }
     }
@@ -2319,14 +2338,14 @@ SOFTWARE.
     #[test]
     fn it_should_error_once_on_config_diagnostic_many_files() {
         // configuration diagnostic should only be shown by one thread
-        let environment = get_initialized_test_environment_with_remote_wasm_plugin().unwrap();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+        environment.write_file("./dprint.json", r#"{
             "test-plugin": { "non-existent": 25 },
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
         }"#).unwrap();
 
         for i in 0..100 {
-            let file_path = PathBuf::from(format!("/file{}.txt", i));
+            let file_path = format!("/file{}.txt", i);
             environment.write_file(&file_path, &format!("text{}", i)).unwrap();
         }
 
@@ -2422,129 +2441,5 @@ EXAMPLES:
     Search for files using the specified file patterns:
 
       dprint fmt "**/*.{ts,tsx,js,jsx,json}""#)
-    }
-
-    // If this file doesn't exist, run `./build.sh` in /crates/test-plugin. (Please consider helping me do something better here :))
-    static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../../test-plugin/target/wasm32-unknown-unknown/release/test_plugin.wasm");
-    lazy_static! {
-        // cache the compilation so this only has to be done once across all tests
-        static ref COMPILATION_RESULT: CompilationResult = {
-            crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap()
-        };
-    }
-
-    fn get_initialized_test_environment_with_remote_wasm_and_process_plugin() -> Result<TestEnvironment, ErrBox> {
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_wasm_plugin(&environment);
-        setup_test_environment_with_remote_process_plugin(&environment);
-        let plugin_file_checksum = get_process_plugin_checksum(&environment);
-        environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "plugins": [
-                "https://plugins.dprint.dev/test-plugin.wasm",
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }}"#, plugin_file_checksum)).unwrap();
-        run_test_cli(vec!["license"], &environment).unwrap(); // cause initialization
-        environment.clear_logs();
-        Ok(environment)
-    }
-
-    fn get_process_plugin_checksum(environment: &TestEnvironment) -> String {
-        let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").unwrap();
-        dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
-    }
-
-    fn get_process_plugin_zip_checksum(environment: &TestEnvironment) -> String {
-        let plugin_file_bytes = environment.download_file("https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip").unwrap();
-        dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
-    }
-
-    fn get_wasm_plugin_checksum() -> String {
-        dprint_cli_core::checksums::get_sha256_checksum(WASM_PLUGIN_BYTES)
-    }
-
-    fn get_initialized_test_environment_with_remote_process_plugin() -> Result<TestEnvironment, ErrBox> {
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_process_plugin(&environment);
-        let plugin_file_checksum = get_process_plugin_checksum(&environment);
-        environment.write_file(&PathBuf::from("./dprint.json"), &format!(r#"{{
-            "plugins": [
-                "https://plugins.dprint.dev/test-process.exe-plugin@{}"
-            ]
-        }}"#, plugin_file_checksum)).unwrap();
-        run_test_cli(vec!["license"], &environment).unwrap(); // cause initialization
-        environment.clear_logs();
-        Ok(environment)
-    }
-
-    fn get_initialized_test_environment_with_remote_wasm_plugin() -> Result<TestEnvironment, ErrBox> {
-        let environment = get_test_environment_with_remote_wasm_plugin();
-        environment.write_file(&PathBuf::from("./dprint.json"), r#"{
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-        }"#).unwrap();
-        run_test_cli(vec!["license"], &environment).unwrap(); // cause initialization
-        environment.clear_logs();
-        Ok(environment)
-    }
-
-    fn get_test_environment_with_remote_wasm_plugin() -> TestEnvironment {
-        let environment = TestEnvironment::new();
-        setup_test_environment_with_remote_wasm_plugin(&environment);
-        environment
-    }
-
-    fn get_test_environment_with_local_wasm_plugin() -> TestEnvironment {
-        let environment = TestEnvironment::new();
-        environment.write_file_bytes(&PathBuf::from("/plugins/test-plugin.wasm"), WASM_PLUGIN_BYTES).unwrap();
-        environment
-    }
-
-    fn setup_test_environment_with_remote_wasm_plugin(environment: &TestEnvironment) {
-        environment.add_remote_file("https://plugins.dprint.dev/test-plugin.wasm", WASM_PLUGIN_BYTES);
-    }
-
-    // If this file doesn't exist, run `cargo build --release` for crates/test-process-plugin
-    #[cfg(target_os="windows")]
-    static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../../target/release/test-process-plugin.exe");
-    #[cfg(not(target_os="windows"))]
-    static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../../target/release/test-process-plugin");
-
-    fn setup_test_environment_with_remote_process_plugin(environment: &TestEnvironment) {
-        let buf: Vec<u8> = Vec::new();
-        let w = std::io::Cursor::new(buf);
-        let mut zip = zip::ZipWriter::new(w);
-        let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-        zip.start_file(if cfg!(target_os="windows") { "test-process-plugin.exe" } else { "test-process-plugin" }, options).unwrap();
-        zip.write(PROCESS_PLUGIN_EXE_BYTES).unwrap();
-        let result = zip.finish().unwrap().into_inner();
-        let zip_file_checksum = dprint_cli_core::checksums::get_sha256_checksum(&result);
-        environment.add_remote_file_bytes(
-            "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-            result,
-        );
-        write_process_plugin_file(environment, &zip_file_checksum);
-    }
-
-    fn write_process_plugin_file(environment: &TestEnvironment, zip_checksum: &str) {
-        environment.add_remote_file_bytes(
-            "https://plugins.dprint.dev/test-process.exe-plugin",
-            format!(r#"{{
-    "schemaVersion": 1,
-    "name": "test-process-plugin",
-    "version": "0.1.0",
-    "windows-x86_64": {{
-        "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-        "checksum": "{0}"
-    }},
-    "linux-x86_64": {{
-        "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-        "checksum": "{0}"
-    }},
-    "mac-x86_64": {{
-        "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-        "checksum": "{0}"
-    }}
-}}"#, zip_checksum).into_bytes()
-        );
     }
 }

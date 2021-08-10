@@ -2,7 +2,7 @@
 use std::path::PathBuf;
 use url::Url;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PathSource {
     /// From the local file system.
     Local(LocalPathSource),
@@ -77,12 +77,12 @@ impl PathSource {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LocalPathSource {
     pub path: PathBuf,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RemotePathSource {
     pub url: Url,
 }

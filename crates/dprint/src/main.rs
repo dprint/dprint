@@ -17,6 +17,9 @@ mod configuration;
 mod plugins;
 mod utils;
 
+#[cfg(test)]
+mod test_helpers;
+
 fn main() -> Result<(), ErrBox> {
     match run() {
         Ok(_) => {},

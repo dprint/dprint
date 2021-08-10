@@ -9,7 +9,7 @@ use crate::configuration::{ConfigMap, ConfigMapValue, deserialize_config};
 use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::plugins::{PluginSourceReference, parse_plugin_source_reference};
-use crate::utils::{ResolvedPath, resolve_url_or_file_path, PathSource};
+use crate::utils::{PathSource, ResolvedPath, resolve_url_or_file_path};
 
 use super::resolve_main_config_path;
 
@@ -52,7 +52,7 @@ pub fn resolve_config_from_args<TEnvironment : Environment>(
     };
 
     let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?; // always take this out of the config map
-    let plugins = if args.plugins.is_empty() {
+    let plugins = filter_duplicate_plugin_sources(if args.plugins.is_empty() {
         // filter out any non-wasm plugins from remote config
         if !resolved_config_path.resolved_path.is_local() {
             filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
@@ -67,7 +67,7 @@ pub fn resolve_config_from_args<TEnvironment : Environment>(
         }
 
         plugins
-    };
+    });
 
     // IMPORTANT
     // =========
@@ -297,6 +297,15 @@ fn remove_locked_properties(resolved_config: &mut ResolvedConfig) {
             obj.remove("locked");
         }
     }
+}
+
+fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -> Vec<PluginSourceReference> {
+    let mut path_source_set = std::collections::HashSet::new();
+
+    plugin_sources
+        .into_iter()
+        .filter(|source| path_source_set.insert(source.path_source.clone()))
+        .collect()
 }
 
 #[cfg(test)]
