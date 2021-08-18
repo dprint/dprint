@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use parking_lot::Mutex;
 use std::time::Instant;
 use crossterm::style::Stylize;
@@ -249,6 +250,45 @@ fn output_editor_info<TEnvironment: Environment>(
     Ok(())
 }
 
+fn build_glob_set<TEnvironment: Environment>(
+    config: &ResolvedConfig,
+    environment: &TEnvironment,
+    file_patterns: &mut Vec<String>,
+) -> Result<GlobSet, ErrBox> {
+    let mut builder = GlobSetBuilder::new();
+    let cwd = environment.cwd()?;
+    let config_base_path = config.base_path.to_string_lossy();
+    let base_path = match config_base_path.as_ref() {
+        "./" => cwd.to_string_lossy(),
+        _ => config_base_path
+    };
+    let absolute_paths = take_absolute_paths(file_patterns, environment);
+    for pattern in to_absolute_globs(file_patterns, &base_path) {
+        builder.add(Glob::new(&pattern)?);
+    }
+    for path in absolute_paths {
+        let path_as_str = path.to_string_lossy();
+        builder.add(Glob::new(&path_as_str)?);
+    }
+    return Ok(builder.build().unwrap());
+}
+
+fn build_include_exclude_glob_sets<TEnvironment: Environment>(
+    config: &ResolvedConfig,
+    args: &CliArgs,
+    environment: &TEnvironment,
+) -> Result<(GlobSet, GlobSet), ErrBox> {
+    let cwd = environment.cwd()?;
+    let cwd_str = cwd.to_string_lossy();
+    let mut include_file_patterns = get_include_file_patterns(&config, args, &cwd_str);
+    let include_globset = build_glob_set(config, environment, &mut include_file_patterns)?;
+
+    let mut exclude_file_patterns = get_exclude_file_patterns(&config, args, &cwd_str);
+    let exclude_globset = build_glob_set(config, environment, &mut exclude_file_patterns)?;
+
+    return Ok((include_globset, exclude_globset));
+}
+
 fn run_editor_service<TEnvironment: Environment>(
     args: &CliArgs,
     cache: &Cache<TEnvironment>,
@@ -266,48 +306,7 @@ fn run_editor_service<TEnvironment: Environment>(
     let stdout = environment.stdout();
     let reader_writer = StdIoReaderWriter::new(stdin, stdout);
     let mut messenger = StdIoMessenger::new(reader_writer);
-    let config = resolve_config_from_args(&args, cache, environment)?;
-    let (mut file_patterns, mut absolute_paths) = get_config_file_paths(&config, args, environment)?;
-    let mut file_paths = resolve_file_paths(&file_patterns, &absolute_paths, &config, environment)?;
     let mut past_config: Option<ResolvedConfig> = None;
-
-    fn handle_check_path<TEnvironment: Environment>(
-        messenger: &mut StdIoMessenger<Box<dyn std::io::Read + Send>, Box<dyn std::io::Write + Send>>,
-        args: &CliArgs,
-        cache: &Cache<TEnvironment>,
-        environment: &TEnvironment,
-        file_patterns: &Vec<String>,
-        absolute_paths: &Vec<PathBuf>,
-        file_paths: &Vec<PathBuf>,
-        should_reattempt: bool,
-    ) ->  Result<(Vec<String>, Vec<PathBuf>, Vec<PathBuf>), ErrBox> {
-        let file_path = messenger.read_single_part_path_buf_message()?;
-        // check the config file paths to see if they have changed, re-resolve files in working directory if so
-        let config = resolve_config_from_args(args, cache, environment)?;
-        let (new_file_patterns, new_absolute_paths) = get_config_file_paths(&config, args, environment)?;
-        let new_file_paths = if !should_reattempt || &new_file_patterns != file_patterns || &new_absolute_paths != absolute_paths {
-            resolve_file_paths(&new_file_patterns, &new_absolute_paths, &config, environment)?
-        } else {
-            file_paths.clone()
-        };
-
-        // canonicalize the file path, then check if it's in the list of file paths.
-        match environment.canonicalize(&file_path) {
-            Ok(resolved_file_path) => {
-                messenger.send_message(if new_file_paths.contains(&resolved_file_path) { 1 } else { 0 }, Vec::new())?;
-                Ok((new_file_patterns, new_absolute_paths, new_file_paths))
-            }
-            Err(err) => {
-                // try one more time by re-resolving filepaths
-                if should_reattempt {
-                    return handle_check_path(messenger, args, cache, environment, &new_file_patterns, &new_absolute_paths, &new_file_paths, false);
-                }
-                environment.log_error(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
-                messenger.send_message(0, Vec::new())?; // don't format, something went wrong
-                Err(err)
-            },
-        }
-    }
 
     loop {
         let message_kind = messenger.read_code()?;
@@ -316,19 +315,24 @@ fn run_editor_service<TEnvironment: Environment>(
             0 => return Ok(()),
             // check path
             1 => {
-                let (new_file_patterns, new_absolute_paths, new_file_paths) = handle_check_path(
-                    &mut messenger,
-                    args,
-                    cache,
-                    environment,
-                    &file_patterns,
-                    &absolute_paths,
-                    &file_paths,
-                    true,
-                )?;
-                file_patterns = new_file_patterns;
-                absolute_paths = new_absolute_paths;
-                file_paths = new_file_paths;
+                let file_path = messenger.read_single_part_path_buf_message()?;
+                // update the glob file patterns and absolute paths by re-retrieving the config file
+                let config = resolve_config_from_args(args, cache, environment)?;
+                let (include_globset, exclude_globset) = build_include_exclude_glob_sets(&config, args, environment)?;
+
+                // canonicalize the file path, then check if it's in the list of file paths.
+                match environment.canonicalize(&file_path) {
+                    Ok(resolved_file_path) => {
+                        let matches_includes = include_globset.is_match(&resolved_file_path);
+                        let matches_excludes = exclude_globset.is_match(&resolved_file_path);
+                        let file_exists = environment.path_exists(PathBuf::new().join(config.base_path).join(file_path).as_path());
+                        messenger.send_message(if file_exists && matches_includes && !matches_excludes { 1 } else { 0 }, Vec::new())?;
+                    },
+                    Err(err) => {
+                        environment.log_error(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
+                        messenger.send_message(0, Vec::new())?; // don't format, something went wrong
+                    }
+                }
             },
             // format
             2 => {
@@ -712,7 +716,7 @@ fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environme
 
 fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<(Vec<String>, Vec<PathBuf>), ErrBox> {
     let cwd = environment.cwd()?;
-    let mut file_patterns = get_file_patterns(config, args, &cwd.to_string_lossy());
+    let mut file_patterns = get_all_file_patterns(config, args, &cwd.to_string_lossy());
     let absolute_paths = take_absolute_paths(&mut file_patterns, environment);
 
     return Ok((file_patterns, absolute_paths));
@@ -724,7 +728,14 @@ fn resolve_file_paths(file_patterns: &Vec<String>, absolute_paths: &Vec<PathBuf>
     return Ok(file_paths);
 }
 
-fn get_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
+fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
+    let mut include_file_patterns = get_include_file_patterns(config, args, cwd);
+    let mut exclude_file_patterns = get_exclude_file_patterns(config, args, cwd);
+    include_file_patterns.append(&mut exclude_file_patterns);
+    return include_file_patterns;
+}
+
+fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
     let mut file_patterns = Vec::new();
 
     file_patterns.extend(if args.file_patterns.is_empty() {
@@ -733,6 +744,13 @@ fn get_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<
         // resolve CLI patterns based on the current working directory
         to_absolute_globs(&args.file_patterns, cwd)
     });
+
+    process_file_pattern_slashes(&mut file_patterns);
+    return file_patterns;
+}
+
+fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
+    let mut file_patterns = Vec::new();
 
     file_patterns.extend(if args.exclude_file_patterns.is_empty() {
         config.excludes.clone()
@@ -748,7 +766,11 @@ fn get_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<
             file_patterns.push(node_modules_exclude);
         }
     }
+    process_file_pattern_slashes(&mut file_patterns);
+    return file_patterns;
+}
 
+fn process_file_pattern_slashes(file_patterns: &mut Vec<String>) {
     for file_pattern in file_patterns.iter_mut() {
         // Convert all backslashes to forward slashes.
         // It is true that this means someone cannot specify patterns that
@@ -766,12 +788,10 @@ fn get_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<
             *file_pattern = format!("!{}", &file_pattern[3..]);
         }
     }
+}
 
-    return file_patterns;
-
-    fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
-        file_patterns.iter().map(|p| to_absolute_glob(p, base_dir)).collect()
-    }
+fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
+    file_patterns.iter().map(|p| to_absolute_glob(p, base_dir)).collect()
 }
 
 fn take_absolute_paths(file_patterns: &mut Vec<String>, environment: &impl Environment) -> Vec<PathBuf> {
