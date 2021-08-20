@@ -93,6 +93,9 @@
     },
     "markdown": {
       "$ref": "https://plugins.dprint.dev/schemas/markdown-v0.json"
+    },
+    "toml": {
+      "$ref": "https://plugins.dprint.dev/schemas/toml-v0.json"
     }
   },
   "additionalProperties": {
