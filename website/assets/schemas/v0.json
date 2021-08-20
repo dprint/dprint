@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://dprint.dev/schemas/v1.json",
+  "$id": "https://dprint.dev/schemas/v0.json",
   "title": "Dprint Configuration File",
   "description": "Schema for a dprint configuration file.",
   "type": "object",
