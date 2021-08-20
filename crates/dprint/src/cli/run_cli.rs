@@ -325,8 +325,7 @@ fn run_editor_service<TEnvironment: Environment>(
                     Ok(resolved_file_path) => {
                         let matches_includes = include_globset.is_match(&resolved_file_path);
                         let matches_excludes = exclude_globset.is_match(&resolved_file_path);
-                        let file_exists = environment.path_exists(PathBuf::new().join(config.base_path).join(file_path).as_path());
-                        messenger.send_message(if file_exists && matches_includes && !matches_excludes { 1 } else { 0 }, Vec::new())?;
+                        messenger.send_message(if matches_includes && !matches_excludes { 1 } else { 0 }, Vec::new())?;
                     },
                     Err(err) => {
                         environment.log_error(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
@@ -2122,7 +2121,7 @@ SOFTWARE.
                 let mut communicator = EditorServiceCommunicator::new(stdin, stdout);
 
                 assert_eq!(communicator.check_file(&txt_file_path).unwrap(), true);
-                assert_eq!(communicator.check_file(&PathBuf::from("/non-existent.txt")).unwrap(), false);
+                assert_eq!(communicator.check_file(&PathBuf::from("/non-existent.txt")).unwrap(), true);
                 assert_eq!(communicator.check_file(&other_ext_path).unwrap(), false);
                 assert_eq!(communicator.check_file(&ts_file_path).unwrap(), true);
 
