@@ -4,7 +4,7 @@
   "indentWidth": 2,
   "lineWidth": 160,
   "includes": [
-    "**/*.{ts,tsx,js,jsx,json,md,html,scss,css,toml}"
+    "**/*.{ts,tsx,js,jsx,json,md,html,scss,css,toml,rs}"
   ],
   "excludes": [
     "website/playground/build",
@@ -19,6 +19,7 @@
     "https://plugins.dprint.dev/json-0.12.1.wasm",
     "https://plugins.dprint.dev/markdown-0.9.2.wasm",
     "https://plugins.dprint.dev/toml-0.4.0.wasm",
-    "https://plugins.dprint.dev/prettier-0.2.1.exe-plugin@c051918d0c4cf082b5ccdf92e89af3dcb2859e18f75073ba16dda6366e493a03"
+    "https://plugins.dprint.dev/prettier-0.2.1.exe-plugin@c051918d0c4cf082b5ccdf92e89af3dcb2859e18f75073ba16dda6366e493a03",
+    "https://plugins.dprint.dev/rustfmt-0.4.0.exe-plugin@c6bb223ef6e5e87580177f6461a0ab0554ac9ea6b54f78ea7ae8bf63b14f5bc2"
   ]
 }

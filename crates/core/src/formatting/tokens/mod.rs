@@ -1,3 +1,3 @@
 mod token_finder;
 
-pub use token_finder::{TokenFinder, TokenCollection};
+pub use token_finder::{TokenCollection, TokenFinder};

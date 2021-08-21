@@ -1,13 +1,13 @@
-mod do_batch_format;
 mod deque;
-mod long_format_checker_thread;
+mod do_batch_format;
 mod local_plugin_work;
 mod local_work;
+mod long_format_checker_thread;
 mod worker;
 mod worker_registry;
 
-pub use do_batch_format::{do_batch_format};
 use deque::*;
+pub use do_batch_format::do_batch_format;
 use local_plugin_work::*;
 use local_work::*;
 use long_format_checker_thread::*;

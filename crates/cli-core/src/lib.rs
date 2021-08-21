@@ -2,8 +2,8 @@
 pub mod types;
 
 pub mod checksums;
-mod url_utils;
 pub mod logging;
 pub mod terminal;
+mod url_utils;
 
 pub use url_utils::*;

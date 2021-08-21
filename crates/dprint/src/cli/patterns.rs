@@ -6,9 +6,9 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use crate::environment::Environment;
 use crate::utils::to_absolute_globs;
 
-use super::CliArgs;
 use super::configuration::ResolvedConfig;
 use super::paths::take_absolute_paths;
+use super::CliArgs;
 
 pub struct FileMatcher {
   include_globset: GlobSet,
@@ -27,7 +27,7 @@ impl FileMatcher {
 
     Ok(FileMatcher {
       include_globset,
-      exclude_globset
+      exclude_globset,
     })
   }
 
@@ -38,25 +38,21 @@ impl FileMatcher {
   }
 }
 
-fn build_glob_set<TEnvironment: Environment>(
-  config: &ResolvedConfig,
-  environment: &TEnvironment,
-  file_patterns: &mut Vec<String>,
-) -> Result<GlobSet, ErrBox> {
+fn build_glob_set<TEnvironment: Environment>(config: &ResolvedConfig, environment: &TEnvironment, file_patterns: &mut Vec<String>) -> Result<GlobSet, ErrBox> {
   let mut builder = GlobSetBuilder::new();
   let cwd = environment.cwd()?;
   let config_base_path = config.base_path.to_string_lossy();
   let base_path = match config_base_path.as_ref() {
-      "./" => cwd.to_string_lossy(),
-      _ => config_base_path
+    "./" => cwd.to_string_lossy(),
+    _ => config_base_path,
   };
   let absolute_paths = take_absolute_paths(file_patterns, environment);
   for pattern in to_absolute_globs(file_patterns, &base_path) {
-      builder.add(Glob::new(&pattern)?);
+    builder.add(Glob::new(&pattern)?);
   }
   for path in absolute_paths {
-      let path_as_str = path.to_string_lossy();
-      builder.add(Glob::new(&path_as_str)?);
+    let path_as_str = path.to_string_lossy();
+    builder.add(Glob::new(&path_as_str)?);
   }
   return Ok(builder.build().unwrap());
 }
@@ -72,10 +68,10 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str)
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(if args.file_patterns.is_empty() {
-      config.includes.clone()
+    config.includes.clone()
   } else {
-      // resolve CLI patterns based on the current working directory
-      to_absolute_globs(&args.file_patterns, cwd)
+    // resolve CLI patterns based on the current working directory
+    to_absolute_globs(&args.file_patterns, cwd)
   });
 
   process_file_pattern_slashes(&mut file_patterns);
@@ -85,12 +81,16 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str)
 fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
   let mut file_patterns = Vec::new();
 
-  file_patterns.extend(if args.exclude_file_patterns.is_empty() {
-    config.excludes.clone()
-  } else {
-    // resolve CLI patterns based on the current working directory
-    to_absolute_globs(&args.exclude_file_patterns, cwd)
-  }.into_iter().map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }));
+  file_patterns.extend(
+    if args.exclude_file_patterns.is_empty() {
+      config.excludes.clone()
+    } else {
+      // resolve CLI patterns based on the current working directory
+      to_absolute_globs(&args.exclude_file_patterns, cwd)
+    }
+    .into_iter()
+    .map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }),
+  );
 
   if !args.allow_node_modules {
     // glob walker will not search the children of a directory once it's ignored like this
