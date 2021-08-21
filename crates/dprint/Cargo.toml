@@ -17,6 +17,7 @@ dissimilar = "1.0"
 dprint-cli-core = { path = "../cli-core", version = "0.7.0" }
 dprint-core = { path = "../core", version = "0.44.0", features = ["process", "wasm"] }
 dunce = "1.0.2"
+globset = "0.4.8"
 globwalk = "0.8.1"
 jsonc-parser = { version = "0.17.0" }
 num_cpus = "1.13.0"
