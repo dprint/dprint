@@ -1,27 +1,25 @@
-use crate::utils::to_absolute_glob;
-use std::borrow::Cow;
+use crate::cli::plugins::get_plugins_from_args;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use globset::{Glob, GlobSet, GlobSetBuilder};
 use parking_lot::Mutex;
-use std::time::Instant;
 use crossterm::style::Stylize;
 use dprint_core::types::ErrBox;
 
-use crate::cache::{Cache, CreateCacheItemOptions};
+use crate::cache::Cache;
 use crate::environment::Environment;
-use crate::configuration::{self, get_global_config, get_plugin_config_map};
-use crate::plugins::{InitializedPlugin, InitializedPluginPool, Plugin, PluginResolver, PluginPools, do_batch_format,
-    output_plugin_config_diagnostics, TakePluginResult};
-use crate::utils::{get_table_text, get_difference, pretty_print_json_text, FileText, BOM_CHAR, ErrorCountLogger};
+use crate::configuration;
+use crate::plugins::{Plugin, PluginResolver, PluginPools, output_plugin_config_diagnostics};
+use crate::utils::{get_table_text, get_difference, pretty_print_json_text, BOM_CHAR, ErrorCountLogger};
 
-use super::{CliArgs, SubCommand, EditorServiceSubCommand};
-use super::configuration::{resolve_config_from_args, ResolvedConfig};
-use super::incremental::IncrementalFile;
-
-// TODO: probably a lot of these functions could be moved into new files
+use super::{CliArgs, SubCommand};
+use super::configuration::resolve_config_from_args;
+use super::editor_service::run_editor_service;
+use super::format::{format_with_plugin_pools, run_parallelized};
+use super::incremental::{IncrementalFile, get_incremental_file};
+use super::paths::{get_and_resolve_file_paths, get_file_paths_by_plugin, get_file_paths_by_plugin_and_err_if_empty};
+use super::plugins::{resolve_plugins, resolve_plugins_and_err_if_empty};
 
 pub fn run_cli<TEnvironment: Environment>(
     args: CliArgs,
@@ -109,47 +107,6 @@ pub fn run_cli<TEnvironment: Environment>(
             }
         }
     }
-}
-
-fn get_file_paths_by_plugin_and_err_if_empty(
-    plugins: &Vec<Box<dyn Plugin>>,
-    file_paths: Vec<PathBuf>
-) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
-    let file_paths_by_plugin = get_file_paths_by_plugin(plugins, file_paths);
-    if file_paths_by_plugin.is_empty() {
-        return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
-    }
-    Ok(file_paths_by_plugin)
-}
-
-fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
-    let mut plugin_by_file_extension: HashMap<&str, &str> = HashMap::new();
-    let mut plugin_by_file_name: HashMap<&str, &str> = HashMap::new();
-
-    for plugin in plugins.iter() {
-        for file_extension in plugin.file_extensions() {
-            plugin_by_file_extension.entry(file_extension).or_insert(plugin.name());
-        }
-        for file_name in plugin.file_names() {
-            plugin_by_file_name.entry(file_name).or_insert(plugin.name());
-        }
-    }
-
-    let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
-
-    for file_path in file_paths.into_iter() {
-        let plugin = if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_file_name.get(k.as_str())) {
-            plugin
-        } else if let Some(plugin) = crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())) {
-            plugin
-        } else {
-            continue;
-        };
-        let file_paths = file_paths_by_plugin.entry(plugin.to_string()).or_insert(vec![]);
-        file_paths.push(file_path);
-    }
-
-    file_paths_by_plugin
 }
 
 fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<(), ErrBox> {
@@ -250,161 +207,11 @@ fn output_editor_info<TEnvironment: Environment>(
     Ok(())
 }
 
-fn build_glob_set<TEnvironment: Environment>(
-    config: &ResolvedConfig,
-    environment: &TEnvironment,
-    file_patterns: &mut Vec<String>,
-) -> Result<GlobSet, ErrBox> {
-    let mut builder = GlobSetBuilder::new();
-    let cwd = environment.cwd()?;
-    let config_base_path = config.base_path.to_string_lossy();
-    let base_path = match config_base_path.as_ref() {
-        "./" => cwd.to_string_lossy(),
-        _ => config_base_path
-    };
-    let absolute_paths = take_absolute_paths(file_patterns, environment);
-    for pattern in to_absolute_globs(file_patterns, &base_path) {
-        builder.add(Glob::new(&pattern)?);
-    }
-    for path in absolute_paths {
-        let path_as_str = path.to_string_lossy();
-        builder.add(Glob::new(&path_as_str)?);
-    }
-    return Ok(builder.build().unwrap());
-}
-
-fn build_include_exclude_glob_sets<TEnvironment: Environment>(
-    config: &ResolvedConfig,
-    args: &CliArgs,
-    environment: &TEnvironment,
-) -> Result<(GlobSet, GlobSet), ErrBox> {
-    let cwd = environment.cwd()?;
-    let cwd_str = cwd.to_string_lossy();
-    let mut include_file_patterns = get_include_file_patterns(&config, args, &cwd_str);
-    let include_globset = build_glob_set(config, environment, &mut include_file_patterns)?;
-
-    let mut exclude_file_patterns = get_exclude_file_patterns(&config, args, &cwd_str);
-    let exclude_globset = build_glob_set(config, environment, &mut exclude_file_patterns)?;
-
-    return Ok((include_globset, exclude_globset));
-}
-
-fn run_editor_service<TEnvironment: Environment>(
-    args: &CliArgs,
-    cache: &Cache<TEnvironment>,
-    environment: &TEnvironment,
-    plugin_resolver: &PluginResolver<TEnvironment>,
-    plugin_pools: Arc<PluginPools<TEnvironment>>,
-    editor_service_cmd: &EditorServiceSubCommand,
-) -> Result<(), ErrBox> {
-    use dprint_core::plugins::process::{StdIoReaderWriter, StdIoMessenger, start_parent_process_checker_thread};
-
-    // poll for the existence of the parent process and terminate this process when that process no longer exists
-    let _handle = start_parent_process_checker_thread(editor_service_cmd.parent_pid);
-
-    let stdin = environment.stdin();
-    let stdout = environment.stdout();
-    let reader_writer = StdIoReaderWriter::new(stdin, stdout);
-    let mut messenger = StdIoMessenger::new(reader_writer);
-    let mut past_config: Option<ResolvedConfig> = None;
-
-    loop {
-        let message_kind = messenger.read_code()?;
-        match message_kind {
-            // shutdown
-            0 => return Ok(()),
-            // check path
-            1 => {
-                let file_path = messenger.read_single_part_path_buf_message()?;
-                // update the glob file patterns and absolute paths by re-retrieving the config file
-                let config = resolve_config_from_args(args, cache, environment)?;
-                let (include_globset, exclude_globset) = build_include_exclude_glob_sets(&config, args, environment)?;
-
-                // canonicalize the file path, then check if it's in the list of file paths.
-                match environment.canonicalize(&file_path) {
-                    Ok(resolved_file_path) => {
-                        let matches_includes = include_globset.is_match(&resolved_file_path);
-                        let matches_excludes = exclude_globset.is_match(&resolved_file_path);
-                        messenger.send_message(if matches_includes && !matches_excludes { 1 } else { 0 }, Vec::new())?;
-                    },
-                    Err(err) => {
-                        environment.log_error(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
-                        messenger.send_message(0, Vec::new())?; // don't format, something went wrong
-                    }
-                }
-            },
-            // format
-            2 => {
-                let mut parts = messenger.read_multi_part_message(2)?;
-                let file_path = parts.take_path_buf()?;
-                let file_text = parts.take_string()?;
-
-                let result = format_text(args, cache, environment, plugin_resolver, &plugin_pools, &past_config, &file_path, &file_text);
-                match result {
-                    Ok((formatted_text, config)) => {
-                        if formatted_text == file_text {
-                            messenger.send_message(0, Vec::new())?; // no change
-                        } else {
-                            messenger.send_message(1, vec![ // change
-                                formatted_text.into()
-                            ])?;
-                        }
-
-                        past_config.replace(config);
-                    },
-                    Err(err) => {
-                        messenger.send_message(2, vec![ // error
-                            err.to_string().into()
-                        ])?;
-                    }
-                }
-            },
-            _ => {
-                environment.log_error(&format!("Unknown message kind: {}", message_kind));
-            }
-        }
-    }
-
-    fn format_text<'a, TEnvironment: Environment>(
-        args: &CliArgs,
-        cache: &Cache<TEnvironment>,
-        environment: &TEnvironment,
-        plugin_resolver: &PluginResolver<TEnvironment>,
-        plugin_pools: &Arc<PluginPools<TEnvironment>>,
-        past_config: &Option<ResolvedConfig>,
-        file_path: &Path,
-        file_text: &'a str,
-    ) -> Result<(Cow<'a, str>, ResolvedConfig), ErrBox> {
-        let config = resolve_config_from_args(&args, cache, environment)?;
-        let has_config_changed = past_config.is_none() || *past_config.as_ref().unwrap() != config;
-        if has_config_changed {
-            plugin_pools.drop_plugins(); // clear the existing plugins
-            let plugins = resolve_plugins(&config, environment, plugin_resolver)?;
-            plugin_pools.set_plugins(plugins);
-        }
-
-        let formatted_text = format_with_plugin_pools(&file_path, &file_text, environment, &plugin_pools)?;
-        Ok((formatted_text, config))
-    }
-}
-
 fn clear_cache(environment: &impl Environment) -> Result<(), ErrBox> {
     let cache_dir = environment.get_cache_dir();
     environment.remove_dir_all(&cache_dir)?;
     environment.log(&format!("Deleted {}", cache_dir.display()));
     Ok(())
-}
-
-fn get_plugins_from_args<TEnvironment: Environment>(
-    args: &CliArgs,
-    cache: &Cache<TEnvironment>,
-    environment: &TEnvironment,
-    plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-    match resolve_config_from_args(args, cache, environment) {
-        Ok(config) => resolve_plugins(&config, environment, plugin_resolver),
-        Err(_) => Ok(Vec::new()), // ignore
-    }
 }
 
 fn output_file_paths<'a>(file_paths: impl Iterator<Item=&'a PathBuf>, environment: &impl Environment) {
@@ -473,30 +280,6 @@ fn output_stdin_format<TEnvironment: Environment>(
     let formatted_text = format_with_plugin_pools(file_name, file_text, environment, &plugin_pools)?;
     environment.log_silent(&formatted_text);
     Ok(())
-}
-
-fn format_with_plugin_pools<'a, TEnvironment: Environment>(
-    file_name: &Path,
-    file_text: &'a str,
-    environment: &TEnvironment,
-    plugin_pools: &Arc<PluginPools<TEnvironment>>,
-) -> Result<Cow<'a, str>, ErrBox> {
-    if let Some(plugin_name) = plugin_pools.get_plugin_name_from_file_name(file_name) {
-        let plugin_pool = plugin_pools.get_pool(&plugin_name).unwrap();
-        let error_logger = ErrorCountLogger::from_environment(environment);
-        match plugin_pool.take_or_create_checking_config_diagnostics(&error_logger)? {
-            TakePluginResult::Success(mut initialized_plugin) => {
-                let result = initialized_plugin.format_text(file_name, file_text, &HashMap::new());
-                plugin_pool.release(initialized_plugin);
-                Ok(Cow::Owned(result?)) // release plugin above, then propagate this error
-            }
-            TakePluginResult::HadDiagnostics => {
-                err!("Had {} configuration errors.", error_logger.get_error_count())
-            }
-        }
-    } else {
-        Ok(Cow::Borrowed(file_text))
-    }
 }
 
 fn check_files<TEnvironment: Environment>(
@@ -609,268 +392,6 @@ fn output_format_times<TEnvironment: Environment>(
     }
 
     Ok(())
-}
-
-fn run_parallelized<F, TEnvironment: Environment>(
-    file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
-    environment: &TEnvironment,
-    plugin_pools: Arc<PluginPools<TEnvironment>>,
-    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
-    f: F,
-) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
-    let error_logger = ErrorCountLogger::from_environment(environment);
-
-    do_batch_format(environment, &error_logger, &plugin_pools, file_paths_by_plugin, {
-        let environment = environment.clone();
-        let incremental_file = incremental_file.clone();
-        let error_logger = error_logger.clone();
-        move |plugin_pool, file_path, plugin| {
-            let result = run_for_file_path(&environment, &incremental_file, plugin_pool, file_path, plugin, f.clone());
-            if let Err(err) = result {
-                error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err.to_string()));
-            }
-        }
-    })?;
-
-    let error_count = error_logger.get_error_count();
-    return if error_count == 0 {
-        Ok(())
-    } else {
-        err!("Had {0} error(s) formatting.", error_count)
-    };
-
-    #[inline]
-    fn run_for_file_path<F, TEnvironment: Environment>(
-        environment: &TEnvironment,
-        incremental_file: &Option<Arc<IncrementalFile<TEnvironment>>>,
-        plugin_pool: &InitializedPluginPool<TEnvironment>,
-        file_path: &Path,
-        initialized_plugin: &mut Box<dyn InitializedPlugin>,
-        f: F
-    ) -> Result<(), ErrBox> where F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone {
-        let file_text = FileText::new(environment.read_file(&file_path)?);
-
-        if let Some(incremental_file) = incremental_file {
-            if incremental_file.is_file_same(file_path, file_text.as_str()) {
-                log_verbose!(environment, "No change: {}", file_path.display());
-                return Ok(());
-            }
-        }
-
-        let (start_instant, formatted_text) = {
-            let start_instant = Instant::now();
-            let format_text_result = plugin_pool.format_measuring_time(|| {
-                initialized_plugin.format_text(file_path, file_text.as_str(), &HashMap::new())
-            });
-            log_verbose!(environment, "Formatted file: {} in {}ms", file_path.display(), start_instant.elapsed().as_millis());
-            (start_instant, format_text_result?)
-        };
-
-        if let Some(incremental_file) = incremental_file {
-            incremental_file.update_file(file_path, &formatted_text);
-        }
-
-        f(&file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, &environment)?;
-
-        Ok(())
-    }
-}
-
-fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
-    config: &ResolvedConfig,
-    environment: &TEnvironment,
-    plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-    let plugins = resolve_plugins(config, environment, plugin_resolver)?;
-    if plugins.is_empty() {
-        return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
-    }
-    Ok(plugins)
-}
-
-fn resolve_plugins<TEnvironment: Environment>(
-    config: &ResolvedConfig,
-    environment: &TEnvironment,
-    plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-    // resolve the plugins
-    let plugins = plugin_resolver.resolve_plugins(config.plugins.clone())?;
-    let mut config_map = config.config_map.clone();
-
-    // resolve each plugin's configuration
-    let mut plugins_with_config = Vec::new();
-    for plugin in plugins.into_iter() {
-        plugins_with_config.push((
-            get_plugin_config_map(&plugin, &mut config_map)?,
-            plugin
-        ));
-    }
-
-    // now get global config
-    let global_config = get_global_config(config_map, environment)?;
-
-    // now set each plugin's config
-    let mut plugins = Vec::new();
-    for (plugin_config, plugin) in plugins_with_config {
-        let mut plugin = plugin;
-        plugin.set_config(plugin_config, global_config.clone());
-        plugins.push(plugin);
-    }
-
-    return Ok(plugins);
-}
-
-fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
-    let (file_patterns, absolute_paths) = get_config_file_paths(config, args, environment)?;
-    return resolve_file_paths(&file_patterns, &absolute_paths, config, environment);
-}
-
-fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<(Vec<String>, Vec<PathBuf>), ErrBox> {
-    let cwd = environment.cwd()?;
-    let mut file_patterns = get_all_file_patterns(config, args, &cwd.to_string_lossy());
-    let absolute_paths = take_absolute_paths(&mut file_patterns, environment);
-
-    return Ok((file_patterns, absolute_paths));
-}
-
-fn resolve_file_paths(file_patterns: &Vec<String>, absolute_paths: &Vec<PathBuf>, config: &ResolvedConfig, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
-    let mut file_paths = environment.glob(&config.base_path, file_patterns)?;
-    file_paths.extend(absolute_paths.clone());
-    return Ok(file_paths);
-}
-
-fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
-    let mut include_file_patterns = get_include_file_patterns(config, args, cwd);
-    let mut exclude_file_patterns = get_exclude_file_patterns(config, args, cwd);
-    include_file_patterns.append(&mut exclude_file_patterns);
-    return include_file_patterns;
-}
-
-fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
-    let mut file_patterns = Vec::new();
-
-    file_patterns.extend(if args.file_patterns.is_empty() {
-        config.includes.clone()
-    } else {
-        // resolve CLI patterns based on the current working directory
-        to_absolute_globs(&args.file_patterns, cwd)
-    });
-
-    process_file_pattern_slashes(&mut file_patterns);
-    return file_patterns;
-}
-
-fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
-    let mut file_patterns = Vec::new();
-
-    file_patterns.extend(if args.exclude_file_patterns.is_empty() {
-        config.excludes.clone()
-    } else {
-        // resolve CLI patterns based on the current working directory
-        to_absolute_globs(&args.exclude_file_patterns, cwd)
-    }.into_iter().map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }));
-
-    if !args.allow_node_modules {
-        // glob walker will not search the children of a directory once it's ignored like this
-        let node_modules_exclude = String::from("!**/node_modules");
-        if !file_patterns.contains(&node_modules_exclude) {
-            file_patterns.push(node_modules_exclude);
-        }
-    }
-    process_file_pattern_slashes(&mut file_patterns);
-    return file_patterns;
-}
-
-fn process_file_pattern_slashes(file_patterns: &mut Vec<String>) {
-    for file_pattern in file_patterns.iter_mut() {
-        // Convert all backslashes to forward slashes.
-        // It is true that this means someone cannot specify patterns that
-        // match files with backslashes in their name on Linux, however,
-        // it is more desirable for this CLI to work the same way no matter
-        // what operation system the user is on and for the CLI to match
-        // backslashes as a path separator.
-        *file_pattern = file_pattern.replace("\\", "/");
-
-        // glob walker doesn't support having `./` at the front of paths, so just remove them when they appear
-        if file_pattern.starts_with("./") {
-            *file_pattern = String::from(&file_pattern[2..]);
-        }
-        if file_pattern.starts_with("!./") {
-            *file_pattern = format!("!{}", &file_pattern[3..]);
-        }
-    }
-}
-
-fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
-    file_patterns.iter().map(|p| to_absolute_glob(p, base_dir)).collect()
-}
-
-fn take_absolute_paths(file_patterns: &mut Vec<String>, environment: &impl Environment) -> Vec<PathBuf> {
-    let len = file_patterns.len();
-    let mut file_paths = Vec::new();
-    for i in (0..len).rev() {
-        if is_absolute_path(&file_patterns[i], environment) {
-            file_paths.push(PathBuf::from(file_patterns.swap_remove(i))); // faster
-        }
-    }
-    file_paths
-}
-
-fn is_absolute_path(file_pattern: &str, environment: &impl Environment) -> bool {
-    return !has_glob_chars(file_pattern)
-        && environment.is_absolute_path(file_pattern);
-
-    fn has_glob_chars(text: &str) -> bool {
-        for c in text.chars() {
-            match c {
-                '*' | '{' | '}' | '[' | ']' | '!' => return true,
-                _ => {}
-            }
-        }
-
-        false
-    }
-}
-
-fn get_incremental_file<TEnvironment: Environment>(
-    args: &CliArgs,
-    config: &ResolvedConfig,
-    cache: &Cache<TEnvironment>,
-    plugin_pools: &PluginPools<TEnvironment>,
-    environment: &TEnvironment,
-) -> Option<Arc<IncrementalFile<TEnvironment>>> {
-    if args.incremental || config.incremental {
-        // the incremental file is stored in the cache with a key based on the root directory
-        let base_path = match environment.canonicalize(&config.base_path) {
-            Ok(base_path) => base_path,
-            Err(err) => {
-                environment.log_error(&format!("Could not canonicalize base path for incremental feature. {}", err));
-                return None;
-            }
-        };
-        let key = format!("incremental_cache:{}", base_path.to_string_lossy());
-        let cache_item = if let Some(cache_item) = cache.get_cache_item(&key) {
-            cache_item
-        } else {
-            let cache_item = cache.create_cache_item(CreateCacheItemOptions {
-                key,
-                extension: "incremental",
-                bytes: None,
-                meta_data: None,
-            });
-            match cache_item {
-                Ok(cache_item) => cache_item,
-                Err(err) => {
-                    environment.log_error(&format!("Could not create cache item for incremental feature. {}", err));
-                    return None;
-                }
-            }
-        };
-        let file_path = cache.resolve_cache_item_file_path(&cache_item);
-        Some(Arc::new(IncrementalFile::new(file_path, plugin_pools.get_plugins_hash(), environment.clone(), base_path)))
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]

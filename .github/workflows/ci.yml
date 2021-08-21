@@ -15,11 +15,11 @@ jobs:
         config:
           - os: macOS-latest
             kind: test_release
-          - os: windows-2019
+          - os: windows-latest
             kind: test_release
-          - os: ubuntu-16.04
+          - os: ubuntu-latest
             kind: test_release
-          - os: ubuntu-16.04
+          - os: ubuntu-latest
             kind: test_debug
 
     env:
