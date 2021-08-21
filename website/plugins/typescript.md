@@ -86,6 +86,7 @@ const identity = /* dprint-ignore */ [
 
 For the most part, dprint allows you to place certain nodes like binary, logical, and member expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.
 
+<!-- dprint-ignore -->
 ```ts
 // formats this as-is
 const mathResult = 1 + 2 * 6

@@ -42,15 +42,15 @@ Deno/Browser example:
 import { createStreaming } from "https://deno.land/x/dprint@x.x.x/mod.ts";
 
 const globalConfig = {
-    indentWidth: 2,
-    lineWidth: 80,
+  indentWidth: 2,
+  lineWidth: 80,
 };
 const tsFormatter = await createStreaming(
-    fetch("https://plugins.dprint.dev/typescript-x.x.x.wasm"),
+  fetch("https://plugins.dprint.dev/typescript-x.x.x.wasm"),
 );
 
 tsFormatter.setConfig(globalConfig, {
-    semiColons: "asi",
+  semiColons: "asi",
 });
 
 // outputs: "const t = 5\n"

@@ -20,19 +20,19 @@ infoJson.checksums.linux = checksums.get("dprint-x86_64-unknown-linux-gnu.zip");
 fs.writeFileSync(infoJsonFilePath, JSON.stringify(infoJson, null, 2));
 
 function getChecksums() {
-    const checksumLines = fs.readFileSync(path.join(__dirname, "SHASUMS256.txt"), "utf8").split(/\r?\n/);
-    const checksums = {};
-    for (const line of checksumLines) {
-        const [checksum, fileName] = line.split(" ");
-        checksums[fileName] = checksum;
-    }
-    return {
-        get(fileName) {
-            const value = checksums[fileName];
-            if (value == null) {
-                throw new Error("Could not find " + value);
-            }
-            return value;
-        },
-    };
+  const checksumLines = fs.readFileSync(path.join(__dirname, "SHASUMS256.txt"), "utf8").split(/\r?\n/);
+  const checksums = {};
+  for (const line of checksumLines) {
+    const [checksum, fileName] = line.split(" ");
+    checksums[fileName] = checksum;
+  }
+  return {
+    get(fileName) {
+      const value = checksums[fileName];
+      if (value == null) {
+        throw new Error("Could not find " + value);
+      }
+      return value;
+    },
+  };
 }
