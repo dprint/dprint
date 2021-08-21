@@ -62,7 +62,7 @@ pub fn run_cli<TEnvironment: Environment>(
         }
         SubCommand::OutputResolvedConfig => {
             let config = resolve_config_from_args(&args, cache, environment)?;
-            let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
+            let plugins = resolve_plugins(&config, environment, plugin_resolver)?;
             output_resolved_config(plugins, environment)
         }
         SubCommand::OutputFilePaths => {
@@ -417,6 +417,7 @@ fn output_resolved_config(
     plugins: Vec<Box<dyn Plugin>>,
     environment: &impl Environment,
 ) -> Result<(), ErrBox> {
+    let mut plugin_jsons = Vec::new();
     for plugin in plugins {
         let config_key = String::from(plugin.config_key());
 
@@ -426,7 +427,18 @@ fn output_resolved_config(
 
         let text = initialized_plugin.get_resolved_config()?;
         let pretty_text = pretty_print_json_text(&text)?;
-        environment.log(&format!("{}: {}", config_key, pretty_text));
+        plugin_jsons.push(format!("\"{}\": {}", config_key, pretty_text));
+    }
+
+    if plugin_jsons.is_empty() {
+        environment.log("{}");
+    } else {
+        let text = plugin_jsons
+            .join(",\n")
+            .lines()
+            .map(|l| format!("  {}", l))
+            .collect::<Vec<_>>().join("\n");
+        environment.log(&format!("{{\n{}\n}}", text));
     }
 
     Ok(())
@@ -933,9 +945,28 @@ mod tests {
         let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
         run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
         assert_eq!(environment.take_logged_messages(), vec![
-            "test-plugin: {\n  \"ending\": \"formatted\",\n  \"lineWidth\": 120\n}",
-            "testProcessPlugin: {\n  \"ending\": \"formatted_process\",\n  \"lineWidth\": 120\n}",
+            concat!(
+                "{\n",
+                "  \"test-plugin\": {\n",
+                "    \"ending\": \"formatted\",\n",
+                "    \"lineWidth\": 120\n",
+                "  },\n",
+                "  \"testProcessPlugin\": {\n",
+                "    \"ending\": \"formatted_process\",\n",
+                "    \"lineWidth\": 120\n",
+                "  }\n",
+                "}",
+            )
         ]);
+    }
+
+    #[test]
+    fn it_should_output_resolved_config_no_plugins() {
+        let environment = TestEnvironmentBuilder::new()
+            .with_default_config(|_| {})
+            .build();
+        run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
+        assert_eq!(environment.take_logged_messages(), vec!["{}"]);
     }
 
     #[test]

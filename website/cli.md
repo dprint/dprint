@@ -111,28 +111,30 @@ When diagnosing configuration issues it might be useful to find out what the int
 dprint output-resolved-config
 ```
 
-Example output:
+Example output (JSON):
 
-```text
-typescript: {
-  "arguments.preferHanging": true,
-  "arguments.preferSingleLine": false,
-  "arguments.trailingCommas": "onlyMultiLine",
-  "arrayExpression.preferHanging": true,
-  "arrayExpression.preferSingleLine": false,
-  "arrayExpression.trailingCommas": "onlyMultiLine",
-  "arrayPattern.preferHanging": true,
-  // ...etc...
-  "whileStatement.singleBodyPosition": "nextLine",
-  "whileStatement.spaceAfterWhileKeyword": true,
-  "whileStatement.useBraces": "preferNone"
-}
-json: {
-  "commentLine.forceSpaceAfterSlashes": true,
-  "indentWidth": 2,
-  "lineWidth": 160,
-  "newLineKind": "lf",
-  "useTabs": false
+```json
+{
+  "typescript": {
+    "arguments.preferHanging": true,
+    "arguments.preferSingleLine": false,
+    "arguments.trailingCommas": "onlyMultiLine",
+    "arrayExpression.preferHanging": true,
+    "arrayExpression.preferSingleLine": false,
+    "arrayExpression.trailingCommas": "onlyMultiLine",
+    "arrayPattern.preferHanging": true,
+    // ...etc...
+    "whileStatement.singleBodyPosition": "nextLine",
+    "whileStatement.spaceAfterWhileKeyword": true,
+    "whileStatement.useBraces": "preferNone"
+  },
+  "json": {
+    "commentLine.forceSpaceAfterSlashes": true,
+    "indentWidth": 2,
+    "lineWidth": 160,
+    "newLineKind": "lf",
+    "useTabs": false
+  }
 }
 ```
 
