@@ -3,7 +3,7 @@ use std::{borrow::Cow, path::Path, sync::Arc};
 use dprint_cli_core::types::ErrBox;
 
 use crate::cache::Cache;
-use super::patterns::build_include_exclude_glob_sets;
+use super::patterns::FileMatcher;
 use super::plugins::resolve_plugins;
 use crate::environment::Environment;
 use crate::plugins::{PluginPools, PluginResolver};
@@ -41,14 +41,12 @@ pub fn run_editor_service<TEnvironment: Environment>(
               let file_path = messenger.read_single_part_path_buf_message()?;
               // update the glob file patterns and absolute paths by re-retrieving the config file
               let config = resolve_config_from_args(args, cache, environment)?;
-              let (include_globset, exclude_globset) = build_include_exclude_glob_sets(&config, args, environment)?;
+              let file_matcher = FileMatcher::new(&config, args, environment)?;
 
               // canonicalize the file path, then check if it's in the list of file paths.
               match environment.canonicalize(&file_path) {
                   Ok(resolved_file_path) => {
-                      let matches_includes = include_globset.is_match(&resolved_file_path);
-                      let matches_excludes = exclude_globset.is_match(&resolved_file_path);
-                      messenger.send_message(if matches_includes && !matches_excludes { 1 } else { 0 }, Vec::new())?;
+                      messenger.send_message(if file_matcher.matches(&resolved_file_path) { 1 } else { 0 }, Vec::new())?;
                   },
                   Err(err) => {
                       environment.log_error(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
