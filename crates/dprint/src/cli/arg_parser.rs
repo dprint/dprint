@@ -1,6 +1,5 @@
 use super::StdInReader;
 use dprint_core::types::ErrBox;
-use std::path::PathBuf;
 
 pub struct CliArgs {
   pub sub_command: SubCommand,
@@ -63,7 +62,7 @@ pub struct EditorServiceSubCommand {
 
 #[derive(Debug, PartialEq)]
 pub struct StdInFmtSubCommand {
-  pub file_path: PathBuf,
+  pub file_name_or_path: String,
   pub file_text: String,
 }
 
@@ -104,7 +103,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
           format!("file.{}", file_name_path_or_extension)
         };
         SubCommand::StdInFmt(StdInFmtSubCommand {
-          file_path: PathBuf::from(file_name_or_path),
+          file_name_or_path,
           file_text: std_in_reader.read()?,
         })
       } else {

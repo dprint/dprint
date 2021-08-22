@@ -186,7 +186,7 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn with_default_config(&mut self, func: impl FnMut(&mut TestConfigFileBuilder)) -> &mut Self {
-    self.with_local_config("./dprint.json", func)
+    self.with_local_config("/dprint.json", func)
   }
 
   pub fn with_local_config(&mut self, file_path: impl AsRef<Path>, func: impl FnMut(&mut TestConfigFileBuilder)) -> &mut Self {

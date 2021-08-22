@@ -17,7 +17,7 @@ pub struct FileMatcher {
 
 impl FileMatcher {
   pub fn new(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Self, ErrBox> {
-    let cwd = environment.cwd()?;
+    let cwd = environment.cwd();
     let cwd_str = cwd.to_string_lossy();
     let mut include_file_patterns = get_include_file_patterns(&config, args, &cwd_str);
     let include_globset = build_glob_set(config, environment, &mut include_file_patterns)?;
@@ -40,7 +40,7 @@ impl FileMatcher {
 
 fn build_glob_set<TEnvironment: Environment>(config: &ResolvedConfig, environment: &TEnvironment, file_patterns: &mut Vec<String>) -> Result<GlobSet, ErrBox> {
   let mut builder = GlobSetBuilder::new();
-  let cwd = environment.cwd()?;
+  let cwd = environment.cwd();
   let config_base_path = config.base_path.to_string_lossy();
   let base_path = match config_base_path.as_ref() {
     "./" => cwd.to_string_lossy(),

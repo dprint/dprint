@@ -10,6 +10,7 @@ const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.json";
 const HIDDEN_CONFIG_FILE_NAME: &'static str = ".dprint.json";
 const OLD_CONFIG_FILE_NAME: &'static str = ".dprintrc.json";
 
+#[derive(Debug)]
 pub struct ResolvedConfigPath {
   pub resolved_path: ResolvedPath,
   pub base_path: PathBuf,
@@ -21,7 +22,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
   environment: &TEnvironment,
 ) -> Result<ResolvedConfigPath, ErrBox> {
   return Ok(if let Some(config) = &args.config {
-    let base_path = PathBuf::from("./"); // use cwd as base path
+    let base_path = environment.cwd();
     let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), cache, environment)?;
     ResolvedConfigPath { resolved_path, base_path }
   } else {
@@ -29,7 +30,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
   });
 
   fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> ResolvedConfigPath {
-    let start_search_dir = get_start_search_directory(args);
+    let start_search_dir = get_start_search_directory(args, environment);
     let config_file_path = get_config_file_in_dir(&start_search_dir, environment);
 
     if let Some(config_file_path) = config_file_path {
@@ -42,36 +43,37 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
     } else {
       // just return this even though it doesn't exist
       ResolvedConfigPath {
-        resolved_path: ResolvedPath::local(PathBuf::from(format!("./{}", DEFAULT_CONFIG_FILE_NAME))),
-        base_path: PathBuf::from("./"),
+        resolved_path: ResolvedPath::local(environment.cwd().join(DEFAULT_CONFIG_FILE_NAME)),
+        base_path: environment.cwd(),
       }
     }
   }
 
-  fn get_start_search_directory(args: &CliArgs) -> PathBuf {
+  fn get_start_search_directory(args: &CliArgs, environment: &impl Environment) -> PathBuf {
     if let SubCommand::StdInFmt(command) = &args.sub_command {
       // resolve the config file based on the file path provided to the command
-      command.file_path.parent().map(|p| p.to_owned()).unwrap_or(PathBuf::from("./"))
+      if environment.is_absolute_path(&command.file_name_or_path) {
+        PathBuf::from(&command.file_name_or_path)
+          .parent()
+          .map(|p| p.to_owned())
+          .unwrap_or(environment.cwd())
+      } else {
+        environment.cwd()
+      }
     } else {
-      PathBuf::from("./") // cwd
+      environment.cwd()
     }
   }
 
   fn get_default_config_file_in_ancestor_directories(environment: &impl Environment) -> Option<ResolvedConfigPath> {
-    match environment.cwd() {
-      Ok(cwd) => {
-        for ancestor_dir in cwd.ancestors() {
-          let ancestor_dir = ancestor_dir.to_path_buf();
-          if let Some(ancestor_config_path) = get_config_file_in_dir(&ancestor_dir, environment) {
-            return Some(ResolvedConfigPath {
-              resolved_path: ResolvedPath::local(ancestor_config_path),
-              base_path: ancestor_dir,
-            });
-          }
-        }
-      }
-      Err(err) => {
-        log_verbose!(environment, "Error getting current working directory: {:?}", err);
+    let cwd = environment.cwd();
+    for ancestor_dir in cwd.ancestors() {
+      let ancestor_dir = ancestor_dir.to_path_buf();
+      if let Some(ancestor_config_path) = get_config_file_in_dir(&ancestor_dir, environment) {
+        return Some(ResolvedConfigPath {
+          resolved_path: ResolvedPath::local(ancestor_config_path),
+          base_path: ancestor_dir,
+        });
       }
     }
 
@@ -96,7 +98,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
     if environment.path_exists(&config_path) {
       return Some(config_path);
     }
-    let config_path = dir.join(format!("config/{}", file_name));
+    let config_path = dir.join("config").join(file_name);
     if environment.path_exists(&config_path) {
       environment.log_error("WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.");
       return Some(config_path);

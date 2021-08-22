@@ -137,11 +137,8 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn cwd(&self) -> Result<PathBuf, ErrBox> {
-    match std::env::current_dir() {
-      Ok(cwd) => Ok(cwd),
-      Err(err) => err!("Error getting current working: {}", err.to_string()),
-    }
+  fn cwd(&self) -> PathBuf {
+    std::env::current_dir().expect("Expected to get the current working directory.")
   }
 
   fn log(&self, text: &str) {

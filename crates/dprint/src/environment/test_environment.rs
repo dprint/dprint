@@ -176,6 +176,17 @@ impl TestEnvironment {
   pub fn get_system_path_dirs(&self) -> Vec<PathBuf> {
     self.path_dirs.lock().clone()
   }
+
+  fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
+    // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
+    let file_path = PathBuf::from(path.as_ref().to_string_lossy().replace("\\", "/"));
+    if !path.as_ref().is_absolute() && !file_path.starts_with("/") {
+      self.cwd().join(file_path)
+    } else {
+      file_path
+    }
+    .clean()
+  }
 }
 
 impl Drop for TestEnvironment {
@@ -208,10 +219,9 @@ impl Environment for TestEnvironment {
   }
 
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>, ErrBox> {
+    let file_path = self.clean_path(file_path);
     let files = self.files.lock();
-    // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
-    let file_path = PathBuf::from(file_path.as_ref().to_string_lossy().replace("\\", "/"));
-    match files.get(&file_path.clean()) {
+    match files.get(&file_path) {
       Some(text) => Ok(text.clone()),
       None => err!("Could not find file at path {}", file_path.display()),
     }
@@ -222,23 +232,25 @@ impl Environment for TestEnvironment {
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<(), ErrBox> {
+    let file_path = self.clean_path(file_path);
     let mut files = self.files.lock();
-    files.insert(file_path.as_ref().to_path_buf().clean(), Vec::from(bytes));
+    files.insert(file_path, Vec::from(bytes));
     Ok(())
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<(), ErrBox> {
+    let file_path = self.clean_path(file_path);
     let mut files = self.files.lock();
-    files.remove(&file_path.as_ref().to_path_buf().clean());
+    files.remove(&file_path);
     Ok(())
   }
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<(), ErrBox> {
+    let dir_path = self.clean_path(dir_path);
     {
       let mut deleted_directories = self.deleted_directories.lock();
-      deleted_directories.push(dir_path.as_ref().to_owned());
+      deleted_directories.push(dir_path.clone());
     }
-    let dir_path = dir_path.as_ref().to_path_buf().clean();
     let mut files = self.files.lock();
     let mut delete_paths = Vec::new();
     for (file_path, _) in files.iter() {
@@ -260,8 +272,8 @@ impl Environment for TestEnvironment {
     }
   }
 
-  fn glob(&self, _: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
-    // todo: would be nice to test the base parameter here somehow...
+  fn glob(&self, base_path: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    let base_path = self.clean_path(base_path);
     let mut file_paths = Vec::new();
     let includes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| !p.starts_with("!")).map(|p| p.to_owned()))?;
     let excludes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| p.starts_with("!")).map(|p| String::from(&p[1..])))?;
@@ -280,7 +292,7 @@ impl Environment for TestEnvironment {
         }
       }
 
-      if !has_exclude {
+      if !has_exclude && key.starts_with(&base_path) {
         if includes_set.is_match(key) || includes_set.is_match(key.file_name().unwrap()) {
           file_paths.push(key.clone());
         }
@@ -292,26 +304,25 @@ impl Environment for TestEnvironment {
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     let files = self.files.lock();
-    files.contains_key(&file_path.as_ref().to_path_buf().clean())
+    files.contains_key(&self.clean_path(file_path))
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<PathBuf, ErrBox> {
-    // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
-    let file_path = PathBuf::from(path.as_ref().to_string_lossy().replace("\\", "/"));
-    Ok(file_path.clean())
+    Ok(self.clean_path(path))
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
-    path.as_ref().to_string_lossy().starts_with("/")
+    // cross platform check
+    path.as_ref().to_string_lossy().starts_with("/") || path.as_ref().is_absolute()
   }
 
   fn mk_dir_all(&self, _: impl AsRef<Path>) -> Result<(), ErrBox> {
     Ok(())
   }
 
-  fn cwd(&self) -> Result<PathBuf, ErrBox> {
+  fn cwd(&self) -> PathBuf {
     let cwd = self.cwd.lock();
-    Ok(PathBuf::from(cwd.to_owned()))
+    self.clean_path(PathBuf::from(cwd.to_owned()))
   }
 
   fn log(&self, text: &str) {

@@ -42,10 +42,10 @@ pub fn run_cli<TEnvironment: Environment>(
       let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
       plugin_pools.set_plugins(plugins);
       // if the path is absolute, then apply exclusion rules
-      if environment.is_absolute_path(&cmd.file_path) {
+      if environment.is_absolute_path(&cmd.file_name_or_path) {
         let file_paths = get_and_resolve_file_paths(&config, &args, environment)?;
         // canonicalize the file path, then check if it's in the list of file paths.
-        match environment.canonicalize(&cmd.file_path) {
+        match environment.canonicalize(&cmd.file_name_or_path) {
           Ok(resolved_file_path) => {
             // log the file text as-is since it's not in the list of files to format
             if !file_paths.contains(&resolved_file_path) {
@@ -53,10 +53,10 @@ pub fn run_cli<TEnvironment: Environment>(
               return Ok(());
             }
           }
-          Err(err) => return err!("Error canonicalizing file {}: {}", cmd.file_path.display(), err.to_string()),
+          Err(err) => return err!("Error canonicalizing file {}: {}", cmd.file_name_or_path, err.to_string()),
         }
       }
-      output_stdin_format(&cmd.file_path, &cmd.file_text, environment, plugin_pools)
+      output_stdin_format(&PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools)
     }
     SubCommand::OutputResolvedConfig => {
       let config = resolve_config_from_args(&args, cache, environment)?;
@@ -517,6 +517,24 @@ mod tests {
   }
 
   #[test]
+  fn it_should_filter_by_cwd_in_sub_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file.txt", "const t=4;")
+      .write_file("/file2.txt", "const t=4;")
+      .write_file("/sub/file3.txt", "const t=4;")
+      .write_file("/sub2/file4.txt", "const t=4;")
+      .set_cwd("/sub")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_logged_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/sub/file3.txt"]);
+  }
+
+  #[test]
   fn it_should_output_format_times() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.txt", "const t=4;")
@@ -849,8 +867,8 @@ mod tests {
     assert_eq!(
       error_message.to_string(),
       concat!(
-        "No config file found at ./dprint.json. Did you mean to create (dprint init) or specify one (--config <path>)?\n",
-        "  Error: Could not find file at path ./dprint.json"
+        "No config file found at /dprint.json. Did you mean to create (dprint init) or specify one (--config <path>)?\n",
+        "  Error: Could not find file at path /dprint.json"
       )
     );
     assert_eq!(environment.take_logged_messages().len(), 0);
@@ -1017,6 +1035,7 @@ mod tests {
       .initialize()
       .build();
 
+    // formats because the file path is explicitly provided
     run_test_cli(vec!["fmt", "--", "E:\\file1.txt"], &environment).unwrap();
 
     assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
@@ -1301,7 +1320,8 @@ mod tests {
 
   #[test]
   fn it_should_format_incrementally_when_specified_on_cli() {
-    let file_path1 = "/file1.txt";
+    let file_path1 = "/subdir/file1.txt";
+    let no_change_msg = "No change: /subdir/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("**/*.txt").add_remote_wasm_plugin();
@@ -1318,7 +1338,7 @@ mod tests {
 
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+    assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
 
     // update the file and ensure it's formatted
     environment.write_file(&file_path1, "asdf").unwrap();
@@ -1340,11 +1360,8 @@ mod tests {
       )
       .unwrap();
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
-    assert_eq!(
-      environment.take_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")),
-      false
-    );
+    run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+    assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains(no_change_msg)), false);
 
     // update the plugin config and ensure it's formatted
     environment
@@ -1371,18 +1388,21 @@ mod tests {
     // random order and the hash to be new each time.
     for _ in 1..4 {
       environment.clear_logs();
-      run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
-      assert_eq!(
-        environment.take_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")),
-        false
-      );
+      run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+      assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
     }
 
     // change the cwd and ensure it's not formatted again
     environment.clear_logs();
-    environment.set_cwd("/test/other/");
+    environment.set_cwd("/subdir");
     run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+    assert_eq!(
+      environment
+        .take_logged_messages()
+        .iter()
+        .any(|msg| msg.contains("No change: /subdir/file1.txt")),
+      true
+    );
   }
 
   #[test]
@@ -1848,7 +1868,7 @@ SOFTWARE.
   }
 
   #[test]
-  fn it_should_format_stdin_resolving_config_file_from_provided_path_when_relative() {
+  fn it_should_not_format_stdin_resolving_config_file_from_provided_path_when_relative() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("./**/*.txt").add_remote_wasm_plugin();
@@ -1861,7 +1881,10 @@ SOFTWARE.
       .build();
     let test_std_in = TestStdInReader::new_with_text("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "sub-dir/file.txt"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["text_new_ending"]);
+    // Should use cwd since the absolute path wasn't provided. In order to use the proper config file,
+    // the absolute path must be provided instead of a relative one in order to properly pick up
+    // inclusion/exclusion rules and the proper configuration file.
+    assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
     assert_eq!(environment.take_logged_errors().len(), 0);
   }
 

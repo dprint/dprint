@@ -50,11 +50,11 @@ pub fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<
 
 pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
   let (file_patterns, absolute_paths) = get_config_file_paths(config, args, environment)?;
-  return resolve_file_paths(&file_patterns, &absolute_paths, config, environment);
+  return resolve_file_paths(&file_patterns, &absolute_paths, args, config, environment);
 }
 
 fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<(Vec<String>, Vec<PathBuf>), ErrBox> {
-  let cwd = environment.cwd()?;
+  let cwd = environment.cwd();
   let mut file_patterns = get_all_file_patterns(config, args, &cwd.to_string_lossy());
   let absolute_paths = take_absolute_paths(&mut file_patterns, environment);
 
@@ -64,12 +64,26 @@ fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &
 fn resolve_file_paths(
   file_patterns: &Vec<String>,
   absolute_paths: &Vec<PathBuf>,
+  args: &CliArgs,
   config: &ResolvedConfig,
   environment: &impl Environment,
 ) -> Result<Vec<PathBuf>, ErrBox> {
-  let mut file_paths = environment.glob(&config.base_path, file_patterns)?;
-  file_paths.extend(absolute_paths.clone());
-  return Ok(file_paths);
+  let cwd = environment.cwd();
+  let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
+  if is_in_sub_dir {
+    let mut file_paths = environment.glob(&cwd, file_patterns)?;
+    if args.file_patterns.is_empty() {
+      // filter file paths by cwd if no CLI paths are specified
+      file_paths.extend(absolute_paths.iter().filter(|path| path.starts_with(&cwd)).map(ToOwned::to_owned));
+    } else {
+      file_paths.extend(absolute_paths.iter().map(ToOwned::to_owned));
+    }
+    return Ok(file_paths);
+  } else {
+    let mut file_paths = environment.glob(&config.base_path, file_patterns)?;
+    file_paths.extend(absolute_paths.clone());
+    return Ok(file_paths);
+  }
 }
 
 pub fn take_absolute_paths(file_patterns: &mut Vec<String>, environment: &impl Environment) -> Vec<PathBuf> {

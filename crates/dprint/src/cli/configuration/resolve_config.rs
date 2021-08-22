@@ -13,7 +13,7 @@ use crate::utils::{resolve_url_or_file_path, PathSource, ResolvedPath};
 
 use super::resolve_main_config_path;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct ResolvedConfig {
   pub resolved_path: ResolvedPath,
   /// The folder that should be considered the "root".
@@ -349,7 +349,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(result.base_path, PathBuf::from("./"));
+    assert_eq!(result.base_path, PathBuf::from("/"));
     assert_eq!(result.resolved_path.is_local(), true);
     assert_eq!(result.config_map.contains_key("includes"), false);
     assert_eq!(result.config_map.contains_key("excludes"), false);
@@ -370,7 +370,7 @@ mod tests {
 
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(result.base_path, PathBuf::from("./"));
+    assert_eq!(result.base_path, PathBuf::from("/"));
     assert_eq!(result.resolved_path.is_remote(), true);
   }
 
@@ -498,7 +498,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(result.base_path, PathBuf::from("./"));
+    assert_eq!(result.base_path, PathBuf::from("/"));
     assert_eq!(result.resolved_path.is_local(), true);
     assert_eq!(result.includes.len(), 0);
     assert_eq!(result.excludes.len(), 0);
