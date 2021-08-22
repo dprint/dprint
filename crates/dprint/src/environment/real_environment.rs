@@ -7,6 +7,7 @@ use std::time::SystemTime;
 
 use super::Environment;
 use crate::plugins::CompilationResult;
+use crate::utils::is_negated_glob;
 
 #[derive(Clone)]
 pub struct RealEnvironment {
@@ -88,6 +89,12 @@ impl Environment for RealEnvironment {
   }
 
   fn glob(&self, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    if file_patterns.iter().all(|p| is_negated_glob(p)) {
+      // performance improvement (see issue #379)
+      log_verbose!(self, "Skipping negated globs: {:?}", file_patterns);
+      return Ok(Vec::with_capacity(0));
+    }
+
     let start_instant = std::time::Instant::now();
     log_verbose!(self, "Globbing: {:?}", file_patterns);
     let base = self.canonicalize(base)?;

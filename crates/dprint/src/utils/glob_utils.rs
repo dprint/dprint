@@ -47,7 +47,7 @@ pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
   }
 }
 
-fn is_negated_glob(pattern: &str) -> bool {
+pub fn is_negated_glob(pattern: &str) -> bool {
   let mut chars = pattern.chars();
   let first_char = chars.next();
   let second_char = chars.next();

@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use super::Environment;
 use crate::plugins::CompilationResult;
+use crate::utils::is_negated_glob;
 
 struct BufferData {
   data: Vec<u8>,
@@ -273,6 +274,10 @@ impl Environment for TestEnvironment {
   }
 
   fn glob(&self, base_path: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+    if file_patterns.iter().all(|p| is_negated_glob(p)) {
+      return Ok(Vec::with_capacity(0));
+    }
+
     let base_path = self.clean_path(base_path);
     let mut file_paths = Vec::new();
     let includes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| !p.starts_with("!")).map(|p| p.to_owned()))?;
