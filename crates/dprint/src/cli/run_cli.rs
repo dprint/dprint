@@ -1,3 +1,4 @@
+use crate::cli::patterns::FileMatcher;
 use crate::cli::plugins::get_plugins_from_args;
 use crossterm::style::Stylize;
 use dprint_core::types::ErrBox;
@@ -43,12 +44,12 @@ pub fn run_cli<TEnvironment: Environment>(
       plugin_pools.set_plugins(plugins);
       // if the path is absolute, then apply exclusion rules
       if environment.is_absolute_path(&cmd.file_name_or_path) {
-        let file_paths = get_and_resolve_file_paths(&config, &args, environment)?;
+        let file_matcher = FileMatcher::new(&config, &args, environment)?;
         // canonicalize the file path, then check if it's in the list of file paths.
         match environment.canonicalize(&cmd.file_name_or_path) {
           Ok(resolved_file_path) => {
             // log the file text as-is since it's not in the list of files to format
-            if !file_paths.contains(&resolved_file_path) {
+            if !file_matcher.matches(&resolved_file_path) {
               environment.log_silent(&cmd.file_text);
               return Ok(());
             }
