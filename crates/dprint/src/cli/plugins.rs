@@ -1,7 +1,7 @@
 use dprint_cli_core::types::ErrBox;
 
 use crate::cache::Cache;
-use crate::configuration::{get_global_config, get_plugin_config_map};
+use crate::configuration::{get_global_config, get_plugin_config_map, GetGlobalConfigOptions};
 use crate::environment::Environment;
 use crate::plugins::{Plugin, PluginResolver};
 
@@ -15,17 +15,18 @@ pub fn get_plugins_from_args<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
   match resolve_config_from_args(args, cache, environment) {
-    Ok(config) => resolve_plugins(&config, environment, plugin_resolver),
+    Ok(config) => resolve_plugins(args, &config, environment, plugin_resolver),
     Err(_) => Ok(Vec::new()), // ignore
   }
 }
 
 pub fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
+  args: &CliArgs,
   config: &ResolvedConfig,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
-  let plugins = resolve_plugins(config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins(args, config, environment, plugin_resolver)?;
   if plugins.is_empty() {
     return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
   }
@@ -33,6 +34,7 @@ pub fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
 }
 
 pub fn resolve_plugins<TEnvironment: Environment>(
+  args: &CliArgs,
   config: &ResolvedConfig,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
@@ -48,7 +50,16 @@ pub fn resolve_plugins<TEnvironment: Environment>(
   }
 
   // now get global config
-  let global_config = get_global_config(config_map, environment)?;
+  let global_config = get_global_config(
+    config_map,
+    environment,
+    &GetGlobalConfigOptions {
+      // Skip checking these diagnostics when the user provides
+      // plugins from the CLI args. They may be doing this to filter
+      // to only specific plugins.
+      check_unknown_property_diagnostics: args.plugins.is_empty(),
+    },
+  )?;
 
   // now set each plugin's config
   let mut plugins = Vec::new();

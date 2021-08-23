@@ -42,5 +42,5 @@ fn run() -> Result<(), ErrBox> {
   let _plugins_dropper = plugins::PluginsDropper::new(plugin_pools.clone());
   let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
 
-  cli::run_cli(args, &environment, &cache, &plugin_resolver, plugin_pools.clone())
+  cli::run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools.clone())
 }

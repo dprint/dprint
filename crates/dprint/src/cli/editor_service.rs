@@ -108,7 +108,7 @@ pub fn run_editor_service<TEnvironment: Environment>(
     let has_config_changed = past_config.is_none() || *past_config.as_ref().unwrap() != config;
     if has_config_changed {
       plugin_pools.drop_plugins(); // clear the existing plugins
-      let plugins = resolve_plugins(&config, environment, plugin_resolver)?;
+      let plugins = resolve_plugins(args, &config, environment, plugin_resolver)?;
       plugin_pools.set_plugins(plugins);
     }
 

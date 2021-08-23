@@ -23,7 +23,7 @@ use super::plugins::{resolve_plugins, resolve_plugins_and_err_if_empty};
 use super::{CliArgs, SubCommand};
 
 pub fn run_cli<TEnvironment: Environment>(
-  args: CliArgs,
+  args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
@@ -40,11 +40,11 @@ pub fn run_cli<TEnvironment: Environment>(
     SubCommand::Version => output_version(environment),
     SubCommand::StdInFmt(cmd) => {
       let config = resolve_config_from_args(&args, cache, environment)?;
-      let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
+      let plugins = resolve_plugins_and_err_if_empty(&args, &config, environment, plugin_resolver)?;
       plugin_pools.set_plugins(plugins);
       // if the path is absolute, then apply exclusion rules
       if environment.is_absolute_path(&cmd.file_name_or_path) {
-        let file_matcher = FileMatcher::new(&config, &args, environment)?;
+        let file_matcher = FileMatcher::new(&config, args, environment)?;
         // canonicalize the file path, then check if it's in the list of file paths.
         match environment.canonicalize(&cmd.file_name_or_path) {
           Ok(resolved_file_path) => {
@@ -60,44 +60,44 @@ pub fn run_cli<TEnvironment: Environment>(
       output_stdin_format(&PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools)
     }
     SubCommand::OutputResolvedConfig => {
-      let config = resolve_config_from_args(&args, cache, environment)?;
-      let plugins = resolve_plugins(&config, environment, plugin_resolver)?;
+      let config = resolve_config_from_args(args, cache, environment)?;
+      let plugins = resolve_plugins(args, &config, environment, plugin_resolver)?;
       output_resolved_config(plugins, environment)
     }
     SubCommand::OutputFilePaths => {
-      let config = resolve_config_from_args(&args, cache, environment)?;
-      let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
-      let file_paths = get_and_resolve_file_paths(&config, &args, environment)?;
+      let config = resolve_config_from_args(args, cache, environment)?;
+      let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+      let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
       let file_paths_by_plugin = get_file_paths_by_plugin(&plugins, file_paths);
       output_file_paths(file_paths_by_plugin.values().flat_map(|x| x.iter()), environment);
       Ok(())
     }
     SubCommand::OutputFormatTimes => {
-      let config = resolve_config_from_args(&args, cache, environment)?;
-      let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
-      let file_paths = get_and_resolve_file_paths(&config, &args, environment)?;
+      let config = resolve_config_from_args(args, cache, environment)?;
+      let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+      let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
       let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
       plugin_pools.set_plugins(plugins);
       output_format_times(file_paths_by_plugin, environment, plugin_pools)
     }
     SubCommand::Check => {
-      let config = resolve_config_from_args(&args, cache, environment)?;
-      let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
-      let file_paths = get_and_resolve_file_paths(&config, &args, environment)?;
+      let config = resolve_config_from_args(args, cache, environment)?;
+      let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+      let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
       let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
       plugin_pools.set_plugins(plugins);
 
-      let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
+      let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
       check_files(file_paths_by_plugin, environment, plugin_pools, incremental_file)
     }
     SubCommand::Fmt => {
-      let config = resolve_config_from_args(&args, cache, environment)?;
-      let plugins = resolve_plugins_and_err_if_empty(&config, environment, plugin_resolver)?;
-      let file_paths = get_and_resolve_file_paths(&config, &args, environment)?;
+      let config = resolve_config_from_args(args, cache, environment)?;
+      let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+      let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
       let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
       plugin_pools.set_plugins(plugins);
 
-      let incremental_file = get_incremental_file(&args, &config, &cache, &plugin_pools, &environment);
+      let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
       format_files(file_paths_by_plugin, environment, plugin_pools, incremental_file)
     }
     #[cfg(target_os = "windows")]
@@ -1005,6 +1005,62 @@ mod tests {
 
     assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
+  }
+
+  #[test]
+  fn it_should_not_do_excess_object_property_diagnostics_when_plugins_cli_specified() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_default_config(|c| {
+        c.add_config_section("excess-object", "{}").add_remote_process_plugin();
+      })
+      .write_file("/test.txt", "test")
+      .build();
+
+    run_test_cli(
+      vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
+      &environment,
+    )
+    .unwrap();
+
+    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_logged_errors().len(), 0);
+
+    // now it errors because no --plugins specified
+    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    assert_eq!(
+      error_message.to_string(),
+      "Error resolving global config from configuration file. Unexpected non-string, boolean, or int property 'excess-object'."
+    );
+    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_logged_messages().len(), 0);
+  }
+
+  #[test]
+  fn it_should_not_do_excess_primitive_property_diagnostics_when_plugins_cli_specified() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_default_config(|c| {
+        c.add_config_section("excess-primitive", "true").add_remote_process_plugin();
+      })
+      .write_file("/test.txt", "test")
+      .build();
+
+    run_test_cli(
+      vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
+      &environment,
+    )
+    .unwrap();
+
+    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_logged_errors().len(), 0);
+
+    // now it errors because no --plugins specified
+    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    assert_eq!(
+      error_message.to_string(),
+      "Error resolving global config from configuration file. Had 1 config diagnostic(s)."
+    );
+    assert_eq!(environment.take_logged_errors(), vec!["Unknown property in configuration: excess-primitive"]);
+    assert_eq!(environment.take_logged_messages().len(), 0);
   }
 
   #[test]

@@ -42,7 +42,7 @@ pub fn run_test_cli_with_stdin(
   let args = parse_args(args, &stdin_reader)?;
   environment.set_silent(args.is_silent_output());
   environment.set_verbose(args.verbose);
-  run_cli(args, environment, &cache, &plugin_resolver, plugin_pools)
+  run_cli(&args, environment, &cache, &plugin_resolver, plugin_pools)
 }
 
 pub fn get_test_process_plugin_zip_checksum(environment: &TestEnvironment) -> String {

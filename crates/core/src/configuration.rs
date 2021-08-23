@@ -169,8 +169,20 @@ where
   pub config: T,
 }
 
+pub struct ResolveGlobalConfigOptions {
+  pub check_unknown_property_diagnostics: bool,
+}
+
+impl Default for ResolveGlobalConfigOptions {
+  fn default() -> Self {
+    Self {
+      check_unknown_property_diagnostics: true,
+    }
+  }
+}
+
 /// Resolves a collection of key value pairs to a GlobalConfiguration.
-pub fn resolve_global_config(config: ConfigKeyMap) -> ResolveConfigurationResult<GlobalConfiguration> {
+pub fn resolve_global_config(config: ConfigKeyMap, options: &ResolveGlobalConfigOptions) -> ResolveConfigurationResult<GlobalConfiguration> {
   let mut config = config;
   let mut diagnostics = Vec::new();
 
@@ -181,7 +193,9 @@ pub fn resolve_global_config(config: ConfigKeyMap) -> ResolveConfigurationResult
     new_line_kind: get_nullable_value(&mut config, "newLineKind", &mut diagnostics),
   };
 
-  diagnostics.extend(get_unknown_property_diagnostics(config));
+  if options.check_unknown_property_diagnostics {
+    diagnostics.extend(get_unknown_property_diagnostics(config));
+  }
 
   ResolveConfigurationResult {
     config: resolved_config,
@@ -298,7 +312,7 @@ mod test {
 
   #[test]
   fn get_default_config_when_empty() {
-    let config_result = resolve_global_config(HashMap::new());
+    let config_result = resolve_global_config(HashMap::new(), &Default::default());
     let config = config_result.config;
     assert_eq!(config_result.diagnostics.len(), 0);
     assert_eq!(config.line_width, None);
@@ -314,7 +328,7 @@ mod test {
     global_config.insert(String::from("indentWidth"), ConfigKeyValue::from_i32(8));
     global_config.insert(String::from("newLineKind"), ConfigKeyValue::from_str("crlf"));
     global_config.insert(String::from("useTabs"), ConfigKeyValue::from_bool(true));
-    let config_result = resolve_global_config(global_config);
+    let config_result = resolve_global_config(global_config, &Default::default());
     let config = config_result.config;
     assert_eq!(config_result.diagnostics.len(), 0);
     assert_eq!(config.line_width, Some(80));
@@ -327,7 +341,7 @@ mod test {
   fn get_diagnostic_for_invalid_enum_config() {
     let mut global_config = HashMap::new();
     global_config.insert(String::from("newLineKind"), ConfigKeyValue::from_str("something"));
-    let diagnostics = resolve_global_config(global_config).diagnostics;
+    let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
       diagnostics[0].message,
@@ -340,7 +354,7 @@ mod test {
   fn get_diagnostic_for_invalid_primitive() {
     let mut global_config = HashMap::new();
     global_config.insert(String::from("useTabs"), ConfigKeyValue::from_str("something"));
-    let diagnostics = resolve_global_config(global_config).diagnostics;
+    let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
       diagnostics[0].message,
@@ -353,10 +367,24 @@ mod test {
   fn get_diagnostic_for_excess_property() {
     let mut global_config = HashMap::new();
     global_config.insert(String::from("something"), ConfigKeyValue::from_str("value"));
-    let diagnostics = resolve_global_config(global_config).diagnostics;
+    let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "Unknown property in configuration: something");
     assert_eq!(diagnostics[0].property_name, "something");
+  }
+
+  #[test]
+  fn no_diagnostic_for_excess_property_when_check_false() {
+    let mut global_config = HashMap::new();
+    global_config.insert(String::from("something"), ConfigKeyValue::from_str("value"));
+    let diagnostics = resolve_global_config(
+      global_config,
+      &ResolveGlobalConfigOptions {
+        check_unknown_property_diagnostics: false,
+      },
+    )
+    .diagnostics;
+    assert_eq!(diagnostics.len(), 0);
   }
 
   #[test]
