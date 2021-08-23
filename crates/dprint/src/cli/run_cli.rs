@@ -975,22 +975,21 @@ mod tests {
   }
 
   #[test]
-  fn it_should_combine_with_plugins_specified_in_cli_args() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+  fn it_should_use_plugins_specified_in_cli_args() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
-        c.add_remote_process_plugin();
+        c.add_plugin("https://plugins.dprint.dev/other.wasm");
       })
       .write_file("/test.txt", "test")
-      .write_file("/test.txt_ps", "test")
       .build();
 
     run_test_cli(
-      vec!["fmt", "**/*.{txt,txt_ps}", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
+      vec!["fmt", "**/*.txt", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
       &environment,
     )
     .unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_logged_errors().len(), 0);
   }
 

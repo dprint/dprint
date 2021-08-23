@@ -51,29 +51,23 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(
     }
   };
 
-  let mut plugins = Vec::new();
-
-  // first add plugins from arguments as they take precedence
-  {
+  let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?; // always take this out of the config map
+  let plugins = filter_duplicate_plugin_sources(if args.plugins.is_empty() {
+    // filter out any non-wasm plugins from remote config
+    if !resolved_config_path.resolved_path.is_local() {
+      filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
+    } else {
+      plugins_vec
+    }
+  } else {
     let base_path = PathSource::new_local(resolved_config_path.base_path.clone());
+    let mut plugins = Vec::with_capacity(args.plugins.len());
     for url_or_file_path in args.plugins.iter() {
       plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path)?);
     }
-  }
 
-  // now combine with the plugins from the configuration
-  plugins.extend({
-    let config_plugins = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?; // always take this out of the config map
-
-    // filter out any non-wasm plugins from remote config
-    if !resolved_config_path.resolved_path.is_local() {
-      filter_non_wasm_plugins(config_plugins, environment) // NEVER REMOVE THIS STATEMENT
-    } else {
-      config_plugins
-    }
+    plugins
   });
-
-  let plugins = filter_duplicate_plugin_sources(plugins);
 
   // IMPORTANT
   // =========
