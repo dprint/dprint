@@ -59,7 +59,7 @@ macro_rules! log_verbose {
         if $environment.is_verbose() {
             let mut text = String::from("[VERBOSE]: ");
             text.push_str(&format!($($arg)*));
-            let stderr = io::stderr();
+            let stderr = std::io::stderr();
             let mut handle = stderr.lock();
             handle.write_all(&text)?;
             Ok(())
