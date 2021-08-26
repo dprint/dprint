@@ -1395,7 +1395,7 @@ mod tests {
 
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
+    assert_eq!(environment.take_logged_errors().iter().any(|msg| msg.contains(no_change_msg)), true);
 
     // update the file and ensure it's formatted
     environment.write_file(&file_path1, "asdf").unwrap();
@@ -1481,7 +1481,7 @@ mod tests {
 
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--verbose"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+    assert_eq!(environment.take_logged_errors().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
   }
 
   #[test]
