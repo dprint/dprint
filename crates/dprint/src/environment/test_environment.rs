@@ -337,13 +337,6 @@ impl Environment for TestEnvironment {
     self.logged_messages.lock().push(String::from(text));
   }
 
-  fn log_verbose(&self, text: &str) {
-    if *self.is_silent.lock() {
-      return;
-    }
-    self.logged_messages.lock().push(String::from(text));
-  }
-
   fn log_error_with_context(&self, text: &str, _: &str) {
     if *self.is_silent.lock() {
       return;
