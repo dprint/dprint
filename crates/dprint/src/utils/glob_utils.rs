@@ -1,5 +1,8 @@
 use std::borrow::Cow;
 
+use dprint_cli_core::types::ErrBox;
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+
 // Adapted from https://github.com/dsherret/ts-morph/blob/0f8a77a9fa9d74e32f88f36992d527a2f059c6ac/packages/common/src/fileSystem/FileUtils.ts#L272
 
 pub fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
@@ -104,6 +107,18 @@ fn is_windows_absolute_path(file_path: &str) -> bool {
   // now check for the last slash
   let next_char = chars.next();
   next_char == Some('/')
+}
+
+pub struct BuildGlobSetOptions {
+  pub case_insensitive: bool,
+}
+
+pub fn build_glob_set(file_patterns: &[String], opts: &BuildGlobSetOptions) -> Result<GlobSet, ErrBox> {
+  let mut builder = GlobSetBuilder::new();
+  for pattern in file_patterns {
+    builder.add(GlobBuilder::new(&pattern).case_insensitive(opts.case_insensitive).build()?);
+  }
+  return Ok(builder.build().unwrap());
 }
 
 #[cfg(test)]

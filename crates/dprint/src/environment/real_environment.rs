@@ -4,10 +4,11 @@ use dprint_core::types::ErrBox;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use walkdir::WalkDir;
 
 use super::Environment;
 use crate::plugins::CompilationResult;
-use crate::utils::is_negated_glob;
+use crate::utils::{build_glob_set, is_negated_glob, BuildGlobSetOptions};
 
 #[derive(Clone)]
 pub struct RealEnvironment {
@@ -97,29 +98,48 @@ impl Environment for RealEnvironment {
 
     let start_instant = std::time::Instant::now();
     log_verbose!(self, "Globbing: {:?}", file_patterns);
-    let base = self.canonicalize(base)?;
-    let walker = globwalk::GlobWalkerBuilder::from_patterns(base, &file_patterns)
-      .case_insensitive(if cfg!(windows) { true } else { false })
-      .follow_links(false)
-      .file_type(globwalk::FileType::FILE)
-      .build();
-    let walker = match walker {
-      Ok(walker) => walker,
-      Err(err) => return err!("Error parsing file patterns: {}", err),
-    };
 
-    let mut file_paths = Vec::new();
-    for result in walker.into_iter() {
-      match result {
-        Ok(result) => file_paths.push(result.into_path()),
-        Err(err) => return err!("Error walking files: {}", err),
+    let mut match_file_patterns = Vec::new();
+    let mut ignore_patterns = Vec::new();
+    for pattern in file_patterns {
+      if is_negated_glob(pattern) {
+        ignore_patterns.push(pattern[1..].to_string());
+      } else {
+        match_file_patterns.push(pattern.to_string());
       }
     }
 
-    log_verbose!(self, "File(s) matched: {:?}", file_paths);
+    let glob_options = BuildGlobSetOptions {
+      case_insensitive: cfg!(windows),
+    };
+
+    let ignore_glob_set = build_glob_set(&ignore_patterns, &glob_options)?;
+    let match_glob_set = build_glob_set(&match_file_patterns, &glob_options)?;
+    let mut results = Vec::new();
+
+    let mut pending_dirs = vec![base.as_ref().to_path_buf()];
+
+    while !pending_dirs.is_empty() {
+      let walker = WalkDir::new(pending_dirs.pop().unwrap()).follow_links(false).max_depth(1).min_depth(1);
+      for entry in walker {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+          if !ignore_glob_set.is_match(entry.path()) {
+            pending_dirs.push(entry.path().to_path_buf());
+          }
+        } else if metadata.is_file() {
+          if match_glob_set.is_match(entry.path()) && !ignore_glob_set.is_match(entry.path()) {
+            results.push(entry.path().to_path_buf());
+          }
+        }
+      }
+    }
+
+    log_verbose!(self, "File(s) matched: {:?}", results);
     log_verbose!(self, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
 
-    Ok(file_paths)
+    Ok(results)
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
