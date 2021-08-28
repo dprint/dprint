@@ -1454,10 +1454,7 @@ mod tests {
     environment.set_cwd("/subdir");
     run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
     assert_eq!(
-      environment
-        .take_logged_errors()
-        .iter()
-        .any(|msg| msg.contains("No change: /subdir/file1.txt")),
+      environment.take_logged_errors().iter().any(|msg| msg.contains("No change: /subdir/file1.txt")),
       true
     );
   }
@@ -1728,6 +1725,13 @@ SOFTWARE.
         r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"fileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"]}]}"#
       ]
     );
+    assert_eq!(
+      environment.take_logged_errors(),
+      vec![
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+        "Extracting zip for test-process-plugin"
+      ]
+    )
   }
 
   struct EditorServiceCommunicator {

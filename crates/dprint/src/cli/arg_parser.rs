@@ -17,7 +17,7 @@ pub struct CliArgs {
 impl CliArgs {
   pub fn is_silent_output(&self) -> bool {
     match self.sub_command {
-      SubCommand::EditorInfo | SubCommand::EditorService(..) | SubCommand::StdInFmt(..) => true,
+      SubCommand::StdInFmt(..) => true,
       _ => false,
     }
   }
