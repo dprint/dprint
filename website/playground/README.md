@@ -6,8 +6,8 @@ Code for the playground.
 
 ```
 # install
-yarn install
+npm install
 
 # run locally
-yarn start
+npm run start
 ```

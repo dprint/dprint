@@ -20,13 +20,13 @@ jobs:
       - name: Install playground dependencies
         run: |
           cd website/playground
-          npm install
+          npm ci
           cd ../../
 
       - name: Install script dependencies
         run: |
           cd scripts
-          npm install
+          npm ci
           cd ../
 
       - name: Build playground
