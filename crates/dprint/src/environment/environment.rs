@@ -59,7 +59,7 @@ macro_rules! log_verbose {
         if $environment.is_verbose() {
             let mut text = String::from("[VERBOSE]: ");
             text.push_str(&format!($($arg)*));
-            $environment.log(&text);
+            $environment.log_error(&text);
         }
     }
 }
