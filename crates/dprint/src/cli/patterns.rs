@@ -1,16 +1,15 @@
 use std::path::Path;
 
 use dprint_cli_core::types::ErrBox;
-use globset::GlobSet;
 
 use crate::environment::Environment;
-use crate::utils::{build_glob_set, to_absolute_glob, to_absolute_globs, BuildGlobSetOptions};
+use crate::utils::{to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions};
 
 use super::configuration::ResolvedConfig;
 use super::CliArgs;
 
 pub struct FileMatcher {
-  patterns_globset: GlobSet,
+  glob_matcher: GlobMatcher,
 }
 
 impl FileMatcher {
@@ -18,21 +17,21 @@ impl FileMatcher {
     let cwd = environment.cwd();
     let cwd_str = cwd.to_string_lossy();
     let patterns = get_all_file_patterns(config, args, &cwd_str);
-    let patterns_globset = build_glob_set(
-      &patterns.iter().map(|p| p.to_lowercase()).collect::<Vec<_>>(),
-      &BuildGlobSetOptions {
+    let glob_matcher = GlobMatcher::new(
+      &patterns,
+      &GlobMatcherOptions {
         // issue on windows where V:/ was not matching for pattern with v:/
         case_insensitive: true,
       },
     )?;
 
-    Ok(FileMatcher { patterns_globset })
+    Ok(FileMatcher { glob_matcher })
   }
 
   pub fn matches(&self, file_path: &Path) -> bool {
     let mut file_path = file_path.to_string_lossy().to_string();
     process_file_pattern_slashes(&mut file_path);
-    self.patterns_globset.is_match(&file_path)
+    self.glob_matcher.is_match(&file_path)
   }
 }
 

@@ -8,7 +8,7 @@ use walkdir::WalkDir;
 
 use super::Environment;
 use crate::plugins::CompilationResult;
-use crate::utils::{build_glob_set, is_negated_glob, BuildGlobSetOptions};
+use crate::utils::{is_negated_glob, GlobMatcher, GlobMatcherOptions};
 
 #[derive(Clone)]
 pub struct RealEnvironment {
@@ -99,22 +99,12 @@ impl Environment for RealEnvironment {
     let start_instant = std::time::Instant::now();
     log_verbose!(self, "Globbing: {:?}", file_patterns);
 
-    let mut match_file_patterns = Vec::new();
-    let mut ignore_patterns = Vec::new();
-    for pattern in file_patterns {
-      if is_negated_glob(pattern) {
-        ignore_patterns.push(pattern[1..].to_string());
-      } else {
-        match_file_patterns.push(pattern.to_string());
-      }
-    }
-
-    let glob_options = BuildGlobSetOptions {
-      case_insensitive: cfg!(windows),
-    };
-
-    let ignore_glob_set = build_glob_set(&ignore_patterns, &glob_options)?;
-    let match_glob_set = build_glob_set(&match_file_patterns, &glob_options)?;
+    let glob_matcher = GlobMatcher::new(
+      file_patterns,
+      &GlobMatcherOptions {
+        case_insensitive: cfg!(windows),
+      },
+    )?;
     let mut results = Vec::new();
 
     let mut pending_dirs = vec![base.as_ref().to_path_buf()];
@@ -125,11 +115,11 @@ impl Environment for RealEnvironment {
         let entry = entry?;
         let metadata = entry.metadata()?;
         if metadata.is_dir() {
-          if !ignore_glob_set.is_match(entry.path()) {
+          if !glob_matcher.is_ignored(entry.path()) {
             pending_dirs.push(entry.path().to_path_buf());
           }
         } else if metadata.is_file() {
-          if match_glob_set.is_match(entry.path()) && !ignore_glob_set.is_match(entry.path()) {
+          if glob_matcher.is_match(entry.path()) {
             results.push(entry.path().to_path_buf());
           }
         }
