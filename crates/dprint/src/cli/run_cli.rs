@@ -1776,15 +1776,20 @@ SOFTWARE.
     let txt_file_path = PathBuf::from("/file.txt");
     let ts_file_path = PathBuf::from("/file.ts");
     let other_ext_path = PathBuf::from("/file.asdf");
+    let ignored_file_path = PathBuf::from("/ignored_file.txt");
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .add_remote_process_plugin()
       .with_default_config(|c| {
-        c.add_remote_wasm_plugin().add_remote_process_plugin().add_includes("**/*.{txt,ts}");
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_includes("**/*.{txt,ts}")
+          .add_excludes("ignored_file.txt");
       })
       .write_file(&txt_file_path, "")
       .write_file(&ts_file_path, "")
       .write_file(&other_ext_path, "")
+      .write_file(&ignored_file_path, "text")
       .initialize()
       .build();
     let stdin = environment.stdin_writer();
@@ -1799,6 +1804,7 @@ SOFTWARE.
         assert_eq!(communicator.check_file(&PathBuf::from("/non-existent.txt")).unwrap(), true);
         assert_eq!(communicator.check_file(&other_ext_path).unwrap(), false);
         assert_eq!(communicator.check_file(&ts_file_path).unwrap(), true);
+        assert_eq!(communicator.check_file(&ignored_file_path).unwrap(), false);
 
         assert_eq!(communicator.format_text(&txt_file_path, "testing").unwrap().unwrap(), "testing_formatted");
         assert_eq!(communicator.format_text(&txt_file_path, "testing_formatted").unwrap().is_none(), true); // it is already formatted
