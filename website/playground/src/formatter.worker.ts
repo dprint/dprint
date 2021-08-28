@@ -43,7 +43,7 @@ function loadUrl(url: string) {
       return newFormatter;
     });
 
-  formatter.catch(err => postError(err));
+  formatter.catch((err: any) => postError(err));
 }
 
 function setConfig(providedConfig: Record<string, unknown>) {
@@ -80,7 +80,7 @@ function formatSync(f: Formatter, filePath: string, fileText: string) {
   let result;
   try {
     result = f.formatText(filePath, fileText);
-  } catch (err) {
+  } catch (err: any) {
     result = err.message;
   }
   postMessage({
@@ -92,7 +92,7 @@ function formatSync(f: Formatter, filePath: string, fileText: string) {
 function doHandlingError(action: () => void) {
   try {
     action();
-  } catch (err) {
+  } catch (err: any) {
     postError(err);
   }
 }
