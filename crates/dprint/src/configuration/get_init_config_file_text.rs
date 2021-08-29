@@ -64,9 +64,6 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
       if let Some(config_key) = &plugin.config_key {
         if !config_key.is_empty() {
           json_text.push_str(&format!("  \"{}\": {{\n", config_key));
-          if !plugin.config_schema_url.is_empty() {
-            json_text.push_str(&format!("    \"$schema\": \"{}\"\n", plugin.config_schema_url));
-          }
           json_text.push_str("  },\n");
         }
       }
@@ -182,7 +179,6 @@ mod test {
   "typescript": {
   },
   "json": {
-    "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
   },
   "includes": ["**/*.{ts,tsx,json,rs}","**/{Cargo.toml}"],
   "excludes": [
@@ -214,7 +210,6 @@ mod test {
   "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "json": {
-    "$schema": "https://plugins.dprint.dev/schemas/json-v1.json"
   },
   "includes": ["**/*.{json}"],
   "excludes": [
@@ -419,7 +414,6 @@ mod test {
                 "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
                 "configKey": "json",
                 "fileExtensions": ["json"],
-                "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
                 "configExcludes": ["**/*-asdf.json"]
             }, {
                 "name": "dprint-plugin-final",

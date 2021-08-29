@@ -14,7 +14,6 @@ pub struct InfoFilePluginInfo {
   pub name: String,
   pub version: String,
   pub url: String,
-  pub config_schema_url: String,
   pub config_key: Option<String>,
   pub file_extensions: Vec<String>,
   pub file_names: Vec<String>,
@@ -85,7 +84,6 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
   let version = get_string(&mut obj, "version")?;
   let url = get_string(&mut obj, "url")?;
   let config_key = obj.take_string("configKey").map(|k| k.into_owned());
-  let config_schema_url = obj.take_string("configSchemaUrl").map(|s| s.into_owned()).unwrap_or(String::new());
   let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
   let file_names = get_string_array(&mut obj, "fileNames").unwrap_or_default(); // compatible with old configuration
   let config_excludes = get_string_array(&mut obj, "configExcludes")?;
@@ -98,7 +96,6 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     config_key,
     file_extensions,
     file_names,
-    config_schema_url,
     config_excludes,
     checksum,
   })
@@ -155,7 +152,6 @@ mod test {
         "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
         "fileExtensions": ["json"],
         "fileNames": ["test-file"],
-        "configSchemaUrl": "https://plugins.dprint.dev/schemas/json-v1.json",
         "configExcludes": ["**/*-lock.json"],
         "checksum": "test-checksum"
     }]
@@ -175,7 +171,6 @@ mod test {
             config_key: Some("typescript".to_string()),
             file_extensions: vec!["ts".to_string(), "tsx".to_string()],
             file_names: vec![],
-            config_schema_url: String::new(),
             config_excludes: vec!["**/node_modules".to_string()],
             checksum: None,
           },
@@ -186,7 +181,6 @@ mod test {
             config_key: None,
             file_extensions: vec!["json".to_string()],
             file_names: vec!["test-file".to_string()],
-            config_schema_url: "https://plugins.dprint.dev/schemas/json-v1.json".to_string(),
             config_excludes: vec!["**/*-lock.json".to_string()],
             checksum: Some("test-checksum".to_string()),
           }
