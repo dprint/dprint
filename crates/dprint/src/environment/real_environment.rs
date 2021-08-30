@@ -6,9 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use walkdir::WalkDir;
 
-use super::Environment;
+use super::{DirEntry, DirEntryKind, Environment};
 use crate::plugins::CompilationResult;
-use crate::utils::{is_negated_glob, GlobMatcher, GlobMatcherOptions};
 
 #[derive(Clone)]
 pub struct RealEnvironment {
@@ -89,47 +88,27 @@ impl Environment for RealEnvironment {
     download_url(url, &self.progress_bars, |env_var_name| std::env::var(env_var_name).ok())
   }
 
-  fn glob(&self, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
-    if file_patterns.iter().all(|p| is_negated_glob(p)) {
-      // performance improvement (see issue #379)
-      log_verbose!(self, "Skipping negated globs: {:?}", file_patterns);
-      return Ok(Vec::with_capacity(0));
-    }
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>, ErrBox> {
+    let mut entries = Vec::new();
 
-    let start_instant = std::time::Instant::now();
-    log_verbose!(self, "Globbing: {:?}", file_patterns);
-
-    let glob_matcher = GlobMatcher::new(
-      file_patterns,
-      &GlobMatcherOptions {
-        case_insensitive: cfg!(windows),
-      },
-    )?;
-    let mut results = Vec::new();
-
-    let mut pending_dirs = vec![base.as_ref().to_path_buf()];
-
-    while !pending_dirs.is_empty() {
-      let walker = WalkDir::new(pending_dirs.pop().unwrap()).follow_links(false).max_depth(1).min_depth(1);
-      for entry in walker {
-        let entry = entry?;
-        let metadata = entry.metadata()?;
-        if metadata.is_dir() {
-          if !glob_matcher.is_ignored(entry.path()) {
-            pending_dirs.push(entry.path().to_path_buf());
-          }
-        } else if metadata.is_file() {
-          if glob_matcher.is_match(entry.path()) {
-            results.push(entry.path().to_path_buf());
-          }
-        }
+    let walker = WalkDir::new(dir_path).follow_links(false).max_depth(1).min_depth(1);
+    for entry in walker {
+      let entry = entry?;
+      let metadata = entry.metadata()?;
+      if metadata.is_dir() {
+        entries.push(DirEntry {
+          kind: DirEntryKind::Directory,
+          path: entry.path().to_path_buf(),
+        });
+      } else if metadata.is_file() {
+        entries.push(DirEntry {
+          kind: DirEntryKind::File,
+          path: entry.path().to_path_buf(),
+        });
       }
     }
 
-    log_verbose!(self, "File(s) matched: {:?}", results);
-    log_verbose!(self, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
-
-    Ok(results)
+    Ok(entries)
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {

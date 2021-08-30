@@ -4,6 +4,18 @@ use std::path::{Path, PathBuf};
 
 use crate::plugins::CompilationResult;
 
+#[derive(Debug)]
+pub struct DirEntry {
+  pub kind: DirEntryKind,
+  pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DirEntryKind {
+  Directory,
+  File,
+}
+
 pub trait Environment: Clone + std::marker::Send + std::marker::Sync + 'static {
   fn is_real(&self) -> bool;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String, ErrBox>;
@@ -12,7 +24,7 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + 'static {
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<(), ErrBox>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<(), ErrBox>;
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<(), ErrBox>;
-  fn glob(&self, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox>;
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>, ErrBox>;
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<PathBuf, ErrBox>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
