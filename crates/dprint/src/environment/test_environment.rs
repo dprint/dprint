@@ -1,16 +1,14 @@
 use dprint_core::types::ErrBox;
-use globset::{Glob, GlobSet, GlobSetBuilder};
 use parking_lot::Mutex;
 use path_clean::PathClean;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Error, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
-use super::Environment;
+use super::{DirEntry, DirEntryKind, Environment};
 use crate::plugins::CompilationResult;
-use crate::utils::is_negated_glob;
 
 struct BufferData {
   data: Vec<u8>,
@@ -273,38 +271,39 @@ impl Environment for TestEnvironment {
     }
   }
 
-  fn glob(&self, base_path: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
-    if file_patterns.iter().all(|p| is_negated_glob(p)) {
-      return Ok(Vec::with_capacity(0));
-    }
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>, ErrBox> {
+    let mut entries = Vec::new();
+    let mut found_directories = HashSet::new();
+    let dir_path = self.clean_path(dir_path);
 
-    let base_path = self.clean_path(base_path);
-    let mut file_paths = Vec::new();
-    let includes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| !p.starts_with("!")).map(|p| p.to_owned()))?;
-    let excludes_set = file_patterns_to_glob_set(file_patterns.iter().filter(|p| p.starts_with("!")).map(|p| String::from(&p[1..])))?;
     let files = self.files.lock();
-
     for key in files.keys() {
-      let mut has_exclude = false;
-      if excludes_set.is_match(key.file_name().unwrap()) {
-        has_exclude = true;
+      if key.parent().unwrap() == dir_path {
+        entries.push(DirEntry {
+          kind: DirEntryKind::File,
+          path: key.clone(),
+        });
       } else {
-        for ancestor in key.ancestors() {
-          if excludes_set.is_match(ancestor) {
-            has_exclude = true;
+        let mut current_dir = key.parent();
+        while let Some(ancestor_dir) = current_dir {
+          let ancestor_parent_dir = match ancestor_dir.parent() {
+            Some(dir) => dir.to_path_buf(),
+            None => break,
+          };
+
+          if ancestor_parent_dir == dir_path && found_directories.insert(ancestor_dir) {
+            entries.push(DirEntry {
+              kind: DirEntryKind::Directory,
+              path: ancestor_dir.to_path_buf(),
+            });
             break;
           }
-        }
-      }
-
-      if !has_exclude && key.starts_with(&base_path) {
-        if includes_set.is_match(key) || includes_set.is_match(key.file_name().unwrap()) {
-          file_paths.push(key.clone());
+          current_dir = ancestor_dir.parent();
         }
       }
     }
 
-    Ok(file_paths)
+    Ok(entries)
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
@@ -419,20 +418,4 @@ impl Environment for TestEnvironment {
     }
     Ok(())
   }
-}
-
-fn file_patterns_to_glob_set(file_patterns: impl Iterator<Item = String>) -> Result<GlobSet, ErrBox> {
-  let mut builder = GlobSetBuilder::new();
-  for file_pattern in file_patterns {
-    match Glob::new(&file_pattern) {
-      Ok(glob) => {
-        builder.add(glob);
-      }
-      Err(err) => return err!("Error parsing glob {}: {}", file_pattern, err),
-    }
-  }
-  return match builder.build() {
-    Ok(glob_set) => Ok(glob_set),
-    Err(err) => err!("Error building glob set: {}", err),
-  };
 }

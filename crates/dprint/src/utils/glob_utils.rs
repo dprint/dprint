@@ -1,16 +1,62 @@
 use std::borrow::Cow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dprint_cli_core::types::ErrBox;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
-// Adapted from https://github.com/dsherret/ts-morph/blob/0f8a77a9fa9d74e32f88f36992d527a2f059c6ac/packages/common/src/fileSystem/FileUtils.ts#L272
+use crate::environment::{DirEntryKind, Environment};
+
+pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
+  if file_patterns.iter().all(|p| is_negated_glob(p)) {
+    // performance improvement (see issue #379)
+    log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns);
+    return Ok(Vec::with_capacity(0));
+  }
+
+  let start_instant = std::time::Instant::now();
+  log_verbose!(environment, "Globbing: {:?}", file_patterns);
+
+  let glob_matcher = GlobMatcher::new(
+    file_patterns,
+    &GlobMatcherOptions {
+      case_insensitive: cfg!(windows),
+    },
+  )?;
+  let mut results = Vec::new();
+
+  let mut pending_dirs = vec![base.as_ref().to_path_buf()];
+
+  while !pending_dirs.is_empty() {
+    let entries = environment.dir_info(pending_dirs.pop().unwrap())?;
+    for entry in entries.into_iter() {
+      match entry.kind {
+        DirEntryKind::Directory => {
+          if !glob_matcher.is_ignored(&entry.path) {
+            pending_dirs.push(entry.path);
+          }
+        }
+        DirEntryKind::File => {
+          if glob_matcher.is_match(&entry.path) {
+            results.push(entry.path);
+          }
+        }
+      }
+    }
+  }
+
+  log_verbose!(environment, "File(s) matched: {:?}", results);
+  log_verbose!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
+
+  Ok(results)
+}
 
 pub fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
   file_patterns.iter().map(|p| to_absolute_glob(p, base_dir)).collect()
 }
 
 pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
+  // Adapted from https://github.com/dsherret/ts-morph/blob/0f8a77a9fa9d74e32f88f36992d527a2f059c6ac/packages/common/src/fileSystem/FileUtils.ts#L272
+
   // convert backslashes to forward slashes (don't worry about matching file names with back slashes)
   let mut pattern = pattern.replace("\\", "/");
   let dir = dir.replace("\\", "/");

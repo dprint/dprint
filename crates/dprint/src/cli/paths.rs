@@ -5,6 +5,7 @@ use dprint_cli_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::plugins::Plugin;
+use crate::utils::glob;
 
 use super::configuration::ResolvedConfig;
 use super::patterns::get_all_file_patterns;
@@ -71,7 +72,7 @@ fn resolve_file_paths(
   let cwd = environment.cwd();
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
   if is_in_sub_dir {
-    let mut file_paths = environment.glob(&cwd, file_patterns)?;
+    let mut file_paths = glob(environment, &cwd, file_patterns)?;
     if args.file_patterns.is_empty() {
       // filter file paths by cwd if no CLI paths are specified
       file_paths.extend(absolute_paths.iter().filter(|path| path.starts_with(&cwd)).map(ToOwned::to_owned));
@@ -80,7 +81,7 @@ fn resolve_file_paths(
     }
     return Ok(file_paths);
   } else {
-    let mut file_paths = environment.glob(&config.base_path, file_patterns)?;
+    let mut file_paths = glob(environment, &config.base_path, file_patterns)?;
     file_paths.extend(absolute_paths.clone());
     return Ok(file_paths);
   }
