@@ -96,6 +96,7 @@ function Loader() {
     plugins={plugins}
     selectedPlugin={plugin}
     onSelectPlugin={setPlugin}
+    setPlugins={setPlugins}
     isLoading={isLoading}
   />;
 }

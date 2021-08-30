@@ -1,4 +1,6 @@
-import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import ow from "ow";
+import React, { ChangeEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Modal from "react-modal";
 import SplitPane from "react-split-pane";
 import "./external/react-splitpane.css";
 import { CodeEditor, ExternalLink, Language } from "./components";
@@ -6,6 +8,8 @@ import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
 import "./Playground.css";
 import { PluginInfo } from "./plugins";
+
+Modal.setAppElement("#root");
 
 export interface PlaygroundProps {
   configText: string;
@@ -18,7 +22,20 @@ export interface PlaygroundProps {
   plugins: PluginInfo[];
   onSelectPlugin: (plugin: PluginInfo) => void;
   isLoading: boolean;
+  setPlugins: (plugins: PluginInfo[]) => void;
 }
+
+const defaultNewPluginJSON = JSON.stringify(
+  {
+    url: "https://plugins.dprint.dev/typescript-0.51.0.wasm",
+    configSchemaUrl: "https://plugins.dprint.dev/schemas/typescript-v0.json",
+    language: "typescript",
+    // Get this directly from the wasm file
+    fileExtensions: [".ts"],
+  },
+  null,
+  2,
+);
 
 export function Playground({
   configText,
@@ -31,9 +48,12 @@ export function Playground({
   plugins,
   onSelectPlugin,
   isLoading,
+  setPlugins,
 }: PlaygroundProps) {
   const [scrollTop, setScrollTop] = useState(0);
   const [fileExtension, setFileExtension] = useState<string | undefined>(undefined);
+  const [modalIsOpen, setIsOpen] = React.useState(false);
+  const [newPluginJson, setNewPluginJson] = React.useState("");
 
   useEffect(() => {
     setFileExtension(fileExtensions[0]);
@@ -79,8 +99,50 @@ export function Playground({
     setFileExtension(event.target.value);
   }, [setFileExtension]);
 
+  const onNewPluginLoad = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    setNewPluginJson(defaultNewPluginJSON);
+    setIsOpen(true);
+  }, [setNewPluginJson, setIsOpen]);
+
+  const onCloseModal = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    ow(newPluginJson, ow.string.nonEmpty);
+
+    const pluginInfo = JSON.parse(newPluginJson) as PluginInfo;
+
+    // TODO: replace this with schema validation
+    ow(
+      pluginInfo,
+      ow.object.exactShape({
+        url: ow.string.nonEmpty,
+        configSchemaUrl: ow.string,
+        language: ow.string.nonEmpty,
+        fileExtensions: ow.array.ofType(ow.string.nonEmpty),
+      }),
+    );
+    setIsOpen(false);
+
+    setPlugins([
+      ...plugins,
+      pluginInfo,
+    ]);
+    onSelectPlugin(pluginInfo);
+  }, [plugins, setPlugins, newPluginJson, setIsOpen, onSelectPlugin]);
+
   return (
     <div className="App">
+      <Modal
+        isOpen={modalIsOpen}
+        onRequestClose={onCloseModal}
+        contentLabel="Plugin ino"
+      >
+        {/* TODO: pass JSON schema */}
+        <CodeEditor
+          language={Language.Json}
+          onChange={setNewPluginJson}
+          text={newPluginJson}
+        />
+        <button onClick={onCloseModal}>Load plugin</button>
+      </Modal>
       <SplitPane split="horizontal" defaultSize={53} allowResize={false}>
         <header className="appHeader">
           <h1 id="title">dprint - Playground</h1>
@@ -111,6 +173,9 @@ export function Playground({
                 <div className="row">
                   <div className="column">
                     Plugin:
+                  </div>
+                  <div className="column">
+                    <button onClick={onNewPluginLoad}>✍</button>
                   </div>
                   <div className="column" style={{ flex: 1, display: "flex" }}>
                     <select onChange={e => onSelectPlugin(plugins[e.target.selectedIndex])} style={{ flex: 1 }} value={selectedPlugin.url}>
