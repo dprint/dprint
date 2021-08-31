@@ -50,8 +50,8 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
   Ok(results)
 }
 
-pub fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
-  file_patterns.iter().map(|p| to_absolute_glob(p, base_dir)).collect()
+pub fn to_absolute_globs(file_patterns: Vec<String>, base_dir: &str) -> Vec<String> {
+  file_patterns.into_iter().map(|p| to_absolute_glob(&p, base_dir)).collect()
 }
 
 pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
@@ -167,7 +167,7 @@ fn is_windows_absolute_pattern(pattern: &str) -> bool {
 
   // now check for the last slash
   let next_char = chars.next();
-  matches!(next_char, Some('/' | '\\'))
+  matches!(next_char, Some('/'))
 }
 
 pub struct GlobMatcherOptions {
@@ -225,8 +225,6 @@ mod tests {
     assert_eq!(is_absolute_pattern("!/test.ts"), true);
     assert_eq!(is_absolute_pattern("D:/test.ts"), true);
     assert_eq!(is_absolute_pattern("!D:/test.ts"), true);
-    assert_eq!(is_absolute_pattern("D:\\test.ts"), true);
-    assert_eq!(is_absolute_pattern("!D:\\test.ts"), true);
   }
 
   #[test]
