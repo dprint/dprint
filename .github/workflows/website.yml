@@ -1,6 +1,10 @@
 # Copyright 2020-2021 David Sherret. All rights reserved. MIT license.
 name: Website
-on: [push, pull_request]
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest

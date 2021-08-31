@@ -50,8 +50,8 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
   Ok(results)
 }
 
-pub fn to_absolute_globs(file_patterns: &Vec<String>, base_dir: &str) -> Vec<String> {
-  file_patterns.iter().map(|p| to_absolute_glob(p, base_dir)).collect()
+pub fn to_absolute_globs(file_patterns: Vec<String>, base_dir: &str) -> Vec<String> {
+  file_patterns.into_iter().map(|p| to_absolute_glob(&p, base_dir)).collect()
 }
 
 pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
@@ -61,9 +61,24 @@ pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
   let mut pattern = pattern.replace("\\", "/");
   let dir = dir.replace("\\", "/");
 
+  // check to see if glob is negated
+  let is_negated = is_negated_glob(&pattern);
+  if is_negated {
+    pattern.drain(..1); // remove the leading "!"
+  }
+
+  // .gitignore: "If there is a separator at the beginning or middle (or both) of
+  // the pattern, then the pattern is relative to the directory level of the particular
+  // .gitignore file itself. Otherwise the pattern may also match at any level below the
+  // .gitignore level."
+  let is_relative = match pattern.find("/") {
+    Some(index) => index != pattern.len() - 1, // not the end of the pattern
+    None => false,
+  };
+
   // trim starting ./ from glob patterns
   if pattern.starts_with("./") {
-    pattern = pattern.chars().skip(2).collect();
+    pattern.drain(..2);
   }
 
   // when the glob pattern is only a . use an empty string
@@ -74,15 +89,13 @@ pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
   // store last character before glob is modified
   let suffix = pattern.chars().last();
 
-  // check to see if glob is negated (and not a leading negated-extglob)
-  let is_negated = is_negated_glob(&pattern);
-  if is_negated {
-    pattern = pattern.chars().skip(1).collect(); // remove the leading "!"
-  }
-
   // make glob absolute
-  if !is_absolute_path(&pattern) {
-    pattern = glob_join(dir, pattern);
+  if !is_absolute_pattern(&pattern) {
+    if is_relative || pattern.starts_with("**/") || pattern.trim().is_empty() {
+      pattern = glob_join(dir, pattern);
+    } else {
+      pattern = glob_join(dir, format!("**/{}", pattern));
+    }
   }
 
   // if glob had a trailing `/`, re-add it back
@@ -126,13 +139,14 @@ fn glob_join(dir: String, pattern: String) -> String {
   }
 }
 
-fn is_absolute_path(file_path: &str) -> bool {
-  file_path.starts_with("/") || is_windows_absolute_path(file_path)
+pub fn is_absolute_pattern(pattern: &str) -> bool {
+  let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { &pattern };
+  pattern.starts_with("/") || is_windows_absolute_pattern(pattern)
 }
 
-fn is_windows_absolute_path(file_path: &str) -> bool {
+fn is_windows_absolute_pattern(pattern: &str) -> bool {
   // ex. D:/
-  let mut chars = file_path.chars();
+  let mut chars = pattern.chars();
 
   // ensure the first character is alphabetic
   let next_char = chars.next();
@@ -153,7 +167,7 @@ fn is_windows_absolute_path(file_path: &str) -> bool {
 
   // now check for the last slash
   let next_char = chars.next();
-  next_char == Some('/')
+  matches!(next_char, Some('/'))
 }
 
 pub struct GlobMatcherOptions {
@@ -204,19 +218,47 @@ mod tests {
   use super::*;
 
   #[test]
+  fn it_should_get_if_absolute_pattern() {
+    assert_eq!(is_absolute_pattern("test.ts"), false);
+    assert_eq!(is_absolute_pattern("!test.ts"), false);
+    assert_eq!(is_absolute_pattern("/test.ts"), true);
+    assert_eq!(is_absolute_pattern("!/test.ts"), true);
+    assert_eq!(is_absolute_pattern("D:/test.ts"), true);
+    assert_eq!(is_absolute_pattern("!D:/test.ts"), true);
+  }
+
+  #[test]
   fn it_should_get_absolute_globs() {
-    assert_eq!("/**/*.ts", to_absolute_glob("**/*.ts", "/"));
-    assert_eq!("/**/*.ts", to_absolute_glob("/**/*.ts", "/"));
-    assert_eq!("/test/**/*.ts", to_absolute_glob("**/*.ts", "/test"));
-    assert_eq!("/test/**/*.ts", to_absolute_glob("**/*.ts", "/test/"));
-    assert_eq!("/**/*.ts", to_absolute_glob("/**/*.ts", "/test"));
-    assert_eq!("/**/*.ts", to_absolute_glob("/**/*.ts", "/test/"));
-    assert_eq!("D:/**/*.ts", to_absolute_glob("D:/**/*.ts", "/test/"));
-    assert_eq!("D:/**/*.ts", to_absolute_glob("**/*.ts", "D:/"));
-    assert_eq!("D:/test", to_absolute_glob(".", "D:\\test"));
-    assert_eq!("/test/asdf.ts", to_absolute_glob("\\test\\asdf.ts", "D:\\test"));
-    assert_eq!("!D:/test/**/*.ts", to_absolute_glob("!**/*.ts", "D:\\test"));
-    assert_eq!("///test/**/*.ts", to_absolute_glob("///test/**/*.ts", "D:\\test"));
-    assert_eq!("CD:/**/*.ts", to_absolute_glob("**/*.ts", "CD:\\"));
+    assert_eq!(to_absolute_glob("**/*.ts", "/"), "/**/*.ts");
+    assert_eq!(to_absolute_glob("/**/*.ts", "/"), "/**/*.ts");
+    assert_eq!(to_absolute_glob("**/*.ts", "/test"), "/test/**/*.ts");
+    assert_eq!(to_absolute_glob("**/*.ts", "/test/"), "/test/**/*.ts");
+    assert_eq!(to_absolute_glob("/**/*.ts", "/test"), "/**/*.ts");
+    assert_eq!(to_absolute_glob("/**/*.ts", "/test/"), "/**/*.ts");
+    assert_eq!(to_absolute_glob("D:/**/*.ts", "/test/"), "D:/**/*.ts");
+    assert_eq!(to_absolute_glob("**/*.ts", "D:/"), "D:/**/*.ts");
+    assert_eq!(to_absolute_glob(".", "D:\\test"), "D:/test");
+    assert_eq!(to_absolute_glob("\\test\\asdf.ts", "D:\\test"), "/test/asdf.ts");
+    assert_eq!(to_absolute_glob("!**/*.ts", "D:\\test"), "!D:/test/**/*.ts");
+    assert_eq!(to_absolute_glob("///test/**/*.ts", "D:\\test"), "///test/**/*.ts");
+    assert_eq!(to_absolute_glob("**/*.ts", "CD:\\"), "CD:/**/*.ts");
+
+    assert_eq!(to_absolute_glob("./test.ts", "/test/"), "/test/test.ts");
+    assert_eq!(to_absolute_glob("test.ts", "/test/"), "/test/**/test.ts");
+    assert_eq!(to_absolute_glob("*/test.ts", "/test/"), "/test/*/test.ts");
+    assert_eq!(to_absolute_glob("*test.ts", "/test/"), "/test/**/*test.ts");
+    assert_eq!(to_absolute_glob("**/test.ts", "/test/"), "/test/**/test.ts");
+    assert_eq!(to_absolute_glob("/test.ts", "/test/"), "/test.ts");
+    assert_eq!(to_absolute_glob("test/", "/test/"), "/test/**/test/");
+
+    assert_eq!(to_absolute_glob("!./test.ts", "/test/"), "!/test/test.ts");
+    assert_eq!(to_absolute_glob("!test.ts", "/test/"), "!/test/**/test.ts");
+    assert_eq!(to_absolute_glob("!*/test.ts", "/test/"), "!/test/*/test.ts");
+    assert_eq!(to_absolute_glob("!*test.ts", "/test/"), "!/test/**/*test.ts");
+    assert_eq!(to_absolute_glob("!**/test.ts", "/test/"), "!/test/**/test.ts");
+    assert_eq!(to_absolute_glob("!/test.ts", "/test/"), "!/test.ts");
+    assert_eq!(to_absolute_glob("!test/", "/test/"), "!/test/**/test/");
+    // has a slash in the middle, so it's relative
+    assert_eq!(to_absolute_glob("test/test.ts", "/test/"), "/test/test/test.ts");
   }
 }
