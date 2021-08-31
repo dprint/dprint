@@ -3,7 +3,7 @@ use std::path::Path;
 use dprint_cli_core::types::ErrBox;
 
 use crate::environment::Environment;
-use crate::utils::{to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions};
+use crate::utils::{is_absolute_pattern, to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions};
 
 use super::configuration::ResolvedConfig;
 use super::CliArgs;
@@ -46,10 +46,10 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str)
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(if args.file_patterns.is_empty() {
-    to_absolute_globs(&config.includes, &config.base_path.to_string_lossy())
+    to_absolute_globs(&process_config_patterns(&config.includes), &config.base_path.to_string_lossy())
   } else {
     // resolve CLI patterns based on the current working directory
-    to_absolute_globs(&args.file_patterns, cwd)
+    to_absolute_globs(&process_cli_patterns(&args.file_patterns), cwd)
   });
 
   return file_patterns;
@@ -60,10 +60,10 @@ fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str)
 
   file_patterns.extend(
     if args.exclude_file_patterns.is_empty() {
-      to_absolute_globs(&config.excludes, &config.base_path.to_string_lossy())
+      to_absolute_globs(&process_config_patterns(&config.excludes), &config.base_path.to_string_lossy())
     } else {
       // resolve CLI patterns based on the current working directory
-      to_absolute_globs(&args.exclude_file_patterns, cwd)
+      to_absolute_globs(&process_cli_patterns(&args.exclude_file_patterns), cwd)
     }
     .into_iter()
     .map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }),
@@ -106,5 +106,55 @@ fn process_file_pattern_slashes(file_pattern: &mut String) {
   }
   if file_pattern.starts_with("!./") {
     *file_pattern = format!("!{}", &file_pattern[3..]);
+  }
+}
+
+fn process_cli_patterns(file_patterns: &Vec<String>) -> Vec<String> {
+  file_patterns.iter().map(|pattern| process_cli_pattern(pattern)).collect()
+}
+
+fn process_cli_pattern(file_pattern: &str) -> String {
+  if is_absolute_pattern(file_pattern) {
+    file_pattern.to_string()
+  } else if file_pattern.starts_with("./") {
+    file_pattern.to_string()
+  } else {
+    // make all cli specified patterns relative
+    format!("./{}", file_pattern)
+  }
+}
+
+fn process_config_patterns(file_patterns: &Vec<String>) -> Vec<String> {
+  file_patterns.iter().map(|pattern| process_config_pattern(pattern)).collect()
+}
+
+fn process_config_pattern(file_pattern: &str) -> String {
+  // make config patterns that start with `/` be relative
+  if file_pattern.starts_with("/") {
+    format!(".{}", file_pattern)
+  } else {
+    file_pattern.to_string()
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn it_should_process_config_pattern() {
+    assert_eq!(process_config_pattern("/test"), "./test");
+    assert_eq!(process_config_pattern("./test"), "./test");
+    assert_eq!(process_config_pattern("test"), "test");
+    assert_eq!(process_config_pattern("**/test"), "**/test");
+  }
+
+  #[test]
+  fn it_should_process_cli_pattern() {
+    assert_eq!(process_cli_pattern("/test"), "/test");
+    assert_eq!(process_cli_pattern("C:\\test"), "C:\\test");
+    assert_eq!(process_cli_pattern("./test"), "./test");
+    assert_eq!(process_cli_pattern("test"), "./test");
+    assert_eq!(process_cli_pattern("**/test"), "./**/test");
   }
 }

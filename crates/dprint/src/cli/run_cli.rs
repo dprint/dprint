@@ -1262,21 +1262,33 @@ mod tests {
   fn it_should_format_files_with_config_excludes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
+    let file_path3 = "/file3.txt";
+    let sub_dir_file_path2 = "/sub-dir/file2.txt";
+    let sub_dir_file_path3 = "/sub-dir/file3.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .write_file(file_path1, "text1")
-      .write_file(file_path2, "text2")
+      .write_file(file_path1, "text")
+      .write_file(file_path2, "text")
+      .write_file(file_path3, "text")
+      .write_file(sub_dir_file_path2, "text")
+      .write_file(sub_dir_file_path3, "text")
       .with_default_config(|c| {
-        c.add_includes("**/*.txt").add_excludes("/file2.txt").add_remote_wasm_plugin();
+        c.add_includes("**/*.txt")
+          .add_excludes("/file2.txt")
+          .add_excludes("file3.txt")
+          .add_remote_wasm_plugin();
       })
       .initialize()
       .build();
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.take_logged_errors().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text");
+    assert_eq!(environment.read_file(&sub_dir_file_path2).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&sub_dir_file_path3).unwrap(), "text");
   }
 
   #[test]
