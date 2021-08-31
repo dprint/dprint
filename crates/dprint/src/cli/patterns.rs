@@ -3,7 +3,7 @@ use std::path::Path;
 use dprint_cli_core::types::ErrBox;
 
 use crate::environment::Environment;
-use crate::utils::{is_absolute_pattern, to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions};
+use crate::utils::{is_absolute_pattern, is_negated_glob, to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions};
 
 use super::configuration::ResolvedConfig;
 use super::CliArgs;
@@ -116,11 +116,15 @@ fn process_cli_patterns(file_patterns: &Vec<String>) -> Vec<String> {
 fn process_cli_pattern(file_pattern: &str) -> String {
   if is_absolute_pattern(file_pattern) {
     file_pattern.to_string()
-  } else if file_pattern.starts_with("./") {
+  } else if file_pattern.starts_with("./") || file_pattern.starts_with("!./") {
     file_pattern.to_string()
   } else {
     // make all cli specified patterns relative
-    format!("./{}", file_pattern)
+    if is_negated_glob(file_pattern) {
+      format!("!./{}", &file_pattern[1..])
+    } else {
+      format!("./{}", file_pattern)
+    }
   }
 }
 
@@ -132,6 +136,8 @@ fn process_config_pattern(file_pattern: &str) -> String {
   // make config patterns that start with `/` be relative
   if file_pattern.starts_with("/") {
     format!(".{}", file_pattern)
+  } else if file_pattern.starts_with("!/") {
+    format!("!.{}", &file_pattern[1..])
   } else {
     file_pattern.to_string()
   }
@@ -142,19 +148,30 @@ mod test {
   use super::*;
 
   #[test]
-  fn it_should_process_config_pattern() {
-    assert_eq!(process_config_pattern("/test"), "./test");
-    assert_eq!(process_config_pattern("./test"), "./test");
-    assert_eq!(process_config_pattern("test"), "test");
-    assert_eq!(process_config_pattern("**/test"), "**/test");
-  }
-
-  #[test]
   fn it_should_process_cli_pattern() {
     assert_eq!(process_cli_pattern("/test"), "/test");
     assert_eq!(process_cli_pattern("C:\\test"), "C:\\test");
     assert_eq!(process_cli_pattern("./test"), "./test");
     assert_eq!(process_cli_pattern("test"), "./test");
     assert_eq!(process_cli_pattern("**/test"), "./**/test");
+
+    assert_eq!(process_cli_pattern("!/test"), "!/test");
+    assert_eq!(process_cli_pattern("!C:\\test"), "!C:\\test");
+    assert_eq!(process_cli_pattern("!./test"), "!./test");
+    assert_eq!(process_cli_pattern("!test"), "!./test");
+    assert_eq!(process_cli_pattern("!**/test"), "!./**/test");
+  }
+
+  #[test]
+  fn it_should_process_config_pattern() {
+    assert_eq!(process_config_pattern("/test"), "./test");
+    assert_eq!(process_config_pattern("./test"), "./test");
+    assert_eq!(process_config_pattern("test"), "test");
+    assert_eq!(process_config_pattern("**/test"), "**/test");
+
+    assert_eq!(process_config_pattern("!/test"), "!./test");
+    assert_eq!(process_config_pattern("!./test"), "!./test");
+    assert_eq!(process_config_pattern("!test"), "!test");
+    assert_eq!(process_config_pattern("!**/test"), "!**/test");
   }
 }

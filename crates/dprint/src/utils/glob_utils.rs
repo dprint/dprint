@@ -61,6 +61,12 @@ pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
   let mut pattern = pattern.replace("\\", "/");
   let dir = dir.replace("\\", "/");
 
+  // check to see if glob is negated
+  let is_negated = is_negated_glob(&pattern);
+  if is_negated {
+    pattern.drain(..1); // remove the leading "!"
+  }
+
   // .gitignore: "If there is a separator at the beginning or middle (or both) of
   // the pattern, then the pattern is relative to the directory level of the particular
   // .gitignore file itself. Otherwise the pattern may also match at any level below the
@@ -72,7 +78,7 @@ pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
 
   // trim starting ./ from glob patterns
   if pattern.starts_with("./") {
-    pattern = pattern.chars().skip(2).collect();
+    pattern.drain(..2);
   }
 
   // when the glob pattern is only a . use an empty string
@@ -82,12 +88,6 @@ pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
 
   // store last character before glob is modified
   let suffix = pattern.chars().last();
-
-  // check to see if glob is negated (and not a leading negated-extglob)
-  let is_negated = is_negated_glob(&pattern);
-  if is_negated {
-    pattern = pattern.chars().skip(1).collect(); // remove the leading "!"
-  }
 
   // make glob absolute
   if !is_absolute_pattern(&pattern) {
@@ -140,6 +140,7 @@ fn glob_join(dir: String, pattern: String) -> String {
 }
 
 pub fn is_absolute_pattern(pattern: &str) -> bool {
+  let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { &pattern };
   pattern.starts_with("/") || is_windows_absolute_pattern(pattern)
 }
 
@@ -217,6 +218,18 @@ mod tests {
   use super::*;
 
   #[test]
+  fn it_should_get_if_absolute_pattern() {
+    assert_eq!(is_absolute_pattern("test.ts"), false);
+    assert_eq!(is_absolute_pattern("!test.ts"), false);
+    assert_eq!(is_absolute_pattern("/test.ts"), true);
+    assert_eq!(is_absolute_pattern("!/test.ts"), true);
+    assert_eq!(is_absolute_pattern("D:/test.ts"), true);
+    assert_eq!(is_absolute_pattern("!D:/test.ts"), true);
+    assert_eq!(is_absolute_pattern("D:\\test.ts"), true);
+    assert_eq!(is_absolute_pattern("!D:\\test.ts"), true);
+  }
+
+  #[test]
   fn it_should_get_absolute_globs() {
     assert_eq!(to_absolute_glob("**/*.ts", "/"), "/**/*.ts");
     assert_eq!(to_absolute_glob("/**/*.ts", "/"), "/**/*.ts");
@@ -239,6 +252,14 @@ mod tests {
     assert_eq!(to_absolute_glob("**/test.ts", "/test/"), "/test/**/test.ts");
     assert_eq!(to_absolute_glob("/test.ts", "/test/"), "/test.ts");
     assert_eq!(to_absolute_glob("test/", "/test/"), "/test/**/test/");
+
+    assert_eq!(to_absolute_glob("!./test.ts", "/test/"), "!/test/test.ts");
+    assert_eq!(to_absolute_glob("!test.ts", "/test/"), "!/test/**/test.ts");
+    assert_eq!(to_absolute_glob("!*/test.ts", "/test/"), "!/test/*/test.ts");
+    assert_eq!(to_absolute_glob("!*test.ts", "/test/"), "!/test/**/*test.ts");
+    assert_eq!(to_absolute_glob("!**/test.ts", "/test/"), "!/test/**/test.ts");
+    assert_eq!(to_absolute_glob("!/test.ts", "/test/"), "!/test.ts");
+    assert_eq!(to_absolute_glob("!test/", "/test/"), "!/test/**/test/");
     // has a slash in the middle, so it's relative
     assert_eq!(to_absolute_glob("test/test.ts", "/test/"), "/test/test/test.ts");
   }
