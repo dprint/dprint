@@ -4,7 +4,6 @@ use dprint_core::types::ErrBox;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use walkdir::WalkDir;
 
 use super::{DirEntry, DirEntryKind, Environment};
 use crate::plugins::CompilationResult;
@@ -91,16 +90,15 @@ impl Environment for RealEnvironment {
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>, ErrBox> {
     let mut entries = Vec::new();
 
-    let walker = WalkDir::new(dir_path).follow_links(false).max_depth(1).min_depth(1);
-    for entry in walker {
+    for entry in std::fs::read_dir(dir_path)? {
       let entry = entry?;
-      let metadata = entry.metadata()?;
-      if metadata.is_dir() {
+      let file_type = entry.file_type()?;
+      if file_type.is_dir() {
         entries.push(DirEntry {
           kind: DirEntryKind::Directory,
           path: entry.path().to_path_buf(),
         });
-      } else if metadata.is_file() {
+      } else if file_type.is_file() {
         entries.push(DirEntry {
           kind: DirEntryKind::File,
           path: entry.path().to_path_buf(),
