@@ -175,9 +175,10 @@ fn output_editor_info<TEnvironment: Environment>(
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]
   struct EditorInfo {
-    pub schema_version: u32,
-    pub cli_version: String,
-    pub plugins: Vec<EditorPluginInfo>,
+    schema_version: u32,
+    cli_version: String,
+    config_schema_url: String,
+    plugins: Vec<EditorPluginInfo>,
   }
 
   #[derive(serde::Serialize)]
@@ -214,6 +215,7 @@ fn output_editor_info<TEnvironment: Environment>(
   environment.log_silent(&serde_json::to_string(&EditorInfo {
     schema_version: 4,
     cli_version: env!("CARGO_PKG_VERSION").to_string(),
+    config_schema_url: "https://dprint.dev/schemas/v0.json".to_string(),
     plugins,
   })?);
 
@@ -1750,7 +1752,7 @@ SOFTWARE.
     run_test_cli(vec!["editor-info"], &environment).unwrap();
     let mut final_output = r#"{"schemaVersion":4,"cliVersion":""#.to_string();
     final_output.push_str(&env!("CARGO_PKG_VERSION").to_string());
-    final_output.push_str(r#"","plugins":["#);
+    final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
     final_output
       .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/schemas/test.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
     final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);

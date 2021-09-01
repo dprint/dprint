@@ -16,8 +16,9 @@ Outputs something like:
 
 ```
 {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "cliVersion": "0.17.0",
+    "configSchemaUrl": "https://dprint.dev/schemas/v0.json",
     "plugins":[{
         "name": "test-plugin",
         "version": "0.1.0",
@@ -40,16 +41,17 @@ Outputs something like:
 1. If the `schemaVersion` number is less than the expected, output a message saying they need to update their global `dprint` version.
 2. If the `schemaVersion` number is greater than the expected, output a message saying the editor extension is not compatible and they may need to update their editor extension to the latest version.
 
-This schema can be represented by the following TypeScript type:
+This schema can be represented by the following TypeScript types:
 
 ```ts
-interface EditorInfo {
+interface CliInfo {
   schemaVersion: number;
   cliVersion: string;
-  plugins: EditorPluginInfo[];
+  configSchemaUrl: string;
+  plugins: PluginInfo[];
 }
 
-interface EditorPluginInfo {
+interface PluginInfo {
   name: string;
   version: string;
   configKey: string;
