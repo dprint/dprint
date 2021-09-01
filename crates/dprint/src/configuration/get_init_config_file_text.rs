@@ -54,7 +54,6 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
   };
 
   let mut json_text = String::from("{\n");
-  json_text.push_str("  \"$schema\": \"https://dprint.dev/schemas/v0.json\",\n");
   json_text.push_str("  \"incremental\": true,\n");
 
   if let Some(selected_plugins) = &selected_plugins {
@@ -174,7 +173,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "typescript": {
   },
@@ -207,7 +205,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "json": {
   },
@@ -234,7 +231,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [],
@@ -257,7 +253,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "includes": ["**/*.{ps}"],
   "excludes": [],
@@ -278,7 +273,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [
@@ -325,7 +319,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "typescript": {
   },
@@ -367,7 +360,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "includes": ["**/*.{ts,tsx,js,jsx,json}"],
   "excludes": [

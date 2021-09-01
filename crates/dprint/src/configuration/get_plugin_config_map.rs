@@ -17,11 +17,9 @@ fn get_plugin_config_map_inner(plugin: &Box<dyn Plugin>, config_map: &mut Config
 
   if let Some(plugin_config_map) = config_map.remove(config_key) {
     if let ConfigMapValue::HashMap(plugin_config_map) = plugin_config_map {
-      let mut plugin_config_map = plugin_config_map;
-      plugin_config_map.remove("$schema");
       Ok(plugin_config_map)
     } else {
-      return err!("Expected the configuration property '{}' to be an object.", config_key);
+      err!("Expected the configuration property '{}' to be an object.", config_key)
     }
   } else {
     Ok(HashMap::new())
@@ -42,14 +40,12 @@ mod tests {
     let mut config_map = HashMap::new();
     let mut ts_config_map = HashMap::new();
     ts_config_map.insert(String::from("lineWidth"), ConfigKeyValue::from_i32(40));
-    ts_config_map.insert(String::from("$schema"), ConfigKeyValue::from_str("test"));
 
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
     config_map.insert(String::from("typescript"), ConfigMapValue::HashMap(ts_config_map.clone()));
     let plugin = create_plugin();
     let result = get_plugin_config_map(&(Box::new(plugin) as Box<dyn Plugin>), &mut config_map).unwrap();
-    ts_config_map.remove("$schema"); // should not be in result
-    assert_eq!(result, ts_config_map.clone());
+    assert_eq!(result, ts_config_map);
     assert_eq!(config_map.contains_key("typescript"), false);
   }
 
