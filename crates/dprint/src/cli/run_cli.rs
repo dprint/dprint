@@ -176,6 +176,7 @@ fn output_editor_info<TEnvironment: Environment>(
   #[serde(rename_all = "camelCase")]
   struct EditorInfo {
     pub schema_version: u32,
+    pub cli_version: String,
     pub plugins: Vec<EditorPluginInfo>,
   }
 
@@ -183,9 +184,13 @@ fn output_editor_info<TEnvironment: Environment>(
   #[serde(rename_all = "camelCase")]
   struct EditorPluginInfo {
     name: String,
+    version: String,
+    config_key: String,
     file_extensions: Vec<String>,
-    #[serde(default = "Vec::new")]
     file_names: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    config_schema_url: Option<String>,
+    help_url: String,
   }
 
   let mut plugins = Vec::new();
@@ -193,12 +198,24 @@ fn output_editor_info<TEnvironment: Environment>(
   for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver)? {
     plugins.push(EditorPluginInfo {
       name: plugin.name().to_string(),
+      version: plugin.version().to_string(),
+      config_key: plugin.config_key().to_string(),
       file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
       file_names: plugin.file_names().iter().map(|ext| ext.to_string()).collect(),
+      config_schema_url: if plugin.config_schema_url().trim().is_empty() {
+        None
+      } else {
+        Some(plugin.config_schema_url().trim().to_string())
+      },
+      help_url: plugin.help_url().to_string(),
     });
   }
 
-  environment.log_silent(&serde_json::to_string(&EditorInfo { schema_version: 3, plugins })?);
+  environment.log_silent(&serde_json::to_string(&EditorInfo {
+    schema_version: 4,
+    cli_version: env!("CARGO_PKG_VERSION").to_string(),
+    plugins,
+  })?);
 
   Ok(())
 }
@@ -1731,19 +1748,20 @@ SOFTWARE.
       })
       .build(); // build only, don't initialize
     run_test_cli(vec!["editor-info"], &environment).unwrap();
-    assert_eq!(
-      environment.take_logged_messages(),
-      vec![
-        r#"{"schemaVersion":3,"plugins":[{"name":"test-plugin","fileExtensions":["txt"],"fileNames":[]},{"name":"test-process-plugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"]}]}"#
-      ]
-    );
+    let mut final_output = r#"{"schemaVersion":4,"cliVersion":""#.to_string();
+    final_output.push_str(&env!("CARGO_PKG_VERSION").to_string());
+    final_output.push_str(r#"","plugins":["#);
+    final_output
+      .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/schemas/test.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
+    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);
+    assert_eq!(environment.take_logged_messages(), vec![final_output]);
     assert_eq!(
       environment.take_logged_errors(),
       vec![
         "Compiling https://plugins.dprint.dev/test-plugin.wasm",
         "Extracting zip for test-process-plugin"
       ]
-    )
+    );
   }
 
   struct EditorServiceCommunicator {

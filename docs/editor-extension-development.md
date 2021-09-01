@@ -1,4 +1,6 @@
-# Developing an Editor Extension (Schema Version 3)
+# Developing an Editor Extension (Schema Version 4)
+
+Note: Schema version 4 was introduced in dprint 0.17
 
 Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
 
@@ -10,20 +12,55 @@ Called first in order to get information about the current working directory.
 dprint editor-info
 ```
 
-Outputs:
+Outputs something like:
 
 ```
 {
     "schemaVersion": 3,
+    "cliVersion": "0.17.0",
     "plugins":[{
         "name": "test-plugin",
-        "fileExtensions": ["txt"]
+        "version": "0.1.0",
+        "config_key": "test",
+        "fileExtensions": ["txt"],
+        "fileNames": [],
+        "helpUrl": "https://dprint.dev/plugins/test-plugin"
+    }, {
+        "name": "javascript-plugin",
+        "version": "0.2.1",
+        "config_key": "javascript",
+        "fileExtensions": ["js"],
+        "fileNames": [],
+        "configSchemaUrl": "https://dprint.dev/schemas/javascript-plugin.json",
+        "helpUrl": "https://dprint.dev/plugins/javascript-plugin"
     }]
 }
 ```
 
 1. If the `schemaVersion` number is less than the expected, output a message saying they need to update their global `dprint` version.
 2. If the `schemaVersion` number is greater than the expected, output a message saying the editor extension is not compatible and they may need to update their editor extension to the latest version.
+
+This schema can be represented by the following TypeScript type:
+
+```ts
+interface EditorInfo {
+  schemaVersion: number;
+  cliVersion: string;
+  plugins: EditorPluginInfo[];
+}
+
+interface EditorPluginInfo {
+  name: string;
+  version: string;
+  configKey: string;
+  fileExtensions: string[];
+  // these are exact file names the extension should format regardless of extension
+  fileNames: string[];
+  // will be `undefined` when the plugin does not have a schema url
+  configSchemaUrl?: string;
+  helpUrl: string;
+}
+```
 
 ## dprint editor-service
 
