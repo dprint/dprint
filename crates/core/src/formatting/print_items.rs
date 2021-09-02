@@ -64,8 +64,12 @@ impl PrintItems {
   }
 
   pub fn push_str(&mut self, item: &str) {
+    self.push_string(item.to_string());
+  }
+
+  pub fn push_string(&mut self, item: String) {
     let string_container = with_bump_allocator(|bump| {
-      let result = bump.alloc(StringContainer::new(String::from(item)));
+      let result = bump.alloc(StringContainer::new(item));
       unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(result) }
     });
     self.push_item_internal(PrintItem::String(string_container));
@@ -171,7 +175,7 @@ impl Iterator for PrintItemsIterator {
   }
 }
 
-impl Into<PrintItems> for &str {
+impl Into<PrintItems> for &'static str {
   fn into(self) -> PrintItems {
     let mut items = PrintItems::new();
     items.push_str(self);
@@ -182,15 +186,7 @@ impl Into<PrintItems> for &str {
 impl Into<PrintItems> for String {
   fn into(self) -> PrintItems {
     let mut items = PrintItems::new();
-    items.push_str(&self);
-    items
-  }
-}
-
-impl Into<PrintItems> for &String {
-  fn into(self) -> PrintItems {
-    let mut items = PrintItems::new();
-    items.push_str(self);
+    items.push_string(self);
     items
   }
 }

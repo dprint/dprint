@@ -225,7 +225,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 }
 
 fn parse_array_element(element: &ArrayElement) -> PrintItems {
-  (&element.text).into()
+  element.text.to_string().into()
 }
 
 // helper functions
