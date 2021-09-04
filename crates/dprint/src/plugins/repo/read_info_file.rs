@@ -129,35 +129,36 @@ fn get_array<'a>(value: &mut JsonObject<'a>, name: &str) -> Result<JsonArray<'a>
 #[cfg(test)]
 mod test {
   use super::*;
-  use crate::environment::TestEnvironment;
+  use crate::environment::{TestEnvironment, TestEnvironmentBuilder, TestInfoFilePlugin};
+  use pretty_assertions::assert_eq;
 
   #[test]
   fn should_get_info() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(
-      REMOTE_INFO_URL,
-      r#"{
-    "schemaVersion": 3,
-    "pluginSystemSchemaVersion": 3,
-    "latest": [{
-        "name": "dprint-plugin-typescript",
-        "version": "0.17.2",
-        "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-        "configKey": "typescript",
-        "fileExtensions": ["ts", "tsx"],
-        "configExcludes": ["**/node_modules"]
-    }, {
-        "name": "dprint-plugin-jsonc",
-        "version": "0.2.3",
-        "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
-        "fileExtensions": ["json"],
-        "fileNames": ["test-file"],
-        "configExcludes": ["**/*-lock.json"],
-        "checksum": "test-checksum"
-    }]
-}"#
-        .as_bytes(),
-    );
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-typescript".to_string(),
+            version: "0.17.2".to_string(),
+            url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+            config_key: Some("typescript".to_string()),
+            file_extensions: vec!["ts".to_string(), "tsx".to_string()],
+            config_excludes: vec!["**/node_modules".to_string()],
+            ..Default::default()
+          })
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-jsonc".to_string(),
+            version: "0.2.3".to_string(),
+            url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
+            config_key: None,
+            file_extensions: vec!["json".to_string()],
+            file_names: Some(vec!["test-file".to_string()]),
+            config_excludes: vec!["**/*-lock.json".to_string()],
+            checksum: Some("test-checksum".to_string()),
+            ..Default::default()
+          });
+      })
+      .build();
     let info_file = read_info_file(&environment).unwrap();
     assert_eq!(
       info_file,

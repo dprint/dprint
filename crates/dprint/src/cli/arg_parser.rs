@@ -1,4 +1,4 @@
-use super::StdInReader;
+use crate::utils::StdInReader;
 use dprint_core::types::ErrBox;
 
 pub struct CliArgs {
@@ -40,7 +40,7 @@ impl CliArgs {
 pub enum SubCommand {
   Check,
   Fmt,
-  Init,
+  Config(ConfigSubCommand),
   ClearCache,
   OutputFilePaths,
   OutputResolvedConfig,
@@ -48,11 +48,17 @@ pub enum SubCommand {
   Version,
   License,
   Help(String),
-  EditorInfo, // todo: deprecate
+  EditorInfo,
   EditorService(EditorServiceSubCommand),
   StdInFmt(StdInFmtSubCommand),
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ConfigSubCommand {
+  Init,
+  Update,
 }
 
 #[derive(Debug, PartialEq)]
@@ -88,7 +94,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
   }
 
   let cli_parser = create_cli_parser(false);
-  let matches = match cli_parser.get_matches_from_safe(args) {
+  let matches = match cli_parser.get_matches_from_safe(&args) {
     Ok(result) => result,
     Err(err) => return err!("{}", err.to_string()),
   };
@@ -111,7 +117,12 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
       }
     }
     ("check", _) => SubCommand::Check,
-    ("init", _) => SubCommand::Init,
+    ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
+    ("config", Some(matches)) => SubCommand::Config(match matches.subcommand() {
+      ("init", _) => ConfigSubCommand::Init,
+      ("update", _) => ConfigSubCommand::Update,
+      _ => unreachable!(),
+    }),
     ("clear-cache", _) => SubCommand::ClearCache,
     ("output-file-paths", _) => SubCommand::OutputFilePaths,
     ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
@@ -245,6 +256,19 @@ EXAMPLES:
                 .about("Checks for any files that haven't been formatted.")
                 .add_resolve_file_path_args()
                 .add_incremental_arg()
+        )
+        .subcommand(
+            SubCommand::with_name("config")
+                .about("Functionality related to the configuration file.")
+                .setting(AppSettings::SubcommandRequiredElseHelp)
+                .subcommand(
+                  SubCommand::with_name("init")
+                      .about("Initializes a configuration file in the current directory.")
+                )
+                .subcommand(
+                  SubCommand::with_name("update")
+                      .about("Updates the plugins in the configuration file.")
+                )
         )
         .subcommand(
             SubCommand::with_name("output-file-paths")

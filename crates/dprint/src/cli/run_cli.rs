@@ -1,5 +1,6 @@
 use crate::cli::patterns::FileMatcher;
 use crate::cli::plugins::get_plugins_from_args;
+use crate::cli::ConfigSubCommand;
 use crossterm::style::Stylize;
 use dprint_core::types::ErrBox;
 use parking_lot::Mutex;
@@ -9,13 +10,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::cache::Cache;
-use crate::configuration;
 use crate::environment::Environment;
 use crate::plugins::{output_plugin_config_diagnostics, Plugin, PluginPools, PluginResolver};
 use crate::utils::{get_difference, get_table_text, pretty_print_json_text, ErrorCountLogger, BOM_CHAR};
 
+use super::configuration;
 use super::configuration::resolve_config_from_args;
-use super::editor_service::run_editor_service;
+use super::editor_service;
 use super::format::{format_with_plugin_pools, run_parallelized};
 use super::incremental::{get_incremental_file, IncrementalFile};
 use super::paths::{get_and_resolve_file_paths, get_file_paths_by_plugin, get_file_paths_by_plugin_and_err_if_empty};
@@ -33,10 +34,13 @@ pub fn run_cli<TEnvironment: Environment>(
   match &args.sub_command {
     SubCommand::Help(help_text) => output_help(&args, cache, environment, plugin_resolver, help_text),
     SubCommand::License => output_license(&args, cache, environment, plugin_resolver),
-    SubCommand::EditorInfo => output_editor_info(&args, cache, environment, plugin_resolver),
-    SubCommand::EditorService(cmd) => run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools, cmd),
+    SubCommand::EditorInfo => editor_service::output_editor_info(&args, cache, environment, plugin_resolver),
+    SubCommand::EditorService(cmd) => editor_service::run_editor_service(&args, cache, environment, plugin_resolver, plugin_pools, cmd),
     SubCommand::ClearCache => clear_cache(environment),
-    SubCommand::Init => init_config_file(environment, &args.config),
+    SubCommand::Config(cmd) => match cmd {
+      ConfigSubCommand::Init => configuration::init_config_file(environment, &args.config),
+      ConfigSubCommand::Update => configuration::update_plugins_config_file(&args, cache, environment, plugin_resolver),
+    },
     SubCommand::Version => output_version(environment),
     SubCommand::StdInFmt(cmd) => {
       let config = resolve_config_from_args(&args, cache, environment)?;
@@ -166,62 +170,6 @@ fn output_license<TEnvironment: Environment>(
   Ok(())
 }
 
-fn output_editor_info<TEnvironment: Environment>(
-  args: &CliArgs,
-  cache: &Cache<TEnvironment>,
-  environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<(), ErrBox> {
-  #[derive(serde::Serialize)]
-  #[serde(rename_all = "camelCase")]
-  struct EditorInfo {
-    schema_version: u32,
-    cli_version: String,
-    config_schema_url: String,
-    plugins: Vec<EditorPluginInfo>,
-  }
-
-  #[derive(serde::Serialize)]
-  #[serde(rename_all = "camelCase")]
-  struct EditorPluginInfo {
-    name: String,
-    version: String,
-    config_key: String,
-    file_extensions: Vec<String>,
-    file_names: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    config_schema_url: Option<String>,
-    help_url: String,
-  }
-
-  let mut plugins = Vec::new();
-
-  for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver)? {
-    plugins.push(EditorPluginInfo {
-      name: plugin.name().to_string(),
-      version: plugin.version().to_string(),
-      config_key: plugin.config_key().to_string(),
-      file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
-      file_names: plugin.file_names().iter().map(|ext| ext.to_string()).collect(),
-      config_schema_url: if plugin.config_schema_url().trim().is_empty() {
-        None
-      } else {
-        Some(plugin.config_schema_url().trim().to_string())
-      },
-      help_url: plugin.help_url().to_string(),
-    });
-  }
-
-  environment.log_silent(&serde_json::to_string(&EditorInfo {
-    schema_version: 4,
-    cli_version: env!("CARGO_PKG_VERSION").to_string(),
-    config_schema_url: "https://dprint.dev/schemas/v0.json".to_string(),
-    plugins,
-  })?);
-
-  Ok(())
-}
-
 fn clear_cache(environment: &impl Environment) -> Result<(), ErrBox> {
   let cache_dir = environment.get_cache_dir();
   environment.remove_dir_all(&cache_dir)?;
@@ -257,26 +205,6 @@ fn output_resolved_config(plugins: Vec<Box<dyn Plugin>>, environment: &impl Envi
   }
 
   Ok(())
-}
-
-fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<(), ErrBox> {
-  let config_file_path = get_config_path(config_arg)?;
-  return if !environment.path_exists(&config_file_path) {
-    environment.write_file(&config_file_path, &configuration::get_init_config_file_text(environment)?)?;
-    environment.log(&format!("\nCreated {}", config_file_path.display()));
-    environment.log("\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor");
-    Ok(())
-  } else {
-    err!("Configuration file '{}' already exists.", config_file_path.display())
-  };
-
-  fn get_config_path(config_arg: &Option<String>) -> Result<PathBuf, ErrBox> {
-    return Ok(if let Some(config_arg) = config_arg.as_ref() {
-      PathBuf::from(config_arg)
-    } else {
-      PathBuf::from("./dprint.json")
-    });
-  }
 }
 
 fn output_stdin_format<TEnvironment: Environment>(
@@ -405,17 +333,13 @@ fn output_format_times<TEnvironment: Environment>(
 #[cfg(test)]
 mod tests {
   use crossterm::style::Stylize;
-  use dprint_core::plugins::process::{StdIoMessenger, StdIoReaderWriter};
-  use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;
-  use std::io::{Read, Write};
-  use std::path::{Path, PathBuf};
+  use std::path::PathBuf;
 
-  use crate::cli::TestStdInReader;
-  use crate::configuration::*;
   use crate::environment::{Environment, TestEnvironment, TestEnvironmentBuilder};
   use crate::test_helpers::{self, run_test_cli, run_test_cli_with_stdin};
   use crate::utils::get_difference;
+  use crate::utils::TestStdInReader;
 
   #[test]
   fn it_should_output_version_with_v() {
@@ -1581,97 +1505,6 @@ mod tests {
   }
 
   #[test]
-  fn it_should_initialize() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(
-      crate::plugins::REMOTE_INFO_URL,
-      r#"{
-            "schemaVersion": 3,
-            "pluginSystemSchemaVersion": 3,
-            "latest": [{
-                "name": "dprint-plugin-typescript",
-                "version": "0.17.2",
-                "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-                "fileExtensions": ["ts"],
-                "configKey": "typescript",
-                "configExcludes": []
-            }, {
-                "name": "dprint-plugin-jsonc",
-                "version": "0.2.3",
-                "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
-                "fileExtensions": ["json"],
-                "fileNames": [],
-                "configKey": "json",
-                "configExcludes": []
-            }]
-        }"#
-        .as_bytes(),
-    );
-    let expected_text = get_init_config_file_text(&environment).unwrap();
-    environment.clear_logs();
-    run_test_cli(vec!["init"], &environment).unwrap();
-    assert_eq!(
-      environment.take_logged_errors(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
-    );
-    assert_eq!(
-      environment.take_logged_messages(),
-      vec![
-        "\nCreated ./dprint.json",
-        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
-      ]
-    );
-    assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
-  }
-
-  #[test]
-  fn it_should_initialize_with_specified_config_path() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(
-      crate::plugins::REMOTE_INFO_URL,
-      r#"{
-            "schemaVersion": 3,
-            "pluginSystemSchemaVersion": 3,
-            "latest": [{
-                "name": "dprint-plugin-typescript",
-                "version": "0.17.2",
-                "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-                "fileExtensions": ["json"],
-                "configKey": "typescript",
-                "configExcludes": []
-            }]
-        }"#
-        .as_bytes(),
-    );
-    let expected_text = get_init_config_file_text(&environment).unwrap();
-    environment.clear_logs();
-    run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
-    assert_eq!(
-      environment.take_logged_errors(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
-    );
-    assert_eq!(
-      environment.take_logged_messages(),
-      vec![
-        "\nCreated ./test.config.json",
-        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
-      ]
-    );
-    assert_eq!(environment.read_file("./test.config.json").unwrap(), expected_text);
-  }
-
-  #[test]
-  fn it_should_error_when_config_file_exists_on_initialize() {
-    let environment = TestEnvironmentBuilder::new()
-      .with_default_config(|c| {
-        c.add_includes("**/*.txt");
-      })
-      .build();
-    let error_message = run_test_cli(vec!["init"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), "Configuration file './dprint.json' already exists.");
-  }
-
-  #[test]
   fn it_should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
@@ -1737,154 +1570,6 @@ SOFTWARE.
         "License text."
       ]
     );
-  }
-
-  #[test]
-  fn it_should_output_editor_plugin_info() {
-    // it should not output anything when downloading plugins
-    let environment = TestEnvironmentBuilder::new()
-      .add_remote_process_plugin()
-      .add_remote_wasm_plugin()
-      .with_default_config(|c| {
-        c.add_remote_wasm_plugin().add_remote_process_plugin();
-      })
-      .build(); // build only, don't initialize
-    run_test_cli(vec!["editor-info"], &environment).unwrap();
-    let mut final_output = r#"{"schemaVersion":4,"cliVersion":""#.to_string();
-    final_output.push_str(&env!("CARGO_PKG_VERSION").to_string());
-    final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
-    final_output
-      .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/schemas/test.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
-    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);
-    assert_eq!(environment.take_logged_messages(), vec![final_output]);
-    assert_eq!(
-      environment.take_logged_errors(),
-      vec![
-        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
-        "Extracting zip for test-process-plugin"
-      ]
-    );
-  }
-
-  struct EditorServiceCommunicator {
-    messenger: StdIoMessenger<Box<dyn Read + Send>, Box<dyn Write + Send>>,
-  }
-
-  impl EditorServiceCommunicator {
-    pub fn new(stdin: Box<dyn Write + Send>, stdout: Box<dyn Read + Send>) -> Self {
-      let reader_writer = StdIoReaderWriter::new(stdout, stdin);
-      let messenger = StdIoMessenger::new(reader_writer);
-      EditorServiceCommunicator { messenger }
-    }
-
-    pub fn check_file(&mut self, file_path: &Path) -> Result<bool, ErrBox> {
-      self.messenger.send_message(1, vec![file_path.into()])?;
-      let response_code = self.messenger.read_code()?;
-      self.messenger.read_zero_part_message()?;
-      Ok(response_code == 1)
-    }
-
-    pub fn format_text(&mut self, file_path: &Path, file_text: &str) -> Result<Option<String>, ErrBox> {
-      self.messenger.send_message(2, vec![file_path.into(), file_text.into()])?;
-      let response_code = self.messenger.read_code()?;
-      match response_code {
-        0 => {
-          self.messenger.read_zero_part_message()?;
-          Ok(None)
-        }
-        1 => Ok(Some(self.messenger.read_single_part_string_message()?)),
-        2 => err!("{}", self.messenger.read_single_part_error_message()?),
-        _ => err!("Unknown result: {}", response_code),
-      }
-    }
-
-    pub fn exit(&mut self) {
-      self.messenger.send_message(0, vec![]).unwrap();
-    }
-  }
-
-  #[test]
-  fn it_should_format_for_editor_service() {
-    let txt_file_path = PathBuf::from("/file.txt");
-    let ts_file_path = PathBuf::from("/file.ts");
-    let other_ext_path = PathBuf::from("/file.asdf");
-    let ignored_file_path = PathBuf::from("/ignored_file.txt");
-    let environment = TestEnvironmentBuilder::new()
-      .add_remote_wasm_plugin()
-      .add_remote_process_plugin()
-      .with_default_config(|c| {
-        c.add_remote_wasm_plugin()
-          .add_remote_process_plugin()
-          .add_includes("**/*.{txt,ts}")
-          .add_excludes("ignored_file.txt");
-      })
-      .write_file(&txt_file_path, "")
-      .write_file(&ts_file_path, "")
-      .write_file(&other_ext_path, "")
-      .write_file(&ignored_file_path, "text")
-      .initialize()
-      .build();
-    let stdin = environment.stdin_writer();
-    let stdout = environment.stdout_reader();
-
-    let result = std::thread::spawn({
-      let environment = environment.clone();
-      move || {
-        let mut communicator = EditorServiceCommunicator::new(stdin, stdout);
-
-        assert_eq!(communicator.check_file(&txt_file_path).unwrap(), true);
-        assert_eq!(communicator.check_file(&PathBuf::from("/non-existent.txt")).unwrap(), true);
-        assert_eq!(communicator.check_file(&other_ext_path).unwrap(), false);
-        assert_eq!(communicator.check_file(&ts_file_path).unwrap(), true);
-        assert_eq!(communicator.check_file(&ignored_file_path).unwrap(), false);
-
-        assert_eq!(communicator.format_text(&txt_file_path, "testing").unwrap().unwrap(), "testing_formatted");
-        assert_eq!(communicator.format_text(&txt_file_path, "testing_formatted").unwrap().is_none(), true); // it is already formatted
-        assert_eq!(communicator.format_text(&other_ext_path, "testing").unwrap().is_none(), true); // can't format
-        assert_eq!(
-          communicator.format_text(&txt_file_path, "plugin: format this text").unwrap().unwrap(),
-          "format this text_formatted_process"
-        );
-        assert_eq!(
-          communicator.format_text(&txt_file_path, "should_error").err().unwrap().to_string(),
-          "Did error."
-        );
-        assert_eq!(
-          communicator.format_text(&txt_file_path, "plugin: should_error").err().unwrap().to_string(),
-          "Did error."
-        );
-        assert_eq!(
-          communicator.format_text(&PathBuf::from("/file.txt_ps"), "testing").unwrap().unwrap(),
-          "testing_formatted_process"
-        );
-
-        // write a new file and make sure the service picks up the changes
-        environment
-          .write_file(
-            &PathBuf::from("./dprint.json"),
-            r#"{
-                    "includes": ["**/*.txt"],
-                    "test-plugin": {
-                        "ending": "new_ending"
-                    },
-                    "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
-                }"#,
-          )
-          .unwrap();
-
-        assert_eq!(communicator.check_file(&ts_file_path).unwrap(), false); // shouldn't match anymore
-        assert_eq!(communicator.check_file(&txt_file_path).unwrap(), true); // still ok
-        assert_eq!(communicator.format_text(&txt_file_path, "testing").unwrap().unwrap(), "testing_new_ending");
-
-        communicator.exit();
-      }
-    });
-
-    // usually this would be the editor's process id, but this is ok for testing purposes
-    let pid = std::process::id().to_string();
-    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
-
-    result.join().unwrap();
   }
 
   #[test]
@@ -2036,7 +1721,7 @@ SOFTWARE.
       })
       .write_file("/test.txt_ps", "")
       .build();
-    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum(&environment);
+    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
     let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
     assert_eq!(
@@ -2093,7 +1778,7 @@ SOFTWARE.
       })
       .write_file("/test.txt_ps", "")
       .build();
-    let actual_plugin_zip_file_checksum = test_helpers::get_test_process_plugin_zip_checksum(&environment);
+    let actual_plugin_zip_file_checksum = test_helpers::get_test_process_plugin_zip_checksum();
     let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
 
     assert_eq!(
@@ -2104,8 +1789,6 @@ SOFTWARE.
       )
     );
   }
-
-  // todo: implement way of running these tests all on their own
 
   #[test]
   fn it_should_format_many_files() {
@@ -2208,6 +1891,7 @@ SUBCOMMANDS:
     init                      Initializes a configuration file in the current directory.
     fmt                       Formats the source files and writes the result to the file system.
     check                     Checks for any files that haven't been formatted.
+    config                    Functionality related to the configuration file.
     output-file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
     output-resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
     output-format-times       Prints the amount of time it takes to format each file. Use this for debugging.

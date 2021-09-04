@@ -1,5 +1,5 @@
 use dprint_cli_core::download_url;
-use dprint_cli_core::logging::{log_action_with_progress, show_multi_select, show_select, Logger, ProgressBars};
+use dprint_cli_core::logging::{log_action_with_progress, show_confirm, show_multi_select, show_select, Logger, ProgressBars};
 use dprint_core::types::ErrBox;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -180,6 +180,10 @@ impl Environment for RealEnvironment {
       item_indent_width,
       items.iter().map(|(value, text)| (value.to_owned(), text)).collect(),
     )
+  }
+
+  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool, ErrBox> {
+    show_confirm(&self.logger, "dprint", prompt_message, default_value)
   }
 
   fn get_terminal_width(&self) -> u16 {

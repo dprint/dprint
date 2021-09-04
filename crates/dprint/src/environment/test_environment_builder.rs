@@ -1,5 +1,5 @@
+use serde::Serialize;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::{Environment, TestEnvironment};
@@ -36,18 +36,21 @@ impl TestConfigFileBuilder {
     }
     // todo: reduce code duplication... was lazy
     if let Some(plugins) = self.plugins.as_ref() {
-      let plugins_text = plugins.iter().map(|name| format!("\"{}\"", name)).collect::<Vec<_>>().join(",\n");
+      let plugins_text = plugins.iter().map(|name| format!("  \"{}\"", name)).collect::<Vec<_>>().join(",\n");
       parts.push(format!("\"plugins\": [\n{}\n]", plugins_text))
     }
     if let Some(includes) = self.includes.as_ref() {
-      let text = includes.iter().map(|v| format!("\"{}\"", v)).collect::<Vec<_>>().join(",\n");
+      let text = includes.iter().map(|v| format!("  \"{}\"", v)).collect::<Vec<_>>().join(",\n");
       parts.push(format!("\"includes\": [\n{}\n]", text))
     }
     if let Some(excludes) = self.excludes.as_ref() {
-      let text = excludes.iter().map(|v| format!("\"{}\"", v)).collect::<Vec<_>>().join(",\n");
+      let text = excludes.iter().map(|v| format!("  \"{}\"", v)).collect::<Vec<_>>().join(",\n");
       parts.push(format!("\"excludes\": [\n{}\n]", text))
     }
-    format!("{{\n{}\n}}", parts.join(",\n"))
+    format!(
+      "{{\n{}\n}}",
+      parts.join(",\n").lines().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n")
+    )
   }
 
   pub fn set_incremental(&mut self, value: bool) -> &mut Self {
@@ -73,11 +76,19 @@ impl TestConfigFileBuilder {
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
-    self.add_remote_process_plugin_with_checksum(&test_helpers::get_test_process_plugin_checksum(&self.environment))
+    // get the process plugin file and check its checksum
+    let remote_file_text = self.environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").unwrap();
+    let checksum = dprint_cli_core::checksums::get_sha256_checksum(&remote_file_text);
+    self.add_remote_process_plugin_with_checksum(&checksum)
   }
 
   pub fn add_remote_process_plugin_with_checksum(&mut self, checksum: &str) -> &mut Self {
-    self.add_plugin(&format!("https://plugins.dprint.dev/test-process.exe-plugin@{}", checksum,))
+    let url = "https://plugins.dprint.dev/test-process.exe-plugin";
+    if checksum.is_empty() {
+      self.add_plugin(url)
+    } else {
+      self.add_plugin(&format!("{}@{}", url, checksum))
+    }
   }
 
   pub fn ensure_plugins_section(&mut self) -> &mut Self {
@@ -109,9 +120,53 @@ impl TestConfigFileBuilder {
   }
 }
 
+#[derive(Default)]
+pub struct TestInfoFileBuilder {
+  plugin_schema_version: Option<usize>,
+  plugins: Vec<TestInfoFilePlugin>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFilePlugin {
+  pub name: String,
+  pub version: String,
+  pub url: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_names: Option<Vec<String>>,
+  pub file_extensions: Vec<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub config_key: Option<String>,
+  pub config_excludes: Vec<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub checksum: Option<String>,
+}
+
+impl TestInfoFileBuilder {
+  pub fn add_plugin(&mut self, plugin: TestInfoFilePlugin) -> &mut Self {
+    self.plugins.push(plugin);
+    self
+  }
+
+  pub fn set_plugin_schema_version(&mut self, version: usize) -> &mut Self {
+    self.plugin_schema_version = Some(version);
+    self
+  }
+
+  pub fn to_string(&self) -> String {
+    let mut parts = Vec::new();
+    parts.push("\"schemaVersion\": 3".to_string());
+    parts.push(format!("\"pluginSystemSchemaVersion\": {}", self.plugin_schema_version.unwrap_or(3)));
+    let plugins_text = serde_json::to_string_pretty(&self.plugins).unwrap();
+    parts.push(format!("\"latest\": {}", plugins_text));
+    format!("{{\n{}\n}}", parts.join(",\n"))
+  }
+}
+
 pub struct TestEnvironmentBuilder {
   environment: TestEnvironment,
   config_files: HashMap<String, TestConfigFileBuilder>,
+  info_file: Option<TestInfoFileBuilder>,
 }
 
 impl TestEnvironmentBuilder {
@@ -119,6 +174,7 @@ impl TestEnvironmentBuilder {
     Self {
       environment: TestEnvironment::new(),
       config_files: HashMap::new(),
+      info_file: None,
     }
   }
 
@@ -208,6 +264,18 @@ impl TestEnvironmentBuilder {
     config_file.to_string()
   }
 
+  pub fn with_info_file(&mut self, mut func: impl FnMut(&mut TestInfoFileBuilder)) -> &mut Self {
+    if self.info_file.is_none() {
+      self.info_file = Some(Default::default());
+    }
+    let info_file_builder = self.info_file.as_mut().unwrap();
+    func(info_file_builder);
+    self
+      .environment
+      .add_remote_file_bytes("https://plugins.dprint.dev/info.json", Vec::from(info_file_builder.to_string().as_bytes()));
+    self
+  }
+
   pub fn write_file(&mut self, file_path: impl AsRef<Path>, text: &str) -> &mut Self {
     self.environment.write_file(file_path, text).unwrap();
     self
@@ -232,26 +300,12 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
-    let buf: Vec<u8> = Vec::new();
-    let w = std::io::Cursor::new(buf);
-    let mut zip = zip::ZipWriter::new(w);
-    let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    zip
-      .start_file(
-        if cfg!(target_os = "windows") {
-          "test-process-plugin.exe"
-        } else {
-          "test-process-plugin"
-        },
-        options,
-      )
-      .unwrap();
-    zip.write(test_helpers::PROCESS_PLUGIN_EXE_BYTES).unwrap();
-    let result = zip.finish().unwrap().into_inner();
-    let zip_file_checksum = dprint_cli_core::checksums::get_sha256_checksum(&result);
-    self
-      .environment
-      .add_remote_file_bytes("https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip", result);
+    let zip_bytes = &test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    let zip_file_checksum = dprint_cli_core::checksums::get_sha256_checksum(zip_bytes);
+    self.environment.add_remote_file_bytes(
+      "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      zip_bytes.to_vec(),
+    );
     self.write_process_plugin_file(&zip_file_checksum);
     self
   }
@@ -259,27 +313,7 @@ impl TestEnvironmentBuilder {
   pub fn write_process_plugin_file(&mut self, zip_checksum: &str) -> &mut Self {
     self.environment.add_remote_file_bytes(
       "https://plugins.dprint.dev/test-process.exe-plugin",
-      format!(
-        r#"{{
-    "schemaVersion": 1,
-    "name": "test-process-plugin",
-    "version": "0.1.0",
-    "windows-x86_64": {{
-        "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-        "checksum": "{0}"
-    }},
-    "linux-x86_64": {{
-        "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-        "checksum": "{0}"
-    }},
-    "mac-x86_64": {{
-        "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-        "checksum": "{0}"
-    }}
-}}"#,
-        zip_checksum
-      )
-      .into_bytes(),
+      test_helpers::get_test_process_plugin_file_text(zip_checksum).into_bytes(),
     );
     self
   }

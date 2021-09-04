@@ -131,7 +131,7 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
     }
     json_text.push_str("  ]\n}\n");
   } else {
-    json_text.push_str("  \"includes\": [\"**/*.{ts,tsx,js,jsx,json}\"],\n");
+    json_text.push_str("  \"includes\": [\"**/*.*\"],\n");
     json_text.push_str("  \"excludes\": [\n    \"**/node_modules\",\n    \"**/*-lock.json\"\n  ],\n");
     json_text.push_str("  \"plugins\": [\n");
     json_text.push_str("    // specify plugin urls here\n");
@@ -160,14 +160,18 @@ where
 #[cfg(test)]
 mod test {
   use super::*;
-  use crate::environment::TestEnvironment;
-  use crate::plugins::REMOTE_INFO_URL;
+  use crate::environment::{TestEnvironment, TestEnvironmentBuilder, TestInfoFilePlugin};
   use pretty_assertions::assert_eq;
 
   #[test]
   fn should_get_initialization_text_when_can_access_url() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .build();
     environment.set_multi_selection_result(vec![0, 1, 2]);
     let text = get_init_config_file_text(&environment).unwrap();
     assert_eq!(
@@ -198,8 +202,13 @@ mod test {
 
   #[test]
   fn should_get_initialization_text_when_selecting_one_plugin() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .build();
     environment.set_multi_selection_result(vec![1]);
     let text = get_init_config_file_text(&environment).unwrap();
     assert_eq!(
@@ -224,8 +233,13 @@ mod test {
 
   #[test]
   fn should_get_initialization_text_when_selecting_no_plugins() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .build();
     environment.set_multi_selection_result(vec![]);
     let text = get_init_config_file_text(&environment).unwrap();
     assert_eq!(
@@ -246,8 +260,13 @@ mod test {
 
   #[test]
   fn should_get_initialization_text_when_selecting_process_plugin() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(REMOTE_INFO_URL, get_multi_plugins_config().as_bytes());
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .build();
     environment.set_multi_selection_result(vec![3]);
     let text = get_init_config_file_text(&environment).unwrap();
     assert_eq!(
@@ -274,7 +293,7 @@ mod test {
       text,
       r#"{
   "incremental": true,
-  "includes": ["**/*.{ts,tsx,js,jsx,json}"],
+  "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
@@ -296,24 +315,20 @@ mod test {
 
   #[test]
   fn should_get_initialization_text_when_selecting_other_option() {
-    let environment = TestEnvironment::new();
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.17.2".to_string(),
+          url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+          config_key: Some("typescript".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          config_excludes: vec!["test".to_string()],
+          ..Default::default()
+        });
+      })
+      .build();
     environment.set_selection_result(1);
-    environment.add_remote_file(
-      REMOTE_INFO_URL,
-      r#"{
-    "schemaVersion": 3,
-    "pluginSystemSchemaVersion": 3,
-    "latest": [{
-        "name": "dprint-plugin-typescript",
-        "version": "0.17.2",
-        "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-        "configKey": "typescript",
-        "fileExtensions": ["ts"],
-        "configExcludes": ["test"]
-    }]
-}"#
-        .as_bytes(),
-    );
     environment.set_multi_selection_result(vec![0]);
     let text = get_init_config_file_text(&environment).unwrap();
     assert_eq!(
@@ -338,30 +353,26 @@ mod test {
 
   #[test]
   fn should_get_initialization_text_when_old_plugin_system() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(
-      REMOTE_INFO_URL,
-      r#"{
-    "schemaVersion": 3,
-    "pluginSystemSchemaVersion": 9, // this is 9 instead of 3
-    "latest": [{
-        "name": "dprint-plugin-typescript",
-        "version": "0.17.2",
-        "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-        "configKey": "typescript",
-        "fileExtensions": ["ts"],
-        "configExcludes": ["asdf"]
-    }]
-}"#
-        .as_bytes(),
-    );
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.set_plugin_schema_version(9).add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.17.2".to_string(),
+          url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+          config_key: Some("typescript".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          config_excludes: vec!["asdf".to_string()],
+          ..Default::default()
+        });
+      })
+      .build();
     environment.set_multi_selection_result(vec![0]);
     let text = get_init_config_file_text(&environment).unwrap();
     assert_eq!(
       text,
       r#"{
   "incremental": true,
-  "includes": ["**/*.{ts,tsx,js,jsx,json}"],
+  "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
@@ -389,39 +400,44 @@ mod test {
     vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
   }
 
-  fn get_multi_plugins_config() -> &'static str {
-    return r#"{
-            "schemaVersion": 3,
-            "pluginSystemSchemaVersion": 3,
-            "latest": [{
-                "name": "dprint-plugin-typescript",
-                "version": "0.17.2",
-                "url": "https://plugins.dprint.dev/typescript-0.17.2.wasm",
-                "configKey": "typescript",
-                "fileExtensions": ["ts", "tsx"],
-                "configExcludes": ["**/something"]
-            }, {
-                "name": "dprint-plugin-jsonc",
-                "version": "0.2.3",
-                "url": "https://plugins.dprint.dev/json-0.2.3.wasm",
-                "configKey": "json",
-                "fileExtensions": ["json"],
-                "configExcludes": ["**/*-asdf.json"]
-            }, {
-                "name": "dprint-plugin-final",
-                "version": "0.1.2",
-                "url": "https://plugins.dprint.dev/final-0.1.2.wasm",
-                "fileExtensions": ["tsx", "rs"],
-                "fileNames": ["Cargo.toml"],
-                "configExcludes": ["**/something", "**other"]
-            }, {
-                "name": "dprint-process-plugin",
-                "version": "0.1.0",
-                "url": "https://plugins.dprint.dev/process-0.1.0.exe-plugin",
-                "fileExtensions": ["ps"],
-                "configExcludes": [],
-                "checksum": "test-checksum"
-            }]
-        }"#;
+  fn get_multi_plugins_config() -> Vec<TestInfoFilePlugin> {
+    vec![
+      TestInfoFilePlugin {
+        name: "dprint-plugin-typescript".to_string(),
+        version: "0.17.2".to_string(),
+        url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+        config_key: Some("typescript".to_string()),
+        file_extensions: vec!["ts".to_string(), "tsx".to_string()],
+        config_excludes: vec!["**/something".to_string()],
+        ..Default::default()
+      },
+      TestInfoFilePlugin {
+        name: "dprint-plugin-jsonc".to_string(),
+        version: "0.2.3".to_string(),
+        url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
+        config_key: Some("json".to_string()),
+        file_extensions: vec!["json".to_string()],
+        config_excludes: vec!["**/*-asdf.json".to_string()],
+        ..Default::default()
+      },
+      TestInfoFilePlugin {
+        name: "dprint-plugin-final".to_string(),
+        version: "0.1.2".to_string(),
+        url: "https://plugins.dprint.dev/final-0.1.2.wasm".to_string(),
+        file_names: Some(vec!["Cargo.toml".to_string()]),
+        file_extensions: vec!["tsx".to_string(), "rs".to_string()],
+        config_excludes: vec!["**/something".to_string(), "**other".to_string()],
+        ..Default::default()
+      },
+      TestInfoFilePlugin {
+        name: "dprint-process-plugin".to_string(),
+        version: "0.1.0".to_string(),
+        url: "https://plugins.dprint.dev/process-0.1.0.exe-plugin".to_string(),
+        file_extensions: vec!["ps".to_string()],
+        config_excludes: vec![],
+        checksum: Some("test-checksum".to_string()),
+        ..Default::default()
+      },
+    ]
   }
 }

@@ -17,8 +17,18 @@ pub struct PluginSourceReference {
 }
 
 impl PluginSourceReference {
+  /// Gets the source for display purposes without a checksum.
   pub fn display(&self) -> String {
     self.path_source.display()
+  }
+
+  /// Gets the source as a string with a checksum.
+  pub fn to_string(&self) -> String {
+    if let Some(checksum) = &self.checksum {
+      format!("{}@{}", self.path_source.to_string(), checksum)
+    } else {
+      self.path_source.to_string()
+    }
   }
 
   pub fn is_wasm_plugin(&self) -> bool {

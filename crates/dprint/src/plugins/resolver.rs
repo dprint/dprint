@@ -25,17 +25,17 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   pub fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
     let plugins = plugin_references
       .into_par_iter()
-      .map(|plugin_reference| self.resolve_plugin(plugin_reference))
+      .map(|plugin_reference| self.resolve_plugin(&plugin_reference))
       .collect::<Result<Vec<Box<dyn Plugin>>, ErrBox>>()?;
 
     Ok(plugins)
   }
 
-  fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Box<dyn Plugin>, ErrBox> {
-    match create_plugin(self.plugin_pools.clone(), &self.plugin_cache, self.environment.clone(), &plugin_reference) {
+  pub fn resolve_plugin(&self, plugin_reference: &PluginSourceReference) -> Result<Box<dyn Plugin>, ErrBox> {
+    match create_plugin(self.plugin_pools.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference) {
       Ok(plugin) => Ok(plugin),
       Err(err) => {
-        match self.plugin_cache.forget(&plugin_reference) {
+        match self.plugin_cache.forget(plugin_reference) {
           Ok(()) => {}
           Err(inner_err) => {
             return err!(

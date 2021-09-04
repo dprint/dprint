@@ -63,6 +63,13 @@ impl PathSource {
     }
   }
 
+  pub fn to_string(&self) -> String {
+    match self {
+      PathSource::Local(local) => local.path.to_string_lossy().to_string(),
+      PathSource::Remote(remote) => remote.url.to_string(),
+    }
+  }
+
   pub fn is_wasm_plugin(&self) -> bool {
     self.display().to_lowercase().ends_with(".wasm")
   }

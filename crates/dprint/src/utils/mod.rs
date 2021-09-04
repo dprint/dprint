@@ -9,6 +9,7 @@ mod path_source;
 mod pretty_print_json_text;
 mod reset_events;
 mod resolve_url_or_file_path;
+mod stdin_reader;
 mod table_text;
 mod thread_exit_signal;
 
@@ -23,5 +24,6 @@ pub use path_source::*;
 pub use pretty_print_json_text::*;
 pub use reset_events::*;
 pub use resolve_url_or_file_path::*;
+pub use stdin_reader::*;
 pub use table_text::*;
 pub use thread_exit_signal::*;

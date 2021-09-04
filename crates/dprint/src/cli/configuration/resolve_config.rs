@@ -11,7 +11,7 @@ use crate::environment::Environment;
 use crate::plugins::{parse_plugin_source_reference, PluginSourceReference};
 use crate::utils::{resolve_url_or_file_path, PathSource, ResolvedPath};
 
-use super::resolve_main_config_path;
+use super::resolve_main_config_path::resolve_main_config_path;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ResolvedConfig {
@@ -315,8 +315,9 @@ fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -
 #[cfg(test)]
 mod tests {
   use crate::cache::Cache;
-  use crate::cli::{parse_args, TestStdInReader};
+  use crate::cli::parse_args;
   use crate::environment::{Environment, TestEnvironment};
+  use crate::utils::TestStdInReader;
   use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;
 

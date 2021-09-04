@@ -77,6 +77,7 @@ pub struct TestEnvironment {
   deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Vec<usize>>>,
+  confirm_results: Arc<Mutex<Vec<Result<Option<bool>, ErrBox>>>>,
   is_silent: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
   std_in: MockStdInOut,
@@ -97,6 +98,7 @@ impl TestEnvironment {
       deleted_directories: Arc::new(Mutex::new(Vec::new())),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(Vec::new())),
+      confirm_results: Arc::new(Mutex::new(Vec::new())),
       is_silent: Arc::new(Mutex::new(false)),
       wasm_compile_result: Arc::new(Mutex::new(None)),
       std_in: MockStdInOut::new(),
@@ -141,6 +143,11 @@ impl TestEnvironment {
   pub fn set_multi_selection_result(&self, indexes: Vec<usize>) {
     let mut multi_selection_result = self.multi_selection_result.lock();
     *multi_selection_result = indexes;
+  }
+
+  pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>, ErrBox>>) {
+    let mut confirm_results = self.confirm_results.lock();
+    *confirm_results = values;
   }
 
   pub fn set_cwd(&self, new_path: &str) {
@@ -203,6 +210,7 @@ impl Drop for TestEnvironment {
         Vec::<String>::new(),
         "should not have logged errors left on drop"
       );
+      assert!(self.confirm_results.lock().is_empty(), "should not have confirm results left on drop");
     }
   }
 }
@@ -380,6 +388,12 @@ impl Environment for TestEnvironment {
   fn get_multi_selection(&self, prompt_message: &str, _: u16, _: &Vec<(bool, String)>) -> Result<Vec<usize>, ErrBox> {
     self.log_error(prompt_message);
     Ok(self.multi_selection_result.lock().clone())
+  }
+
+  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool, ErrBox> {
+    self.log_error(prompt_message);
+    let mut confirm_results = self.confirm_results.lock();
+    confirm_results.remove(0).map(|v| v.unwrap_or(default_value))
   }
 
   fn is_verbose(&self) -> bool {

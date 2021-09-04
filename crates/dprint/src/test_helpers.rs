@@ -1,11 +1,13 @@
+use std::io::Write;
 use std::sync::Arc;
 
 use dprint_core::types::ErrBox;
 
 use crate::cache::Cache;
-use crate::cli::{parse_args, run_cli, TestStdInReader};
-use crate::environment::{Environment, TestEnvironment};
+use crate::cli::{parse_args, run_cli};
+use crate::environment::TestEnvironment;
 use crate::plugins::{CompilationResult, PluginCache, PluginPools, PluginResolver, PluginsDropper};
+use crate::utils::TestStdInReader;
 
 // If this file doesn't exist, run `cargo build --release` for crates/test-process-plugin
 #[cfg(target_os = "windows")]
@@ -15,11 +17,29 @@ pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../ta
 
 // If this file doesn't exist, run `./build.sh` in /crates/test-plugin. (Please consider helping me do something better here :))
 pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/target/wasm32-unknown-unknown/release/test_plugin.wasm");
+// cache these so it only has to be done once across all tests
 lazy_static! {
-    // cache the compilation so this only has to be done once across all tests
-    static ref COMPILATION_RESULT: CompilationResult = {
-        crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap()
-    };
+  static ref COMPILATION_RESULT: CompilationResult = crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap();
+}
+lazy_static! {
+  pub static ref PROCESS_PLUGIN_ZIP_BYTES: Vec<u8> = {
+    let buf: Vec<u8> = Vec::new();
+    let w = std::io::Cursor::new(buf);
+    let mut zip = zip::ZipWriter::new(w);
+    let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    zip
+      .start_file(
+        if cfg!(target_os = "windows") {
+          "test-process-plugin.exe"
+        } else {
+          "test-process-plugin"
+        },
+        options,
+      )
+      .unwrap();
+    zip.write(PROCESS_PLUGIN_EXE_BYTES).unwrap();
+    zip.finish().unwrap().into_inner()
+  };
 }
 
 pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<(), ErrBox> {
@@ -45,18 +65,39 @@ pub fn run_test_cli_with_stdin(
   run_cli(&args, environment, &cache, &plugin_resolver, plugin_pools)
 }
 
-pub fn get_test_process_plugin_zip_checksum(environment: &TestEnvironment) -> String {
-  let plugin_file_bytes = environment
-    .download_file("https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip")
-    .unwrap();
-  dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
-}
-
-pub fn get_test_process_plugin_checksum(environment: &TestEnvironment) -> String {
-  let plugin_file_bytes = environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").unwrap();
-  dprint_cli_core::checksums::get_sha256_checksum(&plugin_file_bytes)
+pub fn get_test_process_plugin_zip_checksum() -> String {
+  dprint_cli_core::checksums::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES)
 }
 
 pub fn get_test_wasm_plugin_checksum() -> String {
   dprint_cli_core::checksums::get_sha256_checksum(WASM_PLUGIN_BYTES)
+}
+
+pub fn get_test_process_plugin_checksum() -> String {
+  let zip_checksum = get_test_process_plugin_zip_checksum();
+  let ps_file_bytes = get_test_process_plugin_file_text(&zip_checksum).into_bytes();
+  dprint_cli_core::checksums::get_sha256_checksum(&ps_file_bytes)
+}
+
+pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
+  format!(
+    r#"{{
+"schemaVersion": 1,
+"name": "test-process-plugin",
+"version": "0.1.0",
+"windows-x86_64": {{
+    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+    "checksum": "{0}"
+}},
+"linux-x86_64": {{
+    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+    "checksum": "{0}"
+}},
+"mac-x86_64": {{
+    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+    "checksum": "{0}"
+}}
+}}"#,
+    zip_checksum
+  )
 }
