@@ -43,7 +43,8 @@ impl ProcessPluginCommunicator {
       .stdin(Stdio::piped())
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
-      .spawn()?;
+      .spawn()
+      .map_err(|err| err_obj!("Error starting {} with args [{}]. {}", executable_file_path.display(), args.join(","), err))?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
