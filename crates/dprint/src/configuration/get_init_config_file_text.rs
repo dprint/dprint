@@ -197,7 +197,7 @@ mod test {
 "#
     );
 
-    assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
+    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
   }
 
   #[test]
@@ -228,7 +228,7 @@ mod test {
 "#
     );
 
-    assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
+    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
   }
 
   #[test]
@@ -255,7 +255,7 @@ mod test {
 "#
     );
 
-    assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
+    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
   }
 
   #[test]
@@ -282,7 +282,7 @@ mod test {
 "#
     );
 
-    assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
+    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
   }
 
   #[test]
@@ -310,7 +310,7 @@ mod test {
       "The created config file may not be as helpful of a starting point. ",
       "Error: Could not find file at url https://plugins.dprint.dev/info.json"
     ));
-    assert_eq!(environment.take_logged_errors(), expected_messages);
+    assert_eq!(environment.take_stderr_messages(), expected_messages);
   }
 
   #[test]
@@ -348,7 +348,7 @@ mod test {
 "#
     );
 
-    assert_eq!(environment.take_logged_errors(), get_standard_logged_messages());
+    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
   }
 
   #[test]
@@ -389,7 +389,7 @@ mod test {
       "Consider upgrading to support new plugins. ",
       "Plugin system schema version is 3, latest is 9."
     ));
-    assert_eq!(environment.take_logged_errors(), expected_messages);
+    assert_eq!(environment.take_stderr_messages(), expected_messages);
   }
 
   fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {

@@ -244,9 +244,9 @@ mod test {
     final_output
       .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/schemas/test.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
     final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);
-    assert_eq!(environment.take_logged_messages(), vec![final_output]);
+    assert_eq!(environment.take_stdout_messages(), vec![final_output]);
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![
         "Compiling https://plugins.dprint.dev/test-plugin.wasm",
         "Extracting zip for test-process-plugin"

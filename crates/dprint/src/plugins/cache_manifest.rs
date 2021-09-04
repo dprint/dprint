@@ -238,7 +238,7 @@ mod test {
     let environment = TestEnvironment::new();
 
     assert_eq!(read_manifest(&environment), PluginCacheManifest::new());
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]

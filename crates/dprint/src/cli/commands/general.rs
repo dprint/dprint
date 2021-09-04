@@ -103,7 +103,7 @@ mod test {
   fn it_should_output_version_with_v() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["-v"], &environment).unwrap();
-    let logged_messages = environment.take_logged_messages();
+    let logged_messages = environment.take_stdout_messages();
     assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
   }
 
@@ -111,7 +111,7 @@ mod test {
   fn it_should_output_version_with_no_plugins() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["--version"], &environment).unwrap();
-    let logged_messages = environment.take_logged_messages();
+    let logged_messages = environment.take_stdout_messages();
     assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
   }
 
@@ -119,7 +119,7 @@ mod test {
   fn it_should_output_version_and_ignore_plugins() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["--version"], &environment).unwrap();
-    let logged_messages = environment.take_logged_messages();
+    let logged_messages = environment.take_stdout_messages();
     assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
   }
 
@@ -127,7 +127,7 @@ mod test {
   fn it_should_output_help_with_no_plugins() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["--help"], &environment).unwrap();
-    let logged_messages = environment.take_logged_messages();
+    let logged_messages = environment.take_stdout_messages();
     assert_eq!(logged_messages, vec![get_expected_help_text()]);
   }
 
@@ -135,7 +135,7 @@ mod test {
   fn it_should_output_help_no_sub_commands() {
     let environment = TestEnvironment::new();
     run_test_cli(vec![], &environment).unwrap();
-    let logged_messages = environment.take_logged_messages();
+    let logged_messages = environment.take_stdout_messages();
     assert_eq!(logged_messages, vec![get_expected_help_text()]);
   }
 
@@ -145,7 +145,7 @@ mod test {
 
     run_test_cli(vec!["--help"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_messages(),
+      environment.take_stdout_messages(),
       vec![
         get_expected_help_text(),
         "\nPLUGINS HELP:",
@@ -162,7 +162,7 @@ mod test {
       .write_file("/file3.txt_ps", "const t=4;")
       .build();
     run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
-    let mut logged_messages = environment.take_logged_messages();
+    let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort();
     assert_eq!(logged_messages, vec!["/file.txt", "/file2.txt", "/file3.txt_ps"]);
   }
@@ -174,7 +174,7 @@ mod test {
       .write_file("/file2.ts", "const t=4;")
       .build();
     run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
   }
 
   #[test]
@@ -185,7 +185,7 @@ mod test {
       .write_file("/file3.txt_ps", "const t=4;")
       .build();
     run_test_cli(vec!["output-file-paths", "**\\*.*"], &environment).unwrap();
-    let mut logged_messages = environment.take_logged_messages();
+    let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort();
     assert_eq!(logged_messages, vec!["/file.txt", "/file2.txt", "/file3.txt_ps"]);
   }
@@ -203,7 +203,7 @@ mod test {
       .set_cwd("/sub")
       .build();
     run_test_cli(vec!["output-file-paths"], &environment).unwrap();
-    let mut logged_messages = environment.take_logged_messages();
+    let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort();
     assert_eq!(logged_messages, vec!["/sub/file3.txt"]);
   }
@@ -212,7 +212,7 @@ mod test {
   fn it_should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.is_dir_deleted("/cache"), true);
   }
   #[test]
@@ -220,7 +220,7 @@ mod test {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["license"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_messages(),
+      environment.take_stdout_messages(),
       vec!["==== DPRINT CLI LICENSE ====", std::str::from_utf8(include_bytes!("../../../LICENSE")).unwrap()]
     );
   }
@@ -230,7 +230,7 @@ mod test {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["license"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_messages(),
+      environment.take_stdout_messages(),
       vec![
         "==== DPRINT CLI LICENSE ====",
         std::str::from_utf8(include_bytes!("../../../LICENSE")).unwrap(),

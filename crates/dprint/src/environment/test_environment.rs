@@ -71,8 +71,8 @@ pub struct TestEnvironment {
   is_verbose: Arc<Mutex<bool>>,
   cwd: Arc<Mutex<String>>,
   files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
-  logged_messages: Arc<Mutex<Vec<String>>>,
-  logged_errors: Arc<Mutex<Vec<String>>>,
+  stdout_messages: Arc<Mutex<Vec<String>>>,
+  stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
   deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
   selection_result: Arc<Mutex<usize>>,
@@ -92,8 +92,8 @@ impl TestEnvironment {
       is_verbose: Arc::new(Mutex::new(false)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
       files: Arc::new(Mutex::new(HashMap::new())),
-      logged_messages: Arc::new(Mutex::new(Vec::new())),
-      logged_errors: Arc::new(Mutex::new(Vec::new())),
+      stdout_messages: Arc::new(Mutex::new(Vec::new())),
+      stderr_messages: Arc::new(Mutex::new(Vec::new())),
       remote_files: Arc::new(Mutex::new(HashMap::new())),
       deleted_directories: Arc::new(Mutex::new(Vec::new())),
       selection_result: Arc::new(Mutex::new(0)),
@@ -108,17 +108,17 @@ impl TestEnvironment {
     }
   }
 
-  pub fn take_logged_messages(&self) -> Vec<String> {
-    self.logged_messages.lock().drain(..).collect()
+  pub fn take_stdout_messages(&self) -> Vec<String> {
+    self.stdout_messages.lock().drain(..).collect()
   }
 
   pub fn clear_logs(&self) {
-    self.logged_messages.lock().clear();
-    self.logged_errors.lock().clear();
+    self.stdout_messages.lock().clear();
+    self.stderr_messages.lock().clear();
   }
 
-  pub fn take_logged_errors(&self) -> Vec<String> {
-    self.logged_errors.lock().drain(..).collect()
+  pub fn take_stderr_messages(&self) -> Vec<String> {
+    self.stderr_messages.lock().drain(..).collect()
   }
 
   pub fn add_remote_file(&self, path: &str, bytes: &'static [u8]) {
@@ -198,15 +198,15 @@ impl TestEnvironment {
 impl Drop for TestEnvironment {
   fn drop(&mut self) {
     // If this panics that means the logged messages or errors weren't inspected for a test.
-    // Use take_logged_messages() or take_logged_errors() and inspect the results.
-    if !std::thread::panicking() && Arc::strong_count(&self.logged_messages) == 1 {
+    // Use take_stdout_messages() or take_stderr_messages() and inspect the results.
+    if !std::thread::panicking() && Arc::strong_count(&self.stdout_messages) == 1 {
       assert_eq!(
-        self.logged_messages.lock().clone(),
+        self.stdout_messages.lock().clone(),
         Vec::<String>::new(),
         "should not have logged messages left on drop"
       );
       assert_eq!(
-        self.logged_errors.lock().clone(),
+        self.stderr_messages.lock().clone(),
         Vec::<String>::new(),
         "should not have logged errors left on drop"
       );
@@ -341,18 +341,18 @@ impl Environment for TestEnvironment {
     if *self.is_silent.lock() {
       return;
     }
-    self.logged_messages.lock().push(String::from(text));
+    self.stdout_messages.lock().push(String::from(text));
   }
 
   fn log_error_with_context(&self, text: &str, _: &str) {
     if *self.is_silent.lock() {
       return;
     }
-    self.logged_errors.lock().push(String::from(text));
+    self.stderr_messages.lock().push(String::from(text));
   }
 
   fn log_silent(&self, text: &str) {
-    self.logged_messages.lock().push(String::from(text));
+    self.stdout_messages.lock().push(String::from(text));
   }
 
   fn log_action_with_progress<

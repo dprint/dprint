@@ -213,7 +213,7 @@ mod test {
       .write_file("/file3.txt_ps", "const t=4;")
       .build();
     run_test_cli(vec!["output-format-times", "**/*.*"], &environment).unwrap();
-    let logged_messages = environment.take_logged_messages();
+    let logged_messages = environment.take_stdout_messages();
     assert_eq!(logged_messages.len(), 3); // good enough
   }
 
@@ -224,8 +224,8 @@ mod test {
       .write_file(file_path1, "text")
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
   }
 
@@ -238,8 +238,8 @@ mod test {
       .write_file(&file_path2, "text2")
       .build();
     run_test_cli(vec!["fmt", "/file.*"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted_process");
   }
@@ -252,8 +252,8 @@ mod test {
       .write_file(&file_path1, "text")
       .build();
     run_test_cli(vec!["fmt", "*"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted_process");
   }
 
@@ -269,8 +269,8 @@ mod test {
       .initialize()
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
   }
 
@@ -280,9 +280,9 @@ mod test {
       .write_file("/file.txt", "should_error") // special text that makes the plugin error
       .build();
     let error_message = run_test_cli(vec!["fmt", "/file.txt"], &environment).err().unwrap();
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt. Message: Did error.")]
     );
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
@@ -294,9 +294,9 @@ mod test {
       .write_file("/file.txt_ps", "should_error") // special text that makes the plugin error
       .build();
     let error_message = run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).err().unwrap();
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt_ps. Message: Did error.")]
     );
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
@@ -309,8 +309,8 @@ mod test {
       .write_file("/file2.txt", "test")
       .build();
     let error_message = run_test_cli(vec!["fmt", "**.txt"], &environment).err().unwrap();
-    assert_eq!(environment.take_logged_messages().len(), 0);
-    let logged_errors = environment.take_logged_errors();
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    let logged_errors = environment.take_stderr_messages();
     assert_eq!(logged_errors.len(), 1);
     assert_eq!(
       logged_errors[0].starts_with("Error formatting /file1.txt. Message: RuntimeError: unreachable"),
@@ -327,8 +327,8 @@ mod test {
       .write_file(&file_path, "plugin: format this text")
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "format this text");
   }
 
@@ -339,8 +339,8 @@ mod test {
       .write_file(&file_path, "plugin: format this text")
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted_process");
   }
 
@@ -353,8 +353,8 @@ mod test {
       .write_file(&file_path2, "plugin: format this text")
       .build();
     run_test_cli(vec!["fmt", "/*.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted_process");
   }
@@ -367,7 +367,7 @@ mod test {
     let error_message = run_test_cli(vec!["fmt", "/file.txt"], &environment).err().unwrap();
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt. Message: Did error.")]
     );
   }
@@ -379,8 +379,8 @@ mod test {
       .write_file(&file_path, "plugin: format this text")
       .build();
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "format this text");
   }
 
@@ -391,8 +391,8 @@ mod test {
       .write_file(&file_path, "plugin: format this text")
       .build();
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted");
   }
 
@@ -405,8 +405,8 @@ mod test {
       .write_file(&file_path2, "plugin: format this text")
       .build();
     run_test_cli(vec!["fmt", "*.txt_ps"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted");
   }
@@ -419,7 +419,7 @@ mod test {
     let error_message = run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).err().unwrap();
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt_ps. Message: Did error.")]
     );
   }
@@ -431,8 +431,8 @@ mod test {
       .write_file(&file_path, "text")
       .build();
     run_test_cli(vec!["fmt", "./file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
   }
 
@@ -445,8 +445,8 @@ mod test {
       .write_file(&file_path2, "text")
       .build();
     run_test_cli(vec!["fmt", "./**/*.txt", "--excludes", "./file2.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
   }
@@ -459,8 +459,8 @@ mod test {
       .write_file("/file.txt", "")
       .build();
     run_test_cli(vec!["fmt", "**/*.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -470,8 +470,8 @@ mod test {
       .write_file("/test/node_modules/file.txt", "const t=4;")
       .build();
     run_test_cli(vec!["fmt", "--allow-node-modules", "**/*.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -501,8 +501,8 @@ mod test {
 
     run_test_cli(vec!["fmt", "--config", "/config.json", "/file1.txt", "/file2.txt_ps"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted2");
   }
@@ -523,8 +523,8 @@ mod test {
 
     run_test_cli(vec!["fmt", "-c", "/config.json", "/file1.txt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
   }
 
@@ -542,8 +542,8 @@ mod test {
         "  Error: Could not find file at path /dprint.json"
       )
     );
-    assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -565,8 +565,11 @@ mod test {
     )
     .unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted");
   }
@@ -583,9 +586,9 @@ mod test {
     let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![
         "[test-plugin]: Unknown property in configuration: non-existent",
         "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
@@ -615,9 +618,9 @@ mod test {
     let error_message = run_test_cli(vec!["fmt", "**/*.txt_ps"], &environment).err().unwrap();
 
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![
         "[test-process-plugin]: Unknown property in configuration: non-existent",
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
@@ -640,8 +643,8 @@ mod test {
       error_message.to_string(),
       "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
     );
-    assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -659,8 +662,8 @@ mod test {
     )
     .unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -673,8 +676,11 @@ mod test {
     )
     .unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
@@ -692,8 +698,8 @@ mod test {
     )
     .unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
 
     // now it errors because no --plugins specified
     let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
@@ -701,8 +707,8 @@ mod test {
       error_message.to_string(),
       "Error resolving global config from configuration file. Unexpected non-string, boolean, or int property 'excess-object'."
     );
-    assert_eq!(environment.take_logged_errors().len(), 0);
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
   }
 
   #[test]
@@ -720,8 +726,8 @@ mod test {
     )
     .unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
 
     // now it errors because no --plugins specified
     let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
@@ -729,8 +735,8 @@ mod test {
       error_message.to_string(),
       "Error resolving global config from configuration file. Had 1 config diagnostic(s)."
     );
-    assert_eq!(environment.take_logged_errors(), vec!["Unknown property in configuration: excess-primitive"]);
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages(), vec!["Unknown property in configuration: excess-primitive"]);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
   }
 
   #[test]
@@ -745,8 +751,8 @@ mod test {
         "You may want to try using `dprint output-file-paths` to see which files it's finding."
       )
     );
-    assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[cfg(target_os = "windows")]
@@ -765,8 +771,8 @@ mod test {
     // formats because the file path is explicitly provided
     run_test_cli(vec!["fmt", "--", "E:\\file1.txt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
   }
 
@@ -785,8 +791,8 @@ mod test {
 
     run_test_cli(vec!["fmt", "--", "/asdf/file1.txt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
   }
 
@@ -805,8 +811,8 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
   }
@@ -826,8 +832,8 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
   }
 
@@ -845,8 +851,8 @@ mod test {
 
     run_test_cli(vec!["fmt", "/file1.txt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
   }
@@ -866,8 +872,8 @@ mod test {
 
     run_test_cli(vec!["fmt", "--excludes", "/file2.txt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
   }
@@ -885,8 +891,8 @@ mod test {
 
     run_test_cli(vec!["fmt", "--excludes="], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
   }
 
@@ -903,8 +909,8 @@ mod test {
 
     run_test_cli(vec!["fmt", "file1.txt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
   }
 
@@ -922,8 +928,8 @@ mod test {
       .build();
     run_test_cli(vec!["fmt", "/file1.txt", "--excludes", "/file2.txt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
   }
@@ -952,8 +958,8 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text");
@@ -973,7 +979,7 @@ mod test {
       .build();
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
   }
 
@@ -992,8 +998,8 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_logged_errors(), vec![
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages(), vec![
             "WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.",
             "WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"
         ]);
@@ -1012,8 +1018,8 @@ mod test {
       .build();
     environment.set_cwd("/test/other/");
     run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
   }
 
@@ -1029,9 +1035,9 @@ mod test {
       .write_file(&file_path, "text")
       .build();
     run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec!["WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"]
     );
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
@@ -1049,8 +1055,8 @@ mod test {
       .write_file(&file_path, "text")
       .build();
     run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors(), vec![
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages(), vec![
             "WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.",
             "WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"
         ]);
@@ -1071,20 +1077,20 @@ mod test {
 
     run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
-    assert_eq!(environment.take_logged_errors().iter().any(|msg| msg.contains(no_change_msg)), true);
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
 
     // update the file and ensure it's formatted
     environment.write_file(&file_path1, "asdf").unwrap();
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "asdf_formatted");
 
     // update the global config and ensure it's formatted
@@ -1100,7 +1106,7 @@ mod test {
       .unwrap();
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
-    assert_eq!(environment.take_logged_errors().iter().any(|msg| msg.contains(no_change_msg)), false);
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), false);
 
     // update the plugin config and ensure it's formatted
     environment
@@ -1119,8 +1125,8 @@ mod test {
       .unwrap();
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "asdf_formatted_custom-formatted");
 
     // Try this a few times. There was a bug where the config hashmap was being serialized causing
@@ -1128,7 +1134,7 @@ mod test {
     for _ in 1..4 {
       environment.clear_logs();
       run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
-      assert_eq!(environment.take_logged_errors().iter().any(|msg| msg.contains(no_change_msg)), true);
+      assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
     }
 
     // change the cwd and ensure it's not formatted again
@@ -1136,7 +1142,10 @@ mod test {
     environment.set_cwd("/subdir");
     run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_errors().iter().any(|msg| msg.contains("No change: /subdir/file1.txt")),
+      environment
+        .take_stderr_messages()
+        .iter()
+        .any(|msg| msg.contains("No change: /subdir/file1.txt")),
       true
     );
   }
@@ -1154,13 +1163,13 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--verbose"], &environment).unwrap();
-    assert_eq!(environment.take_logged_errors().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
   }
 
   #[test]
@@ -1169,8 +1178,8 @@ mod test {
       .write_file("/file.txt", "text_formatted")
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1180,8 +1189,8 @@ mod test {
       .write_file(&file_path, "text_formatted")
       .build();
     run_test_cli(vec!["check", "/file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages().len(), 0);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1192,14 +1201,14 @@ mod test {
     let error_message = run_test_cli(vec!["check", "/file.txt"], &environment).err().unwrap();
     assert_eq!(error_message.to_string(), get_singular_check_text());
     assert_eq!(
-      environment.take_logged_messages(),
+      environment.take_stdout_messages(),
       vec![format!(
         "{}\n{}\n--",
         format!("{} /file.txt:", "from".bold().red().to_string()),
         get_difference("const t=4;", "const t=4;_formatted").unwrap(),
       ),]
     );
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1211,7 +1220,7 @@ mod test {
 
     let error_message = run_test_cli(vec!["check", "/file1.txt", "/file2.txt"], &environment).err().unwrap();
     assert_eq!(error_message.to_string(), get_plural_check_text(2));
-    let mut logged_messages = environment.take_logged_messages();
+    let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort(); // seems like the order is not deterministic
     assert_eq!(
       logged_messages,
@@ -1228,7 +1237,7 @@ mod test {
         ),
       ]
     );
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1238,8 +1247,8 @@ mod test {
       .write_file(&file_path, "\u{FEFF}text")
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path).unwrap(), "\u{FEFF}text_formatted");
   }
 
@@ -1255,8 +1264,8 @@ mod test {
     let test_std_in = TestStdInReader::new_with_text("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
-    assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1270,8 +1279,8 @@ mod test {
     let test_std_in = TestStdInReader::new_with_text("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
-    assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1279,7 +1288,7 @@ mod test {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["format this text_formatted_process"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["format this text_formatted_process"]);
   }
 
   #[test]
@@ -1311,15 +1320,15 @@ mod test {
     // not matching file
     let test_std_in = TestStdInReader::new_with_text("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt"], &environment, test_std_in.clone()).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["text"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["text"]);
 
     // make it matching on the cli
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt", "--", "**/*.txt"], &environment, test_std_in.clone()).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
 
     // matching file
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/src/file.txt"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
   }
 
   #[test]
@@ -1339,8 +1348,8 @@ mod test {
     // Should use cwd since the absolute path wasn't provided. In order to use the proper config file,
     // the absolute path must be provided instead of a relative one in order to properly pick up
     // inclusion/exclusion rules and the proper configuration file.
-    assert_eq!(environment.take_logged_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1359,8 +1368,8 @@ mod test {
       .build();
     let test_std_in = TestStdInReader::new_with_text("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/sub-dir/file.txt"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["text_new_ending"]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec!["text_new_ending"]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
@@ -1436,8 +1445,11 @@ mod test {
     run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
 
     assert_eq!(environment.read_file("/test.txt").unwrap(), "text_formatted");
-    assert_eq!(environment.take_logged_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_logged_errors(), vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
@@ -1474,8 +1486,8 @@ mod test {
     }
 
     run_test_cli(vec!["fmt", "/*.*"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec![get_plural_formatted_text(200)]);
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(200)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
 
     for i in 0..100 {
       let file_path = format!("/file{}.txt", i);
@@ -1509,9 +1521,9 @@ mod test {
     let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(environment.take_logged_messages().len(), 0);
+    assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![
         "[test-plugin]: Unknown property in configuration: non-existent",
         "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."

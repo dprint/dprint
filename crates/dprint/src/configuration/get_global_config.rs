@@ -179,6 +179,6 @@ mod tests {
       result.err().unwrap().to_string(),
       format!("Error resolving global config from configuration file. {}", message)
     );
-    assert_eq!(test_environment.take_logged_errors(), logged_errors);
+    assert_eq!(test_environment.take_stderr_messages(), logged_errors);
   }
 }

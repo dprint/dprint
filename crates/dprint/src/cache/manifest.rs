@@ -124,7 +124,7 @@ mod test {
 
     assert_eq!(read_manifest(&environment), CacheManifest::new());
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![String::from("Resetting cache manifest. Message: key must be a string at line 1 column 10")]
     );
   }
@@ -134,7 +134,7 @@ mod test {
     let environment = TestEnvironment::new();
 
     assert_eq!(read_manifest(&environment), CacheManifest::new());
-    assert_eq!(environment.take_logged_errors().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]

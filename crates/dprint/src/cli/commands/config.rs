@@ -228,11 +228,11 @@ mod test {
     environment.clear_logs();
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
     );
     assert_eq!(
-      environment.take_logged_messages(),
+      environment.take_stdout_messages(),
       vec![
         "\nCreated ./dprint.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
@@ -247,8 +247,8 @@ mod test {
     let expected_text = get_init_config_file_text(&environment).unwrap();
     environment.clear_logs();
     run_test_cli(vec!["config", "init"], &environment).unwrap();
-    environment.take_logged_errors();
-    environment.take_logged_messages();
+    environment.take_stderr_messages();
+    environment.take_stdout_messages();
     assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
   }
 
@@ -271,11 +271,11 @@ mod test {
     environment.clear_logs();
     run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
     );
     assert_eq!(
-      environment.take_logged_messages(),
+      environment.take_stdout_messages(),
       vec![
         "\nCreated ./test.config.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
@@ -415,7 +415,7 @@ mod test {
     let expected_urls = options.expected_urls.clone();
     let environment = get_setup_env(options);
     run_test_cli(vec!["config", "update"], &environment).unwrap();
-    assert_eq!(environment.take_logged_errors(), expected_logs);
+    assert_eq!(environment.take_stderr_messages(), expected_logs);
 
     let expected_text = format!(
       r#"{{
@@ -500,7 +500,7 @@ mod test {
       .build();
     run_test_cli(vec!["config", "update"], &environment).unwrap();
     // should be empty because nothing to upgrade
-    assert!(environment.take_logged_errors().is_empty());
+    assert!(environment.take_stderr_messages().is_empty());
   }
 
   #[test]
@@ -525,7 +525,7 @@ mod test {
     environment.set_confirm_results(vec![Ok(None)]);
     run_test_cli(vec!["config", "update"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_errors(),
+      environment.take_stderr_messages(),
       vec![
         "The process plugin test-plugin 0.1.0 has a new url: https://plugins.dprint.dev/test-plugin.exe-plugin@checksum",
         "Do you wish to update it? N"
@@ -538,7 +538,7 @@ mod test {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
     assert_eq!(
-      environment.take_logged_messages(),
+      environment.take_stdout_messages(),
       vec![concat!(
         "{\n",
         "  \"test-plugin\": {\n",
@@ -558,6 +558,6 @@ mod test {
   fn it_should_output_resolved_config_no_plugins() {
     let environment = TestEnvironmentBuilder::new().with_default_config(|_| {}).build();
     run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
-    assert_eq!(environment.take_logged_messages(), vec!["{}"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
   }
 }
