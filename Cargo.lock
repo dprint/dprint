@@ -434,7 +434,7 @@ checksum = "fc4b29f4b9bb94bf267d57269fd0706d343a160937108e9619fe380645428abb"
 
 [[package]]
 name = "dprint"
-version = "0.16.3"
+version = "0.17.0"
 dependencies = [
  "clap",
  "crossterm",

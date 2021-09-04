@@ -1,14 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://dprint.dev/schemas/v0.json",
-  "title": "Dprint Configuration File",
+  "title": "dprint configuration file",
   "description": "Schema for a dprint configuration file.",
   "type": "object",
   "properties": {
-    "$schema": {
-      "description": "The JSON schema reference.",
-      "type": "string"
-    },
     "incremental": {
       "description": "Whether to format files only when they change. Setting this to `true` will dramatically speed up formatting.",
       "type": "boolean",
@@ -84,18 +80,6 @@
       "items": {
         "type": "string"
       }
-    },
-    "typescript": {
-      "$ref": "https://plugins.dprint.dev/schemas/typescript-v0.json"
-    },
-    "json": {
-      "$ref": "https://plugins.dprint.dev/schemas/json-v0.json"
-    },
-    "markdown": {
-      "$ref": "https://plugins.dprint.dev/schemas/markdown-v0.json"
-    },
-    "toml": {
-      "$ref": "https://plugins.dprint.dev/schemas/toml-v0.json"
     }
   },
   "additionalProperties": {

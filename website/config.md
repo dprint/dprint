@@ -15,7 +15,6 @@ See [Setup](/setup).
 
 ```json
 {
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "lineWidth": 80,
   "typescript": {
@@ -42,10 +41,6 @@ See [Setup](/setup).
 }
 ```
 
-## `$schema`
-
-This property is optional and provides auto-completion support in Visual Studio Code.
-
 ## Plugins
 
 The `plugins` property specifies which plugins to use for formatting. These may be URLs or file paths to a WebAssembly file of the plugin.
@@ -65,6 +60,16 @@ The `plugins` property specifies which plugins to use for formatting. These may 
 Alternatively, these may be provided to the CLI via the `--plugins <plugin urls or file paths...>` flag.
 
 Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first.
+
+### Updating Plugins
+
+Some plugins can be updated to the latest version in the configuration file by running:
+
+```bash
+dprint config update
+```
+
+Note that this functionality is currently very basic and only some plugins are supported. In the future there will be a concept of [plugin registries](https://github.com/dprint/dprint/issues/410) which will allow this to be more distributed.
 
 ## Includes and Excludes
 
@@ -186,7 +191,6 @@ Say the following configuration were published at `https://dprint.dev/configs/my
 
 ```json
 {
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "typescript": {
     "locked": true,
     "lineWidth": 80,
@@ -208,7 +212,6 @@ The following would work fine:
 
 ```json
 {
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "extends": "https://dprint.dev/configs/my-config.json",
   "myOtherPlugin": {
     "propertySeparator": "comma"
@@ -225,7 +228,6 @@ But specifying properties in the `"typescript"` or `"json"` objects would cause 
 
 ```json
 {
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "extends": "https://dprint.dev/configs/my-config.json",
   "typescript": {
     "useBraces": "always" // error, "typescript" config was locked
