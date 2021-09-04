@@ -1,13 +1,17 @@
-use super::resolve_config::*;
 use std::path::PathBuf;
 
 use dprint_cli_core::types::ErrBox;
 
 use crate::cache::Cache;
+use crate::cli::configuration::*;
+use crate::cli::plugins::resolve_plugins;
 use crate::cli::CliArgs;
 use crate::configuration::get_init_config_file_text;
 use crate::environment::Environment;
+use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::{read_info_file, PluginResolver, PluginSourceReference};
+use crate::utils::pretty_print_json_text;
+use crate::utils::ErrorCountLogger;
 use crate::utils::PathSource;
 
 pub fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<(), ErrBox> {
@@ -80,6 +84,38 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
   }
 
   environment.write_file(&config_path, &file_text)?;
+
+  Ok(())
+}
+
+pub fn output_resolved_config<TEnvironment: Environment>(
+  args: &CliArgs,
+  cache: &Cache<TEnvironment>,
+  environment: &TEnvironment,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+) -> Result<(), ErrBox> {
+  let config = resolve_config_from_args(args, cache, environment)?;
+  let plugins = resolve_plugins(args, &config, environment, plugin_resolver)?;
+
+  let mut plugin_jsons = Vec::new();
+  for plugin in plugins {
+    let config_key = String::from(plugin.config_key());
+
+    // get an initialized plugin and output its diagnostics
+    let initialized_plugin = plugin.initialize()?;
+    output_plugin_config_diagnostics(plugin.name(), &initialized_plugin, &ErrorCountLogger::from_environment(environment))?;
+
+    let text = initialized_plugin.get_resolved_config()?;
+    let pretty_text = pretty_print_json_text(&text)?;
+    plugin_jsons.push(format!("\"{}\": {}", config_key, pretty_text));
+  }
+
+  if plugin_jsons.is_empty() {
+    environment.log("{}");
+  } else {
+    let text = plugin_jsons.join(",\n").lines().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n");
+    environment.log(&format!("{{\n{}\n}}", text));
+  }
 
   Ok(())
 }
@@ -441,5 +477,33 @@ mod test {
     let environment = builder.initialize().build();
     environment.set_confirm_results(opts.confirm_results);
     environment
+  }
+
+  #[test]
+  fn it_should_output_resolved_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
+    run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
+    assert_eq!(
+      environment.take_logged_messages(),
+      vec![concat!(
+        "{\n",
+        "  \"test-plugin\": {\n",
+        "    \"ending\": \"formatted\",\n",
+        "    \"lineWidth\": 120\n",
+        "  },\n",
+        "  \"testProcessPlugin\": {\n",
+        "    \"ending\": \"formatted_process\",\n",
+        "    \"lineWidth\": 120\n",
+        "  }\n",
+        "}",
+      )]
+    );
+  }
+
+  #[test]
+  fn it_should_output_resolved_config_no_plugins() {
+    let environment = TestEnvironmentBuilder::new().with_default_config(|_| {}).build();
+    run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
+    assert_eq!(environment.take_logged_messages(), vec!["{}"]);
   }
 }

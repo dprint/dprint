@@ -5,14 +5,14 @@ use std::sync::Arc;
 use dprint_cli_core::types::ErrBox;
 use dprint_core::plugins::process::{start_parent_process_checker_thread, StdIoMessenger, StdIoReaderWriter};
 
-use super::configuration::resolve_config_from_args;
-use super::configuration::ResolvedConfig;
-use super::format::format_with_plugin_pools;
-use super::patterns::FileMatcher;
-use super::plugins::resolve_plugins;
-use super::{CliArgs, EditorServiceSubCommand};
 use crate::cache::Cache;
+use crate::cli::configuration::resolve_config_from_args;
+use crate::cli::configuration::ResolvedConfig;
+use crate::cli::format::format_with_plugin_pools;
+use crate::cli::patterns::FileMatcher;
 use crate::cli::plugins::get_plugins_from_args;
+use crate::cli::plugins::resolve_plugins;
+use crate::cli::{CliArgs, EditorServiceSubCommand};
 use crate::environment::Environment;
 use crate::plugins::{PluginPools, PluginResolver};
 

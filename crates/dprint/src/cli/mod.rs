@@ -1,10 +1,8 @@
 mod arg_parser;
+mod commands;
 mod configuration;
-mod editor_service;
 mod format;
 pub mod incremental;
-#[cfg(target_os = "windows")]
-mod install;
 mod paths;
 mod patterns;
 mod plugins;

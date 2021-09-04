@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use crossterm::style::Stylize;
 use dprint_core::types::ErrBox;
 
 use crate::cache::Cache;
@@ -99,5 +100,83 @@ pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
 }}
 }}"#,
     zip_checksum
+  )
+}
+
+pub fn get_singular_formatted_text() -> String {
+  format!("Formatted {} file.", "1".bold().to_string())
+}
+
+pub fn get_plural_formatted_text(count: usize) -> String {
+  format!("Formatted {} files.", count.to_string().bold().to_string())
+}
+
+pub fn get_singular_check_text() -> String {
+  format!("Found {} not formatted file.", "1".bold().to_string())
+}
+
+pub fn get_plural_check_text(count: usize) -> String {
+  format!("Found {} not formatted files.", count.to_string().bold().to_string())
+}
+
+pub fn get_expected_help_text() -> &'static str {
+  concat!(
+    "dprint ",
+    env!("CARGO_PKG_VERSION"),
+    r#"
+Copyright 2020-2021 by David Sherret
+
+Auto-formats source code based on the specified plugins.
+
+USAGE:
+    dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...
+
+SUBCOMMANDS:
+    init                      Initializes a configuration file in the current directory.
+    fmt                       Formats the source files and writes the result to the file system.
+    check                     Checks for any files that haven't been formatted.
+    config                    Functionality related to the configuration file.
+    output-file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
+    output-resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
+    output-format-times       Prints the amount of time it takes to format each file. Use this for debugging.
+    clear-cache               Deletes the plugin cache directory.
+    license                   Outputs the software license.
+
+More details at `dprint help <SUBCOMMAND>`
+
+OPTIONS:
+    -c, --config <config>            Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in
+                                     current or ancestor directory when not provided.
+        --plugins <urls/files>...    List of urls or file paths of plugins to use. This overrides what is specified in
+                                     the config file.
+        --verbose                    Prints additional diagnostic information.
+    -v, --version                    Prints the version.
+
+ENVIRONMENT VARIABLES:
+  DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
+                      this directory may be periodically deleted by the CLI.
+
+GETTING STARTED:
+  1. Navigate to the root directory of a code repository.
+  2. Run `dprint init` to create a dprint.json file in that directory.
+  3. Modify configuration file if necessary.
+  4. Run `dprint fmt` or `dprint check`.
+
+EXAMPLES:
+  Write formatted files to file system:
+
+    dprint fmt
+
+  Check for files that haven't been formatted:
+
+    dprint check
+
+  Specify path to config file other than the default:
+
+    dprint fmt --config path/to/config/dprint.json
+
+  Search for files using the specified file patterns:
+
+    dprint fmt "**/*.{ts,tsx,js,jsx,json}""#
   )
 }

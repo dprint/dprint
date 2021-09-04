@@ -205,33 +205,33 @@ OPTIONS:
 {unified}
 
 ENVIRONMENT VARIABLES:
-    DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
-                        this directory may be periodically deleted by the CLI.
+  DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
+                      this directory may be periodically deleted by the CLI.
 
 {after-help}"#)
         .after_help(
             r#"GETTING STARTED:
-    1. Navigate to the root directory of a code repository.
-    2. Run `dprint init` to create a dprint.json file in that directory.
-    3. Modify configuration file if necessary.
-    4. Run `dprint fmt` or `dprint check`.
+  1. Navigate to the root directory of a code repository.
+  2. Run `dprint init` to create a dprint.json file in that directory.
+  3. Modify configuration file if necessary.
+  4. Run `dprint fmt` or `dprint check`.
 
 EXAMPLES:
-    Write formatted files to file system:
+  Write formatted files to file system:
 
-      dprint fmt
+    dprint fmt
 
-    Check for files that haven't been formatted:
+  Check for files that haven't been formatted:
 
-      dprint check
+    dprint check
 
-    Specify path to config file other than the default:
+  Specify path to config file other than the default:
 
-      dprint fmt --config path/to/config/dprint.json
+    dprint fmt --config path/to/config/dprint.json
 
-    Search for files using the specified file patterns:
+  Search for files using the specified file patterns:
 
-      dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
+    dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
         )
         .subcommand(
             SubCommand::with_name("init")
