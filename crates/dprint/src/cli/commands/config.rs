@@ -352,7 +352,7 @@ mod test {
       confirm_results: vec![Ok(Some(true))],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url_with_checksum),
-        "Do you wish to update it?".to_string(),
+        "Do you wish to update it? Y".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url_with_checksum.clone()],
@@ -365,7 +365,7 @@ mod test {
       confirm_results: vec![Ok(Some(true))],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it?".to_string(),
+        "Do you wish to update it? Y".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url.clone()],
@@ -378,7 +378,7 @@ mod test {
       confirm_results: vec![Ok(None)],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it?".to_string(),
+        "Do you wish to update it? N".to_string(),
       ],
       expected_urls: vec![old_ps_url.clone()],
     });
@@ -393,7 +393,7 @@ mod test {
       expected_logs: vec![
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it?".to_string(),
+        "Do you wish to update it? N".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
     });
@@ -477,6 +477,60 @@ mod test {
     let environment = builder.initialize().build();
     environment.set_confirm_results(opts.confirm_results);
     environment
+  }
+
+  #[test]
+  fn config_update_should_not_upgrade_when_at_latest_plugins() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "test-plugin".to_string(),
+          version: "0.1.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+          config_key: Some("plugin".to_string()),
+          checksum: None,
+          ..Default::default()
+        });
+      })
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+    // should be empty because nothing to upgrade
+    assert!(environment.take_logged_errors().is_empty());
+  }
+
+  #[test]
+  fn config_update_should_handle_wasm_to_process_plugin() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "test-plugin".to_string(),
+          version: "0.2.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.exe-plugin".to_string(),
+          config_key: Some("plugin".to_string()),
+          checksum: Some("checksum".to_string()),
+          ..Default::default()
+        });
+      })
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    environment.set_confirm_results(vec![Ok(None)]);
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+    assert_eq!(
+      environment.take_logged_errors(),
+      vec![
+        "The process plugin test-plugin 0.1.0 has a new url: https://plugins.dprint.dev/test-plugin.exe-plugin@checksum",
+        "Do you wish to update it? N"
+      ]
+    );
   }
 
   #[test]

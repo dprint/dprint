@@ -391,9 +391,18 @@ impl Environment for TestEnvironment {
   }
 
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool, ErrBox> {
-    self.log_error(prompt_message);
     let mut confirm_results = self.confirm_results.lock();
-    confirm_results.remove(0).map(|v| v.unwrap_or(default_value))
+    let result = confirm_results.remove(0).map(|v| v.unwrap_or(default_value));
+    self.log_error(&format!(
+      "{} {}",
+      prompt_message,
+      match &result {
+        Ok(true) => "Y".to_string(),
+        Ok(false) => "N".to_string(),
+        Err(err) => err.to_string(),
+      }
+    ));
+    result
   }
 
   fn is_verbose(&self) -> bool {
