@@ -85,7 +85,7 @@ fn create_new_communicator<TEnvironment: Environment>(
 ) -> Result<ProcessPluginCommunicator, ErrBox> {
   // ensure it's initialized each time
   let mut communicator = ProcessPluginCommunicator::new(executable_file_path, move |error_message| {
-    environment.log_error_with_context(&error_message, &plugin_name);
+    environment.log_stderr_with_context(&error_message, &plugin_name);
   })?;
   communicator.set_global_config(&config.1)?;
   communicator.set_plugin_config(&config.0)?;

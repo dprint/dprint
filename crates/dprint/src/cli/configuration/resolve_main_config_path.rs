@@ -86,7 +86,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
     } else if let Some(path) = get_config_file_in_dir_with_name(dir, HIDDEN_CONFIG_FILE_NAME, environment) {
       Some(path)
     } else if let Some(path) = get_config_file_in_dir_with_name(dir, OLD_CONFIG_FILE_NAME, environment) {
-      environment.log_error("WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json");
+      environment.log_stderr("WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json");
       Some(path)
     } else {
       None
@@ -100,7 +100,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
     }
     let config_path = dir.join("config").join(file_name);
     if environment.path_exists(&config_path) {
-      environment.log_error("WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.");
+      environment.log_stderr("WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.");
       return Some(config_path);
     }
     None

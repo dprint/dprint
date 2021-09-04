@@ -161,7 +161,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
         let process_recreated = match self.communicator.recreate_process_if_dead() {
           Ok(process_recreated) => process_recreated,
           Err(err) => {
-            self.environment.log_error(&format!(
+            self.environment.log_stderr(&format!(
               "Failed to recreate child process plugin after it was unresponsive: {}",
               err.to_string()
             ));

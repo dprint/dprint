@@ -30,7 +30,7 @@ fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment
   let mut diagnostic_count = 0;
   if !global_config_result.diagnostics.is_empty() {
     for diagnostic in &global_config_result.diagnostics {
-      environment.log_error(&diagnostic.message);
+      environment.log_stderr(&diagnostic.message);
       diagnostic_count += 1;
     }
   }

@@ -81,7 +81,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(
     let removed_excludes = main_config_map.remove("excludes").is_some(); // NEVER REMOVE THIS STATEMENT
     let was_removed = removed_includes || removed_excludes;
     if was_removed && resolved_config_path.resolved_path.is_first_download {
-      environment.log_error(&get_warn_includes_excludes_message());
+      environment.log_stderr(&get_warn_includes_excludes_message());
     }
   }
   // =========
@@ -272,7 +272,7 @@ fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, de
 
 fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
   if plugins.iter().any(|plugin| !plugin.is_wasm_plugin()) {
-    environment.log_error(&get_warn_non_wasm_plugins_message());
+    environment.log_stderr(&get_warn_non_wasm_plugins_message());
     plugins.into_iter().filter(|plugin| plugin.is_wasm_plugin()).collect()
   } else {
     plugins

@@ -49,7 +49,7 @@ impl<TEnvironment: Environment> LongFormatCheckerThread<TEnvironment> {
             if file_path_info.start_time.elapsed() > Duration::from_secs(10) {
               // log if it hasn't been logged before
               if !logged_file_paths.contains(&file_path_info.file_path) {
-                environment.log_error(&format!("WARNING: Formatting is slow for {}", file_path_info.file_path.display()));
+                environment.log_stderr(&format!("WARNING: Formatting is slow for {}", file_path_info.file_path.display()));
                 logged_file_paths.insert(file_path_info.file_path.clone());
               }
             }

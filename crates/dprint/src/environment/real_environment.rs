@@ -143,7 +143,7 @@ impl Environment for RealEnvironment {
     self.logger.log_bypass_silent(text, "dprint");
   }
 
-  fn log_error_with_context(&self, text: &str, context_name: &str) {
+  fn log_stderr_with_context(&self, text: &str, context_name: &str) {
     self.logger.log_err(text, context_name);
   }
 

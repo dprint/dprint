@@ -70,7 +70,7 @@ pub fn output_license<TEnvironment: Environment>(
 pub fn clear_cache(environment: &impl Environment) -> Result<(), ErrBox> {
   let cache_dir = environment.get_cache_dir();
   environment.remove_dir_all(&cache_dir)?;
-  environment.log(&format!("Deleted {}", cache_dir.display()));
+  environment.log_stderr(&format!("Deleted {}", cache_dir.display()));
   Ok(())
 }
 
@@ -212,7 +212,7 @@ mod test {
   fn it_should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.take_stderr_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.is_dir_deleted("/cache"), true);
   }
   #[test]

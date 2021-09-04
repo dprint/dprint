@@ -18,8 +18,8 @@ pub fn init_config_file(environment: &impl Environment, config_arg: &Option<Stri
   let config_file_path = get_config_path(config_arg)?;
   return if !environment.path_exists(&config_file_path) {
     environment.write_file(&config_file_path, &get_init_config_file_text(environment)?)?;
-    environment.log(&format!("\nCreated {}", config_file_path.display()));
-    environment.log("\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor");
+    environment.log_stderr(&format!("\nCreated {}", config_file_path.display()));
+    environment.log_stderr("\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor");
     Ok(())
   } else {
     err!("Configuration file '{}' already exists.", config_file_path.display())
@@ -56,7 +56,7 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
           true
         } else {
           // prompt for security reasons
-          environment.log_error(&format!(
+          environment.log_stderr(&format!(
             "The process plugin {} {} has a new url: {}",
             info.name,
             info.old_version,
@@ -66,7 +66,7 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
         };
 
         if should_update {
-          environment.log_error(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_version));
+          environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_version));
           // only add the checksum if not wasm or previously had a checksum
           let should_add_checksum = !is_wasm || info.old_has_checksum;
           let new_url = if should_add_checksum {
@@ -78,7 +78,7 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
         }
       }
       Err(err_info) => {
-        environment.log_error(&format!("Error updating plugin {}: {}", err_info.name, err_info.error));
+        environment.log_stderr(&format!("Error updating plugin {}: {}", err_info.name, err_info.error));
       }
     }
   }
@@ -229,11 +229,8 @@ mod test {
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
-    );
-    assert_eq!(
-      environment.take_stdout_messages(),
       vec![
+        "Select plugins (use the spacebar to select/deselect and then press enter when finished):",
         "\nCreated ./dprint.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
       ]
@@ -272,11 +269,8 @@ mod test {
     run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
-    );
-    assert_eq!(
-      environment.take_stdout_messages(),
       vec![
+        "Select plugins (use the spacebar to select/deselect and then press enter when finished):",
         "\nCreated ./test.config.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
       ]

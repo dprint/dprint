@@ -344,7 +344,7 @@ impl Environment for TestEnvironment {
     self.stdout_messages.lock().push(String::from(text));
   }
 
-  fn log_error_with_context(&self, text: &str, _: &str) {
+  fn log_stderr_with_context(&self, text: &str, _: &str) {
     if *self.is_silent.lock() {
       return;
     }
@@ -364,7 +364,7 @@ impl Environment for TestEnvironment {
     action: TCreate,
     _: usize,
   ) -> TResult {
-    self.log_error(message);
+    self.log_stderr(message);
     action(Box::new(|_| {}))
   }
 
@@ -381,19 +381,19 @@ impl Environment for TestEnvironment {
   }
 
   fn get_selection(&self, prompt_message: &str, _: u16, _: &Vec<String>) -> Result<usize, ErrBox> {
-    self.log_error(prompt_message);
+    self.log_stderr(prompt_message);
     Ok(*self.selection_result.lock())
   }
 
   fn get_multi_selection(&self, prompt_message: &str, _: u16, _: &Vec<(bool, String)>) -> Result<Vec<usize>, ErrBox> {
-    self.log_error(prompt_message);
+    self.log_stderr(prompt_message);
     Ok(self.multi_selection_result.lock().clone())
   }
 
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool, ErrBox> {
     let mut confirm_results = self.confirm_results.lock();
     let result = confirm_results.remove(0).map(|v| v.unwrap_or(default_value));
-    self.log_error(&format!(
+    self.log_stderr(&format!(
       "{} {}",
       prompt_message,
       match &result {

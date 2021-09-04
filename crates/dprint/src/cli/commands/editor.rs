@@ -153,7 +153,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       Err(err) => {
         self
           .environment
-          .log_error(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
+          .log_stderr(&format!("Error canonicalizing file {}: {}", file_path.display(), err.to_string()));
         self.messenger.send_message(0, Vec::new())?; // don't format, something went wrong
       }
     }

@@ -255,7 +255,7 @@ impl<TEnvironment: Environment> InitializedPluginPool<TEnvironment> {
           let result = output_plugin_config_diagnostics(self.name(), &instance, &error_logger);
           *has_checked_diagnostics = Some(result.is_ok());
           if let Err(err) = result {
-            self.environment.log_error(&err.to_string());
+            self.environment.log_stderr(&err.to_string());
             return Ok(TakePluginResult::HadDiagnostics);
           }
         }

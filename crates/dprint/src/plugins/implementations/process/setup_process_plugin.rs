@@ -71,7 +71,7 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
     let mut communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
       let environment = environment.clone();
       move |error_message| {
-        environment.log_error_with_context(&error_message, &plugin_name);
+        environment.log_stderr_with_context(&error_message, &plugin_name);
       }
     })?;
     let plugin_info = communicator.get_plugin_info()?;

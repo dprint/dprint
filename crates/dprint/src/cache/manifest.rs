@@ -47,7 +47,7 @@ pub fn read_manifest(environment: &impl Environment) -> CacheManifest {
     Ok(text) => match serde_json::from_str(&text) {
       Ok(manifest) => manifest,
       Err(err) => {
-        environment.log_error(&format!("Resetting cache manifest. Message: {}", err));
+        environment.log_stderr(&format!("Resetting cache manifest. Message: {}", err));
         CacheManifest::new()
       }
     },

@@ -38,7 +38,7 @@ where
 
     if let Some(cache_item) = cache_item {
       match cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
-        Err(err) => self.environment.log_error(&format!("Error forgetting plugin: {}", err.to_string())),
+        Err(err) => self.environment.log_stderr(&format!("Error forgetting plugin: {}", err.to_string())),
         _ => {}
       }
     }
