@@ -11,6 +11,8 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
   let mut zip = zip::ZipArchive::new(reader)?;
   let length = zip.len();
 
+  log_verbose!(environment, "Extracting zip file to directory: {}", dir_path.display());
+
   environment.log_action_with_progress(
     message,
     move |update_size| -> Result<(), ErrBox> {
@@ -39,7 +41,8 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
           use std::os::unix::fs::PermissionsExt;
 
           if let Some(mode) = file.unix_mode() {
-            fs::set_permissions(&file_path, fs::Permissions::from_mode(mode))?;
+            fs::set_permissions(&file_path, fs::Permissions::from_mode(mode))
+              .map_err(|err| err_obj!("Error setting permissions to {} for file {}: {}", mode, file_path.display(), err))?
           }
         }
       }
