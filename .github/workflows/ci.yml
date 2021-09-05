@@ -44,15 +44,9 @@ jobs:
       run: rustup target add wasm32-unknown-unknown
 
     # CACHE SETUP
-    # todo: Re-enable. Caching was causing failed builds...
-    # - name: Cache cargo
-    #  uses: actions/cache@v2
-    #  with:
-    #    path: |
-    #      ~/.cargo/registry
-    #      ~/.cargo/git
-    #      target
-    #    key: ${{ matrix.config.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - uses: Swatinem/rust-cache@v1
+      with:
+        key: ${{ matrix.config.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # BUILD
     - name: Build test plugins
@@ -62,18 +56,18 @@ jobs:
 
     - name: Build debug
       if: matrix.config.kind == 'test_debug'
-      run: cargo build --verbose
+      run: cargo test --no-run --locked --all-features --verbose
     - name: Build release
       if: matrix.config.kind == 'test_release'
-      run: cargo build --release --locked --all-targets --verbose
+      run: cargo test --no-run --locked --all-features --verbose --release
 
     # TEST
     - name: Test debug
       if: matrix.config.kind == 'test_debug'
-      run: cargo test --verbose --all-features
+      run: cargo test --locked --all-features --verbose
     - name: Test release
       if: matrix.config.kind == 'test_release'
-      run: cargo test --release --locked --all-targets --verbose --all-features
+      run: cargo test --locked --all-features --verbose --release
 
     # INSTALLER
     - name: Create installer (Windows)
