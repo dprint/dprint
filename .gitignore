@@ -5,5 +5,4 @@ scripts/node_modules
 target
 /crates/development/target
 /crates/test-plugin/target
-/crates/test-plugin/Cargo.lock
 /website/playground/wasm/target
