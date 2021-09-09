@@ -16,6 +16,23 @@ pub fn run_cli<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<(), ErrBox> {
+  let start = std::time::Instant::now();
+  for i in 0..2 {
+    let start = std::time::Instant::now();
+    println!("{}", i);
+    crate::utils::glob(
+      environment,
+      std::path::PathBuf::from("V:\\dprint"),
+      &vec!["**/*.rs".to_string(), "!test.rs".to_string()],
+    )
+    .unwrap();
+    println!("ITERATION: {}ms", start.elapsed().as_millis());
+  }
+  println!("{}ms", start.elapsed().as_millis());
+  if 1 + 2 == 3 {
+    panic!("STOP");
+  }
+
   match &args.sub_command {
     SubCommand::Help(help_text) => commands::output_help(&args, cache, environment, plugin_resolver, help_text),
     SubCommand::License => commands::output_license(&args, cache, environment, plugin_resolver),

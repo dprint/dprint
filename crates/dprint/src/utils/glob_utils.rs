@@ -1,10 +1,12 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use dprint_cli_core::types::ErrBox;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use parking_lot::{Condvar, Mutex};
 
-use crate::environment::{DirEntryKind, Environment};
+use crate::environment::{DirEntry, DirEntryKind, Environment};
 
 pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
   if file_patterns.iter().all(|p| is_negated_glob(p)) {
@@ -22,32 +24,242 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
       case_insensitive: cfg!(windows),
     },
   )?;
-  let mut results = Vec::new();
 
-  let mut pending_dirs = vec![base.as_ref().to_path_buf()];
+  println!("STARTING...");
+  let start_dir = base.as_ref().to_path_buf();
+  let shared_state = Arc::new(SharedState::new(start_dir));
 
-  while !pending_dirs.is_empty() {
-    let entries = environment.dir_info(pending_dirs.pop().unwrap())?;
-    for entry in entries.into_iter() {
-      match entry.kind {
-        DirEntryKind::Directory => {
-          if !glob_matcher.is_ignored(&entry.path) {
-            pending_dirs.push(entry.path);
-          }
-        }
-        DirEntryKind::File => {
-          if glob_matcher.is_match(&entry.path) {
-            results.push(entry.path);
-          }
-        }
-      }
-    }
-  }
+  // run the `fs::read_dir` calls on one thread
+  let read_dir_runner = ReadDirRunner::new(environment.clone(), shared_state.clone());
+  rayon::spawn(move || read_dir_runner.run());
+
+  // run the glob matching on the current thread (the two threads will communicate with each other)
+  let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);
+  let results = glob_matching_processor.run()?;
 
   log_verbose!(environment, "File(s) matched: {:?}", results);
   log_verbose!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
 
   Ok(results)
+}
+
+const PUSH_DIR_ENTRIES_BATCH_COUNT: usize = 500;
+
+struct ReadDirRunner<TEnvironment: Environment> {
+  environment: TEnvironment,
+  shared_state: Arc<SharedState>,
+}
+
+impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
+  pub fn new(environment: TEnvironment, shared_state: Arc<SharedState>) -> Self {
+    Self { environment, shared_state }
+  }
+
+  pub fn run(&self) {
+    let mut read_dir_time = 0;
+    let mut push_entries_time = 0;
+    loop {
+      match self.get_next_pending_dirs() {
+        Some(pending_dirs) => {
+          let mut all_entries = Vec::new();
+          for current_dir in pending_dirs.into_iter().flatten() {
+            let elapsed = std::time::Instant::now();
+            let info_result = self
+              .environment
+              .dir_info(&current_dir)
+              .map_err(|err| err_obj!("error reading dir {}: {}", current_dir.display(), err.to_string()));
+            match info_result {
+              Ok(entries) => {
+                read_dir_time += elapsed.elapsed().as_nanos();
+                if !entries.is_empty() {
+                  all_entries.extend(entries);
+                  // it is much faster to batch these than to hit the lock every time
+                  if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
+                    let elapsed = std::time::Instant::now();
+                    self.push_entries(std::mem::take(&mut all_entries));
+                    push_entries_time += elapsed.elapsed().as_nanos();
+                  }
+                }
+              }
+              Err(err) => {
+                self.set_glob_error(err);
+                return;
+              }
+            }
+          }
+          if !all_entries.is_empty() {
+            let elapsed = std::time::Instant::now();
+            self.push_entries(all_entries);
+            push_entries_time += elapsed.elapsed().as_nanos();
+          }
+        }
+        None => break,
+      }
+    }
+
+    println!("READ DIR TIME: {}ms", read_dir_time / 1000000);
+    println!("PUSH ENTRIES TIME: {}ms", push_entries_time / 1000000);
+  }
+
+  fn get_next_pending_dirs(&self) -> Option<Vec<Vec<PathBuf>>> {
+    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let mut state = lock.lock();
+    loop {
+      if !state.pending_dirs.is_empty() {
+        state.read_dir_thread_state = ReadDirThreadState::Processing;
+        cvar.notify_one();
+        return Some(std::mem::take(&mut state.pending_dirs));
+      }
+      if state.matching_thread_complete {
+        state.read_dir_thread_state = ReadDirThreadState::Complete;
+        cvar.notify_one();
+        return None;
+      } else {
+        state.read_dir_thread_state = ReadDirThreadState::Waiting;
+        cvar.notify_one();
+        // wait to be notified by the other thread
+        cvar.wait(&mut state);
+      }
+    }
+  }
+
+  fn set_glob_error(&self, error: ErrBox) {
+    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let mut state = lock.lock();
+    state.read_dir_thread_state = ReadDirThreadState::Error(error);
+    cvar.notify_one();
+  }
+
+  fn push_entries(&self, entries: Vec<DirEntry>) {
+    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let mut state = lock.lock();
+    state.pending_entries.push(entries);
+    cvar.notify_one();
+  }
+}
+
+struct GlobMatchingProcessor {
+  shared_state: Arc<SharedState>,
+  glob_matcher: GlobMatcher,
+}
+
+impl GlobMatchingProcessor {
+  pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher) -> Self {
+    Self { shared_state, glob_matcher }
+  }
+  pub fn run(&self) -> Result<Vec<PathBuf>, ErrBox> {
+    let mut results = Vec::new();
+    let mut block_time = 0;
+    let mut match_time = 0;
+
+    loop {
+      let elapsed = std::time::Instant::now();
+      let mut pending_dirs = Vec::new();
+
+      match self.get_next_entries() {
+        Ok(None) => {
+          println!("BLOCK TIME: {}ms", block_time / 1000000);
+          println!("MATCH TIME: {}ms", match_time / 1000000);
+          println!("RESULT COUNT: {}", results.len());
+
+          return Ok(results);
+        }
+        Err(err) => return Err(err), // error
+        Ok(Some(entries)) => {
+          block_time += elapsed.elapsed().as_nanos();
+          let elapsed = std::time::Instant::now();
+          for entry in entries.into_iter().flatten() {
+            match entry.kind {
+              DirEntryKind::Directory => {
+                if !self.glob_matcher.is_ignored(&entry.path) {
+                  pending_dirs.push(entry.path);
+                }
+              }
+              DirEntryKind::File => {
+                if self.glob_matcher.is_match(&entry.path) {
+                  results.push(entry.path);
+                }
+              }
+            }
+          }
+          match_time += elapsed.elapsed().as_nanos();
+        }
+      }
+
+      self.push_pending_dirs(pending_dirs);
+    }
+  }
+
+  fn push_pending_dirs(&self, pending_dirs: Vec<PathBuf>) {
+    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let mut state = lock.lock();
+    state.pending_dirs.push(pending_dirs);
+    cvar.notify_one();
+  }
+
+  fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirEntry>>>, ErrBox> {
+    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let mut state = lock.lock();
+    loop {
+      state.matching_thread_complete = false;
+      if !state.pending_entries.is_empty() {
+        return Ok(Some(std::mem::take(&mut state.pending_entries)));
+      }
+      match &state.read_dir_thread_state {
+        ReadDirThreadState::Waiting => {
+          state.matching_thread_complete = true;
+          // notify the other thread that we're done too
+          cvar.notify_one();
+          // wait to be notified by the other thread
+          cvar.wait(&mut state);
+        }
+        ReadDirThreadState::Complete => {
+          return Ok(None);
+        }
+        ReadDirThreadState::Error(err) => {
+          return Err(err_obj!("{}", err.to_string()));
+        }
+        ReadDirThreadState::Processing => {
+          // wait to be notified by the other thread
+          cvar.wait(&mut state);
+        }
+      }
+    }
+  }
+}
+
+enum ReadDirThreadState {
+  Processing,
+  Waiting,
+  Complete,
+  Error(ErrBox),
+}
+
+struct SharedStateInternal {
+  pending_dirs: Vec<Vec<PathBuf>>,
+  pending_entries: Vec<Vec<DirEntry>>,
+  read_dir_thread_state: ReadDirThreadState,
+  matching_thread_complete: bool,
+}
+
+struct SharedState {
+  inner: (Mutex<SharedStateInternal>, Condvar),
+}
+
+impl SharedState {
+  pub fn new(initial_dir: PathBuf) -> Self {
+    SharedState {
+      inner: (
+        Mutex::new(SharedStateInternal {
+          matching_thread_complete: false,
+          read_dir_thread_state: ReadDirThreadState::Processing,
+          pending_dirs: vec![vec![initial_dir]],
+          pending_entries: Vec::new(),
+        }),
+        Condvar::new(),
+      ),
+    }
+  }
 }
 
 pub fn to_absolute_globs(file_patterns: Vec<String>, base_dir: &str) -> Vec<String> {
