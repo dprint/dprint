@@ -64,7 +64,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
             let info_result = self
               .environment
               .dir_info(&current_dir)
-              .map_err(|err| err_obj!("error reading dir {}: {}", current_dir.display(), err.to_string()));
+              .map_err(|err| err_obj!("Error reading dir '{}': {}", current_dir.display(), err.to_string()));
             match info_result {
               Ok(entries) => {
                 if !entries.is_empty() {
@@ -240,5 +240,51 @@ impl SharedState {
         Condvar::new(),
       ),
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+  use crate::environment::TestEnvironmentBuilder;
+
+  #[test]
+  fn it_should_glob() {
+    let mut environment_builder = TestEnvironmentBuilder::new();
+    let mut expected_matches = Vec::new();
+    for i in 1..100 {
+      environment_builder.write_file(format!("/{}.txt", i), "");
+      expected_matches.push(format!("/{}.txt", i));
+
+      environment_builder.write_file(format!("/sub/{}.txt", i), "");
+      expected_matches.push(format!("/sub/{}.txt", i));
+
+      environment_builder.write_file(format!("/sub/ignore/{}.txt", i), "");
+
+      environment_builder.write_file(format!("/sub{0}/sub/{0}.txt", i), "");
+      expected_matches.push(format!("/sub{0}/sub/{0}.txt", i));
+
+      if i % 2 == 0 {
+        environment_builder.write_file(format!("/{}.ps", i), "");
+        environment_builder.write_file(format!("/sub/{}.ps", i), "");
+        environment_builder.write_file(format!("/sub/ignore/{}.ps", i), "");
+        environment_builder.write_file(format!("/sub{0}/sub/{0}.ps", i), "");
+      }
+    }
+
+    let environment = environment_builder.build();
+    let result = glob(&environment, "/", &vec!["!**/ignore".to_string(), "**/*.txt".to_string()]).unwrap();
+    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    expected_matches.sort();
+    assert_eq!(result, expected_matches);
+  }
+
+  #[test]
+  fn should_handle_dir_info_erroring() {
+    let environment = TestEnvironmentBuilder::new().build();
+    environment.set_dir_info_error(err_obj!("FAILURE"));
+    let err_message = glob(&environment, "/", &vec!["**/*.txt".to_string()]).err().unwrap();
+    assert_eq!(err_message.to_string(), "Error reading dir '/': FAILURE");
   }
 }
