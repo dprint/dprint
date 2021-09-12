@@ -1,2 +1,2 @@
 export * from "./getPluginDefaultConfig";
-export * from "./getPluginInfo";
+export * from "./getPluginUrls";

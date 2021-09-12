@@ -1,12 +1,20 @@
 // eslint-disable-next-line import/no-webpack-loader-syntax
 import createWorker from "workerize-loader!./formatter.worker";
 
+import type { PluginInfo } from "@dprint/formatter";
+
 const formatterWorker = createWorker();
+const pluginInfoListeners: ((info: PluginInfo) => void)[] = [];
 const formatListeners: ((text: string) => void)[] = [];
 const errorListeners: ((err: string) => void)[] = [];
 
 formatterWorker.addEventListener("message", ev => {
   switch (ev.data.type) {
+    case "PluginInfo":
+      for (const listener of pluginInfoListeners) {
+        listener(ev.data.info);
+      }
+      break;
     case "Format":
       for (const listener of formatListeners) {
         listener(ev.data.text);
@@ -40,6 +48,17 @@ export function formatText(filePath: string, fileText: string) {
     filePath,
     fileText,
   });
+}
+
+export function addOnPluginInfo(listener: (info: PluginInfo) => void) {
+  pluginInfoListeners.push(listener);
+}
+
+export function removeOnPluginInfo(listener: (info: PluginInfo) => void) {
+  const index = pluginInfoListeners.indexOf(listener);
+  if (index >= 0) {
+    pluginInfoListeners.splice(index, 1);
+  }
 }
 
 export function addOnFormat(listener: (text: string) => void) {

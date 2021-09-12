@@ -1,11 +1,12 @@
+import type { PluginInfo } from "@dprint/formatter";
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import SplitPane from "react-split-pane";
 import "./external/react-splitpane.css";
-import { CodeEditor, ExternalLink, Language } from "./components";
+import { CodeEditor, ExternalLink } from "./components";
 import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
 import "./Playground.css";
-import { PluginInfo } from "./plugins";
+import { getLanguageFromPluginUrl } from "./plugins";
 
 export interface PlaygroundProps {
   configText: string;
@@ -13,10 +14,10 @@ export interface PlaygroundProps {
   text: string;
   onTextChanged: (text: string) => void;
   formattedText: string;
-  fileExtensions: string[];
-  selectedPlugin: PluginInfo;
-  plugins: PluginInfo[];
-  onSelectPlugin: (plugin: PluginInfo) => void;
+  selectedPluginInfo: PluginInfo;
+  selectedPluginUrl: string;
+  pluginUrls: string[];
+  onSelectPluginUrl: (pluginUrl: string) => void;
   isLoading: boolean;
 }
 
@@ -26,18 +27,18 @@ export function Playground({
   text,
   onTextChanged,
   formattedText,
-  fileExtensions,
-  selectedPlugin,
-  plugins,
-  onSelectPlugin,
+  selectedPluginUrl,
+  selectedPluginInfo,
+  pluginUrls,
+  onSelectPluginUrl,
   isLoading,
 }: PlaygroundProps) {
   const [scrollTop, setScrollTop] = useState(0);
   const [fileExtension, setFileExtension] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    setFileExtension(fileExtensions[0]);
-  }, [fileExtensions]);
+    setFileExtension(selectedPluginInfo.fileExtensions[0]);
+  }, [selectedPluginInfo]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -113,23 +114,25 @@ export function Playground({
                     Plugin:
                   </div>
                   <div className="column" style={{ flex: 1, display: "flex" }}>
-                    <select onChange={e => onSelectPlugin(plugins[e.target.selectedIndex])} style={{ flex: 1 }} value={selectedPlugin.url}>
-                      {plugins.map((pluginInfo, i) => {
-                        return <option key={i} value={pluginInfo.url}>
-                          {pluginInfo.url}
-                        </option>;
+                    <select onChange={e => onSelectPluginUrl(pluginUrls[e.target.selectedIndex])} style={{ flex: 1 }} value={selectedPluginUrl}>
+                      {pluginUrls.map((pluginUrl, i) => {
+                        return (
+                          <option key={i} value={pluginUrl}>
+                            {pluginUrl}
+                          </option>
+                        );
                       })}
                     </select>
                   </div>
                   <div className="column" style={{ display: "flex" }}>
                     <select value={fileExtension} onChange={onFileExtensionChange}>
-                      {fileExtensions.map((ext, i) => <option key={i} value={ext}>{"."}{ext}</option>)}
+                      {selectedPluginInfo.fileExtensions.map((ext, i) => <option key={i} value={ext}>{"."}{ext}</option>)}
                     </select>
                   </div>
                 </div>
               </div>
               <CodeEditor
-                language={selectedPlugin.language}
+                language={getLanguageFromPluginUrl(selectedPluginUrl)}
                 onChange={onTextChanged}
                 text={text}
                 lineWidth={lineWidth}
@@ -142,22 +145,24 @@ export function Playground({
                 Configuration
               </div>
               <CodeEditor
-                language={Language.Json}
+                language={"json"}
                 onChange={onConfigTextChanged}
-                jsonSchemaUrl={selectedPlugin.configSchemaUrl}
+                jsonSchemaUrl={selectedPluginInfo?.configSchemaUrl}
                 text={configText}
               />
             </div>
           </SplitPane>
           <div className="container">
-            {isLoading ? <Spinner /> : <CodeEditor
-              language={selectedPlugin.language}
-              text={formattedText}
-              readonly={true}
-              lineWidth={lineWidth}
-              onScrollTopChange={setScrollTop}
-              scrollTop={scrollTop}
-            />}
+            {isLoading ? <Spinner /> : (
+              <CodeEditor
+                language={getLanguageFromPluginUrl(selectedPluginUrl)}
+                text={formattedText}
+                readonly={true}
+                lineWidth={lineWidth}
+                onScrollTopChange={setScrollTop}
+                scrollTop={scrollTop}
+              />
+            )}
           </div>
         </SplitPane>
       </SplitPane>

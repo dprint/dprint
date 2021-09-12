@@ -4,6 +4,7 @@ import { createFromBuffer, Formatter } from "@dprint/formatter";
 let formatter: Promise<Formatter> | undefined;
 let config: Record<string, unknown> | undefined;
 let nextFormat: { filePath: string; fileText: string } | undefined;
+let abortController = new AbortController();
 
 onmessage = function(e) {
   switch (e.data.type) {
@@ -23,10 +24,15 @@ onmessage = function(e) {
 };
 
 function loadUrl(url: string) {
-  formatter = fetch(url)
+  abortController.abort();
+  abortController = new AbortController();
+  const signal = abortController.signal;
+  formatter = fetch(url, { signal })
     .then(response => response.arrayBuffer())
     .then(wasmModuleBuffer => {
       const newFormatter = createFromBuffer(wasmModuleBuffer);
+
+      postPluginInfo(newFormatter);
 
       if (config) {
         setConfigSync(newFormatter, config);
@@ -39,7 +45,11 @@ function loadUrl(url: string) {
       return newFormatter;
     });
 
-  formatter.catch((err: any) => postError(err));
+  formatter.catch((err: any) => {
+    if (!signal.aborted) {
+      postError(err);
+    }
+  });
 }
 
 function setConfig(providedConfig: Record<string, unknown>) {
@@ -82,6 +92,13 @@ function formatSync(f: Formatter, filePath: string, fileText: string) {
   postMessage({
     type: "Format",
     text: result,
+  });
+}
+
+function postPluginInfo(f: Formatter) {
+  postMessage({
+    type: "PluginInfo",
+    info: f.getPluginInfo(),
   });
 }
 

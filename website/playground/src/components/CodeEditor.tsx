@@ -11,14 +11,7 @@ export interface CodeEditorProps {
   scrollTop?: number;
   jsonSchemaUrl?: string;
   onScrollTopChange?: (scrollTop: number) => void;
-  language: Language;
-}
-
-export enum Language {
-  TypeScript = "typescript",
-  Json = "json",
-  Markdown = "markdown",
-  Toml = "toml",
+  language: "typescript" | "json" | "markdown" | "toml" | undefined;
 }
 
 export interface CodeEditorState {
@@ -41,7 +34,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     const reactMonacoEditorPromise = import("react-monaco-editor");
     import("monaco-editor").then(monacoEditor => {
       this.monacoEditor = monacoEditor;
-      if (this.props.language === Language.TypeScript) {
+      if (this.props.language === "typescript") {
         monacoEditor.languages.typescript.typescriptDefaults.setCompilerOptions({
           noLib: true,
           target: monacoEditor.languages.typescript.ScriptTarget.ESNext,
