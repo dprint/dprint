@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.17.0"
+version = "0.17.1"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 edition = "2018"
@@ -15,7 +15,7 @@ crossterm = "0.20.0"
 dirs = "3.0.2"
 dissimilar = "1.0"
 dprint-cli-core = { path = "../cli-core", version = "0.8.0" }
-dprint-core = { path = "../core", version = "0.46.1", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.46.2", features = ["process", "wasm"] }
 dunce = "1.0.2"
 globset = "0.4.8"
 jsonc-parser = { version = "0.17.0" }

@@ -434,7 +434,7 @@ checksum = "fc4b29f4b9bb94bf267d57269fd0706d343a160937108e9619fe380645428abb"
 
 [[package]]
 name = "dprint"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "clap",
  "crossterm",
@@ -473,7 +473,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.46.1"
+version = "0.46.2"
 dependencies = [
  "bumpalo",
  "fnv",
