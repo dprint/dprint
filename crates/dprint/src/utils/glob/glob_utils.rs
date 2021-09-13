@@ -1,54 +1,4 @@
 use std::borrow::Cow;
-use std::path::{Path, PathBuf};
-
-use dprint_cli_core::types::ErrBox;
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-
-use crate::environment::{DirEntryKind, Environment};
-
-pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
-  if file_patterns.iter().all(|p| is_negated_glob(p)) {
-    // performance improvement (see issue #379)
-    log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns);
-    return Ok(Vec::with_capacity(0));
-  }
-
-  let start_instant = std::time::Instant::now();
-  log_verbose!(environment, "Globbing: {:?}", file_patterns);
-
-  let glob_matcher = GlobMatcher::new(
-    file_patterns,
-    &GlobMatcherOptions {
-      case_insensitive: cfg!(windows),
-    },
-  )?;
-  let mut results = Vec::new();
-
-  let mut pending_dirs = vec![base.as_ref().to_path_buf()];
-
-  while !pending_dirs.is_empty() {
-    let entries = environment.dir_info(pending_dirs.pop().unwrap())?;
-    for entry in entries.into_iter() {
-      match entry.kind {
-        DirEntryKind::Directory => {
-          if !glob_matcher.is_ignored(&entry.path) {
-            pending_dirs.push(entry.path);
-          }
-        }
-        DirEntryKind::File => {
-          if glob_matcher.is_match(&entry.path) {
-            results.push(entry.path);
-          }
-        }
-      }
-    }
-  }
-
-  log_verbose!(environment, "File(s) matched: {:?}", results);
-  log_verbose!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
-
-  Ok(results)
-}
 
 pub fn to_absolute_globs(file_patterns: Vec<String>, base_dir: &str) -> Vec<String> {
   file_patterns.into_iter().map(|p| to_absolute_glob(&p, base_dir)).collect()
@@ -168,49 +118,6 @@ fn is_windows_absolute_pattern(pattern: &str) -> bool {
   // now check for the last slash
   let next_char = chars.next();
   matches!(next_char, Some('/'))
-}
-
-pub struct GlobMatcherOptions {
-  pub case_insensitive: bool,
-}
-
-pub struct GlobMatcher {
-  include_globset: GlobSet,
-  exclude_globset: GlobSet,
-}
-
-impl GlobMatcher {
-  pub fn new(patterns: &[String], opts: &GlobMatcherOptions) -> Result<GlobMatcher, ErrBox> {
-    let mut match_patterns = Vec::new();
-    let mut ignore_patterns = Vec::new();
-    for pattern in patterns {
-      if is_negated_glob(pattern) {
-        ignore_patterns.push(pattern[1..].to_string());
-      } else {
-        match_patterns.push(pattern.to_string());
-      }
-    }
-    Ok(GlobMatcher {
-      include_globset: build_glob_set(&match_patterns, opts)?,
-      exclude_globset: build_glob_set(&ignore_patterns, opts)?,
-    })
-  }
-
-  pub fn is_match(&self, pattern: impl AsRef<Path>) -> bool {
-    self.include_globset.is_match(&pattern) && !self.exclude_globset.is_match(&pattern)
-  }
-
-  pub fn is_ignored(&self, pattern: impl AsRef<Path>) -> bool {
-    self.exclude_globset.is_match(&pattern)
-  }
-}
-
-fn build_glob_set(file_patterns: &[String], opts: &GlobMatcherOptions) -> Result<GlobSet, ErrBox> {
-  let mut builder = GlobSetBuilder::new();
-  for pattern in file_patterns {
-    builder.add(GlobBuilder::new(&pattern).case_insensitive(opts.case_insensitive).build()?);
-  }
-  return Ok(builder.build().unwrap());
 }
 
 #[cfg(test)]

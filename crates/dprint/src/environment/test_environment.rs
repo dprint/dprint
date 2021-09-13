@@ -80,6 +80,7 @@ pub struct TestEnvironment {
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>, ErrBox>>>>,
   is_silent: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
+  dir_info_error: Arc<Mutex<Option<ErrBox>>>,
   std_in: MockStdInOut,
   std_out: MockStdInOut,
   #[cfg(windows)]
@@ -101,6 +102,7 @@ impl TestEnvironment {
       confirm_results: Arc::new(Mutex::new(Vec::new())),
       is_silent: Arc::new(Mutex::new(false)),
       wasm_compile_result: Arc::new(Mutex::new(None)),
+      dir_info_error: Arc::new(Mutex::new(None)),
       std_in: MockStdInOut::new(),
       std_out: MockStdInOut::new(),
       #[cfg(windows)]
@@ -181,6 +183,11 @@ impl TestEnvironment {
   #[cfg(windows)]
   pub fn get_system_path_dirs(&self) -> Vec<PathBuf> {
     self.path_dirs.lock().clone()
+  }
+
+  pub fn set_dir_info_error(&self, err: ErrBox) {
+    let mut dir_info_error = self.dir_info_error.lock();
+    *dir_info_error = Some(err);
   }
 
   fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
@@ -280,6 +287,10 @@ impl Environment for TestEnvironment {
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>, ErrBox> {
+    if let Some(err) = self.dir_info_error.lock().take() {
+      return Err(err);
+    }
+
     let mut entries = Vec::new();
     let mut found_directories = HashSet::new();
     let dir_path = self.clean_path(dir_path);
