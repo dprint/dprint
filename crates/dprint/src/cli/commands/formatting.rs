@@ -968,6 +968,47 @@ mod test {
   }
 
   #[test]
+  fn should_ignore_path_in_config_includes_if_not_exists() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .write_file(file_path1, "text1")
+      .write_file(file_path2, "text2")
+      .with_default_config(|c| {
+        c.add_includes("/file2.txt").add_includes("/file3.txt").add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+  }
+
+  #[test]
+  fn should_not_ignore_path_in_cli_includes_if_not_exists() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .write_file(file_path1, "text1")
+      .write_file(file_path2, "text2")
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    let err = run_test_cli(vec!["fmt", "/file2.txt", "/file3.txt"], &environment).err().unwrap();
+
+    assert_eq!(err.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Error formatting /file3.txt. Message: Could not find file at path /file3.txt"]
+    );
+  }
+
+  #[test]
   fn it_should_format_using_hidden_config_file_name() {
     let file_path = "/test/other/file.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()

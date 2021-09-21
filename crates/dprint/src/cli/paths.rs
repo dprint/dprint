@@ -58,6 +58,13 @@ fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &
   let cwd = environment.cwd();
   let mut file_patterns = get_all_file_patterns(config, args, &cwd.to_string_lossy());
   let absolute_paths = take_absolute_paths(&mut file_patterns, environment);
+  let absolute_paths = if args.file_patterns.is_empty() {
+    // Filter out any config absolute file paths that don't exist.
+    // This is to support sparse checkouts.
+    absolute_paths.into_iter().filter(|file_path| environment.path_exists(file_path)).collect()
+  } else {
+    absolute_paths
+  };
 
   return Ok((file_patterns, absolute_paths));
 }
