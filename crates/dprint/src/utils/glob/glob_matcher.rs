@@ -7,6 +7,12 @@ use globset::GlobSetBuilder;
 
 use super::is_negated_glob;
 
+#[derive(Debug)]
+pub struct GlobPatterns {
+  pub includes: Vec<String>,
+  pub excludes: Vec<String>,
+}
+
 pub struct GlobMatcherOptions {
   pub case_insensitive: bool,
 }
@@ -17,19 +23,15 @@ pub struct GlobMatcher {
 }
 
 impl GlobMatcher {
-  pub fn new(patterns: &[String], opts: &GlobMatcherOptions) -> Result<GlobMatcher, ErrBox> {
-    let mut match_patterns = Vec::new();
-    let mut ignore_patterns = Vec::new();
-    for pattern in patterns {
-      if is_negated_glob(pattern) {
-        ignore_patterns.push(pattern[1..].to_string());
-      } else {
-        match_patterns.push(pattern.to_string());
-      }
-    }
+  pub fn new(patterns: &GlobPatterns, opts: &GlobMatcherOptions) -> Result<GlobMatcher, ErrBox> {
+    let excludes = patterns
+      .excludes
+      .iter()
+      .map(|pattern| if is_negated_glob(pattern) { &pattern[1..] } else { pattern })
+      .collect::<Vec<_>>();
     Ok(GlobMatcher {
-      include_globset: build_glob_set(&match_patterns, opts)?,
-      exclude_globset: build_glob_set(&ignore_patterns, opts)?,
+      include_globset: build_glob_set(&patterns.includes, opts)?,
+      exclude_globset: build_glob_set(&excludes, opts)?,
     })
   }
 
@@ -42,10 +44,10 @@ impl GlobMatcher {
   }
 }
 
-fn build_glob_set(file_patterns: &[String], opts: &GlobMatcherOptions) -> Result<GlobSet, ErrBox> {
+fn build_glob_set(file_patterns: &[impl AsRef<str>], opts: &GlobMatcherOptions) -> Result<GlobSet, ErrBox> {
   let mut builder = GlobSetBuilder::new();
   for pattern in file_patterns {
-    builder.add(GlobBuilder::new(&pattern).case_insensitive(opts.case_insensitive).build()?);
+    builder.add(GlobBuilder::new(pattern.as_ref()).case_insensitive(opts.case_insensitive).build()?);
   }
   return Ok(builder.build().unwrap());
 }

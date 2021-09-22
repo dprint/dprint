@@ -3,7 +3,7 @@ use std::path::Path;
 use dprint_cli_core::types::ErrBox;
 
 use crate::environment::Environment;
-use crate::utils::{is_absolute_pattern, is_negated_glob, to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions};
+use crate::utils::{is_absolute_pattern, is_negated_glob, to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions, GlobPatterns};
 
 use super::configuration::ResolvedConfig;
 use super::CliArgs;
@@ -35,10 +35,11 @@ impl FileMatcher {
   }
 }
 
-pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
-  let mut file_patterns = get_include_file_patterns(config, args, cwd);
-  file_patterns.append(&mut get_exclude_file_patterns(config, args, cwd));
-  return file_patterns;
+pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> GlobPatterns {
+  GlobPatterns {
+    includes: get_include_file_patterns(config, args, cwd),
+    excludes: get_exclude_file_patterns(config, args, cwd),
+  }
 }
 
 fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {

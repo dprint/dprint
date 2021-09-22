@@ -7,10 +7,12 @@ use parking_lot::{Condvar, Mutex};
 use crate::environment::{DirEntry, DirEntryKind, Environment};
 use crate::utils::{is_negated_glob, GlobMatcher, GlobMatcherOptions};
 
-pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: &Vec<String>) -> Result<Vec<PathBuf>, ErrBox> {
-  if file_patterns.iter().all(|p| is_negated_glob(p)) {
+use super::GlobPatterns;
+
+pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: &GlobPatterns) -> Result<Vec<PathBuf>, ErrBox> {
+  if file_patterns.includes.iter().all(|p| is_negated_glob(p)) {
     // performance improvement (see issue #379)
-    log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns);
+    log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
     return Ok(Vec::with_capacity(0));
   }
 
@@ -273,7 +275,15 @@ mod test {
     }
 
     let environment = environment_builder.build();
-    let result = glob(&environment, "/", &vec!["!**/ignore".to_string(), "**/*.txt".to_string()]).unwrap();
+    let result = glob(
+      &environment,
+      "/",
+      &GlobPatterns {
+        includes: vec!["**/*.txt".to_string()],
+        excludes: vec!["**/ignore".to_string()],
+      },
+    )
+    .unwrap();
     let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     expected_matches.sort();
@@ -284,7 +294,35 @@ mod test {
   fn should_handle_dir_info_erroring() {
     let environment = TestEnvironmentBuilder::new().build();
     environment.set_dir_info_error(err_obj!("FAILURE"));
-    let err_message = glob(&environment, "/", &vec!["**/*.txt".to_string()]).err().unwrap();
+    let err_message = glob(
+      &environment,
+      "/",
+      &GlobPatterns {
+        includes: vec!["**/*.txt".to_string()],
+        excludes: Vec::new(),
+      },
+    )
+    .err()
+    .unwrap();
     assert_eq!(err_message.to_string(), "Error reading dir '/': FAILURE");
+  }
+
+  #[test]
+  fn should_support_excluding_then_including_in_includes() {
+    // this allows people to out out of everything then slowly opt back in
+    let environment = TestEnvironmentBuilder::new().write_file("/dir/a.txt", "").write_file("/dir/b.txt", "").build();
+    let result = glob(
+      &environment,
+      "/",
+      &GlobPatterns {
+        includes: vec!["!**/*.*".to_string(), "**/a.txt".to_string()],
+        excludes: Vec::new(),
+      },
+    )
+    .unwrap();
+
+    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/dir/a.txt"]);
   }
 }
