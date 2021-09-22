@@ -325,4 +325,23 @@ mod test {
     result.sort();
     assert_eq!(result, vec!["/dir/a.txt"]);
   }
+
+  #[test]
+  fn should_support_excluding_then_including_in_includes_case_2() {
+    // this allows people to out out of everything then slowly opt back in
+    let environment = TestEnvironmentBuilder::new().write_file("/dir/a/a.txt", "").write_file("/dir/b/b.txt", "").build();
+    let result = glob(
+      &environment,
+      "/",
+      &GlobPatterns {
+        includes: vec!["**/*.*".to_string(), "!a/**/*".to_string(), "a/b/**/*".to_string()],
+        excludes: Vec::new(),
+      },
+    )
+    .unwrap();
+
+    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/dir/b/b.txt"]);
+  }
 }
