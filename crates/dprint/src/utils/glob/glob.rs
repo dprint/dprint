@@ -23,6 +23,7 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
     file_patterns,
     &GlobMatcherOptions {
       case_insensitive: cfg!(windows),
+      base_dir: base.as_ref().to_path_buf(),
     },
   )?;
 
@@ -149,7 +150,7 @@ impl GlobMatchingProcessor {
           for entry in entries.into_iter().flatten() {
             match entry.kind {
               DirEntryKind::Directory => {
-                if !self.glob_matcher.is_ignored(&entry.path) {
+                if !self.glob_matcher.is_dir_ignored(&entry.path) {
                   pending_dirs.push(entry.path);
                 }
               }
@@ -324,5 +325,48 @@ mod test {
     let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/dir/a.txt"]);
+  }
+
+  #[test]
+  fn should_support_including_then_excluding_then_including() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dir/a.json", "")
+      .write_file("/dir/b.json", "")
+      .build();
+    let result = glob(
+      &environment,
+      "/",
+      &GlobPatterns {
+        includes: vec!["**/*.json".to_string(), "!**/*.json".to_string(), "**/a.json".to_string()],
+        excludes: Vec::new(),
+      },
+    )
+    .unwrap();
+
+    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/dir/a.json"]);
+  }
+
+  #[test]
+  fn excluding_dir_but_including_sub_dir() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/a/a.json", "")
+      .write_file("/a/b/b.json", "")
+      .write_file("/test.json", "")
+      .build();
+    let result = glob(
+      &environment,
+      "/",
+      &GlobPatterns {
+        includes: vec!["**/*.json".to_string(), "!a/**/*.json".to_string(), "a/b/**/*.json".to_string()],
+        excludes: Vec::new(),
+      },
+    )
+    .unwrap();
+
+    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/a/b/b.json", "/test.json"]);
   }
 }

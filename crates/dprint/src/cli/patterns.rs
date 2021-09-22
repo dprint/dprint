@@ -22,6 +22,7 @@ impl FileMatcher {
       &GlobMatcherOptions {
         // issue on windows where V:/ was not matching for pattern with v:/
         case_insensitive: true,
+        base_dir: cwd,
       },
     )?;
 

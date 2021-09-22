@@ -1,9 +1,10 @@
 use std::path::Path;
+use std::path::PathBuf;
 
 use dprint_cli_core::types::ErrBox;
-use globset::GlobBuilder;
-use globset::GlobSet;
-use globset::GlobSetBuilder;
+use ignore::overrides::Override;
+use ignore::overrides::OverrideBuilder;
+use ignore::Match;
 
 use super::is_negated_glob;
 
@@ -14,12 +15,13 @@ pub struct GlobPatterns {
 }
 
 pub struct GlobMatcherOptions {
+  pub base_dir: PathBuf,
   pub case_insensitive: bool,
 }
 
 pub struct GlobMatcher {
-  include_globset: GlobSet,
-  exclude_globset: GlobSet,
+  include_matcher: Override,
+  exclude_matcher: Override,
 }
 
 impl GlobMatcher {
@@ -30,24 +32,28 @@ impl GlobMatcher {
       .map(|pattern| if is_negated_glob(pattern) { &pattern[1..] } else { pattern })
       .collect::<Vec<_>>();
     Ok(GlobMatcher {
-      include_globset: build_glob_set(&patterns.includes, opts)?,
-      exclude_globset: build_glob_set(&excludes, opts)?,
+      include_matcher: build_override(&patterns.includes, opts)?,
+      exclude_matcher: build_override(&excludes, opts)?,
     })
   }
 
-  pub fn is_match(&self, pattern: impl AsRef<Path>) -> bool {
-    self.include_globset.is_match(&pattern) && !self.exclude_globset.is_match(&pattern)
+  pub fn is_match(&self, path: impl AsRef<Path>) -> bool {
+    matches!(self.include_matcher.matched(path.as_ref(), false), Match::Whitelist(_))
+      && !matches!(self.exclude_matcher.matched(path.as_ref(), false), Match::Whitelist(_))
   }
 
-  pub fn is_ignored(&self, pattern: impl AsRef<Path>) -> bool {
-    self.exclude_globset.is_match(&pattern)
+  pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> bool {
+    matches!(self.exclude_matcher.matched(path.as_ref(), true), Match::Whitelist(_))
   }
 }
 
-fn build_glob_set(file_patterns: &[impl AsRef<str>], opts: &GlobMatcherOptions) -> Result<GlobSet, ErrBox> {
-  let mut builder = GlobSetBuilder::new();
-  for pattern in file_patterns {
-    builder.add(GlobBuilder::new(pattern.as_ref()).case_insensitive(opts.case_insensitive).build()?);
+fn build_override(patterns: &[impl AsRef<str>], opts: &GlobMatcherOptions) -> Result<Override, ErrBox> {
+  let mut builder = OverrideBuilder::new(&opts.base_dir);
+  let builder = builder.case_insensitive(opts.case_insensitive)?;
+
+  for pattern in patterns {
+    builder.add(pattern.as_ref())?;
   }
-  return Ok(builder.build().unwrap());
+
+  return Ok(builder.build()?);
 }
