@@ -369,4 +369,25 @@ mod test {
     result.sort();
     assert_eq!(result, vec!["/a/b/b.json", "/test.json"]);
   }
+
+  #[test]
+  fn excluding_dir_but_including_sub_dir_case_2() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dir/a/a.txt", "")
+      .write_file("/dir/b/b.txt", "")
+      .build();
+    let result = glob(
+      &environment,
+      "/",
+      &GlobPatterns {
+        includes: vec!["**/*.*".to_string(), "!dir/a/**/*".to_string(), "dir/b/b/**/*".to_string()],
+        excludes: Vec::new(),
+      },
+    )
+    .unwrap();
+
+    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/dir/b/b.txt"]);
+  }
 }
