@@ -100,9 +100,11 @@ pub fn take_absolute_paths(file_patterns: &mut Vec<GlobPattern>, environment: &i
   let len = file_patterns.len();
   let mut file_paths = Vec::new();
   for i in (0..len).rev() {
-    if is_absolute_path(&file_patterns[i].absolute_pattern, environment) {
+    let absolute_pattern = file_patterns[i].absolute_pattern();
+    if is_absolute_path(&absolute_pattern, environment) {
       // can't use swap_remove because order is important
-      file_paths.push(PathBuf::from(file_patterns.remove(i).absolute_pattern));
+      file_patterns.remove(i);
+      file_paths.push(PathBuf::from(absolute_pattern));
     }
   }
   file_paths
