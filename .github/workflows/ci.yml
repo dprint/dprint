@@ -45,8 +45,6 @@ jobs:
 
     # CACHE SETUP
     - uses: Swatinem/rust-cache@v1
-      with:
-        key: ${{ matrix.config.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     # BUILD
     - name: Build test plugins
