@@ -1,5 +1,4 @@
 {
-  "$schema": "https://dprint.dev/schemas/v0.json",
   "incremental": true,
   "indentWidth": 2,
   "lineWidth": 160,
