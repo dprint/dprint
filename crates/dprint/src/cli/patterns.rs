@@ -1,9 +1,9 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dprint_cli_core::types::ErrBox;
 
 use crate::environment::Environment;
-use crate::utils::{is_absolute_pattern, is_negated_glob, to_absolute_glob, to_absolute_globs, GlobMatcher, GlobMatcherOptions, GlobPatterns};
+use crate::utils::{is_absolute_pattern, is_negated_glob, GlobMatcher, GlobMatcherOptions, GlobPattern, GlobPatterns};
 
 use super::configuration::ResolvedConfig;
 use super::CliArgs;
@@ -15,10 +15,9 @@ pub struct FileMatcher {
 impl FileMatcher {
   pub fn new(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Self, ErrBox> {
     let cwd = environment.cwd();
-    let cwd_str = cwd.to_string_lossy();
-    let patterns = get_all_file_patterns(config, args, &cwd_str);
+    let patterns = get_all_file_patterns(config, args, &cwd);
     let glob_matcher = GlobMatcher::new(
-      &patterns,
+      patterns,
       &GlobMatcherOptions {
         // issue on windows where V:/ was not matching for pattern with v:/
         case_insensitive: true,
@@ -35,52 +34,52 @@ impl FileMatcher {
   }
 }
 
-pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> GlobPatterns {
+pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &PathBuf) -> GlobPatterns {
   GlobPatterns {
     includes: get_include_file_patterns(config, args, cwd),
     excludes: get_exclude_file_patterns(config, args, cwd),
   }
 }
 
-fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
+fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &PathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(if args.file_patterns.is_empty() {
-    to_absolute_globs(
+    GlobPattern::new_vec(
       process_config_patterns(process_file_patterns_slashes(&config.includes)),
-      &config.base_path.to_string_lossy(),
+      config.base_path.clone(),
     )
   } else {
     // resolve CLI patterns based on the current working directory
-    to_absolute_globs(process_cli_patterns(process_file_patterns_slashes(&args.file_patterns)), cwd)
+    GlobPattern::new_vec(process_cli_patterns(process_file_patterns_slashes(&args.file_patterns)), cwd.clone())
   });
 
   return file_patterns;
 }
 
-fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str) -> Vec<String> {
+fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &PathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(
     if args.exclude_file_patterns.is_empty() {
-      to_absolute_globs(
+      GlobPattern::new_vec(
         process_config_patterns(process_file_patterns_slashes(&config.excludes)),
-        &config.base_path.to_string_lossy(),
+        config.base_path.clone(),
       )
     } else {
       // resolve CLI patterns based on the current working directory
-      to_absolute_globs(process_cli_patterns(process_file_patterns_slashes(&args.exclude_file_patterns)), cwd)
+      GlobPattern::new_vec(process_cli_patterns(process_file_patterns_slashes(&args.exclude_file_patterns)), cwd.clone())
     }
     .into_iter()
-    .map(|exclude| if exclude.starts_with("!") { exclude } else { format!("!{}", exclude) }),
+    .map(|pattern| pattern.into_negated()),
   );
 
   if !args.allow_node_modules {
     // glob walker will not search the children of a directory once it's ignored like this
     let node_modules_exclude = String::from("!**/node_modules");
     let exclude_node_module_patterns = vec![
-      to_absolute_glob(&node_modules_exclude, cwd),
-      to_absolute_glob(&node_modules_exclude, &config.base_path.to_string_lossy()),
+      GlobPattern::new(node_modules_exclude.clone(), cwd.clone()),
+      GlobPattern::new(node_modules_exclude, config.base_path.clone()),
     ];
     for node_modules_exclude in exclude_node_module_patterns {
       if !file_patterns.contains(&node_modules_exclude) {
@@ -88,7 +87,7 @@ fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &str)
       }
     }
   }
-  return file_patterns;
+  file_patterns
 }
 
 fn process_file_patterns_slashes(file_patterns: &Vec<String>) -> Vec<String> {

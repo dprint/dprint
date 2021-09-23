@@ -1,9 +1,5 @@
 use std::borrow::Cow;
 
-pub fn to_absolute_globs(file_patterns: Vec<String>, base_dir: &str) -> Vec<String> {
-  file_patterns.into_iter().map(|p| to_absolute_glob(&p, base_dir)).collect()
-}
-
 pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
   // Adapted from https://github.com/dsherret/ts-morph/blob/0f8a77a9fa9d74e32f88f36992d527a2f059c6ac/packages/common/src/fileSystem/FileUtils.ts#L272
 
