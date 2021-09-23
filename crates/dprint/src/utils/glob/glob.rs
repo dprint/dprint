@@ -5,12 +5,12 @@ use dprint_cli_core::types::ErrBox;
 use parking_lot::{Condvar, Mutex};
 
 use crate::environment::{DirEntry, DirEntryKind, Environment};
-use crate::utils::{is_negated_glob, GlobMatcher, GlobMatcherOptions};
+use crate::utils::{GlobMatcher, GlobMatcherOptions};
 
 use super::GlobPatterns;
 
-pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: &GlobPatterns) -> Result<Vec<PathBuf>, ErrBox> {
-  if file_patterns.includes.iter().all(|p| is_negated_glob(p)) {
+pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<Vec<PathBuf>, ErrBox> {
+  if file_patterns.includes.iter().all(|p| p.is_negated()) {
     // performance improvement (see issue #379)
     log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
     return Ok(Vec::with_capacity(0));
@@ -23,7 +23,6 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
     file_patterns,
     &GlobMatcherOptions {
       case_insensitive: cfg!(windows),
-      base_dir: base.as_ref().to_path_buf(),
     },
   )?;
 
@@ -250,6 +249,7 @@ impl SharedState {
 mod test {
   use super::*;
   use crate::environment::TestEnvironmentBuilder;
+  use crate::utils::GlobPattern;
 
   #[test]
   fn it_should_glob() {
@@ -279,9 +279,9 @@ mod test {
     let result = glob(
       &environment,
       "/",
-      &GlobPatterns {
-        includes: vec!["**/*.txt".to_string()],
-        excludes: vec!["**/ignore".to_string()],
+      GlobPatterns {
+        includes: vec![GlobPattern::new("**/*.txt".to_string(), PathBuf::from("/"))],
+        excludes: vec![GlobPattern::new("**/ignore".to_string(), PathBuf::from("/"))],
       },
     )
     .unwrap();
@@ -298,8 +298,8 @@ mod test {
     let err_message = glob(
       &environment,
       "/",
-      &GlobPatterns {
-        includes: vec!["**/*.txt".to_string()],
+      GlobPatterns {
+        includes: vec![GlobPattern::new("**/*.txt".to_string(), PathBuf::from("/"))],
         excludes: Vec::new(),
       },
     )
@@ -315,8 +315,11 @@ mod test {
     let result = glob(
       &environment,
       "/",
-      &GlobPatterns {
-        includes: vec!["!**/*.*".to_string(), "**/a.txt".to_string()],
+      GlobPatterns {
+        includes: vec![
+          GlobPattern::new("!**/*.*".to_string(), PathBuf::from("/")),
+          GlobPattern::new("**/a.txt".to_string(), PathBuf::from("/")),
+        ],
         excludes: Vec::new(),
       },
     )
@@ -336,8 +339,12 @@ mod test {
     let result = glob(
       &environment,
       "/",
-      &GlobPatterns {
-        includes: vec!["**/*.json".to_string(), "!**/*.json".to_string(), "**/a.json".to_string()],
+      GlobPatterns {
+        includes: vec![
+          GlobPattern::new("**/*.json".to_string(), PathBuf::from("/")),
+          GlobPattern::new("!**/*.json".to_string(), PathBuf::from("/")),
+          GlobPattern::new("**/a.json".to_string(), PathBuf::from("/")),
+        ],
         excludes: Vec::new(),
       },
     )
@@ -351,15 +358,19 @@ mod test {
   #[test]
   fn excluding_dir_but_including_sub_dir() {
     let environment = TestEnvironmentBuilder::new()
-      .write_file("/a/a.json", "")
-      .write_file("/a/b/b.json", "")
-      .write_file("/test.json", "")
+      .write_file("/test/a/a.json", "")
+      .write_file("/test/a/b/b.json", "")
+      .write_file("/test/test.json", "")
       .build();
     let result = glob(
       &environment,
-      "/",
-      &GlobPatterns {
-        includes: vec!["**/*.json".to_string(), "!a/**/*.json".to_string(), "a/b/**/*.json".to_string()],
+      "/test/",
+      GlobPatterns {
+        includes: vec![
+          GlobPattern::new("**/*.json".to_string(), PathBuf::from("/test/")),
+          GlobPattern::new("!a/**/*.json".to_string(), PathBuf::from("/test/")),
+          GlobPattern::new("a/b/**/*.json".to_string(), PathBuf::from("/test/")),
+        ],
         excludes: Vec::new(),
       },
     )
@@ -367,7 +378,7 @@ mod test {
 
     let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
-    assert_eq!(result, vec!["/a/b/b.json", "/test.json"]);
+    assert_eq!(result, vec!["/test/a/b/b.json", "/test/test.json"]);
   }
 
   #[test]
@@ -379,8 +390,12 @@ mod test {
     let result = glob(
       &environment,
       "/",
-      &GlobPatterns {
-        includes: vec!["**/*.*".to_string(), "!dir/a/**/*".to_string(), "dir/b/b/**/*".to_string()],
+      GlobPatterns {
+        includes: vec![
+          GlobPattern::new("**/*.*".to_string(), PathBuf::from("/")),
+          GlobPattern::new("!dir/a/**/*".to_string(), PathBuf::from("/")),
+          GlobPattern::new("dir/b/b/**/*".to_string(), PathBuf::from("/")),
+        ],
         excludes: Vec::new(),
       },
     )

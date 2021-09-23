@@ -1,9 +1,5 @@
 use std::borrow::Cow;
 
-pub fn to_absolute_globs(file_patterns: Vec<String>, base_dir: &str) -> Vec<String> {
-  file_patterns.into_iter().map(|p| to_absolute_glob(&p, base_dir)).collect()
-}
-
 pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
   // Adapted from https://github.com/dsherret/ts-morph/blob/0f8a77a9fa9d74e32f88f36992d527a2f059c6ac/packages/common/src/fileSystem/FileUtils.ts#L272
 
@@ -118,6 +114,22 @@ fn is_windows_absolute_pattern(pattern: &str) -> bool {
   // now check for the last slash
   let next_char = chars.next();
   matches!(next_char, Some('/'))
+}
+
+pub fn strip_slash_start_pattern(pattern: &str) -> String {
+  let is_negated = is_negated_glob(&pattern);
+  let mut start_index = 0;
+  if is_negated {
+    start_index += 1; // remove !
+  }
+  if pattern[start_index..].starts_with("./") {
+    start_index += 2;
+  }
+  if is_negated {
+    format!("!{}", &pattern[start_index..])
+  } else {
+    pattern[start_index..].to_string()
+  }
 }
 
 #[cfg(test)]
