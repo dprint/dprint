@@ -7,7 +7,7 @@ const path = require("path");
 const child_process = require("child_process");
 const info = JSON.parse(fs.readFileSync(path.join(__dirname, "info.json"), "utf8"));
 
-if (os.arch() !== "x64") {
+if (!isM1Mac() && os.arch() !== "x64") {
   throw new Error("Unsupported architecture " + os.arch() + ". Only x64 binaries are available.");
 }
 
@@ -33,4 +33,9 @@ if (os.platform() === "win32") {
       cwd: __dirname,
     });
   }
+}
+
+function isM1Mac() {
+  // works on mac via rosetta
+  return os.arch() === "arm64" && os.platform() === "darwin";
 }
