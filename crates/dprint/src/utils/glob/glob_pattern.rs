@@ -77,10 +77,12 @@ impl GlobPattern {
       if is_negated {
         old_pattern.drain(..1); // remove !
       }
-      if old_pattern.starts_with("./") {
+      if !old_pattern.contains("/") {
+        // patterns without a slash should match every directory
+        old_pattern = format!("**/{}", old_pattern);
+      } else if old_pattern.starts_with("./") {
         old_pattern.drain(..2);
-      }
-      if old_pattern.starts_with("/") {
+      } else if old_pattern.starts_with("/") {
         old_pattern.drain(..1);
       }
 
@@ -155,6 +157,24 @@ mod test {
     let pattern = pattern.into_new_base(PathBuf::from("/"));
     assert_eq!(pattern.relative_pattern, "./test/dir/**/*");
     assert_eq!(pattern.absolute_pattern, "/test/dir/**/*");
+    assert_eq!(pattern.base_dir, PathBuf::from("/"));
+  }
+
+  #[test]
+  fn should_make_new_base_when_no_slash() {
+    let pattern = GlobPattern::new("asdf".to_string(), PathBuf::from("/test/dir"));
+    assert_eq!(pattern.relative_pattern, "asdf");
+    assert_eq!(pattern.absolute_pattern, "/test/dir/**/asdf");
+    assert_eq!(pattern.base_dir, PathBuf::from("/test/dir"));
+
+    let pattern = pattern.into_new_base(PathBuf::from("/test"));
+    assert_eq!(pattern.relative_pattern, "./dir/**/asdf");
+    assert_eq!(pattern.absolute_pattern, "/test/dir/**/asdf");
+    assert_eq!(pattern.base_dir, PathBuf::from("/test"));
+
+    let pattern = pattern.into_new_base(PathBuf::from("/"));
+    assert_eq!(pattern.relative_pattern, "./test/dir/**/asdf");
+    assert_eq!(pattern.absolute_pattern, "/test/dir/**/asdf");
     assert_eq!(pattern.base_dir, PathBuf::from("/"));
   }
 }

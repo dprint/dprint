@@ -116,22 +116,6 @@ fn is_windows_absolute_pattern(pattern: &str) -> bool {
   matches!(next_char, Some('/'))
 }
 
-pub fn strip_slash_start_pattern(pattern: &str) -> String {
-  let is_negated = is_negated_glob(&pattern);
-  let mut start_index = 0;
-  if is_negated {
-    start_index += 1; // remove !
-  }
-  if pattern[start_index..].starts_with("./") {
-    start_index += 2;
-  }
-  if is_negated {
-    format!("!{}", &pattern[start_index..])
-  } else {
-    pattern[start_index..].to_string()
-  }
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -6,9 +7,6 @@ use ignore::overrides::Override;
 use ignore::overrides::OverrideBuilder;
 use ignore::Match;
 
-use crate::utils::is_negated_glob;
-
-use super::strip_slash_start_pattern;
 use super::GlobPattern;
 use super::GlobPatterns;
 
@@ -71,18 +69,13 @@ fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir:
   let builder = builder.case_insensitive(opts.case_insensitive)?;
 
   for pattern in patterns {
-    // todo: bug here
-    // println!("-------");
-    // println!("{}", pattern.relative_pattern);
-
-    let pattern = if pattern.relative_pattern.contains("/") {
-      strip_slash_start_pattern(&pattern.relative_pattern)
+    // change patterns that start with ./ to be at the "root" of the globbing
+    let pattern = if pattern.relative_pattern.starts_with("!./") {
+      Cow::Owned(format!("!/{}", &pattern.relative_pattern[3..]))
+    } else if pattern.relative_pattern.starts_with("./") {
+      Cow::Owned(format!("/{}", &pattern.relative_pattern[2..]))
     } else {
-      if is_negated_glob(&pattern.relative_pattern) {
-        format!("!**/{}", &pattern.relative_pattern[1..])
-      } else {
-        format!("**/{}", pattern.relative_pattern)
-      }
+      Cow::Borrowed(&pattern.relative_pattern)
     };
     builder.add(&pattern)?;
   }
