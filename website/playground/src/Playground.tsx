@@ -1,9 +1,9 @@
 import type { PluginInfo } from "@dprint/formatter";
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import SplitPane from "react-split-pane";
-import "./external/react-splitpane.css";
 import { CodeEditor, ExternalLink } from "./components";
 import { Spinner } from "./components";
+import "./external/react-splitpane.css";
 import * as formatterWorker from "./FormatterWorker";
 import "./Playground.css";
 import { getLanguageFromPluginUrl } from "./plugins";

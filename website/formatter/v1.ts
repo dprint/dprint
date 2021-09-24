@@ -10,35 +10,35 @@ console.warn(
 /** Formats code. */
 export interface Formatter {
   /**
-     * Sets the configuration.
-     * @param globalConfig - Global configuration for use across plugins.
-     * @param pluginConfig - Plugin specific configuration.
-     */
+   * Sets the configuration.
+   * @param globalConfig - Global configuration for use across plugins.
+   * @param pluginConfig - Plugin specific configuration.
+   */
   setConfig(globalConfig: GlobalConfiguration, pluginConfig: object): void;
   /**
-     * Gets the configuration diagnostics.
-     */
+   * Gets the configuration diagnostics.
+   */
   getConfigDiagnostics(): ConfigurationDiagnostic[];
   /**
-     * Gets the resolved configuration.
-     * @returns An object containing the resolved configuration.
-     */
+   * Gets the resolved configuration.
+   * @returns An object containing the resolved configuration.
+   */
   getResolvedConfig(): object;
   /**
-     * Gets the plugin info.
-     */
+   * Gets the plugin info.
+   */
   getPluginInfo(): PluginInfo;
   /**
-     * Gets the license text of the plugin.
-     */
+   * Gets the license text of the plugin.
+   */
   getLicenseText(): string;
   /**
-     * Formats the specified file text.
-     * @param filePath - The file path to format.
-     * @param fileText - File text to format.
-     * @returns The formatted text.
-     * @throws If there is an error formatting.
-     */
+   * Formats the specified file text.
+   * @param filePath - The file path to format.
+   * @param fileText - File text to format.
+   * @returns The formatted text.
+   * @throws If there is an error formatting.
+   */
   formatText(filePath: string, fileText: string): string;
 }
 

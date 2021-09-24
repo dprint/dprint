@@ -171,9 +171,9 @@ function getNodesAndLinks() {
   }
 
   /**
-     * @param {import("./types").GraphPrintNode} source
-     * @param {import("./types").GraphPrintNode} target
-     */
+   * @param {import("./types").GraphPrintNode} source
+   * @param {import("./types").GraphPrintNode} target
+   */
   function addLinksToLastNodes(source, target) {
     if (source.printNode.nextPrintNodeId != null) {
       const nextPrintNodeTarget = getNodeById(source.printNode.nextPrintNodeId);
@@ -184,11 +184,11 @@ function getNodesAndLinks() {
   }
 
   /**
-     * @param {import("./types").GraphPrintNode} source
-     * @param {import("./types").GraphPrintNode} target
-     * @param {string} [color]
-     * @param {number} [originatingNodeId]
-     */
+   * @param {import("./types").GraphPrintNode} source
+   * @param {import("./types").GraphPrintNode} target
+   * @param {string} [color]
+   * @param {number} [originatingNodeId]
+   */
   function addLink(source, target, color, originatingNodeId) {
     if (color == null && source.printNode.printItem.kind === "condition") {
       const condition = source.printNode.printItem.content;
@@ -476,9 +476,9 @@ function createCodeView() {
   };
 
   /**
-     * @param {import("./types").WriterNode} node
-     * @param {HTMLElement[]} elements
-     */
+   * @param {import("./types").WriterNode} node
+   * @param {HTMLElement[]} elements
+   */
   function fillWriterNodeElements(node, elements) {
     if (node.text === "\n" || node.text === "\r\n") {
       elements.push(document.createElement("br"));
