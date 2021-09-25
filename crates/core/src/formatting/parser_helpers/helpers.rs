@@ -225,7 +225,7 @@ pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
 
   // add back the last line's trailing whitespace
   if !last_line_trailing_whitespace.is_empty() {
-    items.push_str(last_line_trailing_whitespace);
+    items.extend(parse_raw_string(last_line_trailing_whitespace));
   }
 
   if add_ignore_indent {

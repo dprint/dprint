@@ -473,7 +473,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.46.2"
+version = "0.46.3"
 dependencies = [
  "bumpalo",
  "fnv",

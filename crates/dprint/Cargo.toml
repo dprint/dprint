@@ -15,7 +15,7 @@ crossterm = "0.20.0"
 dirs = "3.0.2"
 dissimilar = "1.0"
 dprint-cli-core = { path = "../cli-core", version = "0.8.0" }
-dprint-core = { path = "../core", version = "0.46.2", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.46.3", features = ["process", "wasm"] }
 dunce = "1.0.2"
 ignore = "0.4.18"
 jsonc-parser = { version = "0.17.0" }
