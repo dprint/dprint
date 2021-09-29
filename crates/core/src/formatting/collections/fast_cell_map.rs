@@ -1,4 +1,4 @@
-use fnv::FnvHashMap;
+use rustc_hash::FxHashMap;
 use std::cell::UnsafeCell;
 
 /// This fast cell map performs faster than a regular RefCell<HashMap<TKey, Rc<TValue>>
@@ -6,7 +6,7 @@ use std::cell::UnsafeCell;
 /// remains safe to the user because the value in the hashmap is a reference.
 /// Additionally, the underlying collection is never exposed to the user.
 pub struct FastCellMap<'a, TKey, TValue> {
-  value: UnsafeCell<FnvHashMap<TKey, &'a TValue>>,
+  value: UnsafeCell<FxHashMap<TKey, &'a TValue>>,
 }
 
 impl<'a, TKey, TValue> FastCellMap<'a, TKey, TValue>
@@ -15,11 +15,11 @@ where
 {
   pub fn new() -> FastCellMap<'a, TKey, TValue> {
     FastCellMap {
-      value: UnsafeCell::new(FnvHashMap::default()),
+      value: UnsafeCell::new(FxHashMap::default()),
     }
   }
 
-  pub fn replace_map(&mut self, new_map: FnvHashMap<TKey, &'a TValue>) {
+  pub fn replace_map(&mut self, new_map: FxHashMap<TKey, &'a TValue>) {
     self.value = UnsafeCell::new(new_map);
   }
 
@@ -37,7 +37,7 @@ where
     unsafe { (*self.value.get()).remove(key) }
   }
 
-  pub fn clone_map(&self) -> FnvHashMap<TKey, &'a TValue> {
+  pub fn clone_map(&self) -> FxHashMap<TKey, &'a TValue> {
     unsafe { (*self.value.get()).clone() }
   }
 

@@ -1,6 +1,6 @@
 [package]
 name = "dprint-core"
-version = "0.46.3"
+version = "0.46.4"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2018"
 homepage = "https://github.com/dprint/dprint/tree/main/crates/core"
@@ -12,14 +12,14 @@ description = "Core library for dprint."
 [features]
 default = ["formatting"]
 
-formatting = ["bumpalo", "fnv"]
+formatting = ["bumpalo", "rustc-hash"]
 process = ["serde_json", "libc", "winapi"]
 wasm = []
 tracing = ["formatting"]
 
 [dependencies]
 bumpalo = { version = "3.7.0", optional = true }
-fnv = { version = "1.0.7", optional = true }
+rustc-hash = { version = "1.1.0", optional = true }
 serde = { version = "1.0.126", features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 

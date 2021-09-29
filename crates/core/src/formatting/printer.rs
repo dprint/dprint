@@ -1,5 +1,5 @@
 use bumpalo::Bump;
-use fnv::FnvHashMap;
+use rustc_hash::FxHashMap;
 
 use super::collections::*;
 use super::print_items::*;
@@ -15,8 +15,8 @@ struct SavePoint<'a> {
   pub writer_state: WriterState<'a>,
   pub possible_new_line_save_point: Option<&'a SavePoint<'a>>,
   pub node: Option<PrintItemPath>,
-  pub look_ahead_condition_save_points: FnvHashMap<usize, &'a SavePoint<'a>>,
-  pub look_ahead_info_save_points: FnvHashMap<usize, &'a SavePoint<'a>>,
+  pub look_ahead_condition_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
+  pub look_ahead_info_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
   pub next_node_stack: Vec<Option<PrintItemPath>>,
 }
 
@@ -59,16 +59,16 @@ pub struct Printer<'a> {
   force_no_newlines_depth: u8,
   current_node: Option<PrintItemPath>,
   writer: Writer<'a>,
-  resolved_conditions: FnvHashMap<usize, Option<bool>>,
-  resolved_infos: FnvHashMap<usize, WriterInfo>,
-  look_ahead_condition_save_points: FnvHashMap<usize, &'a SavePoint<'a>>,
+  resolved_conditions: FxHashMap<usize, Option<bool>>,
+  resolved_infos: FxHashMap<usize, WriterInfo>,
+  look_ahead_condition_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
   look_ahead_info_save_points: FastCellMap<'a, usize, SavePoint<'a>>,
   next_node_stack: Vec<Option<PrintItemPath>>,
-  conditions_for_infos: FnvHashMap<usize, FnvHashMap<usize, (&'a Condition, &'a SavePoint<'a>)>>,
+  conditions_for_infos: FxHashMap<usize, FxHashMap<usize, (&'a Condition, &'a SavePoint<'a>)>>,
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
-  stored_info_positions: FnvHashMap<usize, (u32, u32)>,
+  stored_info_positions: FxHashMap<usize, (u32, u32)>,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
   #[cfg(feature = "tracing")]
@@ -91,16 +91,16 @@ impl<'a> Printer<'a> {
           enable_tracing: options.enable_tracing,
         },
       ),
-      resolved_conditions: FnvHashMap::default(),
-      resolved_infos: FnvHashMap::default(),
-      look_ahead_condition_save_points: FnvHashMap::default(),
+      resolved_conditions: FxHashMap::default(),
+      resolved_infos: FxHashMap::default(),
+      look_ahead_condition_save_points: FxHashMap::default(),
       look_ahead_info_save_points: FastCellMap::new(),
-      conditions_for_infos: FnvHashMap::default(),
+      conditions_for_infos: FxHashMap::default(),
       next_node_stack: Vec::new(),
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
-      stored_info_positions: FnvHashMap::default(),
+      stored_info_positions: FxHashMap::default(),
       #[cfg(feature = "tracing")]
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
       #[cfg(feature = "tracing")]
