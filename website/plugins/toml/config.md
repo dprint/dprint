@@ -13,6 +13,6 @@ description: Documentation on the configuration file for the TOML code formattin
 
 # TOML - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/toml-v0.json">
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/toml-latest.json">
   Loading...
 </div>

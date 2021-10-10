@@ -65,7 +65,11 @@ export class UrlSaver {
     }
   }
 
-  updateUrl({ text, configText, language }: { text: string; configText?: string; language?: "typescript" | "json" | "markdown" | "toml" }) {
+  updateUrl({ text, configText, language }: {
+    text: string;
+    configText?: string;
+    language?: "typescript" | "json" | "markdown" | "toml" | "dockerfile";
+  }) {
     if (language == null) {
       window.history.replaceState(
         undefined,

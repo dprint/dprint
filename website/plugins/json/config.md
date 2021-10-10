@@ -13,6 +13,6 @@ description: Documentation on the configuration file for the JSON code formattin
 
 # JSON - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/json-v0.json">
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/json-latest.json">
   Loading...
 </div>

@@ -13,6 +13,6 @@ description: Documentation on the configuration file for the Dockerfile code for
 
 # Dockerfile - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/dockerfile-v0.json">
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/dockerfile-latest.json">
   Loading...
 </div>
