@@ -54,18 +54,18 @@ jobs:
 
     - name: Build debug
       if: matrix.config.kind == 'test_debug'
-      run: cargo build --locked --all-features --verbose
+      run: cargo build --locked --all-features
     - name: Build release
       if: matrix.config.kind == 'test_release'
-      run: cargo build --locked --all-features --verbose --release
+      run: cargo build --locked --all-features --release
 
     # TEST
     - name: Test debug
       if: matrix.config.kind == 'test_debug'
-      run: cargo test --locked --all-features --verbose
+      run: cargo test --locked --all-features
     - name: Test release
       if: matrix.config.kind == 'test_release'
-      run: cargo test --locked --all-features --verbose --release
+      run: cargo test --locked --all-features --release
 
     # INSTALLER
     - name: Create installer (Windows)
