@@ -1,7 +1,7 @@
 export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const response = await fetch("https://plugins.dprint.dev/info.json", { signal });
   const json = await response.json();
-  const expectedSchemaVersion = 3;
+  const expectedSchemaVersion = 4;
 
   if (json.schemaVersion !== expectedSchemaVersion) {
     throw new Error(`Expected schema version ${expectedSchemaVersion}, but found ${json.schemaVersion}.`);
@@ -11,8 +11,9 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const jsonPlugin = json.latest.find((p: any) => p.configKey === "json")!;
   const markdownPlugin = json.latest.find((p: any) => p.configKey === "markdown")!;
   const tomlPlugin = json.latest.find((p: any) => p.configKey === "toml")!;
+  const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
 
-  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url];
+  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url];
 }
 
 export function getLanguageFromPluginUrl(url: string) {
@@ -23,6 +24,7 @@ export function getLanguageFromPluginUrl(url: string) {
     case "markdown":
     case "json":
     case "toml":
+    case "dockerfile":
       return language;
     default:
       return undefined;

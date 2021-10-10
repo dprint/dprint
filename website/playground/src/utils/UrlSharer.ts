@@ -38,7 +38,7 @@ export class UrlSaver {
       }
     }
 
-    function getLanguage(): "typescript" | "json" | "markdown" | "toml" {
+    function getLanguage(): "typescript" | "json" | "markdown" | "toml" | "dockerfile" {
       const matches = /language\/([^/]+)/.exec(locationHash);
       if (matches == null || matches.length !== 2) {
         return "typescript";
@@ -52,6 +52,8 @@ export class UrlSaver {
             return "markdown";
           case "toml":
             return "toml";
+          case "dockerfile":
+            return "dockerfile";
           case "typescript":
           default:
             return "typescript";

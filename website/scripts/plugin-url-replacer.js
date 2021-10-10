@@ -4,8 +4,9 @@
   var jsonUrl = "https://plugins.dprint.dev/json-x.x.x.wasm";
   var markdownUrl = "https://plugins.dprint.dev/markdown-x.x.x.wasm";
   var tomlUrl = "https://plugins.dprint.dev/toml-x.x.x.wasm";
+  var dockerfileUrl = "https://plugins.dprint.dev/dockerfile-x.x.x.wasm";
   var pluginInfoUrl = "https://plugins.dprint.dev/info.json";
-  var schemaVersion = 3;
+  var schemaVersion = 4;
 
   Dprint.replacePluginUrls = function() {
     var elements = getPluginUrlElements();
@@ -26,6 +27,9 @@
             case getWithQuotes(tomlUrl):
               element.textContent = getWithQuotes(urls["toml"]);
               break;
+            case getWithQuotes(dockerfileUrl):
+              element.textContent = getWithQuotes(urls["dockerfile"]);
+              break;
           }
         }
       });
@@ -42,6 +46,7 @@
         case getWithQuotes(jsonUrl):
         case getWithQuotes(markdownUrl):
         case getWithQuotes(tomlUrl):
+        case getWithQuotes(dockerfileUrl):
           result.push(stringElement);
           break;
       }
@@ -68,6 +73,7 @@
           json: getUrlForPlugin(data, "dprint-plugin-json"),
           markdown: getUrlForPlugin(data, "dprint-plugin-markdown"),
           toml: getUrlForPlugin(data, "dprint-plugin-toml"),
+          dockerfile: getUrlForPlugin(data, "dprint-plugin-dockerfile"),
         };
       });
 
