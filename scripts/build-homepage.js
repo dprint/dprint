@@ -62,6 +62,8 @@ function buildWebsite() {
   buildForPath("plugins/markdown/config", documentationHtmlPageText);
   buildForPath("plugins/toml", documentationHtmlPageText);
   buildForPath("plugins/toml/config", documentationHtmlPageText);
+  buildForPath("plugins/dockerfile", documentationHtmlPageText);
+  buildForPath("plugins/dockerfile/config", documentationHtmlPageText);
   buildForPath("plugins/prettier", documentationHtmlPageText);
   buildForPath("plugins/roslyn", documentationHtmlPageText);
   buildForPath("plugins/rustfmt", documentationHtmlPageText);

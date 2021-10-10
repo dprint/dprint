@@ -20,6 +20,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [JSON](/plugins/json)
 - [Markdown](/plugins/markdown)
 - [TOML](/plugins/toml)
+- [Dockerfile](/plugins/dockerfile)
 
 ## Process Plugins
 
