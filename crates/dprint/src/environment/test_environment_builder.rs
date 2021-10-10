@@ -133,6 +133,8 @@ pub struct TestInfoFilePlugin {
   pub version: String,
   pub url: String,
   #[serde(skip_serializing_if = "Option::is_none")]
+  pub selected: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub file_names: Option<Vec<String>>,
   pub file_extensions: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,7 +157,7 @@ impl TestInfoFileBuilder {
 
   pub fn to_string(&self) -> String {
     let mut parts = Vec::new();
-    parts.push("\"schemaVersion\": 3".to_string());
+    parts.push("\"schemaVersion\": 4".to_string());
     parts.push(format!("\"pluginSystemSchemaVersion\": {}", self.plugin_schema_version.unwrap_or(3)));
     let plugins_text = serde_json::to_string_pretty(&self.plugins).unwrap();
     parts.push(format!("\"latest\": {}", plugins_text));

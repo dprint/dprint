@@ -13,6 +13,7 @@ pub struct InfoFile {
 pub struct InfoFilePluginInfo {
   pub name: String,
   pub version: String,
+  pub selected: bool,
   pub url: String,
   pub config_key: Option<String>,
   pub file_extensions: Vec<String>,
@@ -27,7 +28,7 @@ impl InfoFilePluginInfo {
   }
 }
 
-const SCHEMA_VERSION: u8 = 3;
+const SCHEMA_VERSION: u8 = 4;
 pub const REMOTE_INFO_URL: &'static str = "https://plugins.dprint.dev/info.json";
 
 pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox> {
@@ -83,6 +84,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
   let name = get_string(&mut obj, "name")?;
   let version = get_string(&mut obj, "version")?;
   let url = get_string(&mut obj, "url")?;
+  let selected = obj.get_boolean("selected").unwrap_or(false);
   let config_key = obj.take_string("configKey").map(|k| k.into_owned());
   let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
   let file_names = get_string_array(&mut obj, "fileNames").unwrap_or_default(); // compatible with old configuration
@@ -93,6 +95,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
     name,
     version,
     url,
+    selected,
     config_key,
     file_extensions,
     file_names,
@@ -140,6 +143,7 @@ mod test {
           .add_plugin(TestInfoFilePlugin {
             name: "dprint-plugin-typescript".to_string(),
             version: "0.17.2".to_string(),
+            selected: Some(true),
             url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
             config_key: Some("typescript".to_string()),
             file_extensions: vec!["ts".to_string(), "tsx".to_string()],
@@ -168,6 +172,7 @@ mod test {
           InfoFilePluginInfo {
             name: "dprint-plugin-typescript".to_string(),
             version: "0.17.2".to_string(),
+            selected: true,
             url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
             config_key: Some("typescript".to_string()),
             file_extensions: vec!["ts".to_string(), "tsx".to_string()],
@@ -178,6 +183,7 @@ mod test {
           InfoFilePluginInfo {
             name: "dprint-plugin-jsonc".to_string(),
             version: "0.2.3".to_string(),
+            selected: false,
             url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
             config_key: None,
             file_extensions: vec!["json".to_string()],
@@ -203,7 +209,7 @@ mod test {
     let message = read_info_file(&environment).err().unwrap();
     assert_eq!(
       message.to_string(),
-      "Cannot handle schema version 1. Expected 3. This might mean your dprint CLI version is old and isn't able to get the latest information."
+      "Cannot handle schema version 1. Expected 4. This might mean your dprint CLI version is old and isn't able to get the latest information."
     );
   }
 
@@ -213,7 +219,7 @@ mod test {
     environment.add_remote_file(
       REMOTE_INFO_URL,
       r#"{
-    "schemaVersion": 3,
+    "schemaVersion": 4,
 }"#
         .as_bytes(),
     );

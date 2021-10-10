@@ -76,7 +76,7 @@ pub struct TestEnvironment {
   remote_files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
   deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
   selection_result: Arc<Mutex<usize>>,
-  multi_selection_result: Arc<Mutex<Vec<usize>>>,
+  multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>, ErrBox>>>>,
   is_silent: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
@@ -98,7 +98,7 @@ impl TestEnvironment {
       remote_files: Arc::new(Mutex::new(HashMap::new())),
       deleted_directories: Arc::new(Mutex::new(Vec::new())),
       selection_result: Arc::new(Mutex::new(0)),
-      multi_selection_result: Arc::new(Mutex::new(Vec::new())),
+      multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Arc::new(Mutex::new(Vec::new())),
       is_silent: Arc::new(Mutex::new(false)),
       wasm_compile_result: Arc::new(Mutex::new(None)),
@@ -144,7 +144,7 @@ impl TestEnvironment {
 
   pub fn set_multi_selection_result(&self, indexes: Vec<usize>) {
     let mut multi_selection_result = self.multi_selection_result.lock();
-    *multi_selection_result = indexes;
+    *multi_selection_result = Some(indexes);
   }
 
   pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>, ErrBox>>) {
@@ -396,9 +396,14 @@ impl Environment for TestEnvironment {
     Ok(*self.selection_result.lock())
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, _: u16, _: &Vec<(bool, String)>) -> Result<Vec<usize>, ErrBox> {
+  fn get_multi_selection(&self, prompt_message: &str, _: u16, items: &Vec<(bool, String)>) -> Result<Vec<usize>, ErrBox> {
     self.log_stderr(prompt_message);
-    Ok(self.multi_selection_result.lock().clone())
+    let default_values = items
+      .iter()
+      .enumerate()
+      .filter_map(|(i, (selected, _))| if *selected { Some(i) } else { None })
+      .collect();
+    Ok(self.multi_selection_result.lock().clone().unwrap_or(default_values))
   }
 
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool, ErrBox> {

@@ -42,7 +42,10 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
     let plugin_indexes = environment.get_multi_selection(
       prompt_message,
       0,
-      &latest_plugins.iter().map(|x| (!x.is_process_plugin(), String::from(&x.name))).collect(),
+      &latest_plugins
+        .iter()
+        .map(|x| (x.selected && !x.is_process_plugin(), String::from(&x.name)))
+        .collect(),
     )?;
     let mut selected_plugins = Vec::new();
     for index in plugin_indexes {
@@ -162,6 +165,40 @@ mod test {
   use super::*;
   use crate::environment::{TestEnvironment, TestEnvironmentBuilder, TestInfoFilePlugin};
   use pretty_assertions::assert_eq;
+
+  #[test]
+  fn should_get_default_initialization_text() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .build();
+    let text = get_init_config_file_text(&environment).unwrap();
+    assert_eq!(
+      text,
+      r#"{
+  "incremental": true,
+  "typescript": {
+  },
+  "json": {
+  },
+  "includes": ["**/*.{ts,tsx,json}"],
+  "excludes": [
+    "**/something",
+    "**/*-asdf.json"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.17.2.wasm",
+    "https://plugins.dprint.dev/json-0.2.3.wasm"
+  ]
+}
+"#
+    );
+
+    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+  }
 
   #[test]
   fn should_get_initialization_text_when_can_access_url() {
@@ -405,6 +442,7 @@ mod test {
       TestInfoFilePlugin {
         name: "dprint-plugin-typescript".to_string(),
         version: "0.17.2".to_string(),
+        selected: Some(true),
         url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
         config_key: Some("typescript".to_string()),
         file_extensions: vec!["ts".to_string(), "tsx".to_string()],
@@ -414,6 +452,7 @@ mod test {
       TestInfoFilePlugin {
         name: "dprint-plugin-jsonc".to_string(),
         version: "0.2.3".to_string(),
+        selected: Some(true),
         url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
         config_key: Some("json".to_string()),
         file_extensions: vec!["json".to_string()],
@@ -423,6 +462,7 @@ mod test {
       TestInfoFilePlugin {
         name: "dprint-plugin-final".to_string(),
         version: "0.1.2".to_string(),
+        selected: Some(false),
         url: "https://plugins.dprint.dev/final-0.1.2.wasm".to_string(),
         file_names: Some(vec!["Cargo.toml".to_string()]),
         file_extensions: vec!["tsx".to_string(), "rs".to_string()],
@@ -432,6 +472,7 @@ mod test {
       TestInfoFilePlugin {
         name: "dprint-process-plugin".to_string(),
         version: "0.1.0".to_string(),
+        selected: Some(true), // should ignore this even though it's selected
         url: "https://plugins.dprint.dev/process-0.1.0.exe-plugin".to_string(),
         file_extensions: vec!["ps".to_string()],
         config_excludes: vec![],
