@@ -6,10 +6,8 @@ const { minify: htmlMinify } = require("html-minifier");
 const CleanCss = require("clean-css");
 const sass = require("node-sass");
 const jsMinify = require("node-minify");
-const tsMorph = require("ts-morph");
 
 buildWebsite();
-buildFormatter();
 
 function buildWebsite() {
   const additionalInjectText = "<!-- additional-inject -->";
@@ -221,19 +219,5 @@ function buildWebsite() {
 </html>`;
     fs.mkdirSync("build-website/" + from);
     fs.writeFileSync("build-website/" + from + "/index.html", text);
-  }
-}
-
-function buildFormatter() {
-  const project = new tsMorph.Project();
-  emitVersion("v1");
-  emitVersion("v2");
-
-  /** @param {string} [version] - Version of. */
-  function emitVersion(version) {
-    const formatterFileV1 = project.addSourceFileAtPath(`../website/formatter/${version}.ts`);
-    const newFormatterFileV1 = formatterFileV1.copy(`../../scripts/build-website/formatter/${version}.ts`);
-    newFormatterFileV1.saveSync();
-    newFormatterFileV1.emitSync();
   }
 }
