@@ -3,12 +3,13 @@ use parking_lot::RwLock;
 use std::path::PathBuf;
 
 use super::manifest::*;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 
 pub struct Cache<TEnvironment: Environment> {
   environment: TEnvironment,
   cache_manifest: RwLock<CacheManifest>,
-  cache_dir_path: PathBuf,
+  cache_dir_path: CanonicalizedPathBuf,
 }
 
 pub struct CreateCacheItemOptions<'a> {
@@ -24,7 +25,7 @@ where
 {
   pub fn new(environment: TEnvironment) -> Self {
     let cache_manifest = read_manifest(&environment);
-    let cache_dir_path = environment.get_cache_dir();
+    let cache_dir_path = environment.canonicalize(environment.get_cache_dir()).unwrap();
     Cache {
       environment,
       cache_manifest: RwLock::new(cache_manifest),
@@ -36,8 +37,8 @@ where
     self.cache_manifest.read().get_item(key).map(|x| x.to_owned())
   }
 
-  pub fn resolve_cache_item_file_path(&self, cache_item: &CacheItem) -> PathBuf {
-    self.cache_dir_path.join(&cache_item.file_name)
+  pub fn resolve_cache_item_file_path(&self, cache_item: &CacheItem) -> CanonicalizedPathBuf {
+    self.cache_dir_path.join_panic_relative(&cache_item.file_name)
   }
 
   pub fn create_cache_item<'b>(&self, options: CreateCacheItemOptions<'b>) -> Result<CacheItem, ErrBox> {
@@ -187,7 +188,7 @@ mod test {
     let cache_item = cache
       .create_cache_item(CreateCacheItemOptions {
         key: String::from("test"),
-        extension: ".test",
+        extension: "test",
         bytes: Some("t".as_bytes()),
         meta_data: None,
       })
@@ -210,7 +211,7 @@ mod test {
     let cache_item = cache
       .create_cache_item(CreateCacheItemOptions {
         key: String::from("test"),
-        extension: ".test",
+        extension: "test",
         bytes: Some("t".as_bytes()),
         meta_data: None,
       })

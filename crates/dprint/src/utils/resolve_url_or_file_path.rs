@@ -1,15 +1,16 @@
-use std::path::PathBuf;
 use url::Url;
 
 use dprint_core::types::ErrBox;
 
 use super::PathSource;
-use crate::cache::{Cache, CreateCacheItemOptions};
+use crate::cache::Cache;
+use crate::cache::CreateCacheItemOptions;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct ResolvedPath {
-  pub file_path: PathBuf,
+  pub file_path: CanonicalizedPathBuf,
   pub source: PathSource,
   pub is_first_download: bool,
 }
@@ -29,7 +30,7 @@ impl ResolvedPath {
 }
 
 impl ResolvedPath {
-  pub fn local(file_path: PathBuf) -> ResolvedPath {
+  pub fn local(file_path: CanonicalizedPathBuf) -> ResolvedPath {
     ResolvedPath {
       file_path: file_path.clone(),
       source: PathSource::new_local(file_path),
@@ -37,7 +38,7 @@ impl ResolvedPath {
     }
   }
 
-  pub fn remote(file_path: PathBuf, url: Url, is_first_download: bool) -> ResolvedPath {
+  pub fn remote(file_path: CanonicalizedPathBuf, url: Url, is_first_download: bool) -> ResolvedPath {
     ResolvedPath {
       file_path,
       source: PathSource::new_remote(url),
@@ -52,7 +53,7 @@ pub fn resolve_url_or_file_path<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
 ) -> Result<ResolvedPath, ErrBox> {
-  let path_source = resolve_url_or_file_path_to_path_source(url_or_file_path, base)?;
+  let path_source = resolve_url_or_file_path_to_path_source(url_or_file_path, base, environment)?;
 
   match path_source {
     PathSource::Remote(path_source) => resolve_url(&path_source.url, cache, environment),
@@ -92,7 +93,7 @@ pub fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl
   }
 }
 
-pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &PathSource) -> Result<PathSource, ErrBox> {
+pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &PathSource, environment: &impl Environment) -> Result<PathSource, ErrBox> {
   if let Some(url) = try_parse_url(url_or_file_path) {
     if url.cannot_be_a_base() {
       // relative url
@@ -104,7 +105,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       // handle file urls (ex. file:///C:/some/folder/file.json)
       if url.scheme() == "file" {
         match url.to_file_path() {
-          Ok(file_path) => return Ok(PathSource::new_local(file_path)),
+          Ok(file_path) => return Ok(PathSource::new_local(environment.canonicalize(file_path)?)),
           Err(()) => return err!("Problem converting file url `{}` to file path.", url_or_file_path),
         }
       }
@@ -118,7 +119,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       return Ok(PathSource::new_remote(url));
     }
     PathSource::Local(local_base) => {
-      return Ok(PathSource::new_local(local_base.path.join(url_or_file_path)));
+      return Ok(PathSource::new_local(environment.canonicalize(local_base.path.join(url_or_file_path))?));
     }
   }
 }
@@ -148,7 +149,6 @@ fn is_absolute_windows_file_path(value: &str) -> bool {
 mod tests {
   use crate::cache::Cache;
   use crate::environment::TestEnvironment;
-  use std::path::PathBuf;
 
   use super::super::PathSource;
   use super::*;
@@ -158,16 +158,16 @@ mod tests {
     let environment = TestEnvironment::new();
     environment.add_remote_file("https://dprint.dev/test.json", "t".as_bytes());
     let cache = Cache::new(environment.clone());
-    let base = PathSource::new_local(PathBuf::from("/"));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
     let result = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &cache, &environment).unwrap();
-    assert_eq!(result.file_path, PathBuf::from("/cache/test.tmp"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("/cache/test.tmp"));
     assert_eq!(result.is_remote(), true);
     assert_eq!(result.is_first_download, true);
     assert_eq!(environment.read_file(&result.file_path).unwrap(), "t");
 
     // should get a second time from the cache
     let result = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &cache, &environment).unwrap();
-    assert_eq!(result.file_path, PathBuf::from("/cache/test.tmp"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("/cache/test.tmp"));
     assert_eq!(result.is_remote(), true);
     assert_eq!(result.is_first_download, false);
   }
@@ -180,7 +180,7 @@ mod tests {
     let base = PathSource::new_remote(Url::parse("https://dprint.dev/asdf/").unwrap());
     let result = resolve_url_or_file_path("test/test.json", &base, &cache, &environment).unwrap();
     assert_eq!(result.is_remote(), true);
-    assert_eq!(result.file_path, PathBuf::from("/cache/test.tmp"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("/cache/test.tmp"));
   }
 
   #[cfg(windows)]
@@ -188,10 +188,10 @@ mod tests {
   fn it_should_resolve_a_file_url_on_windows() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
-    let base = PathSource::new_local(PathBuf::from("V:\\"));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
     let result = resolve_url_or_file_path("file://C:/test/test.json", &base, &cache, &environment).unwrap();
     assert_eq!(result.is_local(), true);
-    assert_eq!(result.file_path, PathBuf::from("C:\\test\\test.json"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
   }
 
   #[cfg(linux)]
@@ -210,10 +210,10 @@ mod tests {
   fn it_should_resolve_an_absolute_path_on_windows() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
-    let base = PathSource::new_local(PathBuf::from("V:\\"));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
     let result = resolve_url_or_file_path("C:\\test\\test.json", &base, &cache, &environment).unwrap();
     assert_eq!(result.is_local(), true);
-    assert_eq!(result.file_path, PathBuf::from("C:\\test\\test.json"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
   }
 
   #[cfg(windows)]
@@ -221,37 +221,37 @@ mod tests {
   fn it_should_resolve_an_absolute_path_on_windows_using_forward_slashes() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
-    let base = PathSource::new_local(PathBuf::from("V:\\"));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
     let result = resolve_url_or_file_path("C:/test/test.json", &base, &cache, &environment).unwrap();
     assert_eq!(result.is_local(), true);
-    assert_eq!(result.file_path, PathBuf::from("C:\\test\\test.json"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
   }
 
   #[test]
   fn it_should_resolve_a_relative_file_path() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
-    let base = PathSource::new_local(PathBuf::from("/"));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
     let result = resolve_url_or_file_path("test/test.json", &base, &cache, &environment).unwrap();
     assert_eq!(result.is_local(), true);
-    assert_eq!(result.file_path, PathBuf::from("/test/test.json"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("/test/test.json"));
   }
 
   #[test]
   fn it_should_resolve_a_file_path_relative_to_base_path() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
-    let base = PathSource::new_local(PathBuf::from("/other"));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
     let result = resolve_url_or_file_path("test/test.json", &base, &cache, &environment).unwrap();
     assert_eq!(result.is_local(), true);
-    assert_eq!(result.file_path, PathBuf::from("/other/test/test.json"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("/other/test/test.json"));
   }
 
   #[test]
   fn it_should_error_when_url_cannot_be_resolved() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
-    let base = PathSource::new_local(PathBuf::from("/other"));
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
     let err = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &cache, &environment)
       .err()
       .unwrap();

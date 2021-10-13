@@ -1,5 +1,6 @@
-use std::path::PathBuf;
 use url::Url;
+
+use crate::environment::CanonicalizedPathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PathSource {
@@ -10,7 +11,7 @@ pub enum PathSource {
 }
 
 impl PathSource {
-  pub fn new_local(path: PathBuf) -> PathSource {
+  pub fn new_local(path: CanonicalizedPathBuf) -> PathSource {
     PathSource::Local(LocalPathSource { path })
   }
 
@@ -27,7 +28,7 @@ impl PathSource {
     match self {
       PathSource::Local(local) => {
         if let Some(parent) = local.path.parent() {
-          PathSource::new_local(PathBuf::from(parent))
+          PathSource::new_local(parent)
         } else {
           PathSource::new_local(local.path.clone())
         }
@@ -81,7 +82,7 @@ impl PathSource {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LocalPathSource {
-  pub path: PathBuf,
+  pub path: CanonicalizedPathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -103,22 +104,22 @@ mod tests {
 
   #[test]
   fn it_should_get_parent_for_file_path() {
-    let source = PathSource::new_local(PathBuf::from("/test/test/asdf.json"));
+    let source = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/test/test/asdf.json"));
     let parent = source.parent();
-    assert_eq!(parent, PathSource::new_local(PathBuf::from("/test/test")))
+    assert_eq!(parent, PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/test/test")))
   }
 
   #[test]
   fn it_should_get_parent_for_root_dir_file() {
-    let source = PathSource::new_local(PathBuf::from("/test.json"));
+    let source = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/test.json"));
     let parent = source.parent();
-    assert_eq!(parent, PathSource::new_local(PathBuf::from("/")))
+    assert_eq!(parent, PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")))
   }
 
   #[test]
   fn it_should_get_parent_for_root_dir() {
-    let source = PathSource::new_local(PathBuf::from("/"));
+    let source = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
     let parent = source.parent();
-    assert_eq!(parent, PathSource::new_local(PathBuf::from("/")))
+    assert_eq!(parent, PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")))
   }
 }

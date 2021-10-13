@@ -2,7 +2,10 @@ use dprint_cli_core::checksums::parse_checksum_path_or_url;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
 
-use crate::utils::{resolve_url_or_file_path_to_path_source, PathSource};
+use crate::{
+  environment::Environment,
+  utils::{resolve_url_or_file_path_to_path_source, PathSource},
+};
 
 #[derive(Clone)]
 pub struct CompilationResult {
@@ -40,9 +43,11 @@ impl PluginSourceReference {
   }
 
   #[cfg(test)]
-  pub fn new_local(path: std::path::PathBuf) -> PluginSourceReference {
+  pub fn new_local(path: impl AsRef<std::path::Path>) -> PluginSourceReference {
+    use crate::environment::CanonicalizedPathBuf;
+
     PluginSourceReference {
-      path_source: PathSource::new_local(path),
+      path_source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing(path)),
       checksum: None,
     }
   }
@@ -56,9 +61,9 @@ impl PluginSourceReference {
   }
 }
 
-pub fn parse_plugin_source_reference(text: &str, base: &PathSource) -> Result<PluginSourceReference, ErrBox> {
+pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment: &impl Environment) -> Result<PluginSourceReference, ErrBox> {
   let checksum_reference = parse_checksum_path_or_url(text);
-  let path_source = resolve_url_or_file_path_to_path_source(&checksum_reference.path_or_url, base)?;
+  let path_source = resolve_url_or_file_path_to_path_source(&checksum_reference.path_or_url, base, environment)?;
 
   if !path_source.is_wasm_plugin() && checksum_reference.checksum.is_none() {
     return err!(
@@ -80,12 +85,20 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource) -> Result<Pl
 
 #[cfg(test)]
 mod tests {
+  use crate::environment::CanonicalizedPathBuf;
+  use crate::environment::TestEnvironment;
+
   use super::*;
-  use std::path::PathBuf;
 
   #[test]
   fn it_should_parse_plugin_without_checksum() {
-    let result = parse_plugin_source_reference("http://dprint.dev/wasm_plugin.wasm", &PathSource::new_local(PathBuf::from("./"))).unwrap();
+    let environment = TestEnvironment::new();
+    let result = parse_plugin_source_reference(
+      "http://dprint.dev/wasm_plugin.wasm",
+      &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
+      &environment,
+    )
+    .unwrap();
     assert_eq!(
       result,
       PluginSourceReference {
@@ -97,7 +110,13 @@ mod tests {
 
   #[test]
   fn it_should_parse_plugin_with_checksum() {
-    let result = parse_plugin_source_reference("http://dprint.dev/wasm_plugin.wasm@checksum", &PathSource::new_local(PathBuf::from("./"))).unwrap();
+    let environment = TestEnvironment::new();
+    let result = parse_plugin_source_reference(
+      "http://dprint.dev/wasm_plugin.wasm@checksum",
+      &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
+      &environment,
+    )
+    .unwrap();
     assert_eq!(
       result,
       PluginSourceReference {
@@ -109,8 +128,9 @@ mod tests {
 
   #[test]
   fn it_should_not_error_multiple_at_symbols() {
+    let environment = TestEnvironment::new();
     let plugin_text = "http://dprint.dev/wasm_plugin.wasm@other@checksum";
-    let result = parse_plugin_source_reference(&plugin_text, &PathSource::new_local(PathBuf::from("./"))).unwrap();
+    let result = parse_plugin_source_reference(&plugin_text, &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")), &environment).unwrap();
     assert_eq!(
       result,
       PluginSourceReference {
@@ -122,7 +142,13 @@ mod tests {
 
   #[test]
   fn it_should_parse_non_wasm_plugin_with_checksum() {
-    let result = parse_plugin_source_reference("http://dprint.dev/plugin.exe-plugin@checksum", &PathSource::new_local(PathBuf::from("./"))).unwrap();
+    let environment = TestEnvironment::new();
+    let result = parse_plugin_source_reference(
+      "http://dprint.dev/plugin.exe-plugin@checksum",
+      &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
+      &environment,
+    )
+    .unwrap();
     assert_eq!(
       result,
       PluginSourceReference {
@@ -134,9 +160,14 @@ mod tests {
 
   #[test]
   fn it_should_error_for_non_wasm_plugin_no_checksum() {
-    let err = parse_plugin_source_reference("http://dprint.dev/plugin.exe-plugin", &PathSource::new_local(PathBuf::from("./")))
-      .err()
-      .unwrap();
+    let environment = TestEnvironment::new();
+    let err = parse_plugin_source_reference(
+      "http://dprint.dev/plugin.exe-plugin",
+      &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
+      &environment,
+    )
+    .err()
+    .unwrap();
     assert_eq!(
       err.to_string(),
       concat!(

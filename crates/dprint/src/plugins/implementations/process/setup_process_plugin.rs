@@ -123,7 +123,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
 ) -> Result<ProcessPluginZipBytes, ErrBox> {
   let plugin_file = deserialize_file(&plugin_file_bytes)?;
   let plugin_path = get_os_path(&plugin_file)?;
-  let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent())?;
+  let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
   let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment)?;
   verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum)?;
 

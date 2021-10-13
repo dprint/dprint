@@ -1,9 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use dprint_cli_core::types::ErrBox;
 
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::utils::{is_absolute_pattern, is_negated_glob, GlobMatcher, GlobMatcherOptions, GlobPattern, GlobPatterns};
+use crate::utils::is_absolute_pattern;
+use crate::utils::is_negated_glob;
+use crate::utils::GlobMatcher;
+use crate::utils::GlobMatcherOptions;
+use crate::utils::GlobPattern;
+use crate::utils::GlobPatterns;
 
 use super::configuration::ResolvedConfig;
 use super::CliArgs;
@@ -27,21 +33,19 @@ impl FileMatcher {
     Ok(FileMatcher { glob_matcher })
   }
 
-  pub fn matches(&self, file_path: &Path) -> bool {
-    let mut file_path = file_path.to_string_lossy().to_string();
-    process_file_pattern_slashes(&mut file_path);
+  pub fn matches(&self, file_path: impl AsRef<Path>) -> bool {
     self.glob_matcher.is_match(&file_path)
   }
 }
 
-pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &PathBuf) -> GlobPatterns {
+pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
   GlobPatterns {
     includes: get_include_file_patterns(config, args, cwd),
     excludes: get_exclude_file_patterns(config, args, cwd),
   }
 }
 
-fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &PathBuf) -> Vec<GlobPattern> {
+fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(if args.file_patterns.is_empty() {
@@ -57,7 +61,7 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Path
   return file_patterns;
 }
 
-fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &PathBuf) -> Vec<GlobPattern> {
+fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(

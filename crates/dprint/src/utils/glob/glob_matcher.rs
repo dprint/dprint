@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 use std::path::Path;
-use std::path::PathBuf;
 
 use dprint_cli_core::types::ErrBox;
 use ignore::overrides::Override;
 use ignore::overrides::OverrideBuilder;
 use ignore::Match;
+
+use crate::environment::CanonicalizedPathBuf;
 
 use super::GlobPattern;
 use super::GlobPatterns;
@@ -15,9 +16,16 @@ pub struct GlobMatcherOptions {
 }
 
 pub struct GlobMatcher {
-  base_dir: PathBuf,
-  include_matcher: Override,
-  exclude_matcher: Override,
+  inner: GlobMatcherInner,
+}
+
+enum GlobMatcherInner {
+  Empty,
+  Matcher {
+    base_dir: CanonicalizedPathBuf,
+    include_matcher: Override,
+    exclude_matcher: Override,
+  },
 }
 
 impl GlobMatcher {
@@ -28,11 +36,15 @@ impl GlobMatcher {
         .iter()
         .map(|p| &p.base_dir)
         .chain(patterns.excludes.iter().map(|p| &p.base_dir)),
-    )
-    .unwrap_or_else(|| {
-      // just use a dummy path, no directories means this won't ever be matched against
-      PathBuf::from("./")
-    });
+    );
+
+    let base_dir = if let Some(base_dir) = base_dir {
+      base_dir
+    } else {
+      return Ok(GlobMatcher {
+        inner: GlobMatcherInner::Empty,
+      });
+    };
 
     // map the includes and excludes to have a new base
     let excludes = patterns
@@ -47,24 +59,40 @@ impl GlobMatcher {
       .collect::<Vec<_>>();
 
     Ok(GlobMatcher {
-      include_matcher: build_override(&includes, opts, &base_dir)?,
-      exclude_matcher: build_override(&excludes, opts, &base_dir)?,
-      base_dir,
+      inner: GlobMatcherInner::Matcher {
+        include_matcher: build_override(&includes, opts, &base_dir)?,
+        exclude_matcher: build_override(&excludes, opts, &base_dir)?,
+        base_dir,
+      },
     })
   }
 
   pub fn is_match(&self, path: impl AsRef<Path>) -> bool {
-    let path = path.as_ref().strip_prefix(&self.base_dir).unwrap();
-    matches!(self.include_matcher.matched(&path, false), Match::Whitelist(_)) && !matches!(self.exclude_matcher.matched(&path, false), Match::Whitelist(_))
+    match &self.inner {
+      GlobMatcherInner::Empty => false,
+      GlobMatcherInner::Matcher {
+        base_dir,
+        include_matcher,
+        exclude_matcher,
+      } => {
+        let path = path.as_ref().strip_prefix(&base_dir).unwrap();
+        matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
+      }
+    }
   }
 
   pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> bool {
-    let path = path.as_ref().strip_prefix(&self.base_dir).unwrap();
-    matches!(self.exclude_matcher.matched(&path, true), Match::Whitelist(_))
+    match &self.inner {
+      GlobMatcherInner::Empty => false,
+      GlobMatcherInner::Matcher { base_dir, exclude_matcher, .. } => {
+        let path = path.as_ref().strip_prefix(&base_dir).unwrap();
+        matches!(exclude_matcher.matched(&path, true), Match::Whitelist(_))
+      }
+    }
   }
 }
 
-fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &Path) -> Result<Override, ErrBox> {
+fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Override, ErrBox> {
   let mut builder = OverrideBuilder::new(&base_dir);
   let builder = builder.case_insensitive(opts.case_insensitive)?;
 
@@ -83,8 +111,8 @@ fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir:
   Ok(builder.build()?)
 }
 
-fn get_base_dir<'a>(dirs: impl Iterator<Item = &'a PathBuf>) -> Option<PathBuf> {
-  let mut base_dir: Option<&'a PathBuf> = None;
+fn get_base_dir<'a>(dirs: impl Iterator<Item = &'a CanonicalizedPathBuf>) -> Option<CanonicalizedPathBuf> {
+  let mut base_dir: Option<&'a CanonicalizedPathBuf> = None;
   for dir in dirs {
     if let Some(base_dir) = base_dir.as_mut() {
       if base_dir.starts_with(dir) {
@@ -94,5 +122,25 @@ fn get_base_dir<'a>(dirs: impl Iterator<Item = &'a PathBuf>) -> Option<PathBuf> 
       base_dir = Some(dir);
     }
   }
-  base_dir.map(|d| d.to_owned())
+  base_dir.map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn works_unc_paths() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("\\?\\UNC\\wsl$\\Ubuntu\\home\\david");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        includes: vec![GlobPattern::new("*.ts".to_string(), cwd.clone())],
+        excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions { case_insensitive: true },
+    )
+    .unwrap();
+    assert!(glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\match.ts"));
+    assert!(!glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\no-match.ts"));
+  }
 }

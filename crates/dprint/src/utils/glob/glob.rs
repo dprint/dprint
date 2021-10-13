@@ -276,12 +276,13 @@ mod test {
     }
 
     let environment = environment_builder.build();
+    let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![GlobPattern::new("**/*.txt".to_string(), PathBuf::from("/"))],
-        excludes: vec![GlobPattern::new("**/ignore".to_string(), PathBuf::from("/"))],
+        includes: vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())],
+        excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
       },
     )
     .unwrap();
@@ -295,11 +296,12 @@ mod test {
   fn should_handle_dir_info_erroring() {
     let environment = TestEnvironmentBuilder::new().build();
     environment.set_dir_info_error(err_obj!("FAILURE"));
+    let root_dir = environment.canonicalize("/").unwrap();
     let err_message = glob(
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![GlobPattern::new("**/*.txt".to_string(), PathBuf::from("/"))],
+        includes: vec![GlobPattern::new("**/*.txt".to_string(), root_dir)],
         excludes: Vec::new(),
       },
     )
@@ -312,13 +314,14 @@ mod test {
   fn should_support_excluding_then_including_in_includes() {
     // this allows people to out out of everything then slowly opt back in
     let environment = TestEnvironmentBuilder::new().write_file("/dir/a.txt", "").write_file("/dir/b.txt", "").build();
+    let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
       "/",
       GlobPatterns {
         includes: vec![
-          GlobPattern::new("!**/*.*".to_string(), PathBuf::from("/")),
-          GlobPattern::new("**/a.txt".to_string(), PathBuf::from("/")),
+          GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
+          GlobPattern::new("**/a.txt".to_string(), root_dir),
         ],
         excludes: Vec::new(),
       },
@@ -336,14 +339,15 @@ mod test {
       .write_file("/dir/a.json", "")
       .write_file("/dir/b.json", "")
       .build();
+    let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
       "/",
       GlobPatterns {
         includes: vec![
-          GlobPattern::new("**/*.json".to_string(), PathBuf::from("/")),
-          GlobPattern::new("!**/*.json".to_string(), PathBuf::from("/")),
-          GlobPattern::new("**/a.json".to_string(), PathBuf::from("/")),
+          GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
+          GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
+          GlobPattern::new("**/a.json".to_string(), root_dir),
         ],
         excludes: Vec::new(),
       },
@@ -362,14 +366,15 @@ mod test {
       .write_file("/test/a/b/b.json", "")
       .write_file("/test/test.json", "")
       .build();
+    let test_dir = environment.canonicalize("/test/").unwrap();
     let result = glob(
       &environment,
       "/test/",
       GlobPatterns {
         includes: vec![
-          GlobPattern::new("**/*.json".to_string(), PathBuf::from("/test/")),
-          GlobPattern::new("!a/**/*.json".to_string(), PathBuf::from("/test/")),
-          GlobPattern::new("a/b/**/*.json".to_string(), PathBuf::from("/test/")),
+          GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
+          GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
+          GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
         ],
         excludes: Vec::new(),
       },
@@ -387,14 +392,15 @@ mod test {
       .write_file("/dir/a/a.txt", "")
       .write_file("/dir/b/b.txt", "")
       .build();
+    let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
       "/",
       GlobPatterns {
         includes: vec![
-          GlobPattern::new("**/*.*".to_string(), PathBuf::from("/")),
-          GlobPattern::new("!dir/a/**/*".to_string(), PathBuf::from("/")),
-          GlobPattern::new("dir/b/b/**/*".to_string(), PathBuf::from("/")),
+          GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
+          GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
+          GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
         ],
         excludes: Vec::new(),
       },

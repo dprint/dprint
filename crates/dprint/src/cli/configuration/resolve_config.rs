@@ -2,11 +2,12 @@ use crossterm::style::Stylize;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::types::ErrBox;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::cache::Cache;
 use crate::cli::CliArgs;
 use crate::configuration::{deserialize_config, ConfigMap, ConfigMapValue};
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::{parse_plugin_source_reference, PluginSourceReference};
 use crate::utils::{resolve_url_or_file_path, PathSource, ResolvedPath};
@@ -17,7 +18,7 @@ use super::resolve_main_config_path::resolve_main_config_path;
 pub struct ResolvedConfig {
   pub resolved_path: ResolvedPath,
   /// The folder that should be considered the "root".
-  pub base_path: PathBuf,
+  pub base_path: CanonicalizedPathBuf,
   pub includes: Vec<String>,
   pub excludes: Vec<String>,
   pub plugins: Vec<PluginSourceReference>,
@@ -51,7 +52,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(
     }
   };
 
-  let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source)?; // always take this out of the config map
+  let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source, environment)?; // always take this out of the config map
   let plugins = filter_duplicate_plugin_sources(if args.plugins.is_empty() {
     // filter out any non-wasm plugins from remote config
     if !resolved_config_path.resolved_path.is_local() {
@@ -63,7 +64,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(
     let base_path = PathSource::new_local(resolved_config_path.base_path.clone());
     let mut plugins = Vec::with_capacity(args.plugins.len());
     for url_or_file_path in args.plugins.iter() {
-      plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path)?);
+      plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path, environment)?);
     }
 
     plugins
@@ -150,7 +151,7 @@ fn handle_config_file<'a, TEnvironment: Environment>(
   new_config_map.remove("excludes"); // NEVER REMOVE THIS STATEMENT
                                      // Also remove any non-wasm plugins, but only for remote configurations.
                                      // The assumption here is that the user won't be malicious to themselves.
-  let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent())?;
+  let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent(), environment)?;
   let plugins = if !resolved_path.is_local() {
     filter_non_wasm_plugins(plugins, environment)
   } else {
@@ -221,7 +222,7 @@ fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>, ErrBox> {
   }
 }
 
-fn get_config_map_from_path(file_path: &Path, environment: &impl Environment) -> Result<Result<ConfigMap, ErrBox>, ErrBox> {
+fn get_config_map_from_path(file_path: impl AsRef<Path>, environment: &impl Environment) -> Result<Result<ConfigMap, ErrBox>, ErrBox> {
   let config_file_text = match environment.read_file(file_path) {
     Ok(file_text) => file_text,
     Err(err) => return Ok(Err(err)),
@@ -235,11 +236,15 @@ fn get_config_map_from_path(file_path: &Path, environment: &impl Environment) ->
   Ok(Ok(result))
 }
 
-fn take_plugins_array_from_config_map(config_map: &mut ConfigMap, base_path: &PathSource) -> Result<Vec<PluginSourceReference>, ErrBox> {
+fn take_plugins_array_from_config_map(
+  config_map: &mut ConfigMap,
+  base_path: &PathSource,
+  environment: &impl Environment,
+) -> Result<Vec<PluginSourceReference>, ErrBox> {
   let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?;
   let mut plugins = Vec::with_capacity(plugin_url_or_file_paths.len());
   for url_or_file_path in plugin_url_or_file_paths {
-    plugins.push(parse_plugin_source_reference(&url_or_file_path, base_path)?);
+    plugins.push(parse_plugin_source_reference(&url_or_file_path, base_path, environment)?);
   }
   Ok(plugins)
 }
@@ -314,6 +319,8 @@ fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -
 
 #[cfg(test)]
 mod tests {
+  use std::path::PathBuf;
+
   use crate::cache::Cache;
   use crate::cli::parse_args;
   use crate::environment::{Environment, TestEnvironment};
@@ -350,7 +357,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.base_path, PathBuf::from("/"));
+    assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
     assert_eq!(result.resolved_path.is_local(), true);
     assert_eq!(result.config_map.contains_key("includes"), false);
     assert_eq!(result.config_map.contains_key("excludes"), false);
@@ -371,7 +378,7 @@ mod tests {
 
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.base_path, PathBuf::from("/"));
+    assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
     assert_eq!(result.resolved_path.is_remote(), true);
   }
 
@@ -499,7 +506,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.base_path, PathBuf::from("/"));
+    assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
     assert_eq!(result.resolved_path.is_local(), true);
     assert_eq!(result.includes.len(), 0);
     assert_eq!(result.excludes.len(), 0);
@@ -1117,7 +1124,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.plugins, vec![PluginSourceReference::new_local(PathBuf::from("/testing/asdf.wasm"))]);
+    assert_eq!(result.plugins, vec![PluginSourceReference::new_local("/testing/asdf.wasm")]);
   }
 
   #[test]
@@ -1143,10 +1150,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(
-      result.plugins,
-      vec![PluginSourceReference::new_local(PathBuf::from("/other/testing/asdf.wasm"))]
-    );
+    assert_eq!(result.plugins, vec![PluginSourceReference::new_local("/other/testing/asdf.wasm")]);
   }
 
   #[test]
@@ -1269,7 +1273,7 @@ mod tests {
     assert_eq!(
       result.plugins,
       vec![PluginSourceReference {
-        path_source: PathSource::new_local(PathBuf::from("/dir/test-plugin.exe-plugin")),
+        path_source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dir/test-plugin.exe-plugin")),
         checksum: Some(String::from("checksum")),
       }]
     );

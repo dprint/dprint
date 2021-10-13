@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
-use super::{DirEntry, DirEntryKind, Environment};
+use super::{CanonicalizedPathBuf, DirEntry, DirEntryKind, Environment};
 use crate::plugins::CompilationResult;
 
 struct BufferData {
@@ -330,8 +330,8 @@ impl Environment for TestEnvironment {
     files.contains_key(&self.clean_path(file_path))
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<PathBuf, ErrBox> {
-    Ok(self.clean_path(path))
+  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf, ErrBox> {
+    Ok(CanonicalizedPathBuf::new(self.clean_path(path)))
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
@@ -343,9 +343,9 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn cwd(&self) -> PathBuf {
+  fn cwd(&self) -> CanonicalizedPathBuf {
     let cwd = self.cwd.lock();
-    self.clean_path(PathBuf::from(cwd.to_owned()))
+    self.canonicalize(cwd.to_owned()).unwrap()
   }
 
   fn log(&self, text: &str) {

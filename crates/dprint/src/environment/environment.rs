@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::plugins::CompilationResult;
 
+use super::CanonicalizedPathBuf;
+
 #[derive(Debug)]
 pub struct DirEntry {
   pub kind: DirEntryKind,
@@ -26,10 +28,10 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + 'static {
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<(), ErrBox>;
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>, ErrBox>;
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<PathBuf, ErrBox>;
+  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf, ErrBox>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
   fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<(), ErrBox>;
-  fn cwd(&self) -> PathBuf;
+  fn cwd(&self) -> CanonicalizedPathBuf;
   fn log(&self, text: &str);
   fn log_stderr(&self, text: &str) {
     self.log_stderr_with_context(text, "dprint");

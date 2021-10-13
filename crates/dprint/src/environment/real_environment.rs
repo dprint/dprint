@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use super::{DirEntry, DirEntryKind, Environment};
+use super::{CanonicalizedPathBuf, DirEntry, DirEntryKind, Environment};
 use crate::plugins::CompilationResult;
 
 #[derive(Clone)]
@@ -125,9 +125,9 @@ impl Environment for RealEnvironment {
     file_path.as_ref().exists()
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<PathBuf, ErrBox> {
+  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf, ErrBox> {
     // use this to avoid //?//C:/etc... like paths on windows (UNC)
-    Ok(dunce::canonicalize(path)?)
+    Ok(CanonicalizedPathBuf::new(dunce::canonicalize(path)?))
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
@@ -142,8 +142,10 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn cwd(&self) -> PathBuf {
-    std::env::current_dir().expect("Expected to get the current working directory.")
+  fn cwd(&self) -> CanonicalizedPathBuf {
+    self
+      .canonicalize(std::env::current_dir().expect("Expected to get the current working directory."))
+      .expect("expected to canonicalize the cwd")
   }
 
   fn log(&self, text: &str) {

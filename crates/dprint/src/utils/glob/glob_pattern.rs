@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use crate::environment::CanonicalizedPathBuf;
 
 use super::is_negated_glob;
 use super::to_absolute_glob;
@@ -6,15 +6,15 @@ use super::to_absolute_glob;
 #[derive(Debug, PartialEq)]
 pub struct GlobPattern {
   pub relative_pattern: String,
-  pub base_dir: PathBuf,
+  pub base_dir: CanonicalizedPathBuf,
 }
 
 impl GlobPattern {
-  pub fn new(relative_pattern: String, base_dir: PathBuf) -> Self {
+  pub fn new(relative_pattern: String, base_dir: CanonicalizedPathBuf) -> Self {
     GlobPattern { relative_pattern, base_dir }
   }
 
-  pub fn new_vec(relative_patterns: Vec<String>, base_dir: PathBuf) -> Vec<Self> {
+  pub fn new_vec(relative_patterns: Vec<String>, base_dir: CanonicalizedPathBuf) -> Vec<Self> {
     relative_patterns
       .into_iter()
       .map(|relative_pattern| GlobPattern::new(relative_pattern, base_dir.clone()))
@@ -51,7 +51,7 @@ impl GlobPattern {
     }
   }
 
-  pub fn into_new_base(self, new_base_dir: PathBuf) -> Self {
+  pub fn into_new_base(self, new_base_dir: CanonicalizedPathBuf) -> Self {
     assert!(self.base_dir.starts_with(&new_base_dir));
     if self.base_dir == new_base_dir {
       self
@@ -117,71 +117,78 @@ pub struct GlobPatterns {
 
 #[cfg(test)]
 mod test {
-  use std::path::PathBuf;
-
   use super::*;
 
   #[test]
   fn should_make_negated() {
-    let pattern = GlobPattern::new("**/*".to_string(), PathBuf::from("/test")).into_negated();
+    let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
+    let pattern = GlobPattern::new("**/*".to_string(), test_dir.clone()).into_negated();
     assert_eq!(pattern.relative_pattern, "!**/*");
     assert_eq!(pattern.absolute_pattern(), "!/test/**/*");
 
     // should keep as-is
-    let pattern = GlobPattern::new("!**/*".to_string(), PathBuf::from("/test")).into_negated();
+    let pattern = GlobPattern::new("!**/*".to_string(), test_dir).into_negated();
     assert_eq!(pattern.relative_pattern, "!**/*");
     assert_eq!(pattern.absolute_pattern(), "!/test/**/*");
   }
 
   #[test]
   fn should_make_non_negated() {
-    let pattern = GlobPattern::new("!**/*".to_string(), PathBuf::from("/test")).into_non_negated();
+    let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
+    let pattern = GlobPattern::new("!**/*".to_string(), test_dir.clone()).into_non_negated();
     assert_eq!(pattern.relative_pattern, "**/*");
     assert_eq!(pattern.absolute_pattern(), "/test/**/*");
 
     // should keep as-is
-    let pattern = GlobPattern::new("**/*".to_string(), PathBuf::from("/test")).into_non_negated();
+    let pattern = GlobPattern::new("**/*".to_string(), test_dir).into_non_negated();
     assert_eq!(pattern.relative_pattern, "**/*");
     assert_eq!(pattern.absolute_pattern(), "/test/**/*");
   }
 
   #[test]
   fn should_make_with_new_base() {
-    let pattern = GlobPattern::new("**/*".to_string(), PathBuf::from("/test/dir"));
+    let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
+    let test_dir_dir = CanonicalizedPathBuf::new_for_testing("/test/dir");
+    let pattern = GlobPattern::new("**/*".to_string(), test_dir_dir.clone());
     assert_eq!(pattern.relative_pattern, "**/*");
-    assert_eq!(pattern.base_dir, PathBuf::from("/test/dir"));
+    assert_eq!(pattern.base_dir, test_dir_dir);
     assert_eq!(pattern.absolute_pattern(), "/test/dir/**/*");
 
-    let pattern = pattern.into_new_base(PathBuf::from("/test"));
+    let pattern = pattern.into_new_base(test_dir.clone());
     assert_eq!(pattern.relative_pattern, "./dir/**/*");
-    assert_eq!(pattern.base_dir, PathBuf::from("/test"));
+    assert_eq!(pattern.base_dir, test_dir);
     assert_eq!(pattern.absolute_pattern(), "/test/dir/**/*");
   }
 
   #[test]
   fn should_make_with_new_base_when_relative() {
-    let pattern = GlobPattern::new("./**/*".to_string(), PathBuf::from("/test/dir"));
-    let pattern = pattern.into_new_base(PathBuf::from("/"));
+    let root_dir = CanonicalizedPathBuf::new_for_testing("/");
+    let test_dir_dir = CanonicalizedPathBuf::new_for_testing("/test/dir");
+    let pattern = GlobPattern::new("./**/*".to_string(), test_dir_dir);
+    let pattern = pattern.into_new_base(root_dir.clone());
     assert_eq!(pattern.relative_pattern, "./test/dir/**/*");
-    assert_eq!(pattern.base_dir, PathBuf::from("/"));
+    assert_eq!(pattern.base_dir, root_dir);
     assert_eq!(pattern.absolute_pattern(), "/test/dir/**/*");
   }
 
   #[test]
   fn should_make_new_base_when_no_slash() {
-    let pattern = GlobPattern::new("asdf".to_string(), PathBuf::from("/test/dir"));
+    let test_dir_dir = CanonicalizedPathBuf::new_for_testing("/test/dir");
+    let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
+    let root_dir = CanonicalizedPathBuf::new_for_testing("/");
+    let pattern = GlobPattern::new("asdf".to_string(), test_dir_dir.clone());
     assert_eq!(pattern.relative_pattern, "asdf");
-    assert_eq!(pattern.base_dir, PathBuf::from("/test/dir"));
+    assert_eq!(pattern.base_dir, test_dir_dir);
     assert_eq!(pattern.absolute_pattern(), "/test/dir/**/asdf");
 
-    let pattern = pattern.into_new_base(PathBuf::from("/test"));
+    let pattern = pattern.into_new_base(test_dir.clone());
     assert_eq!(pattern.relative_pattern, "./dir/**/asdf");
-    assert_eq!(pattern.base_dir, PathBuf::from("/test"));
+    assert_eq!(pattern.base_dir, test_dir);
     assert_eq!(pattern.absolute_pattern(), "/test/dir/**/asdf");
 
-    let pattern = pattern.into_new_base(PathBuf::from("/"));
+    let pattern = pattern.into_new_base(root_dir.clone());
     assert_eq!(pattern.relative_pattern, "./test/dir/**/asdf");
-    assert_eq!(pattern.base_dir, PathBuf::from("/"));
+    assert_eq!(pattern.base_dir, root_dir);
     assert_eq!(pattern.absolute_pattern(), "/test/dir/**/asdf");
   }
 }

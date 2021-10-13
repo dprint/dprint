@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::environment::Environment;
+use crate::environment::{CanonicalizedPathBuf, Environment};
 use crate::utils::get_bytes_hash;
 
 #[derive(Serialize, Deserialize)]
@@ -23,15 +23,15 @@ impl IncrementalFileData {
 }
 
 pub struct IncrementalFile<TEnvironment: Environment> {
-  file_path: PathBuf,
+  file_path: CanonicalizedPathBuf,
   read_data: IncrementalFileData,
   write_data: Mutex<IncrementalFileData>,
-  base_dir_path: PathBuf,
+  base_dir_path: CanonicalizedPathBuf,
   environment: TEnvironment,
 }
 
 impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
-  pub fn new(file_path: PathBuf, plugins_hash: u64, environment: TEnvironment, base_dir_path: PathBuf) -> Self {
+  pub fn new(file_path: CanonicalizedPathBuf, plugins_hash: u64, environment: TEnvironment, base_dir_path: CanonicalizedPathBuf) -> Self {
     let read_data = read_incremental(&file_path, &environment);
     let read_data = if let Some(read_data) = read_data {
       if read_data.plugins_hash == plugins_hash {
@@ -92,12 +92,12 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
   }
 }
 
-fn read_incremental(file_path: &Path, environment: &impl Environment) -> Option<IncrementalFileData> {
-  let file_text = match environment.read_file(file_path) {
+fn read_incremental(file_path: impl AsRef<Path>, environment: &impl Environment) -> Option<IncrementalFileData> {
+  let file_text = match environment.read_file(&file_path) {
     Ok(file_text) => file_text,
     Err(err) => {
-      if environment.path_exists(file_path) {
-        environment.log_stderr(&format!("Error reading incremental file {}: {}", file_path.display(), err.to_string()));
+      if environment.path_exists(&file_path) {
+        environment.log_stderr(&format!("Error reading incremental file {}: {}", file_path.as_ref().display(), err.to_string()));
       }
       return None;
     }
@@ -106,23 +106,31 @@ fn read_incremental(file_path: &Path, environment: &impl Environment) -> Option<
   match serde_json::from_str(&file_text) {
     Ok(file_data) => Some(file_data),
     Err(err) => {
-      environment.log_stderr(&format!("Error deserializing incremental file {}: {}", file_path.display(), err.to_string()));
+      environment.log_stderr(&format!(
+        "Error deserializing incremental file {}: {}",
+        file_path.as_ref().display(),
+        err.to_string()
+      ));
       None
     }
   }
 }
 
-fn write_incremental(file_path: &Path, file_data: &IncrementalFileData, environment: &impl Environment) {
+fn write_incremental(file_path: impl AsRef<Path>, file_data: &IncrementalFileData, environment: &impl Environment) {
   let json_text = match serde_json::to_string(&file_data) {
     Ok(json_text) => json_text,
     Err(err) => {
-      environment.log_stderr(&format!("Error serializing incremental file {}: {}", file_path.display(), err.to_string()));
+      environment.log_stderr(&format!(
+        "Error serializing incremental file {}: {}",
+        file_path.as_ref().display(),
+        err.to_string()
+      ));
       return;
     }
   };
-  match environment.write_file(file_path, &json_text) {
+  match environment.write_file(&file_path, &json_text) {
     Err(err) => {
-      environment.log_stderr(&format!("Error saving incremental file {}: {}", file_path.display(), err.to_string()));
+      environment.log_stderr(&format!("Error saving incremental file {}: {}", file_path.as_ref().display(), err.to_string()));
     }
     _ => {}
   };
