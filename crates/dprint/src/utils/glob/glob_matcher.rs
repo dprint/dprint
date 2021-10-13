@@ -12,7 +12,7 @@ use super::GlobPattern;
 use super::GlobPatterns;
 
 pub struct GlobMatcherOptions {
-  pub case_insensitive: bool,
+  pub case_sensitive: bool,
 }
 
 pub struct GlobMatcher {
@@ -94,7 +94,7 @@ impl GlobMatcher {
 
 fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Override, ErrBox> {
   let mut builder = OverrideBuilder::new(&base_dir);
-  let builder = builder.case_insensitive(opts.case_insensitive)?;
+  let builder = builder.case_insensitive(!opts.case_sensitive)?;
 
   for pattern in patterns {
     // change patterns that start with ./ to be at the "root" of the globbing
@@ -130,6 +130,23 @@ mod test {
   use super::*;
 
   #[test]
+  fn works() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        includes: vec![GlobPattern::new("*.ts".to_string(), cwd.clone())],
+        excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions { case_sensitive: true },
+    )
+    .unwrap();
+    assert!(glob_matcher.is_match("/testing/dir/match.ts"));
+    assert!(glob_matcher.is_match("/testing/dir/other/match.ts"));
+    assert!(!glob_matcher.is_match("/testing/dir/no-match.ts"));
+  }
+
+  #[cfg(target_os = "windows")]
+  #[test]
   fn works_unc_paths() {
     let cwd = CanonicalizedPathBuf::new_for_testing("\\?\\UNC\\wsl$\\Ubuntu\\home\\david");
     let glob_matcher = GlobMatcher::new(
@@ -137,10 +154,11 @@ mod test {
         includes: vec![GlobPattern::new("*.ts".to_string(), cwd.clone())],
         excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
       },
-      &GlobMatcherOptions { case_insensitive: true },
+      &GlobMatcherOptions { case_sensitive: true },
     )
     .unwrap();
     assert!(glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\match.ts"));
+    assert!(glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\dir\\other.ts"));
     assert!(!glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\no-match.ts"));
   }
 }

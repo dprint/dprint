@@ -22,7 +22,7 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
   let glob_matcher = GlobMatcher::new(
     file_patterns,
     &GlobMatcherOptions {
-      case_insensitive: cfg!(windows),
+      case_sensitive: !cfg!(windows),
     },
   )?;
 

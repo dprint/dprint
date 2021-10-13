@@ -25,8 +25,7 @@ impl FileMatcher {
     let glob_matcher = GlobMatcher::new(
       patterns,
       &GlobMatcherOptions {
-        // issue on windows where V:/ was not matching for pattern with v:/
-        case_insensitive: true,
+        case_sensitive: !cfg!(windows),
       },
     )?;
 
