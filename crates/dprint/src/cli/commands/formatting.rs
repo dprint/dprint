@@ -112,24 +112,13 @@ pub fn check<TEnvironment: Environment>(
     move |file_path, file_text, formatted_text, _, _, environment| {
       if formatted_text != file_text {
         not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        match get_difference(&file_text, &formatted_text) {
-          Ok(difference_text) => {
-            environment.log(&format!(
-              "{} {}:\n{}\n--",
-              "from".bold().red().to_string(),
-              file_path.display(),
-              difference_text,
-            ));
-          }
-          Err(err) => {
-            environment.log(&format!(
-              "{} {}:\nError getting difference, but this file needs formatting.\n\nError message: {}\n--",
-              "from".bold().red().to_string(),
-              file_path.display(),
-              err.to_string().red().to_string(),
-            ));
-          }
-        }
+        let difference_text = get_difference(&file_text, &formatted_text);
+        environment.log(&format!(
+          "{} {}:\n{}\n--",
+          "from".bold().red().to_string(),
+          file_path.display(),
+          difference_text,
+        ));
       }
       Ok(())
     }
@@ -1246,7 +1235,7 @@ mod test {
       vec![format!(
         "{}\n{}\n--",
         format!("{} /file.txt:", "from".bold().red().to_string()),
-        get_difference("const t=4;", "const t=4;_formatted").unwrap(),
+        get_difference("const t=4;", "const t=4;_formatted"),
       ),]
     );
     assert_eq!(environment.take_stderr_messages().len(), 0);
@@ -1269,12 +1258,12 @@ mod test {
         format!(
           "{}\n{}\n--",
           format!("{} /file1.txt:", "from".bold().red().to_string()),
-          get_difference("const t=4;", "const t=4;_formatted").unwrap(),
+          get_difference("const t=4;", "const t=4;_formatted"),
         ),
         format!(
           "{}\n{}\n--",
           format!("{} /file2.txt:", "from".bold().red().to_string()),
-          get_difference("const t=5;", "const t=5;_formatted").unwrap(),
+          get_difference("const t=5;", "const t=5;_formatted"),
         ),
       ]
     );
