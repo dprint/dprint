@@ -13,7 +13,7 @@ use crate::cli::incremental::get_incremental_file;
 use crate::cli::paths::{get_and_resolve_file_paths, get_file_paths_by_plugin_and_err_if_empty};
 use crate::cli::patterns::FileMatcher;
 use crate::cli::plugins::resolve_plugins_and_err_if_empty;
-use crate::cli::{CliArgs, StdInFmtSubCommand};
+use crate::cli::{CliArgs, FmtSubCommand, StdInFmtSubCommand};
 use crate::environment::Environment;
 use crate::plugins::{PluginPools, PluginResolver};
 use crate::utils::{get_difference, BOM_CHAR};
@@ -112,13 +112,7 @@ pub fn check<TEnvironment: Environment>(
     move |file_path, file_text, formatted_text, _, _, environment| {
       if formatted_text != file_text {
         not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        let difference_text = get_difference(&file_text, &formatted_text);
-        environment.log(&format!(
-          "{} {}:\n{}\n--",
-          "from".bold().red().to_string(),
-          file_path.display(),
-          difference_text,
-        ));
+        output_difference(&file_path, &file_text, &formatted_text, environment);
       }
       Ok(())
     }
@@ -133,7 +127,18 @@ pub fn check<TEnvironment: Environment>(
   }
 }
 
+fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, environment: &impl Environment) {
+  let difference_text = get_difference(file_text, formatted_text);
+  environment.log(&format!(
+    "{} {}:\n{}\n--",
+    "from".bold().red().to_string(),
+    file_path.display(),
+    difference_text,
+  ));
+}
+
 pub fn format<TEnvironment: Environment>(
+  cmd: &FmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
@@ -149,11 +154,16 @@ pub fn format<TEnvironment: Environment>(
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let files_count: usize = file_paths_by_plugin.values().map(|x| x.len()).sum();
+  let output_diff = cmd.diff;
 
   run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file.clone(), {
     let formatted_files_count = formatted_files_count.clone();
     move |file_path, file_text, formatted_text, had_bom, _, environment| {
       if formatted_text != file_text {
+        if output_diff {
+          output_difference(file_path, file_text, &formatted_text, environment);
+        }
+
         let new_text = if had_bom {
           // add back the BOM
           format!("{}{}", BOM_CHAR, formatted_text)
@@ -1209,6 +1219,26 @@ mod test {
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+  }
+
+  #[test]
+  fn should_format_with_diff() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file.txt", "const t=4;")
+      .build();
+    run_test_cli(vec!["fmt", "--diff", "/file.txt"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        format!(
+          "{}\n{}\n--",
+          format!("{} /file.txt:", "from".bold().red().to_string()),
+          get_difference("const t=4;", "const t=4;_formatted"),
+        ),
+        get_singular_formatted_text()
+      ]
+    );
     assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 

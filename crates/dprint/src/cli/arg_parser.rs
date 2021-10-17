@@ -39,7 +39,7 @@ impl CliArgs {
 #[derive(Debug, PartialEq)]
 pub enum SubCommand {
   Check,
-  Fmt,
+  Fmt(FmtSubCommand),
   Config(ConfigSubCommand),
   ClearCache,
   OutputFilePaths,
@@ -53,6 +53,11 @@ pub enum SubCommand {
   StdInFmt(StdInFmtSubCommand),
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FmtSubCommand {
+  pub diff: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -113,7 +118,9 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: &
           file_text: std_in_reader.read()?,
         })
       } else {
-        SubCommand::Fmt
+        SubCommand::Fmt(FmtSubCommand {
+          diff: matches.is_present("diff"),
+        })
       }
     }
     ("check", _) => SubCommand::Check,
@@ -249,6 +256,13 @@ EXAMPLES:
                         .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
                         .required(false)
                         .takes_value(true)
+                )
+                .arg(
+                  Arg::with_name("diff")
+                    .long("diff")
+                    .help("Outputs a check-like diff of every formatted file.")
+                    .takes_value(false)
+                    .required(false)
                 )
         )
         .subcommand(

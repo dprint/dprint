@@ -32,7 +32,7 @@ pub fn run_cli<TEnvironment: Environment>(
     SubCommand::OutputFilePaths => commands::output_file_paths(args, environment, cache, plugin_resolver),
     SubCommand::OutputFormatTimes => commands::output_format_times(args, environment, cache, plugin_resolver, plugin_pools),
     SubCommand::Check => commands::check(args, environment, cache, plugin_resolver, plugin_pools),
-    SubCommand::Fmt => commands::format(args, environment, cache, plugin_resolver, plugin_pools),
+    SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, cache, plugin_resolver, plugin_pools),
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {
       super::HiddenSubCommand::WindowsInstall(install_path) => commands::handle_windows_install(environment, &install_path),
