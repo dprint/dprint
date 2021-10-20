@@ -10,6 +10,7 @@ mod environment;
 use dprint_core::types::ErrBox;
 use environment::RealEnvironment;
 use std::sync::Arc;
+use utils::RealStdInReader;
 
 mod cache;
 mod cli;
@@ -33,8 +34,7 @@ fn main() -> Result<(), ErrBox> {
 }
 
 fn run() -> Result<(), ErrBox> {
-  let stdin_reader = crate::utils::RealStdInReader::new();
-  let args = cli::parse_args(wild::args().collect(), &stdin_reader)?;
+  let args = cli::parse_args(wild::args().collect(), RealStdInReader)?;
   let environment = RealEnvironment::new(args.verbose, args.is_silent_output())?;
   let cache = Arc::new(cache::Cache::new(environment.clone()));
   let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
