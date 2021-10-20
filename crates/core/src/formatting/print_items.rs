@@ -7,6 +7,7 @@ use super::utils::{with_bump_allocator, CounterCell};
 
 /** Print Items */
 
+#[derive(Default)]
 pub struct PrintItems {
   pub(super) first_node: Option<PrintItemPath>,
   last_node: Option<PrintItemPath>,
@@ -175,45 +176,52 @@ impl Iterator for PrintItemsIterator {
   }
 }
 
-impl Into<PrintItems> for &'static str {
-  fn into(self) -> PrintItems {
+impl From<&'static str> for PrintItems {
+  fn from(value: &'static str) -> Self {
     let mut items = PrintItems::new();
-    items.push_str(self);
+    items.push_str(value);
     items
   }
 }
 
-impl Into<PrintItems> for String {
-  fn into(self) -> PrintItems {
+impl From<String> for PrintItems {
+  fn from(value: String) -> Self {
     let mut items = PrintItems::new();
-    items.push_string(self);
+    items.push_string(value);
     items
   }
 }
 
-impl Into<PrintItems> for Condition {
-  fn into(self) -> PrintItems {
+impl From<Condition> for PrintItems {
+  fn from(value: Condition) -> Self {
     let mut items = PrintItems::new();
-    items.push_condition(self);
+    items.push_condition(value);
     items
   }
 }
 
-impl Into<PrintItems> for Signal {
-  fn into(self) -> PrintItems {
+impl From<Signal> for PrintItems {
+  fn from(value: Signal) -> Self {
     let mut items = PrintItems::new();
-    items.push_signal(self);
+    items.push_signal(value);
     items
   }
 }
 
-impl Into<PrintItems> for Option<PrintItemPath> {
-  fn into(self) -> PrintItems {
+impl From<PrintItemPath> for PrintItems {
+  fn from(value: PrintItemPath) -> Self {
     let mut items = PrintItems::new();
-    if let Some(path) = self {
-      items.push_path(path);
-    }
+    items.push_path(value);
     items
+  }
+}
+
+impl<T> From<Option<T>> for PrintItems
+where
+  PrintItems: From<T>,
+{
+  fn from(value: Option<T>) -> Self {
+    value.map(PrintItems::from).unwrap_or_default()
   }
 }
 
