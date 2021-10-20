@@ -259,10 +259,10 @@ impl<'a> Writer<'a> {
     }
   }
 
-  pub fn get_items(self) -> impl Iterator<Item = &'a WriteItem<'a>> {
+  pub fn get_items(self) -> impl Iterator<Item = WriteItem<'a>> {
     match self.state.items {
-      Some(items) => items.into_iter().collect::<Vec<_>>().into_iter().rev(),
-      None => GraphNodeIterator::empty().collect::<Vec<_>>().into_iter().rev(),
+      Some(items) => items.into_iter().copied().collect::<Vec<_>>().into_iter().rev(),
+      None => GraphNodeIterator::empty().copied().collect::<Vec<_>>().into_iter().rev(),
     }
   }
 
@@ -281,7 +281,7 @@ impl<'a> Writer<'a> {
   pub fn to_string_for_debugging(&self) -> String {
     let write_items = self.get_items_cloned();
     super::print_write_items(
-      write_items.iter(),
+      write_items.into_iter(),
       super::WriteItemsPrinterOptions {
         use_tabs: false,
         new_line_text: "\n",
