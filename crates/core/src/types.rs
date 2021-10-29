@@ -22,13 +22,13 @@ impl StdError for Error {}
 #[macro_export]
 macro_rules! err_obj {
     ($($arg:tt)*) => {
-        $crate::types::Error::new(format!($($arg)*));
+        $crate::types::Error::new(format!($($arg)*))
     }
 }
 
 #[macro_export]
 macro_rules! err {
     ($($arg:tt)*) => {
-        Err(err_obj!($($arg)*));
+        Err(err_obj!($($arg)*))
     }
 }
