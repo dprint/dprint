@@ -101,7 +101,7 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
         .into_iter()
         .map(|node| {
           let mut text = String::new();
-          writer_items_printer.write_to_string(&mut text, node.borrow_item());
+          writer_items_printer.write_to_string(&mut text, node.borrow_item().clone());
           TraceWriterNode {
             writer_node_id: node.graph_node_id,
             previous_node_id: node.borrow_previous().map(|n| n.graph_node_id),

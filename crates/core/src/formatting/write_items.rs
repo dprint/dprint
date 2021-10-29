@@ -1,6 +1,6 @@
 use super::StringContainer;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum WriteItem<'a> {
   String(&'a StringContainer),
   Indent(u8),
