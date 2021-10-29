@@ -1,4 +1,6 @@
-use std::{cell::UnsafeCell, mem, rc::Rc};
+use std::cell::UnsafeCell;
+use std::mem;
+use std::rc::Rc;
 
 use super::printer::Printer;
 use super::utils::{with_bump_allocator, CounterCell};
@@ -690,32 +692,6 @@ impl StringContainer {
   pub fn new(text: String) -> StringContainer {
     let char_count = text.chars().count() as u32;
     StringContainer { text, char_count }
-  }
-}
-
-#[derive(Clone)]
-struct RcNode {
-  path: PrintItemPath,
-  next: Option<Rc<RcNode>>,
-}
-
-#[derive(Default, Clone)]
-pub struct RcStack(Option<Rc<RcNode>>);
-
-impl RcStack {
-  pub fn push(&mut self, path: PrintItemPath) {
-    let next = self.0.as_ref().map(Rc::clone);
-    self.0 = Some(Rc::new(RcNode { path, next }));
-  }
-
-  pub fn pop(&mut self) -> Option<PrintItemPath> {
-    let head = Rc::clone(self.0.as_ref()?);
-    self.0 = head.next.as_ref().cloned();
-    Some(head.path)
-  }
-
-  pub fn is_empty(&self) -> bool {
-    self.0.is_none()
   }
 }
 
