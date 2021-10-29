@@ -44,14 +44,10 @@ lazy_static! {
 }
 
 pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<(), ErrBox> {
-  run_test_cli_with_stdin(args, environment, TestStdInReader::new())
+  run_test_cli_with_stdin(args, environment, TestStdInReader::default())
 }
 
-pub fn run_test_cli_with_stdin(
-  args: Vec<&str>,
-  environment: &TestEnvironment,
-  stdin_reader: TestStdInReader, // todo: no clue why this can't be passed in by reference
-) -> Result<(), ErrBox> {
+pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<(), ErrBox> {
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
@@ -60,7 +56,7 @@ pub fn run_test_cli_with_stdin(
   let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
   let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
   let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
-  let args = parse_args(args, &stdin_reader)?;
+  let args = parse_args(args, stdin_reader)?;
   environment.set_silent(args.is_silent_output());
   environment.set_verbose(args.verbose);
   run_cli(&args, environment, &cache, &plugin_resolver, plugin_pools)

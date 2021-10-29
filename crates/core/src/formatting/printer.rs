@@ -17,7 +17,7 @@ struct SavePoint<'a> {
   pub node: Option<PrintItemPath>,
   pub look_ahead_condition_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
   pub look_ahead_info_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
-  pub next_node_stack: Vec<Option<PrintItemPath>>,
+  pub next_node_stack: RcStack,
 }
 
 struct PrintItemContainer<'a> {
@@ -63,7 +63,7 @@ pub struct Printer<'a> {
   resolved_infos: FxHashMap<usize, WriterInfo>,
   look_ahead_condition_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
   look_ahead_info_save_points: FastCellMap<'a, usize, SavePoint<'a>>,
-  next_node_stack: Vec<Option<PrintItemPath>>,
+  next_node_stack: RcStack,
   conditions_for_infos: FxHashMap<usize, FxHashMap<usize, (&'a Condition, &'a SavePoint<'a>)>>,
   max_width: u32,
   skip_moving_next: bool,
@@ -96,7 +96,7 @@ impl<'a> Printer<'a> {
       look_ahead_condition_save_points: FxHashMap::default(),
       look_ahead_info_save_points: FastCellMap::new(),
       conditions_for_infos: FxHashMap::default(),
-      next_node_stack: Vec::new(),
+      next_node_stack: RcStack::default(),
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
@@ -142,7 +142,7 @@ impl<'a> Printer<'a> {
       }
 
       while self.current_node.is_none() && !self.next_node_stack.is_empty() {
-        self.current_node = self.next_node_stack.pop().flatten();
+        self.current_node = self.next_node_stack.pop();
       }
     }
 
@@ -412,13 +412,17 @@ impl<'a> Printer<'a> {
     if condition_value.is_some() && condition_value.unwrap() {
       if let Some(true_path) = condition.true_path {
         self.current_node = Some(true_path.clone());
-        self.next_node_stack.push(next_node.clone());
+        if let Some(path) = next_node {
+          self.next_node_stack.push(path.clone());
+        }
         self.skip_moving_next = true;
       }
     } else {
       if let Some(false_path) = condition.false_path {
         self.current_node = Some(false_path.clone());
-        self.next_node_stack.push(next_node.clone());
+        if let Some(path) = next_node {
+          self.next_node_stack.push(path.clone());
+        }
         self.skip_moving_next = true;
       }
     }
@@ -426,7 +430,9 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn handle_rc_path(&mut self, print_item_path: &PrintItemPath, next_node: &Option<PrintItemPath>) {
-    self.next_node_stack.push(next_node.clone());
+    if let Some(path) = next_node {
+      self.next_node_stack.push(path.clone());
+    }
     self.current_node = Some(print_item_path);
     self.skip_moving_next = true;
   }

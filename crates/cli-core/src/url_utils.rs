@@ -5,19 +5,19 @@ use std::io::Read;
 pub fn download_url(url: &str, progress_bars: &Option<ProgressBars>, read_env_var: impl Fn(&str) -> Option<String>) -> Result<Vec<u8>, ErrBox> {
   let resp = match build_agent(url, read_env_var)?.get(url).call() {
     Ok(resp) => resp,
-    Err(err) => return err!("Error downloading {}. Error: {:?}", url, err),
+    Err(err) => return err!("Error downloading {} - Error: {:?}", url, err.to_string()),
   };
   let total_size = {
     if resp.status() == 200 {
       resp.header("Content-Length").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0)
     } else {
-      return err!("Error downloading {}. Status: {:?}", url, resp.status());
+      return err!("Error downloading {} - Status: {:?}", url, resp.status());
     }
   };
   let mut reader = resp.into_reader();
   match inner_download(url, &mut reader, total_size, progress_bars) {
     Ok(result) => Ok(result),
-    Err(err) => err!("Error downloading {}. {}", url, err.to_string()),
+    Err(err) => err!("Error downloading {} - {}", url, err.to_string()),
   }
 }
 
