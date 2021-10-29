@@ -1321,7 +1321,7 @@ mod test {
       })
       .build();
 
-    let test_std_in = TestStdInReader::new_with_text("text");
+    let test_std_in = TestStdInReader::from("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
@@ -1336,7 +1336,7 @@ mod test {
       })
       .build();
 
-    let test_std_in = TestStdInReader::new_with_text("text");
+    let test_std_in = TestStdInReader::from("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
@@ -1346,7 +1346,7 @@ mod test {
   #[test]
   fn it_should_stdin_fmt_calling_other_plugin() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
-    let test_std_in = TestStdInReader::new_with_text("plugin: format this text");
+    let test_std_in = TestStdInReader::from("plugin: format this text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["format this text_formatted_process"]);
   }
@@ -1360,7 +1360,7 @@ mod test {
         c.add_remote_wasm_plugin();
       })
       .build(); // don't initialize
-    let test_std_in = TestStdInReader::new_with_text("should_error");
+    let test_std_in = TestStdInReader::from("should_error");
     let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in)
       .err()
       .unwrap();
@@ -1378,7 +1378,7 @@ mod test {
       .write_file("/src/file.txt", "")
       .build();
     // not matching file
-    let test_std_in = TestStdInReader::new_with_text("text");
+    let test_std_in = TestStdInReader::from("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt"], &environment, test_std_in.clone()).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["text"]);
 
@@ -1403,7 +1403,7 @@ mod test {
           .add_config_section("test-plugin", r#"{ "ending": "new_ending" }"#);
       })
       .build();
-    let test_std_in = TestStdInReader::new_with_text("text");
+    let test_std_in = TestStdInReader::from("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "sub-dir/file.txt"], &environment, test_std_in).unwrap();
     // Should use cwd since the absolute path wasn't provided. In order to use the proper config file,
     // the absolute path must be provided instead of a relative one in order to properly pick up
@@ -1426,7 +1426,7 @@ mod test {
       .write_file("/sub-dir/file.txt", "test")
       .initialize()
       .build();
-    let test_std_in = TestStdInReader::new_with_text("text");
+    let test_std_in = TestStdInReader::from("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/sub-dir/file.txt"], &environment, test_std_in).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["text_new_ending"]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
