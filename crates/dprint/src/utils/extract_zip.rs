@@ -20,30 +20,33 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
       for i in 0..zip.len() {
         update_size(i);
         let mut file = zip.by_index(i).unwrap();
-        let file_name = file.name();
-        let file_path = dir_path.join(file_name);
+        if let Some(file_name) = file.enclosed_name() {
+          let file_path = dir_path.join(file_name);
 
-        if !file.is_dir() {
-          if let Some(parent_dir_path) = file_path.parent() {
-            environment.mk_dir_all(&parent_dir_path.to_path_buf())?;
+          if !file.is_dir() {
+            if let Some(parent_dir_path) = file_path.parent() {
+              environment.mk_dir_all(&parent_dir_path.to_path_buf())?;
+            }
+            let mut file_bytes = Vec::with_capacity(file.size() as usize);
+            file.read_to_end(&mut file_bytes)?;
+            environment.write_file_bytes(&file_path, &file_bytes)?;
+          } else {
+            environment.mk_dir_all(&file_path)?;
           }
-          let mut file_bytes = Vec::with_capacity(file.size() as usize);
-          file.read_to_end(&mut file_bytes)?;
-          environment.write_file_bytes(&file_path, &file_bytes)?;
+
+          // Get and Set permissions
+          #[cfg(unix)]
+          if environment.is_real() {
+            use std::fs;
+            use std::os::unix::fs::PermissionsExt;
+
+            if let Some(mode) = file.unix_mode() {
+              fs::set_permissions(&file_path, fs::Permissions::from_mode(mode))
+                .map_err(|err| err_obj!("Error setting permissions to {} for file {}: {}", mode, file_path.display(), err))?
+            }
+          }
         } else {
-          environment.mk_dir_all(&file_path)?;
-        }
-
-        // Get and Set permissions
-        #[cfg(unix)]
-        if environment.is_real() {
-          use std::fs;
-          use std::os::unix::fs::PermissionsExt;
-
-          if let Some(mode) = file.unix_mode() {
-            fs::set_permissions(&file_path, fs::Permissions::from_mode(mode))
-              .map_err(|err| err_obj!("Error setting permissions to {} for file {}: {}", mode, file_path.display(), err))?
-          }
+          environment.log_stderr(&format!("Ignoring path in zip because it was not enclosed: {}", file.name()));
         }
       }
 
