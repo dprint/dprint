@@ -27,6 +27,18 @@ fn get_line_start_byte_pos(text: &str, pos: usize) -> usize {
   0
 }
 
+fn get_line_end_byte_pos(text: &str, pos: usize) -> usize {
+  let mut pos = pos;
+  let mut chars = text[pos..].chars().peekable();
+  while let Some(c) = chars.next() {
+    if c == '\n' || c == '\r' && chars.peek().copied() == Some('\n') {
+      break;
+    }
+    pos += c.len_utf8();
+  }
+  pos
+}
+
 pub fn format_diagnostic(range: Option<(usize, usize)>, message: &str, file_text: &str) -> String {
   let mut result = String::new();
   if let Some((error_start, _)) = range {
@@ -87,25 +99,18 @@ fn get_range_text_highlight(file_text: &str, byte_range: (usize, usize)) -> Stri
 
   fn get_text_and_error_range(byte_range: (usize, usize), file_text: &str) -> ((usize, usize), (usize, usize)) {
     let (start, end) = byte_range;
-    let start_column_number_byte_count = start - get_line_start_byte_pos(file_text, start);
-    let line_end = get_line_end(file_text, end);
-    let text_start = start - std::cmp::min(20, start_column_number_byte_count);
-    let text_end = std::cmp::min(line_end, end + 10);
+    let line_start = get_line_start_byte_pos(file_text, start);
+    let line_end = get_line_end_byte_pos(file_text, end);
+
+    let start_text = &file_text[line_start..start];
+    let end_text = &file_text[end..line_end];
+
+    let text_start = start - start_text.chars().rev().take(20).map(|c| c.len_utf8()).sum::<usize>();
+    let text_end = end + end_text.chars().take(10).map(|c| c.len_utf8()).sum::<usize>();
     let error_start = start - text_start;
     let error_end = error_start + (end - start);
 
     ((text_start, text_end), (error_start, error_end))
-  }
-
-  fn get_line_end(text: &str, pos: usize) -> usize {
-    let mut pos = pos;
-    for c in text.chars().skip(pos) {
-      if c == '\n' {
-        break;
-      }
-      pos += 1;
-    }
-    pos
   }
 }
 
@@ -214,14 +219,31 @@ mod tests {
   }
 
   #[test]
+  fn should_handle_multi_byte_chars() {
+    let one_to_ten = "一二三四五六七八九十";
+    let message = get_range_text_highlight(
+      &one_to_ten.repeat(6),
+      (one_to_ten.len() * 3, one_to_ten.len() * 3 + one_to_ten.chars().next().unwrap().len_utf8()),
+    );
+    assert_eq!(
+      message,
+      concat!("一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一\n", "                    ~",)
+    );
+  }
+
+  #[test]
   fn should_handle_multi_byte_characters_on_the_first_line() {
-    let message = get_range_text_highlight("test ≥ ; test", (9, 10));
-    assert_eq!(message, concat!("test ≥ ; te\n", "       ~",));
+    let text = "test ≥ ; test";
+    let semi_colon_index = text.find(';').unwrap();
+    let message = get_range_text_highlight(text, (semi_colon_index, semi_colon_index + 1));
+    assert_eq!(message, concat!("test ≥ ; test\n", "       ~",));
   }
 
   #[test]
   fn should_handle_multi_byte_characters_on_the_second_line() {
-    let message = get_range_text_highlight("≥a\ntest ≥ ; test", (14, 15));
-    assert_eq!(message, concat!("test ≥ ; \n", "       ~",));
+    let text = "≥a\ntest ≥ ; test";
+    let semi_colon_index = text.find(';').unwrap();
+    let message = get_range_text_highlight(text, (semi_colon_index, semi_colon_index + 1));
+    assert_eq!(message, concat!("test ≥ ; test\n", "       ~",));
   }
 }
