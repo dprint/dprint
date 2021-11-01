@@ -22,15 +22,15 @@ pub fn get_file_paths_by_plugin_and_err_if_empty(plugins: &Vec<Box<dyn Plugin>>,
 }
 
 pub fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
-  let mut plugin_by_file_extension: HashMap<&str, &str> = HashMap::new();
-  let mut plugin_by_file_name: HashMap<&str, &str> = HashMap::new();
+  let mut plugin_by_file_extension = HashMap::new();
+  let mut plugin_by_file_name = HashMap::new();
 
   for plugin in plugins.iter() {
     for file_extension in plugin.file_extensions() {
-      plugin_by_file_extension.entry(file_extension).or_insert(plugin.name());
+      plugin_by_file_extension.entry(file_extension.to_lowercase()).or_insert(plugin.name());
     }
     for file_name in plugin.file_names() {
-      plugin_by_file_name.entry(file_name).or_insert(plugin.name());
+      plugin_by_file_name.entry(file_name.to_lowercase()).or_insert(plugin.name());
     }
   }
 
