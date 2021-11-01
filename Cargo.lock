@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.18.1"
+version = "0.18.2"
 dependencies = [
  "clap",
  "crossterm",
