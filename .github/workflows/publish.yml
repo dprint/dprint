@@ -15,10 +15,15 @@ jobs:
     - name: Update bvm.land registry.json file
       run: curl -s -o /dev/null -v https://bvm.land/refresh-registry/dprint/dprint
 
-      # CARGO PUBLISH
     - name: Checkout
       uses: actions/checkout@v2
 
+      # CARGO PUBLISH
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: 1.56.0
+        override: true
     - name: Cargo login
       run: cargo login ${{ secrets.CRATES_TOKEN }}
 

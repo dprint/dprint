@@ -35,6 +35,7 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
+      # remember to update the publish script if changing the version
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
