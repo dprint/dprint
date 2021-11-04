@@ -25,14 +25,6 @@ impl PrintOptions {
       enable_tracing: false,
     }
   }
-
-  pub(super) fn to_write_items_printer_options(&self) -> WriteItemsPrinterOptions {
-    WriteItemsPrinterOptions {
-      use_tabs: self.use_tabs,
-      new_line_text: self.new_line_text,
-      indent_width: self.indent_width,
-    }
-  }
 }
 
 /// Function to create the provided print items and print them out as a string.
@@ -67,7 +59,7 @@ pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
 
 fn print_with_allocator(bump: &Bump, print_items: &PrintItems, options: &PrintOptions) -> String {
   let write_items = Printer::new(bump, print_items.first_node, options.to_printer_options()).print();
-  print_write_items(write_items, options.to_write_items_printer_options())
+  WriteItemsPrinter::from(options).print(write_items)
 }
 
 #[cfg(feature = "tracing")]
@@ -82,6 +74,8 @@ pub struct TracingResult {
 /// Gets trace information for analysis purposes.
 #[cfg(feature = "tracing")]
 pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: PrintOptions) -> TracingResult {
+  use std::iter;
+
   increment_formatting_count();
   let print_items = get_print_items();
 
@@ -92,7 +86,7 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
       printer_options
     })
     .print_for_tracing();
-    let writer_items_printer = WriteItemsPrinter::new(options.to_write_items_printer_options());
+    let writer_items_printer = WriteItemsPrinter::from(&options);
 
     let result = TracingResult {
       traces: tracing_result.traces,
@@ -100,8 +94,7 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
         .writer_nodes
         .into_iter()
         .map(|node| {
-          let mut text = String::new();
-          writer_items_printer.write_to_string(&mut text, node.borrow_item().clone());
+          let text = writer_items_printer.print(iter::once(*node.borrow_item()));
           TraceWriterNode {
             writer_node_id: node.graph_node_id,
             previous_node_id: node.borrow_previous().map(|n| n.graph_node_id),
