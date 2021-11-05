@@ -2,9 +2,12 @@ use crossterm::style::Stylize;
 use crossterm::tty::IsTty;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+use std::time::SystemTime;
 
-use crate::logging::{Logger, LoggerRefreshItemKind, LoggerTextItem};
+use crate::logging::Logger;
+use crate::logging::LoggerRefreshItemKind;
+use crate::logging::LoggerTextItem;
 
 // Inspired by Indicatif, but this custom implementation allows for more control over
 // what's going on under the hood and it works better with the multi-threading model

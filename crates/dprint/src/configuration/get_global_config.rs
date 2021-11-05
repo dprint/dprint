@@ -1,8 +1,11 @@
-use dprint_core::configuration::{ConfigKeyMap, GlobalConfiguration, ResolveGlobalConfigOptions};
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::configuration::ResolveGlobalConfigOptions;
 use dprint_core::types::ErrBox;
 use std::collections::HashMap;
 
-use super::{ConfigMap, ConfigMapValue};
+use super::ConfigMap;
+use super::ConfigMapValue;
 use crate::environment::Environment;
 
 pub struct GetGlobalConfigOptions {

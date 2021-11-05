@@ -1,6 +1,8 @@
 use crossterm::style::Stylize;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use dprint_cli_core::types::ErrBox;
@@ -8,15 +10,21 @@ use parking_lot::Mutex;
 
 use crate::cache::Cache;
 use crate::cli::configuration::resolve_config_from_args;
-use crate::cli::format::{format_with_plugin_pools, run_parallelized};
+use crate::cli::format::format_with_plugin_pools;
+use crate::cli::format::run_parallelized;
 use crate::cli::incremental::get_incremental_file;
-use crate::cli::paths::{get_and_resolve_file_paths, get_file_paths_by_plugin_and_err_if_empty};
+use crate::cli::paths::get_and_resolve_file_paths;
+use crate::cli::paths::get_file_paths_by_plugin_and_err_if_empty;
 use crate::cli::patterns::FileMatcher;
 use crate::cli::plugins::resolve_plugins_and_err_if_empty;
-use crate::cli::{CliArgs, FmtSubCommand, StdInFmtSubCommand};
+use crate::cli::CliArgs;
+use crate::cli::FmtSubCommand;
+use crate::cli::StdInFmtSubCommand;
 use crate::environment::Environment;
-use crate::plugins::{PluginPools, PluginResolver};
-use crate::utils::{get_difference, BOM_CHAR};
+use crate::plugins::PluginPools;
+use crate::plugins::PluginResolver;
+use crate::utils::get_difference;
+use crate::utils::BOM_CHAR;
 
 pub fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
@@ -196,10 +204,16 @@ mod test {
   use crossterm::style::Stylize;
   use pretty_assertions::assert_eq;
 
-  use crate::environment::{Environment, TestEnvironment, TestEnvironmentBuilder};
-  use crate::test_helpers::{
-    self, get_plural_check_text, get_plural_formatted_text, get_singular_check_text, get_singular_formatted_text, run_test_cli, run_test_cli_with_stdin,
-  };
+  use crate::environment::Environment;
+  use crate::environment::TestEnvironment;
+  use crate::environment::TestEnvironmentBuilder;
+  use crate::test_helpers::get_plural_check_text;
+  use crate::test_helpers::get_plural_formatted_text;
+  use crate::test_helpers::get_singular_check_text;
+  use crate::test_helpers::get_singular_formatted_text;
+  use crate::test_helpers::run_test_cli;
+  use crate::test_helpers::run_test_cli_with_stdin;
+  use crate::test_helpers::{self};
   use crate::utils::get_difference;
   use crate::utils::TestStdInReader;
 

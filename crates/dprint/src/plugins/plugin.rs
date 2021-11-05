@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use dprint_core::configuration::{ConfigKeyMap, ConfigKeyValue, ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigKeyValue;
+use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::types::ErrBox;
 
 pub trait Plugin: std::marker::Send + std::marker::Sync {

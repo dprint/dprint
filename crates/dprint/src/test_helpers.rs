@@ -5,9 +5,14 @@ use crossterm::style::Stylize;
 use dprint_core::types::ErrBox;
 
 use crate::cache::Cache;
-use crate::cli::{parse_args, run_cli};
+use crate::cli::parse_args;
+use crate::cli::run_cli;
 use crate::environment::TestEnvironment;
-use crate::plugins::{CompilationResult, PluginCache, PluginPools, PluginResolver, PluginsDropper};
+use crate::plugins::CompilationResult;
+use crate::plugins::PluginCache;
+use crate::plugins::PluginPools;
+use crate::plugins::PluginResolver;
+use crate::plugins::PluginsDropper;
 use crate::utils::TestStdInReader;
 
 // If this file doesn't exist, run `cargo build --release` for crates/test-process-plugin

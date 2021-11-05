@@ -17,7 +17,8 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 2. Create a `Configuration` struct somewhere in your project:
 
    ```rust
-   use serde::{Deserialize, Serialize};
+   use serde::Deserialize;
+   use serde::Serialize;
 
    #[derive(Clone, Serialize, Deserialize)]
    #[serde(rename_all = "camelCase")]
@@ -33,8 +34,13 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::collections::HashMap;
    use std::path::PathBuf;
 
-   use dprint_core::configuration::{get_unknown_property_diagnostics, get_value, ConfigKeyMap, GlobalConfiguration, ResolveConfigurationResult};
-   use dprint_core::plugins::{PluginHandler, PluginInfo};
+   use dprint_core::configuration::get_unknown_property_diagnostics;
+   use dprint_core::configuration::get_value;
+   use dprint_core::configuration::ConfigKeyMap;
+   use dprint_core::configuration::GlobalConfiguration;
+   use dprint_core::configuration::ResolveConfigurationResult;
+   use dprint_core::plugins::PluginHandler;
+   use dprint_core::plugins::PluginInfo;
    use dprint_core::types::ErrBox;
 
    use super::configuration::Configuration; // import the Configuration from above somehow

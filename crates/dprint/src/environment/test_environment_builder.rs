@@ -1,8 +1,10 @@
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use super::{Environment, TestEnvironment};
+use super::Environment;
+use super::TestEnvironment;
 use crate::test_helpers;
 
 pub struct TestConfigFileBuilder {

@@ -163,7 +163,9 @@ where
 #[cfg(test)]
 mod test {
   use super::*;
-  use crate::environment::{TestEnvironment, TestEnvironmentBuilder, TestInfoFilePlugin};
+  use crate::environment::TestEnvironment;
+  use crate::environment::TestEnvironmentBuilder;
+  use crate::environment::TestInfoFilePlugin;
   use pretty_assertions::assert_eq;
 
   #[test]

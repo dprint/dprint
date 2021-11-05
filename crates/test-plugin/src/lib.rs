@@ -2,13 +2,20 @@
 #[macro_use(err)]
 extern crate dprint_core;
 
-use dprint_core::configuration::{get_unknown_property_diagnostics, get_value, ConfigKeyMap, GlobalConfiguration, ResolveConfigurationResult};
+use dprint_core::configuration::get_unknown_property_diagnostics;
+use dprint_core::configuration::get_value;
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::generate_plugin_code;
-use dprint_core::plugins::{PluginHandler, PluginInfo};
+use dprint_core::plugins::PluginHandler;
+use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

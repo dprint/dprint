@@ -172,7 +172,10 @@ fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
 }
 
 fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b> {
-  use clap::{App, AppSettings, Arg, SubCommand};
+  use clap::App;
+  use clap::AppSettings;
+  use clap::Arg;
+  use clap::SubCommand;
   let app = App::new("dprint");
 
   // hack to get this to display the way I want

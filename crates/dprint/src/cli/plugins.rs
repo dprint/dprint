@@ -1,11 +1,15 @@
 use dprint_cli_core::types::ErrBox;
 
 use crate::cache::Cache;
-use crate::configuration::{get_global_config, get_plugin_config_map, GetGlobalConfigOptions};
+use crate::configuration::get_global_config;
+use crate::configuration::get_plugin_config_map;
+use crate::configuration::GetGlobalConfigOptions;
 use crate::environment::Environment;
-use crate::plugins::{Plugin, PluginResolver};
+use crate::plugins::Plugin;
+use crate::plugins::PluginResolver;
 
-use super::configuration::{resolve_config_from_args, ResolvedConfig};
+use super::configuration::resolve_config_from_args;
+use super::configuration::ResolvedConfig;
 use super::CliArgs;
 
 pub fn get_plugins_from_args<TEnvironment: Environment>(

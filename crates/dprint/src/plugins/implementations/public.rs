@@ -7,7 +7,10 @@ use dprint_core::types::ErrBox;
 use super::process;
 use super::wasm;
 use crate::environment::Environment;
-use crate::plugins::{Plugin, PluginCache, PluginPools, PluginSourceReference};
+use crate::plugins::Plugin;
+use crate::plugins::PluginCache;
+use crate::plugins::PluginPools;
+use crate::plugins::PluginSourceReference;
 use crate::utils::PathSource;
 
 pub struct SetupPluginResult {

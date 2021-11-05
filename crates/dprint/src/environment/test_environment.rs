@@ -1,13 +1,22 @@
 use dprint_core::types::ErrBox;
 use parking_lot::Mutex;
 use path_clean::PathClean;
-use std::collections::{HashMap, HashSet};
-use std::io::{Error, Read, Write};
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::io::Error;
+use std::io::Read;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
-use super::{CanonicalizedPathBuf, DirEntry, DirEntryKind, Environment};
+use super::CanonicalizedPathBuf;
+use super::DirEntry;
+use super::DirEntryKind;
+use super::Environment;
 use crate::plugins::CompilationResult;
 
 struct BufferData {

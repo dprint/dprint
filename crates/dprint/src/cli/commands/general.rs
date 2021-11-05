@@ -2,8 +2,10 @@ use dprint_cli_core::types::ErrBox;
 
 use crate::cache::Cache;
 use crate::cli::configuration::resolve_config_from_args;
-use crate::cli::paths::{get_and_resolve_file_paths, get_file_paths_by_plugin};
-use crate::cli::plugins::{get_plugins_from_args, resolve_plugins_and_err_if_empty};
+use crate::cli::paths::get_and_resolve_file_paths;
+use crate::cli::paths::get_file_paths_by_plugin;
+use crate::cli::plugins::get_plugins_from_args;
+use crate::cli::plugins::resolve_plugins_and_err_if_empty;
 use crate::cli::CliArgs;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
@@ -96,8 +98,10 @@ pub fn output_file_paths<TEnvironment: Environment>(
 mod test {
   use pretty_assertions::assert_eq;
 
-  use crate::environment::{TestEnvironment, TestEnvironmentBuilder};
-  use crate::test_helpers::{get_expected_help_text, run_test_cli};
+  use crate::environment::TestEnvironment;
+  use crate::environment::TestEnvironmentBuilder;
+  use crate::test_helpers::get_expected_help_text;
+  use crate::test_helpers::run_test_cli;
 
   #[test]
   fn it_should_output_version_with_v() {

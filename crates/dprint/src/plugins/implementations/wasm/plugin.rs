@@ -2,13 +2,22 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use dprint_core::configuration::{ConfigKeyMap, ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
 
-use super::{create_module, create_pools_import_object, load_instance, FormatResult, ImportObjectEnvironment, WasmFunctions};
+use super::create_module;
+use super::create_pools_import_object;
+use super::load_instance;
+use super::FormatResult;
+use super::ImportObjectEnvironment;
+use super::WasmFunctions;
 use crate::environment::Environment;
-use crate::plugins::{InitializedPlugin, Plugin, PluginPools};
+use crate::plugins::InitializedPlugin;
+use crate::plugins::Plugin;
+use crate::plugins::PluginPools;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: wasmer::Module,

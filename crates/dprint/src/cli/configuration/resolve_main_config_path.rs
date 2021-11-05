@@ -1,12 +1,15 @@
 use dprint_core::types::ErrBox;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use crate::cache::Cache;
 use crate::cli::CliArgs;
 use crate::cli::SubCommand;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::utils::{resolve_url_or_file_path, PathSource, ResolvedPath};
+use crate::utils::resolve_url_or_file_path;
+use crate::utils::PathSource;
+use crate::utils::ResolvedPath;
 
 const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.json";
 const HIDDEN_CONFIG_FILE_NAME: &'static str = ".dprint.json";

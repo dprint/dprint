@@ -3,7 +3,8 @@ use std::mem;
 use std::rc::Rc;
 
 use super::printer::Printer;
-use super::utils::{with_bump_allocator, CounterCell};
+use super::utils::with_bump_allocator;
+use super::utils::CounterCell;
 
 /** Print Items */
 

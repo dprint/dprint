@@ -2,12 +2,17 @@ use dprint_cli_core::checksums::verify_sha256_checksum;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use serde::Deserialize;
+use serde::Serialize;
+use std::path::Path;
+use std::path::PathBuf;
 use std::str;
 
 use crate::environment::Environment;
-use crate::utils::{extract_zip, fetch_file_or_url_bytes, resolve_url_or_file_path_to_path_source, PathSource};
+use crate::utils::extract_zip;
+use crate::utils::fetch_file_or_url_bytes;
+use crate::utils::resolve_url_or_file_path_to_path_source;
+use crate::utils::PathSource;
 
 use super::super::SetupPluginResult;
 

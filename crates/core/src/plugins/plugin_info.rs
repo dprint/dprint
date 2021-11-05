@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Information about a plugin.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

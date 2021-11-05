@@ -1,9 +1,12 @@
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use crate::environment::{CanonicalizedPathBuf, Environment};
+use crate::environment::CanonicalizedPathBuf;
+use crate::environment::Environment;
 use crate::utils::get_bytes_hash;
 
 #[derive(Serialize, Deserialize)]

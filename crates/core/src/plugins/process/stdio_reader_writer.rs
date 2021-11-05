@@ -1,5 +1,6 @@
 use crate::types::ErrBox;
-use std::io::{Read, Write};
+use std::io::Read;
+use std::io::Write;
 
 const BUFFER_SIZE: usize = 1024; // safe to assume
 

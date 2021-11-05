@@ -1,7 +1,9 @@
 use dprint_core::types::ErrBox;
-use wasmer::{Module, Store};
+use wasmer::Module;
+use wasmer::Store;
 
-use super::{create_identity_import_object, InitializedWasmPlugin};
+use super::create_identity_import_object;
+use super::InitializedWasmPlugin;
 use crate::plugins::CompilationResult;
 
 /// Compiles a Wasm module.

@@ -1,7 +1,10 @@
-use crate::logging::{Logger, LoggerRefreshItemKind, LoggerTextItem};
+use crate::logging::Logger;
+use crate::logging::LoggerRefreshItemKind;
+use crate::logging::LoggerTextItem;
 use crate::terminal::read_terminal_event;
 use crate::types::ErrBox;
-use crossterm::event::{Event, KeyCode};
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
 
 struct SelectData<'a> {
   prompt: &'a str,

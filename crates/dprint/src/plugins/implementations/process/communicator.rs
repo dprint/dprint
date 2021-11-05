@@ -1,9 +1,12 @@
 use crate::environment::Environment;
-use dprint_core::configuration::{ConfigKeyMap, ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::types::ErrBox;
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 /// A communicator that can recreate the process if it's unresponsive
 /// and initializes the plugin with the configuration on each startup.

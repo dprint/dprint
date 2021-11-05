@@ -1,5 +1,9 @@
 use crate::types::ErrBox;
-use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::read;
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
+use crossterm::event::KeyEvent;
+use crossterm::event::KeyModifiers;
 use crossterm::terminal;
 
 pub fn get_terminal_width() -> Option<u16> {

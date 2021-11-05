@@ -1,7 +1,11 @@
-use super::{ConfigMap, ConfigMapValue};
-use dprint_core::configuration::{ConfigKeyMap, ConfigKeyValue};
+use super::ConfigMap;
+use super::ConfigMapValue;
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::types::ErrBox;
-use jsonc_parser::{JsonArray, JsonObject, JsonValue};
+use jsonc_parser::JsonArray;
+use jsonc_parser::JsonObject;
+use jsonc_parser::JsonValue;
 use std::collections::HashMap;
 
 pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
@@ -87,7 +91,8 @@ fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue, 
 
 #[cfg(test)]
 mod tests {
-  use super::super::{ConfigMap, ConfigMapValue};
+  use super::super::ConfigMap;
+  use super::super::ConfigMapValue;
   use super::deserialize_config;
   use dprint_core::configuration::ConfigKeyValue;
   use std::collections::HashMap;

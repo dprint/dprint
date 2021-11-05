@@ -1,4 +1,5 @@
-use super::{PrintOptions, StringContainer};
+use super::PrintOptions;
+use super::StringContainer;
 
 #[derive(Clone, Copy)]
 pub enum WriteItem<'a> {

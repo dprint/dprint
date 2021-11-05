@@ -1,7 +1,14 @@
-use wasmer::{Array, Instance, Memory, NativeFunc, RuntimeError, WasmPtr, WasmTypeList};
+use wasmer::Array;
+use wasmer::Instance;
+use wasmer::Memory;
+use wasmer::NativeFunc;
+use wasmer::RuntimeError;
+use wasmer::WasmPtr;
+use wasmer::WasmTypeList;
 
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
-use dprint_core::types::{ErrBox, Error};
+use dprint_core::types::ErrBox;
+use dprint_core::types::Error;
 
 pub enum FormatResult {
   NoChange = 0,

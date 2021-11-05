@@ -3,7 +3,8 @@ use std::time::Instant;
 
 use crate::environment::Environment;
 
-use super::{LocalPluginWork, PluginStealInfo};
+use super::LocalPluginWork;
+use super::PluginStealInfo;
 
 pub enum LocalWorkStealKind {
   Immediate,
