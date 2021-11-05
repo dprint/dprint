@@ -59,8 +59,10 @@ pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
 }
 
 fn print_with_allocator(bump: &Bump, print_items: &PrintItems, options: &PrintOptions) -> String {
-  let write_items = Printer::new(bump, print_items.first_node, options.to_printer_options()).print();
-  WriteItemsPrinter::from(options).print(write_items)
+  match Printer::new(bump, print_items.first_node, options.to_printer_options()).print() {
+    Some(write_items) => WriteItemsPrinter::from(options).print(write_items),
+    None => String::new(),
+  }
 }
 
 #[cfg(feature = "tracing")]
@@ -95,10 +97,10 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
         .writer_nodes
         .into_iter()
         .map(|node| {
-          let text = writer_items_printer.print(iter::once(*node.borrow_item()));
+          let text = writer_items_printer.print(iter::once(node.item));
           TraceWriterNode {
             writer_node_id: node.graph_node_id,
-            previous_node_id: node.borrow_previous().map(|n| n.graph_node_id),
+            previous_node_id: node.previous.map(|n| n.graph_node_id),
             text,
           }
         })
@@ -115,7 +117,7 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
 }
 
 thread_local! {
-    static FORMATTING_COUNT: RefCell<u32> = RefCell::new(0);
+  static FORMATTING_COUNT: RefCell<u32> = RefCell::new(0);
 }
 
 fn increment_formatting_count() {

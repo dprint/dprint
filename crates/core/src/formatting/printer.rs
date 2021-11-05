@@ -109,9 +109,9 @@ impl<'a> Printer<'a> {
   }
 
   /// Turns the print items into a collection of writer items according to the options.
-  pub fn print(mut self) -> impl Iterator<Item = WriteItem<'a>> {
+  pub fn print(mut self) -> Option<impl Iterator<Item = WriteItem<'a>>> {
     self.inner_print();
-    self.writer.get_items()
+    self.writer.items()
   }
 
   /// Turns the print items into a collection of writer items according to the options along with traces.

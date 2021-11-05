@@ -6,10 +6,12 @@ pub struct CounterCell {
 
 impl CounterCell {
   pub fn new() -> CounterCell {
-    CounterCell { counter: UnsafeCell::new(0) }
+    CounterCell {
+      counter: UnsafeCell::default(),
+    }
   }
 
-  pub fn increment(&self) -> usize {
+  pub fn increment_and_get(&self) -> usize {
     unsafe {
       let count = self.counter.get();
       *count += 1;
