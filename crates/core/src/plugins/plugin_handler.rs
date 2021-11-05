@@ -1,4 +1,6 @@
-use crate::configuration::{ConfigKeyMap, GlobalConfiguration, ResolveConfigurationResult};
+use crate::configuration::ConfigKeyMap;
+use crate::configuration::GlobalConfiguration;
+use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::PluginInfo;
 use crate::types::ErrBox;
 use serde::Serialize;

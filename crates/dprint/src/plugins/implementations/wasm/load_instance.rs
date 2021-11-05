@@ -1,5 +1,8 @@
 use dprint_core::types::ErrBox;
-use wasmer::{ImportObject, Instance, Module, Store};
+use wasmer::ImportObject;
+use wasmer::Instance;
+use wasmer::Module;
+use wasmer::Store;
 
 /// Loads a compiled wasm module from the specified bytes.
 pub fn load_instance(module: &Module, import_object: &ImportObject) -> Result<Instance, ErrBox> {

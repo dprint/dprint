@@ -1,14 +1,20 @@
 use dprint_cli_core::types::ErrBox;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
 use crate::environment::Environment;
-use crate::plugins::{InitializedPlugin, InitializedPluginPool, PluginPools, TakePluginResult};
+use crate::plugins::InitializedPlugin;
+use crate::plugins::InitializedPluginPool;
+use crate::plugins::PluginPools;
+use crate::plugins::TakePluginResult;
 use crate::utils::ErrorCountLogger;
 
-use super::{LongFormatCheckerThread, Worker, WorkerRegistry};
+use super::LongFormatCheckerThread;
+use super::Worker;
+use super::WorkerRegistry;
 
 pub fn do_batch_format<TEnvironment: Environment, F>(
   environment: &TEnvironment,

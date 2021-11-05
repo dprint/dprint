@@ -37,11 +37,15 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 4. Implement `PluginHandler`:
 
    ```rust
-   use dprint_core::configuration::{
-     get_unknown_property_diagnostics, get_value, ConfigKeyMap, ConfigurationDiagnostic, GlobalConfiguration, ResolveConfigurationResult,
-   };
+   use dprint_core::configuration::get_unknown_property_diagnostics;
+   use dprint_core::configuration::get_value;
+   use dprint_core::configuration::ConfigKeyMap;
+   use dprint_core::configuration::ConfigurationDiagnostic;
+   use dprint_core::configuration::GlobalConfiguration;
+   use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::generate_plugin_code;
-   use dprint_core::plugins::{PluginHandler, PluginInfo};
+   use dprint_core::plugins::PluginHandler;
+   use dprint_core::plugins::PluginInfo;
    use dprint_core::types::ErrBox;
 
    use crate::configuration::Configuration; // import the Configuration from above

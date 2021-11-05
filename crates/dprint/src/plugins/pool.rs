@@ -1,4 +1,5 @@
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -6,10 +7,13 @@ use std::time::Instant;
 
 use dprint_core::types::ErrBox;
 
-use super::{output_plugin_config_diagnostics, InitializedPlugin, Plugin};
+use super::output_plugin_config_diagnostics;
+use super::InitializedPlugin;
+use super::Plugin;
 use crate::environment::Environment;
+use crate::utils::get_lowercase_file_extension;
+use crate::utils::get_lowercase_file_name;
 use crate::utils::ErrorCountLogger;
-use crate::utils::{get_lowercase_file_extension, get_lowercase_file_name};
 
 /// This is necessary because of a circular reference where
 /// PluginPools hold plugins and the plugins hold a PluginPools.

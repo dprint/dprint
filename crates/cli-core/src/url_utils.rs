@@ -1,4 +1,5 @@
-use crate::logging::{ProgressBarStyle, ProgressBars};
+use crate::logging::ProgressBarStyle;
+use crate::logging::ProgressBars;
 use crate::types::ErrBox;
 use std::io::Read;
 

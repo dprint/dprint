@@ -1,4 +1,5 @@
-use super::{ProgressBarStyle, ProgressBars};
+use super::ProgressBarStyle;
+use super::ProgressBars;
 
 pub fn log_action_with_progress<
   TResult: std::marker::Send + std::marker::Sync,

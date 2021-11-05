@@ -1,4 +1,5 @@
-use parking_lot::{Condvar, Mutex};
+use parking_lot::Condvar;
+use parking_lot::Mutex;
 use std::time::Duration;
 
 /// A thread synchronization event that, when signaled, must be reset manually.

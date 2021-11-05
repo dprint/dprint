@@ -1,11 +1,16 @@
-use dprint_core::configuration::{ConfigKeyMap, ConfigurationDiagnostic, GlobalConfiguration};
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::environment::Environment;
-use crate::plugins::{InitializedPlugin, Plugin, PluginPools};
+use crate::plugins::InitializedPlugin;
+use crate::plugins::Plugin;
+use crate::plugins::PluginPools;
 
 use super::super::format_with_plugin_pool;
 use super::InitializedProcessPluginCommunicator;

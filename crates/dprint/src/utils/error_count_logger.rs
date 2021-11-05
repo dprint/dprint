@@ -1,5 +1,6 @@
 use crate::environment::Environment;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /// Logger that keeps track of how many errors it's logged.

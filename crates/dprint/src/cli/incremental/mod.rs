@@ -4,7 +4,8 @@ pub use incremental_file::IncrementalFile;
 
 use std::sync::Arc;
 
-use crate::cache::{Cache, CreateCacheItemOptions};
+use crate::cache::Cache;
+use crate::cache::CreateCacheItemOptions;
 use crate::environment::Environment;
 use crate::plugins::PluginPools;
 

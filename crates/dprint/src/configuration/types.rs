@@ -1,4 +1,5 @@
-use dprint_core::configuration::{ConfigKeyMap, ConfigKeyValue};
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigKeyValue;
 use std::collections::HashMap;
 
 #[derive(Clone, PartialEq, Debug)]

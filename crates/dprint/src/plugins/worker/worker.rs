@@ -3,9 +3,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::environment::Environment;
-use crate::plugins::{InitializedPlugin, InitializedPluginPool};
+use crate::plugins::InitializedPlugin;
+use crate::plugins::InitializedPluginPool;
 
-use super::{FormattingFilePathInfo, LocalPluginWork, LocalWork, LocalWorkStealInfo};
+use super::FormattingFilePathInfo;
+use super::LocalPluginWork;
+use super::LocalWork;
+use super::LocalWorkStealInfo;
 
 pub struct StealResult<TEnvironment: Environment> {
   pub plugin: Option<Box<dyn InitializedPlugin>>,

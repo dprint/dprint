@@ -5,7 +5,11 @@ use std::sync::Arc;
 use crate::environment::Environment;
 use crate::plugins::PluginPools;
 
-use super::{LocalPluginWork, LocalWorkStealInfo, LocalWorkStealKind, StealResult, Worker};
+use super::LocalPluginWork;
+use super::LocalWorkStealInfo;
+use super::LocalWorkStealKind;
+use super::StealResult;
+use super::Worker;
 
 pub struct WorkerRegistry<TEnvironment: Environment> {
   plugin_pools: Arc<PluginPools<TEnvironment>>,

@@ -1,4 +1,7 @@
-use super::{collections::GraphNode, print_items::WriterInfo, StringContainer, WriteItem};
+use super::collections::GraphNode;
+use super::print_items::WriterInfo;
+use super::StringContainer;
+use super::WriteItem;
 use bumpalo::Bump;
 
 pub struct WriterState<'a> {
@@ -297,7 +300,10 @@ fn get_line_start_column_number(writer_state: &WriterState, indent_width: u8) ->
 
 #[cfg(test)]
 mod test {
-  use super::super::{utils::with_bump_allocator_mut, Indentation, StringContainer, WriteItemsPrinter};
+  use super::super::utils::with_bump_allocator_mut;
+  use super::super::Indentation;
+  use super::super::StringContainer;
+  use super::super::WriteItemsPrinter;
   use super::*;
 
   // todo: some basic unit tests just to make sure I'm not way off

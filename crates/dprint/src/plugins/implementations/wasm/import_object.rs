@@ -3,7 +3,13 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use wasmer::{Function, HostEnvInitError, Instance, LazyInit, Memory, Store, WasmerEnv};
+use wasmer::Function;
+use wasmer::HostEnvInitError;
+use wasmer::Instance;
+use wasmer::LazyInit;
+use wasmer::Memory;
+use wasmer::Store;
+use wasmer::WasmerEnv;
 
 use super::super::format_with_plugin_pool;
 use crate::environment::Environment;

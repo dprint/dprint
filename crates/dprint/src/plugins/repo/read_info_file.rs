@@ -1,5 +1,8 @@
 use dprint_core::types::ErrBox;
-use jsonc_parser::{parse_to_value, JsonArray, JsonObject, JsonValue};
+use jsonc_parser::parse_to_value;
+use jsonc_parser::JsonArray;
+use jsonc_parser::JsonObject;
+use jsonc_parser::JsonValue;
 
 use crate::environment::Environment;
 
@@ -132,7 +135,9 @@ fn get_array<'a>(value: &mut JsonObject<'a>, name: &str) -> Result<JsonArray<'a>
 #[cfg(test)]
 mod test {
   use super::*;
-  use crate::environment::{TestEnvironment, TestEnvironmentBuilder, TestInfoFilePlugin};
+  use crate::environment::TestEnvironment;
+  use crate::environment::TestEnvironmentBuilder;
+  use crate::environment::TestInfoFilePlugin;
   use pretty_assertions::assert_eq;
 
   #[test]

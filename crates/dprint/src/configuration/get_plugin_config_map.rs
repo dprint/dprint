@@ -2,7 +2,8 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::types::ErrBox;
 use std::collections::HashMap;
 
-use super::{ConfigMap, ConfigMapValue};
+use super::ConfigMap;
+use super::ConfigMapValue;
 use crate::plugins::Plugin;
 
 pub fn get_plugin_config_map(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<ConfigKeyMap, ErrBox> {
@@ -28,11 +29,13 @@ fn get_plugin_config_map_inner(plugin: &Box<dyn Plugin>, config_map: &mut Config
 
 #[cfg(test)]
 mod tests {
-  use crate::plugins::{Plugin, TestPlugin};
+  use crate::plugins::Plugin;
+  use crate::plugins::TestPlugin;
   use dprint_core::configuration::ConfigKeyValue;
   use std::collections::HashMap;
 
-  use super::super::{ConfigMap, ConfigMapValue};
+  use super::super::ConfigMap;
+  use super::super::ConfigMapValue;
   use super::*;
 
   #[test]

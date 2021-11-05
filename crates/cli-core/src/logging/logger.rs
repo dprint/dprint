@@ -1,6 +1,13 @@
-use crossterm::{cursor, style, terminal, QueueableCommand};
+use crossterm::cursor;
+use crossterm::style;
+use crossterm::terminal;
+use crossterm::QueueableCommand;
 use parking_lot::Mutex;
-use std::io::{stderr, stdout, Stderr, Stdout, Write};
+use std::io::stderr;
+use std::io::stdout;
+use std::io::Stderr;
+use std::io::Stdout;
+use std::io::Write;
 use std::sync::Arc;
 
 pub enum LoggerTextItem {

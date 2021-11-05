@@ -1,4 +1,4 @@
-use serde_json::{self, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 use dprint_core::types::ErrBox;

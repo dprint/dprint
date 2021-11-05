@@ -1,5 +1,6 @@
 use dprint_core::types::ErrBox;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::hash_map::Values;
 use std::collections::HashMap;
 use std::path::PathBuf;

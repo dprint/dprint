@@ -1,6 +1,8 @@
-use super::{MessagePart, StdIoReaderWriter};
+use super::MessagePart;
+use super::StdIoReaderWriter;
 use crate::types::ErrBox;
-use std::io::{Read, Write};
+use std::io::Read;
+use std::io::Write;
 use std::path::PathBuf;
 
 pub struct ReadMessageParts {

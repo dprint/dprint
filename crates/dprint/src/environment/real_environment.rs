@@ -1,11 +1,20 @@
 use dprint_cli_core::download_url;
-use dprint_cli_core::logging::{log_action_with_progress, show_confirm, show_multi_select, show_select, Logger, ProgressBars};
+use dprint_cli_core::logging::log_action_with_progress;
+use dprint_cli_core::logging::show_confirm;
+use dprint_cli_core::logging::show_multi_select;
+use dprint_cli_core::logging::show_select;
+use dprint_cli_core::logging::Logger;
+use dprint_cli_core::logging::ProgressBars;
 use dprint_core::types::ErrBox;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::SystemTime;
 
-use super::{CanonicalizedPathBuf, DirEntry, DirEntryKind, Environment};
+use super::CanonicalizedPathBuf;
+use super::DirEntry;
+use super::DirEntryKind;
+use super::Environment;
 use crate::plugins::CompilationResult;
 
 #[derive(Clone)]
@@ -223,7 +232,8 @@ impl Environment for RealEnvironment {
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
     // from bvm (https://github.com/bvm/bvm)
-    use winreg::{enums::*, RegKey};
+    use winreg::enums::*;
+    use winreg::RegKey;
     log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -244,7 +254,8 @@ impl Environment for RealEnvironment {
   #[cfg(windows)]
   fn remove_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
     // from bvm (https://github.com/bvm/bvm)
-    use winreg::{enums::*, RegKey};
+    use winreg::enums::*;
+    use winreg::RegKey;
     log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);

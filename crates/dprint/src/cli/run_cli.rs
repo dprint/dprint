@@ -4,10 +4,12 @@ use std::sync::Arc;
 
 use crate::cache::Cache;
 use crate::environment::Environment;
-use crate::plugins::{PluginPools, PluginResolver};
+use crate::plugins::PluginPools;
+use crate::plugins::PluginResolver;
 
 use super::commands;
-use super::{CliArgs, SubCommand};
+use super::CliArgs;
+use super::SubCommand;
 
 pub fn run_cli<TEnvironment: Environment>(
   args: &CliArgs,

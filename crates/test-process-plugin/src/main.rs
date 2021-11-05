@@ -1,12 +1,22 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
-use dprint_core::configuration::{get_unknown_property_diagnostics, get_value, ConfigKeyMap, GlobalConfiguration, ResolveConfigurationResult};
-use dprint_core::plugins::process::{get_parent_process_id_from_cli_args, handle_process_stdio_messages, start_parent_process_checker_thread};
-use dprint_core::plugins::{PluginHandler, PluginInfo};
+use dprint_core::configuration::get_unknown_property_diagnostics;
+use dprint_core::configuration::get_value;
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::configuration::ResolveConfigurationResult;
+use dprint_core::err;
+use dprint_core::err_obj;
+use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
+use dprint_core::plugins::process::handle_process_stdio_messages;
+use dprint_core::plugins::process::start_parent_process_checker_thread;
+use dprint_core::plugins::PluginHandler;
+use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
-use dprint_core::{err, err_obj};
 
 fn main() -> Result<(), ErrBox> {
   if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {

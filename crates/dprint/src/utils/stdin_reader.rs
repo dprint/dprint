@@ -1,5 +1,6 @@
 use dprint_core::types::ErrBox;
-use std::io::{self, Read};
+use std::io::Read;
+use std::io::{self};
 
 #[cfg(test)]
 pub use tests::TestStdInReader;

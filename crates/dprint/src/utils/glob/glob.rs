@@ -1,11 +1,16 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use dprint_cli_core::types::ErrBox;
-use parking_lot::{Condvar, Mutex};
+use parking_lot::Condvar;
+use parking_lot::Mutex;
 
-use crate::environment::{DirEntry, DirEntryKind, Environment};
-use crate::utils::{GlobMatcher, GlobMatcherOptions};
+use crate::environment::DirEntry;
+use crate::environment::DirEntryKind;
+use crate::environment::Environment;
+use crate::utils::GlobMatcher;
+use crate::utils::GlobMatcherOptions;
 
 use super::GlobPatterns;
 

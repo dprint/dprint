@@ -2,10 +2,9 @@ use dprint_cli_core::checksums::parse_checksum_path_or_url;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
 
-use crate::{
-  environment::Environment,
-  utils::{resolve_url_or_file_path_to_path_source, PathSource},
-};
+use crate::environment::Environment;
+use crate::utils::resolve_url_or_file_path_to_path_source;
+use crate::utils::PathSource;
 
 #[derive(Clone)]
 pub struct CompilationResult {

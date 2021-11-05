@@ -5,7 +5,10 @@ use dprint_core::types::ErrBox;
 
 use super::implementations::create_plugin;
 use crate::environment::Environment;
-use crate::plugins::{Plugin, PluginCache, PluginPools, PluginSourceReference};
+use crate::plugins::Plugin;
+use crate::plugins::PluginCache;
+use crate::plugins::PluginPools;
+use crate::plugins::PluginSourceReference;
 
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,

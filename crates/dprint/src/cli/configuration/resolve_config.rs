@@ -6,11 +6,16 @@ use std::path::Path;
 
 use crate::cache::Cache;
 use crate::cli::CliArgs;
-use crate::configuration::{deserialize_config, ConfigMap, ConfigMapValue};
+use crate::configuration::deserialize_config;
+use crate::configuration::ConfigMap;
+use crate::configuration::ConfigMapValue;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::plugins::{parse_plugin_source_reference, PluginSourceReference};
-use crate::utils::{resolve_url_or_file_path, PathSource, ResolvedPath};
+use crate::plugins::parse_plugin_source_reference;
+use crate::plugins::PluginSourceReference;
+use crate::utils::resolve_url_or_file_path;
+use crate::utils::PathSource;
+use crate::utils::ResolvedPath;
 
 use super::resolve_main_config_path::resolve_main_config_path;
 
@@ -323,7 +328,8 @@ mod tests {
 
   use crate::cache::Cache;
   use crate::cli::parse_args;
-  use crate::environment::{Environment, TestEnvironment};
+  use crate::environment::Environment;
+  use crate::environment::TestEnvironment;
   use crate::utils::TestStdInReader;
   use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;

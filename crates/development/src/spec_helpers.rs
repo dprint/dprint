@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs::{self};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use super::*;
 use console::Style;
-use similar::{ChangeTag, TextDiff};
+use similar::ChangeTag;
+use similar::TextDiff;
 
 pub type ErrBox = Box<dyn std::error::Error + Send + Sync>;
 

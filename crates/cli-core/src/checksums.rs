@@ -1,7 +1,8 @@
 use crate::types::ErrBox;
 
 pub fn get_sha256_checksum(bytes: &[u8]) -> String {
-  use sha2::{Digest, Sha256};
+  use sha2::Digest;
+  use sha2::Sha256;
   let mut hasher = Sha256::new();
   hasher.update(bytes);
   format!("{:x}", hasher.finalize())

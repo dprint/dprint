@@ -1,8 +1,21 @@
-use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Child;
+use std::process::ChildStdin;
+use std::process::ChildStdout;
+use std::process::Command;
+use std::process::Stdio;
 
-use super::{FormatResult, HostFormatResult, MessageKind, ResponseKind, StdIoMessenger, StdIoReaderWriter, PLUGIN_SCHEMA_VERSION};
-use crate::configuration::{ConfigKeyMap, ConfigurationDiagnostic, GlobalConfiguration};
+use super::FormatResult;
+use super::HostFormatResult;
+use super::MessageKind;
+use super::ResponseKind;
+use super::StdIoMessenger;
+use super::StdIoReaderWriter;
+use super::PLUGIN_SCHEMA_VERSION;
+use crate::configuration::ConfigKeyMap;
+use crate::configuration::ConfigurationDiagnostic;
+use crate::configuration::GlobalConfiguration;
 use crate::plugins::PluginInfo;
 use crate::types::ErrBox;
 
@@ -49,7 +62,8 @@ impl ProcessPluginCommunicator {
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
     std::thread::spawn(move || {
-      use std::io::{BufRead, ErrorKind};
+      use std::io::BufRead;
+      use std::io::ErrorKind;
       let reader = std::io::BufReader::new(stderr);
       for line in reader.lines() {
         match line {

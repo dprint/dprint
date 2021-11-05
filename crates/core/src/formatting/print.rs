@@ -1,7 +1,8 @@
 use bumpalo::Bump;
 use std::cell::RefCell;
 
-use super::utils::{with_bump_allocator, with_bump_allocator_mut};
+use super::utils::with_bump_allocator;
+use super::utils::with_bump_allocator_mut;
 use super::*;
 
 /// Options for printing the print items.

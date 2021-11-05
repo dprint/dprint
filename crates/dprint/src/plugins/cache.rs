@@ -5,11 +5,17 @@ use dprint_cli_core::checksums::verify_sha256_checksum;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::types::ErrBox;
 
-use super::implementations::{cleanup_plugin, get_file_path_from_plugin_info, setup_plugin};
-use super::{read_manifest, write_manifest, PluginCacheManifest, PluginCacheManifestItem};
+use super::implementations::cleanup_plugin;
+use super::implementations::get_file_path_from_plugin_info;
+use super::implementations::setup_plugin;
+use super::read_manifest;
+use super::write_manifest;
+use super::PluginCacheManifest;
+use super::PluginCacheManifestItem;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
-use crate::utils::{get_bytes_hash, PathSource};
+use crate::utils::get_bytes_hash;
+use crate::utils::PathSource;
 
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
@@ -136,7 +142,8 @@ fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environmen
 mod test {
   use super::*;
   use crate::environment::TestEnvironment;
-  use crate::plugins::{CompilationResult, PluginSourceReference};
+  use crate::plugins::CompilationResult;
+  use crate::plugins::PluginSourceReference;
   use dprint_core::plugins::PluginInfo;
   use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;
