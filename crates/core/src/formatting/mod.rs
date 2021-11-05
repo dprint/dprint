@@ -5,7 +5,6 @@ pub mod parser_helpers;
 mod collections;
 mod print;
 mod print_items;
-mod print_write_items;
 mod printer;
 #[cfg(feature = "tracing")]
 mod tracing;
@@ -19,8 +18,7 @@ pub use print::{format, print, PrintOptions};
 #[cfg(feature = "tracing")]
 pub use print::{trace_printing, TracingResult};
 pub use print_items::*;
-use print_write_items::*;
 use printer::*;
 #[cfg(feature = "tracing")]
 use tracing::*;
-pub use write_items::*;
+use write_items::*;

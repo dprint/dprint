@@ -1,9 +1,10 @@
 use bumpalo::Bump;
 
-use super::collections::{GraphNode, GraphNodeIterator};
-use super::print_items::WriterInfo;
-use super::StringContainer;
-use super::WriteItem;
+use super::{
+  collections::{GraphNode, GraphNodeIterator},
+  print_items::WriterInfo,
+  StringContainer, WriteItem,
+};
 
 pub struct WriterState<'a> {
   current_line_column: u32,
@@ -279,15 +280,9 @@ impl<'a> Writer<'a> {
   #[cfg(debug_assertions)]
   #[allow(dead_code)]
   pub fn to_string_for_debugging(&self) -> String {
+    use super::WriteItemsPrinter;
     let write_items = self.get_items_cloned();
-    super::print_write_items(
-      write_items.into_iter(),
-      super::WriteItemsPrinterOptions {
-        use_tabs: false,
-        new_line_text: "\n",
-        indent_width: self.indent_width,
-      },
-    )
+    WriteItemsPrinter::new(self.indent_width, false, "\n").print(write_items.into_iter())
   }
 
   #[cfg(debug_assertions)]
@@ -310,7 +305,7 @@ fn get_line_start_column_number(writer_state: &WriterState, indent_width: u8) ->
 
 #[cfg(test)]
 mod test {
-  use super::super::{print_write_items, utils::with_bump_allocator_mut, StringContainer, WriteItemsPrinterOptions};
+  use super::super::{utils::with_bump_allocator_mut, Indentation, StringContainer, WriteItemsPrinter};
   use super::*;
 
   // todo: some basic unit tests just to make sure I'm not way off
@@ -377,15 +372,11 @@ mod test {
   }
 
   fn assert_writer_equal(writer: Writer, text: &str) {
-    let result = print_write_items(
-      writer.get_items(),
-      WriteItemsPrinterOptions {
-        indent_width: 2,
-        use_tabs: false,
-        new_line_text: "\n",
-      },
-    );
-    assert_eq!(result, String::from(text));
+    let p = WriteItemsPrinter {
+      indent: Indentation::Spaces(2),
+      newline: "\n",
+    };
+    assert_eq!(p.print(writer.get_items()), String::from(text));
   }
 
   fn write_text(writer: &mut Writer, text: &'static str, bump: &Bump) {
