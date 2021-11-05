@@ -1,10 +1,5 @@
+use super::{collections::GraphNode, print_items::WriterInfo, StringContainer, WriteItem};
 use bumpalo::Bump;
-
-use super::{
-  collections::{GraphNode, GraphNodeIterator},
-  print_items::WriterInfo,
-  StringContainer, WriteItem,
-};
 
 pub struct WriterState<'a> {
   current_line_column: u32,
@@ -256,15 +251,12 @@ impl<'a> Writer<'a> {
 
   fn pop_item(&mut self) {
     if let Some(previous) = &self.state.items {
-      self.state.items = previous.borrow_previous().clone();
+      self.state.items = previous.previous.clone();
     }
   }
 
-  pub fn get_items(self) -> impl Iterator<Item = WriteItem<'a>> {
-    match self.state.items {
-      Some(items) => items.into_iter().copied().collect::<Vec<_>>().into_iter().rev(),
-      None => GraphNodeIterator::empty().copied().collect::<Vec<_>>().into_iter().rev(),
-    }
+  pub fn items(self) -> Option<impl Iterator<Item = WriteItem<'a>>> {
+    self.state.items.map(|items| items.iter().rev())
   }
 
   #[cfg(feature = "tracing")]
@@ -291,8 +283,8 @@ impl<'a> Writer<'a> {
     let mut current_item = self.state.items;
     while let Some(item) = current_item {
       // insert at the start since items are stored last to first
-      items.insert(0, item.borrow_item().clone());
-      current_item = item.borrow_previous().clone();
+      items.insert(0, item.item.clone());
+      current_item = item.previous.clone();
     }
     items
   }
@@ -376,7 +368,7 @@ mod test {
       indent: Indentation::Spaces(2),
       newline: "\n",
     };
-    assert_eq!(p.print(writer.get_items()), String::from(text));
+    assert_eq!(p.print(writer.items().unwrap()), String::from(text));
   }
 
   fn write_text(writer: &mut Writer, text: &'static str, bump: &Bump) {

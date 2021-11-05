@@ -308,7 +308,7 @@ pub struct PrintNode {
 
 #[cfg(feature = "tracing")]
 thread_local! {
-    static PRINT_NODE_COUNTER: CounterCell = CounterCell::new();
+  static PRINT_NODE_COUNTER: CounterCell = CounterCell::new();
 }
 
 impl PrintNode {
@@ -317,7 +317,7 @@ impl PrintNode {
       item,
       next: None,
       #[cfg(feature = "tracing")]
-      print_node_id: PRINT_NODE_COUNTER.with(|counter| counter.increment()),
+      print_node_id: PRINT_NODE_COUNTER.with(CounterCell::increment_and_get),
     }
   }
 
@@ -471,13 +471,13 @@ pub struct Info {
 }
 
 thread_local! {
-    static INFO_COUNTER: CounterCell = CounterCell::new();
+  static INFO_COUNTER: CounterCell = CounterCell::new();
 }
 
 impl Info {
   pub fn new(_name: &'static str) -> Info {
     Info {
-      id: INFO_COUNTER.with(|counter| counter.increment()),
+      id: INFO_COUNTER.with(CounterCell::increment_and_get),
       #[cfg(debug_assertions)]
       name: _name,
     }
@@ -523,7 +523,7 @@ pub struct Condition {
 }
 
 thread_local! {
-    static CONDITION_COUNTER: CounterCell = CounterCell::new();
+  static CONDITION_COUNTER: CounterCell = CounterCell::new();
 }
 
 impl Condition {
@@ -561,7 +561,7 @@ impl Condition {
 
   fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
     Condition {
-      id: CONDITION_COUNTER.with(|counter| counter.increment()),
+      id: CONDITION_COUNTER.with(CounterCell::increment_and_get),
       is_stored: dependent_infos.is_some(),
       #[cfg(debug_assertions)]
       name: _name,
