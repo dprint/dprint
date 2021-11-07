@@ -33,7 +33,7 @@ fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment
   let mut diagnostic_count = 0;
   if !global_config_result.diagnostics.is_empty() {
     for diagnostic in &global_config_result.diagnostics {
-      environment.log_stderr(&diagnostic.message);
+      environment.log_stderr(&format!("{}", diagnostic));
       diagnostic_count += 1;
     }
   }
@@ -126,8 +126,8 @@ mod tests {
     assert_errors(
       config_map,
       vec![
-        "Error parsing configuration value for 'lineWidth'. Message: invalid digit found in string",
-        "Unknown property in configuration: unknownProperty",
+        "invalid digit found in string (lineWidth)",
+        "Unknown property in configuration. (unknownProperty)",
       ],
       "Had 2 config diagnostic(s).",
     );

@@ -69,6 +69,12 @@ pub struct ConfigurationDiagnostic {
   pub message: String,
 }
 
+impl std::fmt::Display for ConfigurationDiagnostic {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{} ({})", self.message, self.property_name)
+  }
+}
+
 pub type ConfigKeyMap = HashMap<String, ConfigKeyValue>;
 
 /// Creates a ConfigKeyMap from a series of string key value pairs.
@@ -234,8 +240,8 @@ where
       Ok(parsed_value) => Some(parsed_value),
       Err(message) => {
         diagnostics.push(ConfigurationDiagnostic {
-          property_name: String::from(key),
-          message: format!("Error parsing configuration value for '{}'. Message: {}", key, message),
+          property_name: key.to_string(),
+          message: message.to_string(),
         });
         None
       }
@@ -253,8 +259,8 @@ pub fn handle_renamed_config_property(config: &mut ConfigKeyMap, old_key: &'stat
       config.insert(new_key.to_string(), raw_value);
     }
     diagnostics.push(ConfigurationDiagnostic {
-      property_name: String::from(old_key),
-      message: format!("The configuration key '{}' was renamed to '{}'.", old_key, new_key),
+      property_name: old_key.to_string(),
+      message: format!("The configuration key was renamed to '{}'.", new_key),
     });
   }
 }
@@ -299,8 +305,8 @@ pub fn get_unknown_property_diagnostics(config: ConfigKeyMap) -> Vec<Configurati
   let mut diagnostics = Vec::new();
   for (key, _) in config.iter() {
     diagnostics.push(ConfigurationDiagnostic {
-      property_name: String::from(key),
-      message: format!("Unknown property in configuration: {}", key),
+      property_name: key.to_string(),
+      message: "Unknown property in configuration.".to_string(),
     });
   }
   diagnostics
@@ -344,10 +350,7 @@ mod test {
     global_config.insert(String::from("newLineKind"), ConfigKeyValue::from_str("something"));
     let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(
-      diagnostics[0].message,
-      "Error parsing configuration value for 'newLineKind'. Message: Found invalid value 'something'."
-    );
+    assert_eq!(diagnostics[0].message, "Found invalid value 'something'.");
     assert_eq!(diagnostics[0].property_name, "newLineKind");
   }
 
@@ -357,10 +360,7 @@ mod test {
     global_config.insert(String::from("useTabs"), ConfigKeyValue::from_str("something"));
     let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(
-      diagnostics[0].message,
-      "Error parsing configuration value for 'useTabs'. Message: provided string was not `true` or `false`"
-    );
+    assert_eq!(diagnostics[0].message, "provided string was not `true` or `false`");
     assert_eq!(diagnostics[0].property_name, "useTabs");
   }
 
@@ -370,7 +370,7 @@ mod test {
     global_config.insert(String::from("something"), ConfigKeyValue::from_str("value"));
     let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].message, "Unknown property in configuration: something");
+    assert_eq!(diagnostics[0].message, "Unknown property in configuration.");
     assert_eq!(diagnostics[0].property_name, "something");
   }
 
@@ -397,7 +397,8 @@ mod test {
     assert_eq!(config.len(), 1);
     assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].message, "The configuration key 'oldProp' was renamed to 'newProp'.");
+    assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'.");
+    assert_eq!(diagnostics[0].property_name, "oldProp");
   }
 
   #[test]
@@ -410,6 +411,7 @@ mod test {
     assert_eq!(config.len(), 1);
     assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].message, "The configuration key 'oldProp' was renamed to 'newProp'.");
+    assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'.");
+    assert_eq!(diagnostics[0].property_name, "oldProp");
   }
 }

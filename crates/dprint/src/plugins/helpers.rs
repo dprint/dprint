@@ -12,7 +12,7 @@ pub fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   let mut diagnostic_count = 0;
 
   for diagnostic in plugin.get_config_diagnostics()? {
-    error_logger.log_error(&format!("[{}]: {}", plugin_name, diagnostic.message));
+    error_logger.log_error(&format!("[{}]: {}", plugin_name, diagnostic));
     diagnostic_count += 1;
   }
 

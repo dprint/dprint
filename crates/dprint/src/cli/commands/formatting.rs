@@ -602,7 +602,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "[test-plugin]: Unknown property in configuration: non-existent",
+        "[test-plugin]: Unknown property in configuration. (non-existent)",
         "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
@@ -634,7 +634,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "[test-process-plugin]: Unknown property in configuration: non-existent",
+        "[test-process-plugin]: Unknown property in configuration. (non-existent)",
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
@@ -747,7 +747,10 @@ mod test {
       error_message.to_string(),
       "Error resolving global config from configuration file. Had 1 config diagnostic(s)."
     );
-    assert_eq!(environment.take_stderr_messages(), vec!["Unknown property in configuration: excess-primitive"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Unknown property in configuration. (excess-primitive)"]
+    );
     assert_eq!(environment.take_stdout_messages().len(), 0);
   }
 
@@ -1598,7 +1601,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "[test-plugin]: Unknown property in configuration: non-existent",
+        "[test-plugin]: Unknown property in configuration. (non-existent)",
         "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
