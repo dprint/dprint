@@ -191,23 +191,24 @@ mod tests {
 
   #[test]
   fn should_deserialize_cli_specific_plugin_config() {
-    let mut expected_props = HashMap::new();
-    expected_props.insert(
-      "typescript".to_string(),
-      ConfigMapValue::PluginConfig(RawPluginConfig {
-        locked: true,
-        associations: Some(vec!["test".to_string()]),
-        properties: HashMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
-      }),
-    );
-    expected_props.insert(
-      "other".to_string(),
-      ConfigMapValue::PluginConfig(RawPluginConfig {
-        locked: false,
-        associations: Some(vec!["other".to_string(), "test".to_string()]),
-        properties: HashMap::new(),
-      }),
-    );
+    let expected_props = HashMap::from([
+      (
+        "typescript".to_string(),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: true,
+          associations: Some(vec!["test".to_string()]),
+          properties: HashMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
+        }),
+      ),
+      (
+        "other".to_string(),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: Some(vec!["other".to_string(), "test".to_string()]),
+          properties: HashMap::new(),
+        }),
+      ),
+    ]);
     assert_deserializes(
       "{'typescript': { 'lineWidth': 40, locked: true, associations: 'test' }, 'other': { 'locked': false, 'associations': ['other', 'test'] }}",
       expected_props,

@@ -330,11 +330,12 @@ mod test {
 
   #[test]
   fn get_values_when_filled() {
-    let mut global_config = HashMap::new();
-    global_config.insert(String::from("lineWidth"), ConfigKeyValue::from_i32(80));
-    global_config.insert(String::from("indentWidth"), ConfigKeyValue::from_i32(8));
-    global_config.insert(String::from("newLineKind"), ConfigKeyValue::from_str("crlf"));
-    global_config.insert(String::from("useTabs"), ConfigKeyValue::from_bool(true));
+    let global_config = HashMap::from([
+      (String::from("lineWidth"), ConfigKeyValue::from_i32(80)),
+      (String::from("indentWidth"), ConfigKeyValue::from_i32(8)),
+      (String::from("newLineKind"), ConfigKeyValue::from_str("crlf")),
+      (String::from("useTabs"), ConfigKeyValue::from_bool(true)),
+    ]);
     let config_result = resolve_global_config(global_config, &Default::default());
     let config = config_result.config;
     assert_eq!(config_result.diagnostics.len(), 0);
@@ -346,8 +347,7 @@ mod test {
 
   #[test]
   fn get_diagnostic_for_invalid_enum_config() {
-    let mut global_config = HashMap::new();
-    global_config.insert(String::from("newLineKind"), ConfigKeyValue::from_str("something"));
+    let global_config = HashMap::from([(String::from("newLineKind"), ConfigKeyValue::from_str("something"))]);
     let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "Found invalid value 'something'.");
@@ -356,8 +356,7 @@ mod test {
 
   #[test]
   fn get_diagnostic_for_invalid_primitive() {
-    let mut global_config = HashMap::new();
-    global_config.insert(String::from("useTabs"), ConfigKeyValue::from_str("something"));
+    let global_config = HashMap::from([(String::from("useTabs"), ConfigKeyValue::from_str("something"))]);
     let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "provided string was not `true` or `false`");
@@ -366,8 +365,7 @@ mod test {
 
   #[test]
   fn get_diagnostic_for_excess_property() {
-    let mut global_config = HashMap::new();
-    global_config.insert(String::from("something"), ConfigKeyValue::from_str("value"));
+    let global_config = HashMap::from([(String::from("something"), ConfigKeyValue::from_str("value"))]);
     let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "Unknown property in configuration.");
@@ -376,8 +374,7 @@ mod test {
 
   #[test]
   fn no_diagnostic_for_excess_property_when_check_false() {
-    let mut global_config = HashMap::new();
-    global_config.insert(String::from("something"), ConfigKeyValue::from_str("value"));
+    let global_config = HashMap::from([(String::from("something"), ConfigKeyValue::from_str("value"))]);
     let diagnostics = resolve_global_config(
       global_config,
       &ResolveGlobalConfigOptions {

@@ -6,7 +6,7 @@ mod resolve_config;
 mod resolve_main_config_path;
 mod types;
 
-pub use deserialize_config::*;
+use deserialize_config::*;
 pub use get_global_config::*;
 pub use get_init_config_file_text::*;
 pub use get_plugin_config_map::*;
