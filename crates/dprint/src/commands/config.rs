@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use dprint_cli_core::types::ErrBox;
 
+use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
-use crate::cli::configuration::*;
-use crate::cli::plugins::resolve_plugins;
-use crate::cli::CliArgs;
 use crate::configuration::get_init_config_file_text;
+use crate::configuration::*;
 use crate::environment::Environment;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::read_info_file;
+use crate::plugins::resolve_plugins;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::utils::pretty_print_json_text;

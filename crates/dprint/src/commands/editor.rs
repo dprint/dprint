@@ -7,17 +7,17 @@ use dprint_core::plugins::process::start_parent_process_checker_thread;
 use dprint_core::plugins::process::StdIoMessenger;
 use dprint_core::plugins::process::StdIoReaderWriter;
 
+use crate::arg_parser::CliArgs;
+use crate::arg_parser::EditorServiceSubCommand;
 use crate::cache::Cache;
-use crate::cli::configuration::resolve_config_from_args;
-use crate::cli::configuration::ResolvedConfig;
-use crate::cli::format::format_with_plugin_pools;
-use crate::cli::patterns::get_plugin_association_glob_matchers;
-use crate::cli::patterns::FileMatcher;
-use crate::cli::plugins::get_plugins_from_args;
-use crate::cli::plugins::resolve_plugins;
-use crate::cli::CliArgs;
-use crate::cli::EditorServiceSubCommand;
+use crate::configuration::resolve_config_from_args;
+use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
+use crate::format::format_with_plugin_pools;
+use crate::patterns::get_plugin_association_glob_matchers;
+use crate::patterns::FileMatcher;
+use crate::plugins::get_plugins_from_args;
+use crate::plugins::resolve_plugins;
 use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
 

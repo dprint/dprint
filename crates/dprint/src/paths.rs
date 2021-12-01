@@ -3,17 +3,16 @@ use std::path::PathBuf;
 
 use dprint_cli_core::types::ErrBox;
 
+use crate::arg_parser::CliArgs;
+use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::patterns::get_all_file_patterns;
+use crate::patterns::get_plugin_association_glob_matcher;
 use crate::plugins::Plugin;
 use crate::utils::glob;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
-
-use super::configuration::ResolvedConfig;
-use super::patterns::get_all_file_patterns;
-use super::patterns::get_plugin_association_glob_matcher;
-use super::CliArgs;
 
 pub fn get_file_paths_by_plugin_and_err_if_empty(
   plugins: &Vec<Box<dyn Plugin>>,

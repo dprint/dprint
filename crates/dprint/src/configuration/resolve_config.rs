@@ -4,8 +4,8 @@ use dprint_core::types::ErrBox;
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
-use crate::cli::CliArgs;
 use crate::configuration::deserialize_config;
 use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
@@ -322,10 +322,10 @@ mod tests {
   use std::path::PathBuf;
 
   use crate::cache::Cache;
-  use crate::cli::parse_args;
   use crate::configuration::RawPluginConfig;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
+  use crate::parse_args;
   use crate::utils::TestStdInReader;
   use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;

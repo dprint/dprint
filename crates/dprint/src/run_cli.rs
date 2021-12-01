@@ -1,4 +1,3 @@
-use crate::cli::ConfigSubCommand;
 use dprint_core::types::ErrBox;
 use std::sync::Arc;
 
@@ -7,9 +6,10 @@ use crate::environment::Environment;
 use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
 
-use super::commands;
-use super::CliArgs;
-use super::SubCommand;
+use crate::arg_parser::CliArgs;
+use crate::arg_parser::ConfigSubCommand;
+use crate::arg_parser::SubCommand;
+use crate::commands;
 
 pub fn run_cli<TEnvironment: Environment>(
   args: &CliArgs,
@@ -37,8 +37,8 @@ pub fn run_cli<TEnvironment: Environment>(
     SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, cache, plugin_resolver, plugin_pools),
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {
-      super::HiddenSubCommand::WindowsInstall(install_path) => commands::handle_windows_install(environment, &install_path),
-      super::HiddenSubCommand::WindowsUninstall(install_path) => commands::handle_windows_uninstall(environment, &install_path),
+      crate::arg_parser::HiddenSubCommand::WindowsInstall(install_path) => commands::handle_windows_install(environment, &install_path),
+      crate::arg_parser::HiddenSubCommand::WindowsUninstall(install_path) => commands::handle_windows_uninstall(environment, &install_path),
     },
   }
 }

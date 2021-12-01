@@ -1,13 +1,13 @@
 use dprint_cli_core::types::ErrBox;
 
+use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
-use crate::cli::configuration::resolve_config_from_args;
-use crate::cli::paths::get_and_resolve_file_paths;
-use crate::cli::paths::get_file_paths_by_plugin;
-use crate::cli::plugins::get_plugins_from_args;
-use crate::cli::plugins::resolve_plugins_and_err_if_empty;
-use crate::cli::CliArgs;
+use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
+use crate::paths::get_and_resolve_file_paths;
+use crate::paths::get_file_paths_by_plugin;
+use crate::plugins::get_plugins_from_args;
+use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
 use crate::utils::get_table_text;
 
@@ -57,7 +57,7 @@ pub fn output_license<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<(), ErrBox> {
   environment.log("==== DPRINT CLI LICENSE ====");
-  environment.log(std::str::from_utf8(include_bytes!("../../../LICENSE"))?);
+  environment.log(std::str::from_utf8(include_bytes!("../../LICENSE"))?);
 
   // now check for the plugins
   for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver)? {

@@ -2,9 +2,9 @@ use dprint_core::types::ErrBox;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::arg_parser::CliArgs;
+use crate::arg_parser::SubCommand;
 use crate::cache::Cache;
-use crate::cli::CliArgs;
-use crate::cli::SubCommand;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::resolve_url_or_file_path;

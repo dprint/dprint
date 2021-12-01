@@ -2,6 +2,8 @@ use std::path::Path;
 
 use dprint_cli_core::types::ErrBox;
 
+use crate::arg_parser::CliArgs;
+use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
@@ -11,9 +13,6 @@ use crate::utils::GlobMatcher;
 use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
-
-use super::configuration::ResolvedConfig;
-use super::CliArgs;
 
 pub struct FileMatcher {
   glob_matcher: GlobMatcher,
