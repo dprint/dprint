@@ -104,7 +104,7 @@ mod test {
   use crate::test_helpers::run_test_cli;
 
   #[test]
-  fn it_should_output_version_with_v() {
+  fn should_output_version_with_v() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["-v"], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
@@ -112,7 +112,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_version_with_no_plugins() {
+  fn should_output_version_with_no_plugins() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["--version"], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
@@ -120,7 +120,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_version_and_ignore_plugins() {
+  fn should_output_version_and_ignore_plugins() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["--version"], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
@@ -128,7 +128,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_help_with_no_plugins() {
+  fn should_output_help_with_no_plugins() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["--help"], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
@@ -136,7 +136,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_help_no_sub_commands() {
+  fn should_output_help_no_sub_commands() {
     let environment = TestEnvironment::new();
     run_test_cli(vec![], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
@@ -144,7 +144,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_help_with_plugins() {
+  fn should_output_help_with_plugins() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
 
     run_test_cli(vec!["--help"], &environment).unwrap();
@@ -159,7 +159,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_resolved_file_paths() {
+  fn should_output_resolved_file_paths() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.txt", "const t=4;")
       .write_file("/file2.txt", "const t=4;")
@@ -172,7 +172,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_output_file_paths_not_supported_by_plugins() {
+  fn should_not_output_file_paths_not_supported_by_plugins() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.ts", "const t=4;")
       .write_file("/file2.ts", "const t=4;")
@@ -182,7 +182,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_resolved_file_paths_when_using_backslashes() {
+  fn should_output_resolved_file_paths_when_using_backslashes() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.txt", "const t=4;")
       .write_file("/file2.txt", "const t=4;")
@@ -195,7 +195,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_filter_by_cwd_in_sub_dir() {
+  fn should_filter_by_cwd_in_sub_dir() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("**/*.txt");
@@ -213,31 +213,31 @@ mod test {
   }
 
   #[test]
-  fn it_should_clear_cache_directory() {
+  fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.is_dir_deleted("/cache"), true);
   }
   #[test]
-  fn it_should_output_license_for_sub_command_with_no_plugins() {
+  fn should_output_license_for_sub_command_with_no_plugins() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["license"], &environment).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["==== DPRINT CLI LICENSE ====", std::str::from_utf8(include_bytes!("../../../LICENSE")).unwrap()]
+      vec!["==== DPRINT CLI LICENSE ====", std::str::from_utf8(include_bytes!("../../LICENSE")).unwrap()]
     );
   }
 
   #[test]
-  fn it_should_output_license_for_sub_command_with_plugins() {
+  fn should_output_license_for_sub_command_with_plugins() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["license"], &environment).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
         "==== DPRINT CLI LICENSE ====",
-        std::str::from_utf8(include_bytes!("../../../LICENSE")).unwrap(),
+        std::str::from_utf8(include_bytes!("../../LICENSE")).unwrap(),
         "\n==== TEST-PLUGIN LICENSE ====",
         r#"The MIT License (MIT)
 

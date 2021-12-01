@@ -72,7 +72,7 @@ mod tests {
   use std::collections::HashMap;
 
   #[test]
-  fn it_should_get_global_config() {
+  fn should_get_global_config() {
     let mut config_map = HashMap::new();
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
     assert_gets(
@@ -87,7 +87,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_true() {
+  fn should_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_true() {
     let mut config_map = HashMap::new();
     config_map.insert(String::from("test"), ConfigMapValue::PluginConfig(Default::default()));
     assert_errors_with_options(
@@ -101,7 +101,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_not_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_false() {
+  fn should_not_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_false() {
     let mut config_map = HashMap::new();
     config_map.insert(String::from("test"), ConfigMapValue::PluginConfig(Default::default()));
     assert_gets_with_options(
@@ -119,7 +119,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_log_config_file_diagnostics() {
+  fn should_log_config_file_diagnostics() {
     let mut config_map = HashMap::new();
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_str("test"));
     config_map.insert(String::from("unknownProperty"), ConfigMapValue::from_i32(80));
@@ -134,7 +134,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_ignore_schema_property() {
+  fn should_ignore_schema_property() {
     let mut config_map = HashMap::new();
     config_map.insert(String::from("$schema"), ConfigMapValue::from_str("test"));
     assert_gets(

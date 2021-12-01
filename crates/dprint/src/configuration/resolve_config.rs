@@ -321,11 +321,11 @@ fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -
 mod tests {
   use std::path::PathBuf;
 
+  use crate::arg_parser::parse_args;
   use crate::cache::Cache;
   use crate::configuration::RawPluginConfig;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
-  use crate::parse_args;
   use crate::utils::TestStdInReader;
   use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;

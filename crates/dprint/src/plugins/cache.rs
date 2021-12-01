@@ -150,7 +150,7 @@ mod test {
   use std::path::PathBuf;
 
   #[test]
-  fn it_should_download_remote_file() -> Result<(), ErrBox> {
+  fn should_download_remote_file() -> Result<(), ErrBox> {
     let environment = TestEnvironment::new();
     environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
     environment.set_wasm_compile_result(create_compilation_result("t".as_bytes()));
@@ -187,7 +187,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_cache_local_file() -> Result<(), ErrBox> {
+  fn should_cache_local_file() -> Result<(), ErrBox> {
     let environment = TestEnvironment::new();
     let original_file_path = PathBuf::from("/test.wasm");
     let file_bytes = "t".as_bytes();

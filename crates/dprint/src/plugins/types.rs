@@ -90,7 +90,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn it_should_parse_plugin_without_checksum() {
+  fn should_parse_plugin_without_checksum() {
     let environment = TestEnvironment::new();
     let result = parse_plugin_source_reference(
       "http://dprint.dev/wasm_plugin.wasm",
@@ -108,7 +108,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_parse_plugin_with_checksum() {
+  fn should_parse_plugin_with_checksum() {
     let environment = TestEnvironment::new();
     let result = parse_plugin_source_reference(
       "http://dprint.dev/wasm_plugin.wasm@checksum",
@@ -126,7 +126,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_not_error_multiple_at_symbols() {
+  fn should_not_error_multiple_at_symbols() {
     let environment = TestEnvironment::new();
     let plugin_text = "http://dprint.dev/wasm_plugin.wasm@other@checksum";
     let result = parse_plugin_source_reference(&plugin_text, &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")), &environment).unwrap();
@@ -140,7 +140,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_parse_non_wasm_plugin_with_checksum() {
+  fn should_parse_non_wasm_plugin_with_checksum() {
     let environment = TestEnvironment::new();
     let result = parse_plugin_source_reference(
       "http://dprint.dev/plugin.exe-plugin@checksum",
@@ -158,7 +158,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_error_for_non_wasm_plugin_no_checksum() {
+  fn should_error_for_non_wasm_plugin_no_checksum() {
     let environment = TestEnvironment::new();
     let err = parse_plugin_source_reference(
       "http://dprint.dev/plugin.exe-plugin",

@@ -44,19 +44,6 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
   }
 }
 
-pub fn get_plugin_association_glob_matchers(
-  plugins: &[Box<dyn Plugin>],
-  config_base_path: &CanonicalizedPathBuf,
-) -> Result<Vec<(String, GlobMatcher)>, ErrBox> {
-  let mut matchers = Vec::new();
-  for plugin in plugins.iter() {
-    if let Some(matcher) = get_plugin_association_glob_matcher(plugin, config_base_path)? {
-      matchers.push((plugin.name().to_string(), matcher));
-    }
-  }
-  Ok(matchers)
-}
-
 pub fn get_plugin_association_glob_matcher(plugin: &Box<dyn Plugin>, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>, ErrBox> {
   Ok(if let Some(associations) = plugin.get_config().0.associations.as_ref() {
     Some(GlobMatcher::new(
@@ -182,7 +169,7 @@ mod test {
   use super::*;
 
   #[test]
-  fn it_should_process_cli_pattern() {
+  fn should_process_cli_pattern() {
     assert_eq!(process_cli_pattern("/test".to_string()), "/test");
     assert_eq!(process_cli_pattern("C:/test".to_string()), "C:/test");
     assert_eq!(process_cli_pattern("./test".to_string()), "./test");
@@ -197,7 +184,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_process_config_pattern() {
+  fn should_process_config_pattern() {
     assert_eq!(process_config_pattern("/test".to_string()), "./test");
     assert_eq!(process_config_pattern("./test".to_string()), "./test");
     assert_eq!(process_config_pattern("test".to_string()), "test");

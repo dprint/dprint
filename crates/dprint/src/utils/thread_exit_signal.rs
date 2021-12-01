@@ -36,7 +36,7 @@ mod test {
   use std::time::Duration;
 
   #[test]
-  fn it_should_signal_a_thread_to_stop_sleeping() {
+  fn should_signal_a_thread_to_stop_sleeping() {
     let exit_signal = Arc::new(ThreadExitSignal::new());
     let has_thread_exited = Arc::new(ManualResetEvent::new(false));
 

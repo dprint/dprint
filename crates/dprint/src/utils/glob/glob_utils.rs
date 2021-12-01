@@ -121,7 +121,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn it_should_get_if_absolute_pattern() {
+  fn should_get_if_absolute_pattern() {
     assert_eq!(is_absolute_pattern("test.ts"), false);
     assert_eq!(is_absolute_pattern("!test.ts"), false);
     assert_eq!(is_absolute_pattern("/test.ts"), true);
@@ -131,7 +131,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_get_absolute_globs() {
+  fn should_get_absolute_globs() {
     assert_eq!(to_absolute_glob("**/*.ts", "/"), "/**/*.ts");
     assert_eq!(to_absolute_glob("/**/*.ts", "/"), "/**/*.ts");
     assert_eq!(to_absolute_glob("**/*.ts", "/test"), "/test/**/*.ts");

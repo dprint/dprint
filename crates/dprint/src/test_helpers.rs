@@ -4,15 +4,15 @@ use std::sync::Arc;
 use crossterm::style::Stylize;
 use dprint_core::types::ErrBox;
 
+use crate::arg_parser::parse_args;
 use crate::cache::Cache;
 use crate::environment::TestEnvironment;
-use crate::parse_args;
 use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsDropper;
-use crate::run_cli;
+use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
 // If this file doesn't exist, run `cargo build --release` for crates/test-process-plugin

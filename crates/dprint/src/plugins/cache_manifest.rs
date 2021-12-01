@@ -90,7 +90,7 @@ mod test {
   use crate::environment::TestEnvironment;
 
   #[test]
-  fn it_should_read_ok_manifest() {
+  fn should_read_ok_manifest() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -193,7 +193,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_error_for_old_manifest() {
+  fn should_not_error_for_old_manifest() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -222,7 +222,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_have_empty_manifest_for_deserialization_error() {
+  fn should_have_empty_manifest_for_deserialization_error() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -235,7 +235,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_deal_with_non_existent_manifest() {
+  fn should_deal_with_non_existent_manifest() {
     let environment = TestEnvironment::new();
 
     assert_eq!(read_manifest(&environment), PluginCacheManifest::new());

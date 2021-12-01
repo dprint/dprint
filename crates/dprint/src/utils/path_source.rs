@@ -96,28 +96,28 @@ mod tests {
   use url::Url;
 
   #[test]
-  fn it_should_get_parent_for_url() {
+  fn should_get_parent_for_url() {
     let source = PathSource::new_remote(Url::parse("https://dprint.dev/test/test.json").unwrap());
     let parent = source.parent();
     assert_eq!(parent, PathSource::new_remote(Url::parse("https://dprint.dev/test/").unwrap()))
   }
 
   #[test]
-  fn it_should_get_parent_for_file_path() {
+  fn should_get_parent_for_file_path() {
     let source = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/test/test/asdf.json"));
     let parent = source.parent();
     assert_eq!(parent, PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/test/test")))
   }
 
   #[test]
-  fn it_should_get_parent_for_root_dir_file() {
+  fn should_get_parent_for_root_dir_file() {
     let source = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/test.json"));
     let parent = source.parent();
     assert_eq!(parent, PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")))
   }
 
   #[test]
-  fn it_should_get_parent_for_root_dir() {
+  fn should_get_parent_for_root_dir() {
     let source = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
     let parent = source.parent();
     assert_eq!(parent, PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")))

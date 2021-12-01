@@ -154,7 +154,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn it_should_resolve_a_url() {
+  fn should_resolve_a_url() {
     let environment = TestEnvironment::new();
     environment.add_remote_file("https://dprint.dev/test.json", "t".as_bytes());
     let cache = Cache::new(environment.clone());
@@ -173,7 +173,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_resolve_a_relative_path_to_base_url() {
+  fn should_resolve_a_relative_path_to_base_url() {
     let environment = TestEnvironment::new();
     environment.add_remote_file("https://dprint.dev/asdf/test/test.json", "t".as_bytes());
     let cache = Cache::new(environment.clone());
@@ -185,7 +185,7 @@ mod tests {
 
   #[cfg(windows)]
   #[test]
-  fn it_should_resolve_a_file_url_on_windows() {
+  fn should_resolve_a_file_url_on_windows() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
@@ -196,7 +196,7 @@ mod tests {
 
   #[cfg(linux)]
   #[test]
-  fn it_should_resolve_a_file_url_on_linux() {
+  fn should_resolve_a_file_url_on_linux() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(&environment);
     let base = PathSource::new_local(PathBuf::from("/"));
@@ -207,7 +207,7 @@ mod tests {
 
   #[cfg(windows)]
   #[test]
-  fn it_should_resolve_an_absolute_path_on_windows() {
+  fn should_resolve_an_absolute_path_on_windows() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
@@ -218,7 +218,7 @@ mod tests {
 
   #[cfg(windows)]
   #[test]
-  fn it_should_resolve_an_absolute_path_on_windows_using_forward_slashes() {
+  fn should_resolve_an_absolute_path_on_windows_using_forward_slashes() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
@@ -228,7 +228,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_resolve_a_relative_file_path() {
+  fn should_resolve_a_relative_file_path() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
@@ -238,7 +238,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_resolve_a_file_path_relative_to_base_path() {
+  fn should_resolve_a_file_path_relative_to_base_path() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
@@ -248,7 +248,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_error_when_url_cannot_be_resolved() {
+  fn should_error_when_url_cannot_be_resolved() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
