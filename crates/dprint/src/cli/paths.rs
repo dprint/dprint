@@ -14,20 +14,26 @@ use crate::utils::GlobPatterns;
 
 use super::configuration::ResolvedConfig;
 use super::patterns::get_all_file_patterns;
+use super::patterns::get_plugin_association_file_patterns;
 use super::CliArgs;
 
 pub fn get_file_paths_by_plugin_and_err_if_empty(
   plugins: &Vec<Box<dyn Plugin>>,
-  file_paths: ResolvedFilePaths,
+  file_paths: Vec<PathBuf>,
+  config_base_dir: &CanonicalizedPathBuf,
 ) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
-  let file_paths_by_plugin = get_file_paths_by_plugin(plugins, file_paths)?;
+  let file_paths_by_plugin = get_file_paths_by_plugin(plugins, file_paths, config_base_dir)?;
   if file_paths_by_plugin.is_empty() {
     return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
   }
   Ok(file_paths_by_plugin)
 }
 
-pub fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: ResolvedFilePaths) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
+pub fn get_file_paths_by_plugin(
+  plugins: &Vec<Box<dyn Plugin>>,
+  file_paths: Vec<PathBuf>,
+  config_base_dir: &CanonicalizedPathBuf,
+) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
   let mut plugin_by_file_extension = HashMap::new();
   let mut plugin_by_file_name = HashMap::new();
   let mut plugin_associations = Vec::new();
@@ -43,10 +49,7 @@ pub fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Reso
       plugin_associations.push((
         plugin.name(),
         GlobMatcher::new(
-          GlobPatterns {
-            includes: associations.iter().map(|a| GlobPattern::new(a.clone(), file_paths.base_dir.clone())).collect(),
-            excludes: Vec::new(),
-          },
+          get_plugin_association_file_patterns(associations, config_base_dir),
           &GlobMatcherOptions {
             case_sensitive: !cfg!(windows),
           },
@@ -57,7 +60,7 @@ pub fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Reso
 
   let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
-  for file_path in file_paths.file_paths.into_iter() {
+  for file_path in file_paths.into_iter() {
     let plugin = if let Some((plugin, _)) = plugin_associations.iter().find(|(_, matcher)| matcher.is_match(&file_path)) {
       plugin
     } else if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_file_name.get(k.as_str())) {
@@ -74,12 +77,7 @@ pub fn get_file_paths_by_plugin(plugins: &Vec<Box<dyn Plugin>>, file_paths: Reso
   Ok(file_paths_by_plugin)
 }
 
-pub struct ResolvedFilePaths {
-  pub base_dir: CanonicalizedPathBuf,
-  pub file_paths: Vec<PathBuf>,
-}
-
-pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<ResolvedFilePaths, ErrBox> {
+pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
   let (file_patterns, absolute_paths) = get_config_file_paths(config, args, environment)?;
   return resolve_file_paths(file_patterns, &absolute_paths, args, config, environment);
 }
@@ -105,7 +103,7 @@ fn resolve_file_paths(
   args: &CliArgs,
   config: &ResolvedConfig,
   environment: &impl Environment,
-) -> Result<ResolvedFilePaths, ErrBox> {
+) -> Result<Vec<PathBuf>, ErrBox> {
   let cwd = environment.cwd();
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
   if is_in_sub_dir {
@@ -116,14 +114,11 @@ fn resolve_file_paths(
     } else {
       file_paths.extend(absolute_paths.iter().map(ToOwned::to_owned));
     }
-    return Ok(ResolvedFilePaths { base_dir: cwd, file_paths });
+    Ok(file_paths)
   } else {
     let mut file_paths = glob(environment, &config.base_path, file_patterns)?;
     file_paths.extend(absolute_paths.clone());
-    return Ok(ResolvedFilePaths {
-      base_dir: config.base_path.clone(),
-      file_paths,
-    });
+    Ok(file_paths)
   }
 }
 

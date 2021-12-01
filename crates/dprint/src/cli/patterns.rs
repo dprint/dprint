@@ -44,6 +44,13 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
   }
 }
 
+pub fn get_plugin_association_file_patterns(associations: &Vec<String>, config_base_path: &CanonicalizedPathBuf) -> GlobPatterns {
+  GlobPatterns {
+    includes: GlobPattern::new_vec(process_config_patterns(process_file_patterns_slashes(associations)), config_base_path.clone()),
+    excludes: Vec::new(),
+  }
+}
+
 fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 

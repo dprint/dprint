@@ -75,8 +75,8 @@ pub fn output_format_times<TEnvironment: Environment>(
 ) -> Result<(), ErrBox> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, resolved_file_paths)?;
+  let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins);
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -109,7 +109,7 @@ pub fn check<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
+  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins);
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
@@ -156,7 +156,7 @@ pub fn format<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths)?;
+  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins);
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
