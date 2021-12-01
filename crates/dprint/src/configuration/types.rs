@@ -2,10 +2,18 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use std::collections::HashMap;
 
+/// Unresolved plugin configuration.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct RawPluginConfig {
+  pub associations: Option<Vec<String>>,
+  pub locked: bool,
+  pub properties: ConfigKeyMap,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum ConfigMapValue {
   KeyValue(ConfigKeyValue),
-  HashMap(ConfigKeyMap),
+  PluginConfig(RawPluginConfig),
   Vec(Vec<String>),
 }
 

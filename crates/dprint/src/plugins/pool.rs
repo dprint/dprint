@@ -14,6 +14,7 @@ use crate::environment::Environment;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::ErrorCountLogger;
+use crate::utils::GlobMatcher;
 
 /// This is necessary because of a circular reference where
 /// PluginPools hold plugins and the plugins hold a PluginPools.
@@ -36,6 +37,7 @@ impl<TEnvironment: Environment> PluginsDropper<TEnvironment> {
 struct PluginNameResolutionMaps {
   extension_to_plugin_name_map: HashMap<String, String>,
   file_name_to_plugin_name_map: HashMap<String, String>,
+  association_matchers: Vec<(String, GlobMatcher)>,
 }
 
 pub struct PluginPools<TEnvironment: Environment> {
@@ -55,6 +57,7 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
       plugin_name_maps: RwLock::new(PluginNameResolutionMaps {
         extension_to_plugin_name_map: HashMap::new(),
         file_name_to_plugin_name_map: HashMap::new(),
+        association_matchers: Vec::new(),
       }),
       plugins_for_plugins: Mutex::new(HashMap::new()),
     }
@@ -74,11 +77,13 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
     }
   }
 
-  pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>) {
+  // todo: refactor and remove the cli folder
+  pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, plugin_association_matchers: Vec<(String, GlobMatcher)>) {
     let mut pools = self.pools.lock();
     let mut plugin_name_maps = self.plugin_name_maps.write();
+    plugin_name_maps.association_matchers = plugin_association_matchers;
     for plugin in plugins {
-      let plugin_name = String::from(plugin.name());
+      let plugin_name = plugin.name().to_string();
       let plugin_extensions = plugin.file_extensions().clone();
       let plugin_file_names = plugin.file_names().clone();
       pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
@@ -153,7 +158,14 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
   pub fn get_plugin_name_from_file_name(&self, file_name: &Path) -> Option<String> {
     let plugin_name_maps = self.plugin_name_maps.read();
     get_lowercase_file_name(file_name)
-      .map(|file_name| plugin_name_maps.file_name_to_plugin_name_map.get(&file_name))
+      .map(|file_name| {
+        plugin_name_maps
+          .association_matchers
+          .iter()
+          .find(|(_, matcher)| matcher.is_match(&file_name))
+          .map(|(plugin_name, _)| plugin_name)
+          .or_else(|| plugin_name_maps.file_name_to_plugin_name_map.get(&file_name))
+      })
       .flatten()
       .or_else(|| {
         get_lowercase_file_extension(file_name)

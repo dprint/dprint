@@ -75,7 +75,12 @@ impl GlobMatcher {
         include_matcher,
         exclude_matcher,
       } => {
-        let path = path.as_ref().strip_prefix(&base_dir).unwrap();
+        let path = path.as_ref();
+        let path = if path.is_absolute() {
+          Cow::Borrowed(path.strip_prefix(&base_dir).unwrap())
+        } else {
+          Cow::Owned(base_dir.join(path))
+        };
         matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
       }
     }

@@ -109,7 +109,6 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(
 
   // resolve extends
   resolve_extends(&mut resolved_config, extends, &base_source, cache, environment)?;
-  remove_locked_properties(&mut resolved_config);
 
   Ok(resolved_config)
 }
@@ -179,27 +178,33 @@ fn handle_config_file<'a, TEnvironment: Environment>(
           resolved_config.config_map.insert(key, ConfigMapValue::Vec(items));
         }
       }
-      ConfigMapValue::HashMap(obj) => {
+      ConfigMapValue::PluginConfig(obj) => {
         if let Some(resolved_config_obj) = resolved_config.config_map.get_mut(&key) {
           match resolved_config_obj {
-            ConfigMapValue::HashMap(resolved_config_obj) => {
+            ConfigMapValue::PluginConfig(resolved_config_obj) => {
               // check for locked configuration
-              if let Some(ConfigKeyValue::Bool(is_locked)) = obj.get("locked") {
-                if *is_locked && !resolved_config_obj.is_empty() {
-                  return err!(
-                    concat!(
-                      "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
-                      "Locked configurations cannot have their properties overridden."
-                    ),
-                    key
-                  );
+              if obj.locked && !resolved_config_obj.properties.is_empty() {
+                return err!(
+                  concat!(
+                    "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
+                    "Locked configurations cannot have their properties overridden."
+                  ),
+                  key
+                );
+              }
+
+              // now the properties
+              for (key, value) in obj.properties {
+                if !resolved_config_obj.properties.contains_key(&key) {
+                  resolved_config_obj.properties.insert(key, value);
                 }
               }
 
-              for (key, value) in obj {
-                if !resolved_config_obj.contains_key(&key) {
-                  resolved_config_obj.insert(key, value);
-                }
+              // Set the associations if they aren't overwritten in the parent
+              // config. This is ok to do because process plugins and includes/excludes
+              // aren't inherited from other config.
+              if resolved_config_obj.associations.is_none() {
+                resolved_config_obj.associations = obj.associations;
               }
             }
             _ => {
@@ -207,7 +212,7 @@ fn handle_config_file<'a, TEnvironment: Environment>(
             }
           }
         } else {
-          resolved_config.config_map.insert(key, ConfigMapValue::HashMap(obj));
+          resolved_config.config_map.insert(key, ConfigMapValue::PluginConfig(obj));
         }
       }
     }
@@ -303,16 +308,6 @@ fn get_warn_non_wasm_plugins_message() -> String {
   )
 }
 
-fn remove_locked_properties(resolved_config: &mut ResolvedConfig) {
-  // Remove this property on each sub configuration as it's not useful
-  // for the caller to know about.
-  for (_, value) in resolved_config.config_map.iter_mut() {
-    if let ConfigMapValue::HashMap(obj) = value {
-      obj.remove("locked");
-    }
-  }
-}
-
 fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -> Vec<PluginSourceReference> {
   let mut path_source_set = std::collections::HashSet::new();
 
@@ -328,6 +323,7 @@ mod tests {
 
   use crate::cache::Cache;
   use crate::cli::parse_args;
+  use crate::configuration::RawPluginConfig;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::utils::TestStdInReader;
@@ -347,7 +343,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_get_local_config_file() {
+  fn should_get_local_config_file() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -371,7 +367,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_get_remote_config_file() {
+  fn should_get_remote_config_file() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -388,7 +384,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_warn_on_first_download_for_remote_config_with_includes() {
+  fn should_warn_on_first_download_for_remote_config_with_includes() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -411,7 +407,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_warn_on_first_download_for_remote_config_with_excludes() {
+  fn should_warn_on_first_download_for_remote_config_with_excludes() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -433,7 +429,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_warn_on_first_download_for_remote_config_with_includes_and_excludes() {
+  fn should_warn_on_first_download_for_remote_config_with_includes_and_excludes() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -458,7 +454,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_not_warn_remove_config_no_includes_or_excludes() {
+  fn should_not_warn_remove_config_no_includes_or_excludes() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -473,7 +469,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_single_extends() {
+  fn should_handle_single_extends() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -529,19 +525,21 @@ mod tests {
     expected_config_map.insert(String::from("otherProp2"), ConfigMapValue::from_str("a"));
     expected_config_map.insert(
       String::from("test"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(5));
-        obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([
+          (String::from("prop"), ConfigKeyValue::from_i32(5)),
+          (String::from("other"), ConfigKeyValue::from_str("test")),
+        ]),
       }),
     );
     expected_config_map.insert(
       String::from("test2"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(2));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
       }),
     );
 
@@ -549,7 +547,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_array_extends() {
+  fn should_handle_array_extends() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -615,19 +613,21 @@ mod tests {
     expected_config_map.insert(String::from("asdf"), ConfigMapValue::from_i32(4));
     expected_config_map.insert(
       String::from("test"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(5));
-        obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([
+          (String::from("prop"), ConfigKeyValue::from_i32(5)),
+          (String::from("other"), ConfigKeyValue::from_str("test")),
+        ]),
       }),
     );
     expected_config_map.insert(
       String::from("test2"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(2));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
       }),
     );
 
@@ -635,7 +635,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_extends_within_an_extends() {
+  fn should_handle_extends_within_an_extends() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -711,19 +711,21 @@ mod tests {
     expected_config_map.insert(String::from("newProp"), ConfigMapValue::from_str("test"));
     expected_config_map.insert(
       String::from("test"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(5));
-        obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([
+          (String::from("prop"), ConfigKeyValue::from_i32(5)),
+          (String::from("other"), ConfigKeyValue::from_str("test")),
+        ]),
       }),
     );
     expected_config_map.insert(
       String::from("test2"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(2));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
       }),
     );
 
@@ -731,7 +733,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_relative_remote_extends() {
+  fn should_handle_relative_remote_extends() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -797,7 +799,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_remote_in_local_extends() {
+  fn should_handle_remote_in_local_extends() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -835,7 +837,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_relative_local_extends() {
+  fn should_handle_relative_local_extends() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -875,7 +877,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_say_config_file_with_error() {
+  fn should_say_config_file_with_error() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -904,7 +906,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_error_extending_locked_config() {
+  fn should_error_extending_locked_config() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -941,7 +943,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_get_locked_config() {
+  fn should_get_locked_config() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -968,11 +970,13 @@ mod tests {
     let mut expected_config_map = HashMap::new();
     expected_config_map.insert(
       String::from("test"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(6));
-        obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: true,
+        associations: None,
+        properties: HashMap::from([
+          (String::from("prop"), ConfigKeyValue::from_i32(6)),
+          (String::from("other"), ConfigKeyValue::from_str("test")),
+        ]),
       }),
     );
 
@@ -980,7 +984,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_locked_on_upstream_config() {
+  fn should_handle_locked_on_upstream_config() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -1010,11 +1014,13 @@ mod tests {
     let mut expected_config_map = HashMap::new();
     expected_config_map.insert(
       String::from("test"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(7));
-        obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: true,
+        associations: None,
+        properties: HashMap::from([
+          (String::from("prop"), ConfigKeyValue::from_i32(7)),
+          (String::from("other"), ConfigKeyValue::from_str("test")),
+        ]),
       }),
     );
 
@@ -1022,7 +1028,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_get_locked_config_and_not_care_if_no_properties_set_in_parent_config() {
+  fn should_get_locked_config_and_not_care_if_no_properties_set_in_parent_config() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -1050,11 +1056,13 @@ mod tests {
     let mut expected_config_map = HashMap::new();
     expected_config_map.insert(
       String::from("test"),
-      ConfigMapValue::HashMap({
-        let mut obj = HashMap::new();
-        obj.insert(String::from("prop"), ConfigKeyValue::from_i32(6));
-        obj.insert(String::from("other"), ConfigKeyValue::from_str("test"));
-        obj
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([
+          (String::from("prop"), ConfigKeyValue::from_i32(6)),
+          (String::from("other"), ConfigKeyValue::from_str("test")),
+        ]),
       }),
     );
 
@@ -1062,7 +1070,83 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_relative_remote_plugin() {
+  fn should_use_associations_on_extended_config() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+          "test": {
+            "associations": "test"
+          }
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {}
+        }"#,
+      )
+      .unwrap();
+
+    let result = get_result("/test.json", &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    let mut expected_config_map = HashMap::new();
+    expected_config_map.insert(
+      String::from("test"),
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: Some(vec!["test".to_string()]),
+        properties: HashMap::new(),
+      }),
+    );
+
+    assert_eq!(result.config_map, expected_config_map);
+  }
+
+  #[test]
+  fn should_override_associations_on_extended_config() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+          "test": {
+            "associations": "test"
+          }
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {
+              "associations": ["test1", "test2"]
+            }
+        }"#,
+      )
+      .unwrap();
+
+    let result = get_result("/test.json", &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    let mut expected_config_map = HashMap::new();
+    expected_config_map.insert(
+      String::from("test"),
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: Some(vec!["test1".to_string(), "test2".to_string()]),
+        properties: HashMap::new(),
+      }),
+    );
+
+    assert_eq!(result.config_map, expected_config_map);
+  }
+
+  #[test]
+  fn should_handle_relative_remote_plugin() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -1081,7 +1165,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_relative_remote_plugin_in_extends() {
+  fn should_handle_relative_remote_plugin_in_extends() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -1116,7 +1200,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_relative_local_plugins() {
+  fn should_handle_relative_local_plugins() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -1133,7 +1217,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_relative_local_plugins_in_extends() {
+  fn should_handle_relative_local_plugins_in_extends() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -1159,7 +1243,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_incremental_flag_when_not_specified() {
+  fn should_handle_incremental_flag_when_not_specified() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -1176,7 +1260,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_incremental_flag_when_true() {
+  fn should_handle_incremental_flag_when_true() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -1194,7 +1278,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_handle_incremental_flag_when_false() {
+  fn should_handle_incremental_flag_when_false() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -1212,7 +1296,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_ignore_non_wasm_plugins_in_remote_config() {
+  fn should_ignore_non_wasm_plugins_in_remote_config() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
       "https://dprint.dev/test.json",
@@ -1228,7 +1312,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_ignore_non_wasm_plugins_in_remote_extends() {
+  fn should_ignore_non_wasm_plugins_in_remote_extends() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -1253,7 +1337,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_not_allow_non_wasm_plugins_in_local_extends() {
+  fn should_not_allow_non_wasm_plugins_in_local_extends() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -1285,7 +1369,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_ignore_project_type() {
+  fn should_ignore_project_type() {
     // ignore the projectType property
     let environment = TestEnvironment::new();
     environment

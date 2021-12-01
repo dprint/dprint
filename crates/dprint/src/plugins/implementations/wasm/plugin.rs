@@ -14,6 +14,7 @@ use super::load_instance;
 use super::FormatResult;
 use super::ImportObjectEnvironment;
 use super::WasmFunctions;
+use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::Plugin;
@@ -22,7 +23,7 @@ use crate::plugins::PluginPools;
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: wasmer::Module,
   plugin_info: PluginInfo,
-  config: Option<(ConfigKeyMap, GlobalConfiguration)>,
+  config: Option<(RawPluginConfig, GlobalConfiguration)>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
@@ -67,11 +68,11 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     &self.plugin_info.config_schema_url
   }
 
-  fn set_config(&mut self, plugin_config: ConfigKeyMap, global_config: GlobalConfiguration) {
+  fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration) {
     self.config = Some((plugin_config, global_config));
   }
 
-  fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration) {
+  fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
     self.config.as_ref().expect("Call set_config first.")
   }
 
@@ -91,7 +92,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 
     wasm_plugin.set_global_config(&global_config)?;
-    wasm_plugin.set_plugin_config(&plugin_config)?;
+    wasm_plugin.set_plugin_config(&plugin_config.properties)?;
 
     Ok(Box::new(wasm_plugin))
   }
