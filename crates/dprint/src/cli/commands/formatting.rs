@@ -587,6 +587,57 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_with_config_associations() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt_ps";
+    let file_path3 = "/file2.other";
+    let file_path4 = "/src/some_file_name";
+    let file_path5 = "/src/sub-dir/test-process-plugin-exact-file";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": [
+                "**/*.txt_ps",
+                "test-process-plugin-exact-file"
+              ],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": [
+                "**/*.other",
+                "some_file_name",
+              ]
+              "ending": "ps"
+            }"#,
+          )
+          .add_includes("**/*");
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .write_file(&file_path4, "text4")
+      .write_file(&file_path5, "text5")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(5)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_ps");
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_ps");
+    assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm");
+  }
+
+  #[test]
   fn it_should_error_on_wasm_plugin_config_diagnostic() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1027,7 +1078,7 @@ mod test {
   fn it_should_format_using_hidden_config_file_name() {
     let file_path = "/test/other/file.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .with_default_config(|c| {
+      .with_local_config("/.dprint.json", |c| {
         c.add_includes("**/*.txt").add_remote_wasm_plugin();
       })
       .set_cwd("/test/other/")
