@@ -7,6 +7,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::Plugin;
@@ -43,7 +44,7 @@ pub struct ProcessPlugin<TEnvironment: Environment> {
   environment: TEnvironment,
   executable_file_path: PathBuf,
   plugin_info: PluginInfo,
-  config: Option<(ConfigKeyMap, GlobalConfiguration)>,
+  config: Option<(RawPluginConfig, GlobalConfiguration)>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 }
 
@@ -88,11 +89,11 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     &self.plugin_info.config_schema_url
   }
 
-  fn set_config(&mut self, plugin_config: ConfigKeyMap, global_config: GlobalConfiguration) {
+  fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration) {
     self.config = Some((plugin_config, global_config));
   }
 
-  fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration) {
+  fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
     self.config.as_ref().expect("Call set_config first.")
   }
 
@@ -102,7 +103,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
       self.environment.clone(),
       self.plugin_info.name.clone(),
       self.executable_file_path.clone(),
-      config.clone(),
+      (config.0.properties.clone(), config.1.clone()),
     )?;
     let process_plugin = InitializedProcessPlugin::new(self.name().to_string(), self.environment.clone(), communicator, self.plugin_pools.clone())?;
 

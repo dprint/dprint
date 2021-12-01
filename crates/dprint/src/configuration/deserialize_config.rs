@@ -1,6 +1,6 @@
 use super::ConfigMap;
 use super::ConfigMapValue;
-use dprint_core::configuration::ConfigKeyMap;
+use super::RawPluginConfig;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::types::ErrBox;
 use jsonc_parser::JsonArray;
@@ -21,7 +21,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
   for (key, value) in root_object_node.into_iter() {
     let property_name = key;
     let property_value = match value {
-      JsonValue::Object(obj) => ConfigMapValue::HashMap(json_obj_to_hash_map(&property_name, obj)?),
+      JsonValue::Object(obj) => ConfigMapValue::PluginConfig(json_obj_to_raw_plugin_config(&property_name, obj)?),
       JsonValue::Array(arr) => ConfigMapValue::Vec(json_array_to_vec(&property_name, arr)?),
       JsonValue::Boolean(value) => ConfigMapValue::from_bool(value),
       JsonValue::String(value) => ConfigMapValue::KeyValue(ConfigKeyValue::String(value.into_owned())),
@@ -44,11 +44,44 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
   Ok(properties)
 }
 
-fn json_obj_to_hash_map(parent_prop_name: &str, obj: JsonObject) -> Result<ConfigKeyMap, ErrBox> {
+fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Result<RawPluginConfig, ErrBox> {
   let mut properties = HashMap::new();
+  let mut locked = false;
+  let mut associations = None;
 
   for (key, value) in obj.into_iter() {
     let property_name = key;
+    if property_name == "locked" {
+      match value {
+        JsonValue::Boolean(value) => {
+          locked = value;
+          continue;
+        }
+        _ => return err!("The 'locked' property in a plugin configuration must be a boolean."),
+      }
+    }
+
+    if property_name == "associations" {
+      match value {
+        JsonValue::Array(value) => {
+          let mut items = Vec::new();
+          for value in value.into_iter() {
+            match value {
+              JsonValue::String(value) => items.push(value.into_owned()),
+              _ => return err!("The 'associations' array in a plugin configuration must contain only strings."),
+            }
+          }
+          associations = Some(items);
+          continue;
+        }
+        JsonValue::String(value) => {
+          associations = Some(vec![value.into_owned()]);
+          continue;
+        }
+        _ => return err!("The 'associations' property in a plugin configuration must be a string or an array of strings."),
+      }
+    }
+
     let property_value = match value_to_plugin_config_key_value(value) {
       Ok(result) => result,
       Err(err) => return err!("{} in object property '{} -> {}'", err, parent_prop_name, property_name),
@@ -56,7 +89,11 @@ fn json_obj_to_hash_map(parent_prop_name: &str, obj: JsonObject) -> Result<Confi
     properties.insert(property_name, property_value);
   }
 
-  Ok(properties)
+  Ok(RawPluginConfig {
+    locked,
+    associations,
+    properties,
+  })
 }
 
 fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<String>, ErrBox> {
@@ -91,24 +128,26 @@ fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue, 
 
 #[cfg(test)]
 mod tests {
-  use super::super::ConfigMap;
-  use super::super::ConfigMapValue;
+  use crate::configuration::ConfigMap;
+  use crate::configuration::ConfigMapValue;
+  use crate::configuration::RawPluginConfig;
+
   use super::deserialize_config;
   use dprint_core::configuration::ConfigKeyValue;
   use std::collections::HashMap;
 
   #[test]
-  fn it_should_error_when_there_is_a_parser_error() {
+  fn should_error_when_there_is_a_parser_error() {
     assert_error("{prop}", "Unexpected token on line 1 column 2.");
   }
 
   #[test]
-  fn it_should_error_when_no_object_in_root() {
+  fn should_error_when_no_object_in_root() {
     assert_error("[]", "Expected a root object in the json");
   }
 
   #[test]
-  fn it_should_error_when_the_root_property_has_an_unexpected_value_type() {
+  fn should_error_when_the_root_property_has_an_unexpected_value_type() {
     assert_error(
       "{'prop': null}",
       "Expected an object, boolean, string, or number in root object property 'prop'",
@@ -116,7 +155,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_error_when_the_sub_object_has_object() {
+  fn should_error_when_the_sub_object_has_object() {
     assert_error(
       "{'prop': { 'test': {}}}",
       "Expected a boolean, string, or number in object property 'prop -> test'",
@@ -124,22 +163,70 @@ mod tests {
   }
 
   #[test]
-  fn it_should_deserialize_empty_object() {
+  fn should_deserialize_empty_object() {
     assert_deserializes("{}", HashMap::new());
   }
 
   #[test]
-  fn it_should_deserialize_full_object() {
+  fn should_deserialize_full_object() {
     let mut expected_props = HashMap::new();
     expected_props.insert(String::from("includes"), ConfigMapValue::Vec(Vec::new()));
-    let mut ts_hash_map = HashMap::new();
-    ts_hash_map.insert(String::from("lineWidth"), ConfigKeyValue::from_i32(40));
-    ts_hash_map.insert(String::from("preferSingleLine"), ConfigKeyValue::from_bool(true));
-    ts_hash_map.insert(String::from("other"), ConfigKeyValue::from_str("test"));
-    expected_props.insert(String::from("typescript"), ConfigMapValue::HashMap(ts_hash_map));
+    expected_props.insert(
+      String::from("typescript"),
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        properties: HashMap::from([
+          (String::from("lineWidth"), ConfigKeyValue::from_i32(40)),
+          (String::from("preferSingleLine"), ConfigKeyValue::from_bool(true)),
+          (String::from("other"), ConfigKeyValue::from_str("test")),
+        ]),
+      }),
+    );
     assert_deserializes(
       "{'includes': [], 'typescript': { 'lineWidth': 40, 'preferSingleLine': true, 'other': 'test' }}",
       expected_props,
+    );
+  }
+
+  #[test]
+  fn should_deserialize_cli_specific_plugin_config() {
+    let mut expected_props = HashMap::new();
+    expected_props.insert(
+      "typescript".to_string(),
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: true,
+        associations: Some(vec!["test".to_string()]),
+        properties: HashMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
+      }),
+    );
+    expected_props.insert(
+      "other".to_string(),
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: Some(vec!["other".to_string(), "test".to_string()]),
+        properties: HashMap::new(),
+      }),
+    );
+    assert_deserializes(
+      "{'typescript': { 'lineWidth': 40, locked: true, associations: 'test' }, 'other': { 'locked': false, 'associations': ['other', 'test'] }}",
+      expected_props,
+    );
+  }
+
+  #[test]
+  fn error_invalid_cli_specific_properties() {
+    assert_error(
+      "{'typescript': { 'associations': [1] }}",
+      "The 'associations' array in a plugin configuration must contain only strings.",
+    );
+    assert_error(
+      "{'typescript': { 'associations': 1 }}",
+      "The 'associations' property in a plugin configuration must be a string or an array of strings.",
+    );
+    assert_error(
+      "{'typescript': { locked: 1 }}",
+      "The 'locked' property in a plugin configuration must be a boolean.",
     );
   }
 

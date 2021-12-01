@@ -1,29 +1,28 @@
-use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::types::ErrBox;
-use std::collections::HashMap;
 
 use super::ConfigMap;
 use super::ConfigMapValue;
+use super::RawPluginConfig;
 use crate::plugins::Plugin;
 
-pub fn get_plugin_config_map(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<ConfigKeyMap, ErrBox> {
+pub fn get_plugin_config_map(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<RawPluginConfig, ErrBox> {
   match get_plugin_config_map_inner(plugin, config_map) {
     Ok(result) => Ok(result),
     Err(err) => err!("Error initializing from configuration file. {}", err.to_string()),
   }
 }
 
-fn get_plugin_config_map_inner(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<ConfigKeyMap, ErrBox> {
+fn get_plugin_config_map_inner(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<RawPluginConfig, ErrBox> {
   let config_key = plugin.config_key();
 
-  if let Some(plugin_config_map) = config_map.remove(config_key) {
-    if let ConfigMapValue::HashMap(plugin_config_map) = plugin_config_map {
-      Ok(plugin_config_map)
+  if let Some(plugin_config) = config_map.remove(config_key) {
+    if let ConfigMapValue::PluginConfig(plugin_config) = plugin_config {
+      Ok(plugin_config)
     } else {
       err!("Expected the configuration property '{}' to be an object.", config_key)
     }
   } else {
-    Ok(HashMap::new())
+    Ok(Default::default())
   }
 }
 
@@ -41,14 +40,16 @@ mod tests {
   #[test]
   fn it_should_get_config_for_plugin() {
     let mut config_map = HashMap::new();
-    let mut ts_config_map = HashMap::new();
-    ts_config_map.insert(String::from("lineWidth"), ConfigKeyValue::from_i32(40));
-
+    let ts_plugin = RawPluginConfig {
+      associations: None,
+      locked: false,
+      properties: HashMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
+    };
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
-    config_map.insert(String::from("typescript"), ConfigMapValue::HashMap(ts_config_map.clone()));
+    config_map.insert(String::from("typescript"), ConfigMapValue::PluginConfig(ts_plugin.clone()));
     let plugin = create_plugin();
     let result = get_plugin_config_map(&(Box::new(plugin) as Box<dyn Plugin>), &mut config_map).unwrap();
-    assert_eq!(result, ts_config_map);
+    assert_eq!(result, ts_plugin);
     assert_eq!(config_map.contains_key("typescript"), false);
   }
 

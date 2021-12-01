@@ -6,6 +6,8 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::types::ErrBox;
 
+use crate::configuration::RawPluginConfig;
+
 pub trait Plugin: std::marker::Send + std::marker::Sync {
   /// The name of the plugin.
   fn name(&self) -> &str;
@@ -22,11 +24,11 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
   /// Gets the configuration schema url.
   fn config_schema_url(&self) -> &str;
   /// Sets the configuration for the plugin.
-  fn set_config(&mut self, plugin_config: ConfigKeyMap, global_config: GlobalConfiguration);
+  fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration);
   /// Initializes the plugin.
   fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox>;
   /// Gets the configuration for the plugin.
-  fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration);
+  fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration);
 
   /// Gets a hash that represents the current state of the plugin.
   /// This is used for the "incremental" feature to tell if a plugin has changed state.
@@ -39,9 +41,10 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
     hash_str.push_str(&self.version());
 
     // serialize the config keys in order to prevent the hash from changing
-    let sorted_config: std::collections::BTreeMap<&String, &ConfigKeyValue> = config.0.iter().collect();
+    let sorted_config: std::collections::BTreeMap<&String, &ConfigKeyValue> = config.0.properties.iter().collect();
     hash_str.push_str(&serde_json::to_string(&sorted_config).unwrap());
 
+    hash_str.push_str(&serde_json::to_string(&config.0.associations).unwrap());
     hash_str.push_str(&serde_json::to_string(&config.1).unwrap());
 
     crate::utils::get_bytes_hash(hash_str.as_bytes())
@@ -66,7 +69,7 @@ pub struct TestPlugin {
   file_extensions: Vec<String>,
   file_names: Vec<String>,
   initialized_test_plugin: Option<InitializedTestPlugin>,
-  config: (ConfigKeyMap, GlobalConfiguration),
+  config: (RawPluginConfig, GlobalConfiguration),
 }
 
 #[cfg(test)]
@@ -79,7 +82,7 @@ impl TestPlugin {
       file_names: file_names.into_iter().map(String::from).collect(),
       initialized_test_plugin: Some(InitializedTestPlugin::new()),
       config: (
-        std::collections::HashMap::new(),
+        Default::default(),
         GlobalConfiguration {
           line_width: None,
           use_tabs: None,
@@ -114,8 +117,8 @@ impl Plugin for TestPlugin {
   fn file_names(&self) -> &Vec<String> {
     &self.file_names
   }
-  fn set_config(&mut self, _: ConfigKeyMap, _: GlobalConfiguration) {}
-  fn get_config(&self) -> &(ConfigKeyMap, GlobalConfiguration) {
+  fn set_config(&mut self, _: RawPluginConfig, _: GlobalConfiguration) {}
+  fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
     &self.config
   }
   fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {

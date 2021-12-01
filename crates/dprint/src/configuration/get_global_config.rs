@@ -89,7 +89,7 @@ mod tests {
   #[test]
   fn it_should_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_true() {
     let mut config_map = HashMap::new();
-    config_map.insert(String::from("test"), ConfigMapValue::HashMap(HashMap::new()));
+    config_map.insert(String::from("test"), ConfigMapValue::PluginConfig(Default::default()));
     assert_errors_with_options(
       config_map,
       vec![],
@@ -103,7 +103,7 @@ mod tests {
   #[test]
   fn it_should_not_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_false() {
     let mut config_map = HashMap::new();
-    config_map.insert(String::from("test"), ConfigMapValue::HashMap(HashMap::new()));
+    config_map.insert(String::from("test"), ConfigMapValue::PluginConfig(Default::default()));
     assert_gets_with_options(
       config_map,
       GlobalConfiguration {
