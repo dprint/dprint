@@ -19,7 +19,7 @@ mod test {
 
   #[test]
   #[cfg(windows)]
-  fn it_should_install_and_uninstall_on_windows() {
+  fn should_install_and_uninstall_on_windows() {
     let environment = TestEnvironment::new();
     environment.ensure_system_path("C:\\other").unwrap();
     run_test_cli(vec!["hidden", "windows-install", "C:\\test"], &environment).unwrap();

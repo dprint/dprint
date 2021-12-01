@@ -213,7 +213,7 @@ mod test {
   use std::time::Duration;
 
   #[test]
-  fn it_should_get_bytes_text() {
+  fn should_get_bytes_text() {
     assert_eq!(get_bytes_text(9, 999), "0.00KB");
     assert_eq!(get_bytes_text(10, 999), "0.01KB");
     assert_eq!(get_bytes_text(100, 999), "0.10KB");
@@ -227,7 +227,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_get_elapsed_text() {
+  fn should_get_elapsed_text() {
     assert_eq!(get_elapsed_text(Duration::from_secs(1)), "[00:00:01]");
     assert_eq!(get_elapsed_text(Duration::from_secs(20)), "[00:00:20]");
     assert_eq!(get_elapsed_text(Duration::from_secs(59)), "[00:00:59]");

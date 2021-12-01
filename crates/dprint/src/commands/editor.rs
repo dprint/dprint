@@ -7,17 +7,16 @@ use dprint_core::plugins::process::start_parent_process_checker_thread;
 use dprint_core::plugins::process::StdIoMessenger;
 use dprint_core::plugins::process::StdIoReaderWriter;
 
+use crate::arg_parser::CliArgs;
+use crate::arg_parser::EditorServiceSubCommand;
 use crate::cache::Cache;
-use crate::cli::configuration::resolve_config_from_args;
-use crate::cli::configuration::ResolvedConfig;
-use crate::cli::format::format_with_plugin_pools;
-use crate::cli::patterns::get_plugin_association_glob_matchers;
-use crate::cli::patterns::FileMatcher;
-use crate::cli::plugins::get_plugins_from_args;
-use crate::cli::plugins::resolve_plugins;
-use crate::cli::CliArgs;
-use crate::cli::EditorServiceSubCommand;
+use crate::configuration::resolve_config_from_args;
+use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
+use crate::format::format_with_plugin_pools;
+use crate::patterns::FileMatcher;
+use crate::plugins::get_plugins_from_args;
+use crate::plugins::resolve_plugins;
 use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
 
@@ -212,8 +211,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     if has_config_changed {
       self.plugin_pools.drop_plugins(); // clear the existing plugins
       let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver)?;
-      let association_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
-      self.plugin_pools.set_plugins(plugins, association_matchers);
+      self.plugin_pools.set_plugins(plugins, &config.base_path)?;
     }
 
     self.config = Some(config);
@@ -238,7 +236,7 @@ mod test {
   use crate::test_helpers::run_test_cli;
 
   #[test]
-  fn it_should_output_editor_plugin_info() {
+  fn should_output_editor_plugin_info() {
     // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::new()
       .add_remote_process_plugin()
@@ -302,7 +300,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_for_editor_service() {
+  fn should_format_for_editor_service() {
     let txt_file_path = PathBuf::from("/file.txt");
     let ts_file_path = PathBuf::from("/file.ts");
     let other_ext_path = PathBuf::from("/file.asdf");

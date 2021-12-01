@@ -2,6 +2,8 @@ use std::path::Path;
 
 use dprint_cli_core::types::ErrBox;
 
+use crate::arg_parser::CliArgs;
+use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
@@ -11,9 +13,6 @@ use crate::utils::GlobMatcher;
 use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
-
-use super::configuration::ResolvedConfig;
-use super::CliArgs;
 
 pub struct FileMatcher {
   glob_matcher: GlobMatcher,
@@ -43,19 +42,6 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
     includes: get_include_file_patterns(config, args, cwd),
     excludes: get_exclude_file_patterns(config, args, cwd),
   }
-}
-
-pub fn get_plugin_association_glob_matchers(
-  plugins: &[Box<dyn Plugin>],
-  config_base_path: &CanonicalizedPathBuf,
-) -> Result<Vec<(String, GlobMatcher)>, ErrBox> {
-  let mut matchers = Vec::new();
-  for plugin in plugins.iter() {
-    if let Some(matcher) = get_plugin_association_glob_matcher(plugin, config_base_path)? {
-      matchers.push((plugin.name().to_string(), matcher));
-    }
-  }
-  Ok(matchers)
 }
 
 pub fn get_plugin_association_glob_matcher(plugin: &Box<dyn Plugin>, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>, ErrBox> {
@@ -183,7 +169,7 @@ mod test {
   use super::*;
 
   #[test]
-  fn it_should_process_cli_pattern() {
+  fn should_process_cli_pattern() {
     assert_eq!(process_cli_pattern("/test".to_string()), "/test");
     assert_eq!(process_cli_pattern("C:/test".to_string()), "C:/test");
     assert_eq!(process_cli_pattern("./test".to_string()), "./test");
@@ -198,7 +184,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_process_config_pattern() {
+  fn should_process_config_pattern() {
     assert_eq!(process_config_pattern("/test".to_string()), "./test");
     assert_eq!(process_config_pattern("./test".to_string()), "./test");
     assert_eq!(process_config_pattern("test".to_string()), "test");

@@ -257,7 +257,7 @@ mod test {
   use crate::utils::GlobPattern;
 
   #[test]
-  fn it_should_glob() {
+  fn should_glob() {
     let mut environment_builder = TestEnvironmentBuilder::new();
     let mut expected_matches = Vec::new();
     for i in 1..100 {

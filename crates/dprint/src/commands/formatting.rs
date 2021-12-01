@@ -8,20 +8,19 @@ use std::sync::Arc;
 use dprint_cli_core::types::ErrBox;
 use parking_lot::Mutex;
 
+use crate::arg_parser::CliArgs;
+use crate::arg_parser::FmtSubCommand;
+use crate::arg_parser::StdInFmtSubCommand;
 use crate::cache::Cache;
-use crate::cli::configuration::resolve_config_from_args;
-use crate::cli::format::format_with_plugin_pools;
-use crate::cli::format::run_parallelized;
-use crate::cli::incremental::get_incremental_file;
-use crate::cli::paths::get_and_resolve_file_paths;
-use crate::cli::paths::get_file_paths_by_plugin_and_err_if_empty;
-use crate::cli::patterns::get_plugin_association_glob_matchers;
-use crate::cli::patterns::FileMatcher;
-use crate::cli::plugins::resolve_plugins_and_err_if_empty;
-use crate::cli::CliArgs;
-use crate::cli::FmtSubCommand;
-use crate::cli::StdInFmtSubCommand;
+use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
+use crate::format::format_with_plugin_pools;
+use crate::format::run_parallelized;
+use crate::incremental::get_incremental_file;
+use crate::paths::get_and_resolve_file_paths;
+use crate::paths::get_file_paths_by_plugin_and_err_if_empty;
+use crate::patterns::FileMatcher;
+use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
 use crate::utils::get_difference;
@@ -37,8 +36,7 @@ pub fn stdin_fmt<TEnvironment: Environment>(
 ) -> Result<(), ErrBox> {
   let config = resolve_config_from_args(&args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(&args, &config, environment, plugin_resolver)?;
-  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
-  plugin_pools.set_plugins(plugins, association_glob_matchers);
+  plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(&config, args, environment)?;
@@ -79,8 +77,7 @@ pub fn output_format_times<TEnvironment: Environment>(
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
-  plugin_pools.set_plugins(plugins, association_glob_matchers);
+  plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
   run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, {
@@ -113,8 +110,7 @@ pub fn check<TEnvironment: Environment>(
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
-  plugin_pools.set_plugins(plugins, association_glob_matchers);
+  plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
@@ -161,8 +157,7 @@ pub fn format<TEnvironment: Environment>(
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
-  plugin_pools.set_plugins(plugins, association_glob_matchers);
+  plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
@@ -223,7 +218,7 @@ mod test {
   use crate::utils::TestStdInReader;
 
   #[test]
-  fn it_should_output_format_times() {
+  fn should_output_format_times() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.txt", "const t=4;")
       .write_file("/file2.txt", "const t=4;")
@@ -235,7 +230,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_file() {
+  fn should_format_file() {
     let file_path1 = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(file_path1, "text")
@@ -247,7 +242,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_files() {
+  fn should_format_files() {
     let file_path1 = "/file.txt";
     let file_path2 = "/file.txt_ps";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
@@ -262,7 +257,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_plugin_explicitly_specified_files() {
+  fn should_format_plugin_explicitly_specified_files() {
     // this file name is mentioned in test-process-plugin's PluginInfo
     let file_path1 = "/test-process-plugin-exact-file";
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
@@ -275,7 +270,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_files_with_local_plugin() {
+  fn should_format_files_with_local_plugin() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::new()
       .add_local_wasm_plugin()
@@ -292,7 +287,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_handle_wasm_plugin_erroring() {
+  fn should_handle_wasm_plugin_erroring() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file.txt", "should_error") // special text that makes the plugin error
       .build();
@@ -306,7 +301,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_handle_process_plugin_erroring() {
+  fn should_handle_process_plugin_erroring() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
       .write_file("/file.txt_ps", "should_error") // special text that makes the plugin error
       .build();
@@ -320,7 +315,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_handle_wasm_plugin_panicking() {
+  fn should_handle_wasm_plugin_panicking() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file1.txt", "should_panic") // special text to make it panic
       .write_file("/file2.txt", "test")
@@ -338,7 +333,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_calling_process_plugin_with_wasm_plugin_and_no_plugin_exists() {
+  fn should_format_calling_process_plugin_with_wasm_plugin_and_no_plugin_exists() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(&file_path, "plugin: format this text")
@@ -350,7 +345,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_calling_process_plugin_with_wasm_plugin_and_process_plugin_exists() {
+  fn should_format_calling_process_plugin_with_wasm_plugin_and_process_plugin_exists() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file(&file_path, "plugin: format this text")
@@ -362,7 +357,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_calling_process_plugin_with_wasm_plugin_using_additional_plugin_specified_config() {
+  fn should_format_calling_process_plugin_with_wasm_plugin_using_additional_plugin_specified_config() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
@@ -377,7 +372,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_calling_process_plugin_with_wasm_plugin_and_process_plugin_errors() {
+  fn should_error_calling_process_plugin_with_wasm_plugin_and_process_plugin_errors() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.txt", "plugin: should_error")
       .build();
@@ -390,7 +385,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_calling_other_plugin_with_process_plugin_and_no_plugin_exists() {
+  fn should_format_calling_other_plugin_with_process_plugin_and_no_plugin_exists() {
     let file_path = "/file.txt_ps";
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
       .write_file(&file_path, "plugin: format this text")
@@ -402,7 +397,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_calling_wasm_plugin_with_process_plugin_and_wasm_plugin_exists() {
+  fn should_format_calling_wasm_plugin_with_process_plugin_and_wasm_plugin_exists() {
     let file_path = "/file.txt_ps";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file(&file_path, "plugin: format this text")
@@ -414,7 +409,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_calling_wasm_plugin_with_process_plugin_using_additional_plugin_specified_config() {
+  fn should_format_calling_wasm_plugin_with_process_plugin_using_additional_plugin_specified_config() {
     let file_path1 = "/file1.txt_ps";
     let file_path2 = "/file2.txt_ps";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
@@ -429,7 +424,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_calling_wasm_plugin_with_process_plugin_and_wasm_plugin_errors() {
+  fn should_error_calling_wasm_plugin_with_process_plugin_and_wasm_plugin_errors() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.txt_ps", "plugin: should_error")
       .build();
@@ -442,7 +437,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_when_specifying_dot_slash_paths() {
+  fn should_format_when_specifying_dot_slash_paths() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(&file_path, "text")
@@ -454,7 +449,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_exclude_a_specified_dot_slash_path() {
+  fn should_exclude_a_specified_dot_slash_path() {
     let file_path = "/file.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
@@ -469,7 +464,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_ignore_files_in_node_modules_by_default() {
+  fn should_ignore_files_in_node_modules_by_default() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/node_modules/file.txt", "")
       .write_file("/test/node_modules/file.txt", "")
@@ -481,7 +476,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_ignore_files_in_node_modules_when_allowed() {
+  fn should_not_ignore_files_in_node_modules_when_allowed() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/node_modules/file.txt", "const t=4;")
       .write_file("/test/node_modules/file.txt", "const t=4;")
@@ -492,7 +487,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_files_with_config() {
+  fn should_format_files_with_config() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
@@ -525,7 +520,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_files_with_config_using_c() {
+  fn should_format_files_with_config_using_c() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(file_path1, "text")
@@ -546,7 +541,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_when_config_file_does_not_exist() {
+  fn should_error_when_config_file_does_not_exist() {
     let environment = TestEnvironment::new();
     environment.write_file("/test.txt", "test").unwrap();
 
@@ -564,7 +559,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_support_config_file_urls() {
+  fn should_support_config_file_urls() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -647,7 +642,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_on_wasm_plugin_config_diagnostic() {
+  fn should_error_on_wasm_plugin_config_diagnostic() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_config_section("test-plugin", r#"{ "non-existent": 25 }"#);
@@ -669,7 +664,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_on_process_plugin_config_diagnostic() {
+  fn should_error_on_process_plugin_config_diagnostic() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
       .with_default_config(|c| {
         // Add this same plugin a few times in the configuration file for
@@ -701,7 +696,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_when_no_plugins_specified() {
+  fn should_error_when_no_plugins_specified() {
     let environment = TestEnvironmentBuilder::new()
       .with_default_config(|c| {
         c.ensure_plugins_section();
@@ -720,7 +715,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_use_plugins_specified_in_cli_args() {
+  fn should_use_plugins_specified_in_cli_args() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_plugin("https://plugins.dprint.dev/other.wasm");
@@ -739,7 +734,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_allow_using_no_config_when_plugins_specified() {
+  fn should_allow_using_no_config_when_plugins_specified() {
     let environment = TestEnvironmentBuilder::new().add_remote_wasm_plugin().write_file("/test.txt", "test").build();
 
     run_test_cli(
@@ -756,7 +751,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_do_excess_object_property_diagnostics_when_plugins_cli_specified() {
+  fn should_not_do_excess_object_property_diagnostics_when_plugins_cli_specified() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_default_config(|c| {
         c.add_config_section("excess-object", "{}").add_remote_process_plugin();
@@ -784,7 +779,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_do_excess_primitive_property_diagnostics_when_plugins_cli_specified() {
+  fn should_not_do_excess_primitive_property_diagnostics_when_plugins_cli_specified() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_default_config(|c| {
         c.add_config_section("excess-primitive", "true").add_remote_process_plugin();
@@ -815,7 +810,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_when_no_files_match_glob() {
+  fn should_error_when_no_files_match_glob() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
     let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
@@ -832,7 +827,7 @@ mod test {
 
   #[cfg(target_os = "windows")]
   #[test]
-  fn it_should_format_absolute_paths_on_windows() {
+  fn should_format_absolute_paths_on_windows() {
     let file_path = "E:\\file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("D:\\test\\other\\dprint.json", |c| {
@@ -853,7 +848,7 @@ mod test {
 
   #[cfg(target_os = "linux")]
   #[test]
-  fn it_should_format_absolute_paths_on_linux() {
+  fn should_format_absolute_paths_on_linux() {
     let file_path = "/asdf/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/test/other/dprint.json", |c| {
@@ -872,7 +867,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_files_with_config_includes() {
+  fn should_format_files_with_config_includes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -894,7 +889,7 @@ mod test {
 
   #[cfg(target_os = "windows")]
   #[test]
-  fn it_should_format_files_with_config_includes_when_using_back_slashes() {
+  fn should_format_files_with_config_includes_when_using_back_slashes() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -913,7 +908,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_override_config_includes_with_cli_includes() {
+  fn should_override_config_includes_with_cli_includes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
@@ -933,7 +928,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_override_config_excludes_with_cli_excludes() {
+  fn should_override_config_excludes_with_cli_excludes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -954,7 +949,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_support_clearing_config_excludes_with_cli_excludes_arg() {
+  fn should_support_clearing_config_excludes_with_cli_excludes_arg() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .write_file(&file_path1, "text1")
@@ -972,7 +967,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_explicitly_specified_file_even_if_excluded() {
+  fn should_format_explicitly_specified_file_even_if_excluded() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .write_file(&file_path1, "text1")
@@ -990,7 +985,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_override_config_includes_and_excludes_with_cli() {
+  fn should_override_config_includes_and_excludes_with_cli() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1010,7 +1005,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_files_with_config_excludes() {
+  fn should_format_files_with_config_excludes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let file_path3 = "/file3.txt";
@@ -1084,7 +1079,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_using_hidden_config_file_name() {
+  fn should_format_using_hidden_config_file_name() {
     let file_path = "/test/other/file.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/.dprint.json", |c| {
@@ -1100,7 +1095,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_files_with_config_in_config_sub_dir_and_warn() {
+  fn should_format_files_with_config_in_config_sub_dir_and_warn() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1124,7 +1119,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_using_config_in_ancestor_directory() {
+  fn should_format_using_config_in_ancestor_directory() {
     let file_path = "/test/other/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1140,7 +1135,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_using_old_config_file_name_and_warn() {
+  fn should_format_using_old_config_file_name_and_warn() {
     let file_path = "/test/other/file.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/.dprintrc.json", |c| {
@@ -1160,7 +1155,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_using_config_in_ancestor_directory_config_folder_and_warn() {
+  fn should_format_using_config_in_ancestor_directory_config_folder_and_warn() {
     let file_path = "/test/other/file.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("./config/.dprintrc.json", |c| {
@@ -1180,7 +1175,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_incrementally_when_specified_on_cli() {
+  fn should_format_incrementally_when_specified_on_cli() {
     let file_path1 = "/subdir/file1.txt";
     let no_change_msg = "No change: /subdir/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1267,7 +1262,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_incrementally_when_specified_via_config() {
+  fn should_format_incrementally_when_specified_via_config() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1289,7 +1284,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_output_when_no_files_need_formatting() {
+  fn should_not_output_when_no_files_need_formatting() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file.txt", "text_formatted")
       .build();
@@ -1319,7 +1314,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_output_when_no_files_need_formatting_for_check() {
+  fn should_not_output_when_no_files_need_formatting_for_check() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(&file_path, "text_formatted")
@@ -1330,7 +1325,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_when_a_file_need_formatting_for_check() {
+  fn should_output_when_a_file_need_formatting_for_check() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file.txt", "const t=4;")
       .build();
@@ -1348,7 +1343,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_when_files_need_formatting_for_check() {
+  fn should_output_when_files_need_formatting_for_check() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file1.txt", "const t=4;")
       .write_file("/file2.txt", "const t=5;")
@@ -1377,7 +1372,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_handle_bom() {
+  fn should_handle_bom() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(&file_path, "\u{FEFF}text")
@@ -1389,7 +1384,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_for_stdin_fmt_with_file_name() {
+  fn should_format_for_stdin_fmt_with_file_name() {
     // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1405,7 +1400,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_for_stdin_fmt_with_extension() {
+  fn should_format_for_stdin_fmt_with_extension() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("/test/**.txt").add_remote_wasm_plugin();
@@ -1420,7 +1415,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_stdin_fmt_calling_other_plugin() {
+  fn should_stdin_fmt_calling_other_plugin() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     let test_std_in = TestStdInReader::from("plugin: format this text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
@@ -1428,7 +1423,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_handle_error_for_stdin_fmt() {
+  fn should_handle_error_for_stdin_fmt() {
     // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
@@ -1444,7 +1439,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_for_stdin_with_absolute_paths() {
+  fn should_format_for_stdin_with_absolute_paths() {
     // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1468,7 +1463,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_format_stdin_resolving_config_file_from_provided_path_when_relative() {
+  fn should_not_format_stdin_resolving_config_file_from_provided_path_when_relative() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("./**/*.txt").add_remote_wasm_plugin();
@@ -1489,7 +1484,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_stdin_resolving_config_file_from_provided_path_when_absolute() {
+  fn should_format_stdin_resolving_config_file_from_provided_path_when_absolute() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("./**/*.txt").add_remote_wasm_plugin();
@@ -1509,7 +1504,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_if_process_plugin_has_no_checksum_in_config() {
+  fn should_error_if_process_plugin_has_no_checksum_in_config() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
       .with_default_config(|c| {
         c.add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
@@ -1530,7 +1525,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_if_process_plugin_has_wrong_checksum_in_config() {
+  fn should_error_if_process_plugin_has_wrong_checksum_in_config() {
     let environment = TestEnvironmentBuilder::with_remote_process_plugin()
       .with_default_config(|c| {
         c.add_remote_process_plugin_with_checksum("asdf");
@@ -1550,7 +1545,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_if_wasm_plugin_has_wrong_checksum_in_config() {
+  fn should_error_if_wasm_plugin_has_wrong_checksum_in_config() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_remote_wasm_plugin_with_checksum("asdf");
@@ -1570,7 +1565,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_not_error_if_wasm_plugin_has_correct_checksum_in_config() {
+  fn should_not_error_if_wasm_plugin_has_correct_checksum_in_config() {
     let actual_plugin_file_checksum = test_helpers::get_test_wasm_plugin_checksum();
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1589,7 +1584,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_if_process_plugin_has_wrong_checksum_in_file_for_zip() {
+  fn should_error_if_process_plugin_has_wrong_checksum_in_file_for_zip() {
     let environment = TestEnvironmentBuilder::with_remote_process_plugin()
       .write_process_plugin_file("asdf")
       .with_default_config(|c| {
@@ -1610,7 +1605,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_format_many_files() {
+  fn should_format_many_files() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     for i in 0..100 {
       let file_path = format!("/file{}.txt", i);
@@ -1636,7 +1631,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_once_on_config_diagnostic_many_files() {
+  fn should_error_once_on_config_diagnostic_many_files() {
     // configuration diagnostic should only be shown by one thread
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
     environment

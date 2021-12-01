@@ -120,12 +120,12 @@ mod test {
   use pretty_assertions::assert_eq;
 
   #[test]
-  fn it_should_get_when_differs_by_line_endings() {
+  fn should_get_when_differs_by_line_endings() {
     assert_eq!(get_difference("test\r\n", "test\n"), " | Text differed by line endings.");
   }
 
   #[test]
-  fn it_should_get_difference_on_one_line() {
+  fn should_get_difference_on_one_line() {
     assert_eq!(
       get_difference("test1\n", "test2\n"),
       format!(
@@ -139,7 +139,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_show_the_addition_of_last_line() {
+  fn should_show_the_addition_of_last_line() {
     assert_eq!(
       get_difference("testing\ntesting", "testing\ntesting\n"),
       format!(
@@ -154,7 +154,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_get_difference_for_removed_line() {
+  fn should_get_difference_for_removed_line() {
     assert_eq!(
       get_difference("class Test\n{\n\n}", "class Test {\n}\n"),
       format!(
@@ -181,7 +181,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_show_multiple_removals_on_different_lines() {
+  fn should_show_multiple_removals_on_different_lines() {
     assert_eq!(
       get_difference("test ;\n1\n2\n3\n4\n5\n6\n7\n8\n9\ntest ;\n", "test;\n1\n2\n3\n4\n5\n6\n7\n8\n9\ntest;\n"),
       format!(

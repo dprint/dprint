@@ -137,7 +137,7 @@ mod test {
   use crate::environment::TestEnvironment;
 
   #[test]
-  fn it_should_get_item_from_cache_manifest() {
+  fn should_get_item_from_cache_manifest() {
     let environment = TestEnvironment::new();
     environment
       .write_file(
@@ -156,7 +156,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_handle_multiple_keys_with_similar_names() {
+  fn should_handle_multiple_keys_with_similar_names() {
     let environment = TestEnvironment::new();
 
     let cache = Cache::new(environment);
@@ -182,7 +182,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_delete_key_from_manifest_when_no_file() {
+  fn should_delete_key_from_manifest_when_no_file() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let cache_item = cache
@@ -205,7 +205,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_delete_key_from_manifest_when_file_exists() {
+  fn should_delete_key_from_manifest_when_file_exists() {
     let environment = TestEnvironment::new();
     let cache = Cache::new(environment.clone());
     let cache_item = cache

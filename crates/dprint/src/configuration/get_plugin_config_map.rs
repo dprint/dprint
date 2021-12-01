@@ -38,7 +38,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn it_should_get_config_for_plugin() {
+  fn should_get_config_for_plugin() {
     let mut config_map = HashMap::new();
     let ts_plugin = RawPluginConfig {
       associations: None,
@@ -54,7 +54,7 @@ mod tests {
   }
 
   #[test]
-  fn it_should_error_plugin_key_is_not_object() {
+  fn should_error_plugin_key_is_not_object() {
     let mut config_map = HashMap::new();
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
     config_map.insert(String::from("typescript"), ConfigMapValue::from_str(""));

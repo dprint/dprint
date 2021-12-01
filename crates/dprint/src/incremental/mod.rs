@@ -4,13 +4,12 @@ pub use incremental_file::IncrementalFile;
 
 use std::sync::Arc;
 
+use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
 use crate::cache::CreateCacheItemOptions;
+use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
 use crate::plugins::PluginPools;
-
-use super::configuration::ResolvedConfig;
-use super::CliArgs;
 
 pub fn get_incremental_file<TEnvironment: Environment>(
   args: &CliArgs,

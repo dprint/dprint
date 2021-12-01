@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use dprint_cli_core::types::ErrBox;
 
+use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
-use crate::cli::configuration::*;
-use crate::cli::plugins::resolve_plugins;
-use crate::cli::CliArgs;
 use crate::configuration::get_init_config_file_text;
+use crate::configuration::*;
 use crate::environment::Environment;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::read_info_file;
+use crate::plugins::resolve_plugins;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::utils::pretty_print_json_text;
@@ -205,7 +205,7 @@ mod test {
   use crate::test_helpers::run_test_cli;
 
   #[test]
-  fn it_should_initialize() {
+  fn should_initialize() {
     let environment = TestEnvironmentBuilder::new()
       .with_info_file(|info| {
         info
@@ -244,7 +244,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_use_dprint_config_init_as_alias() {
+  fn should_use_dprint_config_init_as_alias() {
     let environment = TestEnvironment::new();
     let expected_text = get_init_config_file_text(&environment).unwrap();
     environment.clear_logs();
@@ -255,7 +255,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_initialize_with_specified_config_path() {
+  fn should_initialize_with_specified_config_path() {
     let environment = TestEnvironmentBuilder::new()
       .with_info_file(|info| {
         info.add_plugin(TestInfoFilePlugin {
@@ -284,7 +284,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_error_when_config_file_exists_on_initialize() {
+  fn should_error_when_config_file_exists_on_initialize() {
     let environment = TestEnvironmentBuilder::new()
       .with_default_config(|c| {
         c.add_includes("**/*.txt");
@@ -533,7 +533,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_resolved_config() {
+  fn should_output_resolved_config() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
     assert_eq!(
@@ -554,7 +554,7 @@ mod test {
   }
 
   #[test]
-  fn it_should_output_resolved_config_no_plugins() {
+  fn should_output_resolved_config_no_plugins() {
     let environment = TestEnvironmentBuilder::new().with_default_config(|_| {}).build();
     run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["{}"]);

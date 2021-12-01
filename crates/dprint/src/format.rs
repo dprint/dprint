@@ -8,6 +8,7 @@ use std::time::Instant;
 use dprint_cli_core::types::ErrBox;
 
 use crate::environment::Environment;
+use crate::incremental::IncrementalFile;
 use crate::plugins::do_batch_format;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginPool;
@@ -15,8 +16,6 @@ use crate::plugins::PluginPools;
 use crate::plugins::TakePluginResult;
 use crate::utils::ErrorCountLogger;
 use crate::utils::FileText;
-
-use super::incremental::IncrementalFile;
 
 pub fn format_with_plugin_pools<'a, TEnvironment: Environment>(
   file_name: &Path,
