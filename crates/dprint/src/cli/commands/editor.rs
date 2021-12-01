@@ -11,6 +11,7 @@ use crate::cache::Cache;
 use crate::cli::configuration::resolve_config_from_args;
 use crate::cli::configuration::ResolvedConfig;
 use crate::cli::format::format_with_plugin_pools;
+use crate::cli::patterns::get_plugin_association_glob_matchers;
 use crate::cli::patterns::FileMatcher;
 use crate::cli::plugins::get_plugins_from_args;
 use crate::cli::plugins::resolve_plugins;
@@ -211,7 +212,8 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     if has_config_changed {
       self.plugin_pools.drop_plugins(); // clear the existing plugins
       let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver)?;
-      self.plugin_pools.set_plugins(plugins);
+      let association_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
+      self.plugin_pools.set_plugins(plugins, association_matchers);
     }
 
     self.config = Some(config);

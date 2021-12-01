@@ -7,22 +7,20 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::utils::glob;
-use crate::utils::GlobMatcher;
-use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 
 use super::configuration::ResolvedConfig;
 use super::patterns::get_all_file_patterns;
-use super::patterns::get_plugin_association_file_patterns;
+use super::patterns::get_plugin_association_glob_matcher;
 use super::CliArgs;
 
 pub fn get_file_paths_by_plugin_and_err_if_empty(
   plugins: &Vec<Box<dyn Plugin>>,
   file_paths: Vec<PathBuf>,
-  config_base_dir: &CanonicalizedPathBuf,
+  config_base_path: &CanonicalizedPathBuf,
 ) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
-  let file_paths_by_plugin = get_file_paths_by_plugin(plugins, file_paths, config_base_dir)?;
+  let file_paths_by_plugin = get_file_paths_by_plugin(plugins, file_paths, config_base_path)?;
   if file_paths_by_plugin.is_empty() {
     return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
   }
@@ -32,7 +30,7 @@ pub fn get_file_paths_by_plugin_and_err_if_empty(
 pub fn get_file_paths_by_plugin(
   plugins: &Vec<Box<dyn Plugin>>,
   file_paths: Vec<PathBuf>,
-  config_base_dir: &CanonicalizedPathBuf,
+  config_base_path: &CanonicalizedPathBuf,
 ) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
   let mut plugin_by_file_extension = HashMap::new();
   let mut plugin_by_file_name = HashMap::new();
@@ -45,16 +43,8 @@ pub fn get_file_paths_by_plugin(
     for file_name in plugin.file_names() {
       plugin_by_file_name.entry(file_name.to_lowercase()).or_insert(plugin.name());
     }
-    if let Some(associations) = plugin.get_config().0.associations.as_ref() {
-      plugin_associations.push((
-        plugin.name(),
-        GlobMatcher::new(
-          get_plugin_association_file_patterns(associations, config_base_dir),
-          &GlobMatcherOptions {
-            case_sensitive: !cfg!(windows),
-          },
-        )?,
-      ));
+    if let Some(matcher) = get_plugin_association_glob_matcher(plugin, config_base_path)? {
+      plugin_associations.push((plugin.name(), matcher));
     }
   }
 

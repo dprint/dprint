@@ -15,6 +15,7 @@ use crate::cli::format::run_parallelized;
 use crate::cli::incremental::get_incremental_file;
 use crate::cli::paths::get_and_resolve_file_paths;
 use crate::cli::paths::get_file_paths_by_plugin_and_err_if_empty;
+use crate::cli::patterns::get_plugin_association_glob_matchers;
 use crate::cli::patterns::FileMatcher;
 use crate::cli::plugins::resolve_plugins_and_err_if_empty;
 use crate::cli::CliArgs;
@@ -36,7 +37,8 @@ pub fn stdin_fmt<TEnvironment: Environment>(
 ) -> Result<(), ErrBox> {
   let config = resolve_config_from_args(&args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(&args, &config, environment, plugin_resolver)?;
-  plugin_pools.set_plugins(plugins);
+  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
+  plugin_pools.set_plugins(plugins, association_glob_matchers);
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(&config, args, environment)?;
@@ -77,7 +79,8 @@ pub fn output_format_times<TEnvironment: Environment>(
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  plugin_pools.set_plugins(plugins);
+  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
+  plugin_pools.set_plugins(plugins, association_glob_matchers);
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
   run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, {
@@ -110,7 +113,8 @@ pub fn check<TEnvironment: Environment>(
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  plugin_pools.set_plugins(plugins);
+  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
+  plugin_pools.set_plugins(plugins, association_glob_matchers);
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
@@ -157,7 +161,8 @@ pub fn format<TEnvironment: Environment>(
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  plugin_pools.set_plugins(plugins);
+  let association_glob_matchers = get_plugin_association_glob_matchers(&plugins, &config.base_path)?;
+  plugin_pools.set_plugins(plugins, association_glob_matchers);
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
@@ -593,6 +598,7 @@ mod test {
     let file_path3 = "/file2.other";
     let file_path4 = "/src/some_file_name";
     let file_path5 = "/src/sub-dir/test-process-plugin-exact-file";
+    let file_path6 = "/file6.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_local_config("/config.json", |c| {
         c.add_remote_wasm_plugin()
@@ -624,17 +630,20 @@ mod test {
       .write_file(&file_path3, "text3")
       .write_file(&file_path4, "text4")
       .write_file(&file_path5, "text5")
+      .write_file(&file_path6, "plugin: text6")
       .build();
 
     run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
 
-    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(5)]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(6)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm");
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_ps");
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_ps");
     assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm");
+    // this will request formatting a .txt_ps file, but should be caught be the associations
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_wasm");
   }
 
   #[test]
