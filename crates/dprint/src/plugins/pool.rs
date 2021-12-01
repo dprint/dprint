@@ -10,7 +10,9 @@ use dprint_core::types::ErrBox;
 use super::output_plugin_config_diagnostics;
 use super::InitializedPlugin;
 use super::Plugin;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::patterns::get_plugin_association_glob_matcher;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::ErrorCountLogger;
@@ -34,6 +36,7 @@ impl<TEnvironment: Environment> PluginsDropper<TEnvironment> {
   }
 }
 
+#[derive(Default)]
 struct PluginNameResolutionMaps {
   extension_to_plugin_name_map: HashMap<String, String>,
   file_name_to_plugin_name_map: HashMap<String, String>,
@@ -53,13 +56,9 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
   pub fn new(environment: TEnvironment) -> Self {
     PluginPools {
       environment,
-      pools: Mutex::new(HashMap::new()),
-      plugin_name_maps: RwLock::new(PluginNameResolutionMaps {
-        extension_to_plugin_name_map: HashMap::new(),
-        file_name_to_plugin_name_map: HashMap::new(),
-        association_matchers: Vec::new(),
-      }),
-      plugins_for_plugins: Mutex::new(HashMap::new()),
+      pools: Default::default(),
+      plugin_name_maps: Default::default(),
+      plugins_for_plugins: Default::default(),
     }
   }
 
@@ -77,16 +76,14 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
     }
   }
 
-  // todo: refactor and remove the cli folder
-  pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, plugin_association_matchers: Vec<(String, GlobMatcher)>) {
+  pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, config_base_path: &CanonicalizedPathBuf) -> Result<(), ErrBox> {
     let mut pools = self.pools.lock();
-    let mut plugin_name_maps = self.plugin_name_maps.write();
-    plugin_name_maps.association_matchers = plugin_association_matchers;
+    let mut plugin_name_maps: PluginNameResolutionMaps = Default::default();
     for plugin in plugins {
       let plugin_name = plugin.name().to_string();
       let plugin_extensions = plugin.file_extensions().clone();
       let plugin_file_names = plugin.file_names().clone();
-      pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
+
       for extension in plugin_extensions.iter() {
         // first added plugin takes precedence
         plugin_name_maps
@@ -101,7 +98,15 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
           .entry(file_name.to_owned())
           .or_insert(plugin_name.clone());
       }
+
+      if let Some(matchers) = get_plugin_association_glob_matcher(&plugin, &config_base_path)? {
+        plugin_name_maps.association_matchers.push((plugin_name.clone(), matchers));
+      }
+
+      pools.insert(plugin_name.clone(), Arc::new(InitializedPluginPool::new(plugin, self.environment.clone())));
     }
+    *self.plugin_name_maps.write() = plugin_name_maps;
+    Ok(())
   }
 
   pub fn get_pool(&self, plugin_name: &str) -> Option<Arc<InitializedPluginPool<TEnvironment>>> {
