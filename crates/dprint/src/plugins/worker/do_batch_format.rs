@@ -6,8 +6,9 @@ use std::sync::Arc;
 use std::thread;
 
 use crate::environment::Environment;
-use crate::plugins::InitializedPlugin;
-use crate::plugins::InitializedPluginPool;
+use crate::paths::PluginNames;
+use crate::plugins::OptionalPluginAndPool;
+use crate::plugins::PluginAndPoolMutRef;
 use crate::plugins::PluginPools;
 use crate::plugins::TakePluginResult;
 use crate::utils::ErrorCountLogger;
@@ -20,13 +21,13 @@ pub fn do_batch_format<TEnvironment: Environment, F>(
   environment: &TEnvironment,
   error_logger: &ErrorCountLogger<TEnvironment>,
   plugin_pools: &Arc<PluginPools<TEnvironment>>,
-  file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
+  file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
   action: F,
 ) -> Result<(), ErrBox>
 where
-  F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &mut Box<dyn InitializedPlugin>) + Send + 'static + Clone,
+  F: Fn(Vec<PluginAndPoolMutRef<TEnvironment>>, &Path) + Send + 'static + Clone,
 {
-  let registry = Arc::new(WorkerRegistry::new(plugin_pools.clone(), file_paths_by_plugin));
+  let registry = Arc::new(WorkerRegistry::new(plugin_pools.clone(), file_paths_by_plugins));
 
   // create a thread that will watch all the workers and report to the user when a file is taking a long time
   let long_format_checker_thread = LongFormatCheckerThread::new(environment, registry.clone());
@@ -72,18 +73,18 @@ fn run_thread<TEnvironment: Environment, F>(
   worker: &Worker<TEnvironment>,
   action: F,
 ) where
-  F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &mut Box<dyn InitializedPlugin>) + Send + 'static + Clone,
+  F: Fn(Vec<PluginAndPoolMutRef<TEnvironment>>, &Path) + Send + 'static + Clone,
 {
-  let mut current_plugin: Option<(Box<dyn InitializedPlugin>, Arc<InitializedPluginPool<TEnvironment>>)> = None;
+  let mut current_plugins: Option<Vec<OptionalPluginAndPool<TEnvironment>>> = None;
   loop {
-    if let Err(err) = do_local_work(error_logger, &registry, &worker, action.clone(), current_plugin.take()) {
+    if let Err(err) = do_local_work(error_logger, &registry, &worker, action.clone(), current_plugins.take()) {
       error_logger.log_error(&err.to_string());
       return;
     }
 
     if let Some(stolen_work) = registry.steal_work(worker.id) {
-      if let Some(plugin) = stolen_work.plugin {
-        current_plugin = Some((plugin, stolen_work.work.pool.clone()));
+      if let Some(plugins) = stolen_work.plugins {
+        current_plugins = Some(plugins);
       }
       worker.add_work(stolen_work.work);
     } else {
@@ -97,59 +98,84 @@ fn do_local_work<TEnvironment: Environment, F>(
   registry: &WorkerRegistry<TEnvironment>,
   worker: &Worker<TEnvironment>,
   action: F,
-  current_plugin: Option<(Box<dyn InitializedPlugin>, Arc<InitializedPluginPool<TEnvironment>>)>,
+  mut current_plugins: Option<Vec<OptionalPluginAndPool<TEnvironment>>>,
 ) -> Result<(), ErrBox>
 where
-  F: Fn(&InitializedPluginPool<TEnvironment>, &Path, &mut Box<dyn InitializedPlugin>) + Send + 'static + Clone,
+  F: Fn(Vec<PluginAndPoolMutRef<TEnvironment>>, &Path) + Send + 'static + Clone,
 {
-  let mut current_plugin = current_plugin;
-
   loop {
-    let (pool, file_path) = if let Some(next_work) = worker.take_next_work() {
+    let (pools, file_path) = if let Some(next_work) = worker.take_next_work() {
       next_work
     } else {
-      // release the current plugin before exiting
-      release_current_plugin(&mut current_plugin, registry, worker);
+      // release the current plugins before exiting
+      release_current_plugins(&mut current_plugins, registry, worker);
       return Ok(()); // finished the local work
     };
 
     // release the current plugin if it's changed
-    if let Some((_, current_pool)) = current_plugin.as_ref() {
-      if current_pool.name() != pool.name() {
-        release_current_plugin(&mut current_plugin, registry, worker);
+    if let Some(current_plugin_and_pools) = current_plugins.as_ref() {
+      let has_changed = current_plugin_and_pools.len() != pools.len()
+        || current_plugin_and_pools
+          .iter()
+          .map(|p| p.pool.name())
+          .zip(pools.iter().map(|p| p.name()))
+          .any(|(a, b)| a != b);
+      if has_changed {
+        release_current_plugins(&mut current_plugins, registry, worker);
       }
     }
 
     // now ensure the current plugin is set if not
-    if current_plugin.is_none() {
-      match pool.take_or_create_checking_config_diagnostics(error_logger)? {
-        TakePluginResult::Success(plugin) => {
-          current_plugin = Some((plugin, pool));
-        }
-        TakePluginResult::HadDiagnostics => {
-          // clear out all the work for the plugin on the current thread (other threads will figure this out on their own)
-          worker.clear_work_for_current_plugin();
-          continue;
+    let current_plugins = if let Some(current_plugins) = current_plugins.as_mut() {
+      current_plugins
+    } else {
+      current_plugins = Some(pools.iter().map(|pool| OptionalPluginAndPool::from_pool(pool.clone())).collect());
+      current_plugins.as_mut().unwrap()
+    };
+
+    let mut had_diagnostics = false;
+    let mut plugin_and_pools = Vec::with_capacity(current_plugins.len());
+    for optional_plugin_and_pool in current_plugins.iter_mut() {
+      if optional_plugin_and_pool.plugin.is_none() {
+        match optional_plugin_and_pool.pool.take_or_create_checking_config_diagnostics(error_logger)? {
+          TakePluginResult::Success(plugin) => {
+            optional_plugin_and_pool.plugin = Some(plugin);
+          }
+          TakePluginResult::HadDiagnostics => {
+            // clear out all the work for the plugin on the current thread (other threads will figure this out on their own)
+            worker.clear_work_for_current_plugin();
+            had_diagnostics = true;
+            break;
+          }
         }
       }
+      plugin_and_pools.push(PluginAndPoolMutRef {
+        plugin: optional_plugin_and_pool.plugin.as_mut().unwrap(),
+        pool: &optional_plugin_and_pool.pool,
+      })
+    }
+    if had_diagnostics {
+      continue;
     }
 
     // now do the work using it
-    let plugin_and_pool = current_plugin.as_mut().unwrap();
-
-    action(&plugin_and_pool.1, &file_path, &mut plugin_and_pool.0);
+    action(plugin_and_pools, &file_path);
   }
 
-  fn release_current_plugin<TEnvironment: Environment>(
-    current_plugin: &mut Option<(Box<dyn InitializedPlugin>, Arc<InitializedPluginPool<TEnvironment>>)>,
+  fn release_current_plugins<TEnvironment: Environment>(
+    current_plugins: &mut Option<Vec<OptionalPluginAndPool<TEnvironment>>>,
     registry: &WorkerRegistry<TEnvironment>,
     worker: &Worker<TEnvironment>,
   ) {
-    if let Some((current_plugin, pool)) = current_plugin.take() {
-      pool.release(current_plugin);
+    if let Some(plugin_and_pools) = current_plugins.take() {
+      for plugin_and_pool in plugin_and_pools {
+        if let Some(plugin) = plugin_and_pool.plugin {
+          plugin_and_pool.pool.release(plugin);
 
-      // if no other worker is working on this pool, then release the pool's resources
-      registry.release_pool_if_no_work_in_registry(worker.id, pool.name());
+          // if no other worker is working on this pool, then release the pool's resources
+          registry.release_pool_if_no_work_in_registry(worker.id, plugin_and_pool.pool.name());
+        }
+      }
     }
   }
 }

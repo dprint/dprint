@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::environment::Environment;
+use crate::paths::PluginNames;
 use crate::plugins::PluginPools;
 
 use super::LocalPluginWork;
@@ -17,28 +18,26 @@ pub struct WorkerRegistry<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> WorkerRegistry<TEnvironment> {
-  pub fn new(plugin_pools: Arc<PluginPools<TEnvironment>>, file_paths_by_plugin: HashMap<String, Vec<PathBuf>>) -> Self {
-    let workers = get_workers(&plugin_pools, file_paths_by_plugin);
+  pub fn new(plugin_pools: Arc<PluginPools<TEnvironment>>, file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>) -> Self {
+    let workers = get_workers(&plugin_pools, file_paths_by_plugins);
     return WorkerRegistry { plugin_pools, workers };
 
     fn get_workers<TEnvironment: Environment>(
       plugin_pools: &PluginPools<TEnvironment>,
-      file_paths_by_plugin: HashMap<String, Vec<PathBuf>>,
+      file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
     ) -> Vec<Arc<Worker<TEnvironment>>> {
       let number_threads = std::cmp::max(1, num_cpus::get()); // use logical cores (same as Rayon)
       let mut workers = Vec::with_capacity(number_threads);
 
       // initially divide work by plugins
       let mut item_stacks = Vec::with_capacity(number_threads);
-      for (i, (plugin_name, file_paths)) in file_paths_by_plugin.into_iter().enumerate() {
+      for (i, (plugin_names, file_paths)) in file_paths_by_plugins.into_iter().enumerate() {
         let i = i % number_threads;
         if item_stacks.get(i).is_none() {
           item_stacks.push(Vec::new());
         }
-        item_stacks
-          .get_mut(i)
-          .unwrap()
-          .push(LocalPluginWork::new(plugin_pools.get_pool(&plugin_name).unwrap(), file_paths));
+        let pools = Arc::new(plugin_names.names().map(|plugin_name| plugin_pools.get_pool(&plugin_name).unwrap()).collect());
+        item_stacks.get_mut(i).unwrap().push(LocalPluginWork::new(pools, file_paths));
       }
 
       // create the workers
@@ -108,9 +107,9 @@ impl<TEnvironment: Environment> WorkerRegistry<TEnvironment> {
           LocalWorkStealKind::Items(plugin_info) => {
             if let Some(best_match) = best_match.as_mut() {
               if let LocalWorkStealKind::Items(best_match_plugin_info) = &best_match.0.kind {
-                if best_match_plugin_info.has_plugin_available != plugin_info.has_plugin_available {
+                if best_match_plugin_info.has_all_plugins_available != plugin_info.has_all_plugins_available {
                   // always first consider work that has a plugin available
-                  if plugin_info.has_plugin_available {
+                  if plugin_info.has_all_plugins_available {
                     *best_match = (steal_info, &worker);
                   }
                 } else if plugin_info.steal_time > best_match_plugin_info.steal_time {

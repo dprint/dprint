@@ -17,9 +17,9 @@ pub struct LocalWorkStealInfo {
 }
 
 impl LocalWorkStealInfo {
-  pub fn has_plugin_available(&self) -> bool {
+  pub fn has_all_plugins_available(&self) -> bool {
     match &self.kind {
-      LocalWorkStealKind::Items(items) => items.has_plugin_available,
+      LocalWorkStealKind::Items(items) => items.has_all_plugins_available,
       _ => false,
     }
   }

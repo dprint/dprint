@@ -5,7 +5,7 @@ use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugin;
+use crate::paths::get_file_paths_by_plugins;
 use crate::plugins::get_plugins_from_args;
 use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
@@ -85,7 +85,7 @@ pub fn output_file_paths<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin(&plugins, resolved_file_paths, &config.base_path)?;
+  let file_paths_by_plugin = get_file_paths_by_plugins(&plugins, resolved_file_paths, &config.base_path)?;
 
   let file_paths = file_paths_by_plugin.values().flat_map(|x| x.iter());
   for file_path in file_paths {
