@@ -21,14 +21,6 @@ use crate::utils::GlobPatterns;
 pub struct PluginNames(String);
 
 impl PluginNames {
-  pub fn from_iter<'a>(names: impl Iterator<Item = &'a str>) -> Self {
-    let mut result = PluginNames(String::new());
-    for name in names {
-      result.add_plugin(name);
-    }
-    result
-  }
-
   pub fn names(&self) -> Split<'_, &str> {
     self.0.split("~~")
   }

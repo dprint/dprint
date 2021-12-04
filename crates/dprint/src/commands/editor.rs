@@ -273,15 +273,15 @@ mod test {
       EditorServiceCommunicator { messenger }
     }
 
-    pub fn check_file(&mut self, file_path: &Path) -> Result<bool, ErrBox> {
-      self.messenger.send_message(1, vec![file_path.into()])?;
+    pub fn check_file(&mut self, file_path: impl AsRef<Path>) -> Result<bool, ErrBox> {
+      self.messenger.send_message(1, vec![file_path.as_ref().into()])?;
       let response_code = self.messenger.read_code()?;
       self.messenger.read_zero_part_message()?;
       Ok(response_code == 1)
     }
 
-    pub fn format_text(&mut self, file_path: &Path, file_text: &str) -> Result<Option<String>, ErrBox> {
-      self.messenger.send_message(2, vec![file_path.into(), file_text.into()])?;
+    pub fn format_text(&mut self, file_path: impl AsRef<Path>, file_text: &str) -> Result<Option<String>, ErrBox> {
+      self.messenger.send_message(2, vec![file_path.as_ref().into(), file_text.into()])?;
       let response_code = self.messenger.read_code()?;
       match response_code {
         0 => {
@@ -379,6 +379,76 @@ mod test {
     // usually this would be the editor's process id, but this is ok for testing purposes
     let pid = std::process::id().to_string();
     run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_with_config_associations_for_editor_service() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt_ps";
+    let file_path3 = "/file2.other";
+    let file_path4 = "/src/some_file_name";
+    let file_path5 = "/src/sub-dir/test-process-plugin-exact-file";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": [
+                "**/*.{txt,txt_ps}",
+                "some_file_name",
+                "test-process-plugin-exact-file"
+              ],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": [
+                "**/*.{txt,txt_ps,other}",
+                "test-process-plugin-exact-file"
+              ]
+              "ending": "ps"
+            }"#,
+          )
+          .add_includes("**/*");
+      })
+      .write_file(&file_path1, "")
+      .write_file(&file_path2, "")
+      .write_file(&file_path3, "")
+      .write_file(&file_path4, "")
+      .write_file(&file_path5, "")
+      .build();
+
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        let mut communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+        assert_eq!(communicator.check_file(&file_path1).unwrap(), true);
+        assert_eq!(communicator.check_file(&file_path2).unwrap(), true);
+        assert_eq!(communicator.check_file(&file_path3).unwrap(), true);
+        assert_eq!(communicator.check_file(&file_path4).unwrap(), true);
+        assert_eq!(communicator.check_file(&file_path5).unwrap(), true);
+
+        assert_eq!(communicator.format_text(&file_path1, "text").unwrap().unwrap(), "text_wasm_ps");
+        assert_eq!(communicator.format_text(&file_path1, "plugin: text6").unwrap().unwrap(), "text6_wasm_ps");
+        assert_eq!(communicator.format_text(&file_path2, "text").unwrap().unwrap(), "text_wasm_ps");
+        assert_eq!(communicator.format_text(&file_path3, "text").unwrap().unwrap(), "text_ps");
+        assert_eq!(communicator.format_text(&file_path4, "text").unwrap().unwrap(), "text_wasm");
+        assert_eq!(communicator.format_text(&file_path5, "text").unwrap().unwrap(), "text_wasm_ps");
+
+        communicator.exit();
+      }
+    });
+
+    run_test_cli(vec!["editor-service", "--parent-pid", &std::process::id().to_string()], &environment).unwrap();
 
     result.join().unwrap();
   }

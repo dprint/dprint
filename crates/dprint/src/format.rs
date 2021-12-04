@@ -95,27 +95,27 @@ where
 
     let (start_instant, formatted_text) = {
       let start_instant = Instant::now();
-      let mut formatted_text = Cow::Borrowed(file_text.as_str());
+      let mut file_text = Cow::Borrowed(file_text.as_str());
       let plugins_len = plugins.len();
       for (i, plugin) in plugins.iter_mut().enumerate() {
         let start_instant = Instant::now();
         let format_text_result = plugin
           .pool
-          .format_measuring_time(|| plugin.plugin.format_text(file_path, file_text.as_str(), &HashMap::new()));
+          .format_measuring_time(|| plugin.plugin.format_text(file_path, &file_text, &HashMap::new()));
         log_verbose!(
           environment,
           "Formatted file: {} in {}ms{}",
           file_path.display(),
           start_instant.elapsed().as_millis(),
           if plugins_len > 1 {
-            format!(" (Pass {}/{})", i + 1, plugins_len)
+            format!(" (Plugin {}/{})", i + 1, plugins_len)
           } else {
             String::new()
           },
         );
-        formatted_text = Cow::Owned(format_text_result?);
+        file_text = Cow::Owned(format_text_result?);
       }
-      (start_instant, formatted_text.into_owned())
+      (start_instant, file_text.into_owned())
     };
 
     if let Some(incremental_file) = incremental_file {

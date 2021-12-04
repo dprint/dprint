@@ -195,6 +195,35 @@ mod test {
   }
 
   #[test]
+  fn should_output_associations_in_resolved_paths() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .add_remote_wasm_plugin()
+      .with_default_config(|config_file| {
+        config_file
+          .add_includes("**/*.other")
+          .add_config_section(
+            "test-plugin",
+            r#"{
+            "associations": [
+              "**/*.other"
+            ],
+            "ending": "wasm"
+          }"#,
+          )
+          .add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "")
+      .write_file("/file.other", "")
+      .initialize()
+      .build();
+    run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.other", "/file.txt"]);
+  }
+
+  #[test]
   fn should_filter_by_cwd_in_sub_dir() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
