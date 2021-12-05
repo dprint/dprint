@@ -90,6 +90,37 @@ These should be file globs according to [`gitignore`'s extended glob syntax](htt
 }
 ```
 
+## Associations
+
+By default, plugins will pull in files based on their extension. Sometimes a file may have a different extension or no extension at all, but you still want to format it with a certain plugin. The plugin `"associations"` config allows you to do that by associating a certain file pattern to one or multiple plugins.
+
+For example:
+
+```jsonc
+{
+  "json": {
+    "associations": [
+      // format any file named `.myconfigrc` matched by the
+      // includes/excludes patterns in any directory with
+      // the json plugin
+      ".myconfigrc",
+      // format this specific file using the json plugin
+      "./my-relative-path/to-file",
+      // format files that match this pattern
+      "**/*.myconfig"
+    ]
+  },
+  "includes": [
+    "**/*.*"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/json-x.x.x.wasm"
+  ]
+}
+```
+
+Note that first the `"includes"`/`"excludes"` file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.
+
 ## Extending a Different Configuration File
 
 You may extend other configuration files by specifying an `extends` property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).

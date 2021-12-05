@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -464,7 +464,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-cli-core"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.47.2"
+version = "0.48.0"
 dependencies = [
  "anyhow",
  "bumpalo",
@@ -488,7 +488,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-development"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "console",
