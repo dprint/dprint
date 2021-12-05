@@ -1,19 +1,21 @@
-use super::ConfigMap;
-use super::ConfigMapValue;
-use super::RawPluginConfig;
+use anyhow::bail;
+use anyhow::Result;
 use dprint_core::configuration::ConfigKeyValue;
-use dprint_core::types::ErrBox;
 use jsonc_parser::JsonArray;
 use jsonc_parser::JsonObject;
 use jsonc_parser::JsonValue;
 use std::collections::HashMap;
 
-pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
+use super::ConfigMap;
+use super::ConfigMapValue;
+use super::RawPluginConfig;
+
+pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
   let value = jsonc_parser::parse_to_value(&config_file_text)?;
 
   let root_object_node = match value {
     Some(JsonValue::Object(obj)) => obj,
-    _ => return err!("Expected a root object in the json"),
+    _ => bail!("Expected a root object in the json"),
   };
 
   let mut properties = HashMap::new();
@@ -28,7 +30,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
       JsonValue::Number(value) => ConfigMapValue::from_i32(match value.parse::<i32>() {
         Ok(value) => value,
         Err(err) => {
-          return err!(
+          bail!(
             "Expected property '{}' with value '{}' to be convertable to a signed integer. {}",
             property_name,
             value,
@@ -36,7 +38,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
           )
         }
       }),
-      _ => return err!("Expected an object, boolean, string, or number in root object property '{}'", property_name),
+      _ => bail!("Expected an object, boolean, string, or number in root object property '{}'", property_name),
     };
     properties.insert(property_name, property_value);
   }
@@ -44,7 +46,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap, ErrBox> {
   Ok(properties)
 }
 
-fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Result<RawPluginConfig, ErrBox> {
+fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Result<RawPluginConfig> {
   let mut properties = HashMap::new();
   let mut locked = false;
   let mut associations = None;
@@ -57,7 +59,7 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
           locked = value;
           continue;
         }
-        _ => return err!("The 'locked' property in a plugin configuration must be a boolean."),
+        _ => bail!("The 'locked' property in a plugin configuration must be a boolean."),
       }
     }
 
@@ -68,7 +70,7 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
           for value in value.into_iter() {
             match value {
               JsonValue::String(value) => items.push(value.into_owned()),
-              _ => return err!("The 'associations' array in a plugin configuration must contain only strings."),
+              _ => bail!("The 'associations' array in a plugin configuration must contain only strings."),
             }
           }
           associations = Some(items);
@@ -78,13 +80,13 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
           associations = Some(vec![value.into_owned()]);
           continue;
         }
-        _ => return err!("The 'associations' property in a plugin configuration must be a string or an array of strings."),
+        _ => bail!("The 'associations' property in a plugin configuration must be a string or an array of strings."),
       }
     }
 
     let property_value = match value_to_plugin_config_key_value(value) {
       Ok(result) => result,
-      Err(err) => return err!("{} in object property '{} -> {}'", err, parent_prop_name, property_name),
+      Err(err) => bail!("{} in object property '{} -> {}'", err, parent_prop_name, property_name),
     };
     properties.insert(property_name, property_value);
   }
@@ -96,13 +98,13 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
   })
 }
 
-fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<String>, ErrBox> {
+fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<String>> {
   let mut elements = Vec::new();
 
   for element in array.into_iter() {
     let value = match value_to_string(element) {
       Ok(result) => result,
-      Err(err) => return err!("{} in array '{}'", err, parent_prop_name),
+      Err(err) => bail!("{} in array '{}'", err, parent_prop_name),
     };
     elements.push(value);
   }
@@ -110,19 +112,19 @@ fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<Str
   Ok(elements)
 }
 
-fn value_to_string(value: JsonValue) -> Result<String, ErrBox> {
+fn value_to_string(value: JsonValue) -> Result<String> {
   match value {
     JsonValue::String(value) => Ok(value.into_owned()),
-    _ => return err!("Expected a string"),
+    _ => bail!("Expected a string"),
   }
 }
 
-fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue, ErrBox> {
+fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue> {
   Ok(match value {
     JsonValue::Boolean(value) => ConfigKeyValue::Bool(value),
     JsonValue::String(value) => ConfigKeyValue::String(value.into_owned()),
     JsonValue::Number(value) => ConfigKeyValue::Number(value.parse::<i32>()?),
-    _ => return err!("Expected a boolean, string, or number"),
+    _ => bail!("Expected a boolean, string, or number"),
   })
 }
 

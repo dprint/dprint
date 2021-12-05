@@ -21,7 +21,8 @@ pub use worker::*;
 
 pub use implementations::compile_wasm;
 
-use dprint_cli_core::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 
 use crate::cache::Cache;
 use crate::configuration::get_global_config;
@@ -38,7 +39,7 @@ pub fn get_plugins_from_args<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+) -> Result<Vec<Box<dyn Plugin>>> {
   match resolve_config_from_args(args, cache, environment) {
     Ok(config) => resolve_plugins(args, &config, environment, plugin_resolver),
     Err(_) => Ok(Vec::new()), // ignore
@@ -50,10 +51,10 @@ pub fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
   config: &ResolvedConfig,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+) -> Result<Vec<Box<dyn Plugin>>> {
   let plugins = resolve_plugins(args, config, environment, plugin_resolver)?;
   if plugins.is_empty() {
-    return err!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
+    bail!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
   }
   Ok(plugins)
 }
@@ -63,7 +64,7 @@ pub fn resolve_plugins<TEnvironment: Environment>(
   config: &ResolvedConfig,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+) -> Result<Vec<Box<dyn Plugin>>> {
   // resolve the plugins
   let plugins = plugin_resolver.resolve_plugins(config.plugins.clone())?;
   let mut config_map = config.config_map.clone();

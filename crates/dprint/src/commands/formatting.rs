@@ -1,12 +1,12 @@
+use anyhow::bail;
+use anyhow::Result;
 use crossterm::style::Stylize;
+use parking_lot::Mutex;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-
-use dprint_cli_core::types::ErrBox;
-use parking_lot::Mutex;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FmtSubCommand;
@@ -33,7 +33,7 @@ pub fn stdin_fmt<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config = resolve_config_from_args(&args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(&args, &config, environment, plugin_resolver)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
@@ -49,7 +49,7 @@ pub fn stdin_fmt<TEnvironment: Environment>(
           return Ok(());
         }
       }
-      Err(err) => return err!("Error canonicalizing file {}: {}", cmd.file_name_or_path, err.to_string()),
+      Err(err) => bail!("Error canonicalizing file {}: {}", cmd.file_name_or_path, err.to_string()),
     }
   }
   output_stdin_format(&PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools)
@@ -60,7 +60,7 @@ fn output_stdin_format<TEnvironment: Environment>(
   file_text: &str,
   environment: &TEnvironment,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let formatted_text = format_with_plugin_pools(file_name, file_text, environment, &plugin_pools)?;
   environment.log_silent(&formatted_text);
   Ok(())
@@ -72,7 +72,7 @@ pub fn output_format_times<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
@@ -105,7 +105,7 @@ pub fn check<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
@@ -131,7 +131,7 @@ pub fn check<TEnvironment: Environment>(
     Ok(())
   } else {
     let f = if not_formatted_files_count == 1 { "file" } else { "files" };
-    err!("Found {} not formatted {}.", not_formatted_files_count.to_string().bold().to_string(), f)
+    bail!("Found {} not formatted {}.", not_formatted_files_count.to_string().bold().to_string(), f)
   }
 }
 
@@ -152,7 +152,7 @@ pub fn format<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;

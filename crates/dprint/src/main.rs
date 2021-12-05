@@ -1,13 +1,10 @@
-#[macro_use(err_obj)]
-#[macro_use(err)]
-extern crate dprint_core;
 #[cfg(test)]
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
 mod environment;
 
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 use environment::RealEnvironment;
 use std::sync::Arc;
 use utils::RealStdInReader;
@@ -27,7 +24,7 @@ mod utils;
 #[cfg(test)]
 mod test_helpers;
 
-fn main() -> Result<(), ErrBox> {
+fn main() -> Result<()> {
   match run() {
     Ok(_) => {}
     Err(err) => {
@@ -39,7 +36,7 @@ fn main() -> Result<(), ErrBox> {
   Ok(())
 }
 
-fn run() -> Result<(), ErrBox> {
+fn run() -> Result<()> {
   let args = arg_parser::parse_args(wild::args().collect(), RealStdInReader)?;
   let environment = RealEnvironment::new(args.verbose, args.is_silent_output())?;
   let cache = Arc::new(cache::Cache::new(environment.clone()));

@@ -1,4 +1,4 @@
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 use parking_lot::RwLock;
 use std::path::PathBuf;
 
@@ -41,7 +41,7 @@ where
     self.cache_dir_path.join_panic_relative(&cache_item.file_name)
   }
 
-  pub fn create_cache_item<'b>(&self, options: CreateCacheItemOptions<'b>) -> Result<CacheItem, ErrBox> {
+  pub fn create_cache_item<'b>(&self, options: CreateCacheItemOptions<'b>) -> Result<CacheItem> {
     let file_name = self.get_file_name_from_key(&options.key, &options.extension);
     let cache_item = CacheItem {
       file_name,
@@ -61,7 +61,7 @@ where
   }
 
   #[allow(dead_code)]
-  pub fn forget_item(&self, key: &str) -> Result<(), ErrBox> {
+  pub fn forget_item(&self, key: &str) -> Result<()> {
     if let Some(item) = self.cache_manifest.write().remove_item(key) {
       let cache_file = self.cache_dir_path.join(&item.file_name);
       match self.environment.remove_file(&cache_file) {
@@ -126,7 +126,7 @@ where
     self.cache_manifest.read().items().filter(|u| u.file_name == file_name).next().is_some()
   }
 
-  fn save_manifest(&self) -> Result<(), ErrBox> {
+  fn save_manifest(&self) -> Result<()> {
     write_manifest(&self.cache_manifest.read(), &self.environment)
   }
 }

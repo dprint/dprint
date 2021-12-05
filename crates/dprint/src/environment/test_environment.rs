@@ -1,9 +1,10 @@
-use dprint_core::types::ErrBox;
+use anyhow::bail;
+use anyhow::Error;
+use anyhow::Result;
 use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::Error;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -43,11 +44,11 @@ impl MockStdInOut {
 }
 
 impl Read for MockStdInOut {
-  fn read(&mut self, _: &mut [u8]) -> Result<usize, Error> {
+  fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> {
     panic!("Not implemented");
   }
 
-  fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+  fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error> {
     let rx = self.receiver.lock();
     rx.recv().unwrap();
 
@@ -60,7 +61,7 @@ impl Read for MockStdInOut {
 }
 
 impl Write for MockStdInOut {
-  fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
+  fn write(&mut self, data: &[u8]) -> Result<usize, std::io::Error> {
     let result = {
       let mut buffer_data = self.buffer_data.lock();
       buffer_data.data.write(data)
@@ -70,7 +71,7 @@ impl Write for MockStdInOut {
     result
   }
 
-  fn flush(&mut self) -> Result<(), Error> {
+  fn flush(&mut self) -> Result<(), std::io::Error> {
     Ok(())
   }
 }
@@ -86,10 +87,10 @@ pub struct TestEnvironment {
   deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
-  confirm_results: Arc<Mutex<Vec<Result<Option<bool>, ErrBox>>>>,
+  confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_silent: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
-  dir_info_error: Arc<Mutex<Option<ErrBox>>>,
+  dir_info_error: Arc<Mutex<Option<Error>>>,
   std_in: MockStdInOut,
   std_out: MockStdInOut,
   #[cfg(windows)]
@@ -156,7 +157,7 @@ impl TestEnvironment {
     *multi_selection_result = Some(indexes);
   }
 
-  pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>, ErrBox>>) {
+  pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>>>) {
     let mut confirm_results = self.confirm_results.lock();
     *confirm_results = values;
   }
@@ -194,7 +195,7 @@ impl TestEnvironment {
     self.path_dirs.lock().clone()
   }
 
-  pub fn set_dir_info_error(&self, err: ErrBox) {
+  pub fn set_dir_info_error(&self, err: Error) {
     let mut dir_info_error = self.dir_info_error.lock();
     *dir_info_error = Some(err);
   }
@@ -236,39 +237,39 @@ impl Environment for TestEnvironment {
     false
   }
 
-  fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String, ErrBox> {
+  fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String> {
     let file_bytes = self.read_file_bytes(file_path)?;
     Ok(String::from_utf8(file_bytes.to_vec()).unwrap())
   }
 
-  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>, ErrBox> {
+  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>> {
     let file_path = self.clean_path(file_path);
     let files = self.files.lock();
     match files.get(&file_path) {
       Some(text) => Ok(text.clone()),
-      None => err!("Could not find file at path {}", file_path.display()),
+      None => bail!("Could not find file at path {}", file_path.display()),
     }
   }
 
-  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<(), ErrBox> {
+  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()> {
     self.write_file_bytes(file_path, file_text.as_bytes())
   }
 
-  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<(), ErrBox> {
+  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
     let file_path = self.clean_path(file_path);
     let mut files = self.files.lock();
     files.insert(file_path, Vec::from(bytes));
     Ok(())
   }
 
-  fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<(), ErrBox> {
+  fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
     let file_path = self.clean_path(file_path);
     let mut files = self.files.lock();
     files.remove(&file_path);
     Ok(())
   }
 
-  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<(), ErrBox> {
+  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()> {
     let dir_path = self.clean_path(dir_path);
     {
       let mut deleted_directories = self.deleted_directories.lock();
@@ -287,15 +288,15 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn download_file(&self, url: &str) -> Result<Vec<u8>, ErrBox> {
+  fn download_file(&self, url: &str) -> Result<Vec<u8>> {
     let remote_files = self.remote_files.lock();
     match remote_files.get(&String::from(url)) {
       Some(bytes) => Ok(bytes.clone()),
-      None => err!("Could not find file at url {}", url),
+      None => bail!("Could not find file at url {}", url),
     }
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>, ErrBox> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
     if let Some(err) = self.dir_info_error.lock().take() {
       return Err(err);
     }
@@ -339,7 +340,7 @@ impl Environment for TestEnvironment {
     files.contains_key(&self.clean_path(file_path))
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf, ErrBox> {
+  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
     Ok(CanonicalizedPathBuf::new(self.clean_path(path)))
   }
 
@@ -348,7 +349,7 @@ impl Environment for TestEnvironment {
     path.as_ref().to_string_lossy().starts_with("/") || path.as_ref().is_absolute()
   }
 
-  fn mk_dir_all(&self, _: impl AsRef<Path>) -> Result<(), ErrBox> {
+  fn mk_dir_all(&self, _: impl AsRef<Path>) -> Result<()> {
     Ok(())
   }
 
@@ -400,12 +401,12 @@ impl Environment for TestEnvironment {
     60
   }
 
-  fn get_selection(&self, prompt_message: &str, _: u16, _: &Vec<String>) -> Result<usize, ErrBox> {
+  fn get_selection(&self, prompt_message: &str, _: u16, _: &Vec<String>) -> Result<usize> {
     self.log_stderr(prompt_message);
     Ok(*self.selection_result.lock())
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, _: u16, items: &Vec<(bool, String)>) -> Result<Vec<usize>, ErrBox> {
+  fn get_multi_selection(&self, prompt_message: &str, _: u16, items: &Vec<(bool, String)>) -> Result<Vec<usize>> {
     self.log_stderr(prompt_message);
     let default_values = items
       .iter()
@@ -415,7 +416,7 @@ impl Environment for TestEnvironment {
     Ok(self.multi_selection_result.lock().clone().unwrap_or(default_values))
   }
 
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool, ErrBox> {
+  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
     let mut confirm_results = self.confirm_results.lock();
     let result = confirm_results.remove(0).map(|v| v.unwrap_or(default_value));
     self.log_stderr(&format!(
@@ -434,7 +435,7 @@ impl Environment for TestEnvironment {
     *self.is_verbose.lock()
   }
 
-  fn compile_wasm(&self, _: &[u8]) -> Result<CompilationResult, ErrBox> {
+  fn compile_wasm(&self, _: &[u8]) -> Result<CompilationResult> {
     let wasm_compile_result = self.wasm_compile_result.lock();
     Ok(wasm_compile_result.clone().expect("Expected compilation result to be set."))
   }
@@ -448,7 +449,7 @@ impl Environment for TestEnvironment {
   }
 
   #[cfg(windows)]
-  fn ensure_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
+  fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
     let mut path_dirs = self.path_dirs.lock();
     let directory_path = PathBuf::from(directory_path);
     if !path_dirs.contains(&directory_path) {
@@ -458,7 +459,7 @@ impl Environment for TestEnvironment {
   }
 
   #[cfg(windows)]
-  fn remove_system_path(&self, directory_path: &str) -> Result<(), ErrBox> {
+  fn remove_system_path(&self, directory_path: &str) -> Result<()> {
     let mut path_dirs = self.path_dirs.lock();
     let directory_path = PathBuf::from(directory_path);
     if let Some(pos) = path_dirs.iter().position(|p| p == &directory_path) {

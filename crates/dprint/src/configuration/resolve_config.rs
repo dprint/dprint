@@ -1,6 +1,7 @@
+use anyhow::bail;
+use anyhow::Result;
 use crossterm::style::Stylize;
 use dprint_core::configuration::ConfigKeyValue;
-use dprint_core::types::ErrBox;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -31,11 +32,7 @@ pub struct ResolvedConfig {
   pub config_map: ConfigMap,
 }
 
-pub fn resolve_config_from_args<TEnvironment: Environment>(
-  args: &CliArgs,
-  cache: &Cache<TEnvironment>,
-  environment: &TEnvironment,
-) -> Result<ResolvedConfig, ErrBox> {
+pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, cache: &Cache<TEnvironment>, environment: &TEnvironment) -> Result<ResolvedConfig> {
   let resolved_config_path = resolve_main_config_path(args, cache, environment)?;
   let base_source = resolved_config_path.resolved_path.source.parent();
   let config_file_path = &resolved_config_path.resolved_path.file_path;
@@ -48,7 +45,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(
       if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
         HashMap::new()
       } else {
-        return err!(
+        bail!(
           "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
           config_file_path.display(),
           err.to_string(),
@@ -119,12 +116,12 @@ fn resolve_extends<TEnvironment: Environment>(
   base_path: &PathSource,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   for url_or_file_path in extends {
     let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, cache, environment)?;
     match handle_config_file(&resolved_path, resolved_config, cache, environment) {
       Ok(extends) => extends,
-      Err(err) => return err!("Error with '{}'. {}", resolved_path.source.display(), err.to_string()),
+      Err(err) => bail!("Error with '{}'. {}", resolved_path.source.display(), err.to_string()),
     }
   }
   Ok(())
@@ -135,7 +132,7 @@ fn handle_config_file<'a, TEnvironment: Environment>(
   resolved_config: &mut ResolvedConfig,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config_file_path = &resolved_path.file_path;
   let mut new_config_map = match get_config_map_from_path(config_file_path, environment)? {
     Ok(config_map) => config_map,
@@ -184,7 +181,7 @@ fn handle_config_file<'a, TEnvironment: Environment>(
             ConfigMapValue::PluginConfig(resolved_config_obj) => {
               // check for locked configuration
               if obj.locked && !resolved_config_obj.properties.is_empty() {
-                return err!(
+                bail!(
                   concat!(
                     "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
                     "Locked configurations cannot have their properties overridden."
@@ -223,16 +220,16 @@ fn handle_config_file<'a, TEnvironment: Environment>(
   Ok(())
 }
 
-fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>, ErrBox> {
+fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {
   match config_map.remove("extends") {
     Some(ConfigMapValue::KeyValue(ConfigKeyValue::String(url_or_file_path))) => Ok(vec![url_or_file_path]),
     Some(ConfigMapValue::Vec(url_or_file_paths)) => Ok(url_or_file_paths),
-    Some(_) => return err!("Extends in configuration must be a string or an array of strings."),
+    Some(_) => bail!("Extends in configuration must be a string or an array of strings."),
     None => Ok(Vec::new()),
   }
 }
 
-fn get_config_map_from_path(file_path: impl AsRef<Path>, environment: &impl Environment) -> Result<Result<ConfigMap, ErrBox>, ErrBox> {
+fn get_config_map_from_path(file_path: impl AsRef<Path>, environment: &impl Environment) -> Result<Result<ConfigMap>> {
   let config_file_text = match environment.read_file(file_path) {
     Ok(file_text) => file_text,
     Err(err) => return Ok(Err(err)),
@@ -240,7 +237,7 @@ fn get_config_map_from_path(file_path: impl AsRef<Path>, environment: &impl Envi
 
   let result = match deserialize_config(&config_file_text) {
     Ok(map) => map,
-    Err(e) => return err!("Error deserializing. {}", e.to_string()),
+    Err(e) => bail!("Error deserializing. {}", e.to_string()),
   };
 
   Ok(Ok(result))
@@ -250,7 +247,7 @@ fn take_plugins_array_from_config_map(
   config_map: &mut ConfigMap,
   base_path: &PathSource,
   environment: &impl Environment,
-) -> Result<Vec<PluginSourceReference>, ErrBox> {
+) -> Result<Vec<PluginSourceReference>> {
   let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?;
   let mut plugins = Vec::with_capacity(plugin_url_or_file_paths.len());
   for url_or_file_path in plugin_url_or_file_paths {
@@ -259,27 +256,27 @@ fn take_plugins_array_from_config_map(
   Ok(plugins)
 }
 
-fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>, ErrBox> {
+fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>> {
   let mut result = Vec::new();
   if let Some(value) = config_map.remove(property_name) {
     match value {
       ConfigMapValue::Vec(elements) => {
         result.extend(elements);
       }
-      _ => return err!("Expected array in '{}' property.", property_name),
+      _ => bail!("Expected array in '{}' property.", property_name),
     }
   }
   Ok(result)
 }
 
-fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, default_value: bool) -> Result<bool, ErrBox> {
+fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, default_value: bool) -> Result<bool> {
   let mut result = default_value;
   if let Some(value) = config_map.remove(property_name) {
     match value {
       ConfigMapValue::KeyValue(ConfigKeyValue::Bool(value)) => {
         result = value;
       }
-      _ => return err!("Expected boolean in '{}' property.", property_name),
+      _ => bail!("Expected boolean in '{}' property.", property_name),
     }
   }
   Ok(result)
@@ -327,12 +324,12 @@ mod tests {
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::utils::TestStdInReader;
-  use dprint_core::types::ErrBox;
+  use anyhow::Result;
   use pretty_assertions::assert_eq;
 
   use super::*;
 
-  fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ErrBox> {
+  fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig> {
     let args = parse_args(
       vec![String::from(""), String::from("check"), String::from("-c"), String::from(url)],
       TestStdInReader::default(),

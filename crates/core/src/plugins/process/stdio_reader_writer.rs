@@ -1,4 +1,4 @@
-use crate::types::ErrBox;
+use anyhow::Result;
 use std::io::Read;
 use std::io::Write;
 
@@ -18,27 +18,27 @@ impl<TRead: Read, TWrite: Write> StdIoReaderWriter<TRead, TWrite> {
   }
 
   /// Send a u32 value.
-  pub fn send_u32(&mut self, value: u32) -> Result<(), ErrBox> {
+  pub fn send_u32(&mut self, value: u32) -> Result<()> {
     self.writer.write_all(&value.to_be_bytes())?;
 
     Ok(())
   }
 
   /// Reads a u32 value.
-  pub fn read_u32(&mut self) -> Result<u32, ErrBox> {
+  pub fn read_u32(&mut self) -> Result<u32> {
     let mut int_buf: [u8; 4] = [0; 4];
     self.reader.read_exact(&mut int_buf)?;
     Ok(u32::from_be_bytes(int_buf))
   }
 
-  pub fn send_success_bytes(&mut self) -> Result<(), ErrBox> {
+  pub fn send_success_bytes(&mut self) -> Result<()> {
     self.writer.write_all(SUCCESS_BYTES)?;
     self.writer.flush()?;
 
     Ok(())
   }
 
-  pub fn read_success_bytes(&mut self) -> Result<(), ErrBox> {
+  pub fn read_success_bytes(&mut self) -> Result<()> {
     let read_bytes = self.inner_read_success_bytes()?;
     if &read_bytes == SUCCESS_BYTES {
       Ok(())
@@ -50,7 +50,7 @@ impl<TRead: Read, TWrite: Write> StdIoReaderWriter<TRead, TWrite> {
     }
   }
 
-  pub fn read_success_bytes_with_message_on_error(&mut self, maybe_read_error_message: &[u8]) -> Result<(), ErrBox> {
+  pub fn read_success_bytes_with_message_on_error(&mut self, maybe_read_error_message: &[u8]) -> Result<()> {
     let read_bytes = self.inner_read_success_bytes()?;
     if &read_bytes == SUCCESS_BYTES {
       Ok(())
@@ -64,14 +64,14 @@ impl<TRead: Read, TWrite: Write> StdIoReaderWriter<TRead, TWrite> {
     }
   }
 
-  fn inner_read_success_bytes(&mut self) -> Result<[u8; 4], ErrBox> {
+  fn inner_read_success_bytes(&mut self) -> Result<[u8; 4]> {
     let mut read_buf: [u8; 4] = [0; 4];
     self.reader.read_exact(&mut read_buf)?;
     Ok(read_buf)
   }
 
   /// Sends variable width data (4 bytes length, X bytes data)
-  pub fn send_variable_data(&mut self, data: &[u8]) -> Result<(), ErrBox> {
+  pub fn send_variable_data(&mut self, data: &[u8]) -> Result<()> {
     // send the message part length (4 bytes)
     self.writer.write_all(&(data.len() as u32).to_be_bytes())?;
 
@@ -99,7 +99,7 @@ impl<TRead: Read, TWrite: Write> StdIoReaderWriter<TRead, TWrite> {
 
   /// Gets the message part (4 bytes length, X bytes data)
   /// Messages may have multiple parts.
-  pub fn read_variable_data(&mut self) -> Result<Vec<u8>, ErrBox> {
+  pub fn read_variable_data(&mut self) -> Result<Vec<u8>> {
     let size = self.read_u32()? as usize;
 
     let mut message_data = vec![0u8; size];

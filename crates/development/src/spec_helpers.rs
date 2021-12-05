@@ -1,15 +1,14 @@
+use anyhow::Result;
+use console::Style;
+use similar::ChangeTag;
+use similar::TextDiff;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::fs::{self};
+use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
 use super::*;
-use console::Style;
-use similar::ChangeTag;
-use similar::TextDiff;
-
-pub type ErrBox = Box<dyn std::error::Error + Send + Sync>;
 
 struct FailedTestResult {
   file_path: String,
@@ -52,7 +51,7 @@ pub fn run_specs(
   directory_path: &Path,
   parse_spec_options: &ParseSpecOptions,
   run_spec_options: &RunSpecsOptions,
-  format_text: impl Fn(&Path, &str, &HashMap<String, String>) -> Result<String, ErrBox>,
+  format_text: impl Fn(&Path, &str, &HashMap<String, String>) -> Result<String>,
   get_trace_json: impl Fn(&Path, &str, &HashMap<String, String>) -> String,
 ) {
   #[cfg(not(debug_assertions))]

@@ -1,4 +1,5 @@
-use dprint_core::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 use wasmer::Module;
 use wasmer::Store;
 
@@ -7,13 +8,13 @@ use super::InitializedWasmPlugin;
 use crate::plugins::CompilationResult;
 
 /// Compiles a Wasm module.
-pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult, ErrBox> {
+pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
   let store = Store::default();
   let module = Module::new(&store, wasm_bytes)?;
   let bytes = match module.serialize() {
-    Ok(bytes) => Ok(bytes),
-    Err(err) => err!("Error serializing wasm module: {:?}", err),
-  }?;
+    Ok(bytes) => bytes,
+    Err(err) => bail!("Error serializing wasm module: {:?}", err),
+  };
 
   // load the plugin and get the info
   let plugin = InitializedWasmPlugin::new(

@@ -1,10 +1,11 @@
+use anyhow::anyhow;
+use anyhow::Error;
+use anyhow::Result;
+use parking_lot::Condvar;
+use parking_lot::Mutex;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-use dprint_cli_core::types::ErrBox;
-use parking_lot::Condvar;
-use parking_lot::Mutex;
 
 use crate::environment::DirEntry;
 use crate::environment::DirEntryKind;
@@ -14,7 +15,7 @@ use crate::utils::GlobMatcherOptions;
 
 use super::GlobPatterns;
 
-pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<Vec<PathBuf>, ErrBox> {
+pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<Vec<PathBuf>> {
   if file_patterns.includes.iter().all(|p| p.is_negated()) {
     // performance improvement (see issue #379)
     log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
@@ -71,7 +72,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
             let info_result = self
               .environment
               .dir_info(&current_dir)
-              .map_err(|err| err_obj!("Error reading dir '{}': {}", current_dir.display(), err.to_string()));
+              .map_err(|err| anyhow!("Error reading dir '{}': {}", current_dir.display(), err.to_string()));
             match info_result {
               Ok(entries) => {
                 if !entries.is_empty() {
@@ -117,7 +118,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     }
   }
 
-  fn set_glob_error(&self, error: ErrBox) {
+  fn set_glob_error(&self, error: Error) {
     let &(ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.read_dir_thread_state = ReadDirThreadState::Error(error);
@@ -141,7 +142,7 @@ impl GlobMatchingProcessor {
   pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher) -> Self {
     Self { shared_state, glob_matcher }
   }
-  pub fn run(&self) -> Result<Vec<PathBuf>, ErrBox> {
+  pub fn run(&self) -> Result<Vec<PathBuf>> {
     let mut results = Vec::new();
 
     loop {
@@ -179,7 +180,7 @@ impl GlobMatchingProcessor {
     cvar.notify_one();
   }
 
-  fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirEntry>>>, ErrBox> {
+  fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirEntry>>>> {
     let &(ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     loop {
@@ -201,7 +202,7 @@ impl GlobMatchingProcessor {
           }
         }
         ReadDirThreadState::Error(err) => {
-          return Err(err_obj!("{}", err.to_string()));
+          return Err(anyhow!("{}", err.to_string()));
         }
         ReadDirThreadState::Processing => {
           // wait to be notified by the other thread
@@ -215,7 +216,7 @@ impl GlobMatchingProcessor {
 enum ReadDirThreadState {
   Processing,
   Waiting,
-  Error(ErrBox),
+  Error(Error),
 }
 
 enum ProcessingThreadState {
@@ -300,7 +301,7 @@ mod test {
   #[test]
   fn should_handle_dir_info_erroring() {
     let environment = TestEnvironmentBuilder::new().build();
-    environment.set_dir_info_error(err_obj!("FAILURE"));
+    environment.set_dir_info_error(anyhow!("FAILURE"));
     let root_dir = environment.canonicalize("/").unwrap();
     let err_message = glob(
       &environment,

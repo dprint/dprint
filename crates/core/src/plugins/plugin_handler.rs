@@ -1,10 +1,11 @@
+use anyhow::Result;
+use serde::Serialize;
+use std::path::Path;
+
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::PluginInfo;
-use crate::types::ErrBox;
-use serde::Serialize;
-use std::path::Path;
 
 /// Trait for implementing a Wasm or process plugin.
 pub trait PluginHandler<TConfiguration: Clone + Serialize> {
@@ -20,6 +21,6 @@ pub trait PluginHandler<TConfiguration: Clone + Serialize> {
     file_path: &Path,
     file_text: &str,
     config: &TConfiguration,
-    format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
-  ) -> Result<String, ErrBox>;
+    format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
+  ) -> Result<String>;
 }

@@ -1,28 +1,30 @@
-use super::MessagePart;
-use super::StdIoReaderWriter;
-use crate::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
+
+use super::MessagePart;
+use super::StdIoReaderWriter;
 
 pub struct ReadMessageParts {
   parts: Vec<Vec<u8>>,
 }
 
 impl ReadMessageParts {
-  pub fn take_path_buf(&mut self) -> Result<PathBuf, ErrBox> {
+  pub fn take_path_buf(&mut self) -> Result<PathBuf> {
     let message_data = self.take_part()?;
     Ok(PathBuf::from(String::from_utf8(message_data)?))
   }
 
-  pub fn take_string(&mut self) -> Result<String, ErrBox> {
+  pub fn take_string(&mut self) -> Result<String> {
     let message_data = self.take_part()?;
     Ok(String::from_utf8(message_data)?)
   }
 
-  pub fn take_part(&mut self) -> Result<Vec<u8>, ErrBox> {
+  pub fn take_part(&mut self) -> Result<Vec<u8>> {
     if self.parts.is_empty() {
-      err!("Programming error: Expected to take message part.")
+      bail!("Programming error: Expected to take message part.")
     } else {
       Ok(self.parts.remove(0))
     }
@@ -39,11 +41,11 @@ impl<TRead: Read, TWrite: Write> StdIoMessenger<TRead, TWrite> {
     StdIoMessenger { reader_writer }
   }
 
-  pub fn read_code(&mut self) -> Result<u32, ErrBox> {
+  pub fn read_code(&mut self) -> Result<u32> {
     self.reader_writer.read_u32()
   }
 
-  pub fn read_multi_part_message(&mut self, part_count: u32) -> Result<ReadMessageParts, ErrBox> {
+  pub fn read_multi_part_message(&mut self, part_count: u32) -> Result<ReadMessageParts> {
     let mut parts = Vec::with_capacity(part_count as usize);
     for _ in 0..part_count {
       parts.push(self.reader_writer.read_variable_data()?);
@@ -54,40 +56,40 @@ impl<TRead: Read, TWrite: Write> StdIoMessenger<TRead, TWrite> {
 
   // TODO: GET RID OF THESE AND JUST USE INTO
 
-  pub fn read_single_part_path_buf_message(&mut self) -> Result<PathBuf, ErrBox> {
+  pub fn read_single_part_path_buf_message(&mut self) -> Result<PathBuf> {
     let message = self.read_single_part_message()?;
     let text = String::from_utf8(message)?;
     Ok(PathBuf::from(text))
   }
 
-  pub fn read_single_part_string_message(&mut self) -> Result<String, ErrBox> {
+  pub fn read_single_part_string_message(&mut self) -> Result<String> {
     let message = self.read_single_part_message()?;
     Ok(String::from_utf8(message)?)
   }
 
-  pub fn read_single_part_error_message(&mut self) -> Result<String, ErrBox> {
+  pub fn read_single_part_error_message(&mut self) -> Result<String> {
     let message = self.reader_writer.read_variable_data()?;
     self.reader_writer.read_success_bytes_with_message_on_error(&message)?;
     Ok(String::from_utf8(message)?)
   }
 
-  pub fn read_single_part_u32_message(&mut self) -> Result<u32, ErrBox> {
+  pub fn read_single_part_u32_message(&mut self) -> Result<u32> {
     let data = self.reader_writer.read_u32()?;
     self.reader_writer.read_success_bytes()?;
     Ok(data)
   }
 
-  pub fn read_single_part_message(&mut self) -> Result<Vec<u8>, ErrBox> {
+  pub fn read_single_part_message(&mut self) -> Result<Vec<u8>> {
     let data = self.reader_writer.read_variable_data()?;
     self.reader_writer.read_success_bytes()?;
     Ok(data)
   }
 
-  pub fn read_zero_part_message(&mut self) -> Result<(), ErrBox> {
+  pub fn read_zero_part_message(&mut self) -> Result<()> {
     self.reader_writer.read_success_bytes()
   }
 
-  pub fn send_message(&mut self, code: u32, message_parts: Vec<MessagePart>) -> Result<(), ErrBox> {
+  pub fn send_message(&mut self, code: u32, message_parts: Vec<MessagePart>) -> Result<()> {
     self.reader_writer.send_u32(code)?;
     for message_part in message_parts {
       match message_part {

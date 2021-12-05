@@ -1,4 +1,5 @@
-use dprint_core::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 use jsonc_parser::parse_to_value;
 use jsonc_parser::JsonArray;
 use jsonc_parser::JsonObject;
@@ -34,22 +35,22 @@ impl InfoFilePluginInfo {
 const SCHEMA_VERSION: u8 = 4;
 pub const REMOTE_INFO_URL: &'static str = "https://plugins.dprint.dev/info.json";
 
-pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox> {
+pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
   let info_bytes = environment.download_file(REMOTE_INFO_URL)?;
   let info_text = String::from_utf8(info_bytes.to_vec())?;
   let json_value = parse_to_value(&info_text)?;
   let mut obj = match json_value {
     Some(JsonValue::Object(obj)) => obj,
-    _ => return err!("Expected object in root element."),
+    _ => bail!("Expected object in root element."),
   };
 
   // check schema version
   let schema_version = match obj.take_number("schemaVersion") {
     Some(value) => value.parse::<u32>()?,
-    _ => return err!("Could not find schema version."),
+    _ => bail!("Could not find schema version."),
   };
   if schema_version != SCHEMA_VERSION as u32 {
-    return err!(
+    bail!(
       "Cannot handle schema version {}. Expected {}. This might mean your dprint CLI version is old and isn't able to get the latest information.",
       schema_version,
       SCHEMA_VERSION
@@ -59,7 +60,7 @@ pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox
   // get plugin system version
   let plugin_system_schema_version = match obj.take_number("pluginSystemSchemaVersion") {
     Some(value) => value.parse::<u32>()?,
-    _ => return err!("Could not find plugin system schema version."),
+    _ => bail!("Could not find plugin system schema version."),
   };
 
   let latest_plugins = match obj.take_array("latest") {
@@ -70,7 +71,7 @@ pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox
       }
       plugins
     }
-    _ => return err!("Could not find latest plugins array."),
+    _ => bail!("Could not find latest plugins array."),
   };
 
   Ok(InfoFile {
@@ -79,10 +80,10 @@ pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile, ErrBox
   })
 }
 
-fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
+fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
   let mut obj = match value {
     JsonValue::Object(obj) => obj,
-    _ => return err!("Expected an object in the latest array."),
+    _ => bail!("Expected an object in the latest array."),
   };
   let name = get_string(&mut obj, "name")?;
   let version = get_string(&mut obj, "version")?;
@@ -107,28 +108,28 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo, ErrBox> {
   })
 }
 
-fn get_string_array(value: &mut JsonObject, key: &str) -> Result<Vec<String>, ErrBox> {
+fn get_string_array(value: &mut JsonObject, key: &str) -> Result<Vec<String>> {
   let mut result = Vec::new();
   for item in get_array(value, key)? {
     match item {
       JsonValue::String(item) => result.push(item.into_owned()),
-      _ => return err!("Unexpected non-string in {} array.", key),
+      _ => bail!("Unexpected non-string in {} array.", key),
     }
   }
   Ok(result)
 }
 
-fn get_string(value: &mut JsonObject, name: &str) -> Result<String, ErrBox> {
+fn get_string(value: &mut JsonObject, name: &str) -> Result<String> {
   match value.take_string(name) {
     Some(text) => Ok(text.into_owned()),
-    _ => return err!("Could not find string: {}", name),
+    _ => bail!("Could not find string: {}", name),
   }
 }
 
-fn get_array<'a>(value: &mut JsonObject<'a>, name: &str) -> Result<JsonArray<'a>, ErrBox> {
+fn get_array<'a>(value: &mut JsonObject<'a>, name: &str) -> Result<JsonArray<'a>> {
   match value.take_array(name) {
     Some(arr) => Ok(arr),
-    _ => return err!("Could not find array: {}", name),
+    _ => bail!("Could not find array: {}", name),
   }
 }
 

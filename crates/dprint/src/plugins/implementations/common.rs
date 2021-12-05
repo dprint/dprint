@@ -1,5 +1,5 @@
+use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
-use dprint_core::types::ErrBox;
 use std::borrow::Cow;
 use std::path::Path;
 
@@ -12,7 +12,7 @@ pub fn format_with_plugin_pool<TEnvironment: Environment>(
   file_text: &str,
   override_config: &ConfigKeyMap,
   pools: &PluginPools<TEnvironment>,
-) -> Result<Option<String>, ErrBox> {
+) -> Result<Option<String>> {
   let sub_plugin_names = pools.get_plugin_names_from_file_name(file_path);
   if sub_plugin_names.is_empty() {
     return Ok(None); // no plugin, no change

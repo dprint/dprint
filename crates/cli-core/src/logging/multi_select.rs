@@ -1,10 +1,12 @@
+use anyhow::bail;
+use anyhow::Result;
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
+
 use crate::logging::Logger;
 use crate::logging::LoggerRefreshItemKind;
 use crate::logging::LoggerTextItem;
 use crate::terminal::read_terminal_event;
-use crate::types::ErrBox;
-use crossterm::event::Event;
-use crossterm::event::KeyCode;
 
 struct MultiSelectData<'a> {
   prompt: &'a str,
@@ -13,13 +15,7 @@ struct MultiSelectData<'a> {
   active_index: usize,
 }
 
-pub fn show_multi_select(
-  logger: &Logger,
-  context_name: &str,
-  prompt: &str,
-  item_hanging_indent: u16,
-  items: Vec<(bool, &String)>,
-) -> Result<Vec<usize>, ErrBox> {
+pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item_hanging_indent: u16, items: Vec<(bool, &String)>) -> Result<Vec<usize>> {
   let mut data = MultiSelectData {
     prompt,
     items,
@@ -54,7 +50,7 @@ pub fn show_multi_select(
           }
           KeyCode::Esc => {
             logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
-            return err!("Selection cancelled.");
+            bail!("Selection cancelled.");
           }
           _ => {}
         }

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use dprint_cli_core::types::ErrBox;
+use anyhow::Result;
 
 use crate::arg_parser::CliArgs;
 use crate::configuration::ResolvedConfig;
@@ -19,7 +19,7 @@ pub struct FileMatcher {
 }
 
 impl FileMatcher {
-  pub fn new(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Self, ErrBox> {
+  pub fn new(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Self> {
     let cwd = environment.cwd();
     let patterns = get_all_file_patterns(config, args, &cwd);
     let glob_matcher = GlobMatcher::new(
@@ -44,7 +44,7 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
   }
 }
 
-pub fn get_plugin_association_glob_matcher(plugin: &Box<dyn Plugin>, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>, ErrBox> {
+pub fn get_plugin_association_glob_matcher(plugin: &Box<dyn Plugin>, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
   Ok(if let Some(associations) = plugin.get_config().0.associations.as_ref() {
     Some(GlobMatcher::new(
       GlobPatterns {

@@ -1,3 +1,6 @@
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Result;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -17,7 +20,6 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::PluginHandler;
-use crate::types::ErrBox;
 
 struct MessageProcessorState<TConfiguration: Clone + Serialize> {
   global_config: Option<GlobalConfiguration>,
@@ -26,7 +28,7 @@ struct MessageProcessorState<TConfiguration: Clone + Serialize> {
 }
 
 /// Handles the process' messages based on the provided handler.
-pub fn handle_process_stdio_messages<THandler: PluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(mut handler: THandler) -> Result<(), ErrBox> {
+pub fn handle_process_stdio_messages<THandler: PluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(mut handler: THandler) -> Result<()> {
   let stdin = std::io::stdin();
   let stdout = std::io::stdout();
   let reader_writer = StdIoReaderWriter::new(stdin, stdout);
@@ -53,7 +55,7 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
   messenger: &mut StdIoMessenger<TRead, TWrite>,
   handler: &mut THandler,
   state: &mut MessageProcessorState<TConfiguration>,
-) -> Result<bool, ErrBox> {
+) -> Result<bool> {
   match message_kind {
     MessageKind::Close => {
       messenger.read_zero_part_message()?;
@@ -126,7 +128,7 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
 fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: PluginHandler<TConfiguration>>(
   handler: &mut THandler,
   state: &mut MessageProcessorState<TConfiguration>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   if state.resolved_config_result.is_none() {
     state.resolved_config_result = Some(create_resolved_config_result(handler, state, HashMap::new())?);
   }
@@ -138,25 +140,34 @@ fn create_resolved_config_result<TConfiguration: Clone + Serialize, THandler: Pl
   handler: &mut THandler,
   state: &MessageProcessorState<TConfiguration>,
   override_config: ConfigKeyMap,
-) -> Result<ResolveConfigurationResult<TConfiguration>, ErrBox> {
-  let mut plugin_config = state.config.as_ref().ok_or("Expected plugin config to be set at this point")?.clone();
+) -> Result<ResolveConfigurationResult<TConfiguration>> {
+  let mut plugin_config = state
+    .config
+    .as_ref()
+    .ok_or_else(|| anyhow!("Expected plugin config to be set at this point"))?
+    .clone();
   for (key, value) in override_config {
     plugin_config.insert(key, value);
   }
-  Ok(handler.resolve_config(
-    plugin_config,
-    state.global_config.as_ref().ok_or("Expected global config to be set at this point.")?,
-  ))
+  Ok(
+    handler.resolve_config(
+      plugin_config,
+      state
+        .global_config
+        .as_ref()
+        .ok_or_else(|| anyhow!("Expected global config to be set at this point."))?,
+    ),
+  )
 }
 
 fn get_resolved_config_result<TConfiguration: Clone + Serialize>(
   state: &MessageProcessorState<TConfiguration>,
-) -> Result<&ResolveConfigurationResult<TConfiguration>, ErrBox> {
+) -> Result<&ResolveConfigurationResult<TConfiguration>> {
   Ok(
     state
       .resolved_config_result
       .as_ref()
-      .ok_or("Expected the config to be resolved at this point.")?,
+      .ok_or_else(|| anyhow!("Expected the config to be resolved at this point."))?,
   )
 }
 
@@ -165,7 +176,7 @@ fn format_with_host<TRead: Read, TWrite: Write>(
   file_path: &Path,
   file_text: String,
   override_config: &ConfigKeyMap,
-) -> Result<String, ErrBox> {
+) -> Result<String> {
   messenger.send_response(vec![
     (FormatResult::RequestTextFormat as u32).into(),
     file_path.into(),
@@ -181,22 +192,22 @@ fn format_with_host<TRead: Read, TWrite: Write>(
       Ok(file_text)
     }
     HostFormatResult::Error => {
-      err!("{}", messenger.read_single_part_error_message()?)
+      bail!("{}", messenger.read_single_part_error_message()?)
     }
   }
 }
 
 trait StdIoMessengerExtensions {
-  fn send_response(&mut self, message_parts: Vec<MessagePart>) -> Result<(), ErrBox>;
-  fn send_error_response(&mut self, error_message: &str) -> Result<(), ErrBox>;
+  fn send_response(&mut self, message_parts: Vec<MessagePart>) -> Result<()>;
+  fn send_error_response(&mut self, error_message: &str) -> Result<()>;
 }
 
 impl<TRead: Read, TWrite: Write> StdIoMessengerExtensions for StdIoMessenger<TRead, TWrite> {
-  fn send_response(&mut self, message_parts: Vec<MessagePart>) -> Result<(), ErrBox> {
+  fn send_response(&mut self, message_parts: Vec<MessagePart>) -> Result<()> {
     self.send_message(ResponseKind::Success as u32, message_parts)
   }
 
-  fn send_error_response(&mut self, error_message: &str) -> Result<(), ErrBox> {
+  fn send_error_response(&mut self, error_message: &str) -> Result<()> {
     self.send_message(ResponseKind::Error as u32, vec![error_message.into()])
   }
 }

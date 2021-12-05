@@ -3,8 +3,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use anyhow::Result;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 
@@ -64,7 +64,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
     }
   };
 
-  fn try_deserialize(environment: &impl Environment) -> Result<PluginCacheManifest, ErrBox> {
+  fn try_deserialize(environment: &impl Environment) -> Result<PluginCacheManifest> {
     let file_path = get_manifest_file_path(environment);
     return match environment.read_file(&file_path) {
       Ok(text) => Ok(serde_json::from_str::<PluginCacheManifest>(&text)?),
@@ -73,7 +73,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
   }
 }
 
-pub fn write_manifest(manifest: &PluginCacheManifest, environment: &impl Environment) -> Result<(), ErrBox> {
+pub fn write_manifest(manifest: &PluginCacheManifest, environment: &impl Environment) -> Result<()> {
   let file_path = get_manifest_file_path(environment);
   let serialized_manifest = serde_json::to_string(&manifest)?;
   environment.write_file(&file_path, &serialized_manifest)

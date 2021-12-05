@@ -1,4 +1,4 @@
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 use std::sync::Arc;
 
 use crate::cache::Cache;
@@ -17,7 +17,7 @@ pub fn run_cli<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   match &args.sub_command {
     SubCommand::Help(help_text) => commands::output_help(&args, cache, environment, plugin_resolver, help_text),
     SubCommand::License => commands::output_license(&args, cache, environment, plugin_resolver),

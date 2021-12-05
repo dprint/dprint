@@ -1,4 +1,4 @@
-use dprint_cli_core::types::ErrBox;
+use anyhow::Result;
 
 use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
@@ -11,7 +11,7 @@ use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
 use crate::utils::get_table_text;
 
-pub fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<(), ErrBox> {
+pub fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
   environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
 
   Ok(())
@@ -23,7 +23,7 @@ pub fn output_help<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
   help_text: &str,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   // log the cli's help first
   environment.log(help_text);
 
@@ -55,7 +55,7 @@ pub fn output_license<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   environment.log("==== DPRINT CLI LICENSE ====");
   environment.log(std::str::from_utf8(include_bytes!("../../LICENSE"))?);
 
@@ -69,7 +69,7 @@ pub fn output_license<TEnvironment: Environment>(
   Ok(())
 }
 
-pub fn clear_cache(environment: &impl Environment) -> Result<(), ErrBox> {
+pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
   environment.remove_dir_all(&cache_dir)?;
   environment.log_stderr(&format!("Deleted {}", cache_dir.display()));
@@ -81,7 +81,7 @@ pub fn output_file_paths<TEnvironment: Environment>(
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment)?;

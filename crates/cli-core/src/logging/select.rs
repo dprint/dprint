@@ -1,10 +1,12 @@
+use anyhow::bail;
+use anyhow::Result;
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
+
 use crate::logging::Logger;
 use crate::logging::LoggerRefreshItemKind;
 use crate::logging::LoggerTextItem;
 use crate::terminal::read_terminal_event;
-use crate::types::ErrBox;
-use crossterm::event::Event;
-use crossterm::event::KeyCode;
 
 struct SelectData<'a> {
   prompt: &'a str,
@@ -13,7 +15,7 @@ struct SelectData<'a> {
   active_index: usize,
 }
 
-pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hanging_indent: u16, items: &Vec<String>) -> Result<usize, ErrBox> {
+pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hanging_indent: u16, items: &Vec<String>) -> Result<usize> {
   let mut data = SelectData {
     prompt,
     item_hanging_indent,
@@ -42,7 +44,7 @@ pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hangi
         }
         KeyCode::Esc => {
           logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
-          return err!("Selection cancelled.");
+          bail!("Selection cancelled.");
         }
         _ => {}
       },

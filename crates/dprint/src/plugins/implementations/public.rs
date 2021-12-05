@@ -1,8 +1,9 @@
+use anyhow::bail;
+use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 
 use super::process;
 use super::wasm;
@@ -18,17 +19,13 @@ pub struct SetupPluginResult {
   pub plugin_info: PluginInfo,
 }
 
-pub fn setup_plugin<TEnvironment: Environment>(
-  url_or_file_path: &PathSource,
-  file_bytes: &[u8],
-  environment: &TEnvironment,
-) -> Result<SetupPluginResult, ErrBox> {
+pub fn setup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, file_bytes: &[u8], environment: &TEnvironment) -> Result<SetupPluginResult> {
   if url_or_file_path.is_wasm_plugin() {
     wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment)
   } else if url_or_file_path.is_process_plugin() {
     process::setup_process_plugin(url_or_file_path, file_bytes, environment)
   } else {
-    return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
+    bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
   }
 }
 
@@ -36,24 +33,24 @@ pub fn get_file_path_from_plugin_info<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_info: &PluginInfo,
   environment: &TEnvironment,
-) -> Result<PathBuf, ErrBox> {
+) -> Result<PathBuf> {
   if url_or_file_path.is_wasm_plugin() {
     Ok(wasm::get_file_path_from_plugin_info(plugin_info, environment))
   } else if url_or_file_path.is_process_plugin() {
     Ok(process::get_file_path_from_plugin_info(plugin_info, environment))
   } else {
-    return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
+    bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
   }
 }
 
 /// Deletes the plugin from the cache.
-pub fn cleanup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, plugin_info: &PluginInfo, environment: &TEnvironment) -> Result<(), ErrBox> {
+pub fn cleanup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, plugin_info: &PluginInfo, environment: &TEnvironment) -> Result<()> {
   if url_or_file_path.is_wasm_plugin() {
     wasm::cleanup_wasm_plugin(plugin_info, environment)
   } else if url_or_file_path.is_process_plugin() {
     process::cleanup_process_plugin(plugin_info, environment)
   } else {
-    return err!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
+    bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
   }
 }
 
@@ -62,7 +59,7 @@ pub fn create_plugin<TEnvironment: Environment>(
   plugin_cache: &PluginCache<TEnvironment>,
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
-) -> Result<Box<dyn Plugin>, ErrBox> {
+) -> Result<Box<dyn Plugin>> {
   let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference);
   let cache_item = match cache_item {
     Ok(cache_item) => Ok(cache_item),
@@ -120,6 +117,6 @@ pub fn create_plugin<TEnvironment: Environment>(
       plugin_pools,
     )))
   } else {
-    return err!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());
+    bail!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());
   }
 }

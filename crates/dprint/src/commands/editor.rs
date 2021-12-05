@@ -1,8 +1,9 @@
+use anyhow::bail;
+use anyhow::Result;
 use std::io::Read;
 use std::io::Write;
 use std::sync::Arc;
 
-use dprint_cli_core::types::ErrBox;
 use dprint_core::plugins::process::start_parent_process_checker_thread;
 use dprint_core::plugins::process::StdIoMessenger;
 use dprint_core::plugins::process::StdIoReaderWriter;
@@ -25,7 +26,7 @@ pub fn output_editor_info<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]
   struct EditorInfo {
@@ -83,7 +84,7 @@ pub fn run_editor_service<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
   editor_service_cmd: &EditorServiceSubCommand,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   // poll for the existence of the parent process and terminate this process when that process no longer exists
   let _handle = start_parent_process_checker_thread(editor_service_cmd.parent_pid);
 
@@ -124,7 +125,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     }
   }
 
-  pub fn run(&mut self) -> Result<(), ErrBox> {
+  pub fn run(&mut self) -> Result<()> {
     loop {
       let message_kind = self.messenger.read_code()?;
       match message_kind {
@@ -135,12 +136,12 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         // format
         2 => self.handle_format_message()?,
         // unknown, exit
-        _ => return err!("Unknown message kind: {}", message_kind),
+        _ => bail!("Unknown message kind: {}", message_kind),
       }
     }
   }
 
-  fn handle_check_path_message(&mut self) -> Result<(), ErrBox> {
+  fn handle_check_path_message(&mut self) -> Result<()> {
     let file_path = self.messenger.read_single_part_path_buf_message()?;
     self.ensure_latest_config()?;
 
@@ -165,7 +166,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     Ok(())
   }
 
-  fn handle_format_message(&mut self) -> Result<(), ErrBox> {
+  fn handle_format_message(&mut self) -> Result<()> {
     let mut parts = self.messenger.read_multi_part_message(2)?;
     let file_path = parts.take_path_buf()?;
     let file_text = parts.take_string()?;
@@ -203,7 +204,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     Ok(())
   }
 
-  fn ensure_latest_config(&mut self) -> Result<(), ErrBox> {
+  fn ensure_latest_config(&mut self) -> Result<()> {
     let last_config = self.config.take();
     let config = resolve_config_from_args(self.args, self.cache, self.environment)?;
 
@@ -222,9 +223,10 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
 #[cfg(test)]
 mod test {
+  use anyhow::bail;
+  use anyhow::Result;
   use dprint_core::plugins::process::StdIoMessenger;
   use dprint_core::plugins::process::StdIoReaderWriter;
-  use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;
   use std::io::Read;
   use std::io::Write;
@@ -273,14 +275,14 @@ mod test {
       EditorServiceCommunicator { messenger }
     }
 
-    pub fn check_file(&mut self, file_path: impl AsRef<Path>) -> Result<bool, ErrBox> {
+    pub fn check_file(&mut self, file_path: impl AsRef<Path>) -> Result<bool> {
       self.messenger.send_message(1, vec![file_path.as_ref().into()])?;
       let response_code = self.messenger.read_code()?;
       self.messenger.read_zero_part_message()?;
       Ok(response_code == 1)
     }
 
-    pub fn format_text(&mut self, file_path: impl AsRef<Path>, file_text: &str) -> Result<Option<String>, ErrBox> {
+    pub fn format_text(&mut self, file_path: impl AsRef<Path>, file_text: &str) -> Result<Option<String>> {
       self.messenger.send_message(2, vec![file_path.as_ref().into(), file_text.into()])?;
       let response_code = self.messenger.read_code()?;
       match response_code {
@@ -289,8 +291,8 @@ mod test {
           Ok(None)
         }
         1 => Ok(Some(self.messenger.read_single_part_string_message()?)),
-        2 => err!("{}", self.messenger.read_single_part_error_message()?),
-        _ => err!("Unknown result: {}", response_code),
+        2 => bail!("{}", self.messenger.read_single_part_error_message()?),
+        _ => bail!("Unknown result: {}", response_code),
       }
     }
 

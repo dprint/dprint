@@ -1,6 +1,7 @@
+use anyhow::bail;
+use anyhow::Result;
 use dprint_cli_core::checksums::parse_checksum_path_or_url;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::utils::resolve_url_or_file_path_to_path_source;
@@ -60,12 +61,12 @@ impl PluginSourceReference {
   }
 }
 
-pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment: &impl Environment) -> Result<PluginSourceReference, ErrBox> {
+pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment: &impl Environment) -> Result<PluginSourceReference> {
   let checksum_reference = parse_checksum_path_or_url(text);
   let path_source = resolve_url_or_file_path_to_path_source(&checksum_reference.path_or_url, base, environment)?;
 
   if !path_source.is_wasm_plugin() && checksum_reference.checksum.is_none() {
-    return err!(
+    bail!(
       concat!(
         "The plugin '{0}' must have a checksum specified for security reasons ",
         "since it is not a Wasm plugin. You may specify one by writing \"{0}@checksum-goes-here\" ",

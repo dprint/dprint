@@ -1,3 +1,5 @@
+use anyhow::bail;
+use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -9,16 +11,13 @@ use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveConfigurationResult;
-use dprint_core::err;
-use dprint_core::err_obj;
 use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_thread;
 use dprint_core::plugins::PluginHandler;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 
-fn main() -> Result<(), ErrBox> {
+fn main() -> Result<()> {
   if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
     start_parent_process_checker_thread(parent_process_id);
   }
@@ -77,8 +76,8 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
     _: &Path,
     file_text: &str,
     config: &Configuration,
-    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
-  ) -> Result<String, ErrBox> {
+    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
+  ) -> Result<String> {
     if file_text.starts_with("plugin: ") {
       format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""), &HashMap::new())
     } else if file_text.starts_with("plugin-config: ") {
@@ -86,7 +85,7 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
       config_map.insert("ending".to_string(), "custom_config".into());
       format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin-config: ", ""), &config_map)
     } else if file_text == "should_error" {
-      err!("Did error.")
+      bail!("Did error.")
     } else if file_text.ends_with(&config.ending) {
       Ok(String::from(file_text))
     } else {

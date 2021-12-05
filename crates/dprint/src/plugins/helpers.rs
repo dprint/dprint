@@ -1,4 +1,5 @@
-use dprint_cli_core::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 
 use super::InitializedPlugin;
 use crate::environment::Environment;
@@ -8,7 +9,7 @@ pub fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   plugin_name: &str,
   plugin: &Box<dyn InitializedPlugin>,
   error_logger: &ErrorCountLogger<TEnvironment>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let mut diagnostic_count = 0;
 
   for diagnostic in plugin.get_config_diagnostics()? {
@@ -17,7 +18,7 @@ pub fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   }
 
   if diagnostic_count > 0 {
-    err!(
+    bail!(
       "[{}]: Error initializing from configuration file. Had {} diagnostic(s).",
       plugin_name,
       diagnostic_count

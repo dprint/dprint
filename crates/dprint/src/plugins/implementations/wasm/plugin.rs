@@ -1,3 +1,6 @@
+use anyhow::bail;
+use anyhow::Error;
+use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -6,7 +9,6 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 
 use super::create_module;
 use super::create_pools_import_object;
@@ -28,7 +30,7 @@ pub struct WasmPlugin<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(compiled_wasm_bytes: Vec<u8>, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Result<Self, ErrBox> {
+  pub fn new(compiled_wasm_bytes: Vec<u8>, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Result<Self> {
     let module = create_module(&compiled_wasm_bytes)?;
     Ok(WasmPlugin {
       module,
@@ -76,7 +78,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     self.config.as_ref().expect("Call set_config first.")
   }
 
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>> {
     let store = wasmer::Store::default();
     let mut wasm_plugin = InitializedWasmPlugin::new(
       self.module.clone(),
@@ -110,7 +112,7 @@ pub struct InitializedWasmPlugin {
 }
 
 impl InitializedWasmPlugin {
-  pub fn new(module: wasmer::Module, create_import_object: Box<dyn Fn() -> wasmer::ImportObject + Send>) -> Result<Self, ErrBox> {
+  pub fn new(module: wasmer::Module, create_import_object: Box<dyn Fn() -> wasmer::ImportObject + Send>) -> Result<Self> {
     let instance = load_instance(&module, &create_import_object())?;
     let wasm_functions = WasmFunctions::new(instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
@@ -130,7 +132,7 @@ impl InitializedWasmPlugin {
     })
   }
 
-  pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
+  pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<()> {
     let json = serde_json::to_string(global_config)?;
     self.send_string(&json);
     self.wasm_functions.set_global_config()?;
@@ -138,14 +140,14 @@ impl InitializedWasmPlugin {
     Ok(())
   }
 
-  pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
+  pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<()> {
     let json = serde_json::to_string(plugin_config)?;
     self.send_string(&json);
     self.wasm_functions.set_plugin_config()?;
     Ok(())
   }
 
-  pub fn get_plugin_info(&self) -> Result<PluginInfo, ErrBox> {
+  pub fn get_plugin_info(&self) -> Result<PluginInfo> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
@@ -178,7 +180,7 @@ impl InitializedWasmPlugin {
     }
   }
 
-  fn receive_string(&self, len: usize) -> Result<String, ErrBox> {
+  fn receive_string(&self, len: usize) -> Result<String> {
     let mut index = 0;
     let mut bytes: Vec<u8> = vec![0; len];
     while index < len {
@@ -199,7 +201,7 @@ impl InitializedWasmPlugin {
     }
   }
 
-  fn reinitialize_due_to_panic(&mut self, original_err: &ErrBox) {
+  fn reinitialize_due_to_panic(&mut self, original_err: &Error) {
     if let Err(reinitialize_err) = self.try_reinitialize_due_to_panic() {
       panic!(
         "Originally panicked, then failed reinitialize. Cannot recover.\nOriginal error: {}\nReinitialize error: {}",
@@ -209,7 +211,7 @@ impl InitializedWasmPlugin {
     }
   }
 
-  fn try_reinitialize_due_to_panic(&mut self) -> Result<(), ErrBox> {
+  fn try_reinitialize_due_to_panic(&mut self) -> Result<()> {
     let instance = load_instance(&self.module, &(self.create_import_object)())?;
     let wasm_functions = WasmFunctions::new(instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
@@ -225,23 +227,23 @@ impl InitializedWasmPlugin {
 }
 
 impl InitializedPlugin for InitializedWasmPlugin {
-  fn get_license_text(&self) -> Result<String, ErrBox> {
+  fn get_license_text(&self) -> Result<String> {
     let len = self.wasm_functions.get_license_text()?;
     self.receive_string(len)
   }
 
-  fn get_resolved_config(&self) -> Result<String, ErrBox> {
+  fn get_resolved_config(&self) -> Result<String> {
     let len = self.wasm_functions.get_resolved_config()?;
     self.receive_string(len)
   }
 
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
+  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
     let len = self.wasm_functions.get_config_diagnostics()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String> {
     // send override config if necessary
     if !override_config.is_empty() {
       self.send_string(&serde_json::to_string(override_config)?);
@@ -297,10 +299,10 @@ impl InitializedPlugin for InitializedWasmPlugin {
           }
         };
         match self.receive_string(len) {
-          Ok(text) => err!("{}", text),
+          Ok(text) => bail!("{}", text),
           Err(err) => {
             self.reinitialize_due_to_panic(&err);
-            return Err(err);
+            Err(err)
           }
         }
       }

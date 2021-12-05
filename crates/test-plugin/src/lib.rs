@@ -2,6 +2,7 @@
 #[macro_use(err)]
 extern crate dprint_core;
 
+use anyhow::Result;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
@@ -10,7 +11,6 @@ use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::generate_plugin_code;
 use dprint_core::plugins::PluginHandler;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -70,8 +70,8 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
     _: &Path,
     file_text: &str,
     config: &Configuration,
-    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
-  ) -> Result<String, ErrBox> {
+    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
+  ) -> Result<String> {
     if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
     } else if file_text.starts_with("plugin: ") {

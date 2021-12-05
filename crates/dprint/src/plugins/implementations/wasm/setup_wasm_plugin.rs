@@ -1,8 +1,8 @@
 use crate::utils::PathSource;
 use std::path::PathBuf;
 
+use anyhow::Result;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 
@@ -14,11 +14,7 @@ pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &im
   plugin_cache_dir_path.join(format!("{}-{}.cached", plugin_info.name, plugin_info.version))
 }
 
-pub fn setup_wasm_plugin<TEnvironment: Environment>(
-  url_or_file_path: &PathSource,
-  file_bytes: &[u8],
-  environment: &TEnvironment,
-) -> Result<SetupPluginResult, ErrBox> {
+pub fn setup_wasm_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, file_bytes: &[u8], environment: &TEnvironment) -> Result<SetupPluginResult> {
   let compile_result = environment.log_action_with_progress(
     &format!("Compiling {}", url_or_file_path.display()),
     |_| environment.compile_wasm(file_bytes),
@@ -35,7 +31,7 @@ pub fn setup_wasm_plugin<TEnvironment: Environment>(
   })
 }
 
-pub fn cleanup_wasm_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<(), ErrBox> {
+pub fn cleanup_wasm_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<()> {
   let plugin_file_path = get_file_path_from_plugin_info(&plugin_info, environment);
   environment.remove_file(&plugin_file_path)?;
   Ok(())

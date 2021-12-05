@@ -1,6 +1,8 @@
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Error;
+use anyhow::Result;
 use std::path::PathBuf;
-
-use dprint_cli_core::types::ErrBox;
 
 use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
@@ -16,7 +18,7 @@ use crate::utils::pretty_print_json_text;
 use crate::utils::ErrorCountLogger;
 use crate::utils::PathSource;
 
-pub fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<(), ErrBox> {
+pub fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<()> {
   let config_file_path = get_config_path(config_arg)?;
   return if !environment.path_exists(&config_file_path) {
     environment.write_file(&config_file_path, &get_init_config_file_text(environment)?)?;
@@ -24,10 +26,10 @@ pub fn init_config_file(environment: &impl Environment, config_arg: &Option<Stri
     environment.log_stderr("\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor");
     Ok(())
   } else {
-    err!("Configuration file '{}' already exists.", config_file_path.display())
+    bail!("Configuration file '{}' already exists.", config_file_path.display())
   };
 
-  fn get_config_path(config_arg: &Option<String>) -> Result<PathBuf, ErrBox> {
+  fn get_config_path(config_arg: &Option<String>) -> Result<PathBuf> {
     return Ok(if let Some(config_arg) = config_arg.as_ref() {
       PathBuf::from(config_arg)
     } else {
@@ -41,11 +43,11 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
-    PathSource::Remote(_) => return err!("Cannot update plugins in a remote configuration."),
+    PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
   };
   let mut file_text = environment.read_file(&config_path)?;
   let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins)?;
@@ -95,7 +97,7 @@ pub fn output_resolved_config<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<(), ErrBox> {
+) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins(args, &config, environment, plugin_resolver)?;
 
@@ -143,18 +145,18 @@ impl PluginUpdateInfo {
 
 struct PluginUpdateError {
   name: String,
-  error: ErrBox,
+  error: Error,
 }
 
 fn get_plugins_to_update<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugins: Vec<PluginSourceReference>,
-) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>, ErrBox> {
+) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
   use rayon::iter::IntoParallelIterator;
   use rayon::iter::ParallelIterator;
 
-  let info_file = read_info_file(environment).map_err(|err| err_obj!("Error downloading info file. {}", err))?;
+  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
   Ok(
     plugins
       .into_par_iter()
@@ -193,7 +195,7 @@ fn get_plugins_to_update<TEnvironment: Environment>(
 
 #[cfg(test)]
 mod test {
-  use dprint_core::types::ErrBox;
+  use anyhow::Result;
   use pretty_assertions::assert_eq;
 
   use crate::configuration::*;
@@ -404,7 +406,7 @@ mod test {
     config_has_wasm_checksum: bool,
     config_has_process: bool,
     info_has_checksum: bool,
-    confirm_results: Vec<Result<Option<bool>, ErrBox>>,
+    confirm_results: Vec<Result<Option<bool>>>,
     expected_logs: Vec<String>,
     expected_urls: Vec<String>,
   }

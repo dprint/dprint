@@ -1,7 +1,7 @@
+use anyhow::bail;
+use anyhow::Result;
 use rayon::prelude::*;
 use std::sync::Arc;
-
-use dprint_core::types::ErrBox;
 
 use super::implementations::create_plugin;
 use crate::environment::Environment;
@@ -25,23 +25,23 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     }
   }
 
-  pub fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>, ErrBox> {
+  pub fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>> {
     let plugins = plugin_references
       .into_par_iter()
       .map(|plugin_reference| self.resolve_plugin(&plugin_reference))
-      .collect::<Result<Vec<Box<dyn Plugin>>, ErrBox>>()?;
+      .collect::<Result<Vec<Box<dyn Plugin>>>>()?;
 
     Ok(plugins)
   }
 
-  pub fn resolve_plugin(&self, plugin_reference: &PluginSourceReference) -> Result<Box<dyn Plugin>, ErrBox> {
+  pub fn resolve_plugin(&self, plugin_reference: &PluginSourceReference) -> Result<Box<dyn Plugin>> {
     match create_plugin(self.plugin_pools.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference) {
       Ok(plugin) => Ok(plugin),
       Err(err) => {
         match self.plugin_cache.forget(plugin_reference) {
           Ok(()) => {}
           Err(inner_err) => {
-            return err!(
+            bail!(
               "Error resolving plugin {} and forgetting from cache: {}\n{}",
               plugin_reference.display(),
               err,
@@ -49,7 +49,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
             )
           }
         }
-        return err!("Error resolving plugin {}: {}", plugin_reference.display(), err);
+        bail!("Error resolving plugin {}: {}", plugin_reference.display(), err);
       }
     }
   }

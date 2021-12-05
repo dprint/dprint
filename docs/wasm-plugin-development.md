@@ -37,6 +37,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 4. Implement `PluginHandler`:
 
    ```rust
+   use anyhow::Result;
    use dprint_core::configuration::get_unknown_property_diagnostics;
    use dprint_core::configuration::get_value;
    use dprint_core::configuration::ConfigKeyMap;
@@ -46,7 +47,6 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    use dprint_core::generate_plugin_code;
    use dprint_core::plugins::PluginHandler;
    use dprint_core::plugins::PluginInfo;
-   use dprint_core::types::ErrBox;
 
    use crate::configuration::Configuration; // import the Configuration from above
 
@@ -94,8 +94,8 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        file_path: &Path,
        file_text: &str,
        config: &Configuration,
-       mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
-     ) -> Result<String, ErrBox> {
+       mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
+     ) -> Result<String> {
        // format here
      }
    }

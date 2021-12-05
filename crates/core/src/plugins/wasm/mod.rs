@@ -35,7 +35,7 @@ pub mod macros {
         file_path: &std::path::Path,
         file_text: String,
         override_config: &dprint_core::configuration::ConfigKeyMap,
-      ) -> Result<String, ErrBox> {
+      ) -> anyhow::Result<String> {
         #[link(wasm_import_module = "dprint")]
         extern "C" {
           fn host_clear_bytes(length: u32);
