@@ -170,7 +170,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":3,"plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
+      r#"{"schemaVersion":4,"plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
     );
 
     // should forget it afterwards
@@ -180,7 +180,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":3,"plugins":{}}"#,
+      r#"{"schemaVersion":4,"plugins":{}}"#,
     );
 
     Ok(())
@@ -211,7 +211,7 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":3,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
+        r#"{"schemaVersion":4,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
         r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
       )
@@ -232,7 +232,7 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":3,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
+        r#"{"schemaVersion":4,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
         r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
       )
@@ -247,7 +247,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":3,"plugins":{}}"#,
+      r#"{"schemaVersion":4,"plugins":{}}"#,
     );
 
     Ok(())

@@ -8,7 +8,7 @@ use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
 
-const PLUGIN_SCHEMA_VERSION: usize = 3;
+const PLUGIN_SCHEMA_VERSION: usize = 4;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -96,7 +96,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "plugins": {
         "a": {
             "createdTime": 123,
