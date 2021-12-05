@@ -1,7 +1,4 @@
-#[macro_use(err_obj)]
-#[macro_use(err)]
-extern crate dprint_core;
-
+use anyhow::bail;
 use anyhow::Result;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
@@ -81,7 +78,7 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
       config_map.insert("ending".to_string(), "custom_config".into());
       format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin-config: ", ""), &config_map)
     } else if file_text == "should_error" {
-      err!("Did error.")
+      bail!("Did error.")
     } else if file_text == "should_panic" {
       self.has_panicked = true;
       panic!("Test panic")
