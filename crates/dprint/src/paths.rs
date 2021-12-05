@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::Split;
 
 use dprint_cli_core::types::ErrBox;
 
@@ -14,23 +15,41 @@ use crate::utils::glob;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 
-pub fn get_file_paths_by_plugin_and_err_if_empty(
-  plugins: &Vec<Box<dyn Plugin>>,
-  file_paths: Vec<PathBuf>,
-  config_base_path: &CanonicalizedPathBuf,
-) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
-  let file_paths_by_plugin = get_file_paths_by_plugin(plugins, file_paths, config_base_path)?;
-  if file_paths_by_plugin.is_empty() {
-    return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
+/// Struct that allows using plugin names as a key
+/// in a hash map.
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub struct PluginNames(String);
+
+impl PluginNames {
+  pub fn names(&self) -> Split<'_, &str> {
+    self.0.split("~~")
   }
-  Ok(file_paths_by_plugin)
+
+  fn add_plugin(&mut self, plugin_name: &str) {
+    if !self.0.is_empty() {
+      self.0.push_str("~~");
+    }
+    self.0.push_str(plugin_name);
+  }
 }
 
-pub fn get_file_paths_by_plugin(
+pub fn get_file_paths_by_plugins_and_err_if_empty(
   plugins: &Vec<Box<dyn Plugin>>,
   file_paths: Vec<PathBuf>,
   config_base_path: &CanonicalizedPathBuf,
-) -> Result<HashMap<String, Vec<PathBuf>>, ErrBox> {
+) -> Result<HashMap<PluginNames, Vec<PathBuf>>, ErrBox> {
+  let result = get_file_paths_by_plugins(plugins, file_paths, config_base_path)?;
+  if result.is_empty() {
+    return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
+  }
+  Ok(result)
+}
+
+pub fn get_file_paths_by_plugins(
+  plugins: &Vec<Box<dyn Plugin>>,
+  file_paths: Vec<PathBuf>,
+  config_base_path: &CanonicalizedPathBuf,
+) -> Result<HashMap<PluginNames, Vec<PathBuf>>, ErrBox> {
   let mut plugin_by_file_extension = HashMap::new();
   let mut plugin_by_file_name = HashMap::new();
   let mut plugin_associations = Vec::new();
@@ -47,20 +66,33 @@ pub fn get_file_paths_by_plugin(
     }
   }
 
-  let mut file_paths_by_plugin: HashMap<String, Vec<PathBuf>> = HashMap::new();
+  let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
 
   for file_path in file_paths.into_iter() {
-    let plugin = if let Some((plugin, _)) = plugin_associations.iter().find(|(_, matcher)| matcher.is_match(&file_path)) {
-      plugin
-    } else if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_file_name.get(k.as_str())) {
-      plugin
-    } else if let Some(plugin) = crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())) {
-      plugin
-    } else {
-      continue;
-    };
-    let file_paths = file_paths_by_plugin.entry(plugin.to_string()).or_insert(vec![]);
-    file_paths.push(file_path);
+    let mut plugin_names_key: Option<PluginNames> = None;
+    for (plugin_name, matcher) in plugin_associations.iter() {
+      if matcher.is_match(&file_path) {
+        if let Some(plugin_names_key) = plugin_names_key.as_mut() {
+          plugin_names_key.add_plugin(plugin_name);
+        } else {
+          plugin_names_key = Some(PluginNames(plugin_name.to_string()));
+        }
+      }
+    }
+    if plugin_names_key.is_none() {
+      plugin_names_key = if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_file_name.get(k.as_str())) {
+        Some(PluginNames(plugin.to_string()))
+      } else if let Some(plugin) = crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())) {
+        Some(PluginNames(plugin.to_string()))
+      } else {
+        None
+      };
+    }
+
+    if let Some(plugin_names_key) = plugin_names_key {
+      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_insert(vec![]);
+      file_paths.push(file_path);
+    }
   }
 
   Ok(file_paths_by_plugin)

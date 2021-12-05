@@ -18,7 +18,7 @@ use crate::format::format_with_plugin_pools;
 use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugin_and_err_if_empty;
+use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
 use crate::patterns::FileMatcher;
 use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginPools;
@@ -76,7 +76,7 @@ pub fn output_format_times<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -109,7 +109,7 @@ pub fn check<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
@@ -156,14 +156,14 @@ pub fn format<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file.clone(), {
+  run_parallelized(file_paths_by_plugins, environment, plugin_pools, incremental_file.clone(), {
     let formatted_files_count = formatted_files_count.clone();
     move |file_path, file_text, formatted_text, had_bom, _, environment| {
       if formatted_text != file_text {
@@ -642,6 +642,62 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_with_config_associations_multiple_plugins_same_files() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt_ps";
+    let file_path3 = "/file2.other";
+    let file_path4 = "/src/some_file_name";
+    let file_path5 = "/src/sub-dir/test-process-plugin-exact-file";
+    let file_path6 = "/file6.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": [
+                "**/*.{txt,txt_ps,other}",
+                "some_file_name",
+                "test-process-plugin-exact-file"
+              ],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": [
+                "**/*.{txt,txt_ps,other}",
+                "some_file_name",
+                "test-process-plugin-exact-file"
+              ],
+              "ending": "ps"
+            }"#,
+          )
+          .add_includes("**/*");
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .write_file(&file_path4, "text4")
+      .write_file(&file_path5, "text5")
+      .write_file(&file_path6, "plugin: text6")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(6)]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm_ps");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm_ps");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_wasm_ps");
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_wasm_ps");
+    assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm_ps");
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_wasm_ps");
+  }
+
+  #[test]
   fn should_error_on_wasm_plugin_config_diagnostic() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -693,6 +749,51 @@ mod test {
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
+  }
+
+  #[test]
+  fn should_error_config_diagnostic_multiple_plugins_same_file_via_associations() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": [
+                "shared_file"
+              ],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": [
+                "shared_file"
+              ],
+              "non-existent": "value"
+            }"#,
+          )
+          .add_includes("**/*");
+      })
+      .write_file("/test.txt", "text")
+      .write_file("/shared_file", "text")
+      .build();
+
+    let error_message = run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).err().unwrap();
+
+    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "[test-process-plugin]: Unknown property in configuration. (non-existent)",
+        "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
+      ]
+    );
+    assert_eq!(environment.read_file("/test.txt").unwrap(), "text_wasm");
+    assert_eq!(environment.read_file("/shared_file").unwrap(), "text");
   }
 
   #[test]

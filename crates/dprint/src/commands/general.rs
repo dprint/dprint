@@ -5,7 +5,7 @@ use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugin;
+use crate::paths::get_file_paths_by_plugins;
 use crate::plugins::get_plugins_from_args;
 use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
@@ -85,7 +85,7 @@ pub fn output_file_paths<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment)?;
-  let file_paths_by_plugin = get_file_paths_by_plugin(&plugins, resolved_file_paths, &config.base_path)?;
+  let file_paths_by_plugin = get_file_paths_by_plugins(&plugins, resolved_file_paths, &config.base_path)?;
 
   let file_paths = file_paths_by_plugin.values().flat_map(|x| x.iter());
   for file_path in file_paths {
@@ -192,6 +192,35 @@ mod test {
     let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort();
     assert_eq!(logged_messages, vec!["/file.txt", "/file2.txt", "/file3.txt_ps"]);
+  }
+
+  #[test]
+  fn should_output_associations_in_resolved_paths() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .add_remote_wasm_plugin()
+      .with_default_config(|config_file| {
+        config_file
+          .add_includes("**/*.other")
+          .add_config_section(
+            "test-plugin",
+            r#"{
+            "associations": [
+              "**/*.other"
+            ],
+            "ending": "wasm"
+          }"#,
+          )
+          .add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "")
+      .write_file("/file.other", "")
+      .initialize()
+      .build();
+    run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.other", "/file.txt"]);
   }
 
   #[test]

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::environment::Environment;
-use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginPool;
+use crate::plugins::OptionalPluginAndPool;
 
 use super::FormattingFilePathInfo;
 use super::LocalPluginWork;
@@ -12,7 +12,7 @@ use super::LocalWork;
 use super::LocalWorkStealInfo;
 
 pub struct StealResult<TEnvironment: Environment> {
-  pub plugin: Option<Box<dyn InitializedPlugin>>,
+  pub plugins: Option<Vec<OptionalPluginAndPool<TEnvironment>>>,
   pub work: LocalPluginWork<TEnvironment>,
 }
 
@@ -36,8 +36,10 @@ impl<TEnvironment: Environment> Worker<TEnvironment> {
   pub fn has_pool(&self, pool_name: &str) -> bool {
     let local_work = self.local_work.read();
     for work in local_work.work_by_plugin.iter() {
-      if work.pool.name() == pool_name {
-        return true;
+      for pool in work.pools.iter() {
+        if pool.name() == pool_name {
+          return true;
+        }
       }
     }
     false
@@ -56,7 +58,7 @@ impl<TEnvironment: Environment> Worker<TEnvironment> {
     if local_work.work_by_plugin.len() > 1 {
       // steal immediately
       let steal_result = StealResult {
-        plugin: None,
+        plugins: None,
         work: local_work.work_by_plugin.pop().unwrap(),
       };
 
@@ -66,16 +68,27 @@ impl<TEnvironment: Environment> Worker<TEnvironment> {
       Some(steal_result)
     } else if let Some(plugin_work) = local_work.work_by_plugin.get_mut(0) {
       if plugin_work.work_items_len() > 1 {
-        let plugin = if steal_info.has_plugin_available() {
-          match plugin_work.pool.take_if_available() {
-            Some(plugin) => Some(plugin),
-            None => return None, // we did the steal evaluation based on the plugin being available and that's no longer the case
-          }
-        } else {
-          None
-        };
+        let mut stolen_plugins: Vec<OptionalPluginAndPool<_>> = Vec::with_capacity(plugin_work.pools.len());
+        for pool in plugin_work.pools.iter() {
+          let plugin = if steal_info.has_all_plugins_available() {
+            match pool.take_if_available() {
+              Some(plugin) => Some(plugin),
+              None => {
+                // we did the steal evaluation based on the plugin being available and that's no longer the case
+                for plugin_and_pool in stolen_plugins {
+                  plugin_and_pool.release_plugin();
+                }
+                return None;
+              }
+            }
+          } else {
+            None // we'll get it to create it later
+          };
+          stolen_plugins.push(OptionalPluginAndPool { plugin, pool: pool.clone() });
+        }
+
         let steal_result = StealResult {
-          plugin,
+          plugins: Some(stolen_plugins),
           work: plugin_work.split(),
         };
 
@@ -95,16 +108,16 @@ impl<TEnvironment: Environment> Worker<TEnvironment> {
     self.local_work.write().work_by_plugin.push(work);
   }
 
-  pub fn take_next_work(&self) -> Option<(Arc<InitializedPluginPool<TEnvironment>>, PathBuf)> {
+  pub fn take_next_work(&self) -> Option<(Arc<Vec<Arc<InitializedPluginPool<TEnvironment>>>>, PathBuf)> {
     let mut local_work = self.local_work.write();
     if let Some(work_by_plugin) = local_work.work_by_plugin.get_mut(0) {
-      let pool = work_by_plugin.pool.clone();
+      let pools = work_by_plugin.pools.clone();
       let file_path = work_by_plugin.take_next_work_item();
       if work_by_plugin.work_items_len() == 0 {
         local_work.work_by_plugin.remove(0);
       }
       local_work.set_current_formatting_file_path(file_path.clone());
-      Some((pool, file_path))
+      Some((pools, file_path))
     } else {
       local_work.clear_current_formatting_file_path();
       None

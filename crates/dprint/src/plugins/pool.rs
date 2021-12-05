@@ -160,24 +160,33 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
     with_plugins(&mut plugins)
   }
 
-  pub fn get_plugin_name_from_file_name(&self, file_name: &Path) -> Option<String> {
+  pub fn get_plugin_names_from_file_name(&self, file_name: &Path) -> Vec<String> {
+    let mut plugin_names = Vec::new();
     let plugin_name_maps = self.plugin_name_maps.read();
-    get_lowercase_file_name(file_name)
-      .map(|file_name| {
-        plugin_name_maps
-          .association_matchers
-          .iter()
-          .find(|(_, matcher)| matcher.is_match(&file_name))
-          .map(|(plugin_name, _)| plugin_name)
-          .or_else(|| plugin_name_maps.file_name_to_plugin_name_map.get(&file_name))
-      })
-      .flatten()
-      .or_else(|| {
-        get_lowercase_file_extension(file_name)
-          .map(|ext| plugin_name_maps.extension_to_plugin_name_map.get(&ext))
-          .flatten()
-      })
-      .map(|name| name.to_owned())
+
+    if let Some(file_name) = get_lowercase_file_name(file_name) {
+      for (plugin_name, matcher) in plugin_name_maps.association_matchers.iter() {
+        if matcher.is_match(&file_name) {
+          plugin_names.push(plugin_name.to_owned());
+        }
+      }
+      if !plugin_names.is_empty() {
+        return plugin_names;
+      }
+
+      if let Some(plugin_name) = plugin_name_maps.file_name_to_plugin_name_map.get(&file_name) {
+        plugin_names.push(plugin_name.to_owned());
+        return plugin_names;
+      }
+    }
+
+    if let Some(ext) = get_lowercase_file_extension(file_name) {
+      if let Some(plugin_name) = plugin_name_maps.extension_to_plugin_name_map.get(&ext) {
+        plugin_names.push(plugin_name.to_owned());
+      }
+    }
+
+    plugin_names
   }
 
   pub fn release(&self, parent_plugin_name: &str) {
@@ -215,6 +224,28 @@ struct PluginTimeStats {
   startup_time: u64,
   total_format_time: u64,
   format_count: u64,
+}
+
+pub struct OptionalPluginAndPool<TEnvironment: Environment> {
+  pub plugin: Option<Box<dyn InitializedPlugin>>,
+  pub pool: Arc<InitializedPluginPool<TEnvironment>>,
+}
+
+impl<TEnvironment: Environment> OptionalPluginAndPool<TEnvironment> {
+  pub fn from_pool(pool: Arc<InitializedPluginPool<TEnvironment>>) -> Self {
+    Self { plugin: None, pool }
+  }
+
+  pub fn release_plugin(self) {
+    if let Some(plugin) = self.plugin {
+      self.pool.release(plugin);
+    }
+  }
+}
+
+pub struct PluginAndPoolMutRef<'a, TEnvironment: Environment> {
+  pub plugin: &'a mut Box<dyn InitializedPlugin>,
+  pub pool: &'a Arc<InitializedPluginPool<TEnvironment>>,
 }
 
 pub enum TakePluginResult {
