@@ -41,8 +41,8 @@ where
     self.cache_dir_path.join_panic_relative(&cache_item.file_name)
   }
 
-  pub fn create_cache_item<'b>(&self, options: CreateCacheItemOptions<'b>) -> Result<CacheItem> {
-    let file_name = self.get_file_name_from_key(&options.key, &options.extension);
+  pub fn create_cache_item(&self, options: CreateCacheItemOptions) -> Result<CacheItem> {
+    let file_name = self.get_file_name_from_key(&options.key, options.extension);
     let cache_item = CacheItem {
       file_name,
       created_time: self.environment.get_time_secs(),
@@ -64,9 +64,7 @@ where
   pub fn forget_item(&self, key: &str) -> Result<()> {
     if let Some(item) = self.cache_manifest.write().remove_item(key) {
       let cache_file = self.cache_dir_path.join(&item.file_name);
-      match self.environment.remove_file(&cache_file) {
-        _ => {} // do nothing on success or failure
-      }
+      let _ = self.environment.remove_file(&cache_file); // do nothing on success or failure
     } else {
       return Ok(());
     }
@@ -123,7 +121,7 @@ where
   }
 
   fn has_file_name_cache_item(&self, file_name: &str) -> bool {
-    self.cache_manifest.read().items().filter(|u| u.file_name == file_name).next().is_some()
+    self.cache_manifest.read().items().any(|u| u.file_name == file_name)
   }
 
   fn save_manifest(&self) -> Result<()> {

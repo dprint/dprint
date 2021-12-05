@@ -17,8 +17,8 @@ pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_v
     ))];
     logger.set_refresh_item(LoggerRefreshItemKind::Selection, text_items);
 
-    match read_terminal_event()? {
-      Event::Key(key_event) => match &key_event.code {
+    if let Event::Key(key_event) = read_terminal_event()? {
+      match &key_event.code {
         KeyCode::Char(c) if *c == 'Y' || *c == 'y' => {
           break true;
         }
@@ -33,16 +33,15 @@ pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_v
           bail!("Confirmation cancelled.");
         }
         _ => {}
-      },
-      _ => {
-        // cause a refresh anyway
       }
+    } else {
+      // cause a refresh anyway
     }
   };
   logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
 
   logger.log_text_items(
-    &vec![LoggerTextItem::Text(format!("{} {}", prompt, if result { "Y" } else { "N" }))],
+    &[LoggerTextItem::Text(format!("{} {}", prompt, if result { "Y" } else { "N" }))],
     context_name,
     crate::terminal::get_terminal_width(),
   );

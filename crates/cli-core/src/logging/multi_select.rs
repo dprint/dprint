@@ -27,37 +27,34 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
     let text_items = render_multi_select(&data);
     logger.set_refresh_item(LoggerRefreshItemKind::Selection, text_items);
 
-    match read_terminal_event()? {
-      Event::Key(key_event) => {
-        match &key_event.code {
-          KeyCode::Up => {
-            if data.active_index == 0 {
-              data.active_index = data.items.len() - 1;
-            } else {
-              data.active_index -= 1;
-            }
+    if let Event::Key(key_event) = read_terminal_event()? {
+      match &key_event.code {
+        KeyCode::Up => {
+          if data.active_index == 0 {
+            data.active_index = data.items.len() - 1;
+          } else {
+            data.active_index -= 1;
           }
-          KeyCode::Down => {
-            data.active_index = (data.active_index + 1) % data.items.len();
-          }
-          KeyCode::Char(' ') => {
-            // select an item
-            let mut current_item = data.items.get_mut(data.active_index).unwrap();
-            current_item.0 = !current_item.0;
-          }
-          KeyCode::Enter => {
-            break;
-          }
-          KeyCode::Esc => {
-            logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
-            bail!("Selection cancelled.");
-          }
-          _ => {}
         }
+        KeyCode::Down => {
+          data.active_index = (data.active_index + 1) % data.items.len();
+        }
+        KeyCode::Char(' ') => {
+          // select an item
+          let mut current_item = data.items.get_mut(data.active_index).unwrap();
+          current_item.0 = !current_item.0;
+        }
+        KeyCode::Enter => {
+          break;
+        }
+        KeyCode::Esc => {
+          logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
+          bail!("Selection cancelled.");
+        }
+        _ => {}
       }
-      _ => {
-        // cause a refresh anyway
-      }
+    } else {
+      // cause a refresh anyway
     }
   }
   logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
@@ -75,8 +72,7 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
 }
 
 fn render_multi_select(data: &MultiSelectData) -> Vec<LoggerTextItem> {
-  let mut result = Vec::new();
-  result.push(LoggerTextItem::Text(data.prompt.to_string()));
+  let mut result = vec![LoggerTextItem::Text(data.prompt.to_string())];
 
   for (i, (is_selected, item_text)) in data.items.iter().enumerate() {
     let mut text = String::new();

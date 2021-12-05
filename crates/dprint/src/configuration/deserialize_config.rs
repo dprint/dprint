@@ -11,7 +11,7 @@ use super::ConfigMapValue;
 use super::RawPluginConfig;
 
 pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
-  let value = jsonc_parser::parse_to_value(&config_file_text)?;
+  let value = jsonc_parser::parse_to_value(config_file_text)?;
 
   let root_object_node = match value {
     Some(JsonValue::Object(obj)) => obj,

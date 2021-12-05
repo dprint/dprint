@@ -10,9 +10,9 @@ use std::sync::Arc;
 use crate::environment::DirEntry;
 use crate::environment::DirEntryKind;
 use crate::environment::Environment;
-use crate::utils::GlobMatcher;
-use crate::utils::GlobMatcherOptions;
 
+use super::GlobMatcher;
+use super::GlobMatcherOptions;
 use super::GlobPatterns;
 
 pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<Vec<PathBuf>> {
@@ -64,36 +64,31 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
   }
 
   pub fn run(&self) {
-    loop {
-      match self.get_next_pending_dirs() {
-        Some(pending_dirs) => {
-          let mut all_entries = Vec::new();
-          for current_dir in pending_dirs.into_iter().flatten() {
-            let info_result = self
-              .environment
-              .dir_info(&current_dir)
-              .map_err(|err| anyhow!("Error reading dir '{}': {}", current_dir.display(), err.to_string()));
-            match info_result {
-              Ok(entries) => {
-                if !entries.is_empty() {
-                  all_entries.extend(entries);
-                  // it is much faster to batch these than to hit the lock every time
-                  if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
-                    self.push_entries(std::mem::take(&mut all_entries));
-                  }
-                }
-              }
-              Err(err) => {
-                self.set_glob_error(err);
-                return;
+    while let Some(pending_dirs) = self.get_next_pending_dirs() {
+      let mut all_entries = Vec::new();
+      for current_dir in pending_dirs.into_iter().flatten() {
+        let info_result = self
+          .environment
+          .dir_info(&current_dir)
+          .map_err(|err| anyhow!("Error reading dir '{}': {}", current_dir.display(), err.to_string()));
+        match info_result {
+          Ok(entries) => {
+            if !entries.is_empty() {
+              all_entries.extend(entries);
+              // it is much faster to batch these than to hit the lock every time
+              if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
+                self.push_entries(std::mem::take(&mut all_entries));
               }
             }
           }
-          if !all_entries.is_empty() {
-            self.push_entries(all_entries);
+          Err(err) => {
+            self.set_glob_error(err);
+            return;
           }
         }
-        None => break,
+      }
+      if !all_entries.is_empty() {
+        self.push_entries(all_entries);
       }
     }
   }

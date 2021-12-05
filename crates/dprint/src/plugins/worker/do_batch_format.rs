@@ -56,7 +56,7 @@ where
 
   // wait for the other threads to finish
   for handle in thread_handles {
-    if let Err(_) = handle.join() {
+    if handle.join().is_err() {
       long_format_checker_thread.signal_exit();
       // todo: how to return error message?
       bail!("A panic occurred. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.",);
@@ -65,7 +65,7 @@ where
 
   long_format_checker_thread.signal_exit();
 
-  return Ok(());
+  Ok(())
 }
 
 fn run_thread<TEnvironment: Environment, F>(
@@ -78,7 +78,7 @@ fn run_thread<TEnvironment: Environment, F>(
 {
   let mut current_plugins: Option<Vec<OptionalPluginAndPool<TEnvironment>>> = None;
   loop {
-    if let Err(err) = do_local_work(error_logger, &registry, &worker, action.clone(), current_plugins.take()) {
+    if let Err(err) = do_local_work(error_logger, &registry, worker, action.clone(), current_plugins.take()) {
       error_logger.log_error(&err.to_string());
       return;
     }

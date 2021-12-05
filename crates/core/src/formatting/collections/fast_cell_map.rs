@@ -45,6 +45,6 @@ where
   /// at the end of printing.
   #[cfg(debug_assertions)]
   pub fn get_any_item(&self) -> Option<&'a TValue> {
-    unsafe { (*self.value.get()).iter().map(|(_, b)| b.clone()).next() }
+    unsafe { (*self.value.get()).iter().map(|(_, b)| *b).next() }
   }
 }

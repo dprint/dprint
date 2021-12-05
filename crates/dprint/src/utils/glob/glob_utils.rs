@@ -17,7 +17,7 @@ pub fn to_absolute_glob(pattern: &str, dir: &str) -> String {
   // the pattern, then the pattern is relative to the directory level of the particular
   // .gitignore file itself. Otherwise the pattern may also match at any level below the
   // .gitignore level."
-  let is_relative = match pattern.find("/") {
+  let is_relative = match pattern.find('/') {
     Some(index) => index != pattern.len() - 1, // not the end of the pattern
     None => false,
   };
@@ -61,7 +61,7 @@ pub fn is_negated_glob(pattern: &str) -> bool {
   let first_char = chars.next();
   let second_char = chars.next();
 
-  return first_char == Some('!') && second_char != Some('(');
+  first_char == Some('!') && second_char != Some('(')
 }
 
 fn glob_join(dir: String, pattern: String) -> String {
@@ -72,13 +72,9 @@ fn glob_join(dir: String, pattern: String) -> String {
     Cow::Owned(dir)
   };
   // strip leading slash
-  let pattern = if pattern.starts_with('/') {
-    Cow::Borrowed(&pattern[1..])
-  } else {
-    Cow::Owned(pattern)
-  };
+  let pattern = if let Some(pattern) = pattern.strip_prefix('/') { pattern } else { &pattern };
 
-  if pattern.len() == 0 {
+  if pattern.is_empty() {
     dir.into_owned()
   } else {
     format!("{}/{}", dir, pattern)
@@ -87,7 +83,7 @@ fn glob_join(dir: String, pattern: String) -> String {
 
 pub fn is_absolute_pattern(pattern: &str) -> bool {
   let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { &pattern };
-  pattern.starts_with("/") || is_windows_absolute_pattern(pattern)
+  pattern.starts_with('/') || is_windows_absolute_pattern(pattern)
 }
 
 fn is_windows_absolute_pattern(pattern: &str) -> bool {

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use anyhow::bail;
 use anyhow::Result;
 use dprint_cli_core::checksums::parse_checksum_path_or_url;
@@ -25,15 +27,6 @@ impl PluginSourceReference {
     self.path_source.display()
   }
 
-  /// Gets the source as a string with a checksum.
-  pub fn to_string(&self) -> String {
-    if let Some(checksum) = &self.checksum {
-      format!("{}@{}", self.path_source.to_string(), checksum)
-    } else {
-      self.path_source.to_string()
-    }
-  }
-
   pub fn is_wasm_plugin(&self) -> bool {
     self.path_source.is_wasm_plugin()
   }
@@ -57,6 +50,16 @@ impl PluginSourceReference {
     PluginSourceReference {
       path_source: PathSource::new_remote_from_str(url),
       checksum: None,
+    }
+  }
+}
+
+impl fmt::Display for PluginSourceReference {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    if let Some(checksum) = &self.checksum {
+      write!(f, "{}@{}", self.path_source.to_string(), checksum)
+    } else {
+      write!(f, "{}", self.path_source.to_string())
     }
   }
 }

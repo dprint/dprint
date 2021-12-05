@@ -45,7 +45,7 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
       &latest_plugins
         .iter()
         .map(|x| (x.selected && !x.is_process_plugin(), String::from(&x.name)))
-        .collect(),
+        .collect::<Vec<_>>(),
     )?;
     let mut selected_plugins = Vec::new();
     for index in plugin_indexes {
@@ -110,7 +110,7 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         .collect::<Vec<_>>(),
     );
     if !excludes.is_empty() {
-      json_text.push_str("\n");
+      json_text.push('\n');
       json_text.push_str(&excludes.join(",\n"));
       json_text.push_str("\n  ");
     }
@@ -130,7 +130,7 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
         };
         json_text.push_str(&format!("    \"{}\"", url));
       }
-      json_text.push_str("\n");
+      json_text.push('\n');
     }
     json_text.push_str("  ]\n}\n");
   } else {

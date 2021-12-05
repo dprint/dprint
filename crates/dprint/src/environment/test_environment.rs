@@ -401,12 +401,12 @@ impl Environment for TestEnvironment {
     60
   }
 
-  fn get_selection(&self, prompt_message: &str, _: u16, _: &Vec<String>) -> Result<usize> {
+  fn get_selection(&self, prompt_message: &str, _: u16, _: &[String]) -> Result<usize> {
     self.log_stderr(prompt_message);
     Ok(*self.selection_result.lock())
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, _: u16, items: &Vec<(bool, String)>) -> Result<Vec<usize>> {
+  fn get_multi_selection(&self, prompt_message: &str, _: u16, items: &[(bool, String)]) -> Result<Vec<usize>> {
     self.log_stderr(prompt_message);
     let default_values = items
       .iter()

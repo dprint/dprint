@@ -18,7 +18,7 @@ pub fn create_module(compiled_module_bytes: &[u8]) -> Result<Module> {
   let store = Store::default();
 
   unsafe {
-    match Module::deserialize(&store, &compiled_module_bytes) {
+    match Module::deserialize(&store, compiled_module_bytes) {
       Ok(module) => Ok(module),
       Err(err) => bail!("Error deserializing compiled wasm module: {:?}", err),
     }

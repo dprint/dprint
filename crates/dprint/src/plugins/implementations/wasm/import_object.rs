@@ -1,6 +1,5 @@
 use dprint_core::configuration::ConfigKeyMap;
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use wasmer::Function;
@@ -28,14 +27,14 @@ pub fn create_identity_import_object(store: &Store) -> wasmer::ImportObject {
 
   wasmer::imports! {
       "dprint" => {
-          "host_clear_bytes" => Function::new_native(&store, host_clear_bytes),
-          "host_read_buffer" => Function::new_native(&store, host_read_buffer),
-          "host_write_buffer" => Function::new_native(&store, host_write_buffer),
-          "host_take_override_config" => Function::new_native(&store, host_take_override_config),
-          "host_take_file_path" => Function::new_native(&store, host_take_file_path),
-          "host_format" => Function::new_native(&store, host_format),
-          "host_get_formatted_text" => Function::new_native(&store, host_get_formatted_text),
-          "host_get_error_text" => Function::new_native(&store, host_get_error_text),
+          "host_clear_bytes" => Function::new_native(store, host_clear_bytes),
+          "host_read_buffer" => Function::new_native(store, host_read_buffer),
+          "host_write_buffer" => Function::new_native(store, host_write_buffer),
+          "host_take_override_config" => Function::new_native(store, host_take_override_config),
+          "host_take_file_path" => Function::new_native(store, host_take_file_path),
+          "host_format" => Function::new_native(store, host_format),
+          "host_get_formatted_text" => Function::new_native(store, host_get_formatted_text),
+          "host_get_error_text" => Function::new_native(store, host_get_error_text),
       }
   }
 }
@@ -94,8 +93,8 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
       let mut cell = env.cell.lock();
       let memory = env.memory.get_ref().unwrap();
       let memory_reader = buffer_pointer.deref(memory, 0, length).unwrap();
-      for i in 0..length as usize {
-        cell.shared_bytes.push(memory_reader[i].get());
+      for byte_cell in memory_reader.iter().take(length as usize) {
+        cell.shared_bytes.push(byte_cell.get());
       }
     }
   };
@@ -116,15 +115,15 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
   let host_take_override_config = {
     |env: &ImportObjectEnvironment<TEnvironment>| {
       let mut cell = env.cell.lock();
-      let bytes = std::mem::replace(&mut cell.shared_bytes, Vec::new());
-      let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or(HashMap::new());
+      let bytes = std::mem::take(&mut cell.shared_bytes);
+      let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or_default();
       cell.override_config.replace(config_key_map);
     }
   };
   let host_take_file_path = {
     |env: &ImportObjectEnvironment<TEnvironment>| {
       let mut cell = env.cell.lock();
-      let bytes = std::mem::replace(&mut cell.shared_bytes, Vec::new());
+      let bytes = std::mem::take(&mut cell.shared_bytes);
       let file_path_str = String::from_utf8(bytes).unwrap();
       cell.file_path.replace(PathBuf::from(file_path_str));
     }
@@ -133,9 +132,9 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
     |env: &ImportObjectEnvironment<TEnvironment>| {
       let (override_config, file_path, file_text) = {
         let mut cell = env.cell.lock();
-        let override_config = cell.override_config.take().unwrap_or(HashMap::new());
+        let override_config = cell.override_config.take().unwrap_or_default();
         let file_path = cell.file_path.take().expect("Expected to have file path.");
-        let bytes = std::mem::replace(&mut cell.shared_bytes, Vec::new());
+        let bytes = std::mem::take(&mut cell.shared_bytes);
         let file_text = String::from_utf8(bytes).unwrap();
         (override_config, file_path, file_text)
       };
@@ -160,7 +159,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
   let host_get_formatted_text = {
     |env: &ImportObjectEnvironment<TEnvironment>| {
       let mut cell = env.cell.lock();
-      let formatted_text = std::mem::replace(&mut cell.formatted_text_store, String::new());
+      let formatted_text = std::mem::take(&mut cell.formatted_text_store);
       let len = formatted_text.len();
       cell.shared_bytes = formatted_text.into_bytes();
       len as u32
@@ -170,7 +169,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
     // todo: reduce code duplication with above function
     |env: &ImportObjectEnvironment<TEnvironment>| {
       let mut cell = env.cell.lock();
-      let error_text = std::mem::replace(&mut cell.error_text_store, String::new());
+      let error_text = std::mem::take(&mut cell.error_text_store);
       let len = error_text.len();
       cell.shared_bytes = error_text.into_bytes();
       len as u32
@@ -179,14 +178,14 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
 
   wasmer::imports! {
       "dprint" => {
-          "host_clear_bytes" => Function::new_native_with_env(&store, import_object_env.clone(), host_clear_bytes),
-          "host_read_buffer" => Function::new_native_with_env(&store, import_object_env.clone(), host_read_buffer),
-          "host_write_buffer" => Function::new_native_with_env(&store, import_object_env.clone(), host_write_buffer),
-          "host_take_override_config" => Function::new_native_with_env(&store, import_object_env.clone(), host_take_override_config),
-          "host_take_file_path" => Function::new_native_with_env(&store, import_object_env.clone(), host_take_file_path),
-          "host_format" => Function::new_native_with_env(&store, import_object_env.clone(), host_format),
-          "host_get_formatted_text" => Function::new_native_with_env(&store, import_object_env.clone(), host_get_formatted_text),
-          "host_get_error_text" => Function::new_native_with_env(&store, import_object_env.clone(), host_get_error_text),
+          "host_clear_bytes" => Function::new_native_with_env(store, import_object_env.clone(), host_clear_bytes),
+          "host_read_buffer" => Function::new_native_with_env(store, import_object_env.clone(), host_read_buffer),
+          "host_write_buffer" => Function::new_native_with_env(store, import_object_env.clone(), host_write_buffer),
+          "host_take_override_config" => Function::new_native_with_env(store, import_object_env.clone(), host_take_override_config),
+          "host_take_file_path" => Function::new_native_with_env(store, import_object_env.clone(), host_take_file_path),
+          "host_format" => Function::new_native_with_env(store, import_object_env.clone(), host_format),
+          "host_get_formatted_text" => Function::new_native_with_env(store, import_object_env.clone(), host_get_formatted_text),
+          "host_get_error_text" => Function::new_native_with_env(store, import_object_env.clone(), host_get_error_text),
       }
   }
 }

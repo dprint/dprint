@@ -107,7 +107,7 @@ pub fn output_resolved_config<TEnvironment: Environment>(
 
     // get an initialized plugin and output its diagnostics
     let initialized_plugin = plugin.initialize()?;
-    output_plugin_config_diagnostics(plugin.name(), &initialized_plugin, &ErrorCountLogger::from_environment(environment))?;
+    output_plugin_config_diagnostics(plugin.name(), &*initialized_plugin, &ErrorCountLogger::from_environment(environment))?;
 
     let text = initialized_plugin.get_resolved_config()?;
     let pretty_text = pretty_print_json_text(&text)?;

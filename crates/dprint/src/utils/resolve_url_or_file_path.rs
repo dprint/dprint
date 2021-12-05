@@ -21,11 +21,7 @@ impl ResolvedPath {
   }
 
   pub fn is_remote(&self) -> bool {
-    if let PathSource::Remote(_) = &self.source {
-      true
-    } else {
-      false
-    }
+    matches!(&self.source, PathSource::Remote(_))
   }
 }
 
@@ -98,7 +94,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
     if url.cannot_be_a_base() {
       // relative url
       if let PathSource::Remote(remote_base) = base {
-        let url = remote_base.url.join(&url_or_file_path)?;
+        let url = remote_base.url.join(url_or_file_path)?;
         return Ok(PathSource::new_remote(url));
       }
     } else {
@@ -113,15 +109,13 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
     }
   }
 
-  match base {
+  Ok(match base {
     PathSource::Remote(remote_base) => {
-      let url = remote_base.url.join(&url_or_file_path)?;
-      return Ok(PathSource::new_remote(url));
+      let url = remote_base.url.join(url_or_file_path)?;
+      PathSource::new_remote(url)
     }
-    PathSource::Local(local_base) => {
-      return Ok(PathSource::new_local(environment.canonicalize(local_base.path.join(url_or_file_path))?));
-    }
-  }
+    PathSource::Local(local_base) => PathSource::new_local(environment.canonicalize(local_base.path.join(url_or_file_path))?),
+  })
 }
 
 fn try_parse_url(url_or_file_path: &str) -> Option<Url> {
@@ -194,15 +188,15 @@ mod tests {
     assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
   }
 
-  #[cfg(linux)]
+  #[cfg(unix)]
   #[test]
-  fn should_resolve_a_file_url_on_linux() {
+  fn should_resolve_a_file_url_on_unix() {
     let environment = TestEnvironment::new();
-    let cache = Cache::new(&environment);
-    let base = PathSource::new_local(PathBuf::from("/"));
+    let cache = Cache::new(environment.clone());
+    let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
     let result = resolve_url_or_file_path("file:///test/test.json", &base, &cache, &environment).unwrap();
     assert_eq!(result.is_local(), true);
-    assert_eq!(result.file_path, PathBuf::from("/test/test.json"));
+    assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing("/test/test.json"));
   }
 
   #[cfg(windows)]

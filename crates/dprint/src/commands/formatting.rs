@@ -34,8 +34,8 @@ pub fn stdin_fmt<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(&args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(&args, &config, environment, plugin_resolver)?;
+  let config = resolve_config_from_args(args, cache, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
@@ -112,7 +112,7 @@ pub fn check<TEnvironment: Environment>(
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
+  let incremental_file = get_incremental_file(args, &config, cache, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
   run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, {
@@ -120,7 +120,7 @@ pub fn check<TEnvironment: Environment>(
     move |file_path, file_text, formatted_text, _, _, environment| {
       if formatted_text != file_text {
         not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        output_difference(&file_path, &file_text, &formatted_text, environment);
+        output_difference(file_path, file_text, &formatted_text, environment);
       }
       Ok(())
     }
@@ -159,7 +159,7 @@ pub fn format<TEnvironment: Environment>(
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(args, &config, &cache, &plugin_pools, &environment);
+  let incremental_file = get_incremental_file(args, &config, cache, &plugin_pools, environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 

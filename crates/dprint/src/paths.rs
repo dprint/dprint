@@ -34,7 +34,7 @@ impl PluginNames {
 }
 
 pub fn get_file_paths_by_plugins_and_err_if_empty(
-  plugins: &Vec<Box<dyn Plugin>>,
+  plugins: &[Box<dyn Plugin>],
   file_paths: Vec<PathBuf>,
   config_base_path: &CanonicalizedPathBuf,
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
@@ -46,7 +46,7 @@ pub fn get_file_paths_by_plugins_and_err_if_empty(
 }
 
 pub fn get_file_paths_by_plugins(
-  plugins: &Vec<Box<dyn Plugin>>,
+  plugins: &[Box<dyn Plugin>],
   file_paths: Vec<PathBuf>,
   config_base_path: &CanonicalizedPathBuf,
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
@@ -56,12 +56,12 @@ pub fn get_file_paths_by_plugins(
 
   for plugin in plugins.iter() {
     for file_extension in plugin.file_extensions() {
-      plugin_by_file_extension.entry(file_extension.to_lowercase()).or_insert(plugin.name());
+      plugin_by_file_extension.entry(file_extension.to_lowercase()).or_insert_with(|| plugin.name());
     }
     for file_name in plugin.file_names() {
-      plugin_by_file_name.entry(file_name.to_lowercase()).or_insert(plugin.name());
+      plugin_by_file_name.entry(file_name.to_lowercase()).or_insert_with(|| plugin.name());
     }
-    if let Some(matcher) = get_plugin_association_glob_matcher(plugin, config_base_path)? {
+    if let Some(matcher) = get_plugin_association_glob_matcher(&**plugin, config_base_path)? {
       plugin_associations.push((plugin.name(), matcher));
     }
   }
@@ -80,17 +80,16 @@ pub fn get_file_paths_by_plugins(
       }
     }
     if plugin_names_key.is_none() {
-      plugin_names_key = if let Some(plugin) = crate::utils::get_lowercase_file_name(&file_path).and_then(|k| plugin_by_file_name.get(k.as_str())) {
-        Some(PluginNames(plugin.to_string()))
-      } else if let Some(plugin) = crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())) {
-        Some(PluginNames(plugin.to_string()))
-      } else {
-        None
+      plugin_names_key = {
+        crate::utils::get_lowercase_file_name(&file_path)
+          .and_then(|k| plugin_by_file_name.get(k.as_str()))
+          .or_else(|| crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())))
+          .map(|plugin| PluginNames(plugin.to_string()))
       };
     }
 
     if let Some(plugin_names_key) = plugin_names_key {
-      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_insert(vec![]);
+      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_insert_with(Vec::new);
       file_paths.push(file_path);
     }
   }
@@ -100,7 +99,7 @@ pub fn get_file_paths_by_plugins(
 
 pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
   let (file_patterns, absolute_paths) = get_config_file_paths(config, args, environment)?;
-  return resolve_file_paths(file_patterns, &absolute_paths, args, config, environment);
+  resolve_file_paths(file_patterns, &absolute_paths, args, config, environment)
 }
 
 fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<(GlobPatterns, Vec<PathBuf>)> {
@@ -115,12 +114,12 @@ fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &
     absolute_paths
   };
 
-  return Ok((file_patterns, absolute_paths));
+  Ok((file_patterns, absolute_paths))
 }
 
 fn resolve_file_paths(
   file_patterns: GlobPatterns,
-  absolute_paths: &Vec<PathBuf>,
+  absolute_paths: &[PathBuf],
   args: &CliArgs,
   config: &ResolvedConfig,
   environment: &impl Environment,
@@ -138,7 +137,7 @@ fn resolve_file_paths(
     Ok(file_paths)
   } else {
     let mut file_paths = glob(environment, &config.base_path, file_patterns)?;
-    file_paths.extend(absolute_paths.clone());
+    file_paths.extend(absolute_paths.to_owned());
     Ok(file_paths)
   }
 }

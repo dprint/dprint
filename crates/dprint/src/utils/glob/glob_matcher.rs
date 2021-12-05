@@ -19,6 +19,7 @@ pub struct GlobMatcher {
   inner: GlobMatcherInner,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum GlobMatcherInner {
   Empty,
   Matcher {

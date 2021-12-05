@@ -33,7 +33,7 @@ impl InfoFilePluginInfo {
 }
 
 const SCHEMA_VERSION: u8 = 4;
-pub const REMOTE_INFO_URL: &'static str = "https://plugins.dprint.dev/info.json";
+pub const REMOTE_INFO_URL: &str = "https://plugins.dprint.dev/info.json";
 
 pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
   let info_bytes = environment.download_file(REMOTE_INFO_URL)?;

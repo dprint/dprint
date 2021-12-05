@@ -179,7 +179,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
           // attempt formatting again
           self.inner_format_text(file_path, file_text, override_config)
         } else {
-          return Err(original_err);
+          Err(original_err)
         }
       }
     }

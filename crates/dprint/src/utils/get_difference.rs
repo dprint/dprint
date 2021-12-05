@@ -31,7 +31,7 @@ pub fn get_difference(old_text: &str, new_text: &str) -> String {
     for op in hunk.ops() {
       for change in diff.iter_inline_changes(op) {
         if !output.is_empty() {
-          output.push_str("\n");
+          output.push('\n');
         }
         let sign = match change.tag() {
           ChangeTag::Delete => get_removal_text("-"),
@@ -47,10 +47,10 @@ pub fn get_difference(old_text: &str, new_text: &str) -> String {
           new_width = max_new_line_num_width,
         ));
         for (highlight, change_text) in change.iter_strings_lossy() {
-          let change_text = if change_text.ends_with("\r\n") {
-            &change_text[..change_text.len() - 2]
-          } else if change_text.ends_with("\n") {
-            &change_text[..change_text.len() - 1]
+          let change_text = if let Some(change_text) = change_text.strip_suffix("\r\n") {
+            change_text
+          } else if let Some(change_text) = change_text.strip_suffix('\n') {
+            change_text
           } else {
             &change_text
           };

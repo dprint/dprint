@@ -89,17 +89,17 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
         plugin_name_maps
           .extension_to_plugin_name_map
           .entry(extension.to_owned())
-          .or_insert(plugin_name.clone());
+          .or_insert_with(|| plugin_name.clone());
       }
       for file_name in plugin_file_names.iter() {
         // first added plugin takes precedence
         plugin_name_maps
           .file_name_to_plugin_name_map
           .entry(file_name.to_owned())
-          .or_insert(plugin_name.clone());
+          .or_insert_with(|| plugin_name.clone());
       }
 
-      if let Some(matchers) = get_plugin_association_glob_matcher(&plugin, &config_base_path)? {
+      if let Some(matchers) = get_plugin_association_glob_matcher(&*plugin, config_base_path)? {
         plugin_name_maps.association_matchers.push((plugin_name.clone(), matchers));
       }
 
@@ -110,7 +110,7 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
   }
 
   pub fn get_pool(&self, plugin_name: &str) -> Option<Arc<InitializedPluginPool<TEnvironment>>> {
-    self.pools.lock().get(plugin_name).map(|p| p.clone())
+    self.pools.lock().get(plugin_name).cloned()
   }
 
   pub fn take_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str) -> Result<Box<dyn InitializedPlugin>> {
@@ -267,7 +267,7 @@ impl<TEnvironment: Environment> InitializedPluginPool<TEnvironment> {
     InitializedPluginPool {
       environment,
       name: plugin.name().to_string(),
-      plugin: plugin,
+      plugin,
       items: Mutex::new(Vec::new()),
       time_stats: RwLock::new(PluginTimeStats {
         // assume this if never created
@@ -304,7 +304,7 @@ impl<TEnvironment: Environment> InitializedPluginPool<TEnvironment> {
           }
         }
         None => {
-          let result = output_plugin_config_diagnostics(self.name(), &instance, &error_logger);
+          let result = output_plugin_config_diagnostics(self.name(), &*instance, error_logger);
           *has_checked_diagnostics = Some(result.is_ok());
           if let Err(err) = result {
             self.environment.log_stderr(&err.to_string());

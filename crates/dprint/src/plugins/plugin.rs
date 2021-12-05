@@ -37,8 +37,8 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
     let mut hash_str = String::new();
 
     // list everything in here that would affect formatting
-    hash_str.push_str(&self.name());
-    hash_str.push_str(&self.version());
+    hash_str.push_str(self.name());
+    hash_str.push_str(self.version());
 
     // serialize the config keys in order to prevent the hash from changing
     let sorted_config: std::collections::BTreeMap<&String, &ConfigKeyValue> = config.0.properties.iter().collect();

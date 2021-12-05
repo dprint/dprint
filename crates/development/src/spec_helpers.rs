@@ -57,7 +57,7 @@ pub fn run_specs(
   #[cfg(not(debug_assertions))]
   assert_not_fix_failures(run_spec_options);
 
-  let specs = get_specs_in_dir(&directory_path, &parse_spec_options);
+  let specs = get_specs_in_dir(directory_path, parse_spec_options);
   let test_count = specs.len();
   let mut failed_tests = Vec::new();
 
@@ -67,7 +67,7 @@ pub fn run_specs(
 
     let file_path_buf = PathBuf::from(&spec.file_name);
     let format = |file_text: &str| {
-      format_text(&file_path_buf, &file_text, &spec.config)
+      format_text(&file_path_buf, file_text, &spec.config)
         .unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {}", spec.message, file_path, err.to_string(),))
     };
 

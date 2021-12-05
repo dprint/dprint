@@ -193,7 +193,7 @@ pub fn parse_separated_values(
             if multi_line_options.with_indent {
               items.push_signal(Signal::StartIndent);
             }
-            items.extend(parsed_values_items.clone().into());
+            items.extend(parsed_values_items.into());
             if multi_line_options.with_indent {
               items.push_signal(Signal::FinishIndent);
             }
@@ -202,7 +202,7 @@ pub fn parse_separated_values(
             }
             items
           },
-          parsed_values_items.clone().into(),
+          parsed_values_items.into(),
         )
         .into(),
       ),
@@ -315,11 +315,11 @@ pub fn parse_separated_values(
                       "newlineIfHanging",
                       move |context| condition_resolvers::is_hanging(context, &last_start_info, &None),
                       Signal::NewLine.into(),
-                      single_line_separator.clone().into(),
+                      single_line_separator.into(),
                     )
                     .into()
                   } else {
-                    single_line_separator.clone().into()
+                    single_line_separator.into()
                   }
                 };
                 if i == values_count - 1 && !had_newline {
@@ -343,19 +343,19 @@ pub fn parse_separated_values(
                     items.push_condition(indent_if_start_of_line({
                       let mut items = PrintItems::new();
                       items.push_info(start_info);
-                      items.extend(parsed_value.clone().into());
+                      items.extend(parsed_value.into());
                       items
                     }));
                   } else {
                     items.push_info(start_info);
-                    items.extend(parsed_value.clone().into());
+                    items.extend(parsed_value.into());
                   }
                 }
                 BoolOrCondition::Condition(condition) => {
                   let inner_items = {
                     let mut items = PrintItems::new();
                     items.push_info(start_info);
-                    items.extend(parsed_value.clone().into());
+                    items.extend(parsed_value.into());
                     items
                   }
                   .into_rc_path();
@@ -363,7 +363,7 @@ pub fn parse_separated_values(
                     "valueHangingIndent",
                     ConditionProperties {
                       condition: condition.clone(),
-                      true_path: Some(parser_helpers::with_indent(inner_items.clone().into())),
+                      true_path: Some(parser_helpers::with_indent(inner_items.into())),
                       false_path: Some(inner_items.into()),
                     },
                   ));
@@ -374,7 +374,7 @@ pub fn parse_separated_values(
             },
             false_path: {
               let mut items = PrintItems::new();
-              items.extend(single_line_separator.clone().into()); // ex. Signal::SpaceOrNewLine
+              items.extend(single_line_separator.into()); // ex. Signal::SpaceOrNewLine
               items.push_condition(indent_if_start_of_line({
                 let mut items = PrintItems::new();
                 items.push_info(start_info);

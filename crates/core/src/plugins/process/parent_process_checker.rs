@@ -26,7 +26,7 @@ pub fn get_parent_process_id_from_cli_args() -> Option<u32> {
     }
   }
 
-  return None;
+  None
 }
 
 // code below is from my implementation when adding this to Deno

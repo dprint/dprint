@@ -176,7 +176,7 @@ impl<'a> Printer<'a> {
   pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
     let resolved_info = self.resolved_infos.get(&info.get_unique_id());
     if resolved_info.is_none() && !self.look_ahead_info_save_points.contains_key(&info.get_unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(&info.get_name());
+      let save_point = self.get_save_point_for_restoring_condition(info.get_name());
       self.look_ahead_info_save_points.insert(info.get_unique_id(), save_point);
     }
 
@@ -189,7 +189,7 @@ impl<'a> Printer<'a> {
 
   pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
     if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
-      let save_point = self.get_save_point_for_restoring_condition(&condition_reference.get_name());
+      let save_point = self.get_save_point_for_restoring_condition(condition_reference.get_name());
       self.look_ahead_condition_save_points.insert(condition_reference.id, save_point);
     }
 
@@ -198,7 +198,7 @@ impl<'a> Printer<'a> {
   }
 
   pub fn has_info_moved(&mut self, info: &Info) -> Option<bool> {
-    let position = self.get_resolved_info(&info)?.get_line_and_column();
+    let position = self.get_resolved_info(info)?.get_line_and_column();
     let stored_position = self.stored_info_positions.get(&info.get_unique_id());
     if let Some(stored_position) = stored_position {
       if position != *stored_position {
@@ -231,7 +231,7 @@ impl<'a> Printer<'a> {
     self.bump.alloc(SavePoint {
       #[cfg(debug_assertions)]
       name: _name,
-      possible_new_line_save_point: self.possible_new_line_save_point.clone(),
+      possible_new_line_save_point: self.possible_new_line_save_point,
       new_line_group_depth: self.new_line_group_depth,
       force_no_newlines_depth: self.force_no_newlines_depth,
       node: next_node,
@@ -247,7 +247,7 @@ impl<'a> Printer<'a> {
     if let Some(save_point) = &self.resolving_save_point {
       save_point
     } else {
-      self.create_save_point(name, self.current_node.clone())
+      self.create_save_point(name, self.current_node)
     }
   }
 
@@ -269,12 +269,8 @@ impl<'a> Printer<'a> {
 
   fn update_state_to_save_point(&mut self, save_point: &'a SavePoint<'a>, is_for_new_line: bool) {
     self.writer.set_state(save_point.writer_state.clone());
-    self.possible_new_line_save_point = if is_for_new_line {
-      None
-    } else {
-      save_point.possible_new_line_save_point.clone()
-    };
-    self.current_node = save_point.node.clone();
+    self.possible_new_line_save_point = if is_for_new_line { None } else { save_point.possible_new_line_save_point };
+    self.current_node = save_point.node;
     self.new_line_group_depth = save_point.new_line_group_depth;
     self.force_no_newlines_depth = save_point.force_no_newlines_depth;
     self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
@@ -318,7 +314,6 @@ impl<'a> Printer<'a> {
                 self.write_new_line();
               } else {
                 self.update_state_to_save_point(save_state, true);
-                return;
               }
             }
           } else {
@@ -411,27 +406,25 @@ impl<'a> Printer<'a> {
 
     if condition_value.is_some() && condition_value.unwrap() {
       if let Some(true_path) = condition.true_path {
-        self.current_node = Some(true_path.clone());
+        self.current_node = Some(true_path);
         if let Some(path) = next_node {
-          self.next_node_stack.push(path.clone());
+          self.next_node_stack.push(path);
         }
         self.skip_moving_next = true;
       }
-    } else {
-      if let Some(false_path) = condition.false_path {
-        self.current_node = Some(false_path.clone());
-        if let Some(path) = next_node {
-          self.next_node_stack.push(path.clone());
-        }
-        self.skip_moving_next = true;
+    } else if let Some(false_path) = condition.false_path {
+      self.current_node = Some(false_path);
+      if let Some(path) = next_node {
+        self.next_node_stack.push(path);
       }
+      self.skip_moving_next = true;
     }
   }
 
   #[inline]
   fn handle_rc_path(&mut self, print_item_path: &PrintItemPath, next_node: &Option<PrintItemPath>) {
     if let Some(path) = next_node {
-      self.next_node_stack.push(path.clone());
+      self.next_node_stack.push(path);
     }
     self.current_node = Some(print_item_path);
     self.skip_moving_next = true;
@@ -480,7 +473,7 @@ impl<'a> Printer<'a> {
       self.panic_for_save_point_existing(save_point)
     }
     if let Some(save_point) = self.look_ahead_info_save_points.get_any_item() {
-      self.panic_for_save_point_existing(&save_point)
+      self.panic_for_save_point_existing(save_point)
     }
   }
 

@@ -127,7 +127,7 @@ fn resolve_extends<TEnvironment: Environment>(
   Ok(())
 }
 
-fn handle_config_file<'a, TEnvironment: Environment>(
+fn handle_config_file<TEnvironment: Environment>(
   resolved_path: &ResolvedPath,
   resolved_config: &mut ResolvedConfig,
   cache: &Cache<TEnvironment>,
@@ -166,46 +166,35 @@ fn handle_config_file<'a, TEnvironment: Environment>(
   for (key, value) in new_config_map {
     match value {
       ConfigMapValue::KeyValue(key_value) => {
-        if !resolved_config.config_map.contains_key(&key) {
-          resolved_config.config_map.insert(key, ConfigMapValue::KeyValue(key_value));
-        }
+        resolved_config.config_map.entry(key).or_insert(ConfigMapValue::KeyValue(key_value));
       }
       ConfigMapValue::Vec(items) => {
-        if !resolved_config.config_map.contains_key(&key) {
-          resolved_config.config_map.insert(key, ConfigMapValue::Vec(items));
-        }
+        resolved_config.config_map.entry(key).or_insert(ConfigMapValue::Vec(items));
       }
       ConfigMapValue::PluginConfig(obj) => {
         if let Some(resolved_config_obj) = resolved_config.config_map.get_mut(&key) {
-          match resolved_config_obj {
-            ConfigMapValue::PluginConfig(resolved_config_obj) => {
-              // check for locked configuration
-              if obj.locked && !resolved_config_obj.properties.is_empty() {
-                bail!(
-                  concat!(
-                    "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
-                    "Locked configurations cannot have their properties overridden."
-                  ),
-                  key
-                );
-              }
-
-              // now the properties
-              for (key, value) in obj.properties {
-                if !resolved_config_obj.properties.contains_key(&key) {
-                  resolved_config_obj.properties.insert(key, value);
-                }
-              }
-
-              // Set the associations if they aren't overwritten in the parent
-              // config. This is ok to do because process plugins and includes/excludes
-              // aren't inherited from other config.
-              if resolved_config_obj.associations.is_none() {
-                resolved_config_obj.associations = obj.associations;
-              }
+          if let ConfigMapValue::PluginConfig(resolved_config_obj) = resolved_config_obj {
+            // check for locked configuration
+            if obj.locked && !resolved_config_obj.properties.is_empty() {
+              bail!(
+                concat!(
+                  "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
+                  "Locked configurations cannot have their properties overridden."
+                ),
+                key
+              );
             }
-            _ => {
-              // ignore...
+
+            // now the properties
+            for (key, value) in obj.properties {
+              resolved_config_obj.properties.entry(key).or_insert(value);
+            }
+
+            // Set the associations if they aren't overwritten in the parent
+            // config. This is ok to do because process plugins and includes/excludes
+            // aren't inherited from other config.
+            if resolved_config_obj.associations.is_none() {
+              resolved_config_obj.associations = obj.associations;
             }
           }
         } else {

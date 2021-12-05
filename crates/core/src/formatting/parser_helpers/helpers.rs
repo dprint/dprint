@@ -154,7 +154,7 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
   items.push_condition(Condition::new_with_dependent_infos(
     "newlineIfMultiLine",
     ConditionProperties {
-      true_path: Some(surround_with_new_lines(with_indent(inner_items.clone().into()))),
+      true_path: Some(surround_with_new_lines(with_indent(inner_items.into()))),
       false_path: Some({
         let mut items = PrintItems::new();
         items.push_condition(conditions::if_above_width(indent_width, Signal::PossibleNewLine.into()));
@@ -184,7 +184,7 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
   return with_no_new_lines(items);
 
   fn get_comment_text(original_text: &str, force_space_after_slashes: bool) -> String {
-    let non_slash_index = get_first_non_slash_index(&original_text);
+    let non_slash_index = get_first_non_slash_index(original_text);
     let skip_space = force_space_after_slashes && original_text.chars().nth(non_slash_index) == Some(' ');
     let start_text_index = if skip_space { non_slash_index + 1 } else { non_slash_index };
     let comment_text_original = &original_text[start_text_index..]; // pref: ok to index here since slashes are 1 byte each
@@ -215,7 +215,7 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
 pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
   let mut items = PrintItems::new();
   let add_ignore_indent = text.contains('\n');
-  let last_line_trailing_whitespace = get_last_line_trailing_whitespace(&text);
+  let last_line_trailing_whitespace = get_last_line_trailing_whitespace(text);
 
   items.push_str("/*");
   if add_ignore_indent {

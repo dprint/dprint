@@ -15,7 +15,7 @@ struct SelectData<'a> {
   active_index: usize,
 }
 
-pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hanging_indent: u16, items: &Vec<String>) -> Result<usize> {
+pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hanging_indent: u16, items: &[String]) -> Result<usize> {
   let mut data = SelectData {
     prompt,
     item_hanging_indent,
@@ -27,8 +27,8 @@ pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hangi
     let text_items = render_select(&data);
     logger.set_refresh_item(LoggerRefreshItemKind::Selection, text_items);
 
-    match read_terminal_event()? {
-      Event::Key(key_event) => match &key_event.code {
+    if let Event::Key(key_event) = read_terminal_event()? {
+      match &key_event.code {
         KeyCode::Up => {
           if data.active_index == 0 {
             data.active_index = data.items.len() - 1;
@@ -47,16 +47,15 @@ pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hangi
           bail!("Selection cancelled.");
         }
         _ => {}
-      },
-      _ => {
-        // cause a refresh anyway
       }
+    } else {
+      // cause a refresh anyway
     }
   }
   logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
 
   logger.log_text_items(
-    &vec![
+    &[
       LoggerTextItem::Text(data.prompt.to_string()),
       LoggerTextItem::HangingText {
         text: data.items[data.active_index].to_string(),
@@ -71,8 +70,7 @@ pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hangi
 }
 
 fn render_select(data: &SelectData) -> Vec<LoggerTextItem> {
-  let mut result = Vec::new();
-  result.push(LoggerTextItem::Text(data.prompt.to_string()));
+  let mut result = vec![LoggerTextItem::Text(data.prompt.to_string())];
 
   for (i, item_text) in data.items.iter().enumerate() {
     let mut text = String::new();

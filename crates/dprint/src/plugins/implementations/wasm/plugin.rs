@@ -93,7 +93,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     )?;
     let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
 
-    wasm_plugin.set_global_config(&global_config)?;
+    wasm_plugin.set_global_config(global_config)?;
     wasm_plugin.set_plugin_config(&plugin_config.properties)?;
 
     Ok(Box::new(wasm_plugin))
@@ -286,7 +286,7 @@ impl InitializedPlugin for InitializedWasmPlugin {
           Ok(text) => Ok(text),
           Err(err) => {
             self.reinitialize_due_to_panic(&err);
-            return Err(err);
+            Err(err)
           }
         }
       }

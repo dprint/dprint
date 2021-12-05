@@ -19,7 +19,7 @@ impl TableText {
       if indent > 0 {
         text.push_str(&" ".repeat(indent as usize));
       }
-      text.push_str(&line);
+      text.push_str(line);
       text_items.push(LoggerTextItem::HangingText {
         text,
         indent: indent + self.hanging_indent,
@@ -51,6 +51,6 @@ pub fn get_table_text(items: Vec<(&str, &str)>) -> TableText {
 
 fn get_largest_string_len<'a>(items: impl Iterator<Item = &'a str>) -> usize {
   let mut key_lens = items.map(|item| item.chars().count()).collect::<Vec<_>>();
-  key_lens.sort();
+  key_lens.sort_unstable();
   key_lens.pop().unwrap_or(0)
 }

@@ -23,7 +23,7 @@ impl<'a> WriterState<'a> {
       column_number: self.current_line_column,
       indent_level: self.indent_level,
       line_start_indent_level: self.last_line_indent_level,
-      line_start_column_number: get_line_start_column_number(&self, indent_width),
+      line_start_column_number: get_line_start_column_number(self, indent_width),
     }
   }
 }
@@ -39,7 +39,7 @@ impl<'a> Clone for WriterState<'a> {
       indent_queue_count: self.indent_queue_count,
       last_was_not_trailing_space: self.last_was_not_trailing_space,
       ignore_indent_count: self.ignore_indent_count,
-      items: self.items.clone(),
+      items: self.items,
     }
   }
 }
@@ -254,7 +254,7 @@ impl<'a> Writer<'a> {
 
   fn pop_item(&mut self) {
     if let Some(previous) = &self.state.items {
-      self.state.items = previous.previous.clone();
+      self.state.items = previous.previous;
     }
   }
 
@@ -286,8 +286,8 @@ impl<'a> Writer<'a> {
     let mut current_item = self.state.items;
     while let Some(item) = current_item {
       // insert at the start since items are stored last to first
-      items.insert(0, item.item.clone());
-      current_item = item.previous.clone();
+      items.insert(0, item.item);
+      current_item = item.previous;
     }
     items
   }

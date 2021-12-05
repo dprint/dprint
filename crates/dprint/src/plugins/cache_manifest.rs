@@ -66,10 +66,10 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
 
   fn try_deserialize(environment: &impl Environment) -> Result<PluginCacheManifest> {
     let file_path = get_manifest_file_path(environment);
-    return match environment.read_file(&file_path) {
+    match environment.read_file(&file_path) {
       Ok(text) => Ok(serde_json::from_str::<PluginCacheManifest>(&text)?),
       Err(_) => Ok(PluginCacheManifest::new()),
-    };
+    }
   }
 }
 

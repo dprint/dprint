@@ -21,7 +21,7 @@ impl CanonicalizedPathBuf {
     CanonicalizedPathBuf::new(path.as_ref().to_path_buf())
   }
 
-  pub fn to_path_buf(self) -> PathBuf {
+  pub fn into_path_buf(self) -> PathBuf {
     self.path
   }
 

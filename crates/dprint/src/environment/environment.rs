@@ -56,8 +56,8 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + 'static {
   fn download_file(&self, url: &str) -> Result<Vec<u8>>;
   fn get_cache_dir(&self) -> PathBuf;
   fn get_time_secs(&self) -> u64;
-  fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<String>) -> Result<usize>;
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<(bool, String)>) -> Result<Vec<usize>>;
+  fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
+  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool>;
   fn get_terminal_width(&self) -> u16;
   fn is_verbose(&self) -> bool;

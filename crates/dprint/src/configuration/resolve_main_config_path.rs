@@ -11,9 +11,9 @@ use crate::utils::resolve_url_or_file_path;
 use crate::utils::PathSource;
 use crate::utils::ResolvedPath;
 
-const DEFAULT_CONFIG_FILE_NAME: &'static str = "dprint.json";
-const HIDDEN_CONFIG_FILE_NAME: &'static str = ".dprint.json";
-const OLD_CONFIG_FILE_NAME: &'static str = ".dprintrc.json";
+const DEFAULT_CONFIG_FILE_NAME: &str = "dprint.json";
+const HIDDEN_CONFIG_FILE_NAME: &str = ".dprint.json";
+const OLD_CONFIG_FILE_NAME: &str = ".dprintrc.json";
 
 #[derive(Debug)]
 pub struct ResolvedConfigPath {
@@ -21,7 +21,7 @@ pub struct ResolvedConfigPath {
   pub base_path: CanonicalizedPathBuf,
 }
 
-pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
+pub fn resolve_main_config_path<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
@@ -68,7 +68,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
   }
 
   fn get_default_config_file_in_ancestor_directories(environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
-    let cwd = environment.cwd().to_path_buf();
+    let cwd = environment.cwd().into_path_buf();
     for ancestor_dir in cwd.ancestors() {
       if let Some(ancestor_config_path) = get_config_file_in_dir(&ancestor_dir, environment) {
         return Ok(Some(ResolvedConfigPath {

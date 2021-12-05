@@ -18,10 +18,7 @@ pub struct CliArgs {
 
 impl CliArgs {
   pub fn is_silent_output(&self) -> bool {
-    match self.sub_command {
-      SubCommand::StdInFmt(..) => true,
-      _ => false,
-    }
+    matches!(self.sub_command, SubCommand::StdInFmt(..))
   }
 
   fn new_with_sub_command(sub_command: SubCommand) -> CliArgs {
@@ -109,7 +106,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
   let sub_command = match matches.subcommand() {
     ("fmt", Some(matches)) => {
       if let Some(file_name_path_or_extension) = matches.value_of("stdin").map(String::from) {
-        let file_name_or_path = if file_name_path_or_extension.contains(".") {
+        let file_name_or_path = if file_name_path_or_extension.contains('.') {
           file_name_path_or_extension
         } else {
           // convert extension to file path
@@ -164,13 +161,13 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     plugins: values_to_vec(matches.values_of("plugins")),
     incremental: sub_command_matches.map(|m| m.is_present("incremental")).unwrap_or(false),
     allow_node_modules: sub_command_matches.map(|m| m.is_present("allow-node-modules")).unwrap_or(false),
-    file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or(Vec::new()),
-    exclude_file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("excludes"))).unwrap_or(Vec::new()),
+    file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or_default(),
+    exclude_file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("excludes"))).unwrap_or_default(),
   })
 }
 
 fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
-  values.map(|x| x.map(std::string::ToString::to_string).collect()).unwrap_or(Vec::new())
+  values.map(|x| x.map(std::string::ToString::to_string).collect()).unwrap_or_default()
 }
 
 fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b> {

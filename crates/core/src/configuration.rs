@@ -106,6 +106,7 @@ impl ConfigKeyValue {
     ConfigKeyValue::Number(value)
   }
 
+  #[allow(clippy::should_implement_trait)]
   pub fn from_str(value: &str) -> ConfigKeyValue {
     ConfigKeyValue::String(value.to_string())
   }

@@ -11,7 +11,7 @@ use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
 use crate::utils::get_table_text;
 
-pub fn output_version<'a, TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
+pub fn output_version<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
   environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
 
   Ok(())

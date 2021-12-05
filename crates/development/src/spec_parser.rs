@@ -31,7 +31,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     let start_index = spec_starts[i];
     let end_index = if spec_starts.len() == i + 1 { lines.len() } else { spec_starts[i + 1] };
     let message_line = lines[start_index];
-    let spec = parse_single_spec(&file_path, &message_line, &lines[(start_index + 1)..end_index], &config);
+    let spec = parse_single_spec(&file_path, message_line, &lines[(start_index + 1)..end_index], &config);
 
     specs.push(spec);
   }

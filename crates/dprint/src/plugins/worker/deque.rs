@@ -21,7 +21,7 @@ impl<TItem> Deque<TItem> {
     self.end_index - self.start_index
   }
 
-  pub fn dequeue<'a>(&'a mut self) -> Option<&'a TItem> {
+  pub fn dequeue(&mut self) -> Option<&TItem> {
     if self.start_index == self.end_index {
       None
     } else {

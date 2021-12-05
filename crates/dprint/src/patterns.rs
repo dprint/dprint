@@ -44,7 +44,7 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
   }
 }
 
-pub fn get_plugin_association_glob_matcher(plugin: &Box<dyn Plugin>, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
+pub fn get_plugin_association_glob_matcher(plugin: &dyn Plugin, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
   Ok(if let Some(associations) = plugin.get_config().0.associations.as_ref() {
     Some(GlobMatcher::new(
       GlobPatterns {
@@ -73,7 +73,7 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
     GlobPattern::new_vec(process_cli_patterns(process_file_patterns_slashes(&args.file_patterns)), cwd.clone())
   });
 
-  return file_patterns;
+  file_patterns
 }
 
 fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
@@ -109,7 +109,7 @@ fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
   file_patterns
 }
 
-fn process_file_patterns_slashes(file_patterns: &Vec<String>) -> Vec<String> {
+fn process_file_patterns_slashes(file_patterns: &[String]) -> Vec<String> {
   file_patterns
     .iter()
     .map(|p| {
@@ -131,13 +131,11 @@ fn process_file_pattern_slashes(file_pattern: &mut String) {
 }
 
 fn process_cli_patterns(file_patterns: Vec<String>) -> Vec<String> {
-  file_patterns.into_iter().map(|pattern| process_cli_pattern(pattern)).collect()
+  file_patterns.into_iter().map(process_cli_pattern).collect()
 }
 
 fn process_cli_pattern(file_pattern: String) -> String {
-  if is_absolute_pattern(&file_pattern) {
-    file_pattern
-  } else if file_pattern.starts_with("./") || file_pattern.starts_with("!./") {
+  if is_absolute_pattern(&file_pattern) || file_pattern.starts_with("./") || file_pattern.starts_with("!./") {
     file_pattern
   } else {
     // make all cli specified patterns relative
@@ -150,12 +148,12 @@ fn process_cli_pattern(file_pattern: String) -> String {
 }
 
 fn process_config_patterns(file_patterns: Vec<String>) -> Vec<String> {
-  file_patterns.into_iter().map(|pattern| process_config_pattern(pattern)).collect()
+  file_patterns.into_iter().map(process_config_pattern).collect()
 }
 
 fn process_config_pattern(file_pattern: String) -> String {
   // make config patterns that start with `/` be relative
-  if file_pattern.starts_with("/") {
+  if file_pattern.starts_with('/') {
     format!(".{}", file_pattern)
   } else if file_pattern.starts_with("!/") {
     format!("!.{}", &file_pattern[1..])

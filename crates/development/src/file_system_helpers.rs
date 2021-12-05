@@ -4,7 +4,7 @@ use std::path::Path;
 
 pub fn get_specs_in_dir(path: &Path, parse_spec_options: &ParseSpecOptions) -> Vec<(String, Spec)> {
   let mut result: Vec<(String, Spec)> = Vec::new();
-  let spec_files = get_files_in_dir_recursive(&path);
+  let spec_files = get_files_in_dir_recursive(path);
   for (file_path, text) in spec_files {
     let specs = parse_specs(text, parse_spec_options);
     let lower_case_file_path = file_path.to_ascii_lowercase();

@@ -7,7 +7,7 @@ use crate::utils::ErrorCountLogger;
 
 pub fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   plugin_name: &str,
-  plugin: &Box<dyn InitializedPlugin>,
+  plugin: &dyn InitializedPlugin,
   error_logger: &ErrorCountLogger<TEnvironment>,
 ) -> Result<()> {
   let mut diagnostic_count = 0;

@@ -63,7 +63,7 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
       environment.remove_dir_all(plugin_cache_dir_path)?;
     }
 
-    extract_zip(&format!("Extracting zip for {}", plugin_name), &zip_bytes, &plugin_cache_dir_path, environment)?;
+    extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, plugin_cache_dir_path, environment)?;
 
     let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
     if !environment.path_exists(&plugin_executable_file_path) {
@@ -127,7 +127,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<ProcessPluginZipBytes> {
-  let plugin_file = deserialize_file(&plugin_file_bytes)?;
+  let plugin_file = deserialize_file(plugin_file_bytes)?;
   let plugin_path = get_os_path(&plugin_file)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
   let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment)?;
@@ -142,7 +142,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
 
 fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   // todo: don't use serde because this should fail with a nice error message if the schema version is not equal
-  let plugin_file: ProcessPluginFile = match serde_json::from_slice(&bytes) {
+  let plugin_file: ProcessPluginFile = match serde_json::from_slice(bytes) {
     Ok(plugin_file) => plugin_file,
     Err(err) => bail!("Error deserializing plugin file: {}", err.to_string()),
   };
@@ -157,7 +157,7 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   Ok(plugin_file)
 }
 
-fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile) -> Result<&'a ProcessPluginPath> {
+fn get_os_path(plugin_file: &ProcessPluginFile) -> Result<&ProcessPluginPath> {
   // todo: how to throw a nice compile error here for an unsupported OS?
   #[cfg(target_os = "linux")]
   return get_plugin_path(&plugin_file.linux);
@@ -169,7 +169,7 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile) -> Result<&'a ProcessPlug
   return get_plugin_path(&plugin_file.windows);
 }
 
-fn get_plugin_path<'a>(plugin_path: &'a Option<ProcessPluginPath>) -> Result<&'a ProcessPluginPath> {
+fn get_plugin_path(plugin_path: &Option<ProcessPluginPath>) -> Result<&ProcessPluginPath> {
   if let Some(path) = &plugin_path {
     Ok(path)
   } else {

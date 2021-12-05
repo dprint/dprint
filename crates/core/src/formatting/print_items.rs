@@ -111,7 +111,7 @@ impl PrintItems {
   #[cfg(debug_assertions)]
   pub fn get_as_text(&self) -> String {
     return if let Some(first_node) = &self.first_node {
-      get_items_as_text(first_node.clone(), String::from(""))
+      get_items_as_text(first_node, String::from(""))
     } else {
       String::new()
     };
@@ -126,15 +126,15 @@ impl PrintItems {
             text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
             if let Some(true_path) = &condition.true_path {
               text.push_str(&get_line(String::from("  true:"), &indent_text));
-              text.push_str(&get_items_as_text(true_path.clone(), format!("{}    ", &indent_text)));
+              text.push_str(&get_items_as_text(true_path, format!("{}    ", &indent_text)));
             }
             if let Some(false_path) = &condition.false_path {
               text.push_str(&get_line(String::from("  false:"), &indent_text));
-              text.push_str(&get_items_as_text(false_path.clone(), format!("{}    ", &indent_text)));
+              text.push_str(&get_items_as_text(false_path, format!("{}    ", &indent_text)));
             }
           }
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text.to_string()), &indent_text)),
-          PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path.clone(), indent_text.clone())),
+          PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path, indent_text.clone())),
         }
       }
 
@@ -147,7 +147,7 @@ impl PrintItems {
   }
 
   pub fn iter(&self) -> PrintItemsIterator {
-    PrintItemsIterator { node: self.first_node.clone() }
+    PrintItemsIterator { node: self.first_node }
   }
 }
 
@@ -323,7 +323,7 @@ impl PrintNode {
   }
 
   fn set_next(&mut self, new_next: Option<PrintItemPath>) {
-    let past_next = mem::replace(&mut self.next, new_next.clone());
+    let past_next = mem::replace(&mut self.next, new_next);
 
     if let Some(past_next) = past_next {
       if let Some(new_next) = new_next {
@@ -352,7 +352,7 @@ impl PrintNodeCell {
 
   #[inline]
   pub(super) fn get_next(&self) -> Option<PrintItemPath> {
-    unsafe { (*self.value.get()).next.clone() }
+    unsafe { (*self.value.get()).next }
   }
 
   #[inline]
@@ -633,7 +633,7 @@ impl ConditionReference {
 
   /// Creates a condition resolver that checks the value of the condition this references.
   pub fn create_resolver(&self) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
-    let captured_self = self.clone();
+    let captured_self = *self;
     move |condition_context: &mut ConditionResolverContext| condition_context.get_resolved_condition(&captured_self)
   }
 }

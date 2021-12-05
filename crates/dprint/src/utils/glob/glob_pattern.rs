@@ -69,7 +69,7 @@ impl GlobPattern {
         if value.starts_with("./") {
           value.drain(..2);
         }
-        if value.starts_with("/") {
+        if value.starts_with('/') {
           value.drain(..1);
         }
         value
@@ -80,12 +80,12 @@ impl GlobPattern {
         if is_negated {
           value.drain(..1); // remove !
         }
-        if !value.contains("/") {
+        if !value.contains('/') {
           // patterns without a slash should match every directory
           value = format!("**/{}", value);
         } else if value.starts_with("./") {
           value.drain(..2);
-        } else if value.starts_with("/") {
+        } else if value.starts_with('/') {
           value.drain(..1);
         }
         value
@@ -94,12 +94,12 @@ impl GlobPattern {
       let new_pattern = {
         let mut value = String::new();
         if is_negated {
-          value.push_str("!");
+          value.push('!');
         }
         value.push_str("./");
         if !start_pattern.is_empty() {
           value.push_str(&start_pattern);
-          value.push_str("/");
+          value.push('/');
         }
         value.push_str(&new_relative_pattern);
         value

@@ -191,11 +191,11 @@ impl Environment for RealEnvironment {
     SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
   }
 
-  fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<String>) -> Result<usize> {
+  fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize> {
     show_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &Vec<(bool, String)>) -> Result<Vec<usize>> {
+  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>> {
     show_multi_select(
       &self.logger,
       "dprint",
@@ -242,11 +242,11 @@ impl Environment for RealEnvironment {
     let mut path: String = env.get_value("Path")?;
 
     // add to the path if it doesn't have this entry
-    if !path.split(";").any(|p| p == directory_path) {
+    if !path.split(';').any(|p| p == directory_path) {
       if !path.is_empty() && !path.ends_with(';') {
-        path.push_str(";")
+        path.push(';')
       }
-      path.push_str(&directory_path);
+      path.push_str(directory_path);
       env.set_value("Path", &path)?;
     }
     Ok(())
@@ -262,7 +262,7 @@ impl Environment for RealEnvironment {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?;
     let path: String = env.get_value("Path")?;
-    let mut paths = path.split(";").collect::<Vec<_>>();
+    let mut paths = path.split(';').collect::<Vec<_>>();
     let original_len = paths.len();
 
     paths.retain(|p| p != &directory_path);

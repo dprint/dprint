@@ -56,7 +56,6 @@ where
 
   do_batch_format(environment, &error_logger, &plugin_pools, file_paths_by_plugins, {
     let environment = environment.clone();
-    let incremental_file = incremental_file.clone();
     let error_logger = error_logger.clone();
     move |plugins, file_path| {
       let result = run_for_file_path(&environment, &incremental_file, plugins, file_path, f.clone());
@@ -122,7 +121,7 @@ where
       incremental_file.update_file(file_path, &formatted_text);
     }
 
-    f(&file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, &environment)?;
+    f(file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, environment)?;
 
     Ok(())
   }

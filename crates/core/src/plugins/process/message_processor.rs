@@ -163,12 +163,10 @@ fn create_resolved_config_result<TConfiguration: Clone + Serialize, THandler: Pl
 fn get_resolved_config_result<TConfiguration: Clone + Serialize>(
   state: &MessageProcessorState<TConfiguration>,
 ) -> Result<&ResolveConfigurationResult<TConfiguration>> {
-  Ok(
-    state
-      .resolved_config_result
-      .as_ref()
-      .ok_or_else(|| anyhow!("Expected the config to be resolved at this point."))?,
-  )
+  state
+    .resolved_config_result
+    .as_ref()
+    .ok_or_else(|| anyhow!("Expected the config to be resolved at this point."))
 }
 
 fn format_with_host<TRead: Read, TWrite: Write>(

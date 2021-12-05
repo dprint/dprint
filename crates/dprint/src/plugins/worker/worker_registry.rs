@@ -36,13 +36,13 @@ impl<TEnvironment: Environment> WorkerRegistry<TEnvironment> {
         if item_stacks.get(i).is_none() {
           item_stacks.push(Vec::new());
         }
-        let pools = Arc::new(plugin_names.names().map(|plugin_name| plugin_pools.get_pool(&plugin_name).unwrap()).collect());
+        let pools = Arc::new(plugin_names.names().map(|plugin_name| plugin_pools.get_pool(plugin_name).unwrap()).collect());
         item_stacks.get_mut(i).unwrap().push(LocalPluginWork::new(pools, file_paths));
       }
 
       // create the workers
       for i in 0..number_threads {
-        workers.push(Arc::new(Worker::new(i, item_stacks.pop().unwrap_or(Vec::new()))));
+        workers.push(Arc::new(Worker::new(i, item_stacks.pop().unwrap_or_default())));
       }
 
       debug_assert!(item_stacks.is_empty());
@@ -110,16 +110,16 @@ impl<TEnvironment: Environment> WorkerRegistry<TEnvironment> {
                 if best_match_plugin_info.has_all_plugins_available != plugin_info.has_all_plugins_available {
                   // always first consider work that has a plugin available
                   if plugin_info.has_all_plugins_available {
-                    *best_match = (steal_info, &worker);
+                    *best_match = (steal_info, worker);
                   }
                 } else if plugin_info.steal_time > best_match_plugin_info.steal_time {
-                  *best_match = (steal_info, &worker);
+                  *best_match = (steal_info, worker);
                 }
               } else {
                 panic!("For some reason the best match was immediate.");
               }
             } else {
-              best_match = Some((steal_info, &worker));
+              best_match = Some((steal_info, worker));
             }
           }
         }

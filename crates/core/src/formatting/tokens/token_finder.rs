@@ -57,7 +57,7 @@ where
     is_match: impl FnOnce(&'a TTokenCollection::TToken) -> bool,
   ) -> Option<&'a TTokenCollection::TToken> {
     let previous_token = self.get_previous_token(start)?;
-    if is_match(&previous_token) {
+    if is_match(previous_token) {
       Some(previous_token)
     } else {
       None

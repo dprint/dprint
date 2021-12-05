@@ -131,11 +131,10 @@ impl Logger {
 
   pub(crate) fn remove_refresh_item(&self, kind: LoggerRefreshItemKind) {
     self.with_update_refresh_items(move |refresh_items| {
-      match refresh_items.binary_search_by(|i| i.kind.cmp(&kind)) {
-        Ok(pos) => {
-          refresh_items.remove(pos);
-        }
-        _ => {} // already removed
+      if let Ok(pos) = refresh_items.binary_search_by(|i| i.kind.cmp(&kind)) {
+        refresh_items.remove(pos);
+      } else {
+        // already removed
       }
     });
   }
@@ -223,7 +222,7 @@ fn render_text_to_lines(text: &str, hanging_indent: u16, terminal_width: Option<
     let mut current_line = String::new();
     let mut line_width: u16 = 0;
     let mut current_whitespace = String::new();
-    for token in tokenize_words(&text) {
+    for token in tokenize_words(text) {
       match token {
         WordToken::Word((word, word_width)) => {
           let is_word_longer_than_line = hanging_indent + word_width > terminal_width;
@@ -257,7 +256,7 @@ fn render_text_to_lines(text: &str, hanging_indent: u16, terminal_width: Option<
               current_line.push_str(&current_whitespace);
               current_whitespace = String::new();
             }
-            current_line.push_str(&word);
+            current_line.push_str(word);
             line_width += word_width;
           }
         }

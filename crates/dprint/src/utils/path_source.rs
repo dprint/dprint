@@ -1,3 +1,5 @@
+use std::fmt;
+
 use url::Url;
 
 use crate::environment::CanonicalizedPathBuf;
@@ -64,19 +66,25 @@ impl PathSource {
     }
   }
 
-  pub fn to_string(&self) -> String {
-    match self {
-      PathSource::Local(local) => local.path.to_string_lossy().to_string(),
-      PathSource::Remote(remote) => remote.url.to_string(),
-    }
-  }
-
   pub fn is_wasm_plugin(&self) -> bool {
     self.display().to_lowercase().ends_with(".wasm")
   }
 
   pub fn is_process_plugin(&self) -> bool {
     self.display().to_lowercase().ends_with(".exe-plugin")
+  }
+}
+
+impl fmt::Display for PathSource {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(
+      f,
+      "{}",
+      match self {
+        PathSource::Local(local) => local.path.to_string_lossy().to_string(),
+        PathSource::Remote(remote) => remote.url.to_string(),
+      }
+    )
   }
 }
 

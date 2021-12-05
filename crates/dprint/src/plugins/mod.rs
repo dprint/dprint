@@ -72,7 +72,7 @@ pub fn resolve_plugins<TEnvironment: Environment>(
   // resolve each plugin's configuration
   let mut plugins_with_config = Vec::new();
   for plugin in plugins.into_iter() {
-    plugins_with_config.push((get_plugin_config_map(&plugin, &mut config_map)?, plugin));
+    plugins_with_config.push((get_plugin_config_map(&*plugin, &mut config_map)?, plugin));
   }
 
   // now get global config
@@ -95,5 +95,5 @@ pub fn resolve_plugins<TEnvironment: Environment>(
     plugins.push(plugin);
   }
 
-  return Ok(plugins);
+  Ok(plugins)
 }
