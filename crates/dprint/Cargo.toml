@@ -10,6 +10,7 @@ repository = "https://github.com/dprint/dprint"
 description = "Binary for dprint code formatter—a pluggable and configurable code formatting platform."
 
 [dependencies]
+anyhow = "1.0.51"
 clap = "2.33.3"
 crossterm = "0.21.0"
 dirs = "4.0.0"

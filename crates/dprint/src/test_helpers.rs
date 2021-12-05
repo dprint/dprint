@@ -1,8 +1,8 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use anyhow::Result;
 use crossterm::style::Stylize;
-use dprint_core::types::ErrBox;
 
 use crate::arg_parser::parse_args;
 use crate::cache::Cache;
@@ -48,11 +48,11 @@ lazy_static! {
   };
 }
 
-pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<(), ErrBox> {
+pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<()> {
   run_test_cli_with_stdin(args, environment, TestStdInReader::default())
 }
 
-pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<(), ErrBox> {
+pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<()> {
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());

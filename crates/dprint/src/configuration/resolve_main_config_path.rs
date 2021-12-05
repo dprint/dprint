@@ -1,4 +1,4 @@
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -25,7 +25,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
-) -> Result<ResolvedConfigPath, ErrBox> {
+) -> Result<ResolvedConfigPath> {
   return Ok(if let Some(config) = &args.config {
     let base_path = environment.cwd();
     let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), cache, environment)?;
@@ -34,7 +34,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
     get_default_paths(args, environment)?
   });
 
-  fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<ResolvedConfigPath, ErrBox> {
+  fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<ResolvedConfigPath> {
     let start_search_dir = get_start_search_directory(args, environment)?;
     let config_file_path = get_config_file_in_dir(&start_search_dir, environment);
 
@@ -54,7 +54,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
     })
   }
 
-  fn get_start_search_directory(args: &CliArgs, environment: &impl Environment) -> Result<CanonicalizedPathBuf, ErrBox> {
+  fn get_start_search_directory(args: &CliArgs, environment: &impl Environment) -> Result<CanonicalizedPathBuf> {
     if let SubCommand::StdInFmt(command) = &args.sub_command {
       // resolve the config file based on the file path provided to the command
       if environment.is_absolute_path(&command.file_name_or_path) {
@@ -67,7 +67,7 @@ pub fn resolve_main_config_path<'a, TEnvironment: Environment>(
     Ok(environment.cwd())
   }
 
-  fn get_default_config_file_in_ancestor_directories(environment: &impl Environment) -> Result<Option<ResolvedConfigPath>, ErrBox> {
+  fn get_default_config_file_in_ancestor_directories(environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
     let cwd = environment.cwd().to_path_buf();
     for ancestor_dir in cwd.ancestors() {
       if let Some(ancestor_config_path) = get_config_file_in_dir(&ancestor_dir, environment) {

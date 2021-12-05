@@ -1,8 +1,8 @@
+use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -97,7 +97,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     self.config.as_ref().expect("Call set_config first.")
   }
 
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>> {
     let config = self.config.as_ref().expect("Call set_config first.");
     let communicator = InitializedProcessPluginCommunicator::new(
       self.environment.clone(),
@@ -124,7 +124,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
     environment: TEnvironment,
     communicator: InitializedProcessPluginCommunicator<TEnvironment>,
     plugin_pools: Arc<PluginPools<TEnvironment>>,
-  ) -> Result<Self, ErrBox> {
+  ) -> Result<Self> {
     let initialized_plugin = InitializedProcessPlugin {
       name,
       environment,
@@ -135,7 +135,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
     Ok(initialized_plugin)
   }
 
-  fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+  fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String> {
     self
       .communicator
       .format_text(file_path, file_text, override_config, |file_path, file_text, override_config| {
@@ -145,19 +145,19 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
 }
 
 impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<TEnvironment> {
-  fn get_license_text(&self) -> Result<String, ErrBox> {
+  fn get_license_text(&self) -> Result<String> {
     self.communicator.get_license_text()
   }
 
-  fn get_resolved_config(&self) -> Result<String, ErrBox> {
+  fn get_resolved_config(&self) -> Result<String> {
     self.communicator.get_resolved_config()
   }
 
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
+  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
     self.communicator.get_config_diagnostics()
   }
 
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox> {
+  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String> {
     let result = self.inner_format_text(file_path, file_text, override_config);
 
     match result {

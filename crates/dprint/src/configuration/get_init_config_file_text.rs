@@ -1,10 +1,10 @@
+use anyhow::Result;
 use dprint_core::plugins::wasm::{self};
-use dprint_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
 
-pub fn get_init_config_file_text(environment: &impl Environment) -> Result<String, ErrBox> {
+pub fn get_init_config_file_text(environment: &impl Environment) -> Result<String> {
   let info = match read_info_file(environment) {
     Ok(info) => {
       // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins

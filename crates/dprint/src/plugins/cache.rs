@@ -1,9 +1,10 @@
+use anyhow::bail;
+use anyhow::Result;
 use parking_lot::RwLock;
 use std::path::PathBuf;
 
 use dprint_cli_core::checksums::verify_sha256_checksum;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 
 use super::implementations::cleanup_plugin;
 use super::implementations::get_file_path_from_plugin_info;
@@ -36,7 +37,7 @@ where
     PluginCache { environment, manifest }
   }
 
-  pub fn forget(&self, source_reference: &PluginSourceReference) -> Result<(), ErrBox> {
+  pub fn forget(&self, source_reference: &PluginSourceReference) -> Result<()> {
     let cache_key = self.get_cache_key(&source_reference.path_source)?;
     let mut manifest = self.manifest.write();
     let cache_item = manifest.remove_item(&cache_key);
@@ -52,7 +53,7 @@ where
     Ok(())
   }
 
-  pub fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem, ErrBox> {
+  pub fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
     match &source_reference.path_source {
       PathSource::Remote(_) => self.get_plugin(source_reference.clone(), false, download_url),
       PathSource::Local(_) => self.get_plugin(source_reference.clone(), true, get_file_bytes),
@@ -63,8 +64,8 @@ where
     &self,
     source_reference: PluginSourceReference,
     check_file_hash: bool,
-    read_bytes: impl Fn(PathSource, TEnvironment) -> Result<Vec<u8>, ErrBox>,
-  ) -> Result<PluginCacheItem, ErrBox> {
+    read_bytes: impl Fn(PathSource, TEnvironment) -> Result<Vec<u8>>,
+  ) -> Result<PluginCacheItem> {
     let cache_key = self.get_cache_key(&source_reference.path_source)?;
     let cache_item = self.manifest.read().get_item(&cache_key).map(|x| x.to_owned()); // drop lock
     if let Some(cache_item) = cache_item {
@@ -75,7 +76,7 @@ where
         let file_hash = get_bytes_hash(&file_bytes);
         let cache_file_hash = match &cache_item.file_hash {
           Some(file_hash) => *file_hash,
-          None => return err!("Expected to have the plugin file hash stored in the cache."),
+          None => bail!("Expected to have the plugin file hash stored in the cache."),
         };
 
         if file_hash == cache_file_hash {
@@ -119,7 +120,7 @@ where
     })
   }
 
-  fn get_cache_key(&self, path_source: &PathSource) -> Result<String, ErrBox> {
+  fn get_cache_key(&self, path_source: &PathSource) -> Result<String> {
     Ok(match path_source {
       PathSource::Remote(remote_source) => format!("remote:{}", remote_source.url.as_str()),
       PathSource::Local(local_source) => {
@@ -130,11 +131,11 @@ where
   }
 }
 
-fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
+fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
   environment.download_file(path_source.unwrap_remote().url.as_str())
 }
 
-fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>, ErrBox> {
+fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
   environment.read_file_bytes(&path_source.unwrap_local().path)
 }
 
@@ -144,13 +145,13 @@ mod test {
   use crate::environment::TestEnvironment;
   use crate::plugins::CompilationResult;
   use crate::plugins::PluginSourceReference;
+  use anyhow::Result;
   use dprint_core::plugins::PluginInfo;
-  use dprint_core::types::ErrBox;
   use pretty_assertions::assert_eq;
   use std::path::PathBuf;
 
   #[test]
-  fn should_download_remote_file() -> Result<(), ErrBox> {
+  fn should_download_remote_file() -> Result<()> {
     let environment = TestEnvironment::new();
     environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
     environment.set_wasm_compile_result(create_compilation_result("t".as_bytes()));
@@ -187,7 +188,7 @@ mod test {
   }
 
   #[test]
-  fn should_cache_local_file() -> Result<(), ErrBox> {
+  fn should_cache_local_file() -> Result<()> {
     let environment = TestEnvironment::new();
     let original_file_path = PathBuf::from("/test.wasm");
     let file_bytes = "t".as_bytes();

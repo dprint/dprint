@@ -1,10 +1,10 @@
 use std::path::Path;
 
+use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::types::ErrBox;
 
 use crate::configuration::RawPluginConfig;
 
@@ -26,7 +26,7 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
   /// Sets the configuration for the plugin.
   fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration);
   /// Initializes the plugin.
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox>;
+  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>>;
   /// Gets the configuration for the plugin.
   fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration);
 
@@ -53,13 +53,13 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
 
 pub trait InitializedPlugin: std::marker::Send {
   /// Gets the license text
-  fn get_license_text(&self) -> Result<String, ErrBox>;
+  fn get_license_text(&self) -> Result<String>;
   /// Gets the configuration as a collection of key value pairs.
-  fn get_resolved_config(&self) -> Result<String, ErrBox>;
+  fn get_resolved_config(&self) -> Result<String>;
   /// Gets the configuration diagnostics.
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox>;
+  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>>;
   /// Formats the text in memory based on the file path and file text.
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String, ErrBox>;
+  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String>;
 }
 
 #[cfg(test)]
@@ -121,7 +121,7 @@ impl Plugin for TestPlugin {
   fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
     &self.config
   }
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>> {
     Ok(Box::new(self.initialized_test_plugin.clone().unwrap()))
   }
 }
@@ -139,16 +139,16 @@ impl InitializedTestPlugin {
 
 #[cfg(test)]
 impl InitializedPlugin for InitializedTestPlugin {
-  fn get_license_text(&self) -> Result<String, ErrBox> {
+  fn get_license_text(&self) -> Result<String> {
     Ok(String::from("License Text"))
   }
-  fn get_resolved_config(&self) -> Result<String, ErrBox> {
+  fn get_resolved_config(&self) -> Result<String> {
     Ok(String::from("{}"))
   }
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
+  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
     Ok(vec![])
   }
-  fn format_text(&mut self, _: &Path, text: &str, _: &ConfigKeyMap) -> Result<String, ErrBox> {
+  fn format_text(&mut self, _: &Path, text: &str, _: &ConfigKeyMap) -> Result<String> {
     Ok(format!("{}_formatted", text))
   }
 }

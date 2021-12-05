@@ -1,6 +1,6 @@
+use anyhow::bail;
+use anyhow::Result;
 use url::Url;
-
-use dprint_core::types::ErrBox;
 
 use super::PathSource;
 use crate::cache::Cache;
@@ -52,7 +52,7 @@ pub fn resolve_url_or_file_path<TEnvironment: Environment>(
   base: &PathSource,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
-) -> Result<ResolvedPath, ErrBox> {
+) -> Result<ResolvedPath> {
   let path_source = resolve_url_or_file_path_to_path_source(url_or_file_path, base, environment)?;
 
   match path_source {
@@ -61,7 +61,7 @@ pub fn resolve_url_or_file_path<TEnvironment: Environment>(
   }
 }
 
-fn resolve_url<TEnvironment: Environment>(url: &Url, cache: &Cache<TEnvironment>, environment: &TEnvironment) -> Result<ResolvedPath, ErrBox> {
+fn resolve_url<TEnvironment: Environment>(url: &Url, cache: &Cache<TEnvironment>, environment: &TEnvironment) -> Result<ResolvedPath> {
   let cache_key = format!("url:{}", url.as_str());
   let mut is_first_download = false;
 
@@ -86,14 +86,14 @@ fn resolve_url<TEnvironment: Environment>(url: &Url, cache: &Cache<TEnvironment>
   ))
 }
 
-pub fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl Environment) -> Result<Vec<u8>, ErrBox> {
+pub fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl Environment) -> Result<Vec<u8>> {
   match url_or_file_path {
     PathSource::Remote(path_source) => environment.download_file(path_source.url.as_str()),
     PathSource::Local(path_source) => environment.read_file_bytes(&path_source.path),
   }
 }
 
-pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &PathSource, environment: &impl Environment) -> Result<PathSource, ErrBox> {
+pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &PathSource, environment: &impl Environment) -> Result<PathSource> {
   if let Some(url) = try_parse_url(url_or_file_path) {
     if url.cannot_be_a_base() {
       // relative url
@@ -106,7 +106,7 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       if url.scheme() == "file" {
         match url.to_file_path() {
           Ok(file_path) => return Ok(PathSource::new_local(environment.canonicalize(file_path)?)),
-          Err(()) => return err!("Problem converting file url `{}` to file path.", url_or_file_path),
+          Err(()) => bail!("Problem converting file url `{}` to file path.", url_or_file_path),
         }
       }
       return Ok(PathSource::new_remote(url));

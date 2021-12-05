@@ -1,9 +1,9 @@
 use crate::environment::Environment;
+use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
-use dprint_core::types::ErrBox;
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
@@ -19,12 +19,7 @@ pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
-  pub fn new(
-    environment: TEnvironment,
-    plugin_name: String,
-    executable_file_path: PathBuf,
-    config: (ConfigKeyMap, GlobalConfiguration),
-  ) -> Result<Self, ErrBox> {
+  pub fn new(environment: TEnvironment, plugin_name: String, executable_file_path: PathBuf, config: (ConfigKeyMap, GlobalConfiguration)) -> Result<Self> {
     let communicator = create_new_communicator(environment.clone(), plugin_name.clone(), &executable_file_path, &config)?;
     let initialized_communicator = InitializedProcessPluginCommunicator {
       environment,
@@ -37,19 +32,19 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     Ok(initialized_communicator)
   }
 
-  pub fn get_license_text(&self) -> Result<String, ErrBox> {
+  pub fn get_license_text(&self) -> Result<String> {
     self.communicator.borrow_mut().get_license_text()
   }
 
-  pub fn get_resolved_config(&self) -> Result<String, ErrBox> {
+  pub fn get_resolved_config(&self) -> Result<String> {
     self.communicator.borrow_mut().get_resolved_config()
   }
 
-  pub fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
+  pub fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
     self.communicator.borrow_mut().get_config_diagnostics()
   }
 
-  pub fn recreate_process_if_dead(&self) -> Result<bool, ErrBox> {
+  pub fn recreate_process_if_dead(&self) -> Result<bool> {
     let is_process_alive = { self.communicator.borrow_mut().is_process_alive() };
     if is_process_alive {
       Ok(false)
@@ -59,7 +54,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     }
   }
 
-  pub fn force_recreate_process(&self) -> Result<(), ErrBox> {
+  pub fn force_recreate_process(&self) -> Result<()> {
     let new_communicator = create_new_communicator(self.environment.clone(), self.plugin_name.clone(), &self.executable_file_path, &self.config)?;
     let mut communicator = self.communicator.borrow_mut();
     *communicator = new_communicator;
@@ -71,8 +66,8 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     file_path: &Path,
     file_text: &str,
     override_config: &ConfigKeyMap,
-    format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>, ErrBox>,
-  ) -> Result<String, ErrBox> {
+    format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>>,
+  ) -> Result<String> {
     self
       .communicator
       .borrow_mut()
@@ -85,7 +80,7 @@ fn create_new_communicator<TEnvironment: Environment>(
   plugin_name: String,
   executable_file_path: &Path,
   config: &(ConfigKeyMap, GlobalConfiguration),
-) -> Result<ProcessPluginCommunicator, ErrBox> {
+) -> Result<ProcessPluginCommunicator> {
   // ensure it's initialized each time
   let mut communicator = ProcessPluginCommunicator::new(executable_file_path, move |error_message| {
     environment.log_stderr_with_context(&error_message, &plugin_name);

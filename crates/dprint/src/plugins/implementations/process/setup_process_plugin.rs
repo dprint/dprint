@@ -1,7 +1,8 @@
+use anyhow::bail;
+use anyhow::Result;
 use dprint_cli_core::checksums::verify_sha256_checksum;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::types::ErrBox;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
@@ -36,7 +37,7 @@ fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBu
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
 /// Returns the executable file path once complete
-pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult, ErrBox> {
+pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult> {
   let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment)?;
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
@@ -57,7 +58,7 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
     plugin_name: String,
     zip_bytes: &[u8],
     environment: &TEnvironment,
-  ) -> Result<SetupPluginResult, ErrBox> {
+  ) -> Result<SetupPluginResult> {
     if environment.path_exists(plugin_cache_dir_path) {
       environment.remove_dir_all(plugin_cache_dir_path)?;
     }
@@ -66,7 +67,7 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
 
     let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
     if !environment.path_exists(&plugin_executable_file_path) {
-      return err!(
+      bail!(
         "Plugin zip file did not contain required executable at: {}",
         plugin_executable_file_path.display()
       );
@@ -88,7 +89,7 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
   }
 }
 
-pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<(), ErrBox> {
+pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<()> {
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment);
   environment.remove_dir_all(&plugin_cache_dir_path)?;
   Ok(())
@@ -125,7 +126,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
-) -> Result<ProcessPluginZipBytes, ErrBox> {
+) -> Result<ProcessPluginZipBytes> {
   let plugin_file = deserialize_file(&plugin_file_bytes)?;
   let plugin_path = get_os_path(&plugin_file)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
@@ -139,15 +140,15 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   })
 }
 
-fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile, ErrBox> {
+fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   // todo: don't use serde because this should fail with a nice error message if the schema version is not equal
   let plugin_file: ProcessPluginFile = match serde_json::from_slice(&bytes) {
     Ok(plugin_file) => plugin_file,
-    Err(err) => return err!("Error deserializing plugin file: {}", err.to_string()),
+    Err(err) => bail!("Error deserializing plugin file: {}", err.to_string()),
   };
 
   if plugin_file.schema_version != 1 {
-    return err!(
+    bail!(
       "Expected schema version 1, but found {}. This may indicate you need to upgrade your CLI version to use this plugin.",
       plugin_file.schema_version
     );
@@ -156,7 +157,7 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile, ErrBox> {
   Ok(plugin_file)
 }
 
-fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile) -> Result<&'a ProcessPluginPath, ErrBox> {
+fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile) -> Result<&'a ProcessPluginPath> {
   // todo: how to throw a nice compile error here for an unsupported OS?
   #[cfg(target_os = "linux")]
   return get_plugin_path(&plugin_file.linux);
@@ -168,10 +169,10 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile) -> Result<&'a ProcessPlug
   return get_plugin_path(&plugin_file.windows);
 }
 
-fn get_plugin_path<'a>(plugin_path: &'a Option<ProcessPluginPath>) -> Result<&'a ProcessPluginPath, ErrBox> {
+fn get_plugin_path<'a>(plugin_path: &'a Option<ProcessPluginPath>) -> Result<&'a ProcessPluginPath> {
   if let Some(path) = &plugin_path {
     Ok(path)
   } else {
-    return err!("Unsupported operating system.");
+    bail!("Unsupported operating system.");
   }
 }

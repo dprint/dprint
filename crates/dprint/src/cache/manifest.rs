@@ -1,4 +1,4 @@
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::hash_map::Values;
@@ -56,7 +56,7 @@ pub fn read_manifest(environment: &impl Environment) -> CacheManifest {
   }
 }
 
-pub fn write_manifest(manifest: &CacheManifest, environment: &impl Environment) -> Result<(), ErrBox> {
+pub fn write_manifest(manifest: &CacheManifest, environment: &impl Environment) -> Result<()> {
   let file_path = get_manifest_file_path(environment);
   let serialized_manifest = serde_json::to_string(&manifest)?;
   environment.write_file(&file_path, &serialized_manifest)

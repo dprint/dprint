@@ -1,5 +1,7 @@
+use anyhow::bail;
+use anyhow::Result;
+
 use crate::utils::StdInReader;
-use dprint_core::types::ErrBox;
 
 pub struct CliArgs {
   pub sub_command: SubCommand,
@@ -86,7 +88,7 @@ pub enum HiddenSubCommand {
   WindowsUninstall(String),
 }
 
-pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs, ErrBox> {
+pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
     let mut help_text = Vec::new();
@@ -101,7 +103,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
   let cli_parser = create_cli_parser(false);
   let matches = match cli_parser.get_matches_from_safe(&args) {
     Ok(result) => result,
-    Err(err) => return err!("{}", err.to_string()),
+    Err(err) => bail!("{}", err.to_string()),
   };
 
   let sub_command = match matches.subcommand() {

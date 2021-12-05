@@ -1,4 +1,5 @@
-use crate::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 
 pub fn get_sha256_checksum(bytes: &[u8]) -> String {
   use sha2::Digest;
@@ -8,10 +9,10 @@ pub fn get_sha256_checksum(bytes: &[u8]) -> String {
   format!("{:x}", hasher.finalize())
 }
 
-pub fn verify_sha256_checksum(bytes: &[u8], checksum: &str) -> Result<(), ErrBox> {
+pub fn verify_sha256_checksum(bytes: &[u8], checksum: &str) -> Result<()> {
   let bytes_checksum = get_sha256_checksum(bytes);
   if bytes_checksum != checksum {
-    err!("The checksum {} did not match the expected checksum of {}.", bytes_checksum, checksum)
+    bail!("The checksum {} did not match the expected checksum of {}.", bytes_checksum, checksum)
   } else {
     Ok(())
   }

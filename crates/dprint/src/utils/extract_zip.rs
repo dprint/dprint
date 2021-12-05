@@ -1,11 +1,11 @@
 use std::io::prelude::*;
 use std::path::Path;
 
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 
 use crate::environment::Environment;
 
-pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment: &impl Environment) -> Result<(), ErrBox> {
+pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment: &impl Environment) -> Result<()> {
   // adapted from https://github.com/mvdnes/zip-rs/blob/master/examples/extract.rs
   let reader = std::io::Cursor::new(&zip_bytes);
   let mut zip = zip::ZipArchive::new(reader)?;
@@ -15,7 +15,7 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
 
   environment.log_action_with_progress(
     message,
-    move |update_size| -> Result<(), ErrBox> {
+    move |update_size| -> Result<()> {
       // todo: consider parallelizing this
       for i in 0..zip.len() {
         update_size(i);
@@ -42,7 +42,7 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
 
             if let Some(mode) = file.unix_mode() {
               fs::set_permissions(&file_path, fs::Permissions::from_mode(mode))
-                .map_err(|err| err_obj!("Error setting permissions to {} for file {}: {}", mode, file_path.display(), err))?
+                .map_err(|err| anyhow::anyhow!("Error setting permissions to {} for file {}: {}", mode, file_path.display(), err))?
             }
           }
         } else {

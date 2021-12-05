@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 
 use super::output_plugin_config_diagnostics;
 use super::InitializedPlugin;
@@ -76,7 +76,7 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
     }
   }
 
-  pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, config_base_path: &CanonicalizedPathBuf) -> Result<(), ErrBox> {
+  pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, config_base_path: &CanonicalizedPathBuf) -> Result<()> {
     let mut pools = self.pools.lock();
     let mut plugin_name_maps: PluginNameResolutionMaps = Default::default();
     for plugin in plugins {
@@ -113,7 +113,7 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
     self.pools.lock().get(plugin_name).map(|p| p.clone())
   }
 
-  pub fn take_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+  pub fn take_instance_for_plugin(&self, parent_plugin_name: &str, sub_plugin_name: &str) -> Result<Box<dyn InitializedPlugin>> {
     let plugin = self.with_plugins_for_parent_and_sub_plugin(parent_plugin_name, sub_plugin_name, |plugins| plugins.pop());
 
     if let Some(plugin) = plugin {
@@ -289,7 +289,7 @@ impl<TEnvironment: Environment> InitializedPluginPool<TEnvironment> {
     items.clear();
   }
 
-  pub fn take_or_create_checking_config_diagnostics(&self, error_logger: &ErrorCountLogger<TEnvironment>) -> Result<TakePluginResult, ErrBox> {
+  pub fn take_or_create_checking_config_diagnostics(&self, error_logger: &ErrorCountLogger<TEnvironment>) -> Result<TakePluginResult> {
     if let Some(plugin) = self.take_if_available() {
       Ok(TakePluginResult::Success(plugin))
     } else {
@@ -343,7 +343,7 @@ impl<TEnvironment: Environment> InitializedPluginPool<TEnvironment> {
     }
   }
 
-  fn create_instance(&self) -> Result<Box<dyn InitializedPlugin>, ErrBox> {
+  fn create_instance(&self) -> Result<Box<dyn InitializedPlugin>> {
     let start_instant = Instant::now();
     log_verbose!(self.environment, "Creating instance of {}", self.plugin.name());
     let plugin = self.plugin.initialize()?;

@@ -1,8 +1,8 @@
+use anyhow::bail;
+use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::Split;
-
-use dprint_cli_core::types::ErrBox;
 
 use crate::arg_parser::CliArgs;
 use crate::configuration::ResolvedConfig;
@@ -37,10 +37,10 @@ pub fn get_file_paths_by_plugins_and_err_if_empty(
   plugins: &Vec<Box<dyn Plugin>>,
   file_paths: Vec<PathBuf>,
   config_base_path: &CanonicalizedPathBuf,
-) -> Result<HashMap<PluginNames, Vec<PathBuf>>, ErrBox> {
+) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
   let result = get_file_paths_by_plugins(plugins, file_paths, config_base_path)?;
   if result.is_empty() {
-    return err!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
+    bail!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
   }
   Ok(result)
 }
@@ -49,7 +49,7 @@ pub fn get_file_paths_by_plugins(
   plugins: &Vec<Box<dyn Plugin>>,
   file_paths: Vec<PathBuf>,
   config_base_path: &CanonicalizedPathBuf,
-) -> Result<HashMap<PluginNames, Vec<PathBuf>>, ErrBox> {
+) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
   let mut plugin_by_file_extension = HashMap::new();
   let mut plugin_by_file_name = HashMap::new();
   let mut plugin_associations = Vec::new();
@@ -98,12 +98,12 @@ pub fn get_file_paths_by_plugins(
   Ok(file_paths_by_plugin)
 }
 
-pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>, ErrBox> {
+pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
   let (file_patterns, absolute_paths) = get_config_file_paths(config, args, environment)?;
   return resolve_file_paths(file_patterns, &absolute_paths, args, config, environment);
 }
 
-fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<(GlobPatterns, Vec<PathBuf>), ErrBox> {
+fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<(GlobPatterns, Vec<PathBuf>)> {
   let cwd = environment.cwd();
   let mut file_patterns = get_all_file_patterns(config, args, &cwd);
   let absolute_paths = take_absolute_paths(&mut file_patterns.includes, environment);
@@ -124,7 +124,7 @@ fn resolve_file_paths(
   args: &CliArgs,
   config: &ResolvedConfig,
   environment: &impl Environment,
-) -> Result<Vec<PathBuf>, ErrBox> {
+) -> Result<Vec<PathBuf>> {
   let cwd = environment.cwd();
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
   if is_in_sub_dir {

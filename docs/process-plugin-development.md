@@ -34,6 +34,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::collections::HashMap;
    use std::path::PathBuf;
 
+   use anyhow::Result;
    use dprint_core::configuration::get_unknown_property_diagnostics;
    use dprint_core::configuration::get_value;
    use dprint_core::configuration::ConfigKeyMap;
@@ -41,7 +42,6 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::plugins::PluginHandler;
    use dprint_core::plugins::PluginInfo;
-   use dprint_core::types::ErrBox;
 
    use super::configuration::Configuration; // import the Configuration from above somehow
 
@@ -89,8 +89,8 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        file_path: &Path,
        file_text: &str,
        config: &Configuration,
-       mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String, ErrBox>,
-     ) -> Result<String, ErrBox> {
+       mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
+     ) -> Result<String> {
        // format here
      }
    }

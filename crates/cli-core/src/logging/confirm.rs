@@ -1,12 +1,14 @@
+use anyhow::bail;
+use anyhow::Result;
+use crossterm::event::Event;
+use crossterm::event::KeyCode;
+
 use crate::logging::Logger;
 use crate::logging::LoggerRefreshItemKind;
 use crate::logging::LoggerTextItem;
 use crate::terminal::read_terminal_event;
-use crate::types::ErrBox;
-use crossterm::event::Event;
-use crossterm::event::KeyCode;
 
-pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_value: bool) -> Result<bool, ErrBox> {
+pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_value: bool) -> Result<bool> {
   let result = loop {
     let text_items = vec![LoggerTextItem::Text(format!(
       "{} ({}) \u{2588}", // show a cursor (block character)
@@ -28,7 +30,7 @@ pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_v
         }
         KeyCode::Esc => {
           logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
-          return err!("Confirmation cancelled.");
+          bail!("Confirmation cancelled.");
         }
         _ => {}
       },

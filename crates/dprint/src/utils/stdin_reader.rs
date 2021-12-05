@@ -1,4 +1,4 @@
-use dprint_core::types::ErrBox;
+use anyhow::Result;
 use std::io::Read;
 use std::io::{self};
 
@@ -6,14 +6,14 @@ use std::io::{self};
 pub use tests::TestStdInReader;
 
 pub trait StdInReader: Clone + Send + Sync {
-  fn read(&self) -> Result<String, ErrBox>;
+  fn read(&self) -> Result<String>;
 }
 
 #[derive(Default, Clone, Copy)]
 pub struct RealStdInReader;
 
 impl StdInReader for RealStdInReader {
-  fn read(&self) -> Result<String, ErrBox> {
+  fn read(&self) -> Result<String> {
     let mut text = String::new();
     io::stdin().read_to_string(&mut text)?;
     Ok(text)
@@ -40,7 +40,7 @@ mod tests {
   }
 
   impl StdInReader for TestStdInReader {
-    fn read(&self) -> Result<String, ErrBox> {
+    fn read(&self) -> Result<String> {
       let text = self.text.lock();
       Ok(text.as_ref().expect("Expected to have stdin text set.").clone())
     }

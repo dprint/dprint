@@ -1,11 +1,11 @@
+use anyhow::bail;
+use anyhow::Result;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-
-use dprint_cli_core::types::ErrBox;
 
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
@@ -22,7 +22,7 @@ pub fn format_with_plugin_pools<'a, TEnvironment: Environment>(
   file_text: &'a str,
   environment: &TEnvironment,
   plugin_pools: &Arc<PluginPools<TEnvironment>>,
-) -> Result<Cow<'a, str>, ErrBox> {
+) -> Result<Cow<'a, str>> {
   let plugin_names = plugin_pools.get_plugin_names_from_file_name(file_name);
   let mut file_text = Cow::Borrowed(file_text);
   for plugin_name in plugin_names {
@@ -35,7 +35,7 @@ pub fn format_with_plugin_pools<'a, TEnvironment: Environment>(
         file_text = Cow::Owned(result?); // release plugin above, then propagate this error
       }
       TakePluginResult::HadDiagnostics => {
-        return err!("Had {} configuration errors.", error_logger.get_error_count());
+        bail!("Had {} configuration errors.", error_logger.get_error_count());
       }
     }
   }
@@ -48,9 +48,9 @@ pub fn run_parallelized<F, TEnvironment: Environment>(
   plugin_pools: Arc<PluginPools<TEnvironment>>,
   incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
   f: F,
-) -> Result<(), ErrBox>
+) -> Result<()>
 where
-  F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone,
+  F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + 'static + Clone,
 {
   let error_logger = ErrorCountLogger::from_environment(environment);
 
@@ -70,7 +70,7 @@ where
   return if error_count == 0 {
     Ok(())
   } else {
-    err!("Had {0} error(s) formatting.", error_count)
+    bail!("Had {0} error(s) formatting.", error_count)
   };
 
   #[inline]
@@ -80,9 +80,9 @@ where
     mut plugins: Vec<PluginAndPoolMutRef<TEnvironment>>,
     file_path: &Path,
     f: F,
-  ) -> Result<(), ErrBox>
+  ) -> Result<()>
   where
-    F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<(), ErrBox> + Send + 'static + Clone,
+    F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + 'static + Clone,
   {
     let file_text = FileText::new(environment.read_file(&file_path)?);
 

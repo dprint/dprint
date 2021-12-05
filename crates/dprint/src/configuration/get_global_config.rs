@@ -1,7 +1,8 @@
+use anyhow::bail;
+use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveGlobalConfigOptions;
-use dprint_core::types::ErrBox;
 use std::collections::HashMap;
 
 use super::ConfigMap;
@@ -12,14 +13,14 @@ pub struct GetGlobalConfigOptions {
   pub check_unknown_property_diagnostics: bool,
 }
 
-pub fn get_global_config(config_map: ConfigMap, environment: &impl Environment, options: &GetGlobalConfigOptions) -> Result<GlobalConfiguration, ErrBox> {
+pub fn get_global_config(config_map: ConfigMap, environment: &impl Environment, options: &GetGlobalConfigOptions) -> Result<GlobalConfiguration> {
   match get_global_config_inner(config_map, environment, options) {
     Ok(config) => Ok(config),
-    Err(err) => err!("Error resolving global config from configuration file. {}", err.to_string()),
+    Err(err) => bail!("Error resolving global config from configuration file. {}", err.to_string()),
   }
 }
 
-fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment, options: &GetGlobalConfigOptions) -> Result<GlobalConfiguration, ErrBox> {
+fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment, options: &GetGlobalConfigOptions) -> Result<GlobalConfiguration> {
   // now get and resolve the global config
   let global_config = get_global_config_from_config_map(config_map, options)?;
   let global_config_result = dprint_core::configuration::resolve_global_config(
@@ -39,12 +40,12 @@ fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment
   }
 
   return if diagnostic_count > 0 {
-    err!("Had {} config diagnostic(s).", diagnostic_count)
+    bail!("Had {} config diagnostic(s).", diagnostic_count)
   } else {
     Ok(global_config_result.config)
   };
 
-  fn get_global_config_from_config_map(config_map: ConfigMap, options: &GetGlobalConfigOptions) -> Result<ConfigKeyMap, ErrBox> {
+  fn get_global_config_from_config_map(config_map: ConfigMap, options: &GetGlobalConfigOptions) -> Result<ConfigKeyMap> {
     // at this point, there should only be key values inside the hash map
     let mut global_config = HashMap::new();
 
@@ -56,7 +57,7 @@ fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment
       if let ConfigMapValue::KeyValue(value) = value {
         global_config.insert(key, value);
       } else if options.check_unknown_property_diagnostics {
-        return err!("Unexpected non-string, boolean, or int property '{}'.", key);
+        bail!("Unexpected non-string, boolean, or int property '{}'.", key);
       }
     }
 

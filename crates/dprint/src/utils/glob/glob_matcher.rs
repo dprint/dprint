@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use dprint_cli_core::types::ErrBox;
+use anyhow::Result;
 use ignore::overrides::Override;
 use ignore::overrides::OverrideBuilder;
 use ignore::Match;
@@ -29,7 +29,7 @@ enum GlobMatcherInner {
 }
 
 impl GlobMatcher {
-  pub fn new(patterns: GlobPatterns, opts: &GlobMatcherOptions) -> Result<GlobMatcher, ErrBox> {
+  pub fn new(patterns: GlobPatterns, opts: &GlobMatcherOptions) -> Result<GlobMatcher> {
     let base_dir = get_base_dir(
       patterns
         .includes
@@ -97,7 +97,7 @@ impl GlobMatcher {
   }
 }
 
-fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Override, ErrBox> {
+fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Override> {
   let mut builder = OverrideBuilder::new(&base_dir);
   let builder = builder.case_insensitive(!opts.case_sensitive)?;
 

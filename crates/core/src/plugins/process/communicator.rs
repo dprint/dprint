@@ -1,3 +1,6 @@
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Result;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
@@ -17,7 +20,6 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::PluginInfo;
-use crate::types::ErrBox;
 
 /// Communicates with a process plugin.
 pub struct ProcessPluginCommunicator {
@@ -32,20 +34,16 @@ impl Drop for ProcessPluginCommunicator {
 }
 
 impl ProcessPluginCommunicator {
-  pub fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static) -> Result<Self, ErrBox> {
+  pub fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static) -> Result<Self> {
     ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err)
   }
 
   /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
-  pub fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static) -> Result<Self, ErrBox> {
+  pub fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static) -> Result<Self> {
     ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err)
   }
 
-  fn new_internal(
-    executable_file_path: &Path,
-    is_init: bool,
-    on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static,
-  ) -> Result<Self, ErrBox> {
+  fn new_internal(executable_file_path: &Path, is_init: bool, on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static) -> Result<Self> {
     let mut args = vec!["--parent-pid".to_string(), std::process::id().to_string()];
     if is_init {
       args.push("--init".to_string());
@@ -57,7 +55,7 @@ impl ProcessPluginCommunicator {
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
-      .map_err(|err| err_obj!("Error starting {} with args [{}]. {}", executable_file_path.display(), args.join(" "), err))?;
+      .map_err(|err| anyhow!("Error starting {} with args [{}]. {}", executable_file_path.display(), args.join(" "), err))?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
@@ -87,7 +85,7 @@ impl ProcessPluginCommunicator {
     Ok(communicator)
   }
 
-  fn kill(&mut self) -> Result<(), ErrBox> {
+  fn kill(&mut self) -> Result<()> {
     // attempt to exit nicely
     let _ignore = self.messenger.send_message(MessageKind::Close as u32, Vec::new());
 
@@ -96,32 +94,32 @@ impl ProcessPluginCommunicator {
     Ok(())
   }
 
-  pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<(), ErrBox> {
+  pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<()> {
     let json = serde_json::to_vec(global_config)?;
     self.send_data(MessageKind::SetGlobalConfig, &json)?;
     Ok(())
   }
 
-  pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<(), ErrBox> {
+  pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<()> {
     let json = serde_json::to_vec(plugin_config)?;
     self.send_data(MessageKind::SetPluginConfig, &json)?;
     Ok(())
   }
 
-  pub fn get_plugin_info(&mut self) -> Result<PluginInfo, ErrBox> {
+  pub fn get_plugin_info(&mut self) -> Result<PluginInfo> {
     let response = self.get_bytes(MessageKind::GetPluginInfo)?;
     Ok(serde_json::from_slice(&response)?)
   }
 
-  pub fn get_license_text(&mut self) -> Result<String, ErrBox> {
+  pub fn get_license_text(&mut self) -> Result<String> {
     self.get_string(MessageKind::GetLicenseText)
   }
 
-  pub fn get_resolved_config(&mut self) -> Result<String, ErrBox> {
+  pub fn get_resolved_config(&mut self) -> Result<String> {
     self.get_string(MessageKind::GetResolvedConfig)
   }
 
-  pub fn get_config_diagnostics(&mut self) -> Result<Vec<ConfigurationDiagnostic>, ErrBox> {
+  pub fn get_config_diagnostics(&mut self) -> Result<Vec<ConfigurationDiagnostic>> {
     let bytes = self.get_bytes(MessageKind::GetConfigDiagnostics)?;
     Ok(serde_json::from_slice(&bytes)?)
   }
@@ -131,8 +129,8 @@ impl ProcessPluginCommunicator {
     file_path: &Path,
     file_text: &str,
     override_config: &ConfigKeyMap,
-    format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>, ErrBox>,
-  ) -> Result<String, ErrBox> {
+    format_with_host: impl Fn(PathBuf, String, ConfigKeyMap) -> Result<Option<String>>,
+  ) -> Result<String> {
     let override_config = serde_json::to_vec(override_config)?;
     // send message
     self.messenger.send_message(
@@ -186,11 +184,11 @@ impl ProcessPluginCommunicator {
     }
   }
 
-  fn get_plugin_schema_version(&mut self) -> Result<u32, ErrBox> {
+  fn get_plugin_schema_version(&mut self) -> Result<u32> {
     match self.get_u32(MessageKind::GetPluginSchemaVersion) {
       Ok(response) => Ok(response),
       Err(err) => {
-        return err!(
+        bail!(
           concat!(
             "There was a problem checking the plugin schema version. ",
             "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade. {}"
@@ -201,10 +199,10 @@ impl ProcessPluginCommunicator {
     }
   }
 
-  fn verify_plugin_schema_version(&mut self) -> Result<(), ErrBox> {
+  fn verify_plugin_schema_version(&mut self) -> Result<()> {
     let plugin_schema_version = self.get_plugin_schema_version()?;
     if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
-      return err!(
+      bail!(
         concat!(
           "The plugin schema version was {}, but expected {}. ",
           "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade."
@@ -217,24 +215,24 @@ impl ProcessPluginCommunicator {
     Ok(())
   }
 
-  fn get_string(&mut self, message_kind: MessageKind) -> Result<String, ErrBox> {
+  fn get_string(&mut self, message_kind: MessageKind) -> Result<String> {
     let bytes = self.get_bytes(message_kind)?;
     Ok(String::from_utf8(bytes)?)
   }
 
-  fn get_bytes(&mut self, message_kind: MessageKind) -> Result<Vec<u8>, ErrBox> {
+  fn get_bytes(&mut self, message_kind: MessageKind) -> Result<Vec<u8>> {
     self.messenger.send_message(message_kind as u32, Vec::new())?;
     self.messenger.read_response()?;
     self.messenger.read_single_part_message()
   }
 
-  fn get_u32(&mut self, message_kind: MessageKind) -> Result<u32, ErrBox> {
+  fn get_u32(&mut self, message_kind: MessageKind) -> Result<u32> {
     self.messenger.send_message(message_kind as u32, Vec::new())?;
     self.messenger.read_response()?;
     self.messenger.read_single_part_u32_message()
   }
 
-  fn send_data(&mut self, message_kind: MessageKind, data: &[u8]) -> Result<(), ErrBox> {
+  fn send_data(&mut self, message_kind: MessageKind, data: &[u8]) -> Result<()> {
     self.messenger.send_message(message_kind as u32, vec![data.into()])?;
     self.messenger.read_response()?;
     self.messenger.read_zero_part_message()
@@ -242,16 +240,16 @@ impl ProcessPluginCommunicator {
 }
 
 trait StdIoMessengerExtensions {
-  fn read_response(&mut self) -> Result<(), ErrBox>;
+  fn read_response(&mut self) -> Result<()>;
 }
 
 impl StdIoMessengerExtensions for StdIoMessenger<ChildStdout, ChildStdin> {
-  fn read_response(&mut self) -> Result<(), ErrBox> {
+  fn read_response(&mut self) -> Result<()> {
     let response_kind = self.read_code()?;
     match response_kind.into() {
       ResponseKind::Success => Ok(()),
       ResponseKind::Error => {
-        err!("{}", self.read_single_part_error_message()?)
+        bail!("{}", self.read_single_part_error_message()?)
       }
     }
   }

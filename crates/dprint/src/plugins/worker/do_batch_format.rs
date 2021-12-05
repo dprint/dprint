@@ -1,4 +1,5 @@
-use dprint_cli_core::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -23,7 +24,7 @@ pub fn do_batch_format<TEnvironment: Environment, F>(
   plugin_pools: &Arc<PluginPools<TEnvironment>>,
   file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
   action: F,
-) -> Result<(), ErrBox>
+) -> Result<()>
 where
   F: Fn(Vec<PluginAndPoolMutRef<TEnvironment>>, &Path) + Send + 'static + Clone,
 {
@@ -58,7 +59,7 @@ where
     if let Err(_) = handle.join() {
       long_format_checker_thread.signal_exit();
       // todo: how to return error message?
-      return err!("A panic occurred. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.",);
+      bail!("A panic occurred. You may want to run in verbose mode (--verbose) to help figure out where it failed then report this as a bug.",);
     }
   }
 
@@ -99,7 +100,7 @@ fn do_local_work<TEnvironment: Environment, F>(
   worker: &Worker<TEnvironment>,
   action: F,
   mut current_plugins: Option<Vec<OptionalPluginAndPool<TEnvironment>>>,
-) -> Result<(), ErrBox>
+) -> Result<()>
 where
   F: Fn(Vec<PluginAndPoolMutRef<TEnvironment>>, &Path) + Send + 'static + Clone,
 {

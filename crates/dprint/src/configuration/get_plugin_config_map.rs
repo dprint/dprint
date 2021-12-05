@@ -1,25 +1,26 @@
-use dprint_core::types::ErrBox;
+use anyhow::bail;
+use anyhow::Result;
 
 use super::ConfigMap;
 use super::ConfigMapValue;
 use super::RawPluginConfig;
 use crate::plugins::Plugin;
 
-pub fn get_plugin_config_map(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<RawPluginConfig, ErrBox> {
+pub fn get_plugin_config_map(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
   match get_plugin_config_map_inner(plugin, config_map) {
     Ok(result) => Ok(result),
-    Err(err) => err!("Error initializing from configuration file. {}", err.to_string()),
+    Err(err) => bail!("Error initializing from configuration file. {}", err.to_string()),
   }
 }
 
-fn get_plugin_config_map_inner(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<RawPluginConfig, ErrBox> {
+fn get_plugin_config_map_inner(plugin: &Box<dyn Plugin>, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
   let config_key = plugin.config_key();
 
   if let Some(plugin_config) = config_map.remove(config_key) {
     if let ConfigMapValue::PluginConfig(plugin_config) = plugin_config {
       Ok(plugin_config)
     } else {
-      err!("Expected the configuration property '{}' to be an object.", config_key)
+      bail!("Expected the configuration property '{}' to be an object.", config_key)
     }
   } else {
     Ok(Default::default())
