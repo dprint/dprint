@@ -76,7 +76,7 @@ pub mod macros {
             // error
             let length = unsafe { host_get_error_text() };
             let error_text = get_string_from_host(length);
-            Err(dprint_core::types::Error::new(error_text))
+            Err(anyhow::anyhow!("{}", error_text))
           }
           _ => unreachable!(),
         };
