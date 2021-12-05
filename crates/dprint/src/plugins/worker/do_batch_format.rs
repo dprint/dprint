@@ -134,7 +134,7 @@ where
     };
 
     let mut had_diagnostics = false;
-    let mut plugin_and_pools = Vec::with_capacity(current_plugins.len());
+    let mut plugins_and_pools = Vec::with_capacity(current_plugins.len());
     for optional_plugin_and_pool in current_plugins.iter_mut() {
       if optional_plugin_and_pool.plugin.is_none() {
         match optional_plugin_and_pool.pool.take_or_create_checking_config_diagnostics(error_logger)? {
@@ -149,7 +149,7 @@ where
           }
         }
       }
-      plugin_and_pools.push(PluginAndPoolMutRef {
+      plugins_and_pools.push(PluginAndPoolMutRef {
         plugin: optional_plugin_and_pool.plugin.as_mut().unwrap(),
         pool: &optional_plugin_and_pool.pool,
       })
@@ -159,7 +159,7 @@ where
     }
 
     // now do the work using it
-    action(plugin_and_pools, &file_path);
+    action(plugins_and_pools, &file_path);
   }
 
   fn release_current_plugins<TEnvironment: Environment>(

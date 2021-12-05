@@ -671,7 +671,7 @@ mod test {
                 "**/*.{txt,txt_ps,other}",
                 "some_file_name",
                 "test-process-plugin-exact-file"
-              ]
+              ],
               "ending": "ps"
             }"#,
           )
@@ -749,6 +749,51 @@ mod test {
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
+  }
+
+  #[test]
+  fn should_error_config_diagnostic_multiple_plugins_same_file_via_associations() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": [
+                "shared_file"
+              ],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": [
+                "shared_file"
+              ],
+              "non-existent": "value"
+            }"#,
+          )
+          .add_includes("**/*");
+      })
+      .write_file("/test.txt", "text")
+      .write_file("/shared_file", "text")
+      .build();
+
+    let error_message = run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).err().unwrap();
+
+    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "[test-process-plugin]: Unknown property in configuration. (non-existent)",
+        "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
+      ]
+    );
+    assert_eq!(environment.read_file("/test.txt").unwrap(), "text_wasm");
+    assert_eq!(environment.read_file("/shared_file").unwrap(), "text");
   }
 
   #[test]
