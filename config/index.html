@@ -39,7 +39,26 @@
     <span class="hljs-string">&quot;**/node_modules&quot;</span><span class="hljs-punctuation">,</span>
     <span class="hljs-string">&quot;**/*-lock.json&quot;</span>
   <span class="hljs-punctuation">]</span>
-<span class="hljs-punctuation">}</span></code></pre><h2 id="extending-a-different-configuration-file">Extending a Different Configuration File</h2><p>You may extend other configuration files by specifying an <code>extends</code> property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).</p><!-- dprint-ignore --><pre><code class="json language-json"><span class="hljs-punctuation">{</span>
+<span class="hljs-punctuation">}</span></code></pre><h2 id="associations">Associations</h2><p>By default, plugins will pull in files based on their extension. Sometimes a file may have a different extension or no extension at all, but you still want to format it with a certain plugin. The plugin <code>"associations"</code> config allows you to do that by associating a certain file pattern to one or multiple plugins.</p><p>For example:</p><pre><code class="jsonc language-jsonc"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;json&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;associations&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-comment">// format any file named `.myconfigrc` matched by the</span>
+      <span class="hljs-comment">// includes/excludes patterns in any directory with</span>
+      <span class="hljs-comment">// the json plugin</span>
+      <span class="hljs-string">&quot;.myconfigrc&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-comment">// format this specific file using the json plugin</span>
+      <span class="hljs-string">&quot;./my-relative-path/to-file&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-comment">// format files that match this pattern</span>
+      <span class="hljs-string">&quot;**/*.myconfig&quot;</span>
+    <span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;includes&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">&quot;**/*.*&quot;</span>
+  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;plugins&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">&quot;https://plugins.dprint.dev/json-x.x.x.wasm&quot;</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span></code></pre><p>Note that first the <code>"includes"</code>/<code>"excludes"</code> file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.</p><h2 id="extending-a-different-configuration-file">Extending a Different Configuration File</h2><p>You may extend other configuration files by specifying an <code>extends</code> property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).</p><!-- dprint-ignore --><pre><code class="json language-json"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">&quot;extends&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;https://dprint.dev/path/to/config/file.v1.json&quot;</span><span class="hljs-punctuation">,</span>
   <span class="hljs-comment">// ...omitted...</span>
 <span class="hljs-punctuation">}</span></code></pre><p>Referencing multiple configuration files is also supported. These should be ordered by precedence:</p><pre><code class="json language-json"><span class="hljs-punctuation">{</span>
