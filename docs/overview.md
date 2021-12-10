@@ -147,7 +147,7 @@ use dprint_core::formatting::*;
 
 pub fn format(expr: &ArrayLiteralExpression) -> String {
   dprint_core::formatting::format(
-    || parse_node(Node::ArrayLiteralExpression(expr)),
+    || gen_node(Node::ArrayLiteralExpression(expr)),
     PrintOptions {
       indent_width: 4,
       max_width: 10,
@@ -157,18 +157,18 @@ pub fn format(expr: &ArrayLiteralExpression) -> String {
   )
 }
 
-// node parsing functions
+// IR generation functions
 
-fn parse_node(node: Node) -> PrintItems {
+fn gen_node(node: Node) -> PrintItems {
   // in a real implementation this function would deal with surrounding comments
 
   match node {
-    Node::ArrayLiteralExpression(expr) => parse_array_literal_expression(&expr),
-    Node::ArrayElement(array_element) => parse_array_element(&array_element),
+    Node::ArrayLiteralExpression(expr) => gen_array_literal_expression(&expr),
+    Node::ArrayElement(array_element) => gen_array_element(&array_element),
   }
 }
 
-fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
+fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   let mut items = PrintItems::new();
   let start_info = Info::new("start");
   let end_info = Info::new("end");
@@ -184,12 +184,12 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   items.push_str("[");
   items.push_condition(conditions::if_true("arrayStartNewLine", is_multiple_lines.clone(), Signal::NewLine.into()));
 
-  let parsed_elements = parse_elements(&expr.elements, &is_multiple_lines).into_rc_path();
+  let generated_elements = gen_elements(&expr.elements, &is_multiple_lines).into_rc_path();
   items.push_condition(conditions::if_true_or(
     "indentIfMultipleLines",
     is_multiple_lines.clone(),
-    parser_helpers::with_indent(parsed_elements.clone().into()),
-    parsed_elements.into(),
+    ir_helpers::with_indent(generated_elements.clone().into()),
+    generated_elements.into(),
   ));
 
   items.push_condition(conditions::if_true("arrayEndNewLine", is_multiple_lines, Signal::NewLine.into()));
@@ -199,15 +199,12 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 
   return items;
 
-  fn parse_elements(
-    elements: &Vec<ArrayElement>,
-    is_multiple_lines: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static),
-  ) -> PrintItems {
+  fn gen_elements(elements: &Vec<ArrayElement>, is_multiple_lines: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static)) -> PrintItems {
     let mut items = PrintItems::new();
     let elements_len = elements.len();
 
     for (i, elem) in elements.iter().enumerate() {
-      items.extend(parse_node(Node::ArrayElement(elem)));
+      items.extend(gen_node(Node::ArrayElement(elem)));
 
       if i < elements_len - 1 {
         items.push_str(",");
@@ -224,7 +221,7 @@ fn parse_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   }
 }
 
-fn parse_array_element(element: &ArrayElement) -> PrintItems {
+fn gen_array_element(element: &ArrayElement) -> PrintItems {
   element.text.to_string().into()
 }
 
