@@ -3,10 +3,10 @@ use std::rc::Rc;
 
 use super::super::condition_resolvers;
 use super::super::conditions::*;
-use super::super::parser_helpers;
+use super::super::ir_helpers;
 use super::super::print_items::*;
 
-pub struct ParseSeparatedValuesOptions {
+pub struct GenSeparatedValuesOptions {
   pub prefer_hanging: bool,
   pub force_use_new_lines: bool,
   pub allow_blank_lines: bool,
@@ -87,7 +87,13 @@ impl MultiLineOptions {
   }
 }
 
-pub struct ParsedValue {
+#[derive(Clone, Copy, Debug)]
+pub struct LinesSpan {
+  pub start_line: usize,
+  pub end_line: usize,
+}
+
+pub struct GeneratedValue {
   pub items: PrintItems,
   pub lines_span: Option<LinesSpan>,
   /// Whether this value is allowed to start on the same line as the
@@ -101,16 +107,10 @@ pub struct ParsedValue {
   pub allow_inline_single_line: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct LinesSpan {
-  pub start_line: usize,
-  pub end_line: usize,
-}
-
-impl ParsedValue {
+impl GeneratedValue {
   /// Use this when you don't care about blank lines.
-  pub fn from_items(items: PrintItems) -> ParsedValue {
-    ParsedValue {
+  pub fn from_items(items: PrintItems) -> GeneratedValue {
+    GeneratedValue {
       items,
       lines_span: None,
       allow_inline_multi_line: false,
@@ -119,25 +119,25 @@ impl ParsedValue {
   }
 }
 
-pub struct ParseSeparatedValuesResult {
+pub struct GenSeparatedValuesResult {
   pub items: PrintItems,
   pub is_multi_line_condition_ref: ConditionReference,
 }
 
-struct ParsedValueData {
+struct GeneratedValueData {
   start_info: Info,
   allow_inline_multi_line: bool,
   allow_inline_single_line: bool,
 }
 
-pub fn parse_separated_values(
-  parsed_values: impl FnOnce(&ConditionReference) -> Vec<ParsedValue>,
-  opts: ParseSeparatedValuesOptions,
-) -> ParseSeparatedValuesResult {
+pub fn gen_separated_values(
+  generated_values: impl FnOnce(&ConditionReference) -> Vec<GeneratedValue>,
+  opts: GenSeparatedValuesOptions,
+) -> GenSeparatedValuesResult {
   let indent_width = opts.indent_width;
   let start_info = Info::new("startSeparatedValues");
   let end_info = Info::new("endSeparatedValues");
-  let value_datas: Rc<RefCell<Vec<ParsedValueData>>> = Rc::new(RefCell::new(Vec::new()));
+  let value_datas: Rc<RefCell<Vec<GeneratedValueData>>> = Rc::new(RefCell::new(Vec::new()));
   let multi_line_options = opts.multi_line_options;
   let mut is_start_standalone_line = get_is_start_standalone_line(start_info);
   let is_start_standalone_line_ref = is_start_standalone_line.get_reference();
@@ -164,19 +164,19 @@ pub fn parse_separated_values(
   items.push_condition(is_start_standalone_line);
   items.push_condition(is_multi_line_condition);
 
-  let parsed_values = (parsed_values)(
+  let generated_values = (generated_values)(
     &is_multi_line_condition_ref, // need to use a sized value it seems...
   );
-  let has_values = !parsed_values.is_empty();
-  let inner_parse_result = inner_parse(
-    parsed_values,
+  let has_values = !generated_values.is_empty();
+  let inner_gen_result = inner_gen(
+    generated_values,
     is_multi_line.clone(),
     opts.single_line_separator,
     &multi_line_options,
     opts.allow_blank_lines,
   );
-  value_datas.borrow_mut().extend(inner_parse_result.value_datas);
-  let parsed_values_items = inner_parse_result.items.into_rc_path();
+  value_datas.borrow_mut().extend(inner_gen_result.value_datas);
+  let generated_values_items = inner_gen_result.items.into_rc_path();
   items.push_condition(Condition::new(
     "multiLineOrHanging",
     ConditionProperties {
@@ -193,7 +193,7 @@ pub fn parse_separated_values(
             if multi_line_options.with_indent {
               items.push_signal(Signal::StartIndent);
             }
-            items.extend(parsed_values_items.into());
+            items.extend(generated_values_items.into());
             if multi_line_options.with_indent {
               items.push_signal(Signal::FinishIndent);
             }
@@ -202,7 +202,7 @@ pub fn parse_separated_values(
             }
             items
           },
-          parsed_values_items.into(),
+          generated_values_items.into(),
         )
         .into(),
       ),
@@ -224,7 +224,7 @@ pub fn parse_separated_values(
             Signal::PossibleNewLine.into(),
           ));
         }
-        items.extend(parsed_values_items.into());
+        items.extend(generated_values_items.into());
         if opts.single_line_space_at_end {
           items.push_str(" ");
         }
@@ -235,26 +235,26 @@ pub fn parse_separated_values(
 
   items.push_info(end_info);
 
-  return ParseSeparatedValuesResult {
+  return GenSeparatedValuesResult {
     items,
     is_multi_line_condition_ref,
   };
 
-  struct InnerParseResult {
+  struct InnerGenResult {
     items: PrintItems,
-    value_datas: Vec<ParsedValueData>,
+    value_datas: Vec<GeneratedValueData>,
   }
 
-  fn inner_parse(
-    parsed_values: Vec<ParsedValue>,
+  fn inner_gen(
+    generated_values: Vec<GeneratedValue>,
     is_multi_line: Rc<ConditionResolver>,
     single_line_separator: PrintItems,
     multi_line_options: &MultiLineOptions,
     allow_blank_lines: bool,
-  ) -> InnerParseResult {
+  ) -> InnerGenResult {
     let mut items = PrintItems::new();
     let mut value_datas = Vec::new();
-    let values_count = parsed_values.len();
+    let values_count = generated_values.len();
     let single_line_separator = single_line_separator.into_rc_path();
     let mut last_lines_span: Option<LinesSpan> = None;
     let maintain_line_breaks = multi_line_options.maintain_line_breaks;
@@ -262,12 +262,12 @@ pub fn parse_separated_values(
     let first_start_info = Info::new("firstValueStartInfo");
     let mut last_start_info = None;
 
-    for (i, parsed_value) in parsed_values.into_iter().enumerate() {
+    for (i, generated_value) in generated_values.into_iter().enumerate() {
       let start_info = if i == 0 { first_start_info } else { Info::new("valueStartInfo") };
-      value_datas.push(ParsedValueData {
+      value_datas.push(GeneratedValueData {
         start_info,
-        allow_inline_multi_line: parsed_value.allow_inline_multi_line,
-        allow_inline_single_line: parsed_value.allow_inline_single_line,
+        allow_inline_multi_line: generated_value.allow_inline_multi_line,
+        allow_inline_single_line: generated_value.allow_inline_single_line,
       });
 
       if i == 0 {
@@ -280,10 +280,10 @@ pub fn parse_separated_values(
         }
 
         items.push_info(start_info);
-        items.extend(parsed_value.items);
+        items.extend(generated_value.items);
       } else {
         let (has_new_line, has_blank_line) = if let Some(last_lines_span) = last_lines_span {
-          if let Some(current_lines_span) = parsed_value.lines_span {
+          if let Some(current_lines_span) = generated_value.lines_span {
             (
               last_lines_span.end_line < current_lines_span.start_line,
               last_lines_span.end_line < std::cmp::max(current_lines_span.start_line, 1) - 1, // prevent subtracting with overflow
@@ -295,7 +295,7 @@ pub fn parse_separated_values(
           (false, false)
         };
         let use_blank_line = allow_blank_lines && has_blank_line;
-        let parsed_value = parsed_value.items.into_rc_path();
+        let generated_value = generated_value.items.into_rc_path();
         items.push_condition(Condition::new(
           "multiLineOrHangingCondition",
           ConditionProperties {
@@ -343,19 +343,19 @@ pub fn parse_separated_values(
                     items.push_condition(indent_if_start_of_line({
                       let mut items = PrintItems::new();
                       items.push_info(start_info);
-                      items.extend(parsed_value.into());
+                      items.extend(generated_value.into());
                       items
                     }));
                   } else {
                     items.push_info(start_info);
-                    items.extend(parsed_value.into());
+                    items.extend(generated_value.into());
                   }
                 }
                 BoolOrCondition::Condition(condition) => {
                   let inner_items = {
                     let mut items = PrintItems::new();
                     items.push_info(start_info);
-                    items.extend(parsed_value.into());
+                    items.extend(generated_value.into());
                     items
                   }
                   .into_rc_path();
@@ -363,7 +363,7 @@ pub fn parse_separated_values(
                     "valueHangingIndent",
                     ConditionProperties {
                       condition: condition.clone(),
-                      true_path: Some(parser_helpers::with_indent(inner_items.into())),
+                      true_path: Some(ir_helpers::with_indent(inner_items.into())),
                       false_path: Some(inner_items.into()),
                     },
                   ));
@@ -378,7 +378,7 @@ pub fn parse_separated_values(
               items.push_condition(indent_if_start_of_line({
                 let mut items = PrintItems::new();
                 items.push_info(start_info);
-                items.extend(parsed_value.into());
+                items.extend(generated_value.into());
                 items
               }));
               Some(items)
@@ -387,15 +387,15 @@ pub fn parse_separated_values(
         ));
       }
 
-      last_lines_span = parsed_value.lines_span;
+      last_lines_span = generated_value.lines_span;
       last_start_info.replace(start_info);
     }
 
-    InnerParseResult { items, value_datas }
+    InnerGenResult { items, value_datas }
   }
 }
 
-fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec<ParsedValueData>>>, start_info: Info, end_info: Info) -> Condition {
+fn get_clearer_resolutions_on_start_change_condition(value_datas: Rc<RefCell<Vec<GeneratedValueData>>>, start_info: Info, end_info: Info) -> Condition {
   Condition::new(
     "clearWhenStartInfoChanges",
     ConditionProperties {
@@ -431,7 +431,7 @@ fn get_is_start_standalone_line(start_info: Info) -> Condition {
 }
 
 fn get_is_multi_line_for_hanging(
-  value_datas: Rc<RefCell<Vec<ParsedValueData>>>,
+  value_datas: Rc<RefCell<Vec<GeneratedValueData>>>,
   is_start_standalone_line_ref: ConditionReference,
   end_info: Info,
 ) -> Condition {
@@ -465,7 +465,7 @@ fn get_is_multi_line_for_hanging(
 
 fn get_is_multi_line_for_multi_line(
   start_info: Info,
-  value_datas: Rc<RefCell<Vec<ParsedValueData>>>,
+  value_datas: Rc<RefCell<Vec<GeneratedValueData>>>,
   is_start_standalone_line_ref: ConditionReference,
   end_info: Info,
 ) -> Condition {

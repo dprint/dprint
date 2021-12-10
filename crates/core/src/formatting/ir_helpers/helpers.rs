@@ -72,40 +72,40 @@ pub fn new_line_group(item: PrintItems) -> PrintItems {
   items
 }
 
-/// Parses a string as is and ignores its indent.
-pub fn parse_raw_string(text: &str) -> PrintItems {
-  parse_raw_string_lines(text, parse_string)
+/// Generates IR from a string as is and ignores its indent.
+pub fn gen_from_raw_string(text: &str) -> PrintItems {
+  gen_from_raw_string_lines(text, gen_from_string)
 }
 
-/// Parses a string trimming the end of each line and ignores its indent.
-pub fn parse_raw_string_trim_line_ends(text: &str) -> PrintItems {
-  parse_raw_string_lines(text, |line_text| parse_string_line(line_text.trim_end()))
+/// Generates IR from a string trimming the end of each line and ignores its indent.
+pub fn gen_from_raw_string_trim_line_ends(text: &str) -> PrintItems {
+  gen_from_raw_string_lines(text, |line_text| gen_from_string_line(line_text.trim_end()))
 }
 
-fn parse_raw_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> PrintItems {
+fn gen_from_raw_string_lines(text: &str, gen_line: impl Fn(&str) -> PrintItems) -> PrintItems {
   let add_ignore_indent = text.contains('\n');
   let mut items = PrintItems::new();
   if add_ignore_indent {
     items.push_signal(Signal::StartIgnoringIndent);
   }
-  items.extend(parse_string_lines(text, parse_line));
+  items.extend(gen_string_lines(text, gen_line));
   if add_ignore_indent {
     items.push_signal(Signal::FinishIgnoringIndent);
   }
   items
 }
 
-/// Parses a string to a series of PrintItems.
-pub fn parse_string(text: &str) -> PrintItems {
-  parse_string_lines(text, parse_string_line)
+/// Generates IR from a string to a series of PrintItems.
+pub fn gen_from_string(text: &str) -> PrintItems {
+  gen_string_lines(text, gen_from_string_line)
 }
 
-/// Parses a string to a series of PrintItems trimming the end of each line for whitespace.
-pub fn parse_string_trim_line_ends(text: &str) -> PrintItems {
-  parse_string_lines(text, |line_text| parse_string_line(line_text.trim_end()))
+/// Generates IR from a string to a series of PrintItems trimming the end of each line for whitespace.
+pub fn gen_from_string_trim_line_ends(text: &str) -> PrintItems {
+  gen_string_lines(text, |line_text| gen_from_string_line(line_text.trim_end()))
 }
 
-fn parse_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> PrintItems {
+fn gen_string_lines(text: &str, gen_line: impl Fn(&str) -> PrintItems) -> PrintItems {
   let mut items = PrintItems::new();
 
   for (i, line) in text.lines().enumerate() {
@@ -113,7 +113,7 @@ fn parse_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> Pr
       items.push_signal(Signal::NewLine);
     }
 
-    items.extend(parse_line(line));
+    items.extend(gen_line(line));
   }
 
   // using .lines() will remove the last line, so add it back if it exists
@@ -124,7 +124,7 @@ fn parse_string_lines(text: &str, parse_line: impl Fn(&str) -> PrintItems) -> Pr
   items
 }
 
-fn parse_string_line(line: &str) -> PrintItems {
+fn gen_from_string_line(line: &str) -> PrintItems {
   let mut items = PrintItems::new();
   for (i, line) in line.split('\t').enumerate() {
     if i > 0 {
@@ -176,10 +176,10 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
   items
 }
 
-/// Parses the provided text to a JS-like comment line (ex. `// some text`)
-pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -> PrintItems {
+/// Generates IR from the provided text to a JS-like comment line (ex. `// some text`)
+pub fn gen_js_like_comment_line(text: &str, force_space_after_slashes: bool) -> PrintItems {
   let mut items = PrintItems::new();
-  items.extend(parse_raw_string(&get_comment_text(text, force_space_after_slashes)));
+  items.extend(gen_from_raw_string(&get_comment_text(text, force_space_after_slashes)));
   items.push_signal(Signal::ExpectNewLine);
   return with_no_new_lines(items);
 
@@ -211,8 +211,8 @@ pub fn parse_js_like_comment_line(text: &str, force_space_after_slashes: bool) -
   }
 }
 
-/// Parses the provided text to a JS-like comment block (ex. `/** some text */`)
-pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
+/// Generates IR from the provided text to a JS-like comment block (ex. `/** some text */`)
+pub fn gen_js_like_comment_block(text: &str) -> PrintItems {
   let mut items = PrintItems::new();
   let add_ignore_indent = text.contains('\n');
   let last_line_trailing_whitespace = get_last_line_trailing_whitespace(text);
@@ -221,11 +221,11 @@ pub fn parse_js_like_comment_block(text: &str) -> PrintItems {
   if add_ignore_indent {
     items.push_signal(Signal::StartIgnoringIndent);
   }
-  items.extend(parse_string_trim_line_ends(text));
+  items.extend(gen_from_string_trim_line_ends(text));
 
   // add back the last line's trailing whitespace
   if !last_line_trailing_whitespace.is_empty() {
-    items.extend(parse_raw_string(last_line_trailing_whitespace));
+    items.extend(gen_from_raw_string(last_line_trailing_whitespace));
   }
 
   if add_ignore_indent {

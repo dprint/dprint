@@ -8,7 +8,7 @@ pub fn indent_if_start_of_line(items: PrintItems) -> Condition {
   if_true_or(
     "indentIfStartOfLine",
     |context| Some(condition_resolvers::is_start_of_line(context)),
-    parser_helpers::with_indent(rc_path.into()),
+    ir_helpers::with_indent(rc_path.into()),
     rc_path.into(),
   )
 }
@@ -18,7 +18,7 @@ pub fn with_indent_if_start_of_line_indented(items: PrintItems) -> Condition {
   if_true_or(
     "withIndentIfStartOfLineIndented",
     |context| Some(condition_resolvers::is_start_of_line_indented(context)),
-    parser_helpers::with_indent(rc_path.into()),
+    ir_helpers::with_indent(rc_path.into()),
     rc_path.into(),
   )
 }

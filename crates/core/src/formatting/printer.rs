@@ -450,7 +450,7 @@ impl<'a> Printer<'a> {
 
   #[cfg(debug_assertions)]
   fn validate_string(&self, text: &str) {
-    // The parser_helpers::parse_raw_string(...) helper function might be useful if you get either of these panics.
+    // The ir_helpers::gen_from_raw_string(...) helper function might be useful if you get either of these panics.
     if text.contains('\t') {
       panic!(
         "Debug panic! Found a tab in the string. Before sending the string to the printer it needs to be broken up and the tab sent as a PrintItem::Tab. {0}",
@@ -465,7 +465,7 @@ impl<'a> Printer<'a> {
   #[cfg(debug_assertions)]
   fn verify_no_look_ahead_save_points(&self) {
     // The look ahead save points should be empty when printing is finished. If it's not
-    // then that indicates that the parser tried to resolve a condition or info that was
+    // then that indicates that the generator tried to resolve a condition or info that was
     // never added to the print items. In this scenario, the look ahead hash maps will
     // be cloned when creating a save point and contain items that don't need to exist
     // in them thus having an unnecessary performance impact.
