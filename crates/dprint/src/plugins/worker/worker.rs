@@ -108,6 +108,7 @@ impl<TEnvironment: Environment> Worker<TEnvironment> {
     self.local_work.write().work_by_plugin.push(work);
   }
 
+  #[allow(clippy::type_complexity)]
   pub fn take_next_work(&self) -> Option<(Arc<Vec<Arc<InitializedPluginPool<TEnvironment>>>>, PathBuf)> {
     let mut local_work = self.local_work.write();
     if let Some(work_by_plugin) = local_work.work_by_plugin.get_mut(0) {

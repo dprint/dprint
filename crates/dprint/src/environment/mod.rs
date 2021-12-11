@@ -1,4 +1,5 @@
 mod canonicalized_path_buf;
+#[allow(clippy::module_inception)]
 #[macro_use]
 mod environment;
 mod real_environment;

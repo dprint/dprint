@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)]
 mod glob;
 mod glob_matcher;
 mod glob_pattern;

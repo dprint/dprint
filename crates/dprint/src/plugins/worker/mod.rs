@@ -3,6 +3,7 @@ mod do_batch_format;
 mod local_plugin_work;
 mod local_work;
 mod long_format_checker_thread;
+#[allow(clippy::module_inception)]
 mod worker;
 mod worker_registry;
 

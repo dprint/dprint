@@ -49,6 +49,7 @@ pub struct PluginPools<TEnvironment: Environment> {
   plugin_name_maps: RwLock<PluginNameResolutionMaps>,
   /// Plugins may format using other plugins. If so, they should have a locally
   /// owned plugin instance that will be created on demand.
+  #[allow(clippy::type_complexity)]
   plugins_for_plugins: Mutex<HashMap<String, HashMap<String, Vec<Box<dyn InitializedPlugin>>>>>,
 }
 
@@ -150,14 +151,14 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
       plugins_for_plugins.insert(parent_plugin_name.to_string(), HashMap::new());
       plugins_for_plugins.get_mut(parent_plugin_name).unwrap()
     };
-    let mut plugins = if let Some(plugins) = plugins_for_plugin.get_mut(sub_plugin_name) {
+    let plugins = if let Some(plugins) = plugins_for_plugin.get_mut(sub_plugin_name) {
       plugins
     } else {
       plugins_for_plugin.insert(sub_plugin_name.to_string(), Vec::new());
       plugins_for_plugin.get_mut(sub_plugin_name).unwrap()
     };
 
-    with_plugins(&mut plugins)
+    with_plugins(plugins)
   }
 
   pub fn get_plugin_names_from_file_name(&self, file_name: &Path) -> Vec<String> {
