@@ -42,6 +42,16 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
   )
 }
 
+pub fn space_if_not_start_of_line(space_char: Option<PrintItems>) -> Condition {
+  let space_char = space_char.unwrap_or_else(|| " ".into());
+
+  if_true(
+    "spaceIfNotStartOfLine",
+    move |context| Some(context.writer_info.column_number > context.writer_info.line_start_column_number),
+    space_char,
+  )
+}
+
 pub fn new_line_if_hanging(start_info: Info, end_info: Option<Info>) -> Condition {
   if_true(
     "newlineIfHanging",
