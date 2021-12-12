@@ -5,13 +5,15 @@ use similar::TextDiff;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
+use std::panic::catch_unwind;
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::path::PathBuf;
 
 use super::*;
 
 struct FailedTestResult {
-  file_path: String,
+  file_path: PathBuf,
   expected: String,
   actual: String,
   actual_second: Option<String>,
@@ -67,8 +69,16 @@ pub fn run_specs(
 
     let file_path_buf = PathBuf::from(&spec.file_name);
     let format = |file_text: &str| {
-      format_text(&file_path_buf, file_text, &spec.config)
-        .unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {}", spec.message, file_path, err.to_string(),))
+      let result = catch_unwind(AssertUnwindSafe(|| format_text(&file_path_buf, file_text, &spec.config)));
+      let result = result.unwrap_or_else(|err| panic!("Panic in spec '{}' in {}.\n\n{:?}", spec.message, file_path.display(), err));
+      result.unwrap_or_else(|err| {
+        panic!(
+          "Could not parse spec '{}' in {}. Message: {}",
+          spec.message,
+          file_path.display(),
+          err.to_string()
+        )
+      })
     };
 
     if spec.is_trace {
@@ -113,7 +123,7 @@ pub fn run_specs(
     let mut failed_message = format!(
       "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`,\nDiff:\n{}",
       failed_test.message,
-      failed_test.file_path,
+      failed_test.file_path.display(),
       failed_test.expected,
       failed_test.actual,
       DiffFailedMessage {
