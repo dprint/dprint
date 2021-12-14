@@ -77,12 +77,15 @@ impl GlobMatcher {
         exclude_matcher,
       } => {
         let path = path.as_ref();
-        let path = if path.is_absolute() {
+        let path = if path.is_absolute() && path.starts_with(&base_dir) {
           Cow::Borrowed(path.strip_prefix(&base_dir).unwrap())
         } else {
           Cow::Owned(base_dir.join(path))
         };
-        matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
+
+        path.starts_with(&base_dir) 
+          && matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) 
+          && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
       }
     }
   }
@@ -91,8 +94,12 @@ impl GlobMatcher {
     match &self.inner {
       GlobMatcherInner::Empty => false,
       GlobMatcherInner::Matcher { base_dir, exclude_matcher, .. } => {
-        let path = path.as_ref().strip_prefix(&base_dir).unwrap();
-        matches!(exclude_matcher.matched(&path, true), Match::Whitelist(_))
+        if path.as_ref().starts_with(&base_dir) {
+          let path = path.as_ref().strip_prefix(&base_dir).unwrap();
+          matches!(exclude_matcher.matched(&path, true), Match::Whitelist(_))
+        } else {
+          true
+        }
       }
     }
   }
@@ -149,6 +156,20 @@ mod test {
     assert!(glob_matcher.is_match("/testing/dir/match.ts"));
     assert!(glob_matcher.is_match("/testing/dir/other/match.ts"));
     assert!(!glob_matcher.is_match("/testing/dir/no-match.ts"));
+  }
+
+  #[test]
+  fn handles_external_files() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        includes: vec![GlobPattern::new("*.ts".to_string(), cwd.clone())],
+        excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions { case_sensitive: true },
+    )
+    .unwrap();
+    assert!(!glob_matcher.is_match("/some/other/dir/match.ts"));
   }
 
   #[cfg(target_os = "windows")]
