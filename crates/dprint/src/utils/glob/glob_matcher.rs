@@ -79,13 +79,13 @@ impl GlobMatcher {
         let path = path.as_ref();
         let path = if path.is_absolute() && path.starts_with(&base_dir) {
           Cow::Borrowed(path.strip_prefix(&base_dir).unwrap())
-        } else {
+        } else if !path.is_absolute() {
           Cow::Owned(base_dir.join(path))
+        } else {
+          Cow::Borrowed(path.clone())
         };
 
-        path.starts_with(&base_dir) 
-          && matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) 
-          && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
+        matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
       }
     }
   }
@@ -163,13 +163,13 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
-        includes: vec![GlobPattern::new("*.ts".to_string(), cwd.clone())],
-        excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+        includes: vec![GlobPattern::new("/testing/dir/*.ts".to_string(), cwd.clone())],
+        excludes: vec![GlobPattern::new("/testing/dir/no-match.ts".to_string(), cwd.clone())],
       },
       &GlobMatcherOptions { case_sensitive: true },
     )
     .unwrap();
-    assert!(!glob_matcher.is_match("/some/other/dir/match.ts"));
+    assert!(!glob_matcher.is_match("/some/other/dir/file.ts"));
   }
 
   #[cfg(target_os = "windows")]
