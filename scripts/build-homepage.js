@@ -1,4 +1,8 @@
 // @ts-check
+
+// Note: this started out super simple then become too complicated.
+// This should be refactored to use an actual build tool.
+
 const showdown = require("showdown");
 const hljs = require("highlight.js");
 const fs = require("fs");
