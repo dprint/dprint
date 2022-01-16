@@ -127,7 +127,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", Some(matches)) => SubCommand::Config(match matches.subcommand() {
       ("init", _) => ConfigSubCommand::Init,
-      ("add", Some(matches)) => ConfigSubCommand::Add(matches.value_of("url-or-name").map(ToOwned::to_owned)),
+      ("add", Some(matches)) => ConfigSubCommand::Add(matches.value_of("url-or-plugin-name").map(ToOwned::to_owned)),
       ("update", _) => ConfigSubCommand::Update,
       _ => unreachable!(),
     }),
@@ -291,7 +291,7 @@ EXAMPLES:
           SubCommand::with_name("add")
             .about("Adds a plugin to the configuration file.")
             .arg(
-              Arg::with_name("url-or-name")
+              Arg::with_name("url-or-plugin-name")
                 .required(false)
                 .takes_value(true)
           )
