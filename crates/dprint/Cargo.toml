@@ -18,7 +18,7 @@ dprint-cli-core = { path = "../cli-core", version = "0.10.0" }
 dprint-core = { path = "../core", version = "0.49.0", features = ["process", "wasm"] }
 dunce = "1.0.2"
 ignore = "0.4.18"
-jsonc-parser = { version = "0.17.0" }
+jsonc-parser = { version = "0.18.0" }
 num_cpus = "1.13.0"
 parking_lot = "0.11.2"
 rayon = "1.5.1"

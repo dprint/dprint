@@ -205,8 +205,7 @@ impl InitializedWasmPlugin {
     if let Err(reinitialize_err) = self.try_reinitialize_due_to_panic() {
       panic!(
         "Originally panicked, then failed reinitialize. Cannot recover.\nOriginal error: {}\nReinitialize error: {}",
-        original_err.to_string(),
-        reinitialize_err.to_string(),
+        original_err, reinitialize_err,
       )
     }
   }

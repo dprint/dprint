@@ -57,9 +57,9 @@ impl PluginSourceReference {
 impl fmt::Display for PluginSourceReference {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     if let Some(checksum) = &self.checksum {
-      write!(f, "{}@{}", self.path_source.to_string(), checksum)
+      write!(f, "{}@{}", self.path_source, checksum)
     } else {
-      write!(f, "{}", self.path_source.to_string())
+      write!(f, "{}", self.path_source)
     }
   }
 }

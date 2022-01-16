@@ -39,7 +39,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: 1.56.0
+        toolchain: 1.58.0
         override: true
     - name: Install wasm32 target
       run: rustup target add wasm32-unknown-unknown
@@ -56,6 +56,9 @@ jobs:
     - name: Build debug
       if: matrix.config.kind == 'test_debug'
       run: cargo build --locked --all-features
+    - name: Lint
+      if: matrix.config.kind == 'test_debug'
+      run: cargo clippy --locked --all-features
     - name: Build release
       if: matrix.config.kind == 'test_release'
       run: cargo build --locked --all-features --release

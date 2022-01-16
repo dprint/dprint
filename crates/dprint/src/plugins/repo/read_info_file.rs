@@ -27,8 +27,27 @@ pub struct InfoFilePluginInfo {
 }
 
 impl InfoFilePluginInfo {
+  pub fn is_wasm(&self) -> bool {
+    self.url.to_lowercase().ends_with(".wasm")
+  }
+
   pub fn is_process_plugin(&self) -> bool {
-    !self.url.to_lowercase().ends_with(".wasm")
+    !self.is_wasm()
+  }
+
+  pub fn full_url(&self) -> String {
+    if let Some(checksum) = &self.checksum {
+      return format!("{}@{}", self.url, checksum);
+    }
+    self.url.to_string()
+  }
+
+  pub fn full_url_no_wasm_checksum(&self) -> String {
+    if self.is_wasm() {
+      self.url.to_string()
+    } else {
+      self.full_url()
+    }
   }
 }
 

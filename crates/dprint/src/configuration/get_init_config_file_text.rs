@@ -30,7 +30,7 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
           "The created config file may not be as helpful of a starting point. ",
           "Error: {}"
         ),
-        err.to_string()
+        err,
       ));
       None
     }

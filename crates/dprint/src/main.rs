@@ -28,7 +28,7 @@ fn main() -> Result<()> {
   match run() {
     Ok(_) => {}
     Err(err) => {
-      eprintln!("{}", err.to_string());
+      eprintln!("{}", err);
       std::process::exit(1);
     }
   }

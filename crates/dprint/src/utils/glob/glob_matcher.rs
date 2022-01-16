@@ -82,7 +82,7 @@ impl GlobMatcher {
         } else if !path.is_absolute() {
           Cow::Owned(base_dir.join(path))
         } else {
-          Cow::Borrowed(path.clone())
+          Cow::Borrowed(path)
         };
 
         matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
