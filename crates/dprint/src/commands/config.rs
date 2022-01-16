@@ -61,9 +61,16 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
         let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
         let plugin = info_file
           .latest_plugins
-          .into_iter()
+          .iter()
           .find(|plugin| &plugin.name == plugin_name_or_url)
-          .ok_or_else(|| anyhow!("Could not find plugin with name '{}'. Please specify a url instead.", plugin_name_or_url))?;
+          .ok_or_else(|| {
+            anyhow!(
+              "Could not find plugin with name '{}'. Please fix the name or specify a url instead.\n\nPlugins:\n{}",
+              plugin_name_or_url,
+              info_file.latest_plugins.iter().map(|p| format!(" * {}", p.name)).collect::<Vec<_>>().join("\n"),
+            )
+          })?
+          .clone();
         for (config_plugin_reference, current_plugin) in get_config_file_plugins(plugin_resolver, config.plugins) {
           if let Ok(current_plugin) = current_plugin {
             if current_plugin.name() == plugin.name {
@@ -466,7 +473,21 @@ mod test {
       expected_error: None,
       expected_logs: vec![],
       expected_urls: vec![new_wasm_url.clone()],
-      selection_result: Some(0),
+      selection_result: None,
+    });
+
+    // using arg and no existing plugin
+    test_add(TestAddOptions {
+      add_arg: Some("my-plugin"),
+      config_has_wasm: false,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: Some(
+        "Could not find plugin with name 'my-plugin'. Please fix the name or specify a url instead.\n\nPlugins:\n * test-plugin\n * test-process-plugin",
+      ),
+      expected_logs: vec![],
+      expected_urls: vec![],
+      selection_result: None,
     });
 
     // using and already exists
@@ -481,7 +502,7 @@ mod test {
         // upgrades to the latest
         new_wasm_url,
       ],
-      selection_result: Some(0),
+      selection_result: None,
     });
 
     // using url
@@ -493,7 +514,7 @@ mod test {
       expected_error: None,
       expected_logs: vec![],
       expected_urls: vec!["https://plugins.dprint.dev/my-plugin.wasm".to_string()],
-      selection_result: Some(0),
+      selection_result: None,
     });
   }
 
