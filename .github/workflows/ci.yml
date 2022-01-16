@@ -56,9 +56,6 @@ jobs:
     - name: Build debug
       if: matrix.config.kind == 'test_debug'
       run: cargo build --locked --all-features
-    - name: Lint
-      if: matrix.config.kind == 'test_debug'
-      run: cargo clippy --locked
     - name: Build release
       if: matrix.config.kind == 'test_release'
       run: cargo build --locked --all-features --release
