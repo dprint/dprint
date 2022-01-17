@@ -156,20 +156,54 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     _ => None,
   };
 
+  let file_patterns = sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or_default();
+  let plugins = values_to_vec(matches.values_of("plugins"));
+
+  if !plugins.is_empty() && file_patterns.is_empty() {
+    validate_plugin_args_when_no_files(&plugins)?;
+  }
+
   Ok(CliArgs {
     sub_command,
     verbose: matches.is_present("verbose"),
     config: matches.value_of("config").map(String::from),
-    plugins: values_to_vec(matches.values_of("plugins")),
+    plugins,
     incremental: sub_command_matches.map(|m| m.is_present("incremental")).unwrap_or(false),
     allow_node_modules: sub_command_matches.map(|m| m.is_present("allow-node-modules")).unwrap_or(false),
-    file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or_default(),
+    file_patterns,
     exclude_file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("excludes"))).unwrap_or_default(),
   })
 }
 
 fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
   values.map(|x| x.map(std::string::ToString::to_string).collect()).unwrap_or_default()
+}
+
+/// Users have accidentally specified: dprint fmt --plugins <url1> <url2> -- <file-path>
+/// But it should be: dprint fmt --plugins <url1> <url2> -- <file-path>
+fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
+  for (i, plugin) in plugins.iter().enumerate() {
+    let lower_plugin = plugin.to_lowercase();
+    let is_valid_plugin =
+      lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".exe-plugin@") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".exe-plugin");
+    if !is_valid_plugin {
+      let start_message = format!(
+        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.",
+        plugin
+      );
+      if i == 0 {
+        bail!("{}", start_message);
+      } else {
+        bail!(
+          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- {} [etc...]",
+          start_message,
+          plugins[..i].join(" "),
+          plugins[i],
+        )
+      }
+    }
+  }
+  Ok(())
 }
 
 fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b> {
@@ -425,5 +459,43 @@ impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
         .help("Only format files when they change. This may alternatively be specified in the configuration file.")
         .takes_value(false),
     )
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use crate::utils::TestStdInReader;
+
+  use super::*;
+
+  #[test]
+  fn plugins_with_file_paths_no_dash_at_first() {
+    let err = test_args(vec!["fmt", "--plugins", "test", "other.ts"]).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.")
+    );
+  }
+
+  #[test]
+  fn plugins_with_file_paths_no_dash_after_first() {
+    let err = test_args(vec!["fmt", "--plugins", "https://plugins.dprint.dev/test.wasm", "other.ts"])
+      .err()
+      .unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.\n\n",
+        "Maybe you meant to add two dashes after the plugins?\n",
+        "  --plugins https://plugins.dprint.dev/test.wasm -- other.ts [etc...]",
+      )
+    );
+  }
+
+  fn test_args(args: Vec<&str>) -> Result<CliArgs> {
+    let stdin_reader = TestStdInReader::default();
+    let mut args: Vec<String> = args.into_iter().map(String::from).collect();
+    args.insert(0, "".to_string());
+    parse_args(args, stdin_reader)
   }
 }
