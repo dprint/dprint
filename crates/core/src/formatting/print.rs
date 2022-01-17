@@ -82,8 +82,8 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
   increment_formatting_count();
   let print_items = get_print_items();
 
-  let result = with_bump_allocator_mut(|bump| {
-    let tracing_result = Printer::new(bump, print_items.first_node.clone(), {
+  with_bump_allocator_mut(|bump| {
+    let tracing_result = Printer::new(bump, print_items.first_node, {
       let mut printer_options = options.to_printer_options();
       printer_options.enable_tracing = true;
       printer_options
@@ -105,15 +105,14 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
           }
         })
         .collect(),
-      print_nodes: super::get_trace_print_nodes(print_items.first_node.clone()),
+      print_nodes: super::get_trace_print_nodes(print_items.first_node),
     };
 
     if decrement_formatting_count() {
       bump.reset();
     }
     result
-  });
-  result
+  })
 }
 
 thread_local! {

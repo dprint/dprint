@@ -63,6 +63,7 @@ pub struct FmtSubCommand {
 pub enum ConfigSubCommand {
   Init,
   Update,
+  Add(Option<String>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -126,6 +127,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", Some(matches)) => SubCommand::Config(match matches.subcommand() {
       ("init", _) => ConfigSubCommand::Init,
+      ("add", Some(matches)) => ConfigSubCommand::Add(matches.value_of("url-or-plugin-name").map(ToOwned::to_owned)),
       ("update", _) => ConfigSubCommand::Update,
       _ => unreachable!(),
     }),
@@ -188,16 +190,16 @@ fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b>
   };
 
   app.setting(AppSettings::UnifiedHelpMessage)
-        .setting(AppSettings::DeriveDisplayOrder)
-        .bin_name("dprint")
-        .version_short("v")
-        .version(env!("CARGO_PKG_VERSION"))
-        .author("Copyright 2020-2021 by David Sherret")
-        .about("Auto-formats source code based on the specified plugins.")
-        .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
-        // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
-        // .version_aboute("Prints the version.")
-        .template(r#"{bin} {version}
+    .setting(AppSettings::DeriveDisplayOrder)
+    .bin_name("dprint")
+    .version_short("v")
+    .version(env!("CARGO_PKG_VERSION"))
+    .author("Copyright 2020-2021 by David Sherret")
+    .about("Auto-formats source code based on the specified plugins.")
+    .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
+    // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
+    // .version_aboute("Prints the version.")
+    .template(r#"{bin} {version}
 {author}
 
 {about}
@@ -218,7 +220,7 @@ ENVIRONMENT VARIABLES:
                       this directory may be periodically deleted by the CLI.
 
 {after-help}"#)
-        .after_help(
+    .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
   2. Run `dprint init` to create a dprint.json file in that directory.
@@ -241,138 +243,147 @@ EXAMPLES:
   Search for files using the specified file patterns:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
-        )
-        .subcommand(
-            SubCommand::with_name("init")
-                .about("Initializes a configuration file in the current directory.")
-        )
-        .subcommand(
-            SubCommand::with_name("fmt")
-                .about("Formats the source files and writes the result to the file system.")
-                .add_resolve_file_path_args()
-                .add_incremental_arg()
-                .arg(
-                    Arg::with_name("stdin")
-                        .long("stdin")
-                        .value_name("extension/file-name/file-path")
-                        .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
-                        .required(false)
-                        .takes_value(true)
-                )
-                .arg(
-                  Arg::with_name("diff")
-                    .long("diff")
-                    .help("Outputs a check-like diff of every formatted file.")
-                    .takes_value(false)
-                    .required(false)
-                )
-        )
-        .subcommand(
-            SubCommand::with_name("check")
-                .about("Checks for any files that haven't been formatted.")
-                .add_resolve_file_path_args()
-                .add_incremental_arg()
-        )
-        .subcommand(
-            SubCommand::with_name("config")
-                .about("Functionality related to the configuration file.")
-                .setting(AppSettings::SubcommandRequiredElseHelp)
-                .subcommand(
-                  SubCommand::with_name("init")
-                      .about("Initializes a configuration file in the current directory.")
-                )
-                .subcommand(
-                  SubCommand::with_name("update")
-                      .about("Updates the plugins in the configuration file.")
-                )
-        )
-        .subcommand(
-            SubCommand::with_name("output-file-paths")
-                .about("Prints the resolved file paths for the plugins based on the args and configuration.")
-                .add_resolve_file_path_args()
-        )
-        .subcommand(
-            SubCommand::with_name("output-resolved-config")
-                .about("Prints the resolved configuration for the plugins based on the args and configuration.")
-        )
-        .subcommand(
-            SubCommand::with_name("output-format-times")
-                .about("Prints the amount of time it takes to format each file. Use this for debugging.")
-                .add_resolve_file_path_args()
-        )
-        .subcommand(
-            SubCommand::with_name("clear-cache")
-                .about("Deletes the plugin cache directory.")
-        )
-        .subcommand(
-            SubCommand::with_name("license")
-                .about("Outputs the software license.")
-        )
-        .subcommand(
-            SubCommand::with_name("editor-info")
-                .setting(AppSettings::Hidden)
-        )
-        .subcommand(
-            SubCommand::with_name("editor-service")
-                .setting(AppSettings::Hidden)
-                .arg(
-                    Arg::with_name("parent-pid")
-                        .long("parent-pid")
-                        .required(true)
-                        .takes_value(true)
-                )
+    )
+    .subcommand(
+      SubCommand::with_name("init")
+        .about("Initializes a configuration file in the current directory.")
+    )
+    .subcommand(
+      SubCommand::with_name("fmt")
+        .about("Formats the source files and writes the result to the file system.")
+        .add_resolve_file_path_args()
+        .add_incremental_arg()
+        .arg(
+          Arg::with_name("stdin")
+            .long("stdin")
+            .value_name("extension/file-name/file-path")
+            .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
+            .required(false)
+            .takes_value(true)
         )
         .arg(
-            Arg::with_name("config")
-                .long("config")
-                .short("c")
-                .help("Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.")
-                .global(true)
-                .takes_value(true),
+          Arg::with_name("diff")
+            .long("diff")
+            .help("Outputs a check-like diff of every formatted file.")
+            .takes_value(false)
+            .required(false)
         )
-        .arg(
-            Arg::with_name("plugins")
-                .long("plugins")
-                .value_name("urls/files")
-                .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
-                .global(true)
+    )
+    .subcommand(
+      SubCommand::with_name("check")
+        .about("Checks for any files that haven't been formatted.")
+        .add_resolve_file_path_args()
+        .add_incremental_arg()
+    )
+    .subcommand(
+      SubCommand::with_name("config")
+        .about("Functionality related to the configuration file.")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(
+          SubCommand::with_name("init")
+            .about("Initializes a configuration file in the current directory.")
+        )
+        .subcommand(
+          SubCommand::with_name("update")
+            .about("Updates the plugins in the configuration file.")
+        )
+        .subcommand(
+          SubCommand::with_name("add")
+            .about("Adds a plugin to the configuration file.")
+            .arg(
+              Arg::with_name("url-or-plugin-name")
+                .required(false)
                 .takes_value(true)
-                .multiple(true),
+          )
         )
+    )
+    .subcommand(
+      SubCommand::with_name("output-file-paths")
+        .about("Prints the resolved file paths for the plugins based on the args and configuration.")
+        .add_resolve_file_path_args()
+    )
+    .subcommand(
+      SubCommand::with_name("output-resolved-config")
+        .about("Prints the resolved configuration for the plugins based on the args and configuration.")
+    )
+    .subcommand(
+      SubCommand::with_name("output-format-times")
+        .about("Prints the amount of time it takes to format each file. Use this for debugging.")
+        .add_resolve_file_path_args()
+    )
+    .subcommand(
+      SubCommand::with_name("clear-cache")
+        .about("Deletes the plugin cache directory.")
+    )
+    .subcommand(
+      SubCommand::with_name("license")
+        .about("Outputs the software license.")
+    )
+    .subcommand(
+      SubCommand::with_name("editor-info")
+        .setting(AppSettings::Hidden)
+    )
+    .subcommand(
+      SubCommand::with_name("editor-service")
+        .setting(AppSettings::Hidden)
         .arg(
-            Arg::with_name("verbose")
-                .long("verbose")
-                .help("Prints additional diagnostic information.")
-                .global(true)
-                .takes_value(false),
+          Arg::with_name("parent-pid")
+            .long("parent-pid")
+            .required(true)
+            .takes_value(true)
         )
-        .arg(
-            Arg::with_name("version")
-                .short("v")
-                .long("version")
-                .help("Prints the version.")
-                .takes_value(false),
+    )
+    .arg(
+      Arg::with_name("config")
+        .long("config")
+        .short("c")
+        .help("Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.")
+        .global(true)
+        .takes_value(true),
+    )
+    .arg(
+      Arg::with_name("plugins")
+        .long("plugins")
+        .value_name("urls/files")
+        .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
+        .global(true)
+        .takes_value(true)
+        .multiple(true),
+    )
+    .arg(
+      Arg::with_name("verbose")
+        .long("verbose")
+        .help("Prints additional diagnostic information.")
+        .global(true)
+        .takes_value(false),
+    )
+    .arg(
+      Arg::with_name("version")
+        .short("v")
+        .long("version")
+        .help("Prints the version.")
+        .takes_value(false),
+    )
+    .subcommand(
+      SubCommand::with_name("hidden")
+        .setting(AppSettings::Hidden)
+        .subcommand(
+          SubCommand::with_name("windows-install")
+            .arg(
+              Arg::with_name("install-path")
+                .takes_value(true)
+                .required(true)
+            )
         )
         .subcommand(
-            SubCommand::with_name("hidden")
-                .setting(AppSettings::Hidden)
-                .subcommand(
-                    SubCommand::with_name("windows-install")
-                        .arg(
-                            Arg::with_name("install-path")
-                                .takes_value(true)
-                                .required(true)
-                        )
-                )
-                .subcommand(
-                    SubCommand::with_name("windows-uninstall")
-                        .arg(
-                            Arg::with_name("install-path")
-                                .takes_value(true)
-                                .required(true)
-                        )
-                )
+          SubCommand::with_name("windows-uninstall")
+            .arg(
+              Arg::with_name("install-path")
+                .takes_value(true)
+                .required(true)
+            )
         )
+    )
 }
 
 trait ClapExtensions {

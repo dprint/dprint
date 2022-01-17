@@ -60,7 +60,7 @@ where
     move |plugins, file_path| {
       let result = run_for_file_path(&environment, &incremental_file, plugins, file_path, f.clone());
       if let Err(err) = result {
-        error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err.to_string()));
+        error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err));
       }
     }
   })?;

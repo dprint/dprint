@@ -2,7 +2,9 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
+use std::collections::HashSet;
 use std::path::PathBuf;
+use url::Url;
 
 use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
@@ -12,6 +14,8 @@ use crate::environment::Environment;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::read_info_file;
 use crate::plugins::resolve_plugins;
+use crate::plugins::InfoFilePluginInfo;
+use crate::plugins::Plugin;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::utils::pretty_print_json_text;
@@ -38,6 +42,104 @@ pub fn init_config_file(environment: &impl Environment, config_arg: &Option<Stri
   }
 }
 
+pub fn add_plugin_config_file<TEnvironment: Environment>(
+  args: &CliArgs,
+  plugin_name_or_url: Option<&String>,
+  cache: &Cache<TEnvironment>,
+  environment: &TEnvironment,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+) -> Result<()> {
+  let config = resolve_config_from_args(args, cache, environment)?;
+  let config_path = match config.resolved_path.source {
+    PathSource::Local(source) => source.path,
+    PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
+  };
+  let plugin_url_to_add = match plugin_name_or_url {
+    Some(plugin_name_or_url) => match Url::parse(plugin_name_or_url) {
+      Ok(url) => url.to_string(),
+      Err(_) => {
+        let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
+        let plugin = info_file
+          .latest_plugins
+          .iter()
+          .find(|plugin| &plugin.name == plugin_name_or_url)
+          .ok_or_else(|| {
+            anyhow!(
+              "Could not find plugin with name '{}'. Please fix the name or specify a url instead.\n\nPlugins:\n{}",
+              plugin_name_or_url,
+              info_file.latest_plugins.iter().map(|p| format!(" * {}", p.name)).collect::<Vec<_>>().join("\n"),
+            )
+          })?
+          .clone();
+        for (config_plugin_reference, current_plugin) in get_config_file_plugins(plugin_resolver, config.plugins) {
+          if let Ok(current_plugin) = current_plugin {
+            if current_plugin.name() == plugin.name {
+              if current_plugin.version() != plugin.version {
+                let file_text = environment.read_file(&config_path)?;
+                let file_text = update_plugin_in_config(
+                  &file_text,
+                  PluginUpdateInfo {
+                    name: current_plugin.name().to_string(),
+                    old_version: current_plugin.version().to_string(),
+                    old_reference: config_plugin_reference,
+                    new_plugin: plugin,
+                  },
+                );
+                environment.write_file(&config_path, &file_text)?;
+              }
+              return Ok(());
+            }
+          }
+        }
+        plugin.full_url_no_wasm_checksum()
+      }
+    },
+    None => {
+      let mut possible_plugins = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins)?;
+      if possible_plugins.is_empty() {
+        bail!("Could not find any plugins to add. Please provide one by specifying `dprint config add <plugin-url>`.");
+      }
+      let index = environment.get_selection(
+        "Select a plugin to add:",
+        0,
+        &possible_plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+      )?;
+      possible_plugins.remove(index).full_url_no_wasm_checksum()
+    }
+  };
+
+  let file_text = environment.read_file(&config_path)?;
+  let new_text = add_to_plugins_array(&file_text, &plugin_url_to_add)?;
+  environment.write_file(&config_path, &new_text)?;
+
+  Ok(())
+}
+
+fn get_possible_plugins_to_add<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+  current_plugins: Vec<PluginSourceReference>,
+) -> Result<Vec<InfoFilePluginInfo>> {
+  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
+  let current_plugin_names = get_config_file_plugins(plugin_resolver, current_plugins)
+    .into_iter()
+    .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
+      Ok(plugin) => Some(plugin.name().to_string()),
+      Err(error) => {
+        environment.log_stderr(&format!("Error resolving plugin: {}\n\n{}", plugin_reference.path_source.display(), error));
+        None
+      }
+    })
+    .collect::<HashSet<_>>();
+  Ok(
+    info_file
+      .latest_plugins
+      .into_iter()
+      .filter(|p| !current_plugin_names.contains(&p.name))
+      .collect(),
+  )
+}
+
 pub fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
@@ -55,8 +157,7 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
   for result in plugins_to_update {
     match result {
       Ok(info) => {
-        let is_wasm = info.new_config_url.to_lowercase().ends_with(".wasm");
-        let should_update = if is_wasm {
+        let should_update = if info.is_wasm() {
           true
         } else {
           // prompt for security reasons
@@ -70,15 +171,8 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
         };
 
         if should_update {
-          environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_version));
-          // only add the checksum if not wasm or previously had a checksum
-          let should_add_checksum = !is_wasm || info.old_has_checksum;
-          let new_url = if should_add_checksum {
-            info.get_full_new_config_url()
-          } else {
-            info.new_config_url
-          };
-          file_text = file_text.replace(&info.old_full_config_url, &new_url);
+          environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_plugin.version));
+          file_text = update_plugin_in_config(&file_text, info);
         }
       }
       Err(err_info) => {
@@ -90,6 +184,51 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
   environment.write_file(&config_path, &file_text)?;
 
   Ok(())
+}
+
+struct PluginUpdateError {
+  name: String,
+  error: Error,
+}
+
+fn get_plugins_to_update<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugins: Vec<PluginSourceReference>,
+) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
+  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
+  let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins);
+  Ok(
+    config_file_plugins
+      .into_iter()
+      .filter_map(|(plugin_reference, plugin_result)| {
+        let plugin = match plugin_result {
+          Ok(plugin) => plugin,
+          Err(error) => {
+            return Some(Err(PluginUpdateError {
+              name: plugin_reference.path_source.display(),
+              error,
+            }))
+          }
+        };
+        let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.name());
+        let latest_plugin_info = match latest_plugin_info {
+          Some(i) => i,
+          None => return None,
+        };
+        if plugin.version() == latest_plugin_info.version {
+          return None;
+        }
+
+        Some(Ok(PluginUpdateInfo {
+          name: plugin.name().to_string(),
+          old_reference: plugin_reference,
+          old_version: plugin.version().to_string(),
+          new_plugin: latest_plugin_info.clone(),
+        }))
+      })
+      .collect::<Vec<_>>(),
+  )
 }
 
 pub fn output_resolved_config<TEnvironment: Environment>(
@@ -124,73 +263,20 @@ pub fn output_resolved_config<TEnvironment: Environment>(
   Ok(())
 }
 
-struct PluginUpdateInfo {
-  name: String,
-  old_version: String,
-  old_full_config_url: String,
-  old_has_checksum: bool,
-  new_version: String,
-  new_config_url: String,
-  new_plugin_checksum: Option<String>,
-}
-
-impl PluginUpdateInfo {
-  pub fn get_full_new_config_url(&self) -> String {
-    match &self.new_plugin_checksum {
-      Some(checksum) => format!("{}@{}", self.new_config_url, checksum),
-      None => self.new_config_url.clone(),
-    }
-  }
-}
-
-struct PluginUpdateError {
-  name: String,
-  error: Error,
-}
-
-fn get_plugins_to_update<TEnvironment: Environment>(
-  environment: &TEnvironment,
+fn get_config_file_plugins<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugins: Vec<PluginSourceReference>,
-) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
+  current_plugins: Vec<PluginSourceReference>,
+) -> Vec<(PluginSourceReference, Result<Box<dyn Plugin>>)> {
   use rayon::iter::IntoParallelIterator;
   use rayon::iter::ParallelIterator;
 
-  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
-  Ok(
-    plugins
-      .into_par_iter()
-      .filter_map(|plugin_reference| {
-        let plugin = match plugin_resolver.resolve_plugin(&plugin_reference) {
-          Ok(plugin) => plugin,
-          Err(error) => {
-            return Some(Err(PluginUpdateError {
-              name: plugin_reference.path_source.display(),
-              error,
-            }))
-          }
-        };
-        let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.name());
-        let latest_plugin_info = match latest_plugin_info {
-          Some(i) => i,
-          None => return None,
-        };
-        if plugin.version() == latest_plugin_info.version {
-          return None;
-        }
-
-        Some(Ok(PluginUpdateInfo {
-          name: plugin.name().to_string(),
-          old_full_config_url: plugin_reference.to_string(),
-          old_has_checksum: plugin_reference.checksum.is_some(),
-          old_version: plugin.version().to_string(),
-          new_version: latest_plugin_info.version.to_string(),
-          new_config_url: latest_plugin_info.url.to_string(),
-          new_plugin_checksum: latest_plugin_info.checksum.clone(),
-        }))
-      })
-      .collect::<Vec<_>>(),
-  )
+  current_plugins
+    .into_par_iter()
+    .map(|plugin_reference| {
+      let resolve_result = plugin_resolver.resolve_plugin(&plugin_reference);
+      (plugin_reference, resolve_result)
+    })
+    .collect::<Vec<_>>()
 }
 
 #[cfg(test)]
@@ -297,13 +383,200 @@ mod test {
   }
 
   #[test]
+  fn config_add() {
+    let old_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let old_ps_checksum = test_helpers::get_test_process_plugin_checksum();
+    let old_ps_url = format!("https://plugins.dprint.dev/test-process.exe-plugin@{}", old_ps_checksum);
+    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.exe-plugin".to_string();
+    let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, "info-checksum");
+    let select_plugin_msg = "Select a plugin to add:".to_string();
+
+    // no plugins specified
+    test_add(TestAddOptions {
+      add_arg: None,
+      config_has_wasm: false,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: None,
+      expected_logs: vec![select_plugin_msg.clone()],
+      expected_urls: vec![new_wasm_url.clone()],
+      selection_result: Some(0),
+    });
+
+    // process plugin specified
+    test_add(TestAddOptions {
+      add_arg: None,
+      config_has_wasm: false,
+      config_has_process: false,
+      info_has_checksum: true,
+      expected_error: None,
+      expected_logs: vec![select_plugin_msg.clone()],
+      expected_urls: vec![new_ps_url_with_checksum.clone()],
+      selection_result: Some(1),
+    });
+
+    // process plugin specified no checksum in info
+    test_add(TestAddOptions {
+      add_arg: None,
+      config_has_wasm: false,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: None,
+      expected_logs: vec![select_plugin_msg.clone()],
+      expected_urls: vec![new_ps_url.clone()],
+      selection_result: Some(1),
+    });
+
+    // wasm exists, no process
+    test_add(TestAddOptions {
+      add_arg: None,
+      config_has_wasm: true,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: None,
+      expected_logs: vec![select_plugin_msg.clone()],
+      expected_urls: vec![old_wasm_url.clone(), new_ps_url.clone()],
+      selection_result: Some(0),
+    });
+
+    // process exists, no wasm
+    test_add(TestAddOptions {
+      add_arg: None,
+      config_has_wasm: false,
+      config_has_process: true,
+      info_has_checksum: false,
+      expected_error: None,
+      expected_logs: vec![select_plugin_msg.clone()],
+      expected_urls: vec![old_ps_url.clone(), new_wasm_url.clone()],
+      selection_result: Some(0),
+    });
+
+    // all plugins already specified in config
+    test_add(TestAddOptions {
+      add_arg: None,
+      config_has_wasm: true,
+      config_has_process: true,
+      info_has_checksum: false,
+      expected_error: Some("Could not find any plugins to add. Please provide one by specifying `dprint config add <plugin-url>`."),
+      expected_logs: vec![],
+      expected_urls: vec![],
+      selection_result: Some(0),
+    });
+
+    // using arg
+    test_add(TestAddOptions {
+      add_arg: Some("test-plugin"),
+      config_has_wasm: false,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: None,
+      expected_logs: vec![],
+      expected_urls: vec![new_wasm_url.clone()],
+      selection_result: None,
+    });
+
+    // using arg and no existing plugin
+    test_add(TestAddOptions {
+      add_arg: Some("my-plugin"),
+      config_has_wasm: false,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: Some(
+        "Could not find plugin with name 'my-plugin'. Please fix the name or specify a url instead.\n\nPlugins:\n * test-plugin\n * test-process-plugin",
+      ),
+      expected_logs: vec![],
+      expected_urls: vec![],
+      selection_result: None,
+    });
+
+    // using and already exists
+    test_add(TestAddOptions {
+      add_arg: Some("test-plugin"),
+      config_has_wasm: true,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: None,
+      expected_logs: vec![],
+      expected_urls: vec![
+        // upgrades to the latest
+        new_wasm_url,
+      ],
+      selection_result: None,
+    });
+
+    // using url
+    test_add(TestAddOptions {
+      add_arg: Some("https://plugins.dprint.dev/my-plugin.wasm"),
+      config_has_wasm: false,
+      config_has_process: false,
+      info_has_checksum: false,
+      expected_error: None,
+      expected_logs: vec![],
+      expected_urls: vec!["https://plugins.dprint.dev/my-plugin.wasm".to_string()],
+      selection_result: None,
+    });
+  }
+
+  #[derive(Debug)]
+  struct TestAddOptions {
+    add_arg: Option<&'static str>,
+    config_has_wasm: bool,
+    config_has_process: bool,
+    info_has_checksum: bool,
+    selection_result: Option<usize>,
+    expected_error: Option<&'static str>,
+    expected_logs: Vec<String>,
+    expected_urls: Vec<String>,
+  }
+
+  fn test_add(options: TestAddOptions) {
+    let expected_logs = options.expected_logs.clone();
+    let expected_urls = options.expected_urls.clone();
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: options.config_has_wasm,
+      config_has_wasm_checksum: false,
+      config_has_process: options.config_has_process,
+      info_has_checksum: options.info_has_checksum,
+    });
+    if let Some(selection_result) = options.selection_result {
+      environment.set_selection_result(selection_result);
+    }
+    let mut args = vec!["config", "add"];
+    if let Some(add_arg) = options.add_arg {
+      args.push(add_arg);
+    }
+    match run_test_cli(args, &environment) {
+      Ok(()) => {
+        assert!(options.expected_error.is_none());
+      }
+      Err(err) => {
+        assert_eq!(Some(err.to_string()), options.expected_error.map(ToOwned::to_owned));
+      }
+    }
+    assert_eq!(environment.take_stderr_messages(), expected_logs);
+
+    if options.expected_error.is_none() {
+      let expected_text = format!(
+        r#"{{
+  "plugins": [
+{}
+  ]
+}}"#,
+        expected_urls.into_iter().map(|u| format!("    \"{}\"", u)).collect::<Vec<_>>().join(",\n")
+      );
+      assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
+    }
+  }
+
+  #[test]
   fn config_update_should_upgrade_to_latest_plugins() {
     let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
     let new_wasm_url_with_checksum = format!("{}@{}", new_wasm_url, "info-checksum");
     let updating_message = "Updating test-plugin 0.1.0 to 0.2.0...".to_string();
 
     // test all the wasm combinations
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: true,
       config_has_wasm_checksum: true,
       config_has_process: false,
@@ -312,7 +585,7 @@ mod test {
       expected_logs: vec![updating_message.clone()],
       expected_urls: vec![new_wasm_url_with_checksum.clone()],
     });
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: true,
       config_has_wasm_checksum: true,
       config_has_process: false,
@@ -321,7 +594,7 @@ mod test {
       expected_logs: vec![updating_message.clone()],
       expected_urls: vec![new_wasm_url.clone()],
     });
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: true,
       config_has_wasm_checksum: false,
       config_has_process: false,
@@ -330,7 +603,7 @@ mod test {
       expected_logs: vec![updating_message.clone()],
       expected_urls: vec![new_wasm_url.clone()],
     });
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: true,
       config_has_wasm_checksum: false,
       config_has_process: false,
@@ -345,7 +618,7 @@ mod test {
     let old_ps_url = format!("https://plugins.dprint.dev/test-process.exe-plugin@{}", old_ps_checksum);
     let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.exe-plugin".to_string();
     let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, "info-checksum");
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: false,
       config_has_wasm_checksum: false,
       config_has_process: true,
@@ -358,7 +631,7 @@ mod test {
       ],
       expected_urls: vec![new_ps_url_with_checksum.clone()],
     });
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: false,
       config_has_wasm_checksum: false,
       config_has_process: true,
@@ -371,7 +644,7 @@ mod test {
       ],
       expected_urls: vec![new_ps_url.clone()],
     });
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: false,
       config_has_wasm_checksum: false,
       config_has_process: true,
@@ -385,7 +658,7 @@ mod test {
     });
 
     // testing both in config, but only updating one
-    assert_test(TestOptions {
+    test_update(TestUpdateOptions {
       config_has_wasm: true,
       config_has_wasm_checksum: false,
       config_has_process: true,
@@ -401,7 +674,7 @@ mod test {
   }
 
   #[derive(Debug)]
-  struct TestOptions {
+  struct TestUpdateOptions {
     config_has_wasm: bool,
     config_has_wasm_checksum: bool,
     config_has_process: bool,
@@ -411,10 +684,16 @@ mod test {
     expected_urls: Vec<String>,
   }
 
-  fn assert_test(options: TestOptions) {
+  fn test_update(options: TestUpdateOptions) {
     let expected_logs = options.expected_logs.clone();
     let expected_urls = options.expected_urls.clone();
-    let environment = get_setup_env(options);
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: options.config_has_wasm,
+      config_has_wasm_checksum: options.config_has_wasm_checksum,
+      config_has_process: options.config_has_process,
+      info_has_checksum: options.info_has_checksum,
+    });
+    environment.set_confirm_results(options.confirm_results);
     run_test_cli(vec!["config", "update"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages(), expected_logs);
 
@@ -429,7 +708,15 @@ mod test {
     assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
   }
 
-  fn get_setup_env(opts: TestOptions) -> TestEnvironment {
+  #[derive(Debug)]
+  struct SetupEnvOptions {
+    config_has_wasm: bool,
+    config_has_wasm_checksum: bool,
+    config_has_process: bool,
+    info_has_checksum: bool,
+  }
+
+  fn get_setup_env(opts: SetupEnvOptions) -> TestEnvironment {
     let actual_wasm_plugin_checksum = test_helpers::get_test_wasm_plugin_checksum();
     let mut builder = TestEnvironmentBuilder::new();
 
@@ -461,6 +748,7 @@ mod test {
         });
       })
       .with_default_config(|config| {
+        config.ensure_plugins_section();
         if opts.config_has_wasm {
           if opts.config_has_wasm_checksum {
             config.add_remote_wasm_plugin_with_checksum(&actual_wasm_plugin_checksum);
@@ -475,9 +763,7 @@ mod test {
         }
       });
 
-    let environment = builder.initialize().build();
-    environment.set_confirm_results(opts.confirm_results);
-    environment
+    builder.initialize().build()
   }
 
   #[test]

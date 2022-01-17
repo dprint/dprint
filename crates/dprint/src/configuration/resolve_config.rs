@@ -283,15 +283,12 @@ fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &im
 fn get_warn_includes_excludes_message() -> String {
   format!(
     "{} The 'includes' and 'excludes' properties are ignored for security reasons on remote configuration.",
-    "Note: ".bold().to_string()
+    "Note: ".bold(),
   )
 }
 
 fn get_warn_non_wasm_plugins_message() -> String {
-  format!(
-    "{} Non-wasm plugins are ignored for security reasons on remote configuration.",
-    "Note: ".bold().to_string()
-  )
+  format!("{} Non-wasm plugins are ignored for security reasons on remote configuration.", "Note: ".bold(),)
 }
 
 fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -> Vec<PluginSourceReference> {

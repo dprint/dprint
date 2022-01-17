@@ -137,12 +137,7 @@ pub fn check<TEnvironment: Environment>(
 
 fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, environment: &impl Environment) {
   let difference_text = get_difference(file_text, formatted_text);
-  environment.log(&format!(
-    "{} {}:\n{}\n--",
-    "from".bold().red().to_string(),
-    file_path.display(),
-    difference_text,
-  ));
+  environment.log(&format!("{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text,));
 }
 
 pub fn format<TEnvironment: Environment>(
@@ -189,7 +184,7 @@ pub fn format<TEnvironment: Environment>(
   let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
-    environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold().to_string(), suffix));
+    environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold(), suffix));
   }
 
   if let Some(incremental_file) = &incremental_file {

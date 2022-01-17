@@ -753,9 +753,9 @@ dependencies = [
 
 [[package]]
 name = "jsonc-parser"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cb8a8eb6349c33f5ff1c6f12d09936f048c039411c9a08cd54a378fbf1905e2"
+checksum = "b89a411b468cc1d2a10aaad46d1cc0eaffd6c6d9b6401baa5915c4b5126c5ea2"
 
 [[package]]
 name = "lazy_static"

@@ -70,7 +70,7 @@ impl ProcessPluginCommunicator {
             if err.kind() == ErrorKind::BrokenPipe {
               return;
             } else {
-              on_std_err(format!("Error reading line from process plugin stderr. {}", err.to_string()));
+              on_std_err(format!("Error reading line from process plugin stderr. {}", err));
             }
           }
         }

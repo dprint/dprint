@@ -26,6 +26,7 @@ pub fn run_cli<TEnvironment: Environment>(
     SubCommand::ClearCache => commands::clear_cache(environment),
     SubCommand::Config(cmd) => match cmd {
       ConfigSubCommand::Init => commands::init_config_file(environment, &args.config),
+      ConfigSubCommand::Add(plugin_name_or_url) => commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), cache, environment, plugin_resolver),
       ConfigSubCommand::Update => commands::update_plugins_config_file(args, cache, environment, plugin_resolver),
     },
     SubCommand::Version => commands::output_version(environment),
