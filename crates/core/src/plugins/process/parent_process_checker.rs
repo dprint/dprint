@@ -71,6 +71,9 @@ mod test {
 
   #[test]
   fn should_tell_when_process_active() {
+    if !get_dprint_exe().exists() {
+      panic!("Please run `cargo build` before running the tests.")
+    }
     // launch a long running process
     let mut child = Command::new(get_dprint_exe())
       .arg("editor-service")
