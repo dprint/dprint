@@ -114,7 +114,22 @@ export function Playground({
                     Plugin:
                   </div>
                   <div className="column" style={{ flex: 1, display: "flex" }}>
-                    <select onChange={e => onSelectPluginUrl(pluginUrls[e.target.selectedIndex])} style={{ flex: 1 }} value={selectedPluginUrl}>
+                    <select
+                      onChange={e => {
+                        if (e.target.selectedIndex >= pluginUrls.length) {
+                          let url = prompt("Please provide a WASM plugin url:", "");
+                          if (url != null && url.trim().length > 0) {
+                            onSelectPluginUrl(url);
+                          } else {
+                            e.preventDefault();
+                          }
+                        } else {
+                          onSelectPluginUrl(pluginUrls[e.target.selectedIndex]);
+                        }
+                      }}
+                      style={{ flex: 1 }}
+                      value={selectedPluginUrl}
+                    >
                       {pluginUrls.map((pluginUrl, i) => {
                         return (
                           <option key={i} value={pluginUrl}>
@@ -122,6 +137,7 @@ export function Playground({
                           </option>
                         );
                       })}
+                      <option key="custom">Custom</option>
                     </select>
                   </div>
                   <div className="column" style={{ display: "flex" }}>
