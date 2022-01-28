@@ -325,7 +325,7 @@ mod test {
     assert_eq!(config_result.diagnostics.len(), 0);
     assert_eq!(config.line_width, None);
     assert_eq!(config.indent_width, None);
-    assert_eq!(config.new_line_kind.is_none(), true);
+    assert!(config.new_line_kind.is_none());
     assert_eq!(config.use_tabs, None);
   }
 
@@ -342,7 +342,7 @@ mod test {
     assert_eq!(config_result.diagnostics.len(), 0);
     assert_eq!(config.line_width, Some(80));
     assert_eq!(config.indent_width, Some(8));
-    assert_eq!(config.new_line_kind == Some(NewLineKind::CarriageReturnLineFeed), true);
+    assert_eq!(config.new_line_kind, Some(NewLineKind::CarriageReturnLineFeed));
     assert_eq!(config.use_tabs, Some(true));
   }
 
