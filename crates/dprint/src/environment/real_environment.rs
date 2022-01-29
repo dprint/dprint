@@ -137,7 +137,10 @@ impl Environment for RealEnvironment {
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
     // use this to avoid //?//C:/etc... like paths on windows (UNC)
-    Ok(CanonicalizedPathBuf::new(dunce::canonicalize(path)?))
+    match dunce::canonicalize(path.as_ref()) {
+      Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
+      Err(err) => bail!("Error canonicalizing path {}: {}", path.as_ref().display(), err),
+    }
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {

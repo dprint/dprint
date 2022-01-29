@@ -41,15 +41,11 @@ pub fn stdin_fmt<TEnvironment: Environment>(
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(&config, args, environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
-    match environment.canonicalize(&cmd.file_name_or_path) {
-      Ok(resolved_file_path) => {
-        // log the file text as-is since it's not in the list of files to format
-        if !file_matcher.matches(&resolved_file_path) {
-          environment.log_silent(&cmd.file_text);
-          return Ok(());
-        }
-      }
-      Err(err) => bail!("Error canonicalizing file {}: {}", cmd.file_name_or_path, err.to_string()),
+    let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
+    // log the file text as-is since it's not in the list of files to format
+    if !file_matcher.matches(&resolved_file_path) {
+      environment.log_silent(&cmd.file_text);
+      return Ok(());
     }
   }
   output_stdin_format(&PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools)
