@@ -311,8 +311,8 @@ mod test {
   #[test]
   fn write_singleword_writes() {
     with_bump_allocator_mut(|bump| {
-      let mut writer = create_writer(&bump);
-      write_text(&mut writer, "test", &bump);
+      let mut writer = create_writer(bump);
+      write_text(&mut writer, "test", bump);
       assert_writer_equal(writer, "test");
       bump.reset();
     });
@@ -321,10 +321,10 @@ mod test {
   #[test]
   fn write_multiple_lines_writes() {
     with_bump_allocator_mut(|bump| {
-      let mut writer = create_writer(&bump);
-      write_text(&mut writer, "1", &bump);
+      let mut writer = create_writer(bump);
+      write_text(&mut writer, "1", bump);
       writer.new_line();
-      write_text(&mut writer, "2", &bump);
+      write_text(&mut writer, "2", bump);
       assert_writer_equal(writer, "1\n2");
       bump.reset();
     });
@@ -333,14 +333,14 @@ mod test {
   #[test]
   fn write_indented_writes() {
     with_bump_allocator_mut(|bump| {
-      let mut writer = create_writer(&bump);
-      write_text(&mut writer, "1", &bump);
+      let mut writer = create_writer(bump);
+      write_text(&mut writer, "1", bump);
       writer.new_line();
       writer.start_indent();
-      write_text(&mut writer, "2", &bump);
+      write_text(&mut writer, "2", bump);
       writer.finish_indent();
       writer.new_line();
-      write_text(&mut writer, "3", &bump);
+      write_text(&mut writer, "3", bump);
       assert_writer_equal(writer, "1\n  2\n3");
       bump.reset();
     });
@@ -349,9 +349,9 @@ mod test {
   #[test]
   fn write_singleindent_writes() {
     with_bump_allocator_mut(|bump| {
-      let mut writer = create_writer(&bump);
+      let mut writer = create_writer(bump);
       writer.single_indent();
-      write_text(&mut writer, "t", &bump);
+      write_text(&mut writer, "t", bump);
       assert_writer_equal(writer, "  t");
       bump.reset();
     });
@@ -360,10 +360,10 @@ mod test {
   #[test]
   fn markexpectnewline_writesnewline() {
     with_bump_allocator_mut(|bump| {
-      let mut writer = create_writer(&bump);
-      write_text(&mut writer, "1", &bump);
+      let mut writer = create_writer(bump);
+      write_text(&mut writer, "1", bump);
       writer.mark_expect_new_line();
-      write_text(&mut writer, "2", &bump);
+      write_text(&mut writer, "2", bump);
       assert_writer_equal(writer, "1\n2");
       bump.reset();
     });
@@ -385,7 +385,7 @@ mod test {
     writer.write(string_container);
   }
 
-  fn create_writer<'a>(bump: &'a Bump) -> Writer<'a> {
+  fn create_writer(bump: &Bump) -> Writer {
     Writer::new(
       bump,
       WriterOptions {
