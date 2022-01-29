@@ -125,7 +125,7 @@ pub fn get_expected_help_text() -> &'static str {
     "dprint ",
     env!("CARGO_PKG_VERSION"),
     r#"
-Copyright 2020-2021 by David Sherret
+Copyright 2020-2022 by David Sherret
 
 Auto-formats source code based on the specified plugins.
 

@@ -228,7 +228,7 @@ fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b>
     .bin_name("dprint")
     .version_short("v")
     .version(env!("CARGO_PKG_VERSION"))
-    .author("Copyright 2020-2021 by David Sherret")
+    .author("Copyright 2020-2022 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
     .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
     // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods

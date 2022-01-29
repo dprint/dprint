@@ -54,7 +54,8 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
       file_extensions: vec!["txt".to_string()],
       file_names: vec![],
       help_url: "https://dprint.dev/plugins/test".to_string(),
-      config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string(),
+      config_schema_url: "https://plugins.dprint.dev/test/schema.json".to_string(),
+      update_url: Some("https://plugins.dprint.dev/test/latest.json".to_string()),
     }
   }
 

@@ -50,6 +50,7 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
       file_names: vec!["test-process-plugin-exact-file".to_string()],
       help_url: "https://dprint.dev/plugins/test-process".to_string(),
       config_schema_url: "".to_string(),
+      update_url: None,
     }
   }
 
