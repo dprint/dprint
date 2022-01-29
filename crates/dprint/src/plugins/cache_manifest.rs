@@ -88,6 +88,7 @@ fn get_manifest_file_path(environment: &impl Environment) -> PathBuf {
 mod test {
   use super::*;
   use crate::environment::TestEnvironment;
+  use pretty_assertions::assert_eq;
 
   #[test]
   fn should_read_ok_manifest() {
@@ -131,7 +132,8 @@ mod test {
                 "fileExtensions": [],
                 "fileNames": ["Cargo.toml"],
                 "helpUrl": "cargo help url",
-                "configSchemaUrl": "cargo schema url"
+                "configSchemaUrl": "cargo schema url",
+                "updateUrl": "cargo update url"
             }
         }
     }
@@ -153,6 +155,7 @@ mod test {
           file_names: vec![],
           help_url: "help url".to_string(),
           config_schema_url: "schema url".to_string(),
+          update_url: None,
         },
       },
     );
@@ -169,6 +172,7 @@ mod test {
           file_names: vec![],
           help_url: "help url 2".to_string(),
           config_schema_url: "schema url 2".to_string(),
+          update_url: None,
         },
       },
     );
@@ -185,6 +189,7 @@ mod test {
           file_names: vec!["Cargo.toml".to_string()],
           help_url: "cargo help url".to_string(),
           config_schema_url: "cargo schema url".to_string(),
+          update_url: Some("cargo update url".to_string()),
         },
       },
     );
@@ -259,6 +264,7 @@ mod test {
           file_names: vec![],
           help_url: "help url".to_string(),
           config_schema_url: "schema url".to_string(),
+          update_url: Some("update url".to_string()),
         },
       },
     );
@@ -275,6 +281,7 @@ mod test {
           file_names: vec!["file.test".to_string()],
           help_url: "help url 2".to_string(),
           config_schema_url: "schema url 2".to_string(),
+          update_url: None,
         },
       },
     );

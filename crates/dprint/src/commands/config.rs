@@ -13,6 +13,7 @@ use crate::configuration::*;
 use crate::environment::Environment;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::read_info_file;
+use crate::plugins::read_update_url;
 use crate::plugins::resolve_plugins;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::Plugin;
@@ -76,13 +77,15 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
             if current_plugin.name() == plugin.name {
               if current_plugin.version() != plugin.version {
                 let file_text = environment.read_file(&config_path)?;
+                let new_reference = plugin.as_source_reference()?;
                 let file_text = update_plugin_in_config(
                   &file_text,
                   PluginUpdateInfo {
                     name: current_plugin.name().to_string(),
                     old_version: current_plugin.version().to_string(),
                     old_reference: config_plugin_reference,
-                    new_plugin: plugin,
+                    new_version: plugin.version,
+                    new_reference,
                   },
                 );
                 environment.write_file(&config_path, &file_text)?;
@@ -171,7 +174,7 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
         };
 
         if should_update {
-          environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_plugin.version));
+          environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_version));
           file_text = update_plugin_in_config(&file_text, info);
         }
       }
@@ -196,7 +199,13 @@ fn get_plugins_to_update<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
-  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
+  let info_file = match read_info_file(environment) {
+    Ok(info_file) => Some(info_file),
+    Err(err) => {
+      environment.log_stderr(&format!("Error downloading info file. {}", err));
+      None
+    }
+  };
   let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins);
   Ok(
     config_file_plugins
@@ -211,22 +220,45 @@ fn get_plugins_to_update<TEnvironment: Environment>(
             }))
           }
         };
-        let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.name());
-        let latest_plugin_info = match latest_plugin_info {
-          Some(i) => i,
-          None => return None,
-        };
-        if plugin.version() == latest_plugin_info.version {
-          return None;
+
+        // request
+        if let Some(plugin_update_url) = plugin.update_url() {
+          match read_update_url(environment, plugin_update_url) {
+            Ok(info) => {
+              return Some(Ok(PluginUpdateInfo {
+                name: plugin.name().to_string(),
+                old_reference: plugin_reference,
+                old_version: plugin.version().to_string(),
+                new_version: info.version,
+                new_reference: PluginSourceReference {
+                  path_source: PathSource::new_remote(Url::parse(&info.url).ok()?),
+                  checksum: info.checksum,
+                },
+              }));
+            }
+            Err(err) => {
+              // output and fallback to using the info file
+              environment.log_stderr(&format!("Error reading plugin latest info. {}", err));
+            }
+          }
         }
 
+        // todo: in the future this should be removed -- let's say June 2022
+        // When this occurs, it should probably warn above when the plugin doesn't
+        // have a url.
+
+        let info_file = info_file.as_ref()?;
+        let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.name());
+        let latest_plugin_info = latest_plugin_info?;
         Some(Ok(PluginUpdateInfo {
           name: plugin.name().to_string(),
           old_reference: plugin_reference,
           old_version: plugin.version().to_string(),
-          new_plugin: latest_plugin_info.clone(),
+          new_version: latest_plugin_info.version.clone(),
+          new_reference: latest_plugin_info.as_source_reference().ok()?,
         }))
       })
+      .filter(|info| info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true))
       .collect::<Vec<_>>(),
   )
 }
@@ -283,6 +315,7 @@ fn get_config_file_plugins<TEnvironment: Environment>(
 mod test {
   use anyhow::Result;
   use pretty_assertions::assert_eq;
+  use serde_json::json;
 
   use crate::configuration::*;
   use crate::environment::Environment;
@@ -761,7 +794,17 @@ mod test {
           // Don't bother testing this without a checksum because it won't resolve the plugin
           config.add_remote_process_plugin();
         }
-      });
+      })
+      .add_remote_file(
+        "https://plugins.dprint.dev/test/latest.json",
+        &json!({
+          "schemaVersion": 1,
+          "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
+          "version": "0.2.0",
+          "checksum": if opts.info_has_checksum { Some("info-checksum".to_string()) } else { None },
+        })
+        .to_string(),
+      );
 
     builder.initialize().build()
   }
@@ -770,19 +813,19 @@ mod test {
   fn config_update_should_not_upgrade_when_at_latest_plugins() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
-      .with_info_file(|info| {
-        info.add_plugin(TestInfoFilePlugin {
-          name: "test-plugin".to_string(),
-          version: "0.1.0".to_string(),
-          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
-          config_key: Some("plugin".to_string()),
-          checksum: None,
-          ..Default::default()
-        });
-      })
+      .with_info_file(|_| {})
       .with_default_config(|config| {
         config.add_remote_wasm_plugin();
       })
+      .add_remote_file(
+        "https://plugins.dprint.dev/test/latest.json",
+        &json!({
+          "schemaVersion": 1,
+          "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
+          "version": "0.1.0"
+        })
+        .to_string(),
+      )
       .initialize()
       .build();
     run_test_cli(vec!["config", "update"], &environment).unwrap();
@@ -794,19 +837,20 @@ mod test {
   fn config_update_should_handle_wasm_to_process_plugin() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
-      .with_info_file(|info| {
-        info.add_plugin(TestInfoFilePlugin {
-          name: "test-plugin".to_string(),
-          version: "0.2.0".to_string(),
-          url: "https://plugins.dprint.dev/test-plugin.exe-plugin".to_string(),
-          config_key: Some("plugin".to_string()),
-          checksum: Some("checksum".to_string()),
-          ..Default::default()
-        });
-      })
+      .with_info_file(|_| {})
       .with_default_config(|config| {
         config.add_remote_wasm_plugin();
       })
+      .add_remote_file(
+        "https://plugins.dprint.dev/test/latest.json",
+        &json!({
+          "schemaVersion": 1,
+          "url": "https://plugins.dprint.dev/test-plugin.exe-plugin",
+          "version": "0.2.0",
+          "checksum": "checksum",
+        })
+        .to_string(),
+      )
       .initialize()
       .build();
     environment.set_confirm_results(vec![Ok(None)]);

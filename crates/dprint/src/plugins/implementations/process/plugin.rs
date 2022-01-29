@@ -89,6 +89,10 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     &self.plugin_info.config_schema_url
   }
 
+  fn update_url(&self) -> Option<&str> {
+    self.plugin_info.update_url.as_deref()
+  }
+
   fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration) {
     self.config = Some((plugin_config, global_config));
   }

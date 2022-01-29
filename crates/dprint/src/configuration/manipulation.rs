@@ -6,28 +6,29 @@ use jsonc_parser::ast::Array;
 use jsonc_parser::ast::Object;
 use jsonc_parser::common::Ranged;
 
-use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginSourceReference;
 
 pub struct PluginUpdateInfo {
   pub name: String,
   pub old_version: String,
   pub old_reference: PluginSourceReference,
-  pub new_plugin: InfoFilePluginInfo,
+  pub new_version: String,
+  pub new_reference: PluginSourceReference,
 }
 
 impl PluginUpdateInfo {
   pub fn is_wasm(&self) -> bool {
-    self.new_plugin.is_wasm()
+    self.new_reference.is_wasm_plugin()
   }
 
   pub fn get_full_new_config_url(&self) -> String {
     // only add the checksum if not wasm or previously had a checksum
     let should_add_checksum = !self.is_wasm() || self.old_reference.checksum.is_some();
     if should_add_checksum {
-      return self.new_plugin.full_url();
+      self.new_reference.to_full_string()
+    } else {
+      self.new_reference.without_checksum().to_string()
     }
-    self.new_plugin.url.clone()
   }
 }
 

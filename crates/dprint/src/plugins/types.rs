@@ -35,6 +35,21 @@ impl PluginSourceReference {
     self.path_source.is_process_plugin()
   }
 
+  pub fn without_checksum(&self) -> PluginSourceReference {
+    PluginSourceReference {
+      path_source: self.path_source.clone(),
+      checksum: None,
+    }
+  }
+
+  pub fn to_full_string(&self) -> String {
+    if let Some(checksum) = &self.checksum {
+      format!("{}@{}", self.path_source, checksum)
+    } else {
+      self.path_source.display()
+    }
+  }
+
   #[cfg(test)]
   pub fn new_local(path: impl AsRef<std::path::Path>) -> PluginSourceReference {
     use crate::environment::CanonicalizedPathBuf;
@@ -56,11 +71,7 @@ impl PluginSourceReference {
 
 impl fmt::Display for PluginSourceReference {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    if let Some(checksum) = &self.checksum {
-      write!(f, "{}@{}", self.path_source, checksum)
-    } else {
-      write!(f, "{}", self.path_source)
-    }
+    write!(f, "{}", self.to_full_string())
   }
 }
 

@@ -230,7 +230,7 @@ pub mod macros {
               for (key, value) in override_config {
                 plugin_config.insert(key, value);
               }
-              return unsafe { WASM_PLUGIN.get().resolve_config(plugin_config, global_config) };
+              return WASM_PLUGIN.get().resolve_config(plugin_config, global_config);
             }
           }
         }
@@ -293,7 +293,7 @@ pub mod macros {
       pub fn set_buffer_with_shared_bytes(offset: usize, length: usize) {
         unsafe {
           let bytes = &SHARED_BYTES.get()[offset..(offset + length)];
-          &WASM_MEMORY_BUFFER[..length].copy_from_slice(bytes);
+          WASM_MEMORY_BUFFER[..length].copy_from_slice(bytes);
         }
       }
 

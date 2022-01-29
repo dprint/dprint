@@ -23,6 +23,8 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
   fn help_url(&self) -> &str;
   /// Gets the configuration schema url.
   fn config_schema_url(&self) -> &str;
+  /// Gets the update url if it exists.
+  fn update_url(&self) -> Option<&str>;
   /// Sets the configuration for the plugin.
   fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration);
   /// Initializes the plugin.
@@ -107,6 +109,9 @@ impl Plugin for TestPlugin {
   }
   fn config_schema_url(&self) -> &str {
     "https://plugins.dprint.dev/schemas/test.json"
+  }
+  fn update_url(&self) -> Option<&str> {
+    None
   }
   fn config_key(&self) -> &str {
     &self.config_key
