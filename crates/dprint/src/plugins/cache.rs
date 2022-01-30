@@ -131,7 +131,7 @@ where
 }
 
 fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
-  environment.download_file(path_source.unwrap_remote().url.as_str())
+  environment.download_file_err_404(path_source.unwrap_remote().url.as_str())
 }
 
 fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {

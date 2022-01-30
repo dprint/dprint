@@ -347,7 +347,7 @@ mod test {
     expected_messages.push(concat!(
       "There was a problem getting the latest plugin info. ",
       "The created config file may not be as helpful of a starting point. ",
-      "Error: Could not find file at url https://plugins.dprint.dev/info.json"
+      "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
     ));
     assert_eq!(environment.take_stderr_messages(), expected_messages);
   }

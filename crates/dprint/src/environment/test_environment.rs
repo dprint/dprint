@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
@@ -18,6 +19,7 @@ use super::CanonicalizedPathBuf;
 use super::DirEntry;
 use super::DirEntryKind;
 use super::Environment;
+use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 
 struct BufferData {
@@ -83,7 +85,7 @@ pub struct TestEnvironment {
   files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
-  remote_files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+  remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
   deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
@@ -139,7 +141,12 @@ impl TestEnvironment {
 
   pub fn add_remote_file_bytes(&self, path: &str, bytes: Vec<u8>) {
     let mut remote_files = self.remote_files.lock();
-    remote_files.insert(String::from(path), bytes);
+    remote_files.insert(String::from(path), Ok(bytes));
+  }
+
+  pub fn add_remote_file_error(&self, path: &str, err: &str) {
+    let mut remote_files = self.remote_files.lock();
+    remote_files.insert(String::from(path), Err(anyhow!("{}", err)));
   }
 
   pub fn is_dir_deleted(&self, path: impl AsRef<Path>) -> bool {
@@ -232,6 +239,17 @@ impl Drop for TestEnvironment {
   }
 }
 
+impl UrlDownloader for TestEnvironment {
+  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    let remote_files = self.remote_files.lock();
+    match remote_files.get(&String::from(url)) {
+      Some(Ok(result)) => Ok(Some(result.clone())),
+      Some(Err(err)) => Err(anyhow!("{}", err)),
+      None => Ok(None),
+    }
+  }
+}
+
 impl Environment for TestEnvironment {
   fn is_real(&self) -> bool {
     false
@@ -286,14 +304,6 @@ impl Environment for TestEnvironment {
       files.remove(&path);
     }
     Ok(())
-  }
-
-  fn download_file(&self, url: &str) -> Result<Vec<u8>> {
-    let remote_files = self.remote_files.lock();
-    match remote_files.get(&String::from(url)) {
-      Some(bytes) => Ok(bytes.clone()),
-      None => bail!("Could not find file at url {}", url),
-    }
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {

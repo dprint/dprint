@@ -65,7 +65,7 @@ fn resolve_url<TEnvironment: Environment>(url: &Url, cache: &Cache<TEnvironment>
     cache_item
   } else {
     // download and save
-    let file_bytes = environment.download_file(url.as_str())?;
+    let file_bytes = environment.download_file_err_404(url.as_str())?;
     is_first_download = true;
     cache.create_cache_item(CreateCacheItemOptions {
       key: cache_key,
@@ -84,7 +84,7 @@ fn resolve_url<TEnvironment: Environment>(url: &Url, cache: &Cache<TEnvironment>
 
 pub fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl Environment) -> Result<Vec<u8>> {
   match url_or_file_path {
-    PathSource::Remote(path_source) => environment.download_file(path_source.url.as_str()),
+    PathSource::Remote(path_source) => environment.download_file_err_404(path_source.url.as_str()),
     PathSource::Local(path_source) => environment.read_file_bytes(&path_source.path),
   }
 }
@@ -143,6 +143,7 @@ fn is_absolute_windows_file_path(value: &str) -> bool {
 mod tests {
   use crate::cache::Cache;
   use crate::environment::TestEnvironment;
+  use pretty_assertions::assert_eq;
 
   use super::super::PathSource;
   use super::*;
@@ -249,7 +250,7 @@ mod tests {
     let err = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &cache, &environment)
       .err()
       .unwrap();
-    assert_eq!(err.to_string(), "Could not find file at url https://dprint.dev/test.json");
+    assert_eq!(err.to_string(), "Error downloading https://dprint.dev/test.json - 404 Not Found");
   }
 
   #[test]

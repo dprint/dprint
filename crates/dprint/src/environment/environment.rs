@@ -1,3 +1,4 @@
+use anyhow::bail;
 use anyhow::Result;
 use std::io::Read;
 use std::io::Write;
@@ -20,7 +21,17 @@ pub enum DirEntryKind {
   File,
 }
 
-pub trait Environment: Clone + std::marker::Send + std::marker::Sync + 'static {
+pub trait UrlDownloader {
+  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
+  fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
+    match self.download_file(url)? {
+      Some(result) => Ok(result),
+      None => bail!("Error downloading {} - 404 Not Found", url),
+    }
+  }
+}
+
+pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownloader + 'static {
   fn is_real(&self) -> bool;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
@@ -53,7 +64,6 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + 'static {
     action: TCreate,
     total_size: usize,
   ) -> TResult;
-  fn download_file(&self, url: &str) -> Result<Vec<u8>>;
   fn get_cache_dir(&self) -> PathBuf;
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;

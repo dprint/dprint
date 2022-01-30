@@ -3,8 +3,11 @@ use anyhow::bail;
 use anyhow::Result;
 use jsonc_parser::parse_to_value;
 use jsonc_parser::JsonValue;
+use url::Url;
 
-use crate::environment::Environment;
+use crate::environment::UrlDownloader;
+use crate::plugins::PluginSourceReference;
+use crate::utils::PathSource;
 
 const SCHEMA_VERSION: u8 = 1;
 
@@ -15,8 +18,39 @@ pub struct PluginUpdateUrlInfo {
   pub checksum: Option<String>,
 }
 
-pub fn read_update_url(environment: &impl Environment, url: &str) -> Result<PluginUpdateUrlInfo> {
-  let info_bytes = environment.download_file(url)?;
+impl PluginUpdateUrlInfo {
+  pub fn is_wasm(&self) -> bool {
+    self.url.to_lowercase().ends_with(".wasm")
+  }
+
+  pub fn full_url(&self) -> String {
+    if let Some(checksum) = &self.checksum {
+      return format!("{}@{}", self.url, checksum);
+    }
+    self.url.to_string()
+  }
+
+  pub fn full_url_no_wasm_checksum(&self) -> String {
+    if self.is_wasm() {
+      self.url.to_string()
+    } else {
+      self.full_url()
+    }
+  }
+
+  pub fn as_source_reference(&self) -> Result<PluginSourceReference> {
+    Ok(PluginSourceReference {
+      path_source: PathSource::new_remote(Url::parse(&self.url)?),
+      checksum: self.checksum.clone(),
+    })
+  }
+}
+
+pub fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Result<Option<PluginUpdateUrlInfo>> {
+  let info_bytes = match downloader.download_file(url)? {
+    Some(info_bytes) => info_bytes,
+    None => return Ok(None),
+  };
   let info_text = String::from_utf8(info_bytes.to_vec())?;
   let json_value = parse_to_value(&info_text)?;
   let mut obj = match json_value {
@@ -47,11 +81,11 @@ pub fn read_update_url(environment: &impl Environment, url: &str) -> Result<Plug
   let url = obj.take_string("url").ok_or_else(|| anyhow!("Expected to find a url property in the data."))?;
   let checksum = obj.take_string("checksum");
 
-  Ok(PluginUpdateUrlInfo {
+  Ok(Some(PluginUpdateUrlInfo {
     version: version.to_string(),
     url: url.to_string(),
     checksum: checksum.map(|c| c.to_string()),
-  })
+  }))
 }
 
 #[cfg(test)]
@@ -74,19 +108,19 @@ mod test {
     let environment = builder.build();
     assert_eq!(
       read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json").unwrap(),
-      PluginUpdateUrlInfo {
+      Some(PluginUpdateUrlInfo {
         version: "version".to_string(),
         url: "url".to_string(),
         checksum: None,
-      }
+      })
     );
     assert_eq!(
       read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest-checksum.json").unwrap(),
-      PluginUpdateUrlInfo {
+      Some(PluginUpdateUrlInfo {
         version: "version2".to_string(),
         url: "url2".to_string(),
         checksum: Some("checksum".to_string()),
-      }
+      })
     );
   }
 
@@ -109,11 +143,8 @@ mod test {
       )
     );
     assert_eq!(
-      read_update_url(&environment, "https://plugins.dprint.dev/plugin/not-exists.json")
-        .err()
-        .unwrap()
-        .to_string(),
-      "Could not find file at url https://plugins.dprint.dev/plugin/not-exists.json",
+      read_update_url(&environment, "https://plugins.dprint.dev/plugin/not-exists.json").unwrap(),
+      None,
     );
   }
 }
