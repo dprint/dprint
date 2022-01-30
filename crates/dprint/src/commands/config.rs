@@ -92,7 +92,7 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
           if let Ok(config_plugin) = config_plugin {
             if let Some(update_url) = config_plugin.update_url() {
               if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url) {
-                // if two plugins have the same update URL then they're the same plugin
+                // if two plugins have the same URL to be updated to then they're the same plugin
                 if config_plugin_latest.url == plugin.url {
                   let file_text = environment.read_file(&config_path)?;
                   let new_reference = plugin.as_source_reference()?;
