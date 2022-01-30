@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-cli-core"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -752,9 +752,9 @@ dependencies = [
 
 [[package]]
 name = "jsonc-parser"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b89a411b468cc1d2a10aaad46d1cc0eaffd6c6d9b6401baa5915c4b5126c5ea2"
+checksum = "34bbb0cd324c4ed32861be1d00c58635b94d03a2d2c70f6aec5f1a419c532783"
 
 [[package]]
 name = "lazy_static"

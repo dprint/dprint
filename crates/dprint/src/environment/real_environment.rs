@@ -16,6 +16,7 @@ use super::CanonicalizedPathBuf;
 use super::DirEntry;
 use super::DirEntryKind;
 use super::Environment;
+use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 
 #[derive(Clone)]
@@ -41,6 +42,14 @@ impl RealEnvironment {
     }
 
     Ok(environment)
+  }
+}
+
+impl UrlDownloader for RealEnvironment {
+  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    log_verbose!(self, "Downloading url: {}", url);
+
+    download_url(url, &self.progress_bars, |env_var_name| std::env::var(env_var_name).ok())
   }
 }
 
@@ -89,12 +98,6 @@ impl Environment for RealEnvironment {
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
       Err(err) => bail!("Error removing directory {}: {}", dir_path.as_ref().display(), err.to_string()),
     }
-  }
-
-  fn download_file(&self, url: &str) -> Result<Vec<u8>> {
-    log_verbose!(self, "Downloading url: {}", url);
-
-    download_url(url, &self.progress_bars, |env_var_name| std::env::var(env_var_name).ok())
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {

@@ -1,3 +1,4 @@
+mod cached_downloader;
 mod error_count_logger;
 mod extract_zip;
 mod file_path_utils;
@@ -13,6 +14,7 @@ mod stdin_reader;
 mod table_text;
 mod thread_exit_signal;
 
+pub use cached_downloader::*;
 pub use error_count_logger::*;
 pub use extract_zip::*;
 pub use file_path_utils::*;

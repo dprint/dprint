@@ -20,6 +20,7 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::utils::pretty_print_json_text;
+use crate::utils::CachedDownloader;
 use crate::utils::ErrorCountLogger;
 use crate::utils::PathSource;
 
@@ -59,38 +60,56 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
     Some(plugin_name_or_url) => match Url::parse(plugin_name_or_url) {
       Ok(url) => url.to_string(),
       Err(_) => {
-        let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
-        let plugin = info_file
-          .latest_plugins
-          .iter()
-          .find(|plugin| &plugin.name == plugin_name_or_url)
-          .ok_or_else(|| {
-            anyhow!(
-              "Could not find plugin with name '{}'. Please fix the name or specify a url instead.\n\nPlugins:\n{}",
-              plugin_name_or_url,
-              info_file.latest_plugins.iter().map(|p| format!(" * {}", p.name)).collect::<Vec<_>>().join("\n"),
-            )
-          })?
-          .clone();
-        for (config_plugin_reference, current_plugin) in get_config_file_plugins(plugin_resolver, config.plugins) {
-          if let Ok(current_plugin) = current_plugin {
-            if current_plugin.name() == plugin.name {
-              if current_plugin.version() != plugin.version {
-                let file_text = environment.read_file(&config_path)?;
-                let new_reference = plugin.as_source_reference()?;
-                let file_text = update_plugin_in_config(
-                  &file_text,
-                  PluginUpdateInfo {
-                    name: current_plugin.name().to_string(),
-                    old_version: current_plugin.version().to_string(),
-                    old_reference: config_plugin_reference,
-                    new_version: plugin.version,
-                    new_reference,
-                  },
-                );
-                environment.write_file(&config_path, &file_text)?;
+        let cached_downloader = CachedDownloader::new(environment.clone());
+        let plugin_name = if plugin_name_or_url.contains('/') {
+          plugin_name_or_url.to_string()
+        } else {
+          format!("dprint/{}", plugin_name_or_url)
+        };
+        let plugin = match read_update_url(&cached_downloader, &format!("https://plugins.dprint.dev/{}/latest.json", plugin_name))? {
+          Some(result) => result,
+          None => {
+            let trailing_message = if let Ok(possible_plugins) = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins) {
+              if possible_plugins.is_empty() {
+                String::new()
+              } else {
+                format!(
+                  "\n\nPlugins:\n{}",
+                  possible_plugins.iter().map(|p| format!(" * {}", p.name)).collect::<Vec<_>>().join("\n")
+                )
               }
-              return Ok(());
+            } else {
+              String::new()
+            };
+            bail!(
+              "Could not find plugin with name '{}'. Please fix the name or try a url instead.{}",
+              plugin_name_or_url,
+              trailing_message,
+            )
+          }
+        };
+        for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins) {
+          if let Ok(config_plugin) = config_plugin {
+            if let Some(update_url) = config_plugin.update_url() {
+              if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url) {
+                // if two plugins have the same update URL then they're the same plugin
+                if config_plugin_latest.url == plugin.url {
+                  let file_text = environment.read_file(&config_path)?;
+                  let new_reference = plugin.as_source_reference()?;
+                  let file_text = update_plugin_in_config(
+                    &file_text,
+                    PluginUpdateInfo {
+                      name: config_plugin.name().to_string(),
+                      old_version: config_plugin.version().to_string(),
+                      old_reference: config_plugin_reference,
+                      new_version: plugin.version,
+                      new_reference,
+                    },
+                  );
+                  environment.write_file(&config_path, &file_text)?;
+                  return Ok(());
+                }
+              }
             }
           }
         }
@@ -223,17 +242,20 @@ fn get_plugins_to_update<TEnvironment: Environment>(
 
         // request
         if let Some(plugin_update_url) = plugin.update_url() {
-          match read_update_url(environment, plugin_update_url) {
-            Ok(info) => {
+          match read_update_url(environment, plugin_update_url).and_then(|result| match result {
+            Some(info) => match info.as_source_reference() {
+              Ok(source_reference) => Ok((info, source_reference)),
+              Err(err) => Err(err),
+            },
+            None => Err(anyhow!("Error downloading {} - 404 Not Found", plugin_update_url)),
+          }) {
+            Ok((info, new_reference)) => {
               return Some(Ok(PluginUpdateInfo {
                 name: plugin.name().to_string(),
                 old_reference: plugin_reference,
                 old_version: plugin.version().to_string(),
                 new_version: info.version,
-                new_reference: PluginSourceReference {
-                  path_source: PathSource::new_remote(Url::parse(&info.url).ok()?),
-                  checksum: info.checksum,
-                },
+                new_reference,
               }));
             }
             Err(err) => {
@@ -516,7 +538,7 @@ mod test {
       config_has_process: false,
       info_has_checksum: false,
       expected_error: Some(
-        "Could not find plugin with name 'my-plugin'. Please fix the name or specify a url instead.\n\nPlugins:\n * test-plugin\n * test-process-plugin",
+        "Could not find plugin with name 'my-plugin'. Please fix the name or try a url instead.\n\nPlugins:\n * test-plugin\n * test-process-plugin",
       ),
       expected_logs: vec![],
       expected_urls: vec![],
@@ -796,7 +818,7 @@ mod test {
         }
       })
       .add_remote_file(
-        "https://plugins.dprint.dev/test/latest.json",
+        "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
           "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
@@ -818,7 +840,7 @@ mod test {
         config.add_remote_wasm_plugin();
       })
       .add_remote_file(
-        "https://plugins.dprint.dev/test/latest.json",
+        "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
           "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
@@ -842,7 +864,7 @@ mod test {
         config.add_remote_wasm_plugin();
       })
       .add_remote_file(
-        "https://plugins.dprint.dev/test/latest.json",
+        "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
           "url": "https://plugins.dprint.dev/test-plugin.exe-plugin",

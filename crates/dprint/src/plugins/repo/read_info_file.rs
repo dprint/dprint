@@ -65,7 +65,7 @@ const SCHEMA_VERSION: u8 = 4;
 pub const REMOTE_INFO_URL: &str = "https://plugins.dprint.dev/info.json";
 
 pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
-  let info_bytes = environment.download_file(REMOTE_INFO_URL)?;
+  let info_bytes = environment.download_file_err_404(REMOTE_INFO_URL)?;
   let info_text = String::from_utf8(info_bytes.to_vec())?;
   let json_value = parse_to_value(&info_text)?;
   let mut obj = match json_value {
@@ -263,9 +263,17 @@ mod test {
   }
 
   #[test]
-  fn should_error_when_no_internet() {
+  fn should_error_when_info_file_not_exists() {
     let environment = TestEnvironment::new();
     let message = read_info_file(&environment).err().unwrap();
-    assert_eq!(message.to_string(), "Could not find file at url https://plugins.dprint.dev/info.json");
+    assert_eq!(message.to_string(), "Error downloading https://plugins.dprint.dev/info.json - 404 Not Found");
+  }
+
+  #[test]
+  fn should_error_when_info_file_errors() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file_error("https://plugins.dprint.dev/info.json", "Some Error");
+    let message = read_info_file(&environment).err().unwrap();
+    assert_eq!(message.to_string(), "Some Error");
   }
 }
