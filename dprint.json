@@ -17,11 +17,11 @@
     "**/*-lock.json"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.62.0.wasm",
-    "https://plugins.dprint.dev/json-0.14.0.wasm",
-    "https://plugins.dprint.dev/markdown-0.12.1.wasm",
-    "https://plugins.dprint.dev/toml-0.5.3.wasm",
-    "https://plugins.dprint.dev/prettier-0.5.0.exe-plugin@41feaaad734f310a23d85d680fd4f858f95f83a06ecb336f533c8b25886b68c0",
-    "https://plugins.dprint.dev/rustfmt-0.4.0.exe-plugin@c6bb223ef6e5e87580177f6461a0ab0554ac9ea6b54f78ea7ae8bf63b14f5bc2"
+    "https://plugins.dprint.dev/typescript-0.62.2.wasm",
+    "https://plugins.dprint.dev/json-0.14.1.wasm",
+    "https://plugins.dprint.dev/markdown-0.12.2.wasm",
+    "https://plugins.dprint.dev/toml-0.5.4.wasm",
+    "https://plugins.dprint.dev/prettier-0.5.1.exe-plugin@3b0f36f27222453e24a25786969e687a3bcef29f3df00c9d7246cba9f85956d3",
+    "https://plugins.dprint.dev/rustfmt-0.5.3.exe-plugin@50d39f72a7be52d8a05d6099ed5fbbc1710b6acc57a5b389aabd0b9774ce6fde"
   ]
 }

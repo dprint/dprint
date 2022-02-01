@@ -98,6 +98,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
 4. In your plugin's `main` function, parse out the `--parent-pid` argument and using that argument, start a thread that periodically checks for the existence of that process. When the process no longer exists, then it should exit the current process. This helps prevent a process from running without ever closing. Implementing this is easy with `dprint-core` as you just need to run the `start_parent_process_checker_thread` function:
 
+   <!-- dprint-ignore -->
    ```rust
    use dprint_core::plugins::process::start_parent_process_checker_thread;
 
@@ -107,6 +108,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
 5. Finally, use your created plugin handler to start reading and writing to stdin and stdout:
 
+   <!-- dprint-ignore -->
    ```rust
    handle_process_stdio_messages(MyPluginHandler::new())
    ```

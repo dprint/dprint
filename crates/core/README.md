@@ -14,6 +14,7 @@ Features:
 
 Use:
 
+<!-- dprint-ignore -->
 ```rust
 let result = dprint_core::formatting::format(|| {
     let print_items = ...; // parsed out IR (see example below)
