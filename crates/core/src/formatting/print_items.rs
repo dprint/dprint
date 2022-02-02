@@ -2,9 +2,9 @@ use std::cell::UnsafeCell;
 use std::mem;
 use std::rc::Rc;
 
+use crate::formatting::id::IdCounter;
 use super::printer::Printer;
 use super::utils::with_bump_allocator;
-use super::utils::CounterCell;
 
 /** Print Items */
 
@@ -307,9 +307,9 @@ pub struct PrintNode {
   pub print_node_id: usize,
 }
 
-#[cfg(feature = "tracing")]
 thread_local! {
-  static PRINT_NODE_COUNTER: CounterCell = CounterCell::new();
+  #[cfg(feature = "tracing")]
+  static PRINT_NODE_IDS: IdCounter = IdCounter::default();
 }
 
 impl PrintNode {
@@ -318,7 +318,7 @@ impl PrintNode {
       item,
       next: None,
       #[cfg(feature = "tracing")]
-      print_node_id: PRINT_NODE_COUNTER.with(CounterCell::increment_and_get),
+      print_node_id: IdCounter::next(&PRINT_NODE_IDS),
     }
   }
 
@@ -472,13 +472,13 @@ pub struct Info {
 }
 
 thread_local! {
-  static INFO_COUNTER: CounterCell = CounterCell::new();
+  static INFO_IDS: IdCounter = IdCounter::default();
 }
 
 impl Info {
   pub fn new(_name: &'static str) -> Info {
     Info {
-      id: INFO_COUNTER.with(CounterCell::increment_and_get),
+      id: IdCounter::next(&INFO_IDS),
       #[cfg(debug_assertions)]
       name: _name,
     }
@@ -524,7 +524,7 @@ pub struct Condition {
 }
 
 thread_local! {
-  static CONDITION_COUNTER: CounterCell = CounterCell::new();
+  static CONDITION_IDS: IdCounter = IdCounter::default();
 }
 
 impl Condition {
@@ -562,7 +562,7 @@ impl Condition {
 
   fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
     Condition {
-      id: CONDITION_COUNTER.with(CounterCell::increment_and_get),
+      id: IdCounter::next(&CONDITION_IDS),
       is_stored: dependent_infos.is_some(),
       #[cfg(debug_assertions)]
       name: _name,
