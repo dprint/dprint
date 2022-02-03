@@ -42,6 +42,13 @@ Install using one of the methods below.
       dprint help
       ```
 
+- [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):
+
+      ```bash
+      asdf plugin-add dprint https://github.com/asdf-community/asdf-dprint
+      asdf install dprint latest
+      ```
+
 - [bvm](https://github.com/bvm/bvm) (Experimental)
 
       ```bash
