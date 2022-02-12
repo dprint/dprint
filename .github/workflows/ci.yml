@@ -92,14 +92,14 @@ jobs:
         echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')"
     - name: Pre-release (Mac x86_64)
       id: mac_x86_64_pre_release
-      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
+      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release'
       run: |
         cd target/release
         zip -r dprint-x86_64-apple-darwin.zip dprint
         echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')"
     - name: Pre-release (Mac aarch64)
       id: mac_aarch64_pre_release
-      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
+      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release'
       run: |
         cd target/aarch64-apple-darwin/release
         zip -r dprint-aarch64-apple-darwin.zip dprint
@@ -122,7 +122,7 @@ jobs:
         path: target/release/dprint-x86_64-unknown-linux-gnu.zip
     - name: Upload Artifacts (Mac)
       uses: actions/upload-artifact@v2
-      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
+      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release'
       with:
         name: mac-artifacts
         path: |
