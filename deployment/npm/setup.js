@@ -9,14 +9,15 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonFilePath, "utf8"));
 packageJson.version = version;
 fs.writeFileSync(packageJsonFilePath, JSON.stringify(packageJson, null, 2));
 
-// Update the checksums in info.json (only supports x64 at the moment)
+// Update the checksums in info.json
 const infoJsonFilePath = path.join(__dirname, "info.json");
 const infoJson = JSON.parse(fs.readFileSync(infoJsonFilePath, "utf8"));
 const checksums = getChecksums();
 infoJson.version = version;
-infoJson.checksums.windows = checksums.get("dprint-x86_64-pc-windows-msvc.zip");
-infoJson.checksums.mac = checksums.get("dprint-x86_64-apple-darwin.zip");
-infoJson.checksums.linux = checksums.get("dprint-x86_64-unknown-linux-gnu.zip");
+infoJson.checksums["windows-x86_64"] = checksums.get("dprint-x86_64-pc-windows-msvc.zip");
+infoJson.checksums["mac-x86_64"] = checksums.get("dprint-x86_64-apple-darwin.zip");
+infoJson.checksums["mac-aarch64"] = checksums.get("dprint-aarch64-apple-darwin.zip");
+infoJson.checksums["linux-x86_64"] = checksums.get("dprint-x86_64-unknown-linux-gnu.zip");
 fs.writeFileSync(infoJsonFilePath, JSON.stringify(infoJson, null, 2));
 
 function getChecksums() {
