@@ -1,8 +1,0 @@
-{
-  "version": "DPRINT_VERSION",
-  "checksums": {
-    "windows": "WINDOWS_CHECKSUM",
-    "linux": "LINUX_CHECKSUM",
-    "mac": "MAC_CHECKSUM"
-  }
-}

@@ -167,14 +167,12 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
       _ => None,
     }
   } else if cfg!(target_os = "macos") {
-    let arch = environment.cpu_arch();
     match arch.as_str() {
       "x86_64" => plugin_file.mac_x86_64.as_ref(),
       "aarc64" => plugin_file.mac_aarch64.as_ref().or_else(|| plugin_file.mac_x86_64.as_ref()),
       _ => None,
     }
   } else if cfg!(target_os = "windows") {
-    let arch = environment.cpu_arch();
     match arch.as_str() {
       "x86_64" => plugin_file.windows.as_ref(),
       _ => None,
