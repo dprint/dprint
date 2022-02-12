@@ -13,6 +13,6 @@ description: Documentation on the configuration file for the TypeScript / JavaSc
 
 # TypeScript / JavaScript - Configuration
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/schemas/typescript-latest.json">
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-typescript/latest/schema.json">
   Loading...
 </div>
