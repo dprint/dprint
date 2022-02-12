@@ -12,15 +12,11 @@ fi
 if [ "$OS" = "Windows_NT" ]; then
 	target="x86_64-pc-windows-msvc"
 else
-	case $(uname -s) in
+	case $(uname -sm) in
 	"Darwin x86_64") target="x86_64-apple-darwin" ;;
+	"Darwin arm64") target="aarch64-apple-darwin" ;;
 	*) target="x86_64-unknown-linux-gnu" ;;
 	esac
-fi
-
-if [ $(uname -m) != "x86_64" ]; then
-	echo "Unsupported architecture $(uname -m). Only x64 binaries are available."
-	exit 1
 fi
 
 if [ $# -eq 0 ]; then
@@ -37,11 +33,13 @@ if [ ! -d "$bin_dir" ]; then
 	mkdir -p "$bin_dir"
 fi
 
+# download
+curl --fail --location --progress-bar --output "$exe.zip" "$dprint_uri"
+
 # stop any running dprint editor services
 pkill -9 "dprint" || true
 
-# download and install
-curl --fail --location --progress-bar --output "$exe.zip" "$dprint_uri"
+# install
 cd "$bin_dir"
 unzip -o "$exe.zip"
 chmod +x "$exe"
