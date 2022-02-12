@@ -193,6 +193,10 @@ impl Environment for RealEnvironment {
     get_cache_dir().unwrap()
   }
 
+  fn cpu_arch(&self) -> String {
+    std::env::consts::ARCH.to_string()
+  }
+
   fn get_time_secs(&self) -> u64 {
     SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
   }

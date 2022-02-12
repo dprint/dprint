@@ -65,6 +65,7 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownlo
     total_size: usize,
   ) -> TResult;
   fn get_cache_dir(&self) -> PathBuf;
+  fn cpu_arch(&self) -> String;
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;

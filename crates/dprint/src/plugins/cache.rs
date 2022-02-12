@@ -154,11 +154,12 @@ mod test {
     let environment = TestEnvironment::new();
     environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
     environment.set_wasm_compile_result(create_compilation_result("t".as_bytes()));
+    environment.set_cpu_arch("aarch64");
 
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
     let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("test-plugin-0.1.0.cached");
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-aarch64.cached");
 
     assert_eq!(file_path, expected_file_path);
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
@@ -197,7 +198,7 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
     let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("test-plugin-0.1.0.cached");
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-x86_64.cached");
 
     assert_eq!(file_path, expected_file_path);
 

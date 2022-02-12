@@ -97,6 +97,7 @@ pub struct TestEnvironment {
   std_out: MockStdInOut,
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
+  cpu_arch: Arc<Mutex<String>>,
 }
 
 impl TestEnvironment {
@@ -119,6 +120,7 @@ impl TestEnvironment {
       std_out: MockStdInOut::new(),
       #[cfg(windows)]
       path_dirs: Arc::new(Mutex::new(Vec::new())),
+      cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
     }
   }
 
@@ -205,6 +207,10 @@ impl TestEnvironment {
   pub fn set_dir_info_error(&self, err: Error) {
     let mut dir_info_error = self.dir_info_error.lock();
     *dir_info_error = Some(err);
+  }
+
+  pub fn set_cpu_arch(&self, value: &str) {
+    *self.cpu_arch.lock() = value.to_string();
   }
 
   fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
@@ -401,6 +407,10 @@ impl Environment for TestEnvironment {
 
   fn get_cache_dir(&self) -> PathBuf {
     PathBuf::from("/cache")
+  }
+
+  fn cpu_arch(&self) -> String {
+    self.cpu_arch.lock().clone()
   }
 
   fn get_time_secs(&self) -> u64 {
