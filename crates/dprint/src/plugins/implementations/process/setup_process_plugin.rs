@@ -104,7 +104,9 @@ struct ProcessPluginFile {
   #[serde(rename = "linux-x86_64")]
   linux: Option<ProcessPluginPath>,
   #[serde(rename = "mac-x86_64")]
-  mac: Option<ProcessPluginPath>,
+  mac_x86_64: Option<ProcessPluginPath>,
+  #[serde(rename = "mac-aarch64")]
+  mac_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "windows-x86_64")]
   windows: Option<ProcessPluginPath>,
 }
@@ -128,7 +130,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   environment: &TEnvironment,
 ) -> Result<ProcessPluginZipBytes> {
   let plugin_file = deserialize_file(plugin_file_bytes)?;
-  let plugin_path = get_os_path(&plugin_file)?;
+  let plugin_path = get_os_path(&plugin_file, environment)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
   let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment)?;
   verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum)?;
@@ -157,22 +159,32 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   Ok(plugin_file)
 }
 
-fn get_os_path(plugin_file: &ProcessPluginFile) -> Result<&ProcessPluginPath> {
-  // todo: how to throw a nice compile error here for an unsupported OS?
-  #[cfg(target_os = "linux")]
-  return get_plugin_path(&plugin_file.linux);
-
-  #[cfg(target_os = "macos")]
-  return get_plugin_path(&plugin_file.mac);
-
-  #[cfg(target_os = "windows")]
-  return get_plugin_path(&plugin_file.windows);
-}
-
-fn get_plugin_path(plugin_path: &Option<ProcessPluginPath>) -> Result<&ProcessPluginPath> {
-  if let Some(path) = &plugin_path {
-    Ok(path)
+fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
+  let arch = environment.cpu_arch();
+  let path = if cfg!(target_os = "linux") {
+    match arch.as_str() {
+      "x86_64" => plugin_file.linux.as_ref(),
+      _ => None,
+    }
+  } else if cfg!(target_os = "macos") {
+    let arch = environment.cpu_arch();
+    match arch.as_str() {
+      "x86_64" => plugin_file.mac_x86_64.as_ref(),
+      "aarc64" => plugin_file.mac_aarch64.as_ref().or_else(|| plugin_file.mac_x86_64.as_ref()),
+      _ => None,
+    }
+  } else if cfg!(target_os = "windows") {
+    let arch = environment.cpu_arch();
+    match arch.as_str() {
+      "x86_64" => plugin_file.windows.as_ref(),
+      _ => None,
+    }
   } else {
-    bail!("Unsupported operating system.");
+    bail!("Unsupported operating system.")
+  };
+
+  match path {
+    Some(path) => Ok(path),
+    None => bail!("Unsupported CPU architecture: {}", arch),
   }
 }
