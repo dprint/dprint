@@ -104,6 +104,7 @@ jobs:
         cd target/aarch64-apple-darwin/release
         zip -r dprint-aarch64-apple-darwin.zip dprint
         echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')"
+        mv dprint-aarch64-apple-darwin.zip ../../release
     - name: Pre-release (Windows x86_64)
       id: windows_x86_64_pre_release
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
@@ -126,7 +127,7 @@ jobs:
       with:
         name: mac-artifacts
         path: |
-          target/aarch64-apple-darwin/release/dprint-aarch64-apple-darwin.zip
+          target/release/dprint-aarch64-apple-darwin.zip
           target/release/dprint-x86_64-apple-darwin.zip
     - name: Upload Artifacts (Windows)
       uses: actions/upload-artifact@v2
