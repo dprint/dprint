@@ -53,8 +53,8 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownlo
   /// This will cause the logger to output the context name when appropriate.
   /// Ex. Will log the dprint process plugin name.
   fn log_stderr_with_context(&self, text: &str, context_name: &str);
-  /// Information to output when logging is silent.
-  fn log_silent(&self, text: &str);
+  /// Information to force output when the environment is in "machine readable mode".
+  fn log_machine_readable(&self, text: &str);
   fn log_action_with_progress<
     TResult: std::marker::Send + std::marker::Sync,
     TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,

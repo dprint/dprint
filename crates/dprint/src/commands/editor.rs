@@ -67,7 +67,7 @@ pub fn output_editor_info<TEnvironment: Environment>(
     });
   }
 
-  environment.log_silent(&serde_json::to_string(&EditorInfo {
+  environment.log_machine_readable(&serde_json::to_string(&EditorInfo {
     schema_version: 4,
     cli_version: env!("CARGO_PKG_VERSION").to_string(),
     config_schema_url: "https://dprint.dev/schemas/v0.json".to_string(),

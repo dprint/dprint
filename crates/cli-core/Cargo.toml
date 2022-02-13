@@ -1,6 +1,6 @@
 [package]
 name = "dprint-cli-core"
-version = "0.11.0"
+version = "0.12.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 license = "MIT"

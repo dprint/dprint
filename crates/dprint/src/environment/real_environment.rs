@@ -6,6 +6,7 @@ use dprint_cli_core::logging::show_confirm;
 use dprint_cli_core::logging::show_multi_select;
 use dprint_cli_core::logging::show_select;
 use dprint_cli_core::logging::Logger;
+use dprint_cli_core::logging::LoggerOptions;
 use dprint_cli_core::logging::ProgressBars;
 use std::fs;
 use std::path::Path;
@@ -19,6 +20,11 @@ use super::Environment;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 
+pub struct RealEnvironmentOptions {
+  pub is_verbose: bool,
+  pub is_stdout_machine_readable: bool,
+}
+
 #[derive(Clone)]
 pub struct RealEnvironment {
   logger: Logger,
@@ -27,13 +33,16 @@ pub struct RealEnvironment {
 }
 
 impl RealEnvironment {
-  pub fn new(is_verbose: bool, is_silent: bool) -> Result<RealEnvironment> {
-    let logger = Logger::new("dprint", is_silent);
-    let progress_bars = if is_silent { None } else { ProgressBars::new(&logger) };
+  pub fn new(options: &RealEnvironmentOptions) -> Result<RealEnvironment> {
+    let logger = Logger::new(&LoggerOptions {
+      initial_context_name: "dprint".to_string(),
+      is_stdout_machine_readable: options.is_stdout_machine_readable,
+    });
+    let progress_bars = ProgressBars::new(&logger);
     let environment = RealEnvironment {
       logger,
       progress_bars,
-      is_verbose,
+      is_verbose: options.is_verbose,
     };
 
     // ensure the cache directory is created
@@ -168,8 +177,8 @@ impl Environment for RealEnvironment {
     self.logger.log(text, "dprint");
   }
 
-  fn log_silent(&self, text: &str) {
-    self.logger.log_bypass_silent(text, "dprint");
+  fn log_machine_readable(&self, text: &str) {
+    self.logger.log_machine_readable(text);
   }
 
   fn log_stderr_with_context(&self, text: &str, context_name: &str) {

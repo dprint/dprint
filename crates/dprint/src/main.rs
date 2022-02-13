@@ -6,6 +6,7 @@ mod environment;
 
 use anyhow::Result;
 use environment::RealEnvironment;
+use environment::RealEnvironmentOptions;
 use std::sync::Arc;
 use utils::RealStdInReader;
 
@@ -38,7 +39,10 @@ fn main() -> Result<()> {
 
 fn run() -> Result<()> {
   let args = arg_parser::parse_args(wild::args().collect(), RealStdInReader)?;
-  let environment = RealEnvironment::new(args.verbose, args.is_silent_output())?;
+  let environment = RealEnvironment::new(&RealEnvironmentOptions {
+    is_verbose: args.verbose,
+    is_stdout_machine_readable: args.is_stdout_machine_readable(),
+  })?;
   let cache = Arc::new(cache::Cache::new(environment.clone()));
   let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
   let plugin_pools = Arc::new(plugins::PluginPools::new(environment.clone()));

@@ -90,7 +90,7 @@ pub struct TestEnvironment {
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
-  is_silent: Arc<Mutex<bool>>,
+  is_stdout_machine_readable: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
   dir_info_error: Arc<Mutex<Option<Error>>>,
   std_in: MockStdInOut,
@@ -113,7 +113,7 @@ impl TestEnvironment {
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Arc::new(Mutex::new(Vec::new())),
-      is_silent: Arc::new(Mutex::new(false)),
+      is_stdout_machine_readable: Arc::new(Mutex::new(false)),
       wasm_compile_result: Arc::new(Mutex::new(None)),
       dir_info_error: Arc::new(Mutex::new(None)),
       std_in: MockStdInOut::new(),
@@ -176,9 +176,8 @@ impl TestEnvironment {
     *cwd = String::from(new_path);
   }
 
-  pub fn set_silent(&self, value: bool) {
-    let mut is_silent = self.is_silent.lock();
-    *is_silent = value;
+  pub fn set_stdout_machine_readable(&self, value: bool) {
+    *self.is_stdout_machine_readable.lock() = value;
   }
 
   pub fn set_verbose(&self, value: bool) {
@@ -375,20 +374,18 @@ impl Environment for TestEnvironment {
   }
 
   fn log(&self, text: &str) {
-    if *self.is_silent.lock() {
+    if *self.is_stdout_machine_readable.lock() {
       return;
     }
     self.stdout_messages.lock().push(String::from(text));
   }
 
   fn log_stderr_with_context(&self, text: &str, _: &str) {
-    if *self.is_silent.lock() {
-      return;
-    }
     self.stderr_messages.lock().push(String::from(text));
   }
 
-  fn log_silent(&self, text: &str) {
+  fn log_machine_readable(&self, text: &str) {
+    assert!(*self.is_stdout_machine_readable.lock());
     self.stdout_messages.lock().push(String::from(text));
   }
 
