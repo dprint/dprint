@@ -17,8 +17,12 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
-  pub fn is_silent_output(&self) -> bool {
-    matches!(self.sub_command, SubCommand::StdInFmt(..))
+  pub fn is_stdout_machine_readable(&self) -> bool {
+    // these output json or other text that's read by stdout
+    matches!(
+      self.sub_command,
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig
+    )
   }
 
   fn new_with_sub_command(sub_command: SubCommand) -> CliArgs {

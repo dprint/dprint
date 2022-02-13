@@ -44,7 +44,7 @@ pub fn stdin_fmt<TEnvironment: Environment>(
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
     if !file_matcher.matches(&resolved_file_path) {
-      environment.log_silent(&cmd.file_text);
+      environment.log_machine_readable(&cmd.file_text);
       return Ok(());
     }
   }
@@ -58,7 +58,7 @@ fn output_stdin_format<TEnvironment: Environment>(
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<()> {
   let formatted_text = format_with_plugin_pools(file_name, file_text, environment, &plugin_pools)?;
-  environment.log_silent(&formatted_text);
+  environment.log_machine_readable(&formatted_text);
   Ok(())
 }
 
@@ -1488,7 +1488,10 @@ mod test {
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
@@ -1503,7 +1506,10 @@ mod test {
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
@@ -1572,7 +1578,10 @@ mod test {
     // the absolute path must be provided instead of a relative one in order to properly pick up
     // inclusion/exclusion rules and the proper configuration file.
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
