@@ -904,10 +904,14 @@ mod test {
   #[test]
   fn should_error_when_no_files_match_glob() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
-    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    let error = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
+    assert_no_files_found(&error, &environment);
+  }
+
+  fn assert_no_files_found(error: &anyhow::Error, environment: &TestEnvironment) {
     assert_eq!(
-      error_message.to_string(),
+      error.to_string(),
       concat!(
         "No files found to format with the specified plugins. ",
         "You may want to try using `dprint output-file-paths` to see which files it's finding."
@@ -920,10 +924,10 @@ mod test {
   #[cfg(target_os = "windows")]
   #[test]
   fn should_format_absolute_paths_on_windows() {
-    let file_path = "E:\\file1.txt";
+    let file_path = "D:\\test\\other\\file1.txt"; // needs to be in the base directory
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("D:\\test\\other\\dprint.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+        c.add_includes("asdf/**/*.txt").add_remote_wasm_plugin();
       })
       .write_file(file_path, "text1")
       .set_cwd("D:\\test\\other\\")
@@ -931,7 +935,7 @@ mod test {
       .build();
 
     // formats because the file path is explicitly provided
-    run_test_cli(vec!["fmt", "--", "E:\\file1.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--", file_path], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
@@ -1059,7 +1063,7 @@ mod test {
   }
 
   #[test]
-  fn should_format_explicitly_specified_file_even_if_excluded() {
+  fn should_not_format_explicitly_specified_file_when_excluded() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .write_file(&file_path1, "text1")
@@ -1069,11 +1073,9 @@ mod test {
       .initialize()
       .build();
 
-    run_test_cli(vec!["fmt", "file1.txt"], &environment).unwrap();
-
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+    // this is done for tools like lint staged
+    let error = run_test_cli(vec!["fmt", "file1.txt"], &environment).err().unwrap();
+    assert_no_files_found(&error, &environment);
   }
 
   #[test]
@@ -1145,11 +1147,10 @@ mod test {
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
-  fn should_not_ignore_path_in_cli_includes_if_not_exists() {
+  fn should_ignore_path_in_cli_includes_even_if_not_exists_since_pattern() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1161,13 +1162,9 @@ mod test {
       .initialize()
       .build();
 
-    let err = run_test_cli(vec!["fmt", "/file2.txt", "/file3.txt"], &environment).err().unwrap();
+    run_test_cli(vec!["fmt", "/file2.txt", "/file3.txt"], &environment).unwrap();
 
-    assert_eq!(err.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Error formatting /file3.txt. Message: Could not find file at path /file3.txt"]
-    );
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
   }
 
   #[test]

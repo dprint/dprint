@@ -1,7 +1,12 @@
 use crate::environment::CanonicalizedPathBuf;
 
 use super::is_negated_glob;
-use super::to_absolute_glob;
+
+#[derive(Debug)]
+pub struct GlobPatterns {
+  pub includes: Vec<GlobPattern>,
+  pub excludes: Vec<GlobPattern>,
+}
 
 #[derive(Debug, PartialEq)]
 pub struct GlobPattern {
@@ -19,10 +24,6 @@ impl GlobPattern {
       .into_iter()
       .map(|relative_pattern| GlobPattern::new(relative_pattern, base_dir.clone()))
       .collect()
-  }
-
-  pub fn absolute_pattern(&self) -> String {
-    to_absolute_glob(&self.relative_pattern, &self.base_dir.to_string_lossy())
   }
 
   pub fn is_negated(&self) -> bool {
@@ -109,12 +110,6 @@ impl GlobPattern {
   }
 }
 
-#[derive(Debug)]
-pub struct GlobPatterns {
-  pub includes: Vec<GlobPattern>,
-  pub excludes: Vec<GlobPattern>,
-}
-
 #[cfg(test)]
 mod test {
   use super::*;
@@ -124,12 +119,10 @@ mod test {
     let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
     let pattern = GlobPattern::new("**/*".to_string(), test_dir.clone()).into_negated();
     assert_eq!(pattern.relative_pattern, "!**/*");
-    assert_eq!(pattern.absolute_pattern(), "!/test/**/*");
 
     // should keep as-is
     let pattern = GlobPattern::new("!**/*".to_string(), test_dir).into_negated();
     assert_eq!(pattern.relative_pattern, "!**/*");
-    assert_eq!(pattern.absolute_pattern(), "!/test/**/*");
   }
 
   #[test]
@@ -137,12 +130,10 @@ mod test {
     let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
     let pattern = GlobPattern::new("!**/*".to_string(), test_dir.clone()).into_non_negated();
     assert_eq!(pattern.relative_pattern, "**/*");
-    assert_eq!(pattern.absolute_pattern(), "/test/**/*");
 
     // should keep as-is
     let pattern = GlobPattern::new("**/*".to_string(), test_dir).into_non_negated();
     assert_eq!(pattern.relative_pattern, "**/*");
-    assert_eq!(pattern.absolute_pattern(), "/test/**/*");
   }
 
   #[test]
@@ -152,12 +143,10 @@ mod test {
     let pattern = GlobPattern::new("**/*".to_string(), test_dir_dir.clone());
     assert_eq!(pattern.relative_pattern, "**/*");
     assert_eq!(pattern.base_dir, test_dir_dir);
-    assert_eq!(pattern.absolute_pattern(), "/test/dir/**/*");
 
     let pattern = pattern.into_new_base(test_dir.clone());
     assert_eq!(pattern.relative_pattern, "./dir/**/*");
     assert_eq!(pattern.base_dir, test_dir);
-    assert_eq!(pattern.absolute_pattern(), "/test/dir/**/*");
   }
 
   #[test]
@@ -168,7 +157,6 @@ mod test {
     let pattern = pattern.into_new_base(root_dir.clone());
     assert_eq!(pattern.relative_pattern, "./test/dir/**/*");
     assert_eq!(pattern.base_dir, root_dir);
-    assert_eq!(pattern.absolute_pattern(), "/test/dir/**/*");
   }
 
   #[test]
@@ -179,16 +167,13 @@ mod test {
     let pattern = GlobPattern::new("asdf".to_string(), test_dir_dir.clone());
     assert_eq!(pattern.relative_pattern, "asdf");
     assert_eq!(pattern.base_dir, test_dir_dir);
-    assert_eq!(pattern.absolute_pattern(), "/test/dir/**/asdf");
 
     let pattern = pattern.into_new_base(test_dir.clone());
     assert_eq!(pattern.relative_pattern, "./dir/**/asdf");
     assert_eq!(pattern.base_dir, test_dir);
-    assert_eq!(pattern.absolute_pattern(), "/test/dir/**/asdf");
 
     let pattern = pattern.into_new_base(root_dir.clone());
     assert_eq!(pattern.relative_pattern, "./test/dir/**/asdf");
     assert_eq!(pattern.base_dir, root_dir);
-    assert_eq!(pattern.absolute_pattern(), "/test/dir/**/asdf");
   }
 }
