@@ -945,17 +945,17 @@ mod test {
   #[cfg(target_os = "linux")]
   #[test]
   fn should_format_absolute_paths_on_linux() {
-    let file_path = "/asdf/file1.txt";
+    let file_path = "/test/other/file1.txt"; // needs to be in the base directory
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/test/other/dprint.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+        c.add_includes("asdf/**/*.txt").add_remote_wasm_plugin();
       })
       .write_file(&file_path, "text1")
       .set_cwd("/test/other/")
       .initialize()
       .build();
 
-    run_test_cli(vec!["fmt", "--", "/asdf/file1.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--", "/test/other/file1.txt"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);

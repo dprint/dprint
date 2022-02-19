@@ -176,21 +176,27 @@ mod test {
   use super::*;
 
   #[test]
-  fn should_process_cli_pattern() {
+  fn should_process_cli_patterns() {
     assert_eq!(do_process_cli_pattern("/test", "/"), "./test");
-    assert_eq!(do_process_cli_pattern("C:/test", "C:\\"), "./test");
-    assert_eq!(do_process_cli_pattern("C:/test/other", "C:\\test\\"), "./other");
-    assert_eq!(do_process_cli_pattern("C:/test/other", "C:\\test"), "./other");
     assert_eq!(do_process_cli_pattern("./test", "/"), "./test");
     assert_eq!(do_process_cli_pattern("test", "/"), "./test");
     assert_eq!(do_process_cli_pattern("**/test", "/"), "./**/test");
 
     assert_eq!(do_process_cli_pattern("!/test", "/"), "!./test");
-    assert_eq!(do_process_cli_pattern("!C:/test", "C:\\"), "!./test");
-    assert_eq!(do_process_cli_pattern("!C:/test/other", "C:\\test\\"), "!./other");
     assert_eq!(do_process_cli_pattern("!./test", "/"), "!./test");
     assert_eq!(do_process_cli_pattern("!test", "/"), "!./test");
     assert_eq!(do_process_cli_pattern("!**/test", "/"), "!./**/test");
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_process_cli_patterns_windows() {
+    assert_eq!(do_process_cli_pattern("C:/test", "C:\\"), "./test");
+    assert_eq!(do_process_cli_pattern("C:/test/other", "C:\\test\\"), "./other");
+    assert_eq!(do_process_cli_pattern("C:/test/other", "C:\\test"), "./other");
+
+    assert_eq!(do_process_cli_pattern("!C:/test", "C:\\"), "!./test");
+    assert_eq!(do_process_cli_pattern("!C:/test/other", "C:\\test\\"), "!./other");
   }
 
   fn do_process_cli_pattern(file_pattern: &str, cwd: &str) -> String {
