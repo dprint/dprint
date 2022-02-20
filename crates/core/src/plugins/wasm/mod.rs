@@ -16,6 +16,7 @@ pub mod macros {
           StaticCell(std::cell::UnsafeCell::new(value))
         }
 
+        #[allow(clippy::mut_from_ref)]
         unsafe fn get(&self) -> &mut T {
           &mut *self.0.get()
         }
