@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::configuration::ConfigKeyMap;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,7 +31,7 @@ pub fn format_with_plugin_pools<'a, TEnvironment: Environment>(
     let error_logger = ErrorCountLogger::from_environment(environment);
     match plugin_pool.take_or_create_checking_config_diagnostics(&error_logger)? {
       TakePluginResult::Success(mut initialized_plugin) => {
-        let result = initialized_plugin.format_text(file_name, &file_text, &HashMap::new());
+        let result = initialized_plugin.format_text(file_name, &file_text, &ConfigKeyMap::new());
         plugin_pool.release(initialized_plugin);
         file_text = Cow::Owned(result?); // release plugin above, then propagate this error
       }
@@ -100,7 +101,7 @@ where
         let start_instant = Instant::now();
         let format_text_result = plugin
           .pool
-          .format_measuring_time(|| plugin.plugin.format_text(file_path, &file_text, &HashMap::new()));
+          .format_measuring_time(|| plugin.plugin.format_text(file_path, &file_text, &ConfigKeyMap::new()));
         log_verbose!(
           environment,
           "Formatted file: {} in {}ms{}",

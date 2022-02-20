@@ -1,7 +1,6 @@
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -132,7 +131,7 @@ impl InitializedWasmPlugin {
         indent_width: None,
         new_line_kind: None,
       },
-      plugin_config: HashMap::new(),
+      plugin_config: ConfigKeyMap::new(),
     })
   }
 

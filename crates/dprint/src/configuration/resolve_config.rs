@@ -2,7 +2,6 @@ use anyhow::bail;
 use anyhow::Result;
 use crossterm::style::Stylize;
 use dprint_core::configuration::ConfigKeyValue;
-use std::collections::HashMap;
 use std::path::Path;
 
 use crate::arg_parser::CliArgs;
@@ -43,7 +42,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, cache
     Err(err) => {
       // allow no config file when plugins are specified
       if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
-        HashMap::new()
+        ConfigMap::new()
       } else {
         bail!(
           "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
@@ -311,6 +310,7 @@ mod tests {
   use crate::environment::TestEnvironment;
   use crate::utils::TestStdInReader;
   use anyhow::Result;
+  use dprint_core::configuration::ConfigKeyMap;
   use pretty_assertions::assert_eq;
 
   use super::*;
@@ -502,7 +502,7 @@ mod tests {
       ]
     );
 
-    let expected_config_map = HashMap::from([
+    let expected_config_map = ConfigMap::from([
       (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
       (String::from("otherProp"), ConfigMapValue::from_i32(6)),
       (String::from("otherProp2"), ConfigMapValue::from_str("a")),
@@ -511,7 +511,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          properties: HashMap::from([
+          properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(5)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
           ]),
@@ -522,7 +522,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          properties: HashMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
+          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
         }),
       ),
     ]);
@@ -591,7 +591,7 @@ mod tests {
       ]
     );
 
-    let expected_config_map = HashMap::from([
+    let expected_config_map = ConfigMap::from([
       (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
       (String::from("otherProp"), ConfigMapValue::from_i32(6)),
       (String::from("asdf"), ConfigMapValue::from_i32(4)),
@@ -600,7 +600,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          properties: HashMap::from([
+          properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(5)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
           ]),
@@ -611,7 +611,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          properties: HashMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
+          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
         }),
       ),
     ]);
@@ -689,7 +689,7 @@ mod tests {
       ]
     );
 
-    let expected_config_map = HashMap::from([
+    let expected_config_map = ConfigMap::from([
       (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
       (String::from("otherProp"), ConfigMapValue::from_i32(6)),
       (String::from("asdf"), ConfigMapValue::from_i32(4)),
@@ -699,7 +699,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          properties: HashMap::from([
+          properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(5)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
           ]),
@@ -710,7 +710,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          properties: HashMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
+          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
         }),
       ),
     ]);
@@ -774,7 +774,7 @@ mod tests {
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
 
-    let expected_config_map = HashMap::from([
+    let expected_config_map = ConfigMap::from([
       (String::from("prop1"), ConfigMapValue::from_i32(1)),
       (String::from("prop2"), ConfigMapValue::from_i32(2)),
       (String::from("prop3"), ConfigMapValue::from_i32(3)),
@@ -816,7 +816,7 @@ mod tests {
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
 
-    let expected_config_map = HashMap::from([
+    let expected_config_map = ConfigMap::from([
       (String::from("prop1"), ConfigMapValue::from_i32(1)),
       (String::from("prop2"), ConfigMapValue::from_i32(2)),
       (String::from("prop3"), ConfigMapValue::from_i32(3)),
@@ -857,7 +857,7 @@ mod tests {
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
 
-    let expected_config_map = HashMap::from([
+    let expected_config_map = ConfigMap::from([
       (String::from("prop1"), ConfigMapValue::from_i32(1)),
       (String::from("prop2"), ConfigMapValue::from_i32(2)),
       (String::from("prop3"), ConfigMapValue::from_i32(3)),
@@ -956,12 +956,12 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = HashMap::from([(
+    let expected_config_map = ConfigMap::from([(
       String::from("test"),
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: true,
         associations: None,
-        properties: HashMap::from([
+        properties: ConfigKeyMap::from([
           (String::from("prop"), ConfigKeyValue::from_i32(6)),
           (String::from("other"), ConfigKeyValue::from_str("test")),
         ]),
@@ -999,12 +999,12 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = HashMap::from([(
+    let expected_config_map = ConfigMap::from([(
       String::from("test"),
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: true,
         associations: None,
-        properties: HashMap::from([
+        properties: ConfigKeyMap::from([
           (String::from("prop"), ConfigKeyValue::from_i32(7)),
           (String::from("other"), ConfigKeyValue::from_str("test")),
         ]),
@@ -1040,12 +1040,12 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = HashMap::from([(
+    let expected_config_map = ConfigMap::from([(
       String::from("test"),
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: None,
-        properties: HashMap::from([
+        properties: ConfigKeyMap::from([
           (String::from("prop"), ConfigKeyValue::from_i32(6)),
           (String::from("other"), ConfigKeyValue::from_str("test")),
         ]),
@@ -1079,12 +1079,12 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = HashMap::from([(
+    let expected_config_map = ConfigMap::from([(
       String::from("test"),
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: Some(vec!["test".to_string()]),
-        properties: HashMap::new(),
+        properties: ConfigKeyMap::new(),
       }),
     )]);
 
@@ -1117,12 +1117,12 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = HashMap::from([(
+    let expected_config_map = ConfigMap::from([(
       String::from("test"),
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: Some(vec!["test1".to_string(), "test2".to_string()]),
-        properties: HashMap::new(),
+        properties: ConfigKeyMap::new(),
       }),
     )]);
 
