@@ -214,7 +214,7 @@ pub mod macros {
       fn ensure_initialized() {
         unsafe {
           if RESOLVE_CONFIGURATION_RESULT.get().is_none() {
-            let config_result = create_resolved_config_result(std::collections::HashMap::new());
+            let config_result = create_resolved_config_result(dprint_core::configuration::ConfigKeyMap::new());
             RESOLVE_CONFIGURATION_RESULT.get().replace(config_result);
           }
         }
