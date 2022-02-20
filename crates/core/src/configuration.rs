@@ -214,7 +214,7 @@ pub fn resolve_global_config(config: ConfigKeyMap, options: &ResolveGlobalConfig
 /// If the provided key exists, takes its value from the provided config and returns it.
 /// If the provided key does not exist, it returns the default value.
 /// Adds a diagnostic if there is any problem deserializing the value.
-pub fn get_value<T>(config: &mut ConfigKeyMap, key: &'static str, default_value: T, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> T
+pub fn get_value<T>(config: &mut ConfigKeyMap, key: &str, default_value: T, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> T
 where
   T: std::str::FromStr,
   <T as std::str::FromStr>::Err: std::fmt::Display,
@@ -225,7 +225,7 @@ where
 /// If the provided key exists, takes its value from the provided config and returns it.
 /// If the provided key does not exist, it returns None.
 /// Adds a diagnostic if there is any problem deserializing the value.
-pub fn get_nullable_value<T>(config: &mut ConfigKeyMap, key: &'static str, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> Option<T>
+pub fn get_nullable_value<T>(config: &mut ConfigKeyMap, key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> Option<T>
 where
   T: std::str::FromStr,
   <T as std::str::FromStr>::Err: std::fmt::Display,
@@ -254,7 +254,7 @@ where
 
 /// If it exists, moves over the configuration value over from the old key
 /// to the new key and adds a diagnostic.
-pub fn handle_renamed_config_property(config: &mut ConfigKeyMap, old_key: &'static str, new_key: &'static str, diagnostics: &mut Vec<ConfigurationDiagnostic>) {
+pub fn handle_renamed_config_property(config: &mut ConfigKeyMap, old_key: &str, new_key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) {
   if let Some(raw_value) = config.remove(old_key) {
     if !config.contains_key(new_key) {
       config.insert(new_key.to_string(), raw_value);
