@@ -11,7 +11,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    ```toml
    dprint-core = { version = "...", features = ["wasm"] }
    serde = { version = "1.0.117", features = ["derive"] }
-   serde_json = "1.0"
+   serde_json = { version = "1.0", features = ["preserve_order"] }
    ```
 
 2. Add the following to _Cargo.toml_:

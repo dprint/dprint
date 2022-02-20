@@ -2,7 +2,6 @@ use anyhow::bail;
 use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -80,9 +79,9 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
     mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
   ) -> Result<String> {
     if file_text.starts_with("plugin: ") {
-      format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""), &HashMap::new())
+      format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""), &Default::default())
     } else if file_text.starts_with("plugin-config: ") {
-      let mut config_map = HashMap::new();
+      let mut config_map = ConfigKeyMap::new();
       config_map.insert("ending".to_string(), "custom_config".into());
       format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin-config: ", ""), &config_map)
     } else if file_text == "should_error" {

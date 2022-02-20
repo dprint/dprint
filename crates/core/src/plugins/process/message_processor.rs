@@ -3,7 +3,6 @@ use anyhow::bail;
 use anyhow::Result;
 use serde::Serialize;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -130,7 +129,7 @@ fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: PluginHan
   state: &mut MessageProcessorState<TConfiguration>,
 ) -> Result<()> {
   if state.resolved_config_result.is_none() {
-    state.resolved_config_result = Some(create_resolved_config_result(handler, state, HashMap::new())?);
+    state.resolved_config_result = Some(create_resolved_config_result(handler, state, Default::default())?);
   }
 
   Ok(())

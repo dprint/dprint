@@ -1,6 +1,6 @@
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 /// Unresolved plugin configuration.
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -32,4 +32,4 @@ impl ConfigMapValue {
   }
 }
 
-pub type ConfigMap = HashMap<String, ConfigMapValue>;
+pub type ConfigMap = IndexMap<String, ConfigMapValue>;

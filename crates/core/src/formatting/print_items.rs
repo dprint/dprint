@@ -2,9 +2,9 @@ use std::cell::UnsafeCell;
 use std::mem;
 use std::rc::Rc;
 
-use crate::formatting::id::IdCounter;
 use super::printer::Printer;
 use super::utils::with_bump_allocator;
+use crate::formatting::id::IdCounter;
 
 /** Print Items */
 

@@ -11,7 +11,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    ```toml
    dprint-core = { version = "...", features = ["process"] }
    serde = { version = "1.0.117", features = ["derive"] }
-   serde_json = "1.0"
+   serde_json = { version = "1.0", features = ["preserve_order"] }
    ```
 
 2. Create a `Configuration` struct somewhere in your project:

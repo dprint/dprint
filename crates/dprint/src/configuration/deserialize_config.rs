@@ -1,10 +1,10 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use jsonc_parser::JsonArray;
 use jsonc_parser::JsonObject;
 use jsonc_parser::JsonValue;
-use std::collections::HashMap;
 
 use super::ConfigMap;
 use super::ConfigMapValue;
@@ -18,7 +18,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
     _ => bail!("Expected a root object in the json"),
   };
 
-  let mut properties = HashMap::new();
+  let mut properties = ConfigMap::new();
 
   for (key, value) in root_object_node.into_iter() {
     let property_name = key;
@@ -47,7 +47,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
 }
 
 fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Result<RawPluginConfig> {
-  let mut properties = HashMap::new();
+  let mut properties = ConfigKeyMap::new();
   let mut locked = false;
   let mut associations = None;
 
@@ -135,8 +135,8 @@ mod tests {
   use crate::configuration::RawPluginConfig;
 
   use super::deserialize_config;
+  use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::configuration::ConfigKeyValue;
-  use std::collections::HashMap;
 
   #[test]
   fn should_error_when_there_is_a_parser_error() {
@@ -166,19 +166,19 @@ mod tests {
 
   #[test]
   fn should_deserialize_empty_object() {
-    assert_deserializes("{}", HashMap::new());
+    assert_deserializes("{}", ConfigMap::new());
   }
 
   #[test]
   fn should_deserialize_full_object() {
-    let mut expected_props = HashMap::new();
+    let mut expected_props = ConfigMap::new();
     expected_props.insert(String::from("includes"), ConfigMapValue::Vec(Vec::new()));
     expected_props.insert(
       String::from("typescript"),
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: None,
-        properties: HashMap::from([
+        properties: ConfigKeyMap::from([
           (String::from("lineWidth"), ConfigKeyValue::from_i32(40)),
           (String::from("preferSingleLine"), ConfigKeyValue::from_bool(true)),
           (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -193,13 +193,13 @@ mod tests {
 
   #[test]
   fn should_deserialize_cli_specific_plugin_config() {
-    let expected_props = HashMap::from([
+    let expected_props = ConfigMap::from([
       (
         "typescript".to_string(),
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: Some(vec!["test".to_string()]),
-          properties: HashMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
+          properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
         }),
       ),
       (
@@ -207,7 +207,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["other".to_string(), "test".to_string()]),
-          properties: HashMap::new(),
+          properties: ConfigKeyMap::new(),
         }),
       ),
     ]);

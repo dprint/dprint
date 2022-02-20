@@ -15,15 +15,16 @@ clap = "2.33.3"
 crossterm = "0.22.1"
 dirs = "4.0.0"
 dprint-cli-core = { path = "../cli-core", version = "0.12.0" }
-dprint-core = { path = "../core", version = "0.50.1", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.51.0", features = ["process", "wasm"] }
 dunce = "1.0.2"
 ignore = "0.4.18"
+indexmap = { version = "1.8.0", features = ["serde-1"] }
 jsonc-parser = { version = "0.19.0" }
 num_cpus = "1.13.0"
 parking_lot = "0.11.2"
 rayon = "1.5.1"
 serde = { version = "1.0.130", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["preserve_order"] }
 similar = { version = "2.1.0", features = ["inline"] }
 twox-hash = "1.6.2"
 url = "2.2.2"
