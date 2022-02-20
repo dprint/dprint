@@ -1,8 +1,8 @@
 use anyhow::Result;
 use console::Style;
+use indexmap::IndexMap;
 use similar::ChangeTag;
 use similar::TextDiff;
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
 use std::panic::catch_unwind;
@@ -53,8 +53,8 @@ pub fn run_specs(
   directory_path: &Path,
   parse_spec_options: &ParseSpecOptions,
   run_spec_options: &RunSpecsOptions,
-  format_text: impl Fn(&Path, &str, &HashMap<String, String>) -> Result<String>,
-  get_trace_json: impl Fn(&Path, &str, &HashMap<String, String>) -> String,
+  format_text: impl Fn(&Path, &str, &IndexMap<String, String>) -> Result<String>,
+  get_trace_json: impl Fn(&Path, &str, &IndexMap<String, String>) -> String,
 ) {
   #[cfg(not(debug_assertions))]
   assert_not_fix_failures(run_spec_options);

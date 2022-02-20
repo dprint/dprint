@@ -521,10 +521,11 @@ dependencies = [
 
 [[package]]
 name = "dprint-development"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "console",
+ "indexmap",
  "similar 1.3.0",
 ]
 
