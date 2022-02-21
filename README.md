@@ -24,6 +24,7 @@ This project is under active early development. I recommend you check its output
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.
 - [dprint-plugin-yapf](https://github.com/dprint/dprint-plugin-yapf) - YAPF (Python) wrapper plugin.
+- [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 
 ## Notes
 
