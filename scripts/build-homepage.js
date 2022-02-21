@@ -70,6 +70,7 @@ function buildWebsite() {
   buildForPath("plugins/roslyn", documentationHtmlPageText);
   buildForPath("plugins/rustfmt", documentationHtmlPageText);
   buildForPath("plugins/yapf", documentationHtmlPageText);
+  buildForPath("plugins/exec", documentationHtmlPageText);
 
   createRedirect("pricing", "sponsor");
 
