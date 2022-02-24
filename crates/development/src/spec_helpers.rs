@@ -84,7 +84,7 @@ pub fn run_specs(
           // very rough, but good enough
           let file_path = PathBuf::from(&file_path);
           let file_text = fs::read_to_string(&file_path).expect("Expected to read the file.");
-          let file_text = file_text.replace(&spec.expected_text.replace("\n", "\r\n"), &result.replace("\n", "\r\n"));
+          let file_text = file_text.replace(&spec.expected_text.replace('\n', "\r\n"), &result.replace('\n', "\r\n"));
           fs::write(&file_path, file_text).expect("Expected to write to file.");
         } else {
           failed_tests.push(FailedTestResult {
@@ -168,7 +168,7 @@ pub fn run_specs(
 </body>
 </html>"#;
     let mut script = format!("const rawTraceResult = {};\n", trace_json);
-    script.push_str(&format!("const specMessage = \"{}\";\n", spec.message.replace("\"", "\\\"")));
+    script.push_str(&format!("const specMessage = \"{}\";\n", spec.message.replace('"', "\\\"")));
     script.push_str(app_js_text);
     let html_file = html_file
       .replace("<!-- script -->", &script)
@@ -176,7 +176,7 @@ pub fn run_specs(
       .replace("<!-- style -->", app_css_text);
     let temp_file_path = std::env::temp_dir().join("dprint-core-trace.html");
     fs::write(&temp_file_path, html_file).unwrap();
-    let url = format!("file://{}", temp_file_path.to_string_lossy().replace("\\", "/"));
+    let url = format!("file://{}", temp_file_path.to_string_lossy().replace('\\', "/"));
     panic!("\n==============\nTrace output ready! Please open your browser to: {}\n==============\n", url);
   }
 

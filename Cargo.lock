@@ -478,7 +478,6 @@ dependencies = [
  "indexmap",
  "jsonc-parser",
  "lazy_static",
- "num_cpus",
  "parking_lot",
  "path-clean",
  "pretty_assertions",

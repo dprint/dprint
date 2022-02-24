@@ -7,7 +7,7 @@ pub fn is_negated_glob(pattern: &str) -> bool {
 }
 
 pub fn is_absolute_pattern(pattern: &str) -> bool {
-  let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { &pattern };
+  let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { pattern };
   pattern.starts_with('/') || is_windows_absolute_pattern(pattern)
 }
 

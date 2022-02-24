@@ -567,8 +567,8 @@ impl Condition {
       #[cfg(debug_assertions)]
       name: _name,
       condition: properties.condition,
-      true_path: properties.true_path.map(|x| x.first_node).flatten(),
-      false_path: properties.false_path.map(|x| x.first_node).flatten(),
+      true_path: properties.true_path.and_then(|x| x.first_node),
+      false_path: properties.false_path.and_then(|x| x.first_node),
       dependent_infos,
     }
   }
