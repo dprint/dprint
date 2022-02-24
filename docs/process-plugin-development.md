@@ -113,9 +113,143 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    handle_process_stdio_messages(MyPluginHandler::new())
    ```
 
-## Schema Version 3 Overview
+## Schema Version 4 Overview (Not Yet Released)
 
-TODO...
+### Schema Version Establishment
+
+To maintain compatibility with past dprint clients, an initial schema version establishment phase occurs that is the same as past schema versions.
+
+1. An initial `0` (4 bytes) is sent asking for the schema version.
+2. At this point, the client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
+
+After this point, the schema version can no longer be asked for.
+
+### Requests
+
+Requests are sent from the client to the plugin in the following format:
+
+```
+<ID><KIND>[<BODY>]<SUCCESS_BYTES>
+```
+
+- `ID` - u32 (4 bytes) - Number for the request or the ID of the host format request.
+- `KIND` - u32 (4 bytes) - Kind of request.
+- `BODY` - Depends on the kind and may be optional.
+- `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
+
+### Responses
+
+Responses are sent from the plugin to the client and could include format requests.
+
+```
+<ID><KIND><BODY><SUCCESS_BYTES>
+```
+
+- `ID` - Which request this response is for or a new ID for a host format request.
+- `KIND` - u32 (4 bytes) - `0` for success, `1` for failure, `2` for host format request.
+- `BODY`
+  - When `KIND` is `0`:
+    - Depends on the request kind.
+  - When `KIND` is `1`:
+    - u32 (4 bytes) - Error message size
+    - X bytes - Error message
+  - When `KIND` is `2`:
+    - u32 (4 bytes) - Size of the file path.
+    - File path.
+    - u32 (4 bytes) - Size of the file text.
+    - File text.
+    - u32 (4 bytes) - Size of the override configuration.
+    - JSON serialized override configuration.
+- `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
+
+### Request Kinds
+
+#### `1` - Close
+
+Causes the process to shut down gracefully.
+
+#### `2` - Get Plugin Info
+
+Response body:
+
+- u32 (4 bytes) - Content length
+- JSON serialized plugin information
+
+#### `3` - Get License Text
+
+Response body:
+
+- u32 (4 bytes) - Content length
+- License text
+
+#### `4` - Get Resolved Configuration
+
+Response body:
+
+- u32 (4 bytes) - Content length
+- JSON serialized resolved configuration
+
+#### `5` - Set Global Configuration
+
+Request body:
+
+- u32 (4 bytes) - Content length
+- JSON serialized global configuration
+
+Response body: None
+
+#### `6` - Set Plugin Configuration
+
+Request body:
+
+- u32 (4 bytes) - Content length
+- JSON serialized plugin configuration
+
+Response body: None
+
+#### `7` - Get Configuration Diagnostics
+
+Response body:
+
+- u32 (4 bytes) - Content length
+- JSON serialized array of diagnostics
+
+#### `8` - Format Text
+
+Request body:
+
+- u32 (4 bytes) - File path content length
+- File path
+- u32 (4 bytes) - File text content length
+- File text
+- u32 (4 bytes) - Override configuration
+- JSON override configuration
+
+Response body:
+
+- u32 (4 bytes) - Response Kind
+  - `0` - No Change
+  - `1` - Change
+    - u32 (4 bytes) - Content length.
+    - Formatted file text
+
+#### `9` - Cancel Format
+
+The request should use the same identifier as the format request.
+
+There is no response sent for this though the plugin may respond with a
+
+#### `10` - Host Format Request Response
+
+The response should use the same identifier as the host formatting request.
+
+Request body:
+
+- u32 (4 bytes) - Response Kind
+  - `0` - No Change
+  - `1` - Change
+    - u32 (4 bytes) - Content length.
+    - Formatted file text
 
 ### Creating a `.exe-plugin` file
 
