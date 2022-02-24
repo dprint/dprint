@@ -12,8 +12,6 @@ use crate::patterns::get_all_file_patterns;
 use crate::patterns::get_plugin_association_glob_matcher;
 use crate::plugins::Plugin;
 use crate::utils::glob;
-use crate::utils::GlobPattern;
-use crate::utils::GlobPatterns;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -98,75 +96,9 @@ pub fn get_file_paths_by_plugins(
 }
 
 pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
-  let (file_patterns, absolute_paths) = get_config_file_paths(config, args, environment)?;
-  resolve_file_paths(file_patterns, &absolute_paths, args, config, environment)
-}
-
-fn get_config_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<(GlobPatterns, Vec<PathBuf>)> {
   let cwd = environment.cwd();
-  let mut file_patterns = get_all_file_patterns(config, args, &cwd);
-  let absolute_paths = take_absolute_paths(&mut file_patterns.includes, environment);
-  let absolute_paths = if args.file_patterns.is_empty() {
-    // Filter out any config absolute file paths that don't exist.
-    // This is to support sparse checkouts.
-    absolute_paths.into_iter().filter(|file_path| environment.path_exists(file_path)).collect()
-  } else {
-    absolute_paths
-  };
-
-  Ok((file_patterns, absolute_paths))
-}
-
-fn resolve_file_paths(
-  file_patterns: GlobPatterns,
-  absolute_paths: &[PathBuf],
-  args: &CliArgs,
-  config: &ResolvedConfig,
-  environment: &impl Environment,
-) -> Result<Vec<PathBuf>> {
-  let cwd = environment.cwd();
+  let file_patterns = get_all_file_patterns(config, args, &cwd);
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
-  if is_in_sub_dir {
-    let mut file_paths = glob(environment, &cwd, file_patterns)?;
-    if args.file_patterns.is_empty() {
-      // filter file paths by cwd if no CLI paths are specified
-      file_paths.extend(absolute_paths.iter().filter(|path| path.starts_with(&cwd)).map(ToOwned::to_owned));
-    } else {
-      file_paths.extend(absolute_paths.iter().map(ToOwned::to_owned));
-    }
-    Ok(file_paths)
-  } else {
-    let mut file_paths = glob(environment, &config.base_path, file_patterns)?;
-    file_paths.extend(absolute_paths.to_owned());
-    Ok(file_paths)
-  }
-}
-
-pub fn take_absolute_paths(file_patterns: &mut Vec<GlobPattern>, environment: &impl Environment) -> Vec<PathBuf> {
-  let len = file_patterns.len();
-  let mut file_paths = Vec::new();
-  for i in (0..len).rev() {
-    let absolute_pattern = file_patterns[i].absolute_pattern();
-    if is_absolute_path(&absolute_pattern, environment) {
-      // can't use swap_remove because order is important
-      file_patterns.remove(i);
-      file_paths.push(PathBuf::from(absolute_pattern));
-    }
-  }
-  file_paths
-}
-
-fn is_absolute_path(file_pattern: &str, environment: &impl Environment) -> bool {
-  return !has_glob_chars(file_pattern) && environment.is_absolute_path(file_pattern);
-
-  fn has_glob_chars(text: &str) -> bool {
-    for c in text.chars() {
-      match c {
-        '*' | '{' | '}' | '[' | ']' | '!' => return true,
-        _ => {}
-      }
-    }
-
-    false
-  }
+  let base_dir = if is_in_sub_dir { &cwd } else { &config.base_path };
+  glob(environment, &base_dir, file_patterns)
 }
