@@ -115,6 +115,8 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
 ## Schema Version 4 Overview (Not Yet Released)
 
+Process plugins are expected to read and respond to messages on a single thread, then spawn formatting threads/tasks for doing concurrent formatting.
+
 ### Schema Version Establishment
 
 To maintain compatibility with past dprint clients, an initial schema version establishment phase occurs that is the same as past schema versions.
@@ -182,37 +184,52 @@ Response body:
 - u32 (4 bytes) - Content length
 - License text
 
-#### `4` - Get Resolved Configuration
+#### `4` - Register Configuration
 
-Response body:
-
-- u32 (4 bytes) - Content length
-- JSON serialized resolved configuration
-
-#### `5` - Set Global Configuration
+Stores configuration in memory in the process plugin.
 
 Request body:
 
 - u32 (4 bytes) - Content length
 - JSON serialized global configuration
-
-Response body: None
-
-#### `6` - Set Plugin Configuration
-
-Request body:
-
 - u32 (4 bytes) - Content length
 - JSON serialized plugin configuration
 
+Response body:
+
+- u32 (4 bytes) - Identifier for this configuration.
+
+#### `5` - Release Configuration
+
+Releases configuration from memory in the process plugin.
+
+Request body:
+
+- u32 (4 bytes) - Identifier for the configuration.
+
 Response body: None
 
-#### `7` - Get Configuration Diagnostics
+#### `6` - Get Configuration Diagnostics
+
+Request body:
+
+- u32 (4 bytes) - Identifier for the configuration to get diagnostics for.
 
 Response body:
 
 - u32 (4 bytes) - Content length
 - JSON serialized array of diagnostics
+
+#### `7` - Get Resolved Configuration
+
+Request body:
+
+- u32 (4 bytes) - Identifier for the configuration to get diagnostics for.
+
+Response body:
+
+- u32 (4 bytes) - Content length
+- JSON serialized resolved configuration
 
 #### `8` - Format Text
 
@@ -222,7 +239,8 @@ Request body:
 - File path
 - u32 (4 bytes) - File text content length
 - File text
-- u32 (4 bytes) - Override configuration
+- u32 (4 bytes) - Configuration identifier
+- u32 (4 bytes) - Override configuration -- TODO: Is this necessary anymore?
 - JSON override configuration
 
 Response body:
