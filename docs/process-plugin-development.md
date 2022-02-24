@@ -124,8 +124,6 @@ To maintain compatibility with past dprint clients, an initial schema version es
 1. An initial `0` (4 bytes) is sent asking for the schema version.
 2. At this point, the client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
 
-After this point, the schema version can no longer be asked for.
-
 ### Requests
 
 Requests are sent from the client to the plugin in the following format:
@@ -259,7 +257,9 @@ Response body:
 
 The request should use the same identifier as the format request.
 
-There is no response sent for this though the plugin may respond with a
+No response.
+
+The plugin may still respond with a completed formatting request, but the CLI will ignore it.
 
 #### `10` - Host Format Request Response
 
@@ -272,6 +272,16 @@ Request body:
   - `1` - Change
     - u32 (4 bytes) - Content length
     - Formatted file text
+
+#### `11` - Set max threads
+
+The CLI may tell the process plugin it can increase the number of threads it's using for formatting. To start, process plugins should be capped at 1 thread.
+
+Request body:
+
+- u32 (4 bytes) - Max number of threads.
+
+No response.
 
 ### Creating a `.exe-plugin` file
 
