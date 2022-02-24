@@ -134,9 +134,9 @@ Requests are sent from the client to the plugin in the following format:
 <ID><KIND>[<BODY>]<SUCCESS_BYTES>
 ```
 
-- `ID` - u32 (4 bytes) - Number for the request or the ID of the host format request.
-- `KIND` - u32 (4 bytes) - Kind of request.
-- `BODY` - Depends on the kind and may be optional.
+- `ID` - u32 (4 bytes) - Number for the request or the ID of the host format request
+- `KIND` - u32 (4 bytes) - Kind of request
+- `BODY` - Depends on the kind and may be optional
 - `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
 
 ### Responses
@@ -151,17 +151,19 @@ Responses are sent from the plugin to the client and could include format reques
 - `KIND` - u32 (4 bytes) - `0` for success, `1` for failure, `2` for host format request.
 - `BODY`
   - When `KIND` is `0`:
-    - Depends on the request kind.
+    - Depends on the request kind
   - When `KIND` is `1`:
     - u32 (4 bytes) - Error message size
     - X bytes - Error message
   - When `KIND` is `2`:
-    - u32 (4 bytes) - Size of the file path.
-    - File path.
-    - u32 (4 bytes) - Size of the file text.
+    - u32 (4 bytes) - Size of the file path
+    - File path
+    - u32 (4 bytes) - Start byte index to format
+    - u32 (4 bytes) - End byte index to format
+    - u32 (4 bytes) - Size of the override configuration
+    - JSON serialized override configuration
+    - u32 (4 bytes) - Size of the file text
     - File text.
-    - u32 (4 bytes) - Size of the override configuration.
-    - JSON serialized override configuration.
 - `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
 
 ### Request Kinds
@@ -205,7 +207,7 @@ Releases configuration from memory in the process plugin.
 
 Request body:
 
-- u32 (4 bytes) - Identifier for the configuration.
+- u32 (4 bytes) - Identifier for the configuration
 
 Response body: None
 
@@ -213,7 +215,7 @@ Response body: None
 
 Request body:
 
-- u32 (4 bytes) - Identifier for the configuration to get diagnostics for.
+- u32 (4 bytes) - Identifier for the configuration to get diagnostics for
 
 Response body:
 
@@ -224,7 +226,7 @@ Response body:
 
 Request body:
 
-- u32 (4 bytes) - Identifier for the configuration to get diagnostics for.
+- u32 (4 bytes) - Identifier for the configuration to get diagnostics for
 
 Response body:
 
@@ -237,18 +239,20 @@ Request body:
 
 - u32 (4 bytes) - File path content length
 - File path
+- u32 (4 bytes) - Start byte index to format
+- u32 (4 bytes) - End byte index to format
+- u32 (4 bytes) - Configuration identifier
+- u32 (4 bytes) - Override configuration length -- TODO: Is this necessary anymore?
+- JSON override configuration
 - u32 (4 bytes) - File text content length
 - File text
-- u32 (4 bytes) - Configuration identifier
-- u32 (4 bytes) - Override configuration -- TODO: Is this necessary anymore?
-- JSON override configuration
 
 Response body:
 
 - u32 (4 bytes) - Response Kind
   - `0` - No Change
   - `1` - Change
-    - u32 (4 bytes) - Content length.
+    - u32 (4 bytes) - Content length of the changed text
     - Formatted file text
 
 #### `9` - Cancel Format
@@ -266,7 +270,7 @@ Request body:
 - u32 (4 bytes) - Response Kind
   - `0` - No Change
   - `1` - Change
-    - u32 (4 bytes) - Content length.
+    - u32 (4 bytes) - Content length
     - Formatted file text
 
 ### Creating a `.exe-plugin` file
