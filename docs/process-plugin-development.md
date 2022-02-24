@@ -273,16 +273,6 @@ Request body:
     - u32 (4 bytes) - Content length
     - Formatted file text
 
-#### `11` - Set max threads
-
-The CLI may tell the process plugin it can increase the number of threads it's using for formatting. To start, process plugins should be capped at 1 thread.
-
-Request body:
-
-- u32 (4 bytes) - Max number of threads.
-
-No response.
-
 ### Creating a `.exe-plugin` file
 
 TODO...
