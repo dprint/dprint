@@ -123,7 +123,7 @@ fn process_file_pattern_slashes(file_pattern: &str) -> String {
   // it is more desirable for this CLI to work the same way no matter
   // what operation system the user is on and for the CLI to match
   // backslashes as a path separator.
-  file_pattern.replace("\\", "/")
+  file_pattern.replace('\\', "/")
 }
 
 fn process_cli_arg_patterns(file_patterns: Vec<String>, cwd: &CanonicalizedPathBuf) -> Vec<String> {

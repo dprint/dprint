@@ -66,7 +66,7 @@ impl GlobPattern {
           .unwrap()
           .to_string_lossy()
           .to_string()
-          .replace("\\", "/");
+          .replace('\\', "/");
         if value.starts_with("./") {
           value.drain(..2);
         }

@@ -20,7 +20,6 @@ dunce = "1.0.2"
 ignore = "0.4.18"
 indexmap = { version = "1.8.0", features = ["serde-1"] }
 jsonc-parser = { version = "0.19.0" }
-num_cpus = "1.13.0"
 parking_lot = "0.11.2"
 rayon = "1.5.1"
 serde = { version = "1.0.130", features = ["derive"] }

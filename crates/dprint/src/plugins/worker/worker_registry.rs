@@ -26,7 +26,7 @@ impl<TEnvironment: Environment> WorkerRegistry<TEnvironment> {
       plugin_pools: &PluginPools<TEnvironment>,
       file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
     ) -> Vec<Arc<Worker<TEnvironment>>> {
-      let number_threads = std::cmp::max(1, num_cpus::get()); // use logical cores (same as Rayon)
+      let number_threads = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4);
       let mut workers = Vec::with_capacity(number_threads);
 
       // initially divide work by plugins

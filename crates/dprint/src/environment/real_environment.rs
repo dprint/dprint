@@ -323,7 +323,7 @@ fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
   // ignore any access denied errors for the system volume information
   cfg!(target_os = "windows")
     && matches!(err.raw_os_error(), Some(5))
-    && matches!(dir_path.file_name().map(|f| f.to_str()).flatten(), Some("System Volume Information"))
+    && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
 #[cfg(test)]

@@ -25,7 +25,7 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
 
           if !file.is_dir() {
             if let Some(parent_dir_path) = file_path.parent() {
-              environment.mk_dir_all(&parent_dir_path.to_path_buf())?;
+              environment.mk_dir_all(parent_dir_path)?;
             }
             let mut file_bytes = Vec::with_capacity(file.size() as usize);
             file.read_to_end(&mut file_bytes)?;

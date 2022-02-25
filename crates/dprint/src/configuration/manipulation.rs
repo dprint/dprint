@@ -93,7 +93,7 @@ fn get_indentation_text(file_text: &str, root_obj: &Object) -> String {
     .map(|first_property| {
       let after_brace_position = root_obj.start() + 1;
       let first_property_start = first_property.start();
-      let text = file_text[after_brace_position..first_property_start].replace("\r", "");
+      let text = file_text[after_brace_position..first_property_start].replace('\r', "");
       let last_line = text.split('\n').last().unwrap();
       last_line.chars().take_while(|c| c.is_whitespace()).collect::<String>()
     })

@@ -53,7 +53,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     }
     let last_index = file_text.find("~~\n").expect("Could not find final ~~\\n");
 
-    let config_text = file_text["~~".len()..last_index].replace("\n", "");
+    let config_text = file_text["~~".len()..last_index].replace('\n', "");
     let mut config: IndexMap<String, String> = IndexMap::new();
 
     for item in config_text.split(',') {

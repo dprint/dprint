@@ -143,7 +143,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     ("license", _) => SubCommand::License,
     ("editor-info", _) => SubCommand::EditorInfo,
     ("editor-service", Some(matches)) => SubCommand::EditorService(EditorServiceSubCommand {
-      parent_pid: matches.value_of("parent-pid").map(|v| v.parse::<u32>().ok()).flatten().unwrap(),
+      parent_pid: matches.value_of("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
     #[cfg(target_os = "windows")]
     ("hidden", Some(matches)) => SubCommand::Hidden(match matches.subcommand() {

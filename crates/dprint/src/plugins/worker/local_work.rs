@@ -58,8 +58,7 @@ impl<TEnvironment: Environment> LocalWork<TEnvironment> {
       self
         .work_by_plugin
         .get(0)
-        .map(|plugin_work| plugin_work.calculate_worthwhile_steal_time())
-        .flatten()
+        .and_then(|plugin_work| plugin_work.calculate_worthwhile_steal_time())
         .map(|plugin_info| LocalWorkStealInfo {
           stealer_id: self.stealer_id,
           kind: LocalWorkStealKind::Items(plugin_info),

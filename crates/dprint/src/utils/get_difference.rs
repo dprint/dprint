@@ -96,22 +96,22 @@ fn get_addition_text(text: &str) -> String {
 }
 
 fn get_addition_highlight_text(text: &str) -> String {
-  let text = text.replace("\t", "\u{21E5}");
+  let text = text.replace('\t', "\u{21E5}");
   text.white().on_green().to_string()
 }
 
 fn get_removal_text(text: &str) -> String {
-  let text = text.replace("\t", "\u{21E5}");
+  let text = text.replace('\t', "\u{21E5}");
   text.red().to_string()
 }
 
 fn get_removal_highlight_text(text: &str) -> String {
-  let text = text.replace("\t", "\u{21E5}");
+  let text = text.replace('\t', "\u{21E5}");
   text.white().on_red().to_string()
 }
 
 fn annotate_whitespace(text: &str) -> String {
-  text.replace("\t", "\u{2192}").replace(" ", "\u{00B7}")
+  text.replace('\t', "\u{2192}").replace(' ', "\u{00B7}")
 }
 
 #[cfg(test)]
