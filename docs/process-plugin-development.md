@@ -132,7 +132,7 @@ Messages are sent from the client to the plugin in the following format:
 <ID><KIND>[<BODY>]<SUCCESS_BYTES>
 ```
 
-- `ID` - u32 (4 bytes) - Number for the request or the ID of the host format request
+- `ID` - u32 (4 bytes) - Identifier that relates to the body.
 - `KIND` - u32 (4 bytes) - Kind of request
 - `BODY` - Depends on the kind and may be optional
 - `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
@@ -145,7 +145,7 @@ Responses are sent from the plugin to the client and could include format reques
 <ID><KIND><BODY><SUCCESS_BYTES>
 ```
 
-- `ID` - Which request this response is for or a new ID for a host format request.
+- `ID` - Identifier that relates to the message or a new ID for a host format request.
 - `KIND` - u32 (4 bytes) - `0` for success, `1` for failure, `2` for host format request.
 - `BODY`
   - When `KIND` is `0`:
@@ -199,17 +199,13 @@ Message body:
 
 Releases configuration from memory in the process plugin.
 
-Message body:
-
-- u32 (4 bytes) - Identifier for the configuration
+Message body: None, uses id
 
 Response body: None
 
 #### `6` - Get Configuration Diagnostics
 
-Message body:
-
-- u32 (4 bytes) - Identifier for the configuration to get diagnostics for
+Message body: None, uses id
 
 Response body:
 
@@ -218,9 +214,7 @@ Response body:
 
 #### `7` - Get Resolved Configuration
 
-Message body:
-
-- u32 (4 bytes) - Identifier for the configuration to get diagnostics for
+Message body: None, uses id
 
 Response body:
 
