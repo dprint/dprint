@@ -124,9 +124,9 @@ To maintain compatibility with past dprint clients, an initial schema version es
 1. An initial `0` (4 bytes) is sent asking for the schema version.
 2. At this point, the client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
 
-### Requests
+### Messages
 
-Requests are sent from the client to the plugin in the following format:
+Messages are sent from the client to the plugin in the following format:
 
 ```
 <ID><KIND>[<BODY>]<SUCCESS_BYTES>
@@ -164,7 +164,7 @@ Responses are sent from the plugin to the client and could include format reques
     - File text.
 - `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
 
-### Request Kinds
+### Message Kinds
 
 #### `1` - Close
 
@@ -186,24 +186,20 @@ Response body:
 
 #### `4` - Register Configuration
 
-Stores configuration in memory in the process plugin.
+Stores configuration in memory in the process plugin. The identifier of the configuration is the request identifier.
 
-Request body:
+Message body:
 
 - u32 (4 bytes) - Content length
 - JSON serialized global configuration
 - u32 (4 bytes) - Content length
 - JSON serialized plugin configuration
 
-Response body:
-
-- u32 (4 bytes) - Identifier for this configuration.
-
 #### `5` - Release Configuration
 
 Releases configuration from memory in the process plugin.
 
-Request body:
+Message body:
 
 - u32 (4 bytes) - Identifier for the configuration
 
@@ -211,7 +207,7 @@ Response body: None
 
 #### `6` - Get Configuration Diagnostics
 
-Request body:
+Message body:
 
 - u32 (4 bytes) - Identifier for the configuration to get diagnostics for
 
@@ -222,7 +218,7 @@ Response body:
 
 #### `7` - Get Resolved Configuration
 
-Request body:
+Message body:
 
 - u32 (4 bytes) - Identifier for the configuration to get diagnostics for
 
@@ -233,7 +229,7 @@ Response body:
 
 #### `8` - Format Text
 
-Request body:
+Message body:
 
 - u32 (4 bytes) - File path content length
 - File path
@@ -261,11 +257,11 @@ No response.
 
 The plugin may still respond with a completed formatting request, but the CLI will ignore it.
 
-#### `10` - Host Format Request Response
+#### `10` - Host Format Response
 
 The response should use the same identifier as the host formatting request.
 
-Request body:
+Message body:
 
 - u32 (4 bytes) - Response Kind
   - `0` - No Change
