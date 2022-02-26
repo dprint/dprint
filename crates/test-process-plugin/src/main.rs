@@ -40,7 +40,7 @@ impl TestProcessPluginHandler {
 }
 
 impl PluginHandler<Configuration> for TestProcessPluginHandler {
-  fn get_plugin_info(&mut self) -> PluginInfo {
+  fn plugin_info(&mut self) -> PluginInfo {
     PluginInfo {
       name: String::from(env!("CARGO_PKG_NAME")),
       version: String::from(env!("CARGO_PKG_VERSION")),
@@ -53,7 +53,7 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
     }
   }
 
-  fn get_license_text(&mut self) -> String {
+  fn license_text(&mut self) -> String {
     "License text.".to_string()
   }
 
@@ -71,7 +71,7 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
     }
   }
 
-  fn format_text(
+  fn format(
     &mut self,
     _: &Path,
     file_text: &str,

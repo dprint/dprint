@@ -4,17 +4,20 @@ use anyhow::Result;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::io::Read;
+use std::io::Stdin;
+use std::io::Stdout;
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 
+use super::communication::StdinReader;
+use super::context::ProcessContext;
 use super::FormatResult;
 use super::HostFormatResult;
 use super::MessageKind;
-use super::MessagePart;
 use super::ResponseKind;
-use super::StdIoMessenger;
-use super::StdIoReaderWriter;
 use super::PLUGIN_SCHEMA_VERSION;
+use crate::configuration::resolve_global_config;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::configuration::ResolveConfigurationResult;
@@ -27,9 +30,64 @@ struct MessageProcessorState<TConfiguration: Clone + Serialize> {
 }
 
 /// Handles the process' messages based on the provided handler.
-pub fn handle_process_stdio_messages<THandler: PluginHandler<TConfiguration>, TConfiguration: Clone + Serialize>(mut handler: THandler) -> Result<()> {
-  let stdin = std::io::stdin();
-  let stdout = std::io::stdout();
+pub async fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler) -> Result<()> {
+  // ensure all process plugins exit on panic on any tokio task
+  setup_exit_process_panic_hook();
+
+  let mut stdin = std::io::stdin();
+  let mut stdout = std::io::stdout();
+
+  schema_establishment_phase(&mut stdin, &mut stdout)?;
+
+  let handler = Arc::new(handler);
+  let context = Arc::new(ProcessContext::default());
+
+  // task to read stdin messages
+  tokio::task::spawn_blocking({
+    let context = context.clone();
+    let handler = handler.clone();
+    move || {
+      let stdin_reader = StdinReader::new(stdin);
+      loop {
+        let id = stdin_reader.read_u32()?;
+        let kind: MessageKind = stdin_reader.read_u32()?.into();
+        match kind {
+          MessageKind::Close => {
+            return Ok(());
+          }
+          MessageKind::GetPluginInfo => {
+            stdin_reader.read_success_bytes()?;
+          }
+          MessageKind::GetLicenseText => {
+            stdin_reader.read_success_bytes()?;
+          }
+          MessageKind::RegisterConfiguration => {
+            let global_config = stdin_reader.read_sized_bytes()?;
+            let plugin_config = stdin_reader.read_sized_bytes()?;
+            stdin_reader.read_success_bytes()?;
+
+            let global_config = serde_json::from_slice(&global_config)?;
+            let plugin_config = serde_json::from_slice(&plugin_config)?;
+            let result = handler.resolve_config(&global_config, plugin_config);
+            context.store_config_result(id, result);
+          }
+          MessageKind::ReleaseConfiguration => {
+            stdin_reader.read_success_bytes()?;
+          }
+          MessageKind::GetConfigurationDiagnostics => {
+            stdin_reader.read_success_bytes()?;
+          }
+          MessageKind::GetResolvedConfiguration => {}
+          MessageKind::FormatText => {}
+          MessageKind::CancelFormat => {}
+          MessageKind::HostFormatResponse => {}
+        }
+      }
+
+      Ok(())
+    }
+  });
+
   let reader_writer = StdIoReaderWriter::new(stdin, stdout);
   let mut messenger = StdIoMessenger::new(reader_writer);
   let mut state = MessageProcessorState {
@@ -49,11 +107,29 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler<TConfiguration>, TC
   }
 }
 
-fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Serialize, THandler: PluginHandler<TConfiguration>>(
+/// For backwards compatibility asking for the schema version.
+fn schema_establishment_phase(stdin: &mut Stdin, stdout: &mut Stdout) -> Result<()> {
+  // 1. An initial `0` (4 bytes) is sent asking for the schema version.
+  let mut receive_buf: [u8; 4] = [0; 4];
+  stdin.read_exact(&mut receive_buf)?;
+  let value = u32::from_be_bytes(receive_buf);
+  if value != 0 {
+    bail!("Expected a schema version request of `0`.");
+  }
+
+  // 2. The client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
+  let mut response_buf: [u8; 8] = [0; 8];
+  stdout.write(&(0 as u32).to_be_bytes());
+  stdout.write(&PLUGIN_SCHEMA_VERSION.to_be_bytes());
+
+  Ok(())
+}
+
+fn handle_message_kind<TRead: Read, TWrite: Write, THandler: PluginHandler>(
   message_kind: MessageKind,
   messenger: &mut StdIoMessenger<TRead, TWrite>,
   handler: &mut THandler,
-  state: &mut MessageProcessorState<TConfiguration>,
+  state: &mut MessageProcessorState<THandler::Configuration>,
 ) -> Result<bool> {
   match message_kind {
     MessageKind::Close => {
@@ -66,11 +142,11 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
     }
     MessageKind::GetPluginInfo => {
       messenger.read_zero_part_message()?;
-      messenger.send_response(vec![serde_json::to_vec(&handler.get_plugin_info())?.into()])?
+      messenger.send_response(vec![serde_json::to_vec(&handler.plugin_info())?.into()])?
     }
     MessageKind::GetLicenseText => {
       messenger.read_zero_part_message()?;
-      messenger.send_response(vec![handler.get_license_text().into()])?
+      messenger.send_response(vec![handler.license_text().into()])?
     }
     MessageKind::SetGlobalConfig => {
       let message_data = messenger.read_single_part_message()?;
@@ -109,7 +185,7 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
         Cow::Borrowed(&get_resolved_config_result(state)?.config)
       };
 
-      let formatted_text = handler.format_text(&file_path, &file_text, &config, |file_path, file_text, override_config| {
+      let formatted_text = handler.format(&file_path, &file_text, &config, |file_path, file_text, override_config| {
         format_with_host(messenger, file_path, file_text, override_config)
       })?;
 
@@ -124,10 +200,7 @@ fn handle_message_kind<TRead: Read, TWrite: Write, TConfiguration: Clone + Seria
   Ok(true)
 }
 
-fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: PluginHandler<TConfiguration>>(
-  handler: &mut THandler,
-  state: &mut MessageProcessorState<TConfiguration>,
-) -> Result<()> {
+fn ensure_resolved_config<THandler: PluginHandler>(handler: &mut THandler, state: &mut MessageProcessorState<THandler::Configuration>) -> Result<()> {
   if state.resolved_config_result.is_none() {
     state.resolved_config_result = Some(create_resolved_config_result(handler, state, Default::default())?);
   }
@@ -135,11 +208,11 @@ fn ensure_resolved_config<TConfiguration: Clone + Serialize, THandler: PluginHan
   Ok(())
 }
 
-fn create_resolved_config_result<TConfiguration: Clone + Serialize, THandler: PluginHandler<TConfiguration>>(
+fn create_resolved_config_result<THandler: PluginHandler>(
   handler: &mut THandler,
-  state: &MessageProcessorState<TConfiguration>,
+  state: &MessageProcessorState<THandler::Configuration>,
   override_config: ConfigKeyMap,
-) -> Result<ResolveConfigurationResult<TConfiguration>> {
+) -> Result<ResolveConfigurationResult<THandler::Configuration>> {
   let mut plugin_config = state
     .config
     .as_ref()
@@ -207,4 +280,13 @@ impl<TRead: Read, TWrite: Write> StdIoMessengerExtensions for StdIoMessenger<TRe
   fn send_error_response(&mut self, error_message: &str) -> Result<()> {
     self.send_message(ResponseKind::Error as u32, vec![error_message.into()])
   }
+}
+
+fn setup_exit_process_panic_hook() {
+  // tokio doesn't exit on task panic, so implement that behaviour here
+  let orig_hook = std::panic::take_hook();
+  std::panic::set_hook(Box::new(move |panic_info| {
+    orig_hook(panic_info);
+    std::process::exit(1);
+  }));
 }

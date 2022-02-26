@@ -5,8 +5,8 @@ use std::io::Write;
 use std::sync::Arc;
 
 use dprint_core::plugins::process::start_parent_process_checker_thread;
-use dprint_core::plugins::process::StdIoMessenger;
-use dprint_core::plugins::process::StdIoReaderWriter;
+
+mod communication;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
@@ -20,6 +20,8 @@ use crate::plugins::get_plugins_from_args;
 use crate::plugins::resolve_plugins;
 use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
+use communication::StdIoMessenger;
+use communication::StdIoReaderWriter;
 
 pub fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
@@ -225,14 +227,14 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 mod test {
   use anyhow::bail;
   use anyhow::Result;
-  use dprint_core::plugins::process::StdIoMessenger;
-  use dprint_core::plugins::process::StdIoReaderWriter;
   use pretty_assertions::assert_eq;
   use std::io::Read;
   use std::io::Write;
   use std::path::Path;
   use std::path::PathBuf;
 
+  use super::communication::StdIoMessenger;
+  use super::communication::StdIoReaderWriter;
   use crate::environment::Environment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::run_test_cli;
