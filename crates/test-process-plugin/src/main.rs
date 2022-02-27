@@ -12,13 +12,13 @@ use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
-use dprint_core::plugins::process::start_parent_process_checker_thread;
+use dprint_core::plugins::process::start_parent_process_checker_task;
 use dprint_core::plugins::PluginHandler;
 use dprint_core::plugins::PluginInfo;
 
 fn main() -> Result<()> {
   if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
-    start_parent_process_checker_thread(parent_process_id);
+    start_parent_process_checker_task(parent_process_id);
   }
 
   handle_process_stdio_messages(TestProcessPluginHandler::new())

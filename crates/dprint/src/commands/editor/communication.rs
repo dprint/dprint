@@ -2,8 +2,10 @@
 
 use anyhow::bail;
 use anyhow::Result;
+use std::borrow::Cow;
 use std::io::Read;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 
 const BUFFER_SIZE: usize = 1024; // safe to assume

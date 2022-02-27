@@ -15,42 +15,21 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
-use super::communication::StdinReader;
-use super::communication::StdoutWriter;
+use super::communication::MessageReader;
+use super::communication::MessageWriter;
 use super::context::ProcessContext;
-use super::FormatResult;
-use super::HostFormatResult;
-use super::MessageKind;
-use super::ResponseKind;
+use super::messages::HostFormatResponseMessageBody;
+use super::messages::Message;
+use super::messages::MessageBody;
+use super::messages::Response;
+use super::messages::ResponseBody;
+use super::messages::ResponseBodyHostFormat;
+use super::messages::ResponseSuccessBody;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
 use crate::plugins::FormatRequest;
 use crate::plugins::Host;
 use crate::plugins::PluginHandler;
-
-struct Response {
-  id: u32,
-  body: ResponseBody,
-}
-
-enum ResponseBody {
-  Success(ResponseSuccessBody),
-  Error(String),
-  HostFormat(ResponseBodyHostFormat),
-}
-
-struct ResponseBodyHostFormat {
-  file_path: PathBuf,
-  range: Range<u32>,
-  override_config: Vec<u8>,
-  file_text: String,
-}
-
-enum ResponseSuccessBody {
-  General,
-  Data(Vec<u8>),
-  FormatText(Option<String>),
-}
 
 /// Handles the process' messages based on the provided handler.
 ///
@@ -74,147 +53,89 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
 
   // task to send responses over stdout
   tokio::task::spawn({
-    let handler = handler.clone();
-    let context = context.clone();
     async move {
-      let stdout_writer = StdoutWriter::new(stdout);
+      let mut stdout_writer = MessageWriter::new(stdout);
       while let Some(result) = response_rx.recv().await {
-        stdout_writer.send_u32(result.id);
-        match result.body {
-          ResponseBody::Success(body) => {
-            stdout_writer.send_u32(ResponseKind::Success as u32);
-            match body {
-              ResponseSuccessBody::General => {
-                // do nothing, success bytes will be sent
-              }
-              ResponseSuccessBody::Data(data) => {
-                stdout_writer.send_sized_bytes(&data);
-              }
-              ResponseSuccessBody::FormatText(maybe_text) => match maybe_text {
-                Some(text) => {
-                  stdout_writer.send_u32(FormatResult::Change as u32);
-                  stdout_writer.send_sized_bytes(text.as_bytes());
-                }
-                None => {
-                  stdout_writer.send_u32(FormatResult::NoChange as u32);
-                }
-              },
-            }
-          }
-          ResponseBody::Error(text) => {
-            stdout_writer.send_u32(ResponseKind::Error as u32);
-            stdout_writer.send_sized_bytes(&text.as_bytes());
-          }
-          ResponseBody::HostFormat(data) => {
-            stdout_writer.send_u32(ResponseKind::HostFormatRequest as u32);
-          }
-        }
-        stdout_writer.send_success_bytes();
+        result.write(&mut stdout_writer).unwrap();
       }
     }
   });
 
   // read messages over stdin
-  let mut stdin_reader = StdinReader::new(stdin);
+  let mut stdin_reader = MessageReader::new(stdin);
   loop {
-    let id = stdin_reader.read_u32();
-    let kind: MessageKind = stdin_reader.read_u32().into();
-    match kind {
-      MessageKind::Close => {
+    let message = Message::read(&mut stdin_reader).unwrap();
+    match message.body {
+      MessageBody::Close => {
         return Ok(());
       }
-      MessageKind::GetPluginInfo => {
-        stdin_reader.read_success_bytes();
-        handle_message(&response_tx, id, || {
+      MessageBody::IsAlive => handle_message(&response_tx, message.id, || Ok(ResponseSuccessBody::Acknowledge)),
+      MessageBody::GetPluginInfo => {
+        handle_message(&response_tx, message.id, || {
           let plugin_info = handler.plugin_info();
           let data = serde_json::to_vec(&plugin_info)?;
           Ok(ResponseSuccessBody::Data(data))
         });
       }
-      MessageKind::GetLicenseText => {
-        stdin_reader.read_success_bytes();
-        handle_message(&response_tx, id, || Ok(ResponseSuccessBody::Data(handler.license_text().into_bytes())));
+      MessageBody::GetLicenseText => {
+        handle_message(&response_tx, message.id, || Ok(ResponseSuccessBody::Data(handler.license_text().into_bytes())));
       }
-      MessageKind::RegisterConfig => {
-        // read bytes first
-        let global_config = stdin_reader.read_sized_bytes();
-        let plugin_config = stdin_reader.read_sized_bytes();
-        stdin_reader.read_success_bytes();
-
-        handle_message(&response_tx, id, || {
-          let global_config = serde_json::from_slice(&global_config)?;
-          let plugin_config = serde_json::from_slice(&plugin_config)?;
+      MessageBody::RegisterConfig(body) => {
+        handle_message(&response_tx, message.id, || {
+          let global_config = serde_json::from_slice(&body.global_config)?;
+          let plugin_config = serde_json::from_slice(&body.plugin_config)?;
           let result = handler.resolve_config(&global_config, plugin_config);
-          context.store_config_result(id, result);
-          Ok(ResponseSuccessBody::General)
+          context.store_config_result(message.id, result);
+          Ok(ResponseSuccessBody::Acknowledge)
         });
       }
-      MessageKind::ReleaseConfig => {
-        stdin_reader.read_success_bytes();
-        handle_message(&response_tx, id, || {
-          context.release_config_result(id);
-          Ok(ResponseSuccessBody::General)
+      MessageBody::ReleaseConfig(config_id) => {
+        handle_message(&response_tx, message.id, || {
+          context.release_config_result(config_id);
+          Ok(ResponseSuccessBody::Acknowledge)
         });
       }
-      MessageKind::GetConfigDiagnostics => {
-        stdin_reader.read_success_bytes();
-        handle_message(&response_tx, id, || {
-          let result = serde_json::to_vec(&context.get_config_diagnostics(id))?;
+      MessageBody::GetConfigDiagnostics(config_id) => {
+        handle_message(&response_tx, message.id, || {
+          let result = serde_json::to_vec(&context.get_config_diagnostics(config_id))?;
           Ok(ResponseSuccessBody::Data(result))
         });
       }
-      MessageKind::GetResolvedConfig => {
-        stdin_reader.read_success_bytes();
-        handle_message(&response_tx, id, || {
-          let result = match context.get_config(id) {
+      MessageBody::GetResolvedConfig(config_id) => {
+        handle_message(&response_tx, message.id, || {
+          let result = match context.get_config(config_id) {
             Some(config) => serde_json::to_vec(&config)?,
-            None => bail!("Did not find configuration for id: {}", id),
+            None => bail!("Did not find configuration for id: {}", config_id),
           };
           Ok(ResponseSuccessBody::Data(result))
         });
       }
-      MessageKind::FormatText => {
-        // read bytes first
-        let file_path = stdin_reader.read_sized_bytes();
-        let start_byte_index = stdin_reader.read_u32();
-        let end_byte_index = stdin_reader.read_u32();
-        let config_id = stdin_reader.read_u32();
-        let json_override_config = stdin_reader.read_sized_bytes();
-        let file_text = stdin_reader.read_sized_bytes();
-        stdin_reader.read_success_bytes();
-
+      MessageBody::FormatText(body) => {
         // now parse
         let token = CancellationToken::new();
         let request = FormatRequest {
-          file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-          range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
-            None
-          } else {
-            Some(Range {
-              start: start_byte_index as usize,
-              end: end_byte_index as usize,
-            })
-          },
-          config: match context.get_config(config_id) {
+          file_path: body.file_path,
+          range: body.range,
+          config: match context.get_config(body.config_id) {
             Some(config) => config,
             None => {
               send_response(
                 &response_tx,
                 Response {
-                  id,
-                  body: ResponseBody::Error(format!("Did not find configuration for id: {}", config_id)),
+                  id: message.id,
+                  body: ResponseBody::Error(format!("Did not find configuration for id: {}", body.config_id)),
                 },
               );
               continue;
             }
           },
-          file_text: match String::from_utf8(file_text) {
+          file_text: match String::from_utf8(body.file_text) {
             Ok(text) => text,
             Err(err) => {
               send_response(
                 &response_tx,
                 Response {
-                  id,
+                  id: message.id,
                   body: ResponseBody::Error(format!("Error decoding text: {}", err)),
                 },
               );
@@ -225,42 +146,39 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
         };
 
         // start the task
-        context.store_cancellation_token(id, token.clone());
+        context.store_cancellation_token(message.id, token.clone());
         let context = context.clone();
         let handler = handler.clone();
         let host = host.clone();
         let response_tx = response_tx.clone();
         tokio::task::spawn(async move {
           let result = handler.format(request, host).await;
-          context.release_cancellation_token(id);
+          context.release_cancellation_token(message.id);
           if !token.is_cancelled() {
             let body = match result {
-              Ok(result) => ResponseBody::Success(ResponseSuccessBody::FormatText(result)),
+              Ok(result) => ResponseBody::Success(ResponseSuccessBody::FormatText(result.map(|r| r.into_bytes()))),
               Err(err) => ResponseBody::Error(err.to_string()),
             };
-            send_response(&response_tx, Response { id, body });
+            send_response(&response_tx, Response { id: message.id, body });
           }
         });
       }
-      MessageKind::CancelFormat => {
-        stdin_reader.read_success_bytes();
-        context.cancel_format(id);
+      MessageBody::CancelFormat(message_id) => {
+        context.cancel_format(message_id);
       }
-      MessageKind::HostFormatResponse => {
-        let response_kind: HostFormatResult = stdin_reader.read_u32().into();
-        let data = match response_kind {
-          HostFormatResult::NoChange => Ok(None),
-          HostFormatResult::Change => match String::from_utf8(stdin_reader.read_sized_bytes()) {
+      MessageBody::HostFormatResponse(body) => {
+        let data = match body {
+          HostFormatResponseMessageBody::NoChange => Ok(None),
+          HostFormatResponseMessageBody::Change(data) => match String::from_utf8(data) {
             Ok(data) => Ok(Some(data)),
             Err(err) => Err(anyhow!("Error deserializing success: {}", err)),
           },
-          HostFormatResult::Error => match String::from_utf8(stdin_reader.read_sized_bytes()) {
+          HostFormatResponseMessageBody::Error(data) => match String::from_utf8(data) {
             Ok(message) => Err(anyhow!("{}", message)),
             Err(err) => Err(anyhow!("Error deserializing error message: {}", err)),
           },
         };
-        stdin_reader.read_success_bytes();
-        if let Some(sender) = context.take_format_host_sender(id) {
+        if let Some(sender) = context.take_format_host_sender(message.id) {
           sender.send(data).unwrap();
         }
       }
@@ -277,7 +195,7 @@ struct ProcessHost<TConfiguration: Serialize + Clone> {
 impl<TConfiguration: Serialize + Clone> Host for ProcessHost<TConfiguration> {
   type FormatFuture = Pin<Box<dyn Future<Output = Result<Option<String>>>>>;
 
-  fn format(&self, file_path: PathBuf, file_text: String, range: Option<Range<usize>>, config: &ConfigKeyMap) -> Self::FormatFuture {
+  fn format(&self, file_path: PathBuf, file_text: String, range: Option<Range<usize>>, config: Option<&ConfigKeyMap>) -> Self::FormatFuture {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
     let id = self.context.store_format_host_sender(tx);
 
@@ -286,13 +204,10 @@ impl<TConfiguration: Serialize + Clone> Host for ProcessHost<TConfiguration> {
       .send(Response {
         id,
         body: ResponseBody::HostFormat(ResponseBodyHostFormat {
-          range: Range {
-            start: range.map(|r| r.start as u32).unwrap_or(0),
-            end: range.map(|r| r.end as u32).unwrap_or(file_text.len() as u32),
-          },
+          range,
           file_path,
-          file_text,
-          override_config: serde_json::to_vec(config).unwrap(),
+          file_text: file_text.into_bytes(),
+          override_config: config.map(|c| serde_json::to_vec(c).unwrap()),
         }),
       })
       .unwrap_or_else(|err| panic!("Error sending host format response: {}", err));

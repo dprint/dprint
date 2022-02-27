@@ -4,7 +4,7 @@ use std::io::Read;
 use std::io::Write;
 use std::sync::Arc;
 
-use dprint_core::plugins::process::start_parent_process_checker_thread;
+use dprint_core::plugins::process::start_parent_process_checker_task;
 
 mod communication;
 
@@ -88,7 +88,7 @@ pub fn run_editor_service<TEnvironment: Environment>(
   editor_service_cmd: &EditorServiceSubCommand,
 ) -> Result<()> {
   // poll for the existence of the parent process and terminate this process when that process no longer exists
-  let _handle = start_parent_process_checker_thread(editor_service_cmd.parent_pid);
+  let _handle = start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
   let mut editor_service = EditorService::new(args, cache, environment, plugin_resolver, plugin_pools);
   editor_service.run()
