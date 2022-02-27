@@ -7,10 +7,10 @@ pub enum MessageKind {
   Close = 1,
   GetPluginInfo = 2,
   GetLicenseText = 3,
-  RegisterConfiguration = 4,
-  ReleaseConfiguration = 5,
-  GetConfigurationDiagnostics = 6,
-  GetResolvedConfiguration = 7,
+  RegisterConfig = 4,
+  ReleaseConfig = 5,
+  GetConfigDiagnostics = 6,
+  GetResolvedConfig = 7,
   FormatText = 8,
   CancelFormat = 9,
   HostFormatResponse = 10,
@@ -24,10 +24,10 @@ impl From<u32> for MessageKind {
       1 => Close,
       2 => GetPluginInfo,
       3 => GetLicenseText,
-      4 => RegisterConfiguration,
-      5 => ReleaseConfiguration,
-      6 => GetConfigurationDiagnostics,
-      7 => GetResolvedConfiguration,
+      4 => RegisterConfig,
+      5 => ReleaseConfig,
+      6 => GetConfigDiagnostics,
+      7 => GetResolvedConfig,
       8 => FormatText,
       9 => CancelFormat,
       10 => HostFormatResponse,
@@ -79,6 +79,7 @@ impl From<u32> for FormatResult {
 pub enum HostFormatResult {
   NoChange = 0,
   Change = 1,
+  Error = 2,
 }
 
 // todo: generate with a macro
