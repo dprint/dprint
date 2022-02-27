@@ -2,14 +2,12 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
 use serde::Serialize;
-use std::borrow::Cow;
 use std::future::Future;
 use std::io::Read;
 use std::io::Stdin;
 use std::io::Stdout;
 use std::io::Write;
 use std::ops::Range;
-use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -26,8 +24,6 @@ use super::MessageKind;
 use super::ResponseKind;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
-use crate::configuration::GlobalConfiguration;
-use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::FormatRequest;
 use crate::plugins::Host;
 use crate::plugins::PluginHandler;
@@ -56,13 +52,9 @@ enum ResponseSuccessBody {
   FormatText(Option<String>),
 }
 
-struct MessageProcessorState<TConfiguration: Clone + Serialize> {
-  global_config: Option<GlobalConfiguration>,
-  config: Option<ConfigKeyMap>,
-  resolved_config_result: Option<ResolveConfigurationResult<TConfiguration>>,
-}
-
 /// Handles the process' messages based on the provided handler.
+///
+/// Run this in a blocking task.
 pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler) -> Result<()> {
   // ensure all process plugins exit on panic on any tokio task
   setup_exit_process_panic_hook();
@@ -80,7 +72,7 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
     sender: response_tx.clone(),
   };
 
-  // task to send responses
+  // task to send responses over stdout
   tokio::task::spawn({
     let handler = handler.clone();
     let context = context.clone();
@@ -122,7 +114,7 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
     }
   });
 
-  // task to read stdin messages
+  // read messages over stdin
   let mut stdin_reader = StdinReader::new(stdin);
   loop {
     let id = stdin_reader.read_u32();
@@ -242,7 +234,11 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
           let result = handler.format(request, host).await;
           context.release_cancellation_token(id);
           if !token.is_cancelled() {
-            handle_message(&response_tx, id, || Ok(ResponseSuccessBody::FormatText(result?)));
+            let body = match result {
+              Ok(result) => ResponseBody::Success(ResponseSuccessBody::FormatText(result)),
+              Err(err) => ResponseBody::Error(err.to_string()),
+            };
+            send_response(&response_tx, Response { id, body });
           }
         });
       }
@@ -253,13 +249,19 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
       MessageKind::HostFormatResponse => {
         let response_kind: HostFormatResult = stdin_reader.read_u32().into();
         let data = match response_kind {
-          HostFormatResult::NoChange => None,
-          HostFormatResult::Change => Some(stdin_reader.read_sized_bytes()),
+          HostFormatResult::NoChange => Ok(None),
+          HostFormatResult::Change => match String::from_utf8(stdin_reader.read_sized_bytes()) {
+            Ok(data) => Ok(Some(data)),
+            Err(err) => Err(anyhow!("Error deserializing success: {}", err)),
+          },
+          HostFormatResult::Error => match String::from_utf8(stdin_reader.read_sized_bytes()) {
+            Ok(message) => Err(anyhow!("{}", message)),
+            Err(err) => Err(anyhow!("Error deserializing error message: {}", err)),
+          },
         };
         stdin_reader.read_success_bytes();
         if let Some(sender) = context.take_format_host_sender(id) {
-          let data = data.map(|text| String::from_utf8(text).ok()).flatten();
-          sender.send
+          sender.send(data).unwrap();
         }
       }
     }
@@ -340,163 +342,6 @@ fn schema_establishment_phase(stdin: &mut Stdin, stdout: &mut Stdout) -> Result<
   stdout.write(&PLUGIN_SCHEMA_VERSION.to_be_bytes());
 
   Ok(())
-}
-
-fn handle_message_kind<TRead: Read, TWrite: Write, THandler: PluginHandler>(
-  message_kind: MessageKind,
-  messenger: &mut StdIoMessenger<TRead, TWrite>,
-  handler: &mut THandler,
-  state: &mut MessageProcessorState<THandler::Configuration>,
-) -> Result<bool> {
-  match message_kind {
-    MessageKind::Close => {
-      messenger.read_zero_part_message()?;
-      return Ok(false);
-    }
-    MessageKind::GetPluginSchemaVersion => {
-      messenger.read_zero_part_message()?;
-      messenger.send_response(vec![PLUGIN_SCHEMA_VERSION.into()])?
-    }
-    MessageKind::GetPluginInfo => {
-      messenger.read_zero_part_message()?;
-      messenger.send_response(vec![serde_json::to_vec(&handler.plugin_info())?.into()])?
-    }
-    MessageKind::GetLicenseText => {
-      messenger.read_zero_part_message()?;
-      messenger.send_response(vec![handler.license_text().into()])?
-    }
-    MessageKind::SetGlobalConfig => {
-      let message_data = messenger.read_single_part_message()?;
-      state.global_config = Some(serde_json::from_slice(&message_data)?);
-      state.resolved_config_result.take();
-      messenger.send_response(Vec::new())?;
-    }
-    MessageKind::SetPluginConfig => {
-      let message_data = messenger.read_single_part_message()?;
-      let plugin_config = serde_json::from_slice(&message_data)?;
-      state.resolved_config_result.take();
-      state.config = Some(plugin_config);
-      messenger.send_response(Vec::new())?;
-    }
-    MessageKind::GetResolvedConfig => {
-      messenger.read_zero_part_message()?;
-      ensure_resolved_config(handler, state)?;
-      let resolved_config = get_resolved_config_result(state)?;
-      messenger.send_response(vec![serde_json::to_vec(&resolved_config.config)?.into()])?
-    }
-    MessageKind::GetConfigDiagnostics => {
-      messenger.read_zero_part_message()?;
-      ensure_resolved_config(handler, state)?;
-      let resolved_config = get_resolved_config_result(state)?;
-      messenger.send_response(vec![serde_json::to_vec(&resolved_config.diagnostics)?.into()])?
-    }
-    MessageKind::FormatText => {
-      let mut parts = messenger.read_multi_part_message(3)?;
-      ensure_resolved_config(handler, state)?;
-      let file_path = parts.take_path_buf()?;
-      let file_text = parts.take_string()?;
-      let override_config: ConfigKeyMap = serde_json::from_slice(&parts.take_part()?)?;
-      let config = if !override_config.is_empty() {
-        Cow::Owned(create_resolved_config_result(handler, state, override_config)?.config)
-      } else {
-        Cow::Borrowed(&get_resolved_config_result(state)?.config)
-      };
-
-      let formatted_text = handler.format(&file_path, &file_text, &config, |file_path, file_text, override_config| {
-        format_with_host(messenger, file_path, file_text, override_config)
-      })?;
-
-      if formatted_text == file_text {
-        messenger.send_response(vec![(FormatResult::NoChange as u32).into()])?;
-      } else {
-        messenger.send_response(vec![(FormatResult::Change as u32).into(), formatted_text.into()])?;
-      }
-    }
-  }
-
-  Ok(true)
-}
-
-fn ensure_resolved_config<THandler: PluginHandler>(handler: &mut THandler, state: &mut MessageProcessorState<THandler::Configuration>) -> Result<()> {
-  if state.resolved_config_result.is_none() {
-    state.resolved_config_result = Some(create_resolved_config_result(handler, state, Default::default())?);
-  }
-
-  Ok(())
-}
-
-fn create_resolved_config_result<THandler: PluginHandler>(
-  handler: &mut THandler,
-  state: &MessageProcessorState<THandler::Configuration>,
-  override_config: ConfigKeyMap,
-) -> Result<ResolveConfigurationResult<THandler::Configuration>> {
-  let mut plugin_config = state
-    .config
-    .as_ref()
-    .ok_or_else(|| anyhow!("Expected plugin config to be set at this point"))?
-    .clone();
-  for (key, value) in override_config {
-    plugin_config.insert(key, value);
-  }
-  Ok(
-    handler.resolve_config(
-      plugin_config,
-      state
-        .global_config
-        .as_ref()
-        .ok_or_else(|| anyhow!("Expected global config to be set at this point."))?,
-    ),
-  )
-}
-
-fn get_resolved_config_result<TConfiguration: Clone + Serialize>(
-  state: &MessageProcessorState<TConfiguration>,
-) -> Result<&ResolveConfigurationResult<TConfiguration>> {
-  state
-    .resolved_config_result
-    .as_ref()
-    .ok_or_else(|| anyhow!("Expected the config to be resolved at this point."))
-}
-
-fn format_with_host<TRead: Read, TWrite: Write>(
-  messenger: &mut StdIoMessenger<TRead, TWrite>,
-  file_path: &Path,
-  file_text: String,
-  override_config: &ConfigKeyMap,
-) -> Result<String> {
-  messenger.send_response(vec![
-    (FormatResult::RequestTextFormat as u32).into(),
-    file_path.into(),
-    file_text.as_str().into(),
-    (&serde_json::to_vec(&override_config)?).into(),
-  ])?;
-
-  let format_result = messenger.read_code()?.into();
-  match format_result {
-    HostFormatResult::Change => messenger.read_single_part_string_message(),
-    HostFormatResult::NoChange => {
-      messenger.read_zero_part_message()?; // ensures success is read
-      Ok(file_text)
-    }
-    HostFormatResult::Error => {
-      bail!("{}", messenger.read_single_part_error_message()?)
-    }
-  }
-}
-
-trait StdIoMessengerExtensions {
-  fn send_response(&mut self, message_parts: Vec<MessagePart>) -> Result<()>;
-  fn send_error_response(&mut self, error_message: &str) -> Result<()>;
-}
-
-impl<TRead: Read, TWrite: Write> StdIoMessengerExtensions for StdIoMessenger<TRead, TWrite> {
-  fn send_response(&mut self, message_parts: Vec<MessagePart>) -> Result<()> {
-    self.send_message(ResponseKind::Success as u32, message_parts)
-  }
-
-  fn send_error_response(&mut self, error_message: &str) -> Result<()> {
-    self.send_message(ResponseKind::Error as u32, vec![error_message.into()])
-  }
 }
 
 fn setup_exit_process_panic_hook() {

@@ -2,7 +2,6 @@ use anyhow::Result;
 use serde::Serialize;
 use std::future::Future;
 use std::ops::Range;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -33,7 +32,7 @@ pub struct FormatRequest<TConfiguration, CancellationToken> {
 /// Trait for implementing a Wasm or process plugin.
 pub trait PluginHandler: Send + Sync {
   type Configuration: Serialize + Clone + Send + Sync;
-  type FormatFuture: Future<Output = Result<Option<String>>> + Send;
+  type FormatFuture: Future<Output = Result<Option<String>>> + Send + Sync;
 
   /// Resolves configuration based on the provided config map and global configuration.
   fn resolve_config(&self, global_config: &GlobalConfiguration, config: ConfigKeyMap) -> ResolveConfigurationResult<Self::Configuration>;
