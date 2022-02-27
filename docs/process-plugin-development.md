@@ -170,58 +170,73 @@ Responses are sent from the plugin to the client and could include format reques
 
 Causes the process to shut down gracefully.
 
-#### `2` - Get Plugin Info
+#### `2` - Active
+
+Used to tell if the process plugin is healthy and can respond to messages.
+
+Response: No body
+
+#### `3` - Get Plugin Info
 
 Response body:
 
 - u32 (4 bytes) - Content length
 - JSON serialized plugin information
 
-#### `3` - Get License Text
+#### `4` - Get License Text
 
 Response body:
 
 - u32 (4 bytes) - Content length
 - License text
 
-#### `4` - Register Configuration
+#### `5` - Register Configuration
 
 Stores configuration in memory in the process plugin. The identifier of the configuration is the request identifier.
 
 Message body:
 
+- u32 (4 bytes) - Config id
 - u32 (4 bytes) - Content length
 - JSON serialized global configuration
 - u32 (4 bytes) - Content length
 - JSON serialized plugin configuration
 
-#### `5` - Release Configuration
+Response: No body
+
+#### `6` - Release Configuration
 
 Releases configuration from memory in the process plugin.
 
-Message body: None, uses id
+Message body:
 
-Response body: None
+- u32 (4 bytes) - Config id
 
-#### `6` - Get Configuration Diagnostics
+Response: No body
 
-Message body: None, uses id
+#### `7` - Get Configuration Diagnostics
+
+Message body:
+
+- u32 (4 bytes) - Config id
 
 Response body:
 
 - u32 (4 bytes) - Content length
 - JSON serialized array of diagnostics
 
-#### `7` - Get Resolved Configuration
+#### `8` - Get Resolved Configuration
 
-Message body: None, uses id
+Message body:
+
+- u32 (4 bytes) - Config id
 
 Response body:
 
 - u32 (4 bytes) - Content length
 - JSON serialized resolved configuration
 
-#### `8` - Format Text
+#### `9` - Format Text
 
 Message body:
 
@@ -243,15 +258,15 @@ Response body:
     - u32 (4 bytes) - Content length of the changed text
     - Formatted file text
 
-#### `9` - Cancel Format
+#### `10` - Cancel Format
 
-The request should use the same identifier as the format request.
+Message body:
 
-No response.
+- u32 (4 bytes) - Message id of the format to cancel
 
-The plugin may still respond with a completed formatting request, but the CLI will ignore it.
+Response: No response to the message should be given by the process plugin.
 
-#### `10` - Host Format Response
+#### `11` - Host Format Response
 
 The response should use the same identifier as the host formatting request.
 
