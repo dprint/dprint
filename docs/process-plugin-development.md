@@ -262,6 +262,9 @@ Message body:
   - `1` - Change
     - u32 (4 bytes) - Content length
     - Formatted file text
+  - `2` - Error
+    - u32 (4 bytes) - Error length
+    - Error message text
 
 ### Creating a `.exe-plugin` file
 
