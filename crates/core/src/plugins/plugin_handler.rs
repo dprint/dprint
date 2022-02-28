@@ -15,10 +15,14 @@ pub trait CancellationToken: Send + Sync {
   fn is_cancelled(&self) -> bool;
 }
 
-pub trait Host {
-  type FormatFuture: Future<Output = Result<Option<String>>>;
-
-  fn format(&self, file_path: PathBuf, file_text: String, range: Option<Range<usize>>, config: Option<&ConfigKeyMap>) -> Self::FormatFuture;
+pub trait Host: Send + Sync {
+  fn format(
+    &self,
+    file_path: PathBuf,
+    file_text: String,
+    range: Option<Range<usize>>,
+    config: Option<&ConfigKeyMap>,
+  ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>>;
 }
 
 pub struct FormatRequest<TConfiguration, CancellationToken> {
@@ -35,7 +39,7 @@ pub trait PluginHandler: Send + Sync + 'static {
   type Configuration: Serialize + Clone + Send + Sync;
 
   /// Resolves configuration based on the provided config map and global configuration.
-  fn resolve_config(&self, global_config: &GlobalConfiguration, config: ConfigKeyMap) -> ResolveConfigurationResult<Self::Configuration>;
+  fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Self::Configuration>;
   /// Gets the plugin's plugin info.
   fn plugin_info(&self) -> PluginInfo;
   /// Gets the plugin's license text.

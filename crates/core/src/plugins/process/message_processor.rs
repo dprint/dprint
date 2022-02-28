@@ -84,7 +84,7 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
         handle_message(&response_tx, message.id, || {
           let global_config = serde_json::from_slice(&body.global_config)?;
           let plugin_config = serde_json::from_slice(&body.plugin_config)?;
-          let result = handler.resolve_config(&global_config, plugin_config);
+          let result = handler.resolve_config(plugin_config, global_config);
           context.store_config_result(message.id, result);
           Ok(ResponseSuccessBody::Acknowledge)
         });
@@ -187,15 +187,19 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
 }
 
 #[derive(Clone)]
-struct ProcessHost<TConfiguration: Serialize + Clone> {
+struct ProcessHost<TConfiguration: Serialize + Clone + Send + Sync> {
   context: ProcessContext<TConfiguration>,
   sender: UnboundedSender<Response>,
 }
 
-impl<TConfiguration: Serialize + Clone> Host for ProcessHost<TConfiguration> {
-  type FormatFuture = Pin<Box<dyn Future<Output = Result<Option<String>>>>>;
-
-  fn format(&self, file_path: PathBuf, file_text: String, range: Option<Range<usize>>, config: Option<&ConfigKeyMap>) -> Self::FormatFuture {
+impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConfiguration> {
+  fn format(
+    &self,
+    file_path: PathBuf,
+    file_text: String,
+    range: Option<Range<usize>>,
+    config: Option<&ConfigKeyMap>,
+  ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
     let id = self.context.store_format_host_sender(tx);
 
