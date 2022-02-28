@@ -1,6 +1,6 @@
-# Developing an Editor Extension (Schema Version 4)
+# Developing an Editor Extension (Schema Version 5)
 
-Note: Schema version 4 was introduced in dprint 0.17
+Note: Schema version 5 was introduced in dprint 0.X
 
 Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
 
@@ -16,7 +16,7 @@ Outputs something like:
 
 ```
 {
-    "schemaVersion": 4,
+    "schemaVersion": 5,
     "cliVersion": "0.17.0",
     "configSchemaUrl": "https://dprint.dev/schemas/v0.json",
     "plugins":[{
@@ -74,51 +74,100 @@ Run `dprint editor-service --parent-pid <provide your current process pid here>`
 
 The editor service polls for the provided process id every 30 seconds and if it doesn't exist it will exit.
 
+### Messages
+
+Messages are sent in the following format:
+
+```
+<ID><KIND>[<BODY>]<SUCCESS_BYTES>
+```
+
+- `ID` - u32 - Identifier of the message.
+- `KIND` - u32 - Kind of request
+- `BODY` - Depends on the kind and may be optional
+- `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
+
+Messages sent from the client to the editor service may have response messages and responses need to be correlated with the ID of the message that was sent.
+
 ### Message Kinds
 
-After startup, send one of the following messages:
+#### `0` - Success / Acknowledgement (Service to Client)
 
-- `0` - Shutdown the process
-- `1` - Check if a path can be formatted by the CLI.
-- `2` - Format a file.
+Message body: None
 
-#### `0` - Shutting down the process
+Response: No response
 
-- Editor sends
-  - u32 (4 bytes) - Message kind `1` indicating to shut down the process.
+#### `1` - Error Message (Service to Client)
 
-#### `1` - Checking a file can be formatted
+Message body:
 
-- Editor sends:
-  - u32 (4 bytes) - Message kind `2` indicating to check if a path can be formatted by the CLI.
-  - u32 (4 bytes) - Path file size
-  - X bytes - Path as string
-  - <SUCCESS_BYTES>
-- CLI responds:
-  - u32 (4 bytes) - 0 for cannot format, or 1 for can format
+- u32 - Error message byte length
+- X bytes - Error message
 
-#### `2` - Formatting a file
+Response: No response
 
-- Editor sends:
-  - u32 (4 bytes) - Message kind `3` for formatting a file.
-  - u32 (4 bytes) - Path file size
-  - X bytes - Path as string
-  - u32 (4 bytes) - File text size
-  - X bytes - File text
-  - <SUCCESS_BYTES>
-- CLI responds:
-  - u32 (4 bytes) - 0 for no change (END, no more messages), 1 for change, 2 for error
-  - u32 (4 bytes) - Formatted file text or error message size
-  - X bytes - Formatted file text or error message
-  - <SUCCESS_BYTES>
+#### `2` - Shut down the process (Client to Service)
 
-### General
+Message body: None
 
-- Everything is big endian and utf-8
-- Communication is always done with a buffer size of 1024. So if sending data (X bytes) above 1024 bytes then the following protocol happens:
-  1. Write 1024 bytes.
-  2. Wait for 4 byte ready response from CLI
-  3. If there are still more than 1024 bytes to write, write 1024 bytes and go back to step 2. If not, write the remaining bytes and exit the loop.
-- <SUCCESS_BYTES> - The success bytes ensures the message was received as intended. The bytes are: `255, 255, 255, 255`
+Response: No response
 
-If using Rust, there is a `StdIoMessenger` in dprint-core that helps with this.
+#### `3` - Active (Client to Service)
+
+For checking if the service is healthy and can respond to messages.
+
+Message body: None
+
+Response: Empty body
+
+Todo: is this worth it? I might remove this one.
+
+#### `4` - Check a file can be formatted (Client to Service)
+
+Message body:
+
+- u32 - File path byte length
+- File path
+
+Response body:
+
+- u32 - 0 for cannot format, or 1 for can format
+
+#### `5` - Format a file (Client to Service)
+
+Message body:
+
+- u32 - File path content byte length
+- File path
+- u32 - Start byte index to format
+- u32 - End byte index to format
+- u32 - Override configuration byte length
+- JSON override configuration
+- u32 - File text content byte length
+- File text
+
+Response body:
+
+- u32 - Response Kind
+  - `0` - No Change
+  - `1` - Change
+    - u32 - Length of formatted file text
+    - Formatted file text
+
+#### `6` - Cancel a format (Client to Service)
+
+Message body:
+
+- u32 - Message id of the format to cancel
+
+Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
+
+#### `7` - Notification (Service to Client)
+
+TODO: is there a need for this? Might not do it.
+
+Message body:
+
+- todo: look at what the lsp does
+
+Response: No response
