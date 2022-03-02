@@ -25,6 +25,7 @@ use super::messages::Response;
 use super::messages::ResponseBody;
 use super::messages::ResponseBodyHostFormat;
 use super::messages::ResponseSuccessBody;
+use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
 use crate::plugins::FormatRequest;
@@ -46,10 +47,10 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
   let handler = Arc::new(handler);
   let context: ProcessContext<THandler::Configuration> = ProcessContext::new();
   let (response_tx, mut response_rx) = mpsc::unbounded_channel::<Response>();
-  let host = ProcessHost {
+  let host = Arc::new(ProcessHost {
     context: context.clone(),
     sender: response_tx.clone(),
-  };
+  });
 
   // task to send responses over stdout
   tokio::task::spawn({
@@ -97,14 +98,14 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
       }
       MessageBody::GetConfigDiagnostics(config_id) => {
         handle_message(&response_tx, message.id, || {
-          let result = serde_json::to_vec(&context.get_config_diagnostics(config_id))?;
+          let result = serde_json::to_vec(&*context.get_config_diagnostics(config_id))?;
           Ok(ResponseSuccessBody::Data(result))
         });
       }
       MessageBody::GetResolvedConfig(config_id) => {
         handle_message(&response_tx, message.id, || {
           let result = match context.get_config(config_id) {
-            Some(config) => serde_json::to_vec(&config)?,
+            Some(config) => serde_json::to_vec(&*config)?,
             None => bail!("Did not find configuration for id: {}", config_id),
           };
           Ok(ResponseSuccessBody::Data(result))
@@ -198,7 +199,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
     file_path: PathBuf,
     file_text: String,
     range: Option<Range<usize>>,
-    config: Option<&ConfigKeyMap>,
+    override_config: Option<ConfigKeyMap>,
   ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
     let id = self.context.store_format_host_sender(tx);
@@ -211,7 +212,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
           range,
           file_path,
           file_text: file_text.into_bytes(),
-          override_config: config.map(|c| serde_json::to_vec(c).unwrap()),
+          override_config: override_config.map(|c| serde_json::to_vec(&c).unwrap()),
         }),
       })
       .unwrap_or_else(|err| panic!("Error sending host format response: {}", err));
@@ -256,18 +257,8 @@ fn schema_establishment_phase(stdin: &mut Stdin, stdout: &mut Stdout) -> Result<
   }
 
   // 2. The client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
-  let mut response_buf: [u8; 8] = [0; 8];
-  stdout.write(&(0 as u32).to_be_bytes());
-  stdout.write(&PLUGIN_SCHEMA_VERSION.to_be_bytes());
+  stdout.write(&(0 as u32).to_be_bytes())?;
+  stdout.write(&PLUGIN_SCHEMA_VERSION.to_be_bytes())?;
 
   Ok(())
-}
-
-fn setup_exit_process_panic_hook() {
-  // tokio doesn't exit on task panic, so implement that behaviour here
-  let orig_hook = std::panic::take_hook();
-  std::panic::set_hook(Box::new(move |panic_info| {
-    orig_hook(panic_info);
-    std::process::exit(1);
-  }));
 }

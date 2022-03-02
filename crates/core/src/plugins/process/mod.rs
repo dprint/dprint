@@ -11,3 +11,4 @@ pub use communicator::*;
 pub use message_processor::*;
 pub use parent_process_checker::*;
 use shared_types::*;
+pub use utils::setup_exit_process_panic_hook;

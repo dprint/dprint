@@ -181,22 +181,6 @@ pub struct Response {
 }
 
 impl Response {
-  // pub fn read<TRead: Read>(reader: &mut MessageReader<TRead>) -> Result<Response> {
-  //   let id = reader.read_u32()?;
-  //   let kind = reader.read_u32()?;
-  //   let body = match kind {
-  //     // Success
-  //     0 => {}
-  //     // Error
-  //     1 => {}
-  //     // Host Format
-  //     2 => {}
-  //     _ => {}
-  //   };
-  //   reader.read_success_bytes()?;
-  //   Ok(())
-  // }
-
   pub fn write<TWrite: Write>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
     writer.send_u32(self.id)?;
     match &self.body {

@@ -1,14 +1,13 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::Host;
 use serde::Deserialize;
 use serde::Serialize;
-use std::future::Future;
-use std::path::Path;
 use std::path::PathBuf;
-use std::pin::Pin;
+use std::sync::Arc;
 
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
@@ -86,8 +85,8 @@ impl PluginHandler for TestProcessPluginHandler {
   fn format<TCancellationToken: CancellationToken>(
     &self,
     request: FormatRequest<Self::Configuration, TCancellationToken>,
-    host: impl Host,
-  ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>> {
+    host: Arc<dyn Host>,
+  ) -> BoxFuture<Result<Option<String>>> {
     Box::pin(async move {
       if request.file_text.starts_with("plugin: ") {
         host

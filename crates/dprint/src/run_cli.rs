@@ -11,7 +11,7 @@ use crate::arg_parser::ConfigSubCommand;
 use crate::arg_parser::SubCommand;
 use crate::commands;
 
-pub fn run_cli<TEnvironment: Environment>(
+pub async fn run_cli<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,

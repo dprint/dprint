@@ -28,7 +28,4 @@ pub struct PluginInfo {
   /// Generally in the format: https://plugins.dprint.dev/<org-or-user>/<repo>/latest.json
   /// For example: https://plugins.dprint.dev/dprint/dprint-plugin-typescript/latest.json
   pub update_url: Option<String>,
-  /// If the plugin supports range formatting.
-  #[serde(default)]
-  pub supports_range_format: bool,
 }

@@ -25,6 +25,7 @@ rayon = "1.5.1"
 serde = { version = "1.0.130", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 similar = { version = "2.1.0", features = ["inline"] }
+tokio = { version = "1", features = ["full"] } # todo: reduce features
 twox-hash = "1.6.2"
 url = "2.2.2"
 wasmer = "=2.1.1"

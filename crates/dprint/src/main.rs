@@ -5,6 +5,7 @@ extern crate lazy_static;
 mod environment;
 
 use anyhow::Result;
+use dprint_core::plugins::process::setup_exit_process_panic_hook;
 use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
 use std::sync::Arc;
@@ -25,8 +26,10 @@ mod utils;
 #[cfg(test)]
 mod test_helpers;
 
-fn main() -> Result<()> {
-  match run() {
+#[tokio::main]
+async fn main() -> Result<()> {
+  setup_exit_process_panic_hook();
+  match run().await {
     Ok(_) => {}
     Err(err) => {
       eprintln!("{}", err);
@@ -37,7 +40,7 @@ fn main() -> Result<()> {
   Ok(())
 }
 
-fn run() -> Result<()> {
+async fn run() -> Result<()> {
   let args = arg_parser::parse_args(wild::args().collect(), RealStdInReader)?;
   let environment = RealEnvironment::new(&RealEnvironmentOptions {
     is_verbose: args.verbose,
@@ -49,5 +52,5 @@ fn run() -> Result<()> {
   let _plugins_dropper = plugins::PluginsDropper::new(plugin_pools.clone());
   let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
 
-  run_cli::run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools)
+  run_cli::run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools).await
 }

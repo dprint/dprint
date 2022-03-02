@@ -22,15 +22,18 @@ use tokio::sync::oneshot;
 use super::communication::MessageReader;
 use super::communication::MessageWriter;
 use super::messages::FormatTextMessageBody;
+use super::messages::HostFormatResponseMessageBody;
 use super::messages::Message;
 use super::messages::MessageBody;
 use super::messages::RegisterConfigMessageBody;
+use super::messages::ResponseBodyHostFormat;
 use super::utils::IdGenerator;
 use super::utils::Poisoner;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+use crate::plugins::Host;
 use crate::plugins::PluginInfo;
 
 enum MessageResponseChannel {
@@ -61,6 +64,7 @@ struct Context {
   poisoner: Poisoner,
   id_generator: IdGenerator,
   messages: MessageResponses,
+  host: Arc<dyn Host>,
 }
 
 /// Communicates with a process plugin.
@@ -77,16 +81,21 @@ impl Drop for ProcessPluginCommunicator {
 }
 
 impl ProcessPluginCommunicator {
-  pub fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err)
+  pub fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err, host)
   }
 
   /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
-  pub fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err)
+  pub fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err, host)
   }
 
-  fn new_internal(executable_file_path: &Path, is_init: bool, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
+  fn new_internal(
+    executable_file_path: &Path,
+    is_init: bool,
+    on_std_err: impl Fn(String) + Clone + Send + Sync + 'static,
+    host: Arc<dyn Host>,
+  ) -> Result<Self> {
     let mut args = vec!["--parent-pid".to_string(), std::process::id().to_string()];
     if is_init {
       args.push("--init".to_string());
@@ -122,6 +131,7 @@ impl ProcessPluginCommunicator {
       message_tx,
       poisoner: poisoner.clone(),
       messages: Default::default(),
+      host,
     };
 
     // read from stdout
@@ -179,8 +189,7 @@ impl ProcessPluginCommunicator {
     let _ignore = self.child.kill();
   }
 
-  pub async fn register_config(&self, global_config: &GlobalConfiguration, plugin_config: &ConfigKeyMap) -> Result<u32> {
-    let config_id = self.context.id_generator.next();
+  pub async fn register_config(&self, config_id: u32, global_config: &GlobalConfiguration, plugin_config: &ConfigKeyMap) -> Result<()> {
     let global_config = serde_json::to_vec(global_config)?;
     let plugin_config = serde_json::to_vec(plugin_config)?;
     self
@@ -190,22 +199,26 @@ impl ProcessPluginCommunicator {
         plugin_config,
       }))
       .await?;
-    Ok(config_id)
+    Ok(())
   }
 
-  pub async fn get_plugin_info(&self) -> Result<PluginInfo> {
+  pub async fn is_alive(&self) -> bool {
+    self.send_with_acknowledgement(MessageBody::IsAlive).await.is_ok()
+  }
+
+  pub async fn plugin_info(&self) -> Result<PluginInfo> {
     self.send_receiving_data(MessageBody::GetPluginInfo).await
   }
 
-  pub async fn get_license_text(&self) -> Result<String> {
+  pub async fn license_text(&self) -> Result<String> {
     self.send_receiving_string(MessageBody::GetLicenseText).await
   }
 
-  pub async fn get_resolved_config(&self, config_id: u32) -> Result<String> {
+  pub async fn resolved_config(&self, config_id: u32) -> Result<String> {
     self.send_receiving_string(MessageBody::GetResolvedConfig(config_id)).await
   }
 
-  pub async fn get_config_diagnostics(&self, config_id: u32) -> Result<Vec<ConfigurationDiagnostic>> {
+  pub async fn config_diagnostics(&self, config_id: u32) -> Result<Vec<ConfigurationDiagnostic>> {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
@@ -238,9 +251,8 @@ impl ProcessPluginCommunicator {
   }
 
   /// Checks if the process is functioning.
-  /// Only use this after an error has occurred to tell if the process should be recreated.
-  pub async fn is_process_alive(&mut self) -> bool {
-    self.context.poisoner.is_poisoned() || self.get_plugin_info().await.is_ok()
+  pub async fn is_process_alive(&self) -> bool {
+    self.context.poisoner.is_poisoned() || self.is_alive().await
   }
 
   async fn send_with_acknowledgement(&self, body: MessageBody) -> Result<()> {
@@ -324,7 +336,6 @@ fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: impl Fn
 }
 
 fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
-  // todo: don't unwrap here. Instead find out when an error occurs
   let id = reader.read_u32()?;
   let message = context.messages.take(id)?;
   let kind = reader.read_u32()?;
@@ -337,7 +348,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
       }
       MessageResponseChannel::Data(channel) => {
         let bytes = reader.read_sized_bytes()?;
-        reader.read_success_bytes();
+        reader.read_success_bytes()?;
         let _ignore = channel.send(Ok(bytes));
       }
       MessageResponseChannel::Format(channel) => {
@@ -370,7 +381,42 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
     }
     // Host format
     2 => {
-      todo!();
+      let file_path = reader.read_sized_bytes()?;
+      let start_byte_index = reader.read_u32()?;
+      let end_byte_index = reader.read_u32()?;
+      let override_config = reader.read_sized_bytes()?;
+      let file_text = reader.read_sized_bytes()?;
+      reader.read_success_bytes()?;
+      let body = ResponseBodyHostFormat {
+        file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
+        range: if start_byte_index == 0 && end_byte_index as usize == file_text.len() {
+          None
+        } else {
+          Some(Range {
+            start: start_byte_index as usize,
+            end: end_byte_index as usize,
+          })
+        },
+        file_text,
+        override_config: if override_config.is_empty() { None } else { Some(override_config) },
+      };
+
+      // spawn a task to do the host formatting, then send a message back to the
+      // plugin with the result
+      let context = context.clone();
+      tokio::task::spawn(async move {
+        let result = host_format(context.host.clone(), body).await;
+        // ignore failure, as this means that the process shut down
+        // at which point handling would have occurred elsewhere
+        let _ignore = context.message_tx.send(Message {
+          id,
+          body: MessageBody::HostFormatResponse(match result {
+            Ok(Some(text)) => HostFormatResponseMessageBody::Change(text.into_bytes()),
+            Ok(None) => HostFormatResponseMessageBody::NoChange,
+            Err(err) => HostFormatResponseMessageBody::Error(format!("{}", err).into_bytes()),
+          }),
+        });
+      });
     }
     _ => {
       bail!("Unknown response kind: {}", kind);
@@ -378,4 +424,15 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
   }
 
   Ok(())
+}
+
+async fn host_format(host: Arc<dyn Host>, body: ResponseBodyHostFormat) -> Result<Option<String>> {
+  host
+    .format(
+      body.file_path,
+      String::from_utf8(body.file_text)?,
+      body.range,
+      body.override_config.map(|c| serde_json::from_slice(&c).unwrap()),
+    )
+    .await
 }

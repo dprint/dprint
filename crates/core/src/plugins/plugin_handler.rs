@@ -11,6 +11,8 @@ use crate::configuration::GlobalConfiguration;
 use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::PluginInfo;
 
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
 pub trait CancellationToken: Send + Sync {
   fn is_cancelled(&self) -> bool;
 }
@@ -21,8 +23,8 @@ pub trait Host: Send + Sync {
     file_path: PathBuf,
     file_text: String,
     range: Option<Range<usize>>,
-    config: Option<&ConfigKeyMap>,
-  ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>>;
+    override_config: Option<ConfigKeyMap>,
+  ) -> BoxFuture<Result<Option<String>>>;
 }
 
 pub struct FormatRequest<TConfiguration, CancellationToken> {
@@ -48,6 +50,6 @@ pub trait PluginHandler: Send + Sync + 'static {
   fn format<TCancellationToken: CancellationToken>(
     &self,
     request: FormatRequest<Self::Configuration, TCancellationToken>,
-    host: impl Host,
-  ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>>;
+    host: Arc<dyn Host>,
+  ) -> BoxFuture<Result<Option<String>>>;
 }

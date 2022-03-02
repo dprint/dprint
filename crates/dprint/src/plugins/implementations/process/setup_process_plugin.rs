@@ -80,7 +80,7 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
         environment.log_stderr_with_context(&error_message, &plugin_name);
       }
     })?;
-    let plugin_info = communicator.get_plugin_info()?;
+    let plugin_info = communicator.plugin_info()?;
 
     Ok(SetupPluginResult {
       plugin_info,

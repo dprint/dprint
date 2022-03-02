@@ -491,6 +491,7 @@ dependencies = [
  "serde",
  "serde_json",
  "similar 2.1.0",
+ "tokio",
  "twox-hash",
  "url",
  "wasmer",
