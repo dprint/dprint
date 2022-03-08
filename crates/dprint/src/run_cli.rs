@@ -19,23 +19,25 @@ pub async fn run_cli<TEnvironment: Environment>(
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<()> {
   match &args.sub_command {
-    SubCommand::Help(help_text) => commands::output_help(args, cache, environment, plugin_resolver, help_text),
-    SubCommand::License => commands::output_license(args, cache, environment, plugin_resolver),
-    SubCommand::EditorInfo => commands::output_editor_info(args, cache, environment, plugin_resolver),
-    SubCommand::EditorService(cmd) => commands::run_editor_service(args, cache, environment, plugin_resolver, plugin_pools, cmd),
+    SubCommand::Help(help_text) => commands::output_help(args, cache, environment, plugin_resolver, help_text).await,
+    SubCommand::License => commands::output_license(args, cache, environment, plugin_resolver).await,
+    SubCommand::EditorInfo => commands::output_editor_info(args, cache, environment, plugin_resolver).await,
+    SubCommand::EditorService(cmd) => commands::run_editor_service(args, cache, environment, plugin_resolver, plugin_pools, cmd).await,
     SubCommand::ClearCache => commands::clear_cache(environment),
     SubCommand::Config(cmd) => match cmd {
       ConfigSubCommand::Init => commands::init_config_file(environment, &args.config),
-      ConfigSubCommand::Add(plugin_name_or_url) => commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), cache, environment, plugin_resolver),
-      ConfigSubCommand::Update => commands::update_plugins_config_file(args, cache, environment, plugin_resolver),
+      ConfigSubCommand::Add(plugin_name_or_url) => {
+        commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), cache, environment, plugin_resolver).await
+      }
+      ConfigSubCommand::Update => commands::update_plugins_config_file(args, cache, environment, plugin_resolver).await,
     },
     SubCommand::Version => commands::output_version(environment),
-    SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, cache, plugin_resolver, plugin_pools),
-    SubCommand::OutputResolvedConfig => commands::output_resolved_config(args, cache, environment, plugin_resolver),
-    SubCommand::OutputFilePaths => commands::output_file_paths(args, environment, cache, plugin_resolver),
-    SubCommand::OutputFormatTimes => commands::output_format_times(args, environment, cache, plugin_resolver, plugin_pools),
-    SubCommand::Check => commands::check(args, environment, cache, plugin_resolver, plugin_pools),
-    SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, cache, plugin_resolver, plugin_pools),
+    SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
+    SubCommand::OutputResolvedConfig => commands::output_resolved_config(args, cache, environment, plugin_resolver).await,
+    SubCommand::OutputFilePaths => commands::output_file_paths(args, environment, cache, plugin_resolver).await,
+    SubCommand::OutputFormatTimes => commands::output_format_times(args, environment, cache, plugin_resolver, plugin_pools).await,
+    SubCommand::Check => commands::check(args, environment, cache, plugin_resolver, plugin_pools).await,
+    SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {
       crate::arg_parser::HiddenSubCommand::WindowsInstall(install_path) => commands::handle_windows_install(environment, install_path),

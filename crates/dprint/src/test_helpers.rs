@@ -64,7 +64,10 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   let args = parse_args(args, stdin_reader)?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_verbose(args.verbose);
-  run_cli(&args, environment, &cache, &plugin_resolver, plugin_pools)
+
+  let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+  let environment = environment.clone();
+  rt.block_on(async move { run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools).await })
 }
 
 pub fn get_test_process_plugin_zip_checksum() -> String {

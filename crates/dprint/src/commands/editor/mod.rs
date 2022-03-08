@@ -23,7 +23,7 @@ use crate::plugins::PluginResolver;
 use communication::StdIoMessenger;
 use communication::StdIoReaderWriter;
 
-pub fn output_editor_info<TEnvironment: Environment>(
+pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
@@ -53,7 +53,7 @@ pub fn output_editor_info<TEnvironment: Environment>(
 
   let mut plugins = Vec::new();
 
-  for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver)? {
+  for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
     plugins.push(EditorPluginInfo {
       name: plugin.name().to_string(),
       version: plugin.version().to_string(),
@@ -79,7 +79,7 @@ pub fn output_editor_info<TEnvironment: Environment>(
   Ok(())
 }
 
-pub fn run_editor_service<TEnvironment: Environment>(
+pub async fn run_editor_service<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
@@ -91,7 +91,7 @@ pub fn run_editor_service<TEnvironment: Environment>(
   let _handle = start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
   let mut editor_service = EditorService::new(args, cache, environment, plugin_resolver, plugin_pools);
-  editor_service.run()
+  editor_service.run().await
 }
 
 struct EditorService<'a, TEnvironment: Environment> {
@@ -127,25 +127,25 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     }
   }
 
-  pub fn run(&mut self) -> Result<()> {
+  pub async fn run(&mut self) -> Result<()> {
     loop {
       let message_kind = self.messenger.read_code()?;
       match message_kind {
         // shutdown
         0 => return Ok(()),
         // check path
-        1 => self.handle_check_path_message()?,
+        1 => self.handle_check_path_message().await?,
         // format
-        2 => self.handle_format_message()?,
+        2 => self.handle_format_message().await?,
         // unknown, exit
         _ => bail!("Unknown message kind: {}", message_kind),
       }
     }
   }
 
-  fn handle_check_path_message(&mut self) -> Result<()> {
+  async fn handle_check_path_message(&mut self) -> Result<()> {
     let file_path = self.messenger.read_single_part_path_buf_message()?;
-    self.ensure_latest_config()?;
+    self.ensure_latest_config().await?;
 
     let file_matcher = FileMatcher::new(self.config.as_ref().unwrap(), self.args, self.environment)?;
 
@@ -168,13 +168,13 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     Ok(())
   }
 
-  fn handle_format_message(&mut self) -> Result<()> {
+  async fn handle_format_message(&mut self) -> Result<()> {
     let mut parts = self.messenger.read_multi_part_message(2)?;
     let file_path = parts.take_path_buf()?;
     let file_text = parts.take_string()?;
 
     if self.config.is_none() {
-      self.ensure_latest_config()?;
+      self.ensure_latest_config().await?;
     }
 
     let formatted_text = format_with_plugin_pools(&file_path, &file_text, self.environment, &self.plugin_pools);
@@ -206,14 +206,14 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     Ok(())
   }
 
-  fn ensure_latest_config(&mut self) -> Result<()> {
+  async fn ensure_latest_config(&mut self) -> Result<()> {
     let last_config = self.config.take();
     let config = resolve_config_from_args(self.args, self.cache, self.environment)?;
 
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
     if has_config_changed {
       self.plugin_pools.drop_plugins(); // clear the existing plugins
-      let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver)?;
+      let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver).await?;
       self.plugin_pools.set_plugins(plugins, &config.base_path)?;
     }
 

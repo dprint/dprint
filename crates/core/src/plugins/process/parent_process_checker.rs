@@ -7,7 +7,7 @@ use std::time::Duration;
 pub fn start_parent_process_checker_task(parent_process_id: u32) {
   tokio::task::spawn(async move {
     loop {
-      tokio::time::sleep(Duration::from_secs(30)).await;
+      tokio::time::sleep(Duration::from_secs(10)).await;
 
       if !is_process_active(parent_process_id) {
         std::process::exit(1);

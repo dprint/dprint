@@ -26,7 +26,7 @@ use crate::plugins::PluginResolver;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
 
-pub fn stdin_fmt<TEnvironment: Environment>(
+pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
@@ -35,7 +35,7 @@ pub fn stdin_fmt<TEnvironment: Environment>(
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
@@ -62,7 +62,7 @@ fn output_stdin_format<TEnvironment: Environment>(
   Ok(())
 }
 
-pub fn output_format_times<TEnvironment: Environment>(
+pub async fn output_format_times<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
@@ -70,7 +70,7 @@ pub fn output_format_times<TEnvironment: Environment>(
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
@@ -95,7 +95,7 @@ pub fn output_format_times<TEnvironment: Environment>(
   Ok(())
 }
 
-pub fn check<TEnvironment: Environment>(
+pub async fn check<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
@@ -103,7 +103,7 @@ pub fn check<TEnvironment: Environment>(
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
@@ -136,7 +136,7 @@ fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, en
   environment.log(&format!("{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text,));
 }
 
-pub fn format<TEnvironment: Environment>(
+pub async fn format<TEnvironment: Environment>(
   cmd: &FmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
@@ -145,7 +145,7 @@ pub fn format<TEnvironment: Environment>(
   plugin_pools: Arc<PluginPools<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
