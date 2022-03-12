@@ -11,7 +11,7 @@ use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::Plugin;
-use crate::plugins::PluginPools;
+use crate::plugins::PluginsCollection;
 
 use super::super::format_with_plugin_pool;
 use super::InitializedProcessPluginCommunicator;
@@ -45,11 +45,11 @@ pub struct ProcessPlugin<TEnvironment: Environment> {
   executable_file_path: PathBuf,
   plugin_info: PluginInfo,
   config: Option<(RawPluginConfig, GlobalConfiguration)>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
-  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo, plugin_pools: Arc<PluginsCollection<TEnvironment>>) -> Self {
     ProcessPlugin {
       environment,
       executable_file_path,
@@ -119,7 +119,7 @@ pub struct InitializedProcessPlugin<TEnvironment: Environment> {
   name: String,
   environment: TEnvironment,
   communicator: InitializedProcessPluginCommunicator<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
@@ -127,7 +127,7 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
     name: String,
     environment: TEnvironment,
     communicator: InitializedProcessPluginCommunicator<TEnvironment>,
-    plugin_pools: Arc<PluginPools<TEnvironment>>,
+    plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   ) -> Result<Self> {
     let initialized_plugin = InitializedProcessPlugin {
       name,

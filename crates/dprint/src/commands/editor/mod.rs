@@ -18,8 +18,8 @@ use crate::format::format_with_plugin_pools;
 use crate::patterns::FileMatcher;
 use crate::plugins::get_plugins_from_args;
 use crate::plugins::resolve_plugins;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginsCollection;
 use communication::StdIoMessenger;
 use communication::StdIoReaderWriter;
 
@@ -84,7 +84,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   editor_service_cmd: &EditorServiceSubCommand,
 ) -> Result<()> {
   // poll for the existence of the parent process and terminate this process when that process no longer exists
@@ -101,7 +101,7 @@ struct EditorService<'a, TEnvironment: Environment> {
   cache: &'a Cache<TEnvironment>,
   environment: &'a TEnvironment,
   plugin_resolver: &'a PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
@@ -110,7 +110,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     cache: &'a Cache<TEnvironment>,
     environment: &'a TEnvironment,
     plugin_resolver: &'a PluginResolver<TEnvironment>,
-    plugin_pools: Arc<PluginPools<TEnvironment>>,
+    plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   ) -> Self {
     let stdin = environment.stdin();
     let stdout = environment.stdout();

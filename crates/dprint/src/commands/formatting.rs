@@ -21,8 +21,8 @@ use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
 use crate::patterns::FileMatcher;
 use crate::plugins::resolve_plugins_and_err_if_empty;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginsCollection;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
 
@@ -32,7 +32,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
@@ -55,7 +55,7 @@ fn output_stdin_format<TEnvironment: Environment>(
   file_name: &Path,
   file_text: &str,
   environment: &TEnvironment,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let formatted_text = format_with_plugin_pools(file_name, file_text, environment, &plugin_pools)?;
   environment.log_machine_readable(&formatted_text);
@@ -67,7 +67,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
@@ -100,7 +100,7 @@ pub async fn check<TEnvironment: Environment>(
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
@@ -142,7 +142,7 @@ pub async fn format<TEnvironment: Environment>(
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;

@@ -6,18 +6,18 @@ use super::implementations::create_plugin;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::PluginsCollection;
 
 #[derive(Clone)]
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_cache: Arc<PluginCache<TEnvironment>>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_cache: Arc<PluginCache<TEnvironment>>, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, plugin_cache: Arc<PluginCache<TEnvironment>>, plugin_pools: Arc<PluginsCollection<TEnvironment>>) -> Self {
     PluginResolver {
       environment,
       plugin_cache,

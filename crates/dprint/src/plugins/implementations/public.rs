@@ -10,8 +10,8 @@ use super::wasm;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::PluginsCollection;
 use crate::utils::PathSource;
 
 pub struct SetupPluginResult {
@@ -55,7 +55,7 @@ pub fn cleanup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, 
 }
 
 pub fn create_plugin<TEnvironment: Environment>(
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   plugin_cache: &PluginCache<TEnvironment>,
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,

@@ -5,6 +5,7 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use futures::future::BoxFuture;
 
 use crate::configuration::RawPluginConfig;
 
@@ -55,13 +56,13 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
 
 pub trait InitializedPlugin: std::marker::Send {
   /// Gets the license text
-  fn get_license_text(&self) -> Result<String>;
+  fn get_license_text(&self) -> BoxFuture<'static, Result<String>>;
   /// Gets the configuration as a collection of key value pairs.
-  fn get_resolved_config(&self) -> Result<String>;
+  fn get_resolved_config(&self) -> BoxFuture<'static, Result<String>>;
   /// Gets the configuration diagnostics.
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>>;
+  fn get_config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>>;
   /// Formats the text in memory based on the file path and file text.
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String>;
+  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> BoxFuture<'static, Result<String>>;
 }
 
 #[cfg(test)]
@@ -144,16 +145,19 @@ impl InitializedTestPlugin {
 
 #[cfg(test)]
 impl InitializedPlugin for InitializedTestPlugin {
-  fn get_license_text(&self) -> Result<String> {
-    Ok(String::from("License Text"))
+  fn get_license_text(&self) -> BoxFuture<'static, Result<String>> {
+    async move { Ok(String::from("License Text")) }.boxed()
   }
-  fn get_resolved_config(&self) -> Result<String> {
-    Ok(String::from("{}"))
+
+  fn get_resolved_config(&self) -> BoxFuture<'static, Result<String>> {
+    async move { Ok(String::from("{}")) }.boxed()
   }
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
-    Ok(vec![])
+
+  fn get_config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+    async move { Ok(vec![]) }.boxed()
   }
-  fn format_text(&mut self, _: &Path, text: &str, _: &ConfigKeyMap) -> Result<String> {
-    Ok(format!("{}_formatted", text))
+
+  fn format_text(&mut self, _: &Path, text: &str, _: &ConfigKeyMap) -> BoxFuture<'static, Result<String>> {
+    async move { Ok(format!("{}_formatted", text)) }.boxed()
   }
 }

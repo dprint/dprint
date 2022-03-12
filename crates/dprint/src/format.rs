@@ -11,9 +11,8 @@ use std::time::Instant;
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
 use crate::paths::PluginNames;
-use crate::plugins::do_batch_format;
 use crate::plugins::PluginAndPoolMutRef;
-use crate::plugins::PluginPools;
+use crate::plugins::PluginsCollection;
 use crate::plugins::TakePluginResult;
 use crate::utils::ErrorCountLogger;
 use crate::utils::FileText;
@@ -22,7 +21,7 @@ pub fn format_with_plugin_pools<'a, TEnvironment: Environment>(
   file_name: &Path,
   file_text: &'a str,
   environment: &TEnvironment,
-  plugin_pools: &Arc<PluginPools<TEnvironment>>,
+  plugin_pools: &Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<Cow<'a, str>> {
   let plugin_names = plugin_pools.get_plugin_names_from_file_name(file_name);
   let mut file_text = Cow::Borrowed(file_text);
@@ -46,7 +45,7 @@ pub fn format_with_plugin_pools<'a, TEnvironment: Environment>(
 pub fn run_parallelized<F, TEnvironment: Environment>(
   file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
   environment: &TEnvironment,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
   f: F,
 ) -> Result<()>

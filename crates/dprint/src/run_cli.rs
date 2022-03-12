@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use crate::cache::Cache;
 use crate::environment::Environment;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginsCollection;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigSubCommand;
@@ -16,7 +16,7 @@ pub async fn run_cli<TEnvironment: Environment>(
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   match &args.sub_command {
     SubCommand::Help(help_text) => commands::output_help(args, cache, environment, plugin_resolver, help_text).await,

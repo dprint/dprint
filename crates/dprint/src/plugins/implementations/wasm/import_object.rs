@@ -12,7 +12,7 @@ use wasmer::WasmerEnv;
 
 use super::super::format_with_plugin_pool;
 use crate::environment::Environment;
-use crate::plugins::pool::PluginPools;
+use crate::plugins::pool::PluginsCollection;
 
 /// Use this when the plugins don't need to format via a plugin pool.
 pub fn create_identity_import_object(store: &Store) -> wasmer::ImportObject {
@@ -51,7 +51,7 @@ pub struct ImportObjectEnvironmentCellItems {
 pub struct ImportObjectEnvironment<TEnvironment: Environment> {
   parent_plugin_name: String,
   memory: LazyInit<Memory>,
-  pools: Arc<PluginPools<TEnvironment>>,
+  pools: Arc<PluginsCollection<TEnvironment>>,
   cell: Arc<Mutex<ImportObjectEnvironmentCellItems>>,
 }
 
@@ -64,7 +64,7 @@ impl<TEnvironment: Environment> WasmerEnv for ImportObjectEnvironment<TEnvironme
 }
 
 impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
-  pub fn new(plugin_name: &str, pools: Arc<PluginPools<TEnvironment>>) -> Self {
+  pub fn new(plugin_name: &str, pools: Arc<PluginsCollection<TEnvironment>>) -> Self {
     ImportObjectEnvironment {
       parent_plugin_name: plugin_name.to_string(),
       pools,

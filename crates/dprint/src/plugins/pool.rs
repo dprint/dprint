@@ -20,19 +20,17 @@ use crate::utils::GlobMatcher;
 
 /// This is necessary because of a circular reference where
 /// PluginPools hold plugins and the plugins hold a PluginPools.
-pub struct PluginsDropper<TEnvironment: Environment> {
-  pools: Arc<PluginPools<TEnvironment>>,
-}
+pub struct PluginsDropper<TEnvironment: Environment>(Arc<PluginsCollection<TEnvironment>>);
 
 impl<TEnvironment: Environment> Drop for PluginsDropper<TEnvironment> {
   fn drop(&mut self) {
-    self.pools.drop_plugins();
+    self.0.drop_plugins();
   }
 }
 
 impl<TEnvironment: Environment> PluginsDropper<TEnvironment> {
-  pub fn new(pools: Arc<PluginPools<TEnvironment>>) -> Self {
-    PluginsDropper { pools }
+  pub fn new(pools: Arc<PluginsCollection<TEnvironment>>) -> Self {
+    Self(pools)
   }
 }
 
@@ -43,23 +41,18 @@ struct PluginNameResolutionMaps {
   association_matchers: Vec<(String, GlobMatcher)>,
 }
 
-pub struct PluginPools<TEnvironment: Environment> {
+pub struct PluginsCollection<TEnvironment: Environment> {
   environment: TEnvironment,
-  pools: Mutex<HashMap<String, Arc<InitializedPluginPool<TEnvironment>>>>,
+  plugins: Mutex<HashMap<String, Arc<PluginWrapper<TEnvironment>>>>,
   plugin_name_maps: RwLock<PluginNameResolutionMaps>,
-  /// Plugins may format using other plugins. If so, they should have a locally
-  /// owned plugin instance that will be created on demand.
-  #[allow(clippy::type_complexity)]
-  plugins_for_plugins: Mutex<HashMap<String, HashMap<String, Vec<Box<dyn InitializedPlugin>>>>>,
 }
 
-impl<TEnvironment: Environment> PluginPools<TEnvironment> {
+impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
   pub fn new(environment: TEnvironment) -> Self {
-    PluginPools {
+    PluginsCollection {
       environment,
       pools: Default::default(),
       plugin_name_maps: Default::default(),
-      plugins_for_plugins: Default::default(),
     }
   }
 
@@ -215,35 +208,7 @@ impl<TEnvironment: Environment> PluginPools<TEnvironment> {
   }
 }
 
-pub struct PoolTimeSnapshot {
-  pub startup_time: u64,
-  pub average_format_time: u64,
-  pub has_plugin_available: bool,
-}
-
-struct PluginTimeStats {
-  startup_time: u64,
-  total_format_time: u64,
-  format_count: u64,
-}
-
-pub struct OptionalPluginAndPool<TEnvironment: Environment> {
-  pub plugin: Option<Box<dyn InitializedPlugin>>,
-  pub pool: Arc<InitializedPluginPool<TEnvironment>>,
-}
-
-impl<TEnvironment: Environment> OptionalPluginAndPool<TEnvironment> {
-  pub fn from_pool(pool: Arc<InitializedPluginPool<TEnvironment>>) -> Self {
-    Self { plugin: None, pool }
-  }
-
-  pub fn release_plugin(self) {
-    if let Some(plugin) = self.plugin {
-      self.pool.release(plugin);
-    }
-  }
-}
-
+// todo: delete
 pub struct PluginAndPoolMutRef<'a, TEnvironment: Environment> {
   pub plugin: &'a mut Box<dyn InitializedPlugin>,
   pub pool: &'a Arc<InitializedPluginPool<TEnvironment>>,
@@ -254,12 +219,11 @@ pub enum TakePluginResult {
   Success(Box<dyn InitializedPlugin>),
 }
 
-pub struct InitializedPluginPool<TEnvironment: Environment> {
+pub struct PluginWrapper<TEnvironment: Environment> {
   environment: TEnvironment,
   name: String,
   plugin: Box<dyn Plugin>,
-  items: Mutex<Vec<Box<dyn InitializedPlugin>>>, // todo: RwLock
-  time_stats: RwLock<PluginTimeStats>,
+  items: Mutex<Option<Box<dyn InitializedPlugin>>, // todo: RwLock
   checked_diagnostics: Mutex<Option<bool>>,
 }
 
@@ -270,13 +234,6 @@ impl<TEnvironment: Environment> InitializedPluginPool<TEnvironment> {
       name: plugin.name().to_string(),
       plugin,
       items: Mutex::new(Vec::new()),
-      time_stats: RwLock::new(PluginTimeStats {
-        // assume this if never created
-        startup_time: 250,
-        // give each plugin an average format time to start
-        total_format_time: 50,
-        format_count: 1,
-      }),
       checked_diagnostics: Mutex::new(None),
     }
   }

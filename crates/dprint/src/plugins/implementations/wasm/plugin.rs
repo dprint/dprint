@@ -19,17 +19,17 @@ use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::Plugin;
-use crate::plugins::PluginPools;
+use crate::plugins::PluginsCollection;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: wasmer::Module,
   plugin_info: PluginInfo,
   config: Option<(RawPluginConfig, GlobalConfiguration)>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(compiled_wasm_bytes: Vec<u8>, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Result<Self> {
+  pub fn new(compiled_wasm_bytes: Vec<u8>, plugin_info: PluginInfo, plugin_pools: Arc<PluginsCollection<TEnvironment>>) -> Result<Self> {
     let module = create_module(&compiled_wasm_bytes)?;
     Ok(WasmPlugin {
       module,

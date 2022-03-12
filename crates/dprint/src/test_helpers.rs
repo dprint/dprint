@@ -9,8 +9,8 @@ use crate::cache::Cache;
 use crate::environment::TestEnvironment;
 use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginsCollection;
 use crate::plugins::PluginsDropper;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
@@ -58,7 +58,7 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
   let cache = Arc::new(Cache::new(environment.clone()));
   let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-  let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
+  let plugin_pools = Arc::new(PluginsCollection::new(environment.clone()));
   let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
   let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
   let args = parse_args(args, stdin_reader)?;

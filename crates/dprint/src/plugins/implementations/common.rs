@@ -4,14 +4,14 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use crate::environment::Environment;
-use crate::plugins::pool::PluginPools;
+use crate::plugins::pool::PluginsCollection;
 
 pub fn format_with_plugin_pool<TEnvironment: Environment>(
   parent_plugin_name: &str,
   file_path: &Path,
   file_text: &str,
   override_config: &ConfigKeyMap,
-  pools: &PluginPools<TEnvironment>,
+  pools: &PluginsCollection<TEnvironment>,
 ) -> Result<Option<String>> {
   let sub_plugin_names = pools.get_plugin_names_from_file_name(file_path);
   if sub_plugin_names.is_empty() {

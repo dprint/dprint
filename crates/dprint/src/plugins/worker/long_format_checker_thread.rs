@@ -31,7 +31,7 @@ impl<TEnvironment: Environment> LongFormatCheckerThread<TEnvironment> {
     let worker_registry = self.worker_registry.clone();
     let environment = self.environment.clone();
     let mut logged_file_paths = HashSet::new();
-    thread::spawn(move || {
+    tokio::task::spawn(move || {
       // initially sleep 10 seconds
       if !exit_signal.sleep_with_cancellation(Duration::from_secs(10)) {
         return;
