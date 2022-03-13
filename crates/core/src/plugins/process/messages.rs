@@ -113,7 +113,7 @@ impl Message {
       }
       MessageBody::FormatText(body) => {
         writer.send_u32(9).await?;
-        writer.send_sized_bytes(&body.file_path.to_string_lossy().as_bytes()).await?;
+        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes()).await?;
         writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
         writer
           .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)
@@ -200,7 +200,7 @@ impl Response {
             // do nothing, success bytes will be sent
           }
           ResponseSuccessBody::Data(data) => {
-            writer.send_sized_bytes(&data).await?;
+            writer.send_sized_bytes(data).await?;
           }
           ResponseSuccessBody::FormatText(maybe_text) => match maybe_text {
             None => {
@@ -215,11 +215,11 @@ impl Response {
       }
       ResponseBody::Error(text) => {
         writer.send_u32(1).await?;
-        writer.send_sized_bytes(&text.as_bytes()).await?;
+        writer.send_sized_bytes(text.as_bytes()).await?;
       }
       ResponseBody::HostFormat(body) => {
         writer.send_u32(2).await?;
-        writer.send_sized_bytes(&body.file_path.to_string_lossy().as_bytes()).await?;
+        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes()).await?;
         writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
         writer
           .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)

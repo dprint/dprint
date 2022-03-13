@@ -82,27 +82,31 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
     Box::pin(async move {
       if request.file_text.starts_with("plugin: ") {
-        host
+        let new_text = request.file_text.replace("plugin: ", "");
+        let result = host
           .format(HostFormatRequest {
             file_path: PathBuf::from("./test.txt"),
-            file_text: request.file_text.replace("plugin: ", ""),
+            file_text: new_text.clone(),
             range: None,
             override_config: Default::default(),
             token: request.token.clone(),
           })
-          .await
+          .await?;
+        Ok(Some(result.unwrap_or(new_text)))
       } else if request.file_text.starts_with("plugin-config: ") {
         let mut config_map = ConfigKeyMap::new();
         config_map.insert("ending".to_string(), "custom_config".into());
-        host
+        let new_text = request.file_text.replace("plugin-config: ", "");
+        let result = host
           .format(HostFormatRequest {
             file_path: PathBuf::from("./test.txt"),
-            file_text: request.file_text.replace("plugin-config: ", ""),
+            file_text: new_text.clone(),
             range: None,
             override_config: config_map,
             token: request.token.clone(),
           })
-          .await
+          .await?;
+        Ok(Some(result.unwrap_or(new_text)))
       } else if request.file_text == "should_error" {
         bail!("Did error.")
       } else if request.file_text.ends_with(&request.config.ending) {

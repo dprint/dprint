@@ -165,7 +165,7 @@ impl InitializedWasmPluginInstance {
   fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> FormatResult {
     match self.inner_format_text(file_path, file_text, override_config) {
       Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(err))?,
+      Err(err) => Err(CriticalFormatError(err).into()),
     }
   }
 
@@ -174,7 +174,7 @@ impl InitializedWasmPluginInstance {
     if !override_config.is_empty() {
       self.send_string(&match serde_json::to_string(override_config) {
         Ok(text) => text,
-        Err(err) => return Ok(Err(anyhow!("{}", err))),
+        Err(err) => return Ok(Err(err.into())),
       })?;
       self.wasm_functions.set_override_config()?;
     }
@@ -184,7 +184,7 @@ impl InitializedWasmPluginInstance {
     self.wasm_functions.set_file_path()?;
 
     // send file text and format
-    self.send_string(&file_text)?;
+    self.send_string(file_text)?;
     let response_code = self.wasm_functions.format()?;
 
     // handle the response
@@ -293,7 +293,7 @@ impl InitializedWasmPlugin {
   fn with_instance<T>(&self, action: impl Fn(&InitializedWasmPluginInstance) -> Result<T>) -> Result<T> {
     let instance = match self.get_or_create_instance() {
       Ok(instance) => instance,
-      Err(err) => Err(CriticalFormatError(err))?,
+      Err(err) => return Err(CriticalFormatError(err).into()),
     };
     match action(&instance) {
       Ok(result) => {
@@ -303,7 +303,7 @@ impl InitializedWasmPlugin {
       Err(original_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
         let instance = match self.get_or_create_instance() {
           Ok(instance) => instance,
-          Err(err) => Err(CriticalFormatError(err))?,
+          Err(err) => return Err(CriticalFormatError(err).into()),
         };
 
         // try again
@@ -312,16 +312,21 @@ impl InitializedWasmPlugin {
             self.release_instance(instance);
             Ok(result)
           }
-          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => Err(CriticalFormatError(anyhow!(
-            concat!(
-              "Originally panicked in {}, then failed reinitialize. ",
-              "This may be a bug in the plugin, the dprint cli is out of date, or the ",
-              "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
-            ),
-            self.0.name,
-            original_err,
-            reinitialize_err,
-          )))?,
+          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
+            return Err(
+              CriticalFormatError(anyhow!(
+                concat!(
+                  "Originally panicked in {}, then failed reinitialize. ",
+                  "This may be a bug in the plugin, the dprint cli is out of date, or the ",
+                  "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
+                ),
+                self.0.name,
+                original_err,
+                reinitialize_err,
+              ))
+              .into(),
+            )
+          }
           Err(err) => {
             self.release_instance(instance);
             Err(err)

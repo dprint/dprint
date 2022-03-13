@@ -159,7 +159,7 @@ impl ProcessPluginCommunicator {
       let poisoner = poisoner.clone();
       async move {
         while let Some(message) = message_rx.recv().await {
-          if let Err(_) = message.write(&mut stdin_writer).await {
+          if message.write(&mut stdin_writer).await.is_err() {
             break;
           }
           if matches!(message.body, MessageBody::Close) {
@@ -189,7 +189,7 @@ impl ProcessPluginCommunicator {
       self.context.poisoner.poison();
 
       // otherwise, ensure kill
-      if let Err(_) = result {
+      if result.is_err() {
         self.kill();
       }
     }
@@ -255,7 +255,7 @@ impl ProcessPluginCommunicator {
       Ok(Ok(Some(bytes))) => Ok(Some(String::from_utf8(bytes)?)),
       Ok(Ok(None)) => Ok(None),
       Ok(Err(err)) => Err(err),
-      Err(err) => Err(CriticalFormatError(err))?,
+      Err(err) => Err(CriticalFormatError(err).into()),
     }
   }
 
@@ -349,11 +349,10 @@ async fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: i
 
 async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
   let id = reader.read_u32().await?;
-  let message = context.messages.take(id)?;
   let kind = reader.read_u32().await?;
   match kind {
     // Success
-    0 => match message {
+    0 => match context.messages.take(id)? {
       MessageResponseChannel::Acknowledgement(channel) => {
         reader.read_success_bytes().await?;
         let _ignore = channel.send(Ok(()));
@@ -380,7 +379,7 @@ async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &
       let bytes = reader.read_sized_bytes().await?;
       reader.read_success_bytes().await?;
       let err = anyhow!("{}", String::from_utf8_lossy(&bytes));
-      match message {
+      match context.messages.take(id)? {
         MessageResponseChannel::Acknowledgement(channel) => {
           let _ignore = channel.send(Err(err));
         }
@@ -420,20 +419,18 @@ async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &
       tokio::task::spawn(async move {
         let result = host_format(context.host.clone(), body).await;
         let body = match result {
-          Ok(Some(text)) => Some(HostFormatResponseMessageBody::Change(text.into_bytes())),
-          Ok(None) => Some(HostFormatResponseMessageBody::NoChange),
+          Ok(Some(text)) => HostFormatResponseMessageBody::Change(text.into_bytes()),
+          Ok(None) => HostFormatResponseMessageBody::NoChange,
           // we can ignore a critical error because this is client side so it
           // was a critical error in another plugin
-          Err(err) => Some(HostFormatResponseMessageBody::Error(format!("{}", err).into_bytes())),
+          Err(err) => HostFormatResponseMessageBody::Error(format!("{}", err).into_bytes()),
         };
-        if let Some(body) = body {
-          // ignore failure, as this means that the process shut down
-          // at which point handling would have occurred elsewhere
-          let _ignore = context.message_tx.send(Message {
-            id,
-            body: MessageBody::HostFormatResponse(body),
-          });
-        }
+        // ignore failure, as this means that the process shut down
+        // at which point handling would have occurred elsewhere
+        let _ignore = context.message_tx.send(Message {
+          id,
+          body: MessageBody::HostFormatResponse(body),
+        });
       });
     }
     _ => {

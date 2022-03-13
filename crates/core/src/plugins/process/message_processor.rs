@@ -62,19 +62,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
 
   // read messages over stdin
   loop {
-    let message = match Message::read(&mut stdin_reader).await {
-      Ok(message) => message,
-      Err(err) => {
-        panic!(
-          "YUP {}: {}",
-          std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis(),
-          err
-        );
-      }
-    };
+    let message = Message::read(&mut stdin_reader).await?;
     match message.body {
       MessageBody::Close => {
         return Ok(());
@@ -248,7 +236,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
         Ok(Ok(Some(value))) => Ok(Some(value)),
         Ok(Ok(None)) => Ok(None),
         Ok(Err(err)) => Err(err),
-        Err(err) => Err(CriticalFormatError(err.into()))?,
+        Err(err) => Err(CriticalFormatError(err.into()).into()),
       }
     })
   }

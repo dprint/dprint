@@ -52,26 +52,23 @@ where
   file_paths_by_plugins.sort_by_key(|(_, file_paths)| 0i32 - file_paths.len() as i32);
   let collection_count = file_paths_by_plugins.len();
   let mut semaphores = Vec::with_capacity(collection_count);
-  let task_works = file_paths_by_plugins
-    .into_iter()
-    .enumerate()
-    .map(|(i, (plugin_names, file_paths))| {
-      let plugins = plugin_names.names().map(|plugin_name| plugin_collection.get_plugin(plugin_name)).collect();
-      let additional_thread = i < number_threads % collection_count;
-      let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
-      let semaphore = Arc::new(Semaphore::new(permits));
-      semaphores.push(StoredSemaphore {
-        finished: false,
-        permits,
-        semaphore: semaphore.clone(),
-      });
-      TaskWork {
-        semaphore,
-        plugins,
-        file_paths,
-      }
-    })
-    .collect::<Vec<_>>();
+  let mut task_works = Vec::with_capacity(collection_count);
+  for (i, (plugin_names, file_paths)) in file_paths_by_plugins.into_iter().enumerate() {
+    let plugins = plugin_names.names().map(|plugin_name| plugin_collection.get_plugin(plugin_name)).collect();
+    let additional_thread = i < number_threads % collection_count;
+    let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
+    let semaphore = Arc::new(Semaphore::new(permits));
+    semaphores.push(StoredSemaphore {
+      finished: false,
+      permits,
+      semaphore: semaphore.clone(),
+    });
+    task_works.push(TaskWork {
+      semaphore,
+      plugins,
+      file_paths,
+    });
+  }
 
   let semaphores = Arc::new(tokio::sync::Mutex::new(semaphores));
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
