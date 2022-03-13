@@ -6,14 +6,21 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
+use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
-use crate::configuration::ResolveConfigurationResult;
+use crate::configuration::GlobalConfiguration;
 
 pub type FormatHostSender = tokio::sync::oneshot::Sender<Result<Option<String>>>;
 
+pub struct StoredConfig<TConfiguration: Serialize + Clone> {
+  pub config: Arc<TConfiguration>,
+  pub diagnostics: Arc<Vec<ConfigurationDiagnostic>>,
+  pub config_map: ConfigKeyMap,
+  pub global_config: GlobalConfiguration,
+}
+
 struct ProcessContextInner<TConfiguration: Serialize + Clone> {
-  configurations: HashMap<u32, Arc<TConfiguration>>,
-  config_diagnostics: HashMap<u32, Arc<Vec<ConfigurationDiagnostic>>>,
+  configurations: HashMap<u32, Arc<StoredConfig<TConfiguration>>>,
   cancellation_tokens: HashMap<u32, Arc<CancellationToken>>,
   format_host_id_count: u32,
   format_host_senders: HashMap<u32, FormatHostSender>,
@@ -27,34 +34,24 @@ impl<TConfiguration: Serialize + Clone> ProcessContext<TConfiguration> {
     // for some reason, `#[derive(Default)]` wasn't working
     ProcessContext(Arc::new(Mutex::new(ProcessContextInner {
       configurations: Default::default(),
-      config_diagnostics: Default::default(),
       cancellation_tokens: Default::default(),
       format_host_id_count: 0,
       format_host_senders: Default::default(),
     })))
   }
 
-  pub fn store_config_result(&self, id: u32, result: ResolveConfigurationResult<TConfiguration>) {
+  pub fn store_config_result(&self, id: u32, config: StoredConfig<TConfiguration>) {
     let mut data = self.0.lock();
-    data.configurations.insert(id, Arc::new(result.config));
-    data.config_diagnostics.insert(id, Arc::new(result.diagnostics));
+    data.configurations.insert(id, Arc::new(config));
   }
 
   pub fn release_config_result(&self, id: u32) {
     let mut data = self.0.lock();
     data.configurations.remove(&id);
-    data.config_diagnostics.remove(&id);
   }
 
-  pub fn get_config(&self, id: u32) -> Option<Arc<TConfiguration>> {
+  pub fn get_config(&self, id: u32) -> Option<Arc<StoredConfig<TConfiguration>>> {
     self.0.lock().configurations.get(&id).cloned()
-  }
-
-  pub fn get_config_diagnostics(&self, id: u32) -> Arc<Vec<ConfigurationDiagnostic>> {
-    match self.0.lock().config_diagnostics.get(&id).cloned() {
-      Some(diagnostics) => diagnostics,
-      None => Default::default(),
-    }
   }
 
   pub fn store_cancellation_token(&self, id: u32, token: Arc<CancellationToken>) {

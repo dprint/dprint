@@ -29,7 +29,7 @@ pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
   // plugin_name: String,
   // executable_file_path: PathBuf,
   // config: (...etc...)
-  communicator: ProcessPluginCommunicator,
+  communicator: Arc<ProcessPluginCommunicator>,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
@@ -41,7 +41,10 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     plugin_collection: Arc<PluginsCollection<TEnvironment>>,
   ) -> Result<Self> {
     let communicator = create_new_communicator(plugin_name.clone(), &executable_file_path, &config, environment.clone(), plugin_collection).await?;
-    let initialized_communicator = InitializedProcessPluginCommunicator { environment, communicator };
+    let initialized_communicator = InitializedProcessPluginCommunicator {
+      environment,
+      communicator: Arc::new(communicator),
+    };
 
     Ok(initialized_communicator)
   }
@@ -77,7 +80,8 @@ async fn create_new_communicator<TEnvironment: Environment>(
       environment.log_stderr_with_context(&error_message, &plugin_name);
     },
     plugin_collection,
-  )?;
+  )
+  .await?;
   communicator.register_config(CONFIG_ID, &config.0, &config.1).await?;
   Ok(communicator)
 }

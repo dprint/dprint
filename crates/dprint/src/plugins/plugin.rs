@@ -12,7 +12,7 @@ use futures::future::BoxFuture;
 
 use crate::configuration::RawPluginConfig;
 
-pub trait Plugin: std::marker::Send + std::marker::Sync {
+pub trait Plugin: Send + Sync {
   /// The name of the plugin.
   fn name(&self) -> &str;
   /// The version of the plugin.

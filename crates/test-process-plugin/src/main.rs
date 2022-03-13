@@ -27,10 +27,7 @@ async fn main() -> Result<()> {
     start_parent_process_checker_task(parent_process_id);
   }
 
-  // needs to run on a blocking task
-  tokio::task::spawn_blocking(|| handle_process_stdio_messages(TestProcessPluginHandler::new()))
-    .await
-    .unwrap()
+  handle_process_stdio_messages(TestProcessPluginHandler::new()).await
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -153,6 +153,7 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 
 impl<TEnvironment: Environment> Host for PluginsCollection<TEnvironment> {
   fn format(&self, request: HostFormatRequest) -> dprint_core::plugins::BoxFuture<FormatResult> {
+    eprintln!("REQUEST: {:#?}", request.override_config);
     let mut file_text = request.file_text;
     let plugin_names = self.get_plugin_names_from_file_name(&request.file_path);
     let collection = self.clone();

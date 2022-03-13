@@ -189,10 +189,7 @@ impl Environment for RealEnvironment {
     self.logger.log_err(text, context_name);
   }
 
-  fn log_action_with_progress<
-    TResult: std::marker::Send + std::marker::Sync,
-    TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
-  >(
+  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,
     action: TCreate,

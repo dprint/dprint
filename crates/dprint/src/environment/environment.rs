@@ -31,7 +31,7 @@ pub trait UrlDownloader {
   }
 }
 
-pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownloader + 'static {
+pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn is_real(&self) -> bool;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
@@ -55,10 +55,7 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownlo
   fn log_stderr_with_context(&self, text: &str, context_name: &str);
   /// Information to force output when the environment is in "machine readable mode".
   fn log_machine_readable(&self, text: &str);
-  fn log_action_with_progress<
-    TResult: std::marker::Send + std::marker::Sync,
-    TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
-  >(
+  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,
     action: TCreate,

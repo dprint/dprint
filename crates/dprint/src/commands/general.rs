@@ -84,7 +84,7 @@ pub async fn output_file_paths<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins(&plugins, resolved_file_paths, &config.base_path)?;
 
   let file_paths = file_paths_by_plugin.values().flat_map(|x| x.iter());

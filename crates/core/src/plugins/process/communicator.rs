@@ -4,16 +4,17 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::io::Read;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Child;
-use std::process::ChildStderr;
-use std::process::ChildStdout;
-use std::process::Command;
 use std::process::Stdio;
 use std::sync::Arc;
+use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use tokio::process::Child;
+use tokio::process::ChildStderr;
+use tokio::process::ChildStdout;
+use tokio::process::Command;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
@@ -72,30 +73,28 @@ struct Context {
 }
 
 /// Communicates with a process plugin.
-#[derive(Clone)]
 pub struct ProcessPluginCommunicator {
-  child: Arc<Mutex<Option<Child>>>,
+  child: Mutex<Option<Child>>,
   context: Context,
 }
 
 impl Drop for ProcessPluginCommunicator {
   fn drop(&mut self) {
     let _ignore = self.close();
-    self.context.poisoner.poison();
   }
 }
 
 impl ProcessPluginCommunicator {
-  pub fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err, host)
+  pub async fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err, host).await
   }
 
   /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
-  pub fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err, host)
+  pub async fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err, host).await
   }
 
-  fn new_internal(
+  async fn new_internal(
     executable_file_path: &Path,
     is_init: bool,
     on_std_err: impl Fn(String) + Clone + Send + Sync + 'static,
@@ -117,11 +116,11 @@ impl ProcessPluginCommunicator {
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
-    tokio::task::spawn_blocking({
+    tokio::task::spawn({
       let poisoner = poisoner.clone();
       let on_std_err = on_std_err.clone();
-      move || {
-        std_err_redirect(poisoner, stderr, on_std_err);
+      async move {
+        std_err_redirect(poisoner, stderr, on_std_err).await;
       }
     });
 
@@ -129,7 +128,7 @@ impl ProcessPluginCommunicator {
     let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
-    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)?;
+    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer).await?;
 
     let (message_tx, mut message_rx) = unbounded_channel::<Message>();
     let context = Context {
@@ -141,15 +140,17 @@ impl ProcessPluginCommunicator {
     };
 
     // read from stdout
-    tokio::task::spawn_blocking({
+    tokio::task::spawn({
       let context = context.clone();
-      move || loop {
-        if let Err(err) = read_stdout_message(&mut stdout_reader, &context) {
-          if !context.poisoner.is_poisoned() {
-            on_std_err(format!("Error reading stdout message. {}", err));
-            context.poisoner.poison();
+      async move {
+        loop {
+          if let Err(err) = read_stdout_message(&mut stdout_reader, &context).await {
+            if !context.poisoner.is_poisoned() {
+              on_std_err(format!("Error reading stdout message. {}", err));
+              context.poisoner.poison();
+            }
+            break;
           }
-          break;
         }
       }
     });
@@ -158,7 +159,7 @@ impl ProcessPluginCommunicator {
       let poisoner = poisoner.clone();
       async move {
         while let Some(message) = message_rx.recv().await {
-          if let Err(_) = message.write(&mut stdin_writer) {
+          if let Err(_) = message.write(&mut stdin_writer).await {
             break;
           }
           if matches!(message.body, MessageBody::Close) {
@@ -170,7 +171,7 @@ impl ProcessPluginCommunicator {
     });
 
     Ok(Self {
-      child: Arc::new(Mutex::new(Some(child))),
+      child: Mutex::new(Some(child)),
       context,
     })
   }
@@ -184,6 +185,8 @@ impl ProcessPluginCommunicator {
         id: self.context.id_generator.next(),
         body: MessageBody::Close,
       });
+
+      self.context.poisoner.poison();
 
       // otherwise, ensure kill
       if let Err(_) = result {
@@ -242,11 +245,7 @@ impl ProcessPluginCommunicator {
           file_text: file_text.into_bytes(),
           range,
           config_id,
-          override_config: if override_config.is_empty() {
-            None
-          } else {
-            Some(serde_json::to_vec(override_config).unwrap())
-          },
+          override_config: serde_json::to_vec(override_config).unwrap(),
         }),
         MessageResponseChannel::Format(tx),
         rx,
@@ -299,16 +298,18 @@ impl ProcessPluginCommunicator {
   }
 }
 
-fn verify_plugin_schema_version<TRead: Read, TWrite: Write>(reader: &mut MessageReader<TRead>, writer: &mut MessageWriter<TWrite>) -> Result<()> {
-  // do this synchronously at the start
-  writer.send_u32(0)?; // ask for schema version
-  if reader.read_u32()? != 0 {
+async fn verify_plugin_schema_version<TRead: AsyncRead + Unpin, TWrite: AsyncWrite + Unpin>(
+  reader: &mut MessageReader<TRead>,
+  writer: &mut MessageWriter<TWrite>,
+) -> Result<()> {
+  writer.send_u32(0).await?; // ask for schema version
+  if reader.read_u32().await? != 0 {
     bail!(concat!(
       "There was a problem checking the plugin schema version. ",
       "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade."
     ));
   }
-  let plugin_schema_version = reader.read_u32()?;
+  let plugin_schema_version = reader.read_u32().await?;
   if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
     bail!(
       concat!(
@@ -323,13 +324,14 @@ fn verify_plugin_schema_version<TRead: Read, TWrite: Write>(reader: &mut Message
   Ok(())
 }
 
-fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: impl Fn(String) + std::marker::Send + std::marker::Sync + 'static) {
-  use std::io::BufRead;
+async fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
   use std::io::ErrorKind;
-  let reader = std::io::BufReader::new(stderr);
-  for line in reader.lines() {
+  let mut reader = tokio::io::BufReader::new(stderr).lines();
+  loop {
+    let line = reader.next_line().await;
     match line {
-      Ok(line) => on_std_err(line),
+      Ok(Some(line)) => on_std_err(line),
+      Ok(None) => return,
       Err(err) => {
         if poisoner.is_poisoned() {
           return;
@@ -345,37 +347,38 @@ fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: impl Fn
   }
 }
 
-fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
-  let id = reader.read_u32()?;
+async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
+  let id = reader.read_u32().await?;
   let message = context.messages.take(id)?;
-  let kind = reader.read_u32()?;
+  let kind = reader.read_u32().await?;
   match kind {
     // Success
     0 => match message {
       MessageResponseChannel::Acknowledgement(channel) => {
-        reader.read_success_bytes()?;
+        reader.read_success_bytes().await?;
         let _ignore = channel.send(Ok(()));
       }
       MessageResponseChannel::Data(channel) => {
-        let bytes = reader.read_sized_bytes()?;
-        reader.read_success_bytes()?;
+        let bytes = reader.read_sized_bytes().await?;
+        reader.read_success_bytes().await?;
         let _ignore = channel.send(Ok(bytes));
       }
       MessageResponseChannel::Format(channel) => {
-        let response_kind = reader.read_u32()?;
+        let response_kind = reader.read_u32().await?;
         let data = match response_kind {
           0 => None,
-          1 => Some(reader.read_sized_bytes()?),
+          1 => Some(reader.read_sized_bytes().await?),
           _ => bail!("Invalid format response kind: {}", response_kind),
         };
+        reader.read_success_bytes().await?;
 
         let _ignore = channel.send(Ok(data));
       }
     },
     // Error
     1 => {
-      let bytes = reader.read_sized_bytes()?;
-      reader.read_success_bytes()?;
+      let bytes = reader.read_sized_bytes().await?;
+      reader.read_success_bytes().await?;
       let err = anyhow!("{}", String::from_utf8_lossy(&bytes));
       match message {
         MessageResponseChannel::Acknowledgement(channel) => {
@@ -391,12 +394,12 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
     }
     // Host format
     2 => {
-      let file_path = reader.read_sized_bytes()?;
-      let start_byte_index = reader.read_u32()?;
-      let end_byte_index = reader.read_u32()?;
-      let override_config = reader.read_sized_bytes()?;
-      let file_text = reader.read_sized_bytes()?;
-      reader.read_success_bytes()?;
+      let file_path = reader.read_sized_bytes().await?;
+      let start_byte_index = reader.read_u32().await?;
+      let end_byte_index = reader.read_u32().await?;
+      let override_config = reader.read_sized_bytes().await?;
+      let file_text = reader.read_sized_bytes().await?;
+      reader.read_success_bytes().await?;
       let body = ResponseBodyHostFormat {
         file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
         range: if start_byte_index == 0 && end_byte_index as usize == file_text.len() {
@@ -408,7 +411,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
           })
         },
         file_text,
-        override_config: if override_config.is_empty() { None } else { Some(override_config) },
+        override_config,
       };
 
       // spawn a task to do the host formatting, then send a message back to the
@@ -447,10 +450,7 @@ async fn host_format(host: Arc<dyn Host>, body: ResponseBodyHostFormat) -> Forma
       file_path: body.file_path,
       file_text: String::from_utf8(body.file_text)?,
       range: body.range,
-      override_config: match &body.override_config {
-        Some(c) => serde_json::from_slice(&c).unwrap(),
-        None => Default::default(),
-      },
+      override_config: serde_json::from_slice(&body.override_config).unwrap(),
       // todo: implement cancellation for host formatting
       token: Arc::new(CancellationToken::new()),
     })

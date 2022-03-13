@@ -91,7 +91,8 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
       // it's ok to use a no-op host here because
       // we're only getting the plugin information
       Arc::new(NoopHost),
-    )?;
+    )
+    .await?;
     let plugin_info = communicator.plugin_info().await?;
 
     Ok(SetupPluginResult {

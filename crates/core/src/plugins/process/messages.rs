@@ -1,9 +1,9 @@
-use std::io::Read;
-use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::bail;
 use anyhow::Result;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 
 use crate::plugins::FormatRange;
 
@@ -17,34 +17,34 @@ pub struct Message {
 }
 
 impl Message {
-  pub fn read<TRead: Read>(reader: &mut MessageReader<TRead>) -> Result<Message> {
-    let id = reader.read_u32()?;
-    let message_kind = reader.read_u32()?;
+  pub async fn read<TRead: AsyncRead + Unpin>(reader: &mut MessageReader<TRead>) -> Result<Message> {
+    let id = reader.read_u32().await?;
+    let message_kind = reader.read_u32().await?;
     let body = match message_kind {
       1 => MessageBody::Close,
       2 => MessageBody::IsAlive,
       3 => MessageBody::GetPluginInfo,
       4 => MessageBody::GetLicenseText,
       5 => {
-        let config_id = reader.read_u32()?;
-        let global_config = reader.read_sized_bytes()?;
-        let plugin_config = reader.read_sized_bytes()?;
+        let config_id = reader.read_u32().await?;
+        let global_config = reader.read_sized_bytes().await?;
+        let plugin_config = reader.read_sized_bytes().await?;
         MessageBody::RegisterConfig(RegisterConfigMessageBody {
           config_id,
           global_config,
           plugin_config,
         })
       }
-      6 => MessageBody::ReleaseConfig(reader.read_u32()?),
-      7 => MessageBody::GetConfigDiagnostics(reader.read_u32()?),
-      8 => MessageBody::GetResolvedConfig(reader.read_u32()?),
+      6 => MessageBody::ReleaseConfig(reader.read_u32().await?),
+      7 => MessageBody::GetConfigDiagnostics(reader.read_u32().await?),
+      8 => MessageBody::GetResolvedConfig(reader.read_u32().await?),
       9 => {
-        let file_path = reader.read_sized_bytes()?;
-        let start_byte_index = reader.read_u32()?;
-        let end_byte_index = reader.read_u32()?;
-        let config_id = reader.read_u32()?;
-        let override_config = reader.read_sized_bytes()?;
-        let file_text = reader.read_sized_bytes()?;
+        let file_path = reader.read_sized_bytes().await?;
+        let start_byte_index = reader.read_u32().await?;
+        let end_byte_index = reader.read_u32().await?;
+        let config_id = reader.read_u32().await?;
+        let override_config = reader.read_sized_bytes().await?;
+        let file_text = reader.read_sized_bytes().await?;
         MessageBody::FormatText(FormatTextMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
           range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
@@ -57,16 +57,16 @@ impl Message {
           },
           config_id,
           file_text,
-          override_config: if override_config.is_empty() { None } else { Some(override_config) },
+          override_config,
         })
       }
-      10 => MessageBody::CancelFormat(reader.read_u32()?),
+      10 => MessageBody::CancelFormat(reader.read_u32().await?),
       11 => {
-        let response_kind = reader.read_u32()?;
+        let response_kind = reader.read_u32().await?;
         MessageBody::HostFormatResponse(match response_kind {
           0 => HostFormatResponseMessageBody::NoChange,
-          1 => HostFormatResponseMessageBody::Change(reader.read_sized_bytes()?),
-          2 => HostFormatResponseMessageBody::Error(reader.read_sized_bytes()?),
+          1 => HostFormatResponseMessageBody::Change(reader.read_sized_bytes().await?),
+          2 => HostFormatResponseMessageBody::Error(reader.read_sized_bytes().await?),
           _ => bail!("Unknown response kind: {}", response_kind),
         })
       }
@@ -74,76 +74,74 @@ impl Message {
         bail!("Unknown message kind: {}", message_kind)
       }
     };
-    reader.read_success_bytes()?;
+    reader.read_success_bytes().await?;
     Ok(Message { id, body })
   }
 
-  pub fn write<TWrite: Write>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
-    writer.send_u32(self.id)?;
+  pub async fn write<TWrite: AsyncWrite + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
+    writer.send_u32(self.id).await?;
     match &self.body {
       MessageBody::Close => {
-        writer.send_u32(1)?;
+        writer.send_u32(1).await?;
       }
       MessageBody::IsAlive => {
-        writer.send_u32(2)?;
+        writer.send_u32(2).await?;
       }
       MessageBody::GetPluginInfo => {
-        writer.send_u32(3)?;
+        writer.send_u32(3).await?;
       }
       MessageBody::GetLicenseText => {
-        writer.send_u32(4)?;
+        writer.send_u32(4).await?;
       }
       MessageBody::RegisterConfig(body) => {
-        writer.send_u32(5)?;
-        writer.send_u32(body.config_id)?;
-        writer.send_sized_bytes(&body.global_config)?;
-        writer.send_sized_bytes(&body.plugin_config)?;
+        writer.send_u32(5).await?;
+        writer.send_u32(body.config_id).await?;
+        writer.send_sized_bytes(&body.global_config).await?;
+        writer.send_sized_bytes(&body.plugin_config).await?;
       }
       MessageBody::ReleaseConfig(config_id) => {
-        writer.send_u32(6)?;
-        writer.send_u32(*config_id)?;
+        writer.send_u32(6).await?;
+        writer.send_u32(*config_id).await?;
       }
       MessageBody::GetConfigDiagnostics(config_id) => {
-        writer.send_u32(7)?;
-        writer.send_u32(*config_id)?;
+        writer.send_u32(7).await?;
+        writer.send_u32(*config_id).await?;
       }
       MessageBody::GetResolvedConfig(config_id) => {
-        writer.send_u32(8)?;
-        writer.send_u32(*config_id)?;
+        writer.send_u32(8).await?;
+        writer.send_u32(*config_id).await?;
       }
       MessageBody::FormatText(body) => {
-        writer.send_u32(9)?;
-        writer.send_sized_bytes(&body.file_path.to_string_lossy().as_bytes())?;
-        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
-        writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)?;
-        writer.send_u32(body.config_id)?;
-        if let Some(override_config) = &body.override_config {
-          writer.send_sized_bytes(override_config)?;
-        } else {
-          writer.send_sized_bytes(&Vec::with_capacity(0))?;
-        }
-        writer.send_sized_bytes(&body.file_text)?;
+        writer.send_u32(9).await?;
+        writer.send_sized_bytes(&body.file_path.to_string_lossy().as_bytes()).await?;
+        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
+        writer
+          .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)
+          .await?;
+        writer.send_u32(body.config_id).await?;
+        writer.send_sized_bytes(&body.override_config).await?;
+        writer.send_sized_bytes(&body.file_text).await?;
       }
       MessageBody::CancelFormat(message_id) => {
-        writer.send_u32(10)?;
-        writer.send_u32(*message_id)?;
+        writer.send_u32(10).await?;
+        writer.send_u32(*message_id).await?;
       }
       MessageBody::HostFormatResponse(body) => {
-        writer.send_u32(11)?;
+        writer.send_u32(11).await?;
         match body {
-          HostFormatResponseMessageBody::NoChange => writer.send_u32(0)?,
+          HostFormatResponseMessageBody::NoChange => writer.send_u32(0).await?,
           HostFormatResponseMessageBody::Change(text) => {
-            writer.send_u32(1)?;
-            writer.send_sized_bytes(text)?;
+            writer.send_u32(1).await?;
+            writer.send_sized_bytes(text).await?;
           }
           HostFormatResponseMessageBody::Error(text) => {
-            writer.send_u32(2)?;
-            writer.send_sized_bytes(text)?;
+            writer.send_u32(2).await?;
+            writer.send_sized_bytes(text).await?;
           }
         }
       }
     }
-    writer.send_success_bytes()?;
+    writer.send_success_bytes().await?;
     Ok(())
   }
 }
@@ -175,7 +173,7 @@ pub struct FormatTextMessageBody {
   pub file_path: PathBuf,
   pub range: FormatRange,
   pub config_id: u32,
-  pub override_config: Option<Vec<u8>>,
+  pub override_config: Vec<u8>,
   pub file_text: Vec<u8>,
 }
 
@@ -192,47 +190,45 @@ pub struct Response {
 }
 
 impl Response {
-  pub fn write<TWrite: Write>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
-    writer.send_u32(self.id)?;
+  pub async fn write<TWrite: AsyncWrite + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
+    writer.send_u32(self.id).await?;
     match &self.body {
       ResponseBody::Success(body) => {
-        writer.send_u32(0)?;
+        writer.send_u32(0).await?;
         match body {
           ResponseSuccessBody::Acknowledge => {
             // do nothing, success bytes will be sent
           }
           ResponseSuccessBody::Data(data) => {
-            writer.send_sized_bytes(&data)?;
+            writer.send_sized_bytes(&data).await?;
           }
           ResponseSuccessBody::FormatText(maybe_text) => match maybe_text {
             None => {
-              writer.send_u32(0)?;
+              writer.send_u32(0).await?;
             }
             Some(text) => {
-              writer.send_u32(1)?;
-              writer.send_sized_bytes(text)?;
+              writer.send_u32(1).await?;
+              writer.send_sized_bytes(text).await?;
             }
           },
         }
       }
       ResponseBody::Error(text) => {
-        writer.send_u32(1)?;
-        writer.send_sized_bytes(&text.as_bytes())?;
+        writer.send_u32(1).await?;
+        writer.send_sized_bytes(&text.as_bytes()).await?;
       }
       ResponseBody::HostFormat(body) => {
-        writer.send_u32(2)?;
-        writer.send_sized_bytes(&body.file_path.to_string_lossy().as_bytes())?;
-        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
-        writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)?;
-        if let Some(override_config) = &body.override_config {
-          writer.send_sized_bytes(override_config)?;
-        } else {
-          writer.send_sized_bytes(&Vec::with_capacity(0))?;
-        }
-        writer.send_sized_bytes(&body.file_text)?;
+        writer.send_u32(2).await?;
+        writer.send_sized_bytes(&body.file_path.to_string_lossy().as_bytes()).await?;
+        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
+        writer
+          .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)
+          .await?;
+        writer.send_sized_bytes(&body.override_config).await?;
+        writer.send_sized_bytes(&body.file_text).await?;
       }
     }
-    writer.send_success_bytes()?;
+    writer.send_success_bytes().await?;
     Ok(())
   }
 }
@@ -246,7 +242,7 @@ pub enum ResponseBody {
 pub struct ResponseBodyHostFormat {
   pub file_path: PathBuf,
   pub range: FormatRange,
-  pub override_config: Option<Vec<u8>>,
+  pub override_config: Vec<u8>,
   pub file_text: Vec<u8>,
 }
 
