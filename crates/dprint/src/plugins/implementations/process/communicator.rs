@@ -58,7 +58,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.communicator.config_diagnostics(CONFIG_ID).await
   }
 
-  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: &ConfigKeyMap) -> Result<FormatResult> {
+  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: &ConfigKeyMap) -> FormatResult {
     self.communicator.format_text(file_path, file_text, range, CONFIG_ID, override_config).await
   }
 }

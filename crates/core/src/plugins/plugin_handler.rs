@@ -15,6 +15,25 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub type FormatRange = Option<std::ops::Range<usize>>;
 
+/// A formatting error where the plugin cannot recover.
+///
+/// Return one of these to signal to the dprint CLI that
+/// it should recreate the plugin.
+#[derive(Debug)]
+pub struct CriticalFormatError(pub anyhow::Error);
+
+impl std::fmt::Display for CriticalFormatError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.fmt(f)
+  }
+}
+
+impl std::error::Error for CriticalFormatError {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    self.0.source()
+  }
+}
+
 pub trait CancellationToken: Send + Sync {
   fn is_cancelled(&self) -> bool;
 }
@@ -38,7 +57,7 @@ pub struct HostFormatRequest {
 }
 
 pub trait Host: Send + Sync {
-  fn format(&self, request: HostFormatRequest) -> BoxFuture<Result<FormatResult>>;
+  fn format(&self, request: HostFormatRequest) -> BoxFuture<FormatResult>;
 }
 
 /// Implementation of Host that always returns that
@@ -46,16 +65,15 @@ pub trait Host: Send + Sync {
 pub struct NoopHost;
 
 impl Host for NoopHost {
-  fn format(&self, _: HostFormatRequest) -> BoxFuture<Result<FormatResult>> {
-    Box::pin(async { Ok(FormatResult::NoChange) })
+  fn format(&self, _: HostFormatRequest) -> BoxFuture<FormatResult> {
+    Box::pin(async { Ok(None) })
   }
 }
 
-pub enum FormatResult {
-  NoChange,
-  Change(String),
-  Err(anyhow::Error),
-}
+/// `Ok(Some(text))` - Changes due to the format.
+/// `Ok(None)` - No changes.
+/// `Err(err)` - Error formating. Use a `CriticalError` to signal that the plugin can't recover.
+pub type FormatResult = Result<Option<String>>;
 
 pub struct FormatRequest<TConfiguration> {
   pub file_path: PathBuf,

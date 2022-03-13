@@ -237,7 +237,7 @@ mod test {
   }
 
   #[test]
-  fn should_format_file() {
+  fn should_format_single_file() {
     let file_path1 = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(file_path1, "text")
@@ -331,10 +331,12 @@ mod test {
     assert_eq!(environment.take_stdout_messages().len(), 0);
     let logged_errors = environment.take_stderr_messages();
     assert_eq!(logged_errors.len(), 1);
-    assert_eq!(
-      logged_errors[0].starts_with("Error formatting /file1.txt. Message: RuntimeError: unreachable"),
-      true
+    let expected_start_text = concat!(
+      "Critical error formatting /file1.txt. Cannot continue. ",
+      "Message: Originally panicked in test-plugin, then failed reinitialize. ",
+      "This may be a bug in the plugin, the dprint cli is out of date, or the plugin is out of date.",
     );
+    assert_eq!(&logged_errors[0][..expected_start_text.len()], expected_start_text);
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
     assert_eq!(environment.read_file("/file2.txt").unwrap(), "test_formatted");
   }

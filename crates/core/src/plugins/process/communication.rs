@@ -47,19 +47,6 @@ impl<TRead: Read> MessageReader<TRead> {
     Ok(())
   }
 
-  pub fn read_success_bytes_with_message_on_error(&mut self, maybe_read_error_message: &[u8]) -> Result<()> {
-    let read_bytes = self.inner_read_success_bytes()?;
-    if &read_bytes != SUCCESS_BYTES {
-      let message = "Catastrophic error reading from process. Did not receive the success bytes at end of message.";
-      // attempt to convert the error message to a string
-      match std::str::from_utf8(maybe_read_error_message) {
-        Ok(error_message) => bail!("{} Found: {:?}. Received partial error: {}", message, read_bytes, error_message),
-        Err(_) => bail!("{}", message),
-      }
-    }
-    Ok(())
-  }
-
   fn inner_read_success_bytes(&mut self) -> Result<[u8; 4]> {
     let mut read_buf: [u8; 4] = [0; 4];
     self.reader.read_exact(&mut read_buf)?;

@@ -2,6 +2,7 @@ use anyhow::bail;
 use anyhow::Result;
 use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::FormatRequest;
+use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
 use serde::Deserialize;
@@ -81,7 +82,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     }
   }
 
-  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<Result<Option<String>>> {
+  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
     Box::pin(async move {
       if request.file_text.starts_with("plugin: ") {
         host

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Result;
 use dprint_core::plugins::BoxFuture;
+use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use futures::FutureExt;
@@ -162,12 +162,19 @@ impl InitializedWasmPluginInstance {
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
+  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> FormatResult {
+    match self.inner_format_text(file_path, file_text, override_config) {
+      Ok(inner) => inner,
+      Err(err) => Err(CriticalFormatError(err))?,
+    }
+  }
+
+  fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
     // send override config if necessary
     if !override_config.is_empty() {
       self.send_string(&match serde_json::to_string(override_config) {
         Ok(text) => text,
-        Err(err) => return Ok(FormatResult::Err(anyhow!("{}", err))),
+        Err(err) => return Ok(Err(anyhow!("{}", err))),
       })?;
       self.wasm_functions.set_override_config()?;
     }
@@ -182,21 +189,16 @@ impl InitializedWasmPluginInstance {
 
     // handle the response
     match response_code {
-      WasmFormatResult::NoChange => Ok(FormatResult::NoChange),
+      WasmFormatResult::NoChange => Ok(Ok(None)),
       WasmFormatResult::Change => {
-        let len = match self.wasm_functions.get_formatted_text() {
-          Ok(len) => len,
-          Err(err) => {
-            return Err(err);
-          }
-        };
+        let len = self.wasm_functions.get_formatted_text()?;
         let text = self.receive_string(len)?;
-        Ok(FormatResult::Change(text))
+        Ok(Ok(Some(text)))
       }
       WasmFormatResult::Error => {
         let len = self.wasm_functions.get_error_text()?;
         let text = self.receive_string(len)?;
-        Ok(FormatResult::Err(anyhow!("{}", text)))
+        Ok(Err(anyhow!("{}", text)))
       }
     }
   }
@@ -289,15 +291,20 @@ impl InitializedWasmPlugin {
   }
 
   fn with_instance<T>(&self, action: impl Fn(&InitializedWasmPluginInstance) -> Result<T>) -> Result<T> {
-    let instance = self.get_or_create_instance()?;
+    let instance = match self.get_or_create_instance() {
+      Ok(instance) => instance,
+      Err(err) => Err(CriticalFormatError(err))?,
+    };
     match action(&instance) {
       Ok(result) => {
         self.release_instance(instance);
         Ok(result)
       }
-      Err(original_err) => {
-        // todo: log verbose error here
-        let instance = self.get_or_create_instance()?;
+      Err(original_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
+        let instance = match self.get_or_create_instance() {
+          Ok(instance) => instance,
+          Err(err) => Err(CriticalFormatError(err))?,
+        };
 
         // try again
         match action(&instance) {
@@ -305,13 +312,25 @@ impl InitializedWasmPlugin {
             self.release_instance(instance);
             Ok(result)
           }
-          Err(reinitialize_err) => {
-            bail!(
-              "Originally panicked in {}, then failed reinitialize. Cannot recover. This may be a bug in the plugin.\nOriginal error: {}\nReinitialize error: {}",
-              self.0.name, original_err, reinitialize_err,
-            )
+          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => Err(CriticalFormatError(anyhow!(
+            concat!(
+              "Originally panicked in {}, then failed reinitialize. ",
+              "This may be a bug in the plugin, the dprint cli is out of date, or the ",
+              "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
+            ),
+            self.0.name,
+            original_err,
+            reinitialize_err,
+          )))?,
+          Err(err) => {
+            self.release_instance(instance);
+            Err(err)
           }
         }
+      }
+      Err(err) => {
+        self.release_instance(instance);
+        Err(err)
       }
     }
   }
@@ -379,7 +398,7 @@ impl InitializedPlugin for InitializedWasmPlugin {
     // not supported yet for Wasm plugins
     _range: FormatRange,
     override_config: ConfigKeyMap,
-  ) -> BoxFuture<'static, Result<FormatResult>> {
+  ) -> BoxFuture<'static, FormatResult> {
     let plugin = self.clone();
     async move {
       tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config)))

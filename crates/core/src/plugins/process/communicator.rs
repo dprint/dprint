@@ -33,6 +33,7 @@ use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+use crate::plugins::CriticalFormatError;
 use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
 use crate::plugins::Host;
@@ -125,9 +126,10 @@ impl ProcessPluginCommunicator {
     });
 
     // verify the schema version
-    let mut reader = MessageReader::new(child.stdout.take().unwrap());
-    let mut writer = MessageWriter::new(child.stdin.take().unwrap());
-    verify_plugin_schema_version(&mut reader, &mut writer)?;
+    let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
+    let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
+
+    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)?;
 
     let (message_tx, mut message_rx) = unbounded_channel::<Message>();
     let context = Context {
@@ -142,7 +144,7 @@ impl ProcessPluginCommunicator {
     tokio::task::spawn_blocking({
       let context = context.clone();
       move || loop {
-        if let Err(err) = read_stdout_message(&mut reader, &context) {
+        if let Err(err) = read_stdout_message(&mut stdout_reader, &context) {
           if !context.poisoner.is_poisoned() {
             on_std_err(format!("Error reading stdout message. {}", err));
             context.poisoner.poison();
@@ -156,7 +158,7 @@ impl ProcessPluginCommunicator {
       let poisoner = poisoner.clone();
       async move {
         while let Some(message) = message_rx.recv().await {
-          if let Err(_) = message.write(&mut writer) {
+          if let Err(_) = message.write(&mut stdin_writer) {
             break;
           }
           if matches!(message.body, MessageBody::Close) {
@@ -231,16 +233,9 @@ impl ProcessPluginCommunicator {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
-  pub async fn format_text(
-    &self,
-    file_path: PathBuf,
-    file_text: String,
-    range: FormatRange,
-    config_id: u32,
-    override_config: &ConfigKeyMap,
-  ) -> Result<FormatResult> {
+  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, config_id: u32, override_config: &ConfigKeyMap) -> FormatResult {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
-    let maybe_text = self
+    let maybe_result = self
       .send_message(
         MessageBody::FormatText(FormatTextMessageBody {
           file_path,
@@ -256,12 +251,13 @@ impl ProcessPluginCommunicator {
         MessageResponseChannel::Format(tx),
         rx,
       )
-      .await?;
-    Ok(match maybe_text {
-      Ok(Some(bytes)) => FormatResult::Change(String::from_utf8(bytes)?),
-      Ok(None) => FormatResult::NoChange,
-      Err(err) => FormatResult::Err(err),
-    })
+      .await;
+    match maybe_result {
+      Ok(Ok(Some(bytes))) => Ok(Some(String::from_utf8(bytes)?)),
+      Ok(Ok(None)) => Ok(None),
+      Ok(Err(err)) => Err(err),
+      Err(err) => Err(CriticalFormatError(err))?,
+    }
   }
 
   /// Checks if the process is functioning.
@@ -420,16 +416,21 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
       let context = context.clone();
       tokio::task::spawn(async move {
         let result = host_format(context.host.clone(), body).await;
-        // ignore failure, as this means that the process shut down
-        // at which point handling would have occurred elsewhere
-        let _ignore = context.message_tx.send(Message {
-          id,
-          body: MessageBody::HostFormatResponse(match result {
-            Ok(Some(text)) => HostFormatResponseMessageBody::Change(text.into_bytes()),
-            Ok(None) => HostFormatResponseMessageBody::NoChange,
-            Err(err) => HostFormatResponseMessageBody::Error(format!("{}", err).into_bytes()),
-          }),
-        });
+        let body = match result {
+          Ok(Some(text)) => Some(HostFormatResponseMessageBody::Change(text.into_bytes())),
+          Ok(None) => Some(HostFormatResponseMessageBody::NoChange),
+          // we can ignore a critical error because this is client side so it
+          // was a critical error in another plugin
+          Err(err) => Some(HostFormatResponseMessageBody::Error(format!("{}", err).into_bytes())),
+        };
+        if let Some(body) = body {
+          // ignore failure, as this means that the process shut down
+          // at which point handling would have occurred elsewhere
+          let _ignore = context.message_tx.send(Message {
+            id,
+            body: MessageBody::HostFormatResponse(body),
+          });
+        }
       });
     }
     _ => {
@@ -440,7 +441,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
   Ok(())
 }
 
-async fn host_format(host: Arc<dyn Host>, body: ResponseBodyHostFormat) -> Result<Option<String>> {
+async fn host_format(host: Arc<dyn Host>, body: ResponseBodyHostFormat) -> FormatResult {
   host
     .format(HostFormatRequest {
       file_path: body.file_path,

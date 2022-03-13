@@ -164,6 +164,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
         Ok(None) => {
           0 // no change
         }
+        // ignore critical error as we can just continue formatting
         Err(err) => {
           let mut cell = env.cell.lock();
           cell.error_text_store = err.to_string();

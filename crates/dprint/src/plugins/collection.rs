@@ -1,4 +1,5 @@
 use anyhow::bail;
+use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
@@ -98,8 +99,13 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
     Ok(())
   }
 
-  pub fn get_plugin(&self, plugin_name: &str) -> Option<Arc<PluginWrapper<TEnvironment>>> {
-    self.plugins.lock().get(plugin_name).cloned()
+  pub fn get_plugin(&self, plugin_name: &str) -> Arc<PluginWrapper<TEnvironment>> {
+    self
+      .plugins
+      .lock()
+      .get(plugin_name)
+      .cloned()
+      .unwrap_or_else(|| panic!("Expected to find plugin in collection: {}", plugin_name))
   }
 
   pub fn get_plugin_names_from_file_name(&self, file_name: &Path) -> Vec<String> {
@@ -146,17 +152,17 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 }
 
 impl<TEnvironment: Environment> Host for PluginsCollection<TEnvironment> {
-  fn format(&self, request: HostFormatRequest) -> dprint_core::plugins::BoxFuture<Result<FormatResult>> {
+  fn format(&self, request: HostFormatRequest) -> dprint_core::plugins::BoxFuture<FormatResult> {
     let mut file_text = request.file_text;
     let plugin_names = self.get_plugin_names_from_file_name(&request.file_path);
     let collection = self.clone();
     async move {
       let mut had_change = false;
       for plugin_name in plugin_names {
-        let plugin = collection.get_plugin(&plugin_name).unwrap();
+        let plugin = collection.get_plugin(&plugin_name);
         let error_logger = ErrorCountLogger::from_environment(&collection.environment);
-        match plugin.get_or_create_checking_config_diagnostics(error_logger.clone()).await? {
-          GetPluginResult::Success(initialized_plugin) => {
+        match plugin.get_or_create_checking_config_diagnostics(error_logger.clone()).await {
+          Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
               .format_text(
                 request.file_path.clone(),
@@ -170,9 +176,8 @@ impl<TEnvironment: Environment> Host for PluginsCollection<TEnvironment> {
               had_change = true;
             }
           }
-          GetPluginResult::HadDiagnostics => {
-            bail!("Had {} configuration errors.", error_logger.get_error_count());
-          }
+          Ok(GetPluginResult::HadDiagnostics) => bail!("Had {} configuration errors.", error_logger.get_error_count()),
+          Err(err) => Err(CriticalFormatError(err))?,
         }
       }
 

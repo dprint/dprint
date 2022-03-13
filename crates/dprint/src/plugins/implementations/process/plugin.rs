@@ -154,7 +154,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
     async move { communicator.get_config_diagnostics().await }.boxed()
   }
 
-  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, Result<FormatResult>> {
+  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, FormatResult> {
     // todo: this used to recreate the process if dead... this needs to be redesigned
     let communicator = self.communicator.clone();
     async move { communicator.format_text(file_path, file_text, range, &override_config).await }.boxed()

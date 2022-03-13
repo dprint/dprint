@@ -65,7 +65,7 @@ pub trait InitializedPlugin: Send + Sync {
   /// Gets the configuration diagnostics.
   fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>>;
   /// Formats the text in memory based on the file path and file text.
-  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, Result<FormatResult>>;
+  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, FormatResult>;
 }
 
 #[cfg(test)]
@@ -179,7 +179,7 @@ impl InitializedPlugin for InitializedTestPlugin {
     async move { Ok(vec![]) }.boxed()
   }
 
-  fn format_text(&self, _: PathBuf, text: String, _: FormatRange, _: ConfigKeyMap) -> BoxFuture<'static, Result<Option<String>>> {
+  fn format_text(&self, _: PathBuf, text: String, _: FormatRange, _: ConfigKeyMap) -> BoxFuture<'static, FormatResult> {
     use futures::FutureExt;
     async move { Ok(Some(format!("{}_formatted", text))) }.boxed()
   }

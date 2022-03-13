@@ -1,6 +1,7 @@
 use anyhow::bail;
 use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::plugins::CriticalFormatError;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -55,10 +56,7 @@ where
     .into_iter()
     .enumerate()
     .map(|(i, (plugin_names, file_paths))| {
-      let plugins = plugin_names
-        .names()
-        .map(|plugin_name| plugin_collection.get_plugin(plugin_name).unwrap())
-        .collect();
+      let plugins = plugin_names.names().map(|plugin_name| plugin_collection.get_plugin(plugin_name)).collect();
       let additional_thread = i < number_threads % collection_count;
       let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
       let semaphore = Arc::new(Semaphore::new(permits));
@@ -111,10 +109,18 @@ where
           let plugins = plugins.clone();
           let error_logger = error_logger.clone();
           tokio::task::spawn(async move {
-            let _permit = semaphore.acquire().await.unwrap();
+            let _permit = match semaphore.acquire().await {
+              Ok(permit) => permit,
+              Err(_) => return, // semaphore was closed, so stop working
+            };
             let result = run_for_file_path(environment, incremental_file, plugins, file_path.clone(), f).await;
             if let Err(err) = result {
-              error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err));
+              if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
+                error_logger.log_error(&format!("Critical error formatting {}. Cannot continue. Message: {}", file_path.display(), err));
+                semaphore.close(); // stop formatting
+              } else {
+                error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err));
+              }
             }
           })
         });
@@ -190,7 +196,7 @@ where
           },
         );
         if let Some(text) = format_text_result? {
-          file_text = Cow::Owned(text);
+          file_text = Cow::Owned(text)
         }
       }
       (start_instant, file_text.into_owned())

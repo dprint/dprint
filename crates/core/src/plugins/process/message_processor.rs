@@ -26,6 +26,7 @@ use super::messages::ResponseSuccessBody;
 use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::plugins::AsyncPluginHandler;
+use crate::plugins::CriticalFormatError;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::Host;
@@ -156,9 +157,9 @@ pub fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler: THan
           context.release_cancellation_token(message.id);
           if !token.is_cancelled() {
             let body = match result {
-              FormatResult::Change(text) => ResponseBody::Success(ResponseSuccessBody::FormatText(Some(text.into_bytes()))),
-              FormatResult::NoChange => ResponseBody::Success(ResponseSuccessBody::FormatText(None)),
-              FormatResult::Err(err) => ResponseBody::Error(err.to_string()),
+              Ok(Some(text)) => ResponseBody::Success(ResponseSuccessBody::FormatText(Some(text.into_bytes()))),
+              Ok(None) => ResponseBody::Success(ResponseSuccessBody::FormatText(None)),
+              Err(err) => ResponseBody::Error(err.to_string()),
             };
             send_response(&response_tx, Response { id: message.id, body });
           }
@@ -194,7 +195,7 @@ struct ProcessHost<TConfiguration: Serialize + Clone + Send + Sync> {
 }
 
 impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConfiguration> {
-  fn format(&self, request: HostFormatRequest) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>> {
+  fn format(&self, request: HostFormatRequest) -> Pin<Box<dyn Future<Output = FormatResult> + Send>> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
     let id = self.context.store_format_host_sender(tx);
 
@@ -219,8 +220,10 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
 
     Box::pin(async move {
       match rx.await {
-        Ok(value) => value,
-        Err(err) => Err(anyhow!("{}", err)),
+        Ok(Ok(Some(value))) => Ok(Some(value)),
+        Ok(Ok(None)) => Ok(None),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(CriticalFormatError(err.into()))?,
       }
     })
   }
@@ -259,6 +262,7 @@ fn schema_establishment_phase(stdin: &mut Stdin, stdout: &mut Stdout) -> Result<
   // 2. The client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
   stdout.write(&(0 as u32).to_be_bytes())?;
   stdout.write(&PLUGIN_SCHEMA_VERSION.to_be_bytes())?;
+  stdout.flush()?;
 
   Ok(())
 }
