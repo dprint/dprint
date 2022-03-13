@@ -10,18 +10,18 @@ use wasmer::WasmTypeList;
 
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
 
-pub enum FormatResult {
+pub enum WasmFormatResult {
   NoChange = 0,
   Change = 1,
   Error = 2,
 }
 
-impl From<u8> for FormatResult {
+impl From<u8> for WasmFormatResult {
   fn from(orig: u8) -> Self {
     match orig {
-      0 => FormatResult::NoChange,
-      1 => FormatResult::Change,
-      2 => FormatResult::Error,
+      0 => WasmFormatResult::NoChange,
+      1 => WasmFormatResult::Change,
+      2 => WasmFormatResult::Error,
       _ => unreachable!(),
     }
   }
@@ -105,7 +105,7 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn format(&self) -> Result<FormatResult> {
+  pub fn format(&self) -> Result<WasmFormatResult> {
     let format_func = self.get_export::<(), u8>("format")?;
     wasm_runtime_error_to_err_box(format_func.call()).map(|value| value.into())
   }

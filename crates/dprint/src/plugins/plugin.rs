@@ -7,6 +7,7 @@ use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatResult;
 use futures::future::BoxFuture;
 
 use crate::configuration::RawPluginConfig;
@@ -64,8 +65,7 @@ pub trait InitializedPlugin: Send + Sync {
   /// Gets the configuration diagnostics.
   fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>>;
   /// Formats the text in memory based on the file path and file text.
-  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap)
-    -> BoxFuture<'static, Result<Option<String>>>;
+  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, Result<FormatResult>>;
 }
 
 #[cfg(test)]
@@ -141,6 +141,7 @@ impl Plugin for TestPlugin {
   }
 
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+    use futures::FutureExt;
     let test_plugin = Arc::new(self.initialized_test_plugin.clone().unwrap());
     async move {
       let result: Arc<dyn InitializedPlugin> = test_plugin;
@@ -178,7 +179,7 @@ impl InitializedPlugin for InitializedTestPlugin {
     async move { Ok(vec![]) }.boxed()
   }
 
-  fn format_text(&self, _: PathBuf, text: String, range: FormatRange, _: ConfigKeyMap) -> BoxFuture<'static, Result<Option<String>>> {
+  fn format_text(&self, _: PathBuf, text: String, _: FormatRange, _: ConfigKeyMap) -> BoxFuture<'static, Result<Option<String>>> {
     use futures::FutureExt;
     async move { Ok(Some(format!("{}_formatted", text))) }.boxed()
   }

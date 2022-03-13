@@ -20,6 +20,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
 
   // load the plugin and get the info
   let plugin = InitializedWasmPlugin::new(
+    "compiling".to_string(),
     module,
     Arc::new(move || create_identity_import_object(&store)), // we're not formatting anything so this is ok
     Default::default(),

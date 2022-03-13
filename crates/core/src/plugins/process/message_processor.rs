@@ -27,6 +27,7 @@ use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::plugins::AsyncPluginHandler;
 use crate::plugins::FormatRequest;
+use crate::plugins::FormatResult;
 use crate::plugins::Host;
 use crate::plugins::HostFormatRequest;
 
@@ -155,8 +156,9 @@ pub fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler: THan
           context.release_cancellation_token(message.id);
           if !token.is_cancelled() {
             let body = match result {
-              Ok(result) => ResponseBody::Success(ResponseSuccessBody::FormatText(result.map(|r| r.into_bytes()))),
-              Err(err) => ResponseBody::Error(err.to_string()),
+              FormatResult::Change(text) => ResponseBody::Success(ResponseSuccessBody::FormatText(Some(text.into_bytes()))),
+              FormatResult::NoChange => ResponseBody::Success(ResponseSuccessBody::FormatText(None)),
+              FormatResult::Err(err) => ResponseBody::Error(err.to_string()),
             };
             send_response(&response_tx, Response { id: message.id, body });
           }

@@ -6,8 +6,8 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::generate_plugin_code;
-use dprint_core::plugins::PluginHandler;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::SyncPluginHandler;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
@@ -30,7 +30,7 @@ impl TestWasmPlugin {
   }
 }
 
-impl PluginHandler<Configuration> for TestWasmPlugin {
+impl SyncPluginHandler<Configuration> for TestWasmPlugin {
   fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut config = config;
     let mut diagnostics = Vec::new();
@@ -45,7 +45,7 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
     }
   }
 
-  fn get_plugin_info(&mut self) -> PluginInfo {
+  fn plugin_info(&mut self) -> PluginInfo {
     PluginInfo {
       name: env!("CARGO_PKG_NAME").to_string(),
       version: env!("CARGO_PKG_VERSION").to_string(),
@@ -58,11 +58,11 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
     }
   }
 
-  fn get_license_text(&mut self) -> String {
+  fn license_text(&mut self) -> String {
     std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
   }
 
-  fn format_text(
+  fn format(
     &mut self,
     _: &Path,
     file_text: &str,

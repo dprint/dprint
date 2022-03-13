@@ -6,6 +6,7 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatResult;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -57,7 +58,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.communicator.config_diagnostics(CONFIG_ID).await
   }
 
-  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: &ConfigKeyMap) -> Result<Option<String>> {
+  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: &ConfigKeyMap) -> Result<FormatResult> {
     self.communicator.format_text(file_path, file_text, range, CONFIG_ID, override_config).await
   }
 }

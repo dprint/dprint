@@ -1,8 +1,9 @@
 use anyhow::anyhow;
-use anyhow::Error;
+use anyhow::bail;
 use anyhow::Result;
 use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatResult;
 use futures::FutureExt;
 use parking_lot::Mutex;
 use std::path::Path;
@@ -17,8 +18,8 @@ use dprint_core::plugins::PluginInfo;
 use super::create_module;
 use super::create_pools_import_object;
 use super::load_instance;
-use super::FormatResult;
 use super::ImportObjectEnvironment;
+use super::WasmFormatResult;
 use super::WasmFunctions;
 use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
@@ -98,6 +99,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     // need to call set_config first to ensure this doesn't fail
     let (plugin_config, global_config) = self.config.as_ref().unwrap();
     let plugin = InitializedWasmPlugin::new(
+      self.name().to_string(),
       self.module.clone(),
       Arc::new({
         let plugin_pools = self.plugin_pools.clone();
@@ -160,12 +162,12 @@ impl InitializedWasmPluginInstance {
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<Result<Option<String>>> {
+  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
     // send override config if necessary
     if !override_config.is_empty() {
       self.send_string(&match serde_json::to_string(override_config) {
         Ok(text) => text,
-        Err(err) => return Ok(Err(anyhow!("{}", err))),
+        Err(err) => return Ok(FormatResult::Err(anyhow!("{}", err))),
       })?;
       self.wasm_functions.set_override_config()?;
     }
@@ -180,8 +182,8 @@ impl InitializedWasmPluginInstance {
 
     // handle the response
     match response_code {
-      FormatResult::NoChange => Ok(Ok(None)),
-      FormatResult::Change => {
+      WasmFormatResult::NoChange => Ok(FormatResult::NoChange),
+      WasmFormatResult::Change => {
         let len = match self.wasm_functions.get_formatted_text() {
           Ok(len) => len,
           Err(err) => {
@@ -189,12 +191,12 @@ impl InitializedWasmPluginInstance {
           }
         };
         let text = self.receive_string(len)?;
-        Ok(Ok(Some(text)))
+        Ok(FormatResult::Change(text))
       }
-      FormatResult::Error => {
+      WasmFormatResult::Error => {
         let len = self.wasm_functions.get_error_text()?;
         let text = self.receive_string(len)?;
-        Ok(Err(anyhow!("{}", text)))
+        Ok(FormatResult::Err(anyhow!("{}", text)))
       }
     }
   }
@@ -252,6 +254,7 @@ impl InitializedWasmPluginInstance {
 }
 
 struct InitializedWasmPluginInner {
+  name: String,
   instances: Mutex<Vec<InitializedWasmPluginInstance>>,
   // below is for recreating an instance after panic
   module: wasmer::Module,
@@ -265,12 +268,14 @@ pub struct InitializedWasmPlugin(Arc<InitializedWasmPluginInner>);
 
 impl InitializedWasmPlugin {
   pub fn new(
+    name: String,
     module: wasmer::Module,
     create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
     global_config: GlobalConfiguration,
     plugin_config: ConfigKeyMap,
   ) -> Self {
     Self(Arc::new(InitializedWasmPluginInner {
+      name,
       instances: Default::default(),
       module,
       create_import_object,
@@ -301,23 +306,13 @@ impl InitializedWasmPlugin {
             Ok(result)
           }
           Err(reinitialize_err) => {
-            panic!(
-              "Originally panicked, then failed reinitialize. Cannot recover.\nOriginal error: {}\nReinitialize error: {}",
-              original_err, reinitialize_err,
+            bail!(
+              "Originally panicked in {}, then failed reinitialize. Cannot recover. This may be a bug in the plugin.\nOriginal error: {}\nReinitialize error: {}",
+              self.0.name, original_err, reinitialize_err,
             )
           }
         }
       }
-    }
-  }
-
-  fn reinitialize_due_to_panic(&mut self, original_err: &Error) -> InitializedWasmPluginInstance {
-    match self.get_or_create_instance() {
-      Ok(result) => result,
-      Err(reinitialize_err) => panic!(
-        "Originally panicked, then failed reinitialize. Cannot recover.\nOriginal error: {}\nReinitialize error: {}",
-        original_err, reinitialize_err,
-      ),
     }
   }
 
@@ -384,12 +379,11 @@ impl InitializedPlugin for InitializedWasmPlugin {
     // not supported yet for Wasm plugins
     _range: FormatRange,
     override_config: ConfigKeyMap,
-  ) -> BoxFuture<'static, Result<Option<String>>> {
+  ) -> BoxFuture<'static, Result<FormatResult>> {
     let plugin = self.clone();
     async move {
       tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config)))
         .await
-        .unwrap()
         .unwrap()
     }
     .boxed()

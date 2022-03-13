@@ -38,7 +38,7 @@ pub struct HostFormatRequest {
 }
 
 pub trait Host: Send + Sync {
-  fn format(&self, request: HostFormatRequest) -> BoxFuture<Result<Option<String>>>;
+  fn format(&self, request: HostFormatRequest) -> BoxFuture<Result<FormatResult>>;
 }
 
 /// Implementation of Host that always returns that
@@ -46,9 +46,15 @@ pub trait Host: Send + Sync {
 pub struct NoopHost;
 
 impl Host for NoopHost {
-  fn format(&self, _: HostFormatRequest) -> BoxFuture<Result<Option<String>>> {
-    Box::pin(async { Ok(None) })
+  fn format(&self, _: HostFormatRequest) -> BoxFuture<Result<FormatResult>> {
+    Box::pin(async { Ok(FormatResult::NoChange) })
   }
+}
+
+pub enum FormatResult {
+  NoChange,
+  Change(String),
+  Err(anyhow::Error),
 }
 
 pub struct FormatRequest<TConfiguration> {
@@ -71,11 +77,11 @@ pub trait AsyncPluginHandler: Send + Sync + 'static {
   /// Gets the plugin's license text.
   fn license_text(&self) -> String;
   /// Formats the provided file text based on the provided file path and configuration.
-  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<Result<Option<String>>>;
+  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult>;
 }
 
-/// Trait for implementing a Wasm plugins. Eventually this will be combined with AsyncPluginHandler.
-pub trait PluginHandler<TConfiguration: Clone + Serialize> {
+/// Trait for implementing a Wasm plugin. Eventually this will be combined with AsyncPluginHandler.
+pub trait SyncPluginHandler<TConfiguration: Clone + Serialize> {
   /// Resolves configuration based on the provided config map and global configuration.
   fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
   /// Gets the plugin's plugin info.
@@ -83,5 +89,11 @@ pub trait PluginHandler<TConfiguration: Clone + Serialize> {
   /// Gets the plugin's license text.
   fn license_text(&mut self) -> String;
   /// Formats the provided file text based on the provided file path and configuration.
-  fn format(&mut self, file_path: &Path, file_text: &str, config: &TConfiguration, host: Arc<dyn Host>) -> Result<String>;
+  fn format(
+    &mut self,
+    file_path: &Path,
+    file_text: &str,
+    config: &TConfiguration,
+    format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
+  ) -> Result<String>;
 }

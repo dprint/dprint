@@ -3,6 +3,7 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -153,13 +154,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
     async move { communicator.get_config_diagnostics().await }.boxed()
   }
 
-  fn format_text(
-    &self,
-    file_path: PathBuf,
-    file_text: String,
-    range: FormatRange,
-    override_config: ConfigKeyMap,
-  ) -> BoxFuture<'static, Result<Option<String>>> {
+  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, Result<FormatResult>> {
     // todo: this used to recreate the process if dead... this needs to be redesigned
     let communicator = self.communicator.clone();
     async move { communicator.format_text(file_path, file_text, range, &override_config).await }.boxed()

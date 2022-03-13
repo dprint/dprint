@@ -34,6 +34,7 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::FormatRange;
+use crate::plugins::FormatResult;
 use crate::plugins::Host;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::PluginInfo;
@@ -237,7 +238,7 @@ impl ProcessPluginCommunicator {
     range: FormatRange,
     config_id: u32,
     override_config: &ConfigKeyMap,
-  ) -> Result<Option<String>> {
+  ) -> Result<FormatResult> {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
     let maybe_text = self
       .send_message(
@@ -256,10 +257,11 @@ impl ProcessPluginCommunicator {
         rx,
       )
       .await?;
-    match maybe_text {
-      Some(bytes) => Ok(Some(String::from_utf8(bytes)?)),
-      None => Ok(None),
-    }
+    Ok(match maybe_text {
+      Ok(Some(bytes)) => FormatResult::Change(String::from_utf8(bytes)?),
+      Ok(None) => FormatResult::NoChange,
+      Err(err) => FormatResult::Err(err),
+    })
   }
 
   /// Checks if the process is functioning.
@@ -269,30 +271,30 @@ impl ProcessPluginCommunicator {
 
   async fn send_with_acknowledgement(&self, body: MessageBody) -> Result<()> {
     let (tx, rx) = oneshot::channel::<Result<()>>();
-    self.send_message(body, MessageResponseChannel::Acknowledgement(tx), rx).await
+    self.send_message(body, MessageResponseChannel::Acknowledgement(tx), rx).await?
   }
 
   async fn send_receiving_string(&self, body: MessageBody) -> Result<String> {
-    let data = self.send_receiving_bytes(body).await?;
+    let data = self.send_receiving_bytes(body).await??;
     Ok(String::from_utf8(data)?)
   }
 
   async fn send_receiving_data<T: DeserializeOwned>(&self, body: MessageBody) -> Result<T> {
-    let data = self.send_receiving_bytes(body).await?;
+    let data = self.send_receiving_bytes(body).await??;
     Ok(serde_json::from_slice(&data)?)
   }
 
-  async fn send_receiving_bytes(&self, body: MessageBody) -> Result<Vec<u8>> {
+  async fn send_receiving_bytes(&self, body: MessageBody) -> Result<Result<Vec<u8>>> {
     let (tx, rx) = oneshot::channel::<Result<Vec<u8>>>();
     self.send_message(body, MessageResponseChannel::Data(tx), rx).await
   }
 
-  async fn send_message<T>(&self, body: MessageBody, response_channel: MessageResponseChannel, receiver: oneshot::Receiver<Result<T>>) -> Result<T> {
+  async fn send_message<T>(&self, body: MessageBody, response_channel: MessageResponseChannel, receiver: oneshot::Receiver<Result<T>>) -> Result<Result<T>> {
     let message_id = self.context.id_generator.next();
     self.context.messages.store(message_id, response_channel);
     self.context.message_tx.send(Message { id: message_id, body })?;
     match receiver.await {
-      Ok(data) => data,
+      Ok(data) => Ok(data),
       Err(err) => {
         self.context.poisoner.poison();
         bail!("Error waiting on message ({}). {}", message_id, err)
