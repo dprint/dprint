@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
 use std::future::Future;
-use std::ops::Range;
+use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -13,31 +13,55 @@ use crate::plugins::PluginInfo;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+pub type FormatRange = Option<std::ops::Range<usize>>;
+
 pub trait CancellationToken: Send + Sync {
   fn is_cancelled(&self) -> bool;
 }
 
-pub trait Host: Send + Sync {
-  fn format(
-    &self,
-    file_path: PathBuf,
-    file_text: String,
-    range: Option<Range<usize>>,
-    override_config: Option<ConfigKeyMap>,
-  ) -> BoxFuture<Result<Option<String>>>;
+/// A cancellation token that always says it's not cancelled.
+pub struct NullCancellationToken;
+
+impl CancellationToken for NullCancellationToken {
+  fn is_cancelled(&self) -> bool {
+    false
+  }
 }
 
-pub struct FormatRequest<TConfiguration, CancellationToken> {
+pub struct HostFormatRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  /// Range to format.
+  pub range: FormatRange,
+  pub override_config: ConfigKeyMap,
+  pub token: Arc<dyn CancellationToken>,
+}
+
+pub trait Host: Send + Sync {
+  fn format(&self, request: HostFormatRequest) -> BoxFuture<Result<Option<String>>>;
+}
+
+/// Implementation of Host that always returns that
+/// it can't format something.
+pub struct NoopHost;
+
+impl Host for NoopHost {
+  fn format(&self, _: HostFormatRequest) -> BoxFuture<Result<Option<String>>> {
+    Box::pin(async { Ok(None) })
+  }
+}
+
+pub struct FormatRequest<TConfiguration> {
   pub file_path: PathBuf,
   pub file_text: String,
   pub config: Arc<TConfiguration>,
   /// Range to format.
-  pub range: Option<Range<usize>>,
-  pub token: CancellationToken,
+  pub range: FormatRange,
+  pub token: Arc<dyn CancellationToken>,
 }
 
-/// Trait for implementing a Wasm or process plugin.
-pub trait PluginHandler: Send + Sync + 'static {
+/// Trait for implementing a process plugin. Wasm plugins will eventually be changed to implement this.
+pub trait AsyncPluginHandler: Send + Sync + 'static {
   type Configuration: Serialize + Clone + Send + Sync;
 
   /// Resolves configuration based on the provided config map and global configuration.
@@ -47,9 +71,17 @@ pub trait PluginHandler: Send + Sync + 'static {
   /// Gets the plugin's license text.
   fn license_text(&self) -> String;
   /// Formats the provided file text based on the provided file path and configuration.
-  fn format<TCancellationToken: CancellationToken>(
-    &self,
-    request: FormatRequest<Self::Configuration, TCancellationToken>,
-    host: Arc<dyn Host>,
-  ) -> BoxFuture<Result<Option<String>>>;
+  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<Result<Option<String>>>;
+}
+
+/// Trait for implementing a Wasm plugins. Eventually this will be combined with AsyncPluginHandler.
+pub trait PluginHandler<TConfiguration: Clone + Serialize> {
+  /// Resolves configuration based on the provided config map and global configuration.
+  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
+  /// Gets the plugin's plugin info.
+  fn plugin_info(&mut self) -> PluginInfo;
+  /// Gets the plugin's license text.
+  fn license_text(&mut self) -> String;
+  /// Formats the provided file text based on the provided file path and configuration.
+  fn format(&mut self, file_path: &Path, file_text: &str, config: &TConfiguration, host: Arc<dyn Host>) -> Result<String>;
 }

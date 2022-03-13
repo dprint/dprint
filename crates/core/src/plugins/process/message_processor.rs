@@ -7,8 +7,6 @@ use std::io::Read;
 use std::io::Stdin;
 use std::io::Stdout;
 use std::io::Write;
-use std::ops::Range;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -27,15 +25,15 @@ use super::messages::ResponseBodyHostFormat;
 use super::messages::ResponseSuccessBody;
 use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
-use crate::configuration::ConfigKeyMap;
+use crate::plugins::AsyncPluginHandler;
 use crate::plugins::FormatRequest;
 use crate::plugins::Host;
-use crate::plugins::PluginHandler;
+use crate::plugins::HostFormatRequest;
 
 /// Handles the process' messages based on the provided handler.
 ///
 /// Run this in a blocking task.
-pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler) -> Result<()> {
+pub fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler: THandler) -> Result<()> {
   // ensure all process plugins exit on panic on any tokio task
   setup_exit_process_panic_hook();
 
@@ -113,7 +111,7 @@ pub fn handle_process_stdio_messages<THandler: PluginHandler>(handler: THandler)
       }
       MessageBody::FormatText(body) => {
         // now parse
-        let token = CancellationToken::new();
+        let token = Arc::new(CancellationToken::new());
         let request = FormatRequest {
           file_path: body.file_path,
           range: body.range,
@@ -194,25 +192,25 @@ struct ProcessHost<TConfiguration: Serialize + Clone + Send + Sync> {
 }
 
 impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConfiguration> {
-  fn format(
-    &self,
-    file_path: PathBuf,
-    file_text: String,
-    range: Option<Range<usize>>,
-    override_config: Option<ConfigKeyMap>,
-  ) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>> {
+  fn format(&self, request: HostFormatRequest) -> Pin<Box<dyn Future<Output = Result<Option<String>>> + Send>> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
     let id = self.context.store_format_host_sender(tx);
+
+    // todo: start a task that listens for cancellation
 
     self
       .sender
       .send(Response {
         id,
         body: ResponseBody::HostFormat(ResponseBodyHostFormat {
-          range,
-          file_path,
-          file_text: file_text.into_bytes(),
-          override_config: override_config.map(|c| serde_json::to_vec(&c).unwrap()),
+          file_path: request.file_path,
+          file_text: request.file_text.into_bytes(),
+          range: request.range,
+          override_config: if request.override_config.is_empty() {
+            None
+          } else {
+            Some(serde_json::to_vec(&request.override_config).unwrap())
+          },
         }),
       })
       .unwrap_or_else(|err| panic!("Error sending host format response: {}", err));

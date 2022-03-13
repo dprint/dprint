@@ -14,7 +14,7 @@ pub type FormatHostSender = tokio::sync::oneshot::Sender<Result<Option<String>>>
 struct ProcessContextInner<TConfiguration: Serialize + Clone> {
   configurations: HashMap<u32, Arc<TConfiguration>>,
   config_diagnostics: HashMap<u32, Arc<Vec<ConfigurationDiagnostic>>>,
-  cancellation_tokens: HashMap<u32, CancellationToken>,
+  cancellation_tokens: HashMap<u32, Arc<CancellationToken>>,
   format_host_id_count: u32,
   format_host_senders: HashMap<u32, FormatHostSender>,
 }
@@ -57,7 +57,7 @@ impl<TConfiguration: Serialize + Clone> ProcessContext<TConfiguration> {
     }
   }
 
-  pub fn store_cancellation_token(&self, id: u32, token: CancellationToken) {
+  pub fn store_cancellation_token(&self, id: u32, token: Arc<CancellationToken>) {
     self.0.lock().cancellation_tokens.insert(id, token);
   }
 

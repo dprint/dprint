@@ -2,12 +2,14 @@ use anyhow::bail;
 use anyhow::Result;
 use dprint_cli_core::checksums::verify_sha256_checksum;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
+use dprint_core::plugins::NoopHost;
 use dprint_core::plugins::PluginInfo;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str;
+use std::sync::Arc;
 
 use crate::environment::Environment;
 use crate::utils::extract_zip;
@@ -37,11 +39,15 @@ fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBu
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
 /// Returns the executable file path once complete
-pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[u8], environment: &impl Environment) -> Result<SetupPluginResult> {
+pub async fn setup_process_plugin<TEnvironment: Environment>(
+  url_or_file_path: &PathSource,
+  plugin_file_bytes: &[u8],
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
   let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment)?;
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
-  let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment);
+  let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
 
   return match result {
     Ok(result) => Ok(result),
@@ -53,7 +59,7 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
     }
   };
 
-  fn setup_inner<TEnvironment: Environment>(
+  async fn setup_inner<TEnvironment: Environment>(
     plugin_cache_dir_path: &Path,
     plugin_name: String,
     zip_bytes: &[u8],
@@ -74,13 +80,19 @@ pub fn setup_process_plugin(url_or_file_path: &PathSource, plugin_file_bytes: &[
     }
 
     let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
-    let mut communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
-      let environment = environment.clone();
-      move |error_message| {
-        environment.log_stderr_with_context(&error_message, &plugin_name);
-      }
-    })?;
-    let plugin_info = communicator.plugin_info()?;
+    let communicator = ProcessPluginCommunicator::new_with_init(
+      &executable_path,
+      {
+        let environment = environment.clone();
+        move |error_message| {
+          environment.log_stderr_with_context(&error_message, &plugin_name);
+        }
+      },
+      // it's ok to use a no-op host here because
+      // we're only getting the plugin information
+      Arc::new(NoopHost),
+    )?;
+    let plugin_info = communicator.plugin_info().await?;
 
     Ok(SetupPluginResult {
       plugin_info,

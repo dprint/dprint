@@ -1,10 +1,11 @@
 use std::io::Read;
 use std::io::Write;
-use std::ops::Range;
 use std::path::PathBuf;
 
 use anyhow::bail;
 use anyhow::Result;
+
+use crate::plugins::FormatRange;
 
 use super::communication::MessageReader;
 use super::communication::MessageWriter;
@@ -49,7 +50,7 @@ impl Message {
           range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
             None
           } else {
-            Some(Range {
+            Some(std::ops::Range {
               start: start_byte_index as usize,
               end: end_byte_index as usize,
             })
@@ -129,7 +130,17 @@ impl Message {
       }
       MessageBody::HostFormatResponse(body) => {
         writer.send_u32(11)?;
-        todo!();
+        match body {
+          HostFormatResponseMessageBody::NoChange => writer.send_u32(0)?,
+          HostFormatResponseMessageBody::Change(text) => {
+            writer.send_u32(1)?;
+            writer.send_sized_bytes(text)?;
+          }
+          HostFormatResponseMessageBody::Error(text) => {
+            writer.send_u32(2)?;
+            writer.send_sized_bytes(text)?;
+          }
+        }
       }
     }
     writer.send_success_bytes()?;
@@ -162,7 +173,7 @@ pub struct RegisterConfigMessageBody {
 #[derive(Debug)]
 pub struct FormatTextMessageBody {
   pub file_path: PathBuf,
-  pub range: Option<Range<usize>>,
+  pub range: FormatRange,
   pub config_id: u32,
   pub override_config: Option<Vec<u8>>,
   pub file_text: Vec<u8>,
@@ -234,7 +245,7 @@ pub enum ResponseBody {
 
 pub struct ResponseBodyHostFormat {
   pub file_path: PathBuf,
-  pub range: Option<Range<usize>>,
+  pub range: FormatRange,
   pub override_config: Option<Vec<u8>>,
   pub file_text: Vec<u8>,
 }

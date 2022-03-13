@@ -492,6 +492,7 @@ dependencies = [
  "serde_json",
  "similar 2.1.0",
  "tokio",
+ "tokio-util",
  "twox-hash",
  "url",
  "wasmer",

@@ -75,6 +75,7 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownlo
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
+  fn runtime_handle(&self) -> tokio::runtime::Handle;
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()>;
   #[cfg(windows)]

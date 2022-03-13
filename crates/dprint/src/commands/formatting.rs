@@ -1,6 +1,9 @@
 use anyhow::bail;
 use anyhow::Result;
 use crossterm::style::Stylize;
+use dprint_core::plugins::Host;
+use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use std::path::Path;
 use std::path::PathBuf;
@@ -14,7 +17,6 @@ use crate::arg_parser::StdInFmtSubCommand;
 use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
-use crate::format::format_with_plugin_pools;
 use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::paths::get_and_resolve_file_paths;
@@ -48,17 +50,28 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
       return Ok(());
     }
   }
-  output_stdin_format(&PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools)
+  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools).await
 }
 
-fn output_stdin_format<TEnvironment: Environment>(
-  file_name: &Path,
+async fn output_stdin_format<TEnvironment: Environment>(
+  file_name: PathBuf,
   file_text: &str,
   environment: &TEnvironment,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let formatted_text = format_with_plugin_pools(file_name, file_text, environment, &plugin_pools)?;
-  environment.log_machine_readable(&formatted_text);
+  let result = plugins_collection
+    .format(HostFormatRequest {
+      file_path: file_name,
+      file_text: file_text.to_string(),
+      range: None,
+      override_config: Default::default(),
+      token: Arc::new(NullCancellationToken),
+    })
+    .await?;
+  match result {
+    Some(text) => environment.log_machine_readable(&text),
+    None => environment.log_machine_readable(file_text),
+  }
   Ok(())
 }
 
@@ -84,7 +97,8 @@ pub async fn output_format_times<TEnvironment: Environment>(
       durations.push((file_path.to_owned(), duration));
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let mut durations = durations.lock();
   durations.sort_by_key(|k| k.1);
@@ -120,7 +134,8 @@ pub async fn check<TEnvironment: Environment>(
       }
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
   if not_formatted_files_count == 0 {
@@ -175,7 +190,8 @@ pub async fn format<TEnvironment: Environment>(
 
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
   if formatted_files_count > 0 {

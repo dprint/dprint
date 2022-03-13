@@ -6,7 +6,6 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
-use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
@@ -18,6 +17,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use super::communication::MessageReader;
 use super::communication::MessageWriter;
@@ -33,7 +33,9 @@ use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+use crate::plugins::FormatRange;
 use crate::plugins::Host;
+use crate::plugins::HostFormatRequest;
 use crate::plugins::PluginInfo;
 
 enum MessageResponseChannel {
@@ -68,8 +70,9 @@ struct Context {
 }
 
 /// Communicates with a process plugin.
+#[derive(Clone)]
 pub struct ProcessPluginCommunicator {
-  child: Child,
+  child: Arc<Mutex<Option<Child>>>,
   context: Context,
 }
 
@@ -163,10 +166,13 @@ impl ProcessPluginCommunicator {
       }
     });
 
-    Ok(Self { child, context })
+    Ok(Self {
+      child: Arc::new(Mutex::new(Some(child))),
+      context,
+    })
   }
 
-  fn close(&mut self) -> Result<()> {
+  fn close(&self) -> Result<()> {
     if self.context.poisoner.is_poisoned() {
       self.kill();
     } else {
@@ -185,8 +191,10 @@ impl ProcessPluginCommunicator {
     Ok(())
   }
 
-  pub fn kill(&mut self) {
-    let _ignore = self.child.kill();
+  pub fn kill(&self) {
+    if let Some(mut child) = self.child.lock().take() {
+      let _ignore = child.kill();
+    }
   }
 
   pub async fn register_config(&self, config_id: u32, global_config: &GlobalConfiguration, plugin_config: &ConfigKeyMap) -> Result<()> {
@@ -226,9 +234,9 @@ impl ProcessPluginCommunicator {
     &self,
     file_path: PathBuf,
     file_text: String,
+    range: FormatRange,
     config_id: u32,
-    override_config: Option<&ConfigKeyMap>,
-    range: Option<Range<usize>>,
+    override_config: &ConfigKeyMap,
   ) -> Result<Option<String>> {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
     let maybe_text = self
@@ -236,9 +244,13 @@ impl ProcessPluginCommunicator {
         MessageBody::FormatText(FormatTextMessageBody {
           file_path,
           file_text: file_text.into_bytes(),
-          config_id,
-          override_config: override_config.map(|c| serde_json::to_vec(c).unwrap()),
           range,
+          config_id,
+          override_config: if override_config.is_empty() {
+            None
+          } else {
+            Some(serde_json::to_vec(override_config).unwrap())
+          },
         }),
         MessageResponseChannel::Format(tx),
         rx,
@@ -392,7 +404,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
         range: if start_byte_index == 0 && end_byte_index as usize == file_text.len() {
           None
         } else {
-          Some(Range {
+          Some(std::ops::Range {
             start: start_byte_index as usize,
             end: end_byte_index as usize,
           })
@@ -428,11 +440,16 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
 
 async fn host_format(host: Arc<dyn Host>, body: ResponseBodyHostFormat) -> Result<Option<String>> {
   host
-    .format(
-      body.file_path,
-      String::from_utf8(body.file_text)?,
-      body.range,
-      body.override_config.map(|c| serde_json::from_slice(&c).unwrap()),
-    )
+    .format(HostFormatRequest {
+      file_path: body.file_path,
+      file_text: String::from_utf8(body.file_text)?,
+      range: body.range,
+      override_config: match &body.override_config {
+        Some(c) => serde_json::from_slice(&c).unwrap(),
+        None => Default::default(),
+      },
+      // todo: implement cancellation for host formatting
+      token: Arc::new(CancellationToken::new()),
+    })
     .await
 }

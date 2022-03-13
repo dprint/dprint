@@ -300,10 +300,10 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
     let config_key = String::from(plugin.config_key());
 
     // get an initialized plugin and output its diagnostics
-    let initialized_plugin = plugin.initialize()?;
-    output_plugin_config_diagnostics(plugin.name(), &*initialized_plugin, &ErrorCountLogger::from_environment(environment))?;
+    let initialized_plugin = plugin.initialize().await?;
+    output_plugin_config_diagnostics(plugin.name(), initialized_plugin.clone(), ErrorCountLogger::from_environment(environment)).await?;
 
-    let text = initialized_plugin.get_resolved_config()?;
+    let text = initialized_plugin.resolved_config().await?;
     let pretty_text = pretty_print_json_text(&text)?;
     plugin_jsons.push(format!("\"{}\": {}", config_key, pretty_text));
   }
@@ -326,8 +326,8 @@ async fn get_config_file_plugins<TEnvironment: Environment>(
     .into_iter()
     .map(|plugin_reference| {
       let plugin_resolver = plugin_resolver.clone();
-      tokio::task::spawn_blocking(move || {
-        let resolve_result = plugin_resolver.resolve_plugin(&plugin_reference);
+      tokio::task::spawn(async move {
+        let resolve_result = plugin_resolver.resolve_plugin(&plugin_reference).await;
         (plugin_reference, resolve_result)
       })
     })

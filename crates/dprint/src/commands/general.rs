@@ -62,8 +62,8 @@ pub async fn output_license<TEnvironment: Environment>(
   // now check for the plugins
   for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
     environment.log(&format!("\n==== {} LICENSE ====", plugin.name().to_uppercase()));
-    let initialized_plugin = plugin.initialize()?;
-    environment.log(&initialized_plugin.get_license_text()?);
+    let initialized_plugin = plugin.initialize().await?;
+    environment.log(&initialized_plugin.license_text().await?);
   }
 
   Ok(())

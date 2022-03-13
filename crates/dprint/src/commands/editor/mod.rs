@@ -1,5 +1,8 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::plugins::Host;
+use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::NullCancellationToken;
 use std::io::Read;
 use std::io::Write;
 use std::sync::Arc;
@@ -14,7 +17,6 @@ use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
-use crate::format::format_with_plugin_pools;
 use crate::patterns::FileMatcher;
 use crate::plugins::get_plugins_from_args;
 use crate::plugins::resolve_plugins;
@@ -101,7 +103,7 @@ struct EditorService<'a, TEnvironment: Environment> {
   cache: &'a Cache<TEnvironment>,
   environment: &'a TEnvironment,
   plugin_resolver: &'a PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
@@ -123,7 +125,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       cache,
       environment,
       plugin_resolver,
-      plugin_pools,
+      plugins_collection: plugin_pools,
     }
   }
 
@@ -177,20 +179,29 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       self.ensure_latest_config().await?;
     }
 
-    let formatted_text = format_with_plugin_pools(&file_path, &file_text, self.environment, &self.plugin_pools);
+    let formatted_text = self
+      .plugins_collection
+      .format(HostFormatRequest {
+        file_path,
+        file_text,
+        range: None,
+        override_config: Default::default(),
+        // todo: handle cancellation
+        token: Arc::new(NullCancellationToken),
+      })
+      .await;
     match formatted_text {
-      Ok(formatted_text) => {
-        if formatted_text == file_text {
-          self.messenger.send_message(0, Vec::new())?; // no change
-        } else {
-          self.messenger.send_message(
-            1,
-            vec![
-              // change
-              formatted_text.into(),
-            ],
-          )?;
-        }
+      Ok(None) => {
+        self.messenger.send_message(0, Vec::new())?; // no change
+      }
+      Ok(Some(formatted_text)) => {
+        self.messenger.send_message(
+          1,
+          vec![
+            // change
+            formatted_text.into(),
+          ],
+        )?;
       }
       Err(err) => {
         self.messenger.send_message(
@@ -212,9 +223,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
     if has_config_changed {
-      self.plugin_pools.drop_plugins(); // clear the existing plugins
+      self.plugins_collection.drop_plugins(); // clear the existing plugins
       let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver).await?;
-      self.plugin_pools.set_plugins(plugins, &config.base_path)?;
+      self.plugins_collection.set_plugins(plugins, &config.base_path)?;
     }
 
     self.config = Some(config);

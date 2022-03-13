@@ -1,12 +1,14 @@
 use crate::environment::Environment;
+use crate::plugins::PluginsCollection;
 use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
-use std::ops::Range;
+use dprint_core::plugins::FormatRange;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 // todo: remove this file? I think it's better to shutdown everything
 // when a process plugin stops functioning. Previously this was used
@@ -18,24 +20,27 @@ use std::path::PathBuf;
 // so hardcode this.
 const CONFIG_ID: u32 = 1;
 
+#[derive(Clone)]
 pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
+  // todo: investigate removing this after resolving below
   environment: TEnvironment,
-  plugin_name: String,
-  executable_file_path: PathBuf,
-  config: (GlobalConfiguration, ConfigKeyMap),
+  // todo: these were previously here for restarts, but I think we can remove them?
+  // plugin_name: String,
+  // executable_file_path: PathBuf,
+  // config: (...etc...)
   communicator: ProcessPluginCommunicator,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
-  pub async fn new(environment: TEnvironment, plugin_name: String, executable_file_path: PathBuf, config: (GlobalConfiguration, ConfigKeyMap)) -> Result<Self> {
-    let communicator = create_new_communicator(environment.clone(), plugin_name.clone(), &executable_file_path, &config).await?;
-    let initialized_communicator = InitializedProcessPluginCommunicator {
-      environment,
-      plugin_name,
-      executable_file_path,
-      config,
-      communicator,
-    };
+  pub async fn new(
+    plugin_name: String,
+    executable_file_path: PathBuf,
+    config: (GlobalConfiguration, ConfigKeyMap),
+    environment: TEnvironment,
+    plugin_collection: Arc<PluginsCollection<TEnvironment>>,
+  ) -> Result<Self> {
+    let communicator = create_new_communicator(plugin_name.clone(), &executable_file_path, &config, environment.clone(), plugin_collection).await?;
+    let initialized_communicator = InitializedProcessPluginCommunicator { environment, communicator };
 
     Ok(initialized_communicator)
   }
@@ -52,27 +57,26 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.communicator.config_diagnostics(CONFIG_ID).await
   }
 
-  pub async fn format_text(
-    &self,
-    file_path: PathBuf,
-    file_text: String,
-    override_config: Option<&ConfigKeyMap>,
-    range: Option<Range<usize>>,
-  ) -> Result<Option<String>> {
-    self.communicator.format_text(file_path, file_text, CONFIG_ID, override_config, range).await
+  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: &ConfigKeyMap) -> Result<Option<String>> {
+    self.communicator.format_text(file_path, file_text, range, CONFIG_ID, override_config).await
   }
 }
 
 async fn create_new_communicator<TEnvironment: Environment>(
-  environment: TEnvironment,
   plugin_name: String,
   executable_file_path: &Path,
   config: &(GlobalConfiguration, ConfigKeyMap),
+  environment: TEnvironment,
+  plugin_collection: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<ProcessPluginCommunicator> {
   // ensure it's initialized each time
-  let communicator = ProcessPluginCommunicator::new(executable_file_path, move |error_message| {
-    environment.log_stderr_with_context(&error_message, &plugin_name);
-  })?;
+  let communicator = ProcessPluginCommunicator::new(
+    executable_file_path,
+    move |error_message| {
+      environment.log_stderr_with_context(&error_message, &plugin_name);
+    },
+    plugin_collection,
+  )?;
   communicator.register_config(CONFIG_ID, &config.0, &config.1).await?;
   Ok(communicator)
 }

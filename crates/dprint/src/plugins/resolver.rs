@@ -30,10 +30,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       .into_iter()
       .map(|plugin_ref| {
         let resolver = self.clone();
-        tokio::task::spawn_blocking(move || {
-          // todo: make this async
-          resolver.resolve_plugin(&plugin_ref)
-        })
+        tokio::task::spawn(async move { resolver.resolve_plugin(&plugin_ref).await })
       })
       .collect::<Vec<_>>();
 
@@ -46,8 +43,8 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Ok(plugins)
   }
 
-  pub fn resolve_plugin(&self, plugin_reference: &PluginSourceReference) -> Result<Box<dyn Plugin>> {
-    match create_plugin(self.plugin_pools.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference) {
+  pub async fn resolve_plugin(&self, plugin_reference: &PluginSourceReference) -> Result<Box<dyn Plugin>> {
+    match create_plugin(self.plugin_pools.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference).await {
       Ok(plugin) => Ok(plugin),
       Err(err) => {
         match self.plugin_cache.forget(plugin_reference) {

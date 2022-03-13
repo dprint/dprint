@@ -66,6 +66,7 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   environment.set_verbose(args.verbose);
 
   let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+  environment.set_runtime_handle(rt.handle().clone());
   let environment = environment.clone();
   rt.block_on(async move { run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools).await })
 }

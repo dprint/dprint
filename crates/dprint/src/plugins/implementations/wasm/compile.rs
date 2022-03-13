@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::bail;
 use anyhow::Result;
 use wasmer::Module;
@@ -19,8 +21,10 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
   // load the plugin and get the info
   let plugin = InitializedWasmPlugin::new(
     module,
-    Box::new(move || create_identity_import_object(&store)), // we're not formatting anything so this is ok
-  )?;
+    Arc::new(move || create_identity_import_object(&store)), // we're not formatting anything so this is ok
+    Default::default(),
+    Default::default(),
+  );
   let plugin_info = plugin.get_plugin_info()?;
 
   Ok(CompilationResult { bytes, plugin_info })

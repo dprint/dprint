@@ -188,29 +188,26 @@ impl<TRead: Read, TWrite: Write> StdIoMessenger<TRead, TWrite> {
     Ok(PathBuf::from(text))
   }
 
-  pub fn read_single_part_string_message(&mut self) -> Result<String> {
-    let message = self.read_single_part_message()?;
-    Ok(String::from_utf8(message)?)
-  }
-
-  pub fn read_single_part_error_message(&mut self) -> Result<String> {
-    let message = self.reader_writer.read_variable_data()?;
-    self.reader_writer.read_success_bytes_with_message_on_error(&message)?;
-    Ok(String::from_utf8(message)?)
-  }
-
-  pub fn read_single_part_u32_message(&mut self) -> Result<u32> {
-    let data = self.reader_writer.read_u32()?;
-    self.reader_writer.read_success_bytes()?;
-    Ok(data)
-  }
-
   pub fn read_single_part_message(&mut self) -> Result<Vec<u8>> {
     let data = self.reader_writer.read_variable_data()?;
     self.reader_writer.read_success_bytes()?;
     Ok(data)
   }
 
+  #[cfg(test)]
+  pub fn read_single_part_string_message(&mut self) -> Result<String> {
+    let message = self.read_single_part_message()?;
+    Ok(String::from_utf8(message)?)
+  }
+
+  #[cfg(test)]
+  pub fn read_single_part_error_message(&mut self) -> Result<String> {
+    let message = self.reader_writer.read_variable_data()?;
+    self.reader_writer.read_success_bytes_with_message_on_error(&message)?;
+    Ok(String::from_utf8(message)?)
+  }
+
+  #[cfg(test)]
   pub fn read_zero_part_message(&mut self) -> Result<()> {
     self.reader_writer.read_success_bytes()
   }

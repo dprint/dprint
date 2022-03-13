@@ -1,9 +1,9 @@
 use anyhow::bail;
 use anyhow::Result;
 use dprint_core::plugins::BoxFuture;
-use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::Host;
+use dprint_core::plugins::HostFormatRequest;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -17,7 +17,7 @@ use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
-use dprint_core::plugins::PluginHandler;
+use dprint_core::plugins::AsyncPluginHandler;
 use dprint_core::plugins::PluginInfo;
 
 #[tokio::main]
@@ -47,7 +47,7 @@ impl TestProcessPluginHandler {
   }
 }
 
-impl PluginHandler for TestProcessPluginHandler {
+impl AsyncPluginHandler for TestProcessPluginHandler {
   type Configuration = Configuration;
 
   fn plugin_info(&self) -> PluginInfo {
@@ -60,7 +60,6 @@ impl PluginHandler for TestProcessPluginHandler {
       help_url: "https://dprint.dev/plugins/test-process".to_string(),
       config_schema_url: "".to_string(),
       update_url: None,
-      supports_range_format: true,
     }
   }
 
@@ -82,26 +81,29 @@ impl PluginHandler for TestProcessPluginHandler {
     }
   }
 
-  fn format<TCancellationToken: CancellationToken>(
-    &self,
-    request: FormatRequest<Self::Configuration, TCancellationToken>,
-    host: Arc<dyn Host>,
-  ) -> BoxFuture<Result<Option<String>>> {
+  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<Result<Option<String>>> {
     Box::pin(async move {
       if request.file_text.starts_with("plugin: ") {
         host
-          .format(PathBuf::from("./test.txt"), request.file_text.replace("plugin: ", ""), None, None)
+          .format(HostFormatRequest {
+            file_path: PathBuf::from("./test.txt"),
+            file_text: request.file_text.replace("plugin: ", ""),
+            range: None,
+            override_config: Default::default(),
+            token: request.token.clone(),
+          })
           .await
       } else if request.file_text.starts_with("plugin-config: ") {
         let mut config_map = ConfigKeyMap::new();
         config_map.insert("ending".to_string(), "custom_config".into());
         host
-          .format(
-            PathBuf::from("./test.txt"),
-            request.file_text.replace("plugin-config: ", ""),
-            None,
-            Some(&config_map),
-          )
+          .format(HostFormatRequest {
+            file_path: PathBuf::from("./test.txt"),
+            file_text: request.file_text.replace("plugin-config: ", ""),
+            range: None,
+            override_config: config_map,
+            token: request.token.clone(),
+          })
           .await
       } else if request.file_text == "should_error" {
         bail!("Did error.")
