@@ -8,26 +8,21 @@ use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
 use super::communication::MessageReader;
 use super::communication::MessageWriter;
 use super::context::ProcessContext;
 use super::context::StoredConfig;
-use super::messages::HostFormatResponseMessageBody;
+use super::messages::HostFormatMessageBody;
 use super::messages::Message;
 use super::messages::MessageBody;
-use super::messages::Response;
 use super::messages::ResponseBody;
-use super::messages::ResponseBodyHostFormat;
-use super::messages::ResponseSuccessBody;
 use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::AsyncPluginHandler;
-use crate::plugins::CriticalFormatError;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::Host;
@@ -44,12 +39,9 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
   schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).await?;
 
   let handler = Arc::new(handler);
-  let context: ProcessContext<THandler::Configuration> = ProcessContext::new();
-  let (response_tx, mut response_rx) = mpsc::unbounded_channel::<Response>();
-  let host = Arc::new(ProcessHost {
-    context: context.clone(),
-    sender: response_tx.clone(),
-  });
+  let (response_tx, mut response_rx) = mpsc::unbounded_channel::<Message>();
+  let context: ProcessContext<THandler::Configuration> = ProcessContext::new(response_tx);
+  let host = Arc::new(ProcessHost { context: context.clone() });
 
   // task to send responses over stdout
   tokio::task::spawn({
@@ -63,23 +55,29 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
   // read messages over stdin
   loop {
     let message = Message::read(&mut stdin_reader).await?;
+
     match message.body {
       MessageBody::Close => {
         return Ok(());
       }
-      MessageBody::IsAlive => handle_message(&response_tx, message.id, || Ok(ResponseSuccessBody::Acknowledge)),
+      MessageBody::IsAlive => {
+        handle_message(&context, message.id, || Ok(MessageBody::Success(message.id)));
+      }
       MessageBody::GetPluginInfo => {
-        handle_message(&response_tx, message.id, || {
+        handle_message(&context, message.id, || {
           let plugin_info = handler.plugin_info();
           let data = serde_json::to_vec(&plugin_info)?;
-          Ok(ResponseSuccessBody::Data(data))
+          Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
         });
       }
       MessageBody::GetLicenseText => {
-        handle_message(&response_tx, message.id, || Ok(ResponseSuccessBody::Data(handler.license_text().into_bytes())));
+        handle_message(&context, message.id, || {
+          let data = handler.license_text().into_bytes();
+          Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
+        });
       }
       MessageBody::RegisterConfig(body) => {
-        handle_message(&response_tx, message.id, || {
+        handle_message(&context, message.id, || {
           let global_config: GlobalConfiguration = serde_json::from_slice(&body.global_config)?;
           let config_map: ConfigKeyMap = serde_json::from_slice(&body.plugin_config)?;
           let result = handler.resolve_config(config_map.clone(), global_config.clone());
@@ -92,32 +90,32 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
               global_config,
             },
           );
-          Ok(ResponseSuccessBody::Acknowledge)
+          Ok(MessageBody::Success(message.id))
         });
       }
       MessageBody::ReleaseConfig(config_id) => {
-        handle_message(&response_tx, message.id, || {
+        handle_message(&context, message.id, || {
           context.release_config_result(config_id);
-          Ok(ResponseSuccessBody::Acknowledge)
+          Ok(MessageBody::Success(message.id))
         });
       }
       MessageBody::GetConfigDiagnostics(config_id) => {
-        handle_message(&response_tx, message.id, || {
+        handle_message(&context, message.id, || {
           let diagnostics = context.get_config(config_id).map(|c| c.diagnostics.clone()).unwrap_or_default();
-          let result = serde_json::to_vec(&*diagnostics)?;
-          Ok(ResponseSuccessBody::Data(result))
+          let data = serde_json::to_vec(&*diagnostics)?;
+          Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
         });
       }
       MessageBody::GetResolvedConfig(config_id) => {
-        handle_message(&response_tx, message.id, || {
-          let result = match context.get_config(config_id) {
+        handle_message(&context, message.id, || {
+          let data = match context.get_config(config_id) {
             Some(config) => serde_json::to_vec(&*config.config)?,
             None => bail!("Did not find configuration for id: {}", config_id),
           };
-          Ok(ResponseSuccessBody::Data(result))
+          Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
         });
       }
-      MessageBody::FormatText(body) => {
+      MessageBody::Format(body) => {
         // now parse
         let token = Arc::new(CancellationToken::new());
         let request = FormatRequest {
@@ -138,26 +136,14 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
               }
             }
             None => {
-              send_response(
-                &response_tx,
-                Response {
-                  id: message.id,
-                  body: ResponseBody::Error(format!("Did not find configuration for id: {}", body.config_id)),
-                },
-              );
+              send_error_response(&context, message.id, anyhow!("Did not find configuration for id: {}", body.config_id));
               continue;
             }
           },
           file_text: match String::from_utf8(body.file_text) {
             Ok(text) => text,
             Err(err) => {
-              send_response(
-                &response_tx,
-                Response {
-                  id: message.id,
-                  body: ResponseBody::Error(format!("Error decoding text: {}", err)),
-                },
-              );
+              send_error_response(&context, message.id, anyhow!("Error decoding text to utf8: {}", err));
               continue;
             }
           },
@@ -169,60 +155,76 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         let context = context.clone();
         let handler = handler.clone();
         let host = host.clone();
-        let response_tx = response_tx.clone();
         tokio::task::spawn(async move {
           let result = handler.format(request, host).await;
           context.release_cancellation_token(message.id);
           if !token.is_cancelled() {
             let body = match result {
-              Ok(Some(text)) => ResponseBody::Success(ResponseSuccessBody::FormatText(Some(text.into_bytes()))),
-              Ok(None) => ResponseBody::Success(ResponseSuccessBody::FormatText(None)),
-              Err(err) => ResponseBody::Error(err.to_string()),
+              Ok(text) => MessageBody::FormatResponse(ResponseBody {
+                message_id: message.id,
+                data: text.map(|t| t.into_bytes()),
+              }),
+              Err(err) => MessageBody::Error(ResponseBody {
+                message_id: message.id,
+                data: format!("{}", err).into_bytes(),
+              }),
             };
-            send_response(&response_tx, Response { id: message.id, body });
+            send_response_body(&context, body)
           }
         });
       }
       MessageBody::CancelFormat(message_id) => {
         context.cancel_format(message_id);
       }
-      MessageBody::HostFormatResponse(body) => {
-        let data = match body {
-          HostFormatResponseMessageBody::NoChange => Ok(None),
-          HostFormatResponseMessageBody::Change(data) => match String::from_utf8(data) {
+      MessageBody::Error(body) => {
+        let text = String::from_utf8_lossy(&body.data);
+        if let Some(sender) = context.take_format_host_sender(body.message_id) {
+          sender.send(Err(anyhow!("{}", text))).unwrap();
+        } else {
+          eprintln!("Received error from CLI. {}", text);
+        }
+      }
+      MessageBody::FormatResponse(body) => {
+        let data = match body.data {
+          None => Ok(None),
+          Some(data) => match String::from_utf8(data) {
             Ok(data) => Ok(Some(data)),
             Err(err) => Err(anyhow!("Error deserializing success: {}", err)),
           },
-          HostFormatResponseMessageBody::Error(data) => match String::from_utf8(data) {
-            Ok(message) => Err(anyhow!("{}", message)),
-            Err(err) => Err(anyhow!("Error deserializing error message: {}", err)),
-          },
         };
-        if let Some(sender) = context.take_format_host_sender(message.id) {
+        if let Some(sender) = context.take_format_host_sender(body.message_id) {
           sender.send(data).unwrap();
         }
       }
+      MessageBody::Success(_) | MessageBody::DataResponse(_) => {
+        // ignore
+      }
+      MessageBody::HostFormat(_) => {
+        send_error_response(&context, message.id, anyhow!("Cannot host format with a plugin."));
+      }
+      MessageBody::Unknown(message_kind) => panic!("Received unknown message kind: {}", message_kind),
     }
   }
 }
 
 struct ProcessHost<TConfiguration: Serialize + Clone + Send + Sync> {
   context: ProcessContext<TConfiguration>,
-  sender: UnboundedSender<Response>,
 }
 
 impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConfiguration> {
   fn format(&self, request: HostFormatRequest) -> Pin<Box<dyn Future<Output = FormatResult> + Send>> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
-    let id = self.context.store_format_host_sender(tx);
+    let id = self.context.id_generator.next();
+    self.context.store_format_host_sender(id, tx);
 
     // todo: start a task that listens for cancellation
 
     self
-      .sender
-      .send(Response {
+      .context
+      .response_tx
+      .send(Message {
         id,
-        body: ResponseBody::HostFormat(ResponseBodyHostFormat {
+        body: MessageBody::HostFormat(HostFormatMessageBody {
           file_path: request.file_path,
           file_text: request.file_text.into_bytes(),
           range: request.range,
@@ -236,7 +238,8 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
         Ok(Ok(Some(value))) => Ok(Some(value)),
         Ok(Ok(None)) => Ok(None),
         Ok(Err(err)) => Err(err),
-        Err(err) => Err(CriticalFormatError(err.into()).into()),
+        // means the rx was closed, so just ignore
+        Err(err) => Err(err.into()),
       }
     })
   }
@@ -248,16 +251,35 @@ impl crate::plugins::CancellationToken for CancellationToken {
   }
 }
 
-fn handle_message(response_tx: &mpsc::UnboundedSender<Response>, id: u32, action: impl Fn() -> Result<ResponseSuccessBody>) {
-  let body = match action() {
-    Ok(response) => ResponseBody::Success(response),
-    Err(err) => ResponseBody::Error(err.to_string()),
+fn handle_message<TConfiguration: Serialize + Clone + Send + Sync>(
+  context: &ProcessContext<TConfiguration>,
+  original_message_id: u32,
+  action: impl FnOnce() -> Result<MessageBody>,
+) {
+  match action() {
+    Ok(body) => send_response_body(context, body),
+    Err(err) => send_error_response(context, original_message_id, err),
   };
-  send_response(response_tx, Response { id, body });
 }
 
-fn send_response(response_tx: &mpsc::UnboundedSender<Response>, response: Response) {
-  if let Err(err) = response_tx.send(response) {
+fn send_error_response<TConfiguration: Serialize + Clone + Send + Sync>(
+  context: &ProcessContext<TConfiguration>,
+  original_message_id: u32,
+  err: anyhow::Error,
+) {
+  let body = MessageBody::Error(ResponseBody {
+    message_id: original_message_id,
+    data: format!("{}", err).into_bytes(),
+  });
+  send_response_body(context, body)
+}
+
+fn send_response_body<TConfiguration: Serialize + Clone + Send + Sync>(context: &ProcessContext<TConfiguration>, body: MessageBody) {
+  let message = Message {
+    id: context.id_generator.next(),
+    body,
+  };
+  if let Err(err) = context.response_tx.send(message) {
     panic!("Receiver dropped. {}", err);
   }
 }

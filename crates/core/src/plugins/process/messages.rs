@@ -21,11 +21,22 @@ impl Message {
     let id = reader.read_u32().await?;
     let message_kind = reader.read_u32().await?;
     let body = match message_kind {
-      1 => MessageBody::Close,
-      2 => MessageBody::IsAlive,
-      3 => MessageBody::GetPluginInfo,
-      4 => MessageBody::GetLicenseText,
-      5 => {
+      0 => MessageBody::Success(reader.read_u32().await?),
+      1 => {
+        let message_id = reader.read_u32().await?;
+        let data = reader.read_sized_bytes().await?;
+        MessageBody::DataResponse(ResponseBody { message_id, data })
+      }
+      2 => {
+        let message_id = reader.read_u32().await?;
+        let data = reader.read_sized_bytes().await?;
+        MessageBody::Error(ResponseBody { message_id, data })
+      }
+      3 => MessageBody::Close,
+      4 => MessageBody::IsAlive,
+      5 => MessageBody::GetPluginInfo,
+      6 => MessageBody::GetLicenseText,
+      7 => {
         let config_id = reader.read_u32().await?;
         let global_config = reader.read_sized_bytes().await?;
         let plugin_config = reader.read_sized_bytes().await?;
@@ -35,17 +46,17 @@ impl Message {
           plugin_config,
         })
       }
-      6 => MessageBody::ReleaseConfig(reader.read_u32().await?),
-      7 => MessageBody::GetConfigDiagnostics(reader.read_u32().await?),
-      8 => MessageBody::GetResolvedConfig(reader.read_u32().await?),
-      9 => {
+      8 => MessageBody::ReleaseConfig(reader.read_u32().await?),
+      9 => MessageBody::GetConfigDiagnostics(reader.read_u32().await?),
+      10 => MessageBody::GetResolvedConfig(reader.read_u32().await?),
+      11 => {
         let file_path = reader.read_sized_bytes().await?;
         let start_byte_index = reader.read_u32().await?;
         let end_byte_index = reader.read_u32().await?;
         let config_id = reader.read_u32().await?;
         let override_config = reader.read_sized_bytes().await?;
         let file_text = reader.read_sized_bytes().await?;
-        MessageBody::FormatText(FormatTextMessageBody {
+        MessageBody::Format(FormatMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
           range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
             None
@@ -60,18 +71,45 @@ impl Message {
           override_config,
         })
       }
-      10 => MessageBody::CancelFormat(reader.read_u32().await?),
-      11 => {
+      12 => {
+        let message_id = reader.read_u32().await?;
         let response_kind = reader.read_u32().await?;
-        MessageBody::HostFormatResponse(match response_kind {
-          0 => HostFormatResponseMessageBody::NoChange,
-          1 => HostFormatResponseMessageBody::Change(reader.read_sized_bytes().await?),
-          2 => HostFormatResponseMessageBody::Error(reader.read_sized_bytes().await?),
-          _ => bail!("Unknown response kind: {}", response_kind),
+        let data = match response_kind {
+          0 => None,
+          1 => Some(reader.read_sized_bytes().await?),
+          _ => bail!("Unknown format response kind: {}", response_kind),
+        };
+        MessageBody::FormatResponse(ResponseBody { message_id, data })
+      }
+      13 => MessageBody::CancelFormat(reader.read_u32().await?),
+      14 => {
+        let file_path = reader.read_sized_bytes().await?;
+        let start_byte_index = reader.read_u32().await?;
+        let end_byte_index = reader.read_u32().await?;
+        let override_config = reader.read_sized_bytes().await?;
+        let file_text = reader.read_sized_bytes().await?;
+        MessageBody::HostFormat(HostFormatMessageBody {
+          file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
+          range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
+            None
+          } else {
+            Some(std::ops::Range {
+              start: start_byte_index as usize,
+              end: end_byte_index as usize,
+            })
+          },
+          file_text,
+          override_config,
         })
       }
       _ => {
-        bail!("Unknown message kind: {}", message_kind)
+        // don't read success bytes... receiving this means that
+        // the plugin should exit the process after returning an
+        // error or panic
+        return Ok(Message {
+          id,
+          body: MessageBody::Unknown(message_kind),
+        });
       }
     };
     reader.read_success_bytes().await?;
@@ -81,38 +119,52 @@ impl Message {
   pub async fn write<TWrite: AsyncWrite + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
     writer.send_u32(self.id).await?;
     match &self.body {
-      MessageBody::Close => {
+      MessageBody::Success(message_id) => {
+        writer.send_u32(0).await?;
+        writer.send_u32(*message_id).await?;
+      }
+      MessageBody::DataResponse(response) => {
         writer.send_u32(1).await?;
+        writer.send_u32(response.message_id).await?;
+        writer.send_sized_bytes(&response.data).await?;
       }
-      MessageBody::IsAlive => {
+      MessageBody::Error(response) => {
         writer.send_u32(2).await?;
+        writer.send_u32(response.message_id).await?;
+        writer.send_sized_bytes(&response.data).await?;
       }
-      MessageBody::GetPluginInfo => {
+      MessageBody::Close => {
         writer.send_u32(3).await?;
       }
-      MessageBody::GetLicenseText => {
+      MessageBody::IsAlive => {
         writer.send_u32(4).await?;
       }
-      MessageBody::RegisterConfig(body) => {
+      MessageBody::GetPluginInfo => {
         writer.send_u32(5).await?;
+      }
+      MessageBody::GetLicenseText => {
+        writer.send_u32(6).await?;
+      }
+      MessageBody::RegisterConfig(body) => {
+        writer.send_u32(7).await?;
         writer.send_u32(body.config_id).await?;
         writer.send_sized_bytes(&body.global_config).await?;
         writer.send_sized_bytes(&body.plugin_config).await?;
       }
       MessageBody::ReleaseConfig(config_id) => {
-        writer.send_u32(6).await?;
-        writer.send_u32(*config_id).await?;
-      }
-      MessageBody::GetConfigDiagnostics(config_id) => {
-        writer.send_u32(7).await?;
-        writer.send_u32(*config_id).await?;
-      }
-      MessageBody::GetResolvedConfig(config_id) => {
         writer.send_u32(8).await?;
         writer.send_u32(*config_id).await?;
       }
-      MessageBody::FormatText(body) => {
+      MessageBody::GetConfigDiagnostics(config_id) => {
         writer.send_u32(9).await?;
+        writer.send_u32(*config_id).await?;
+      }
+      MessageBody::GetResolvedConfig(config_id) => {
+        writer.send_u32(10).await?;
+        writer.send_u32(*config_id).await?;
+      }
+      MessageBody::Format(body) => {
+        writer.send_u32(11).await?;
         writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes()).await?;
         writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
         writer
@@ -122,24 +174,34 @@ impl Message {
         writer.send_sized_bytes(&body.override_config).await?;
         writer.send_sized_bytes(&body.file_text).await?;
       }
-      MessageBody::CancelFormat(message_id) => {
-        writer.send_u32(10).await?;
-        writer.send_u32(*message_id).await?;
-      }
-      MessageBody::HostFormatResponse(body) => {
-        writer.send_u32(11).await?;
-        match body {
-          HostFormatResponseMessageBody::NoChange => writer.send_u32(0).await?,
-          HostFormatResponseMessageBody::Change(text) => {
-            writer.send_u32(1).await?;
-            writer.send_sized_bytes(text).await?;
+      MessageBody::FormatResponse(response) => {
+        writer.send_u32(12).await?;
+        writer.send_u32(response.message_id).await?;
+        match &response.data {
+          None => {
+            writer.send_u32(0).await?;
           }
-          HostFormatResponseMessageBody::Error(text) => {
-            writer.send_u32(2).await?;
-            writer.send_sized_bytes(text).await?;
+          Some(data) => {
+            writer.send_u32(1).await?;
+            writer.send_sized_bytes(data).await?;
           }
         }
       }
+      MessageBody::CancelFormat(message_id) => {
+        writer.send_u32(13).await?;
+        writer.send_u32(*message_id).await?;
+      }
+      MessageBody::HostFormat(body) => {
+        writer.send_u32(14).await?;
+        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes()).await?;
+        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
+        writer
+          .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)
+          .await?;
+        writer.send_sized_bytes(&body.override_config).await?;
+        writer.send_sized_bytes(&body.file_text).await?;
+      }
+      MessageBody::Unknown(_) => unreachable!(), // should never be written
     }
     writer.send_success_bytes().await?;
     Ok(())
@@ -148,6 +210,9 @@ impl Message {
 
 #[derive(Debug)]
 pub enum MessageBody {
+  Success(u32),
+  DataResponse(ResponseBody<Vec<u8>>),
+  Error(ResponseBody<Vec<u8>>),
   Close,
   IsAlive,
   GetPluginInfo,
@@ -156,9 +221,19 @@ pub enum MessageBody {
   ReleaseConfig(u32),
   GetConfigDiagnostics(u32),
   GetResolvedConfig(u32),
-  FormatText(FormatTextMessageBody),
+  Format(FormatMessageBody),
+  FormatResponse(ResponseBody<Option<Vec<u8>>>),
   CancelFormat(u32),
-  HostFormatResponse(HostFormatResponseMessageBody),
+  HostFormat(HostFormatMessageBody),
+  /// If encountered, process plugin should panic and
+  /// the CLI should kill the process plugin.
+  Unknown(u32),
+}
+
+#[derive(Debug)]
+pub struct ResponseBody<T: std::fmt::Debug> {
+  pub message_id: u32,
+  pub data: T,
 }
 
 #[derive(Debug)]
@@ -169,7 +244,7 @@ pub struct RegisterConfigMessageBody {
 }
 
 #[derive(Debug)]
-pub struct FormatTextMessageBody {
+pub struct FormatMessageBody {
   pub file_path: PathBuf,
   pub range: FormatRange,
   pub config_id: u32,
@@ -178,76 +253,9 @@ pub struct FormatTextMessageBody {
 }
 
 #[derive(Debug)]
-pub enum HostFormatResponseMessageBody {
-  NoChange,
-  Change(Vec<u8>),
-  Error(Vec<u8>),
-}
-
-pub struct Response {
-  pub id: u32,
-  pub body: ResponseBody,
-}
-
-impl Response {
-  pub async fn write<TWrite: AsyncWrite + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
-    writer.send_u32(self.id).await?;
-    match &self.body {
-      ResponseBody::Success(body) => {
-        writer.send_u32(0).await?;
-        match body {
-          ResponseSuccessBody::Acknowledge => {
-            // do nothing, success bytes will be sent
-          }
-          ResponseSuccessBody::Data(data) => {
-            writer.send_sized_bytes(data).await?;
-          }
-          ResponseSuccessBody::FormatText(maybe_text) => match maybe_text {
-            None => {
-              writer.send_u32(0).await?;
-            }
-            Some(text) => {
-              writer.send_u32(1).await?;
-              writer.send_sized_bytes(text).await?;
-            }
-          },
-        }
-      }
-      ResponseBody::Error(text) => {
-        writer.send_u32(1).await?;
-        writer.send_sized_bytes(text.as_bytes()).await?;
-      }
-      ResponseBody::HostFormat(body) => {
-        writer.send_u32(2).await?;
-        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes()).await?;
-        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
-        writer
-          .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)
-          .await?;
-        writer.send_sized_bytes(&body.override_config).await?;
-        writer.send_sized_bytes(&body.file_text).await?;
-      }
-    }
-    writer.send_success_bytes().await?;
-    Ok(())
-  }
-}
-
-pub enum ResponseBody {
-  Success(ResponseSuccessBody),
-  Error(String),
-  HostFormat(ResponseBodyHostFormat),
-}
-
-pub struct ResponseBodyHostFormat {
+pub struct HostFormatMessageBody {
   pub file_path: PathBuf,
   pub range: FormatRange,
   pub override_config: Vec<u8>,
   pub file_text: Vec<u8>,
-}
-
-pub enum ResponseSuccessBody {
-  Acknowledge,
-  Data(Vec<u8>),
-  FormatText(Option<Vec<u8>>),
 }

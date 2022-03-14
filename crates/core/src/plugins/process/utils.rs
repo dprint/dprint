@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 #[derive(Default, Clone)]
 pub struct Poisoner(Arc<AtomicBool>);
@@ -22,6 +25,31 @@ pub struct IdGenerator(Arc<AtomicU32>);
 impl IdGenerator {
   pub fn next(&self) -> u32 {
     self.0.fetch_add(1, Ordering::SeqCst)
+  }
+}
+
+/// A store that is keyed by message id.
+pub struct MessageIdStore<T>(Arc<Mutex<HashMap<u32, T>>>);
+
+impl<T> MessageIdStore<T> {
+  pub fn new() -> Self {
+    Self(Default::default())
+  }
+
+  pub fn store(&self, message_id: u32, data: T) {
+    self.0.lock().insert(message_id, data);
+  }
+
+  pub fn take(&self, message_id: u32) -> Option<T> {
+    self.0.lock().remove(&message_id)
+  }
+}
+
+// not sure why, but I needed to manually implement this because
+// of the type parameter
+impl<T> Clone for MessageIdStore<T> {
+  fn clone(&self) -> Self {
+    Self(self.0.clone())
   }
 }
 

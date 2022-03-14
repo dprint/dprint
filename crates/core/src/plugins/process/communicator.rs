@@ -3,7 +3,6 @@ use anyhow::bail;
 use anyhow::Result;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -22,13 +21,14 @@ use tokio_util::sync::CancellationToken;
 
 use super::communication::MessageReader;
 use super::communication::MessageWriter;
-use super::messages::FormatTextMessageBody;
-use super::messages::HostFormatResponseMessageBody;
+use super::messages::FormatMessageBody;
+use super::messages::HostFormatMessageBody;
 use super::messages::Message;
 use super::messages::MessageBody;
 use super::messages::RegisterConfigMessageBody;
-use super::messages::ResponseBodyHostFormat;
+use super::messages::ResponseBody;
 use super::utils::IdGenerator;
+use super::utils::MessageIdStore;
 use super::utils::Poisoner;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
@@ -47,28 +47,13 @@ enum MessageResponseChannel {
   Format(oneshot::Sender<Result<Option<Vec<u8>>>>),
 }
 
-#[derive(Clone, Default)]
-struct MessageResponses(Arc<Mutex<HashMap<u32, MessageResponseChannel>>>);
-
-impl MessageResponses {
-  pub fn store(&self, message_id: u32, response: MessageResponseChannel) {
-    self.0.lock().insert(message_id, response);
-  }
-
-  pub fn take(&self, message_id: u32) -> Result<MessageResponseChannel> {
-    match self.0.lock().remove(&message_id) {
-      Some(value) => Ok(value),
-      None => bail!("Could not find message with id: {}", message_id),
-    }
-  }
-}
-
 #[derive(Clone)]
 struct Context {
   message_tx: UnboundedSender<Message>,
   poisoner: Poisoner,
   id_generator: IdGenerator,
-  messages: MessageResponses,
+  messages: MessageIdStore<MessageResponseChannel>,
+  format_request_tokens: MessageIdStore<Arc<CancellationToken>>,
   host: Arc<dyn Host>,
 }
 
@@ -135,7 +120,8 @@ impl ProcessPluginCommunicator {
       id_generator: Default::default(),
       message_tx,
       poisoner: poisoner.clone(),
-      messages: Default::default(),
+      messages: MessageIdStore::new(),
+      format_request_tokens: MessageIdStore::new(),
       host,
     };
 
@@ -240,7 +226,7 @@ impl ProcessPluginCommunicator {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
     let maybe_result = self
       .send_message(
-        MessageBody::FormatText(FormatTextMessageBody {
+        MessageBody::Format(FormatMessageBody {
           file_path,
           file_text: file_text.into_bytes(),
           range,
@@ -348,108 +334,139 @@ async fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: i
 }
 
 async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
-  let id = reader.read_u32().await?;
-  let kind = reader.read_u32().await?;
-  match kind {
-    // Success
-    0 => match context.messages.take(id)? {
-      MessageResponseChannel::Acknowledgement(channel) => {
-        reader.read_success_bytes().await?;
+  let message = Message::read(reader).await?;
+
+  match message.body {
+    MessageBody::Success(message_id) => match context.messages.take(message_id) {
+      Some(MessageResponseChannel::Acknowledgement(channel)) => {
         let _ignore = channel.send(Ok(()));
       }
-      MessageResponseChannel::Data(channel) => {
-        let bytes = reader.read_sized_bytes().await?;
-        reader.read_success_bytes().await?;
-        let _ignore = channel.send(Ok(bytes));
+      Some(MessageResponseChannel::Data(channel)) => {
+        let _ignore = channel.send(Err(anyhow!("Unexpected data channel for success response: {}", message_id)));
       }
-      MessageResponseChannel::Format(channel) => {
-        let response_kind = reader.read_u32().await?;
-        let data = match response_kind {
-          0 => None,
-          1 => Some(reader.read_sized_bytes().await?),
-          _ => bail!("Invalid format response kind: {}", response_kind),
-        };
-        reader.read_success_bytes().await?;
-
-        let _ignore = channel.send(Ok(data));
+      Some(MessageResponseChannel::Format(channel)) => {
+        let _ignore = channel.send(Err(anyhow!("Unexpected format channel for success response: {}", message_id)));
       }
+      None => {}
     },
-    // Error
-    1 => {
-      let bytes = reader.read_sized_bytes().await?;
-      reader.read_success_bytes().await?;
-      let err = anyhow!("{}", String::from_utf8_lossy(&bytes));
-      match context.messages.take(id)? {
-        MessageResponseChannel::Acknowledgement(channel) => {
+    MessageBody::DataResponse(response) => match context.messages.take(response.message_id) {
+      Some(MessageResponseChannel::Acknowledgement(channel)) => {
+        let _ignore = channel.send(Err(anyhow!("Unexpected success channel for data response: {}", response.message_id)));
+      }
+      Some(MessageResponseChannel::Data(channel)) => {
+        let _ignore = channel.send(Ok(response.data));
+      }
+      Some(MessageResponseChannel::Format(channel)) => {
+        let _ignore = channel.send(Err(anyhow!("Unexpected format channel for data response: {}", response.message_id)));
+      }
+      None => {}
+    },
+    MessageBody::Error(response) => {
+      let err = anyhow!("{}", String::from_utf8_lossy(&response.data));
+      match context.messages.take(response.message_id) {
+        Some(MessageResponseChannel::Acknowledgement(channel)) => {
           let _ignore = channel.send(Err(err));
         }
-        MessageResponseChannel::Data(channel) => {
+        Some(MessageResponseChannel::Data(channel)) => {
           let _ignore = channel.send(Err(err));
         }
-        MessageResponseChannel::Format(channel) => {
+        Some(MessageResponseChannel::Format(channel)) => {
           let _ignore = channel.send(Err(err));
         }
+        None => {}
       }
     }
-    // Host format
-    2 => {
-      let file_path = reader.read_sized_bytes().await?;
-      let start_byte_index = reader.read_u32().await?;
-      let end_byte_index = reader.read_u32().await?;
-      let override_config = reader.read_sized_bytes().await?;
-      let file_text = reader.read_sized_bytes().await?;
-      reader.read_success_bytes().await?;
-      let body = ResponseBodyHostFormat {
-        file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-        range: if start_byte_index == 0 && end_byte_index as usize == file_text.len() {
-          None
-        } else {
-          Some(std::ops::Range {
-            start: start_byte_index as usize,
-            end: end_byte_index as usize,
-          })
-        },
-        file_text,
-        override_config,
-      };
-
+    MessageBody::FormatResponse(response) => match context.messages.take(response.message_id) {
+      Some(MessageResponseChannel::Acknowledgement(channel)) => {
+        let _ignore = channel.send(Err(anyhow!("Unexpected success channel for format response: {}", response.message_id)));
+      }
+      Some(MessageResponseChannel::Data(channel)) => {
+        let _ignore = channel.send(Err(anyhow!("Unexpected data channel for format response: {}", response.message_id)));
+      }
+      Some(MessageResponseChannel::Format(channel)) => {
+        let _ignore = channel.send(Ok(response.data));
+      }
+      None => {}
+    },
+    MessageBody::CancelFormat(message_id) => {
+      if let Some(token) = context.format_request_tokens.take(message_id) {
+        token.cancel();
+      }
+    }
+    MessageBody::HostFormat(body) => {
       // spawn a task to do the host formatting, then send a message back to the
       // plugin with the result
       let context = context.clone();
       tokio::task::spawn(async move {
-        let result = host_format(context.host.clone(), body).await;
-        let body = match result {
-          Ok(Some(text)) => HostFormatResponseMessageBody::Change(text.into_bytes()),
-          Ok(None) => HostFormatResponseMessageBody::NoChange,
-          // we can ignore a critical error because this is client side so it
-          // was a critical error in another plugin
-          Err(err) => HostFormatResponseMessageBody::Error(format!("{}", err).into_bytes()),
-        };
+        let result = host_format(&context, message.id, body).await;
+
         // ignore failure, as this means that the process shut down
         // at which point handling would have occurred elsewhere
         let _ignore = context.message_tx.send(Message {
-          id,
-          body: MessageBody::HostFormatResponse(body),
+          id: context.id_generator.next(),
+          body: match result {
+            Ok(result) => MessageBody::FormatResponse(ResponseBody {
+              message_id: message.id,
+              data: result.map(|r| r.into_bytes()),
+            }),
+            Err(err) => MessageBody::Error(ResponseBody {
+              message_id: message.id,
+              data: format!("{}", err).into_bytes(),
+            }),
+          },
         });
       });
     }
-    _ => {
-      bail!("Unknown response kind: {}", kind);
+    MessageBody::IsAlive => {
+      // the CLI is not documented as supporting this, but we might as well respond
+      let _ = context.message_tx.send(Message {
+        id: context.id_generator.next(),
+        body: MessageBody::Success(message.id),
+      });
+    }
+    MessageBody::Format(_)
+    | MessageBody::Close
+    | MessageBody::GetPluginInfo
+    | MessageBody::GetLicenseText
+    | MessageBody::RegisterConfig(_)
+    | MessageBody::ReleaseConfig(_)
+    | MessageBody::GetConfigDiagnostics(_)
+    | MessageBody::GetResolvedConfig(_) => {
+      let _ = context.message_tx.send(Message {
+        id: context.id_generator.next(),
+        body: MessageBody::Error(ResponseBody {
+          message_id: message.id,
+          data: "Unsupported plugin to CLI message.".as_bytes().to_vec(),
+        }),
+      });
+    }
+    // If encountered, process plugin should exit and
+    // the CLI should kill the process plugin.
+    MessageBody::Unknown(message_kind) => {
+      bail!("Unknown message kind: {}", message_kind);
     }
   }
 
   Ok(())
 }
 
-async fn host_format(host: Arc<dyn Host>, body: ResponseBodyHostFormat) -> FormatResult {
-  host
+async fn host_format(context: &Context, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
+  let token = Arc::new(CancellationToken::new());
+  context.format_request_tokens.store(message_id, token.clone());
+
+  let result = context
+    .host
     .format(HostFormatRequest {
       file_path: body.file_path,
       file_text: String::from_utf8(body.file_text)?,
       range: body.range,
       override_config: serde_json::from_slice(&body.override_config).unwrap(),
-      // todo: implement cancellation for host formatting
-      token: Arc::new(CancellationToken::new()),
+      token,
     })
-    .await
+    .await;
+
+  // don't leak cancellation tokens
+  context.format_request_tokens.take(message_id);
+
+  result
 }
