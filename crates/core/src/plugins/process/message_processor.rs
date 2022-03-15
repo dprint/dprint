@@ -81,34 +81,34 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           let global_config: GlobalConfiguration = serde_json::from_slice(&body.global_config)?;
           let config_map: ConfigKeyMap = serde_json::from_slice(&body.plugin_config)?;
           let result = handler.resolve_config(config_map.clone(), global_config.clone());
-          context.store_config_result(
+          context.configs.store(
             body.config_id,
-            StoredConfig {
+            Arc::new(StoredConfig {
               config: Arc::new(result.config),
               diagnostics: Arc::new(result.diagnostics),
               config_map,
               global_config,
-            },
+            }),
           );
           Ok(MessageBody::Success(message.id))
         });
       }
       MessageBody::ReleaseConfig(config_id) => {
         handle_message(&context, message.id, || {
-          context.release_config_result(config_id);
+          context.configs.take(config_id);
           Ok(MessageBody::Success(message.id))
         });
       }
       MessageBody::GetConfigDiagnostics(config_id) => {
         handle_message(&context, message.id, || {
-          let diagnostics = context.get_config(config_id).map(|c| c.diagnostics.clone()).unwrap_or_default();
+          let diagnostics = context.configs.get_cloned(config_id).map(|c| c.diagnostics.clone()).unwrap_or_default();
           let data = serde_json::to_vec(&*diagnostics)?;
           Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
         });
       }
       MessageBody::GetResolvedConfig(config_id) => {
         handle_message(&context, message.id, || {
-          let data = match context.get_config(config_id) {
+          let data = match context.configs.get_cloned(config_id) {
             Some(config) => serde_json::to_vec(&*config.config)?,
             None => bail!("Did not find configuration for id: {}", config_id),
           };
@@ -121,7 +121,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         let request = FormatRequest {
           file_path: body.file_path,
           range: body.range,
-          config: match context.get_config(body.config_id) {
+          config: match context.configs.get_cloned(body.config_id) {
             Some(config) => {
               if body.override_config.is_empty() {
                 config.config.clone()
@@ -151,13 +151,13 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         };
 
         // start the task
-        context.store_cancellation_token(message.id, token.clone());
+        context.cancellation_tokens.store(message.id, token.clone());
         let context = context.clone();
         let handler = handler.clone();
         let host = host.clone();
         tokio::task::spawn(async move {
           let result = handler.format(request, host).await;
-          context.release_cancellation_token(message.id);
+          context.cancellation_tokens.take(message.id);
           if !token.is_cancelled() {
             let body = match result {
               Ok(text) => MessageBody::FormatResponse(ResponseBody {
@@ -174,11 +174,13 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         });
       }
       MessageBody::CancelFormat(message_id) => {
-        context.cancel_format(message_id);
+        if let Some(token) = context.cancellation_tokens.take(message_id) {
+          token.cancel();
+        }
       }
       MessageBody::Error(body) => {
         let text = String::from_utf8_lossy(&body.data);
-        if let Some(sender) = context.take_format_host_sender(body.message_id) {
+        if let Some(sender) = context.format_host_senders.take(body.message_id) {
           sender.send(Err(anyhow!("{}", text))).unwrap();
         } else {
           eprintln!("Received error from CLI. {}", text);
@@ -192,7 +194,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             Err(err) => Err(anyhow!("Error deserializing success: {}", err)),
           },
         };
-        if let Some(sender) = context.take_format_host_sender(body.message_id) {
+        if let Some(sender) = context.format_host_senders.take(body.message_id) {
           sender.send(data).unwrap();
         }
       }
@@ -215,7 +217,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
   fn format(&self, request: HostFormatRequest) -> Pin<Box<dyn Future<Output = FormatResult> + Send>> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
     let id = self.context.id_generator.next();
-    self.context.store_format_host_sender(id, tx);
+    self.context.format_host_senders.store(id, tx);
 
     // todo: start a task that listens for cancellation
 

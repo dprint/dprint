@@ -27,8 +27,8 @@ use super::messages::Message;
 use super::messages::MessageBody;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
+use super::utils::ArcIdStore;
 use super::utils::IdGenerator;
-use super::utils::MessageIdStore;
 use super::utils::Poisoner;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
@@ -52,8 +52,8 @@ struct Context {
   message_tx: UnboundedSender<Message>,
   poisoner: Poisoner,
   id_generator: IdGenerator,
-  messages: MessageIdStore<MessageResponseChannel>,
-  format_request_tokens: MessageIdStore<Arc<CancellationToken>>,
+  messages: ArcIdStore<MessageResponseChannel>,
+  format_request_tokens: ArcIdStore<Arc<CancellationToken>>,
   host: Arc<dyn Host>,
 }
 
@@ -120,8 +120,8 @@ impl ProcessPluginCommunicator {
       id_generator: Default::default(),
       message_tx,
       poisoner: poisoner.clone(),
-      messages: MessageIdStore::new(),
-      format_request_tokens: MessageIdStore::new(),
+      messages: ArcIdStore::new(),
+      format_request_tokens: ArcIdStore::new(),
       host,
     };
 

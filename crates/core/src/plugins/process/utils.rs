@@ -28,10 +28,10 @@ impl IdGenerator {
   }
 }
 
-/// A store that is keyed by message id.
-pub struct MessageIdStore<T>(Arc<Mutex<HashMap<u32, T>>>);
+/// A store that can be shared across multiple threads, keyed by id.
+pub struct ArcIdStore<T>(Arc<Mutex<HashMap<u32, T>>>);
 
-impl<T> MessageIdStore<T> {
+impl<T> ArcIdStore<T> {
   pub fn new() -> Self {
     Self(Default::default())
   }
@@ -45,9 +45,15 @@ impl<T> MessageIdStore<T> {
   }
 }
 
+impl<T: Clone> ArcIdStore<T> {
+  pub fn get_cloned(&self, message_id: u32) -> Option<T> {
+    self.0.lock().get(&message_id).cloned()
+  }
+}
+
 // not sure why, but I needed to manually implement this because
 // of the type parameter
-impl<T> Clone for MessageIdStore<T> {
+impl<T> Clone for ArcIdStore<T> {
   fn clone(&self) -> Self {
     Self(self.0.clone())
   }
