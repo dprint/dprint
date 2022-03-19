@@ -159,7 +159,10 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   // todo: don't use serde because this should fail with a nice error message if the schema version is not equal
   let plugin_file: ProcessPluginFile = match serde_json::from_slice(bytes) {
     Ok(plugin_file) => plugin_file,
-    Err(err) => bail!("Error deserializing plugin file: {}", err.to_string()),
+    Err(err) => bail!(
+      "Error deserializing plugin file: {}\n\nThis might mean you're using an old version of dprint.",
+      err.to_string()
+    ),
   };
 
   if plugin_file.schema_version != 1 {

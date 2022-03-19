@@ -23,6 +23,7 @@ use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::AsyncPluginHandler;
+use crate::plugins::BoxFuture;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::Host;
@@ -219,8 +220,6 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
     let id = self.context.id_generator.next();
     self.context.format_host_senders.store(id, tx);
 
-    // todo: start a task that listens for cancellation
-
     self
       .context
       .response_tx
@@ -235,13 +234,32 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
       })
       .unwrap_or_else(|err| panic!("Error sending host format response: {}", err));
 
+    let token = request.token;
+    let response_tx = self.context.response_tx.clone();
+    let id_generator = self.context.id_generator.clone();
+    let original_message_id = id;
+
     Box::pin(async move {
-      match rx.await {
-        Ok(Ok(Some(value))) => Ok(Some(value)),
-        Ok(Ok(None)) => Ok(None),
-        Ok(Err(err)) => Err(err),
-        // means the rx was closed, so just ignore
-        Err(err) => Err(err.into()),
+      tokio::select! {
+        _ = token.wait_cancellation() => {
+          // send a cancellation to the host
+          response_tx.send(Message {
+            id: id_generator.next(),
+            body: MessageBody::CancelFormat(original_message_id),
+          }).unwrap_or_else(|err| panic!("Error sending host format cancellation: {}", err));
+
+          // return no change
+          Ok(None)
+        }
+        value = rx => {
+          match value {
+            Ok(Ok(Some(value))) => Ok(Some(value)),
+            Ok(Ok(None)) => Ok(None),
+            Ok(Err(err)) => Err(err),
+            // means the rx was closed, so just ignore
+            Err(err) => Err(err.into()),
+          }
+        }
       }
     })
   }
@@ -250,6 +268,11 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
 impl crate::plugins::CancellationToken for CancellationToken {
   fn is_cancelled(&self) -> bool {
     self.is_cancelled()
+  }
+
+  fn wait_cancellation(&self) -> BoxFuture<'static, ()> {
+    let token = self.clone();
+    Box::pin(async move { token.cancelled().await })
   }
 }
 

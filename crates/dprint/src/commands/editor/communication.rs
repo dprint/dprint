@@ -1,4 +1,5 @@
 // The code used in here is legacy and will be phased out from the editor service in the future
+// todo: remove when implementing new editor service
 
 use anyhow::bail;
 use anyhow::Result;
@@ -11,7 +12,6 @@ use std::path::PathBuf;
 const BUFFER_SIZE: usize = 1024; // safe to assume
 
 const SUCCESS_BYTES: &[u8; 4] = &[255, 255, 255, 255];
-// todo: unit tests
 
 pub struct StdIoReaderWriter<TRead: Read, TWrite: Write> {
   writer: TWrite,

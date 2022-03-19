@@ -36,6 +36,7 @@ impl std::error::Error for CriticalFormatError {
 
 pub trait CancellationToken: Send + Sync {
   fn is_cancelled(&self) -> bool;
+  fn wait_cancellation(&self) -> BoxFuture<'static, ()>;
 }
 
 /// A cancellation token that always says it's not cancelled.
@@ -44,6 +45,11 @@ pub struct NullCancellationToken;
 impl CancellationToken for NullCancellationToken {
   fn is_cancelled(&self) -> bool {
     false
+  }
+
+  fn wait_cancellation(&self) -> BoxFuture<'static, ()> {
+    // never resolves
+    Box::pin(std::future::pending())
   }
 }
 
