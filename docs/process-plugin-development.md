@@ -159,7 +159,7 @@ Messages are sent from the client to the plugin in the following format:
 
 If a plugin encounters an unknown message kind, it should send an error message for the received message and exit the process.
 
-#### `0` - Success Response (Plugin to CLI)
+#### `0` - Success Response (Plugin to CLI, CLI to Plugin)
 
 Message body:
 
@@ -195,9 +195,9 @@ Message body: None
 
 Response: No response
 
-#### `4` - Active (CLI to Plugin)
+#### `4` - Active (CLI to Plugin, Plugin to CLI)
 
-Used to tell if the process plugin is healthy and can respond to messages.
+Used to tell if the other is healthy and can respond to messages.
 
 Response: Success message
 

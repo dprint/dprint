@@ -52,7 +52,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
   }
 
   #[cfg(test)]
-  pub async fn new_test_plugin_communicator(environment: TEnvironment, collection: Arc<PluginsCollection<TEnvironment>>) -> Self {
+  pub async fn new_test_plugin_communicator(environment: TEnvironment, collection: Arc<PluginsCollection<TEnvironment>>, plugin_config: ConfigKeyMap) -> Self {
     use crate::plugins::implementations::process::get_file_path_from_name_and_version;
     use crate::plugins::implementations::process::get_test_safe_executable_path;
 
@@ -62,7 +62,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     Self::new(
       "test-process-plugin".to_string(),
       test_plugin_file_path,
-      (Default::default(), Default::default()),
+      (Default::default(), plugin_config),
       environment.clone(),
       collection,
     )
@@ -151,7 +151,7 @@ mod test {
         // ensure that the config gets recreated as well
         let mut config = ConfigKeyMap::new();
         config.insert("ending".to_string(), "custom".to_string().into());
-        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection)).await;
+        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection), config).await;
 
         // ensure basic formatting works
         {
@@ -222,7 +222,8 @@ mod test {
       let environment = environment.clone();
       async move {
         let collection = PluginsCollection::new(environment.clone());
-        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection)).await;
+        let communicator =
+          InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection), Default::default()).await;
 
         // start up a format that will wait for cancellation
         let token = Arc::new(CancellationToken::new());

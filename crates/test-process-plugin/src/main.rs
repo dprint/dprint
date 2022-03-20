@@ -85,7 +85,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         request.token.wait_cancellation().await;
         Ok(None)
       } else if let Some(new_text) = request.file_text.strip_prefix("plugin: ") {
-        host
+        let result = host
           .format(HostFormatRequest {
             file_path: PathBuf::from("./test.txt"),
             file_text: new_text.to_string(),
@@ -93,11 +93,12 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
             override_config: Default::default(),
             token: request.token.clone(),
           })
-          .await
+          .await?;
+        Ok(Some(result.unwrap_or_else(|| new_text.to_string())))
       } else if let Some(new_text) = request.file_text.strip_prefix("plugin-config: ") {
         let mut config_map = ConfigKeyMap::new();
         config_map.insert("ending".to_string(), "custom_config".into());
-        host
+        let result = host
           .format(HostFormatRequest {
             file_path: PathBuf::from("./test.txt"),
             file_text: new_text.to_string(),
@@ -105,7 +106,8 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
             override_config: config_map,
             token: request.token.clone(),
           })
-          .await
+          .await?;
+        Ok(Some(result.unwrap_or_else(|| new_text.to_string())))
       } else if request.file_text == "should_error" {
         bail!("Did error.")
       } else if request.file_text.ends_with(&request.config.ending) {
