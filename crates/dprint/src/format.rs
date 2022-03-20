@@ -8,8 +8,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
@@ -112,7 +114,24 @@ where
               Ok(permit) => permit,
               Err(_) => return, // semaphore was closed, so stop working
             };
+            let long_format_token = CancellationToken::new();
+            tokio::task::spawn({
+              let token = long_format_token.clone();
+              let environment = environment.clone();
+              let file_path = file_path.clone();
+              async move {
+                tokio::select! {
+                  _ = token.cancelled() => {
+                    return;
+                  }
+                  _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                    environment.log_stderr(&format!("WARNING: Formatting is slow for {}", file_path.display()));
+                  }
+                }
+              }
+            });
             let result = run_for_file_path(environment, incremental_file, plugins, file_path.clone(), f).await;
+            long_format_token.cancel();
             if let Err(err) = result {
               if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
                 error_logger.log_error(&format!("Critical error formatting {}. Cannot continue. Message: {}", file_path.display(), err));
