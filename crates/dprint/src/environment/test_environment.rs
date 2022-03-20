@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
+use futures::Future;
 use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::collections::HashMap;
@@ -216,6 +217,12 @@ impl TestEnvironment {
 
   pub fn set_runtime_handle(&self, handle: tokio::runtime::Handle) {
     *self.runtime_handle.lock() = Some(handle);
+  }
+
+  pub fn run_in_runtime<T>(&self, future: impl Future<Output = T>) -> T {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    self.set_runtime_handle(rt.handle().clone());
+    rt.block_on(future)
   }
 
   fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {

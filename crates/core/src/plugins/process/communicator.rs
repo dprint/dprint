@@ -133,11 +133,11 @@ impl ProcessPluginCommunicator {
           if let Err(err) = read_stdout_message(&mut stdout_reader, &context).await {
             if !context.poisoner.is_poisoned() {
               on_std_err(format!("Error reading stdout message. {}", err));
-              context.poisoner.poison();
             }
             break;
           }
         }
+        context.poisoner.poison();
       }
     });
 
@@ -185,7 +185,7 @@ impl ProcessPluginCommunicator {
 
   pub fn kill(&self) {
     if let Some(mut child) = self.child.lock().take() {
-      let _ignore = child.kill();
+      let _ignore = child.start_kill();
     }
   }
 
@@ -202,7 +202,7 @@ impl ProcessPluginCommunicator {
     Ok(())
   }
 
-  pub async fn is_alive(&self) -> bool {
+  async fn is_alive(&self) -> bool {
     self.send_with_acknowledgement(MessageBody::IsAlive).await.is_ok()
   }
 
@@ -222,7 +222,7 @@ impl ProcessPluginCommunicator {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
-  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, config_id: u32, override_config: &ConfigKeyMap) -> FormatResult {
+  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, config_id: u32, override_config: ConfigKeyMap) -> FormatResult {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
     let maybe_result = self
       .send_message(
@@ -231,7 +231,7 @@ impl ProcessPluginCommunicator {
           file_text: file_text.into_bytes(),
           range,
           config_id,
-          override_config: serde_json::to_vec(override_config).unwrap(),
+          override_config: serde_json::to_vec(&override_config).unwrap(),
         }),
         MessageResponseChannel::Format(tx),
         rx,
@@ -247,7 +247,7 @@ impl ProcessPluginCommunicator {
 
   /// Checks if the process is functioning.
   pub async fn is_process_alive(&self) -> bool {
-    self.context.poisoner.is_poisoned() || self.is_alive().await
+    !self.context.poisoner.is_poisoned() || self.is_alive().await
   }
 
   async fn send_with_acknowledgement(&self, body: MessageBody) -> Result<()> {
@@ -274,11 +274,18 @@ impl ProcessPluginCommunicator {
     let message_id = self.context.id_generator.next();
     self.context.messages.store(message_id, response_channel);
     self.context.message_tx.send(Message { id: message_id, body })?;
-    match receiver.await {
-      Ok(data) => Ok(data),
-      Err(err) => {
-        self.context.poisoner.poison();
-        bail!("Error waiting on message ({}). {}", message_id, err)
+    tokio::select! {
+      _ = self.context.poisoner.wait_poisoned() => {
+        bail!("Sending message failed because the process plugin failed.");
+      }
+      response = receiver => {
+        match response {
+          Ok(data) => Ok(data),
+          Err(err) => {
+            self.context.poisoner.poison();
+            bail!("Error waiting on message ({}). {}", message_id, err)
+          }
+        }
       }
     }
   }

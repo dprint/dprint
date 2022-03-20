@@ -20,8 +20,12 @@ use crate::utils::PathSource;
 use super::super::SetupPluginResult;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
-  let dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment);
-  get_plugin_executable_file_path(&dir_path, &plugin_info.name)
+  get_file_path_from_name_and_version(&plugin_info.name, &plugin_info.version, environment)
+}
+
+pub fn get_file_path_from_name_and_version(name: &str, version: &str, environment: &impl Environment) -> PathBuf {
+  let dir_path = get_plugin_dir_path(name, version, environment);
+  get_plugin_executable_file_path(&dir_path, name)
 }
 
 fn get_plugin_dir_path(name: &str, version: &str, environment: &impl Environment) -> PathBuf {

@@ -80,6 +80,9 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   }
 
   fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
+    if request.file_text.starts_with("should_never_finish") {
+      return Box::pin(std::future::pending());
+    }
     Box::pin(async move {
       if request.file_text.starts_with("plugin: ") {
         let new_text = request.file_text.replace("plugin: ", "");
