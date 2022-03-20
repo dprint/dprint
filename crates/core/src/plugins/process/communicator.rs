@@ -39,7 +39,10 @@ use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
 use crate::plugins::Host;
 use crate::plugins::HostFormatRequest;
+use crate::plugins::NullCancellationToken;
 use crate::plugins::PluginInfo;
+
+type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
 
 enum MessageResponseChannel {
   Acknowledgement(oneshot::Sender<Result<()>>),
@@ -222,8 +225,17 @@ impl ProcessPluginCommunicator {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
-  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, config_id: u32, override_config: ConfigKeyMap) -> FormatResult {
+  pub async fn format_text(
+    &self,
+    file_path: PathBuf,
+    file_text: String,
+    range: FormatRange,
+    config_id: u32,
+    override_config: ConfigKeyMap,
+    token: DprintCancellationToken,
+  ) -> FormatResult {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
+
     let maybe_result = self
       .send_message(
         MessageBody::Format(FormatMessageBody {
@@ -235,13 +247,19 @@ impl ProcessPluginCommunicator {
         }),
         MessageResponseChannel::Format(tx),
         rx,
+        token.clone(),
       )
       .await;
-    match maybe_result {
-      Ok(Ok(Some(bytes))) => Ok(Some(String::from_utf8(bytes)?)),
-      Ok(Ok(None)) => Ok(None),
-      Ok(Err(err)) => Err(err),
-      Err(err) => Err(CriticalFormatError(err).into()),
+
+    if token.is_cancelled() {
+      Ok(None)
+    } else {
+      match maybe_result {
+        Ok(Ok(Some(bytes))) => Ok(Some(String::from_utf8(bytes)?)),
+        Ok(Ok(None)) => Ok(None),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(CriticalFormatError(err).into()),
+      }
     }
   }
 
@@ -252,7 +270,9 @@ impl ProcessPluginCommunicator {
 
   async fn send_with_acknowledgement(&self, body: MessageBody) -> Result<()> {
     let (tx, rx) = oneshot::channel::<Result<()>>();
-    self.send_message(body, MessageResponseChannel::Acknowledgement(tx), rx).await?
+    self
+      .send_message(body, MessageResponseChannel::Acknowledgement(tx), rx, Arc::new(NullCancellationToken))
+      .await?
   }
 
   async fn send_receiving_string(&self, body: MessageBody) -> Result<String> {
@@ -267,16 +287,29 @@ impl ProcessPluginCommunicator {
 
   async fn send_receiving_bytes(&self, body: MessageBody) -> Result<Result<Vec<u8>>> {
     let (tx, rx) = oneshot::channel::<Result<Vec<u8>>>();
-    self.send_message(body, MessageResponseChannel::Data(tx), rx).await
+    self
+      .send_message(body, MessageResponseChannel::Data(tx), rx, Arc::new(NullCancellationToken))
+      .await
   }
 
-  async fn send_message<T>(&self, body: MessageBody, response_channel: MessageResponseChannel, receiver: oneshot::Receiver<Result<T>>) -> Result<Result<T>> {
+  async fn send_message<T: Default>(
+    &self,
+    body: MessageBody,
+    response_channel: MessageResponseChannel,
+    receiver: oneshot::Receiver<Result<T>>,
+    token: Arc<dyn super::super::CancellationToken>,
+  ) -> Result<Result<T>> {
     let message_id = self.context.id_generator.next();
     self.context.messages.store(message_id, response_channel);
     self.context.message_tx.send(Message { id: message_id, body })?;
     tokio::select! {
       _ = self.context.poisoner.wait_poisoned() => {
+        self.context.messages.take(message_id); // clear memory
         bail!("Sending message failed because the process plugin failed.");
+      }
+      _ = token.wait_cancellation() => {
+        self.context.messages.take(message_id); // clear memory
+        Ok(Ok(Default::default()))
       }
       response = receiver => {
         match response {

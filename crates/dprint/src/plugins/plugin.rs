@@ -6,6 +6,7 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use futures::future::BoxFuture;
@@ -57,6 +58,14 @@ pub trait Plugin: Send + Sync {
   }
 }
 
+pub struct InitializedPluginFormatRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  pub range: FormatRange,
+  pub override_config: ConfigKeyMap,
+  pub token: Arc<dyn CancellationToken>,
+}
+
 pub trait InitializedPlugin: Send + Sync {
   /// Gets the license text
   fn license_text(&self) -> BoxFuture<'static, Result<String>>;
@@ -65,7 +74,7 @@ pub trait InitializedPlugin: Send + Sync {
   /// Gets the configuration diagnostics.
   fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>>;
   /// Formats the text in memory based on the file path and file text.
-  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, FormatResult>;
+  fn format_text(&self, format_request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult>;
 }
 
 #[cfg(test)]
@@ -179,8 +188,8 @@ impl InitializedPlugin for InitializedTestPlugin {
     async move { Ok(vec![]) }.boxed()
   }
 
-  fn format_text(&self, _: PathBuf, text: String, _: FormatRange, _: ConfigKeyMap) -> BoxFuture<'static, FormatResult> {
+  fn format_text(&self, format_request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
     use futures::FutureExt;
-    async move { Ok(Some(format!("{}_formatted", text))) }.boxed()
+    async move { Ok(Some(format!("{}_formatted", format_request.file_text))) }.boxed()
   }
 }

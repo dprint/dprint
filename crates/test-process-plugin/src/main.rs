@@ -80,36 +80,32 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   }
 
   fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
-    if request.file_text.starts_with("should_never_finish") {
-      return Box::pin(std::future::pending());
-    }
     Box::pin(async move {
-      if request.file_text.starts_with("plugin: ") {
-        let new_text = request.file_text.replace("plugin: ", "");
-        let result = host
+      if request.file_text.starts_with("wait_cancellation") {
+        request.token.wait_cancellation().await;
+        Ok(None)
+      } else if let Some(new_text) = request.file_text.strip_prefix("plugin: ") {
+        host
           .format(HostFormatRequest {
             file_path: PathBuf::from("./test.txt"),
-            file_text: new_text.clone(),
+            file_text: new_text.to_string(),
             range: None,
             override_config: Default::default(),
             token: request.token.clone(),
           })
-          .await?;
-        Ok(Some(result.unwrap_or(new_text)))
-      } else if request.file_text.starts_with("plugin-config: ") {
+          .await
+      } else if let Some(new_text) = request.file_text.strip_prefix("plugin-config: ") {
         let mut config_map = ConfigKeyMap::new();
         config_map.insert("ending".to_string(), "custom_config".into());
-        let new_text = request.file_text.replace("plugin-config: ", "");
-        let result = host
+        host
           .format(HostFormatRequest {
             file_path: PathBuf::from("./test.txt"),
-            file_text: new_text.clone(),
+            file_text: new_text.to_string(),
             range: None,
             override_config: config_map,
             token: request.token.clone(),
           })
-          .await?;
-        Ok(Some(result.unwrap_or(new_text)))
+          .await
       } else if request.file_text == "should_error" {
         bail!("Did error.")
       } else if request.file_text.ends_with(&request.config.ending) {

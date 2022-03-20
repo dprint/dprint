@@ -1,8 +1,6 @@
 use anyhow::Result;
-use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use futures::future::BoxFuture;
@@ -13,6 +11,7 @@ use std::sync::Arc;
 use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
+use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
 use crate::plugins::PluginsCollection;
 
@@ -156,8 +155,8 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
     async move { communicator.get_config_diagnostics().await }.boxed()
   }
 
-  fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> BoxFuture<'static, FormatResult> {
+  fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
     let communicator = self.communicator.clone();
-    async move { communicator.format_text(file_path, file_text, range, override_config).await }.boxed()
+    async move { communicator.format_text(request).await }.boxed()
   }
 }

@@ -13,15 +13,15 @@ use crate::plugins::PluginsCollection;
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_cache: Arc<PluginCache<TEnvironment>>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_cache: Arc<PluginCache<TEnvironment>>, plugin_pools: Arc<PluginsCollection<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, plugin_cache: Arc<PluginCache<TEnvironment>>, plugins_collection: Arc<PluginsCollection<TEnvironment>>) -> Self {
     PluginResolver {
       environment,
       plugin_cache,
-      plugin_pools,
+      plugins_collection,
     }
   }
 
@@ -44,7 +44,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   }
 
   pub async fn resolve_plugin(&self, plugin_reference: &PluginSourceReference) -> Result<Box<dyn Plugin>> {
-    match create_plugin(self.plugin_pools.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference).await {
+    match create_plugin(self.plugins_collection.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference).await {
       Ok(plugin) => Ok(plugin),
       Err(err) => {
         match self.plugin_cache.forget(plugin_reference) {

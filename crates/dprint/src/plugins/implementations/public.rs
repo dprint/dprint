@@ -59,7 +59,7 @@ pub fn cleanup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, 
 }
 
 pub async fn create_plugin<TEnvironment: Environment>(
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   plugin_cache: &PluginCache<TEnvironment>,
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
@@ -97,7 +97,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
       }
     };
 
-    Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, environment, plugin_pools)?))
+    Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, environment, plugins_collection)?))
   } else if plugin_reference.is_process_plugin() {
     let cache_item = if !environment.path_exists(&cache_item.file_path) {
       log_verbose!(
@@ -118,7 +118,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
       environment,
       executable_path,
       cache_item.info,
-      plugin_pools,
+      plugins_collection,
     )))
   } else {
     bail!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());

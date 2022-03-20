@@ -71,8 +71,8 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
   ) -> Result<String> {
     if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
-    } else if file_text.starts_with("plugin: ") {
-      format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin: ", ""), &ConfigKeyMap::new())
+    } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
+      format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &ConfigKeyMap::new())
     } else if file_text.starts_with("plugin-config: ") {
       let mut config_map = ConfigKeyMap::new();
       config_map.insert("ending".to_string(), "custom_config".into());

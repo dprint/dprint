@@ -2,6 +2,7 @@ use anyhow::bail;
 use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,6 +16,7 @@ use crate::incremental::IncrementalFile;
 use crate::paths::PluginNames;
 use crate::plugins::GetPluginResult;
 use crate::plugins::InitializedPlugin;
+use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::PluginWrapper;
 use crate::plugins::PluginsCollection;
 use crate::utils::ErrorCountLogger;
@@ -179,7 +181,13 @@ where
       for (i, plugin) in plugins.iter().enumerate() {
         let start_instant = Instant::now();
         let format_text_result = plugin
-          .format_text(file_path.to_path_buf(), file_text.to_string(), None, ConfigKeyMap::new())
+          .format_text(InitializedPluginFormatRequest {
+            file_path: file_path.to_path_buf(),
+            file_text: file_text.to_string(),
+            range: None,
+            override_config: ConfigKeyMap::new(),
+            token: Arc::new(NullCancellationToken),
+          })
           .await;
         log_verbose!(
           environment,

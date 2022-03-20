@@ -2,12 +2,10 @@ use anyhow::anyhow;
 use anyhow::Result;
 use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::CriticalFormatError;
-use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use futures::FutureExt;
 use parking_lot::Mutex;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use dprint_core::configuration::ConfigKeyMap;
@@ -24,6 +22,7 @@ use super::WasmFunctions;
 use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
+use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
 use crate::plugins::PluginsCollection;
 
@@ -396,19 +395,28 @@ impl InitializedPlugin for InitializedWasmPlugin {
     .boxed()
   }
 
-  fn format_text(
-    &self,
-    file_path: PathBuf,
-    file_text: String,
-    // not supported yet for Wasm plugins
-    _range: FormatRange,
-    override_config: ConfigKeyMap,
-  ) -> BoxFuture<'static, FormatResult> {
+  fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
     let plugin = self.clone();
     async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config)))
-        .await
-        .unwrap()
+      let token = request.token;
+      let file_path = request.file_path;
+      let file_text = request.file_text;
+      let override_config = request.override_config;
+      // Wasm plugins do not currently support range formatting
+      // so always return back None for now.
+      if request.range.is_some() {
+        return Ok(None);
+      }
+      let format_future =
+        tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config)));
+      tokio::select! {
+        _ = token.wait_cancellation() => {
+          Ok(None)
+        }
+        result = format_future => {
+          result.unwrap()
+        }
+      }
     }
     .boxed()
   }

@@ -1,11 +1,11 @@
 use crate::environment::Environment;
+use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::PluginsCollection;
 use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
-use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -51,6 +51,25 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     Ok(initialized_communicator)
   }
 
+  #[cfg(test)]
+  pub async fn new_test_plugin_communicator(environment: TEnvironment, collection: Arc<PluginsCollection<TEnvironment>>) -> Self {
+    use crate::plugins::implementations::process::get_file_path_from_name_and_version;
+    use crate::plugins::implementations::process::get_test_safe_executable_path;
+
+    let plugin_file_path = get_file_path_from_name_and_version("test-process-plugin", "0.1.0", &environment);
+    let test_plugin_file_path = get_test_safe_executable_path(plugin_file_path, &environment);
+
+    Self::new(
+      "test-process-plugin".to_string(),
+      test_plugin_file_path,
+      (Default::default(), Default::default()),
+      environment.clone(),
+      collection,
+    )
+    .await
+    .unwrap()
+  }
+
   pub async fn get_license_text(&self) -> Result<String> {
     self.get_inner().await.license_text().await
   }
@@ -63,11 +82,18 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.get_inner().await.config_diagnostics(CONFIG_ID).await
   }
 
-  pub async fn format_text(&self, file_path: PathBuf, file_text: String, range: FormatRange, override_config: ConfigKeyMap) -> FormatResult {
+  pub async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
     match self
       .get_inner()
       .await
-      .format_text(file_path, file_text, range, CONFIG_ID, override_config)
+      .format_text(
+        request.file_path,
+        request.file_text,
+        request.range,
+        CONFIG_ID,
+        request.override_config,
+        request.token,
+      )
       .await
     {
       Ok(result) => Ok(result),
@@ -109,16 +135,15 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
 mod test {
   use std::time::Duration;
 
+  use dprint_core::plugins::NullCancellationToken;
+  use tokio_util::sync::CancellationToken;
+
   use super::*;
   use crate::environment::TestEnvironmentBuilder;
-  use crate::plugins::implementations::process::get_file_path_from_name_and_version;
-  use crate::plugins::implementations::process::get_test_safe_executable_path;
 
   #[test]
   fn should_handle_killing_process_plugin() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
-    let plugin_file_path = get_file_path_from_name_and_version("test-process-plugin", "0.1.0", &environment);
-    let test_plugin_file_path = get_test_safe_executable_path(plugin_file_path, &environment);
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
@@ -126,20 +151,18 @@ mod test {
         // ensure that the config gets recreated as well
         let mut config = ConfigKeyMap::new();
         config.insert("ending".to_string(), "custom".to_string().into());
-        let communicator = InitializedProcessPluginCommunicator::new(
-          "test-process-plugin".to_string(),
-          test_plugin_file_path,
-          (Default::default(), config),
-          environment.clone(),
-          Arc::new(collection),
-        )
-        .await
-        .unwrap();
+        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection)).await;
 
         // ensure basic formatting works
         {
           let formatted_text = communicator
-            .format_text(PathBuf::from("test.txt"), "testing".to_string(), None, Default::default())
+            .format_text(InitializedPluginFormatRequest {
+              file_path: PathBuf::from("test.txt"),
+              file_text: "testing".to_string(),
+              range: None,
+              override_config: Default::default(),
+              token: Arc::new(NullCancellationToken),
+            })
             .await
             .unwrap();
           assert_eq!(formatted_text, Some("testing_custom".to_string()));
@@ -148,7 +171,14 @@ mod test {
         // now start up a few formats that will never finish
         let mut futures = Vec::new();
         for _ in 0..10 {
-          futures.push(communicator.format_text(PathBuf::from("test.txt"), "should_never_finish".to_string(), None, Default::default()));
+          futures.push(communicator.format_text(InitializedPluginFormatRequest {
+            file_path: PathBuf::from("test.txt"),
+            // special text that makes it wait for cancellation
+            file_text: "wait_cancellation".to_string(),
+            range: None,
+            override_config: Default::default(),
+            token: Arc::new(NullCancellationToken),
+          }));
         }
 
         // spawn a task to kill the process plugin after a bit of time
@@ -165,16 +195,58 @@ mod test {
           assert_eq!(result.err().unwrap().to_string(), "Sending message failed because the process plugin failed.");
         }
 
-        // ensure we can still format
+        // ensure we can still format with the original config
         {
           let formatted_text = communicator
-            .format_text(PathBuf::from("test.txt"), "testing".to_string(), None, Default::default())
+            .format_text(InitializedPluginFormatRequest {
+              file_path: PathBuf::from("test.txt"),
+              file_text: "testing".to_string(),
+              range: None,
+              override_config: Default::default(),
+              token: Arc::new(NullCancellationToken),
+            })
             .await
             .unwrap();
           assert_eq!(formatted_text, Some("testing_custom".to_string()));
         }
 
         assert_eq!(environment.take_stderr_messages(), vec!["Error reading stdout message. early eof"],);
+      }
+    })
+  }
+
+  #[test]
+  fn should_handle_cancellation() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
+    environment.run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let collection = PluginsCollection::new(environment.clone());
+        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection)).await;
+
+        // start up a format that will wait for cancellation
+        let token = Arc::new(CancellationToken::new());
+        let future = communicator.format_text(InitializedPluginFormatRequest {
+          file_path: PathBuf::from("test.txt"),
+          // special text that makes it wait for cancellation
+          file_text: "wait_cancellation".to_string(),
+          range: None,
+          override_config: Default::default(),
+          token: token.clone(),
+        });
+
+        // spawn a task to wait a bit and then cancel the token
+        tokio::task::spawn(async move {
+          // give everything some time to queue up
+          tokio::time::sleep(Duration::from_millis(100)).await;
+          token.cancel();
+        });
+
+        // drive the future forward in the meantime and get the result
+        let result = future.await;
+
+        // should return Ok(None)
+        assert_eq!(result.unwrap(), None);
       }
     })
   }

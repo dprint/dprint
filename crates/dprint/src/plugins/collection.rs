@@ -15,6 +15,7 @@ use anyhow::Result;
 
 use super::output_plugin_config_diagnostics;
 use super::InitializedPlugin;
+use super::InitializedPluginFormatRequest;
 use super::Plugin;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
@@ -163,12 +164,13 @@ impl<TEnvironment: Environment> Host for PluginsCollection<TEnvironment> {
         match plugin.get_or_create_checking_config_diagnostics(error_logger.clone()).await {
           Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
-              .format_text(
-                request.file_path.clone(),
-                file_text.clone(),
-                request.range.clone(),
-                request.override_config.clone(),
-              )
+              .format_text(InitializedPluginFormatRequest {
+                file_path: request.file_path.clone(),
+                file_text: file_text.clone(),
+                range: request.range.clone(),
+                override_config: request.override_config.clone(),
+                token: request.token.clone(),
+              })
               .await;
             if let Some(new_text) = result? {
               file_text = new_text;
