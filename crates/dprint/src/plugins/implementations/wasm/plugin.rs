@@ -414,7 +414,7 @@ impl InitializedPlugin for InitializedWasmPlugin {
           Ok(None)
         }
         result = format_future => {
-          result.unwrap()
+          result?
         }
       }
     }
