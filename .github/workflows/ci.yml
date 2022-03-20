@@ -50,7 +50,7 @@ jobs:
     # CACHE SETUP
     - uses: Swatinem/rust-cache@v1
       with:
-        key: 1
+        key: 2
 
     # BUILD
     - name: Build test plugins
