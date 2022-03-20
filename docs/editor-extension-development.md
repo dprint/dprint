@@ -158,7 +158,7 @@ Message body:
 
 Response: Format file response
 
-#### `7` - Format file response (Client to Service)
+#### `7` - Format file response (Service to Client)
 
 Message body:
 
