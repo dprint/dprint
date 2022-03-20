@@ -91,16 +91,19 @@ Messages sent from the client to the editor service may have response messages a
 
 ### Message Kinds
 
-#### `0` - Success / Acknowledgement (Service to Client)
-
-Message body: None
-
-Response: No response
-
-#### `1` - Error Message (Service to Client)
+#### `0` - Success Response (Service to Client, Client to Service)
 
 Message body:
 
+- u32 - Message id that succeeded.
+
+Response: No response
+
+#### `1` - Error Response (Service to Client, Client to Service)
+
+Message body:
+
+- u32 - Message id that failed.
 - u32 - Error message byte length
 - X bytes - Error message
 
@@ -108,32 +111,39 @@ Response: No response
 
 #### `2` - Shut down the process (Client to Service)
 
+Causes the service to shut down itself and all the process plugins gracefully.
+
 Message body: None
 
 Response: No response
 
-#### `3` - Active (Client to Service)
+#### `3` - Active (Client to Service, Service to Client)
 
 For checking if the service is healthy and can respond to messages.
 
 Message body: None
 
-Response: Empty body
+Response: Success response
 
-Todo: is this worth it? I might remove this one.
-
-#### `4` - Check a file can be formatted (Client to Service)
+#### `4` - Can format (Client to Service)
 
 Message body:
 
 - u32 - File path byte length
 - File path
 
-Response body:
+Response: Can format response
 
+#### `5` - Can format response (Service to Client)
+
+Message body:
+
+- u32 - Message id responding to
 - u32 - 0 for cannot format, or 1 for can format
 
-#### `5` - Format a file (Client to Service)
+Response: None
+
+#### `6` - Format file (Client to Service)
 
 Message body:
 
@@ -146,15 +156,22 @@ Message body:
 - u32 - File text content byte length
 - File text
 
-Response body:
+Response: Format file response
 
+#### `7` - Format file response (Client to Service)
+
+Message body:
+
+- u32 - Message id of the request
 - u32 - Response Kind
   - `0` - No Change
   - `1` - Change
     - u32 - Length of formatted file text
     - Formatted file text
 
-#### `6` - Cancel a format (Client to Service)
+Response: None
+
+#### `8` - Cancel a format (Client to Service)
 
 Message body:
 
@@ -162,7 +179,7 @@ Message body:
 
 Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
 
-#### `7` - Notification (Service to Client)
+#### `9` - Notification (Service to Client)
 
 TODO: is there a need for this? Might not do it.
 
