@@ -56,24 +56,25 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    impl AsyncPluginHandler for MyPluginHandler {
      type Configuration = Configuration;
 
-     fn get_plugin_info(&self) -> PluginInfo {
+     fn plugin_info(&self) -> PluginInfo {
        PluginInfo {
          name: env!("CARGO_PKG_NAME").to_string(),
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
          file_extensions: vec!["txt_ps".to_string()],
          file_names: vec![],
-         help_url: "".to_string(),          // fill this in
-         config_schema_url: "".to_string(), // leave this empty for now
+         help_url: "".to_string(),          // ex. https://dprint.dev/plugins/prettier
+         config_schema_url: "".to_string(), // the schema url for your config file
+         update_url: Some(None),            // ex. https://plugins.dprint.dev/dprint/dprint-plugin-prettier/latest.json
        }
      }
 
-     fn get_license_text(&self) -> String {
+     fn license_text(&self) -> String {
        // include your license file somehow
-       include_str!("LICENSE").to_string()
+       include_str!("../LICENSE").to_string()
      }
 
-     fn resolve_config(&self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+     fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
        // implement this... for example
        let mut config = config;
        let mut diagnostics = Vec::new();

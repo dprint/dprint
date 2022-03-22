@@ -88,7 +88,7 @@ pub fn get_test_process_plugin_checksum() -> String {
 pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
   format!(
     r#"{{
-"schemaVersion": 1,
+"schemaVersion": 2,
 "name": "test-process-plugin",
 "version": "0.1.0",
 "windows-x86_64": {{
@@ -99,11 +99,11 @@ pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"
 }},
-"mac-x86_64": {{
+"darwin-x86_64": {{
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"
 }},
-"mac-aarch64": {{
+"darwin-aarch64": {{
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"
 }}

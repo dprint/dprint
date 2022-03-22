@@ -120,10 +120,10 @@ struct ProcessPluginFile {
   version: String,
   #[serde(rename = "linux-x86_64")]
   linux: Option<ProcessPluginPath>,
-  #[serde(rename = "mac-x86_64")]
-  mac_x86_64: Option<ProcessPluginPath>,
-  #[serde(rename = "mac-aarch64")]
-  mac_aarch64: Option<ProcessPluginPath>,
+  #[serde(rename = "darwin-x86_64")]
+  darwin_x86_64: Option<ProcessPluginPath>,
+  #[serde(rename = "darwin-aarch64")]
+  darwin_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "windows-x86_64")]
   windows: Option<ProcessPluginPath>,
 }
@@ -169,9 +169,9 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
     ),
   };
 
-  if plugin_file.schema_version != 1 {
+  if plugin_file.schema_version != 2 {
     bail!(
-      "Expected schema version 1, but found {}. This may indicate you need to upgrade your CLI version to use this plugin.",
+      "Expected schema version 2, but found {}. This may indicate you need to upgrade your CLI version or plugin.",
       plugin_file.schema_version
     );
   }
@@ -188,8 +188,8 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
     }
   } else if cfg!(target_os = "macos") {
     match arch.as_str() {
-      "x86_64" => plugin_file.mac_x86_64.as_ref(),
-      "aarc64" => plugin_file.mac_aarch64.as_ref().or(plugin_file.mac_x86_64.as_ref()),
+      "x86_64" => plugin_file.darwin_x86_64.as_ref(),
+      "aarc64" => plugin_file.darwin_aarch64.as_ref().or(plugin_file.darwin_x86_64.as_ref()),
       _ => None,
     }
   } else if cfg!(target_os = "windows") {
