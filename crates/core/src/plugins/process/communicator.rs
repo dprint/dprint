@@ -329,6 +329,7 @@ async fn verify_plugin_schema_version<TRead: AsyncRead + Unpin, TWrite: AsyncWri
   writer: &mut MessageWriter<TWrite>,
 ) -> Result<()> {
   writer.send_u32(0).await?; // ask for schema version
+  writer.flush().await?;
   if reader.read_u32().await? != 0 {
     bail!(concat!(
       "There was a problem checking the plugin schema version. ",

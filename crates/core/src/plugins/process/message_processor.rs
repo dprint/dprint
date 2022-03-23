@@ -7,7 +7,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::communication::MessageReader;
@@ -18,6 +17,7 @@ use super::messages::HostFormatMessageBody;
 use super::messages::Message;
 use super::messages::MessageBody;
 use super::messages::ResponseBody;
+use super::stdout_message_writer::StdoutMessageWriter;
 use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::configuration::ConfigKeyMap;
@@ -40,18 +40,9 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
   schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).await?;
 
   let handler = Arc::new(handler);
-  let (response_tx, mut response_rx) = mpsc::unbounded_channel::<Message>();
-  let context: ProcessContext<THandler::Configuration> = ProcessContext::new(response_tx);
+  let stdout_message_writer = StdoutMessageWriter::new(stdout_writer);
+  let context: ProcessContext<THandler::Configuration> = ProcessContext::new(stdout_message_writer);
   let host = Arc::new(ProcessHost { context: context.clone() });
-
-  // task to send responses over stdout
-  tokio::task::spawn({
-    async move {
-      while let Some(result) = response_rx.recv().await {
-        result.write(&mut stdout_writer).await.unwrap();
-      }
-    }
-  });
 
   // read messages over stdin
   loop {
@@ -222,7 +213,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
 
     self
       .context
-      .response_tx
+      .stdout_writer
       .send(Message {
         id,
         body: MessageBody::HostFormat(HostFormatMessageBody {
@@ -235,7 +226,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
       .unwrap_or_else(|err| panic!("Error sending host format response: {}", err));
 
     let token = request.token;
-    let response_tx = self.context.response_tx.clone();
+    let stdout_writer = self.context.stdout_writer.clone();
     let id_generator = self.context.id_generator.clone();
     let original_message_id = id;
 
@@ -243,7 +234,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
       tokio::select! {
         _ = token.wait_cancellation() => {
           // send a cancellation to the host
-          response_tx.send(Message {
+          stdout_writer.send(Message {
             id: id_generator.next(),
             body: MessageBody::CancelFormat(original_message_id),
           }).unwrap_or_else(|err| panic!("Error sending host format cancellation: {}", err));
@@ -304,7 +295,7 @@ fn send_response_body<TConfiguration: Serialize + Clone + Send + Sync>(context: 
     id: context.id_generator.next(),
     body,
   };
-  if let Err(err) = context.response_tx.send(message) {
+  if let Err(err) = context.stdout_writer.send(message) {
     panic!("Receiver dropped. {}", err);
   }
 }
