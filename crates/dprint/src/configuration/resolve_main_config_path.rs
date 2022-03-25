@@ -56,7 +56,9 @@ pub fn resolve_main_config_path<TEnvironment: Environment>(
 
   fn get_start_search_directory(args: &CliArgs, environment: &impl Environment) -> Result<CanonicalizedPathBuf> {
     if let SubCommand::StdInFmt(command) = &args.sub_command {
-      // resolve the config file based on the file path provided to the command
+      // When formatting via stdin, resolve the config file based on the
+      // file path provided to the command. This is done for people who
+      // format files in their editor.
       if environment.is_absolute_path(&command.file_name_or_path) {
         if let Some(parent) = PathBuf::from(&command.file_name_or_path).parent() {
           return environment.canonicalize(parent);
