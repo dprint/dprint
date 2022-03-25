@@ -49,6 +49,8 @@ jobs:
 
     # CACHE SETUP
     - uses: Swatinem/rust-cache@v1
+      # todo: re-enable this for ubuntu... was having cache issues with glibc
+      if: startsWith(matrix.config.os, 'ubuntu') == false
 
     # BUILD
     - name: Build test plugins
