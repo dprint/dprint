@@ -11,6 +11,10 @@ You may desire to run `dprint check` as a step on your CI to ensure the code is 
 
 See `dprint/check`: https://github.com/marketplace/actions/dprint-check-action
 
+## GitLab
+
+See `dprint-ci`: https://gitlab.com/midnightexigent/dprint-ci
+
 ## Others
 
 It is easy to get dprint working on a CI by running the install script then `dprint check`.
