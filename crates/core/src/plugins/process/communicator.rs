@@ -205,7 +205,12 @@ impl ProcessPluginCommunicator {
     Ok(())
   }
 
-  async fn is_alive(&self) -> bool {
+  pub async fn release_config(&self, config_id: u32) -> Result<()> {
+    self.send_with_acknowledgement(MessageBody::ReleaseConfig(config_id)).await?;
+    Ok(())
+  }
+
+  pub async fn ask_is_alive(&self) -> bool {
     self.send_with_acknowledgement(MessageBody::IsAlive).await.is_ok()
   }
 
@@ -265,7 +270,7 @@ impl ProcessPluginCommunicator {
 
   /// Checks if the process is functioning.
   pub async fn is_process_alive(&self) -> bool {
-    !self.context.poisoner.is_poisoned() || self.is_alive().await
+    !self.context.poisoner.is_poisoned() || self.ask_is_alive().await
   }
 
   async fn send_with_acknowledgement(&self, body: MessageBody) -> Result<()> {
