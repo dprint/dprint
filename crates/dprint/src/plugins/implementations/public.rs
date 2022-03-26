@@ -10,8 +10,8 @@ use super::wasm;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::PluginsCollection;
 use crate::utils::PathSource;
 
 pub struct SetupPluginResult {
@@ -19,11 +19,15 @@ pub struct SetupPluginResult {
   pub plugin_info: PluginInfo,
 }
 
-pub fn setup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, file_bytes: &[u8], environment: &TEnvironment) -> Result<SetupPluginResult> {
+pub async fn setup_plugin<TEnvironment: Environment>(
+  url_or_file_path: &PathSource,
+  file_bytes: &[u8],
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
   if url_or_file_path.is_wasm_plugin() {
     wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment)
   } else if url_or_file_path.is_process_plugin() {
-    process::setup_process_plugin(url_or_file_path, file_bytes, environment)
+    process::setup_process_plugin(url_or_file_path, file_bytes, environment).await
   } else {
     bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
   }
@@ -54,13 +58,13 @@ pub fn cleanup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, 
   }
 }
 
-pub fn create_plugin<TEnvironment: Environment>(
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+pub async fn create_plugin<TEnvironment: Environment>(
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   plugin_cache: &PluginCache<TEnvironment>,
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
 ) -> Result<Box<dyn Plugin>> {
-  let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference);
+  let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await;
   let cache_item = match cache_item {
     Ok(cache_item) => Ok(cache_item),
     Err(err) => {
@@ -72,7 +76,7 @@ pub fn create_plugin<TEnvironment: Environment>(
 
       // forget and try again
       plugin_cache.forget(plugin_reference)?;
-      plugin_cache.get_plugin_cache_item(plugin_reference)
+      plugin_cache.get_plugin_cache_item(plugin_reference).await
     }
   }?;
 
@@ -88,12 +92,12 @@ pub fn create_plugin<TEnvironment: Environment>(
 
         // forget and try again
         plugin_cache.forget(plugin_reference)?;
-        let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference)?;
+        let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await?;
         environment.read_file_bytes(&cache_item.file_path)?
       }
     };
 
-    Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, plugin_pools)?))
+    Ok(Box::new(wasm::WasmPlugin::new(file_bytes, cache_item.info, environment, plugins_collection)?))
   } else if plugin_reference.is_process_plugin() {
     let cache_item = if !environment.path_exists(&cache_item.file_path) {
       log_verbose!(
@@ -104,7 +108,7 @@ pub fn create_plugin<TEnvironment: Environment>(
 
       // forget and try again
       plugin_cache.forget(plugin_reference)?;
-      plugin_cache.get_plugin_cache_item(plugin_reference)?
+      plugin_cache.get_plugin_cache_item(plugin_reference).await?
     } else {
       cache_item
     };
@@ -114,7 +118,7 @@ pub fn create_plugin<TEnvironment: Environment>(
       environment,
       executable_path,
       cache_item.info,
-      plugin_pools,
+      plugins_collection,
     )))
   } else {
     bail!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());

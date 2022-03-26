@@ -233,7 +233,7 @@ fn create_is_multiple_lines_resolver(
   start_info: Info,
   end_info: Info,
 ) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
-  // todo: this could be more efficient only only use references and avoid the clones
+  // This could be more efficient by only using references and avoid clones
   // I'm too lazy to update this sample, but it should help you get the idea.
   return move |condition_context: &mut ConditionResolverContext| {
     // no items, so format on the same line

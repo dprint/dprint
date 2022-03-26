@@ -147,7 +147,7 @@ pub mod macros {
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
         let file_text = take_string_from_shared_bytes();
 
-        let formatted_text = unsafe { WASM_PLUGIN.get().format_text(&file_path, &file_text, &config, format_with_host) };
+        let formatted_text = unsafe { WASM_PLUGIN.get().format(&file_path, &file_text, &config, format_with_host) };
         match formatted_text {
           Ok(formatted_text) => {
             if formatted_text == file_text {
@@ -183,14 +183,14 @@ pub mod macros {
       #[no_mangle]
       pub fn get_plugin_info() -> usize {
         use dprint_core::plugins::PluginInfo;
-        let plugin_info = unsafe { WASM_PLUGIN.get().get_plugin_info() };
+        let plugin_info = unsafe { WASM_PLUGIN.get().plugin_info() };
         let info_json = serde_json::to_string(&plugin_info).unwrap();
         set_shared_bytes_str(info_json)
       }
 
       #[no_mangle]
       pub fn get_license_text() -> usize {
-        set_shared_bytes_str(unsafe { WASM_PLUGIN.get().get_license_text() })
+        set_shared_bytes_str(unsafe { WASM_PLUGIN.get().license_text() })
       }
 
       #[no_mangle]

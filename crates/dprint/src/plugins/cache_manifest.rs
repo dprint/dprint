@@ -8,7 +8,7 @@ use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
 
-const PLUGIN_SCHEMA_VERSION: usize = 4;
+const PLUGIN_CACHE_SCHEMA_VERSION: usize = 5;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +20,7 @@ pub struct PluginCacheManifest {
 impl PluginCacheManifest {
   pub(super) fn new() -> PluginCacheManifest {
     PluginCacheManifest {
-      schema_version: PLUGIN_SCHEMA_VERSION,
+      schema_version: PLUGIN_CACHE_SCHEMA_VERSION,
       plugins: HashMap::new(),
     }
   }
@@ -51,7 +51,7 @@ pub struct PluginCacheManifestItem {
 pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
   return match try_deserialize(environment) {
     Ok(manifest) => {
-      if manifest.schema_version != PLUGIN_SCHEMA_VERSION {
+      if manifest.schema_version != PLUGIN_CACHE_SCHEMA_VERSION {
         let _ = environment.remove_dir_all(&environment.get_cache_dir().join("plugins"));
         PluginCacheManifest::new()
       } else {
@@ -97,7 +97,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 4,
+    "schemaVersion": 5,
     "plugins": {
         "a": {
             "createdTime": 123,

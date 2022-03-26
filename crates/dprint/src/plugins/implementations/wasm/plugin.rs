@@ -1,6 +1,10 @@
-use anyhow::bail;
-use anyhow::Error;
+use anyhow::anyhow;
 use anyhow::Result;
+use dprint_core::plugins::BoxFuture;
+use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::FormatResult;
+use futures::FutureExt;
+use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,30 +16,38 @@ use dprint_core::plugins::PluginInfo;
 use super::create_module;
 use super::create_pools_import_object;
 use super::load_instance;
-use super::FormatResult;
 use super::ImportObjectEnvironment;
+use super::WasmFormatResult;
 use super::WasmFunctions;
 use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
+use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
-use crate::plugins::PluginPools;
+use crate::plugins::PluginsCollection;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: wasmer::Module,
   plugin_info: PluginInfo,
   config: Option<(RawPluginConfig, GlobalConfiguration)>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  environment: TEnvironment,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(compiled_wasm_bytes: Vec<u8>, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Result<Self> {
+  pub fn new(
+    compiled_wasm_bytes: Vec<u8>,
+    plugin_info: PluginInfo,
+    environment: TEnvironment,
+    plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  ) -> Result<Self> {
     let module = create_module(&compiled_wasm_bytes)?;
     Ok(WasmPlugin {
+      environment,
+      plugin_pools,
       module,
       plugin_info,
       config: None,
-      plugin_pools,
     })
   }
 }
@@ -81,79 +93,113 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     self.config.as_ref().expect("Call set_config first.")
   }
 
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>> {
+  fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     let store = wasmer::Store::default();
-    let mut wasm_plugin = InitializedWasmPlugin::new(
+    // need to call set_config first to ensure this doesn't fail
+    let (plugin_config, global_config) = self.config.as_ref().unwrap();
+    let plugin = InitializedWasmPlugin::new(
+      self.name().to_string(),
       self.module.clone(),
-      Box::new({
-        let name = self.name().to_string();
+      Arc::new({
         let plugin_pools = self.plugin_pools.clone();
+        let environment = self.environment.clone();
         move || {
-          let import_obj_env = ImportObjectEnvironment::new(&name, plugin_pools.clone());
+          let import_obj_env = ImportObjectEnvironment::new(environment.clone(), plugin_pools.clone());
           create_pools_import_object(&store, &import_obj_env)
         }
       }),
-    )?;
-    let (plugin_config, global_config) = self.config.as_ref().expect("Call set_config first.");
-
-    wasm_plugin.set_global_config(global_config)?;
-    wasm_plugin.set_plugin_config(&plugin_config.properties)?;
-
-    Ok(Box::new(wasm_plugin))
+      global_config.clone(),
+      plugin_config.properties.clone(),
+    );
+    async move {
+      let result: Arc<dyn InitializedPlugin> = Arc::new(plugin);
+      Ok(result)
+    }
+    .boxed()
   }
 }
 
-pub struct InitializedWasmPlugin {
+struct InitializedWasmPluginInstance {
   wasm_functions: WasmFunctions,
   buffer_size: usize,
-
-  // below is for recreating an instance after panic
-  module: wasmer::Module,
-  create_import_object: Box<dyn Fn() -> wasmer::ImportObject + Send>,
-  global_config: GlobalConfiguration,
-  plugin_config: ConfigKeyMap,
 }
 
-impl InitializedWasmPlugin {
-  pub fn new(module: wasmer::Module, create_import_object: Box<dyn Fn() -> wasmer::ImportObject + Send>) -> Result<Self> {
-    let instance = load_instance(&module, &create_import_object())?;
-    let wasm_functions = WasmFunctions::new(instance)?;
-    let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
-
-    Ok(InitializedWasmPlugin {
-      wasm_functions,
-      buffer_size,
-      module,
-      create_import_object,
-      global_config: GlobalConfiguration {
-        line_width: None,
-        use_tabs: None,
-        indent_width: None,
-        new_line_kind: None,
-      },
-      plugin_config: ConfigKeyMap::new(),
-    })
-  }
-
-  pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<()> {
+impl InitializedWasmPluginInstance {
+  pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<()> {
     let json = serde_json::to_string(global_config)?;
-    self.send_string(&json);
+    self.send_string(&json)?;
     self.wasm_functions.set_global_config()?;
-    self.global_config = global_config.clone();
     Ok(())
   }
 
   pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<()> {
     let json = serde_json::to_string(plugin_config)?;
-    self.send_string(&json);
+    self.send_string(&json)?;
     self.wasm_functions.set_plugin_config()?;
     Ok(())
   }
 
-  pub fn get_plugin_info(&self) -> Result<PluginInfo> {
+  pub fn plugin_info(&self) -> Result<PluginInfo> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
+  }
+
+  fn license_text(&self) -> Result<String> {
+    let len = self.wasm_functions.get_license_text()?;
+    self.receive_string(len)
+  }
+
+  fn resolved_config(&self) -> Result<String> {
+    let len = self.wasm_functions.get_resolved_config()?;
+    self.receive_string(len)
+  }
+
+  fn config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
+    let len = self.wasm_functions.get_config_diagnostics()?;
+    let json_text = self.receive_string(len)?;
+    Ok(serde_json::from_str(&json_text)?)
+  }
+
+  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> FormatResult {
+    match self.inner_format_text(file_path, file_text, override_config) {
+      Ok(inner) => inner,
+      Err(err) => Err(CriticalFormatError(err).into()),
+    }
+  }
+
+  fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
+    // send override config if necessary
+    if !override_config.is_empty() {
+      self.send_string(&match serde_json::to_string(override_config) {
+        Ok(text) => text,
+        Err(err) => return Ok(Err(err.into())),
+      })?;
+      self.wasm_functions.set_override_config()?;
+    }
+
+    // send file path
+    self.send_string(&file_path.to_string_lossy())?;
+    self.wasm_functions.set_file_path()?;
+
+    // send file text and format
+    self.send_string(file_text)?;
+    let response_code = self.wasm_functions.format()?;
+
+    // handle the response
+    match response_code {
+      WasmFormatResult::NoChange => Ok(Ok(None)),
+      WasmFormatResult::Change => {
+        let len = self.wasm_functions.get_formatted_text()?;
+        let text = self.receive_string(len)?;
+        Ok(Ok(Some(text)))
+      }
+      WasmFormatResult::Error => {
+        let len = self.wasm_functions.get_error_text()?;
+        let text = self.receive_string(len)?;
+        Ok(Err(anyhow!("{}", text)))
+      }
+    }
   }
 
   /* LOW LEVEL SENDING AND RECEIVING */
@@ -161,26 +207,28 @@ impl InitializedWasmPlugin {
   // These methods should panic when failing because that may indicate
   // a major problem where the CLI is out of sync with the plugin.
 
-  fn send_string(&self, text: &str) {
+  fn send_string(&self, text: &str) -> Result<()> {
     let mut index = 0;
     let len = text.len();
     let text_bytes = text.as_bytes();
-    self.wasm_functions.clear_shared_bytes(len).unwrap();
+    self.wasm_functions.clear_shared_bytes(len)?;
     while index < len {
       let write_count = std::cmp::min(len - index, self.buffer_size);
-      self.write_bytes_to_memory_buffer(&text_bytes[index..(index + write_count)]);
-      self.wasm_functions.add_to_shared_bytes_from_buffer(write_count).unwrap();
+      self.write_bytes_to_memory_buffer(&text_bytes[index..(index + write_count)])?;
+      self.wasm_functions.add_to_shared_bytes_from_buffer(write_count)?;
       index += write_count;
     }
+    Ok(())
   }
 
-  fn write_bytes_to_memory_buffer(&self, bytes: &[u8]) {
+  fn write_bytes_to_memory_buffer(&self, bytes: &[u8]) -> Result<()> {
     let length = bytes.len();
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr().unwrap();
+    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
     let memory_writer = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
     for i in 0..length {
       memory_writer[i].set(bytes[i]);
     }
+    Ok(())
   }
 
   fn receive_string(&self, len: usize) -> Result<String> {
@@ -188,126 +236,188 @@ impl InitializedWasmPlugin {
     let mut bytes: Vec<u8> = vec![0; len];
     while index < len {
       let read_count = std::cmp::min(len - index, self.buffer_size);
-      self.wasm_functions.set_buffer_with_shared_bytes(index, read_count).unwrap();
-      self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)]);
+      self.wasm_functions.set_buffer_with_shared_bytes(index, read_count)?;
+      self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)])?;
       index += read_count;
     }
     Ok(String::from_utf8(bytes)?)
   }
 
-  fn read_bytes_from_memory_buffer(&self, bytes: &mut [u8]) {
+  fn read_bytes_from_memory_buffer(&self, bytes: &mut [u8]) -> Result<()> {
     let length = bytes.len();
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr().unwrap();
+    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
     let memory_reader = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
     for i in 0..length {
       bytes[i] = memory_reader[i].get();
     }
-  }
-
-  fn reinitialize_due_to_panic(&mut self, original_err: &Error) {
-    if let Err(reinitialize_err) = self.try_reinitialize_due_to_panic() {
-      panic!(
-        "Originally panicked, then failed reinitialize. Cannot recover.\nOriginal error: {}\nReinitialize error: {}",
-        original_err, reinitialize_err,
-      )
-    }
-  }
-
-  fn try_reinitialize_due_to_panic(&mut self) -> Result<()> {
-    let instance = load_instance(&self.module, &(self.create_import_object)())?;
-    let wasm_functions = WasmFunctions::new(instance)?;
-    let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
-
-    self.wasm_functions = wasm_functions;
-    self.buffer_size = buffer_size;
-
-    self.set_global_config(&self.global_config.clone())?;
-    self.set_plugin_config(&self.plugin_config.clone())?;
-
     Ok(())
   }
 }
 
-impl InitializedPlugin for InitializedWasmPlugin {
-  fn get_license_text(&self) -> Result<String> {
-    let len = self.wasm_functions.get_license_text()?;
-    self.receive_string(len)
+struct InitializedWasmPluginInner {
+  name: String,
+  instances: Mutex<Vec<InitializedWasmPluginInstance>>,
+  // below is for recreating an instance after panic
+  module: wasmer::Module,
+  create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
+  global_config: GlobalConfiguration,
+  plugin_config: ConfigKeyMap,
+}
+
+#[derive(Clone)]
+pub struct InitializedWasmPlugin(Arc<InitializedWasmPluginInner>);
+
+impl InitializedWasmPlugin {
+  pub fn new(
+    name: String,
+    module: wasmer::Module,
+    create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
+    global_config: GlobalConfiguration,
+    plugin_config: ConfigKeyMap,
+  ) -> Self {
+    Self(Arc::new(InitializedWasmPluginInner {
+      name,
+      instances: Default::default(),
+      module,
+      create_import_object,
+      global_config,
+      plugin_config,
+    }))
   }
 
-  fn get_resolved_config(&self) -> Result<String> {
-    let len = self.wasm_functions.get_resolved_config()?;
-    self.receive_string(len)
+  pub fn get_plugin_info(&self) -> Result<PluginInfo> {
+    self.with_instance(|instance| instance.plugin_info())
   }
 
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
-    let len = self.wasm_functions.get_config_diagnostics()?;
-    let json_text = self.receive_string(len)?;
-    Ok(serde_json::from_str(&json_text)?)
-  }
-
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String> {
-    // send override config if necessary
-    if !override_config.is_empty() {
-      self.send_string(&serde_json::to_string(override_config)?);
-      if let Err(err) = self.wasm_functions.set_override_config() {
-        self.reinitialize_due_to_panic(&err);
-        return Err(err);
-      }
-    }
-
-    // send file path
-    self.send_string(&file_path.to_string_lossy());
-
-    if let Err(err) = self.wasm_functions.set_file_path() {
-      self.reinitialize_due_to_panic(&err);
-      return Err(err);
-    }
-
-    // send file text and format
-    self.send_string(file_text);
-    let response_code = match self.wasm_functions.format() {
-      Ok(code) => code,
-      Err(err) => {
-        self.reinitialize_due_to_panic(&err);
-        return Err(err);
-      }
+  fn with_instance<T>(&self, action: impl Fn(&InitializedWasmPluginInstance) -> Result<T>) -> Result<T> {
+    let instance = match self.get_or_create_instance() {
+      Ok(instance) => instance,
+      Err(err) => return Err(CriticalFormatError(err).into()),
     };
-
-    // handle the response
-    match response_code {
-      FormatResult::NoChange => Ok(String::from(file_text)),
-      FormatResult::Change => {
-        let len = match self.wasm_functions.get_formatted_text() {
-          Ok(len) => len,
-          Err(err) => {
-            self.reinitialize_due_to_panic(&err);
-            return Err(err);
-          }
+    match action(&instance) {
+      Ok(result) => {
+        self.release_instance(instance);
+        Ok(result)
+      }
+      Err(original_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
+        let instance = match self.get_or_create_instance() {
+          Ok(instance) => instance,
+          Err(err) => return Err(CriticalFormatError(err).into()),
         };
-        match self.receive_string(len) {
-          Ok(text) => Ok(text),
+
+        // try again
+        match action(&instance) {
+          Ok(result) => {
+            self.release_instance(instance);
+            Ok(result)
+          }
+          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
+            return Err(
+              CriticalFormatError(anyhow!(
+                concat!(
+                  "Originally panicked in {}, then failed reinitialize. ",
+                  "This may be a bug in the plugin, the dprint cli is out of date, or the ",
+                  "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
+                ),
+                self.0.name,
+                original_err,
+                reinitialize_err,
+              ))
+              .into(),
+            )
+          }
           Err(err) => {
-            self.reinitialize_due_to_panic(&err);
+            self.release_instance(instance);
             Err(err)
           }
         }
       }
-      FormatResult::Error => {
-        let len = match self.wasm_functions.get_error_text() {
-          Ok(len) => len,
-          Err(err) => {
-            self.reinitialize_due_to_panic(&err);
-            return Err(err);
-          }
-        };
-        match self.receive_string(len) {
-          Ok(text) => bail!("{}", text),
-          Err(err) => {
-            self.reinitialize_due_to_panic(&err);
-            Err(err)
-          }
+      Err(err) => {
+        self.release_instance(instance);
+        Err(err)
+      }
+    }
+  }
+
+  fn get_or_create_instance(&self) -> Result<InitializedWasmPluginInstance> {
+    match self.0.instances.lock().pop() {
+      Some(instance) => Ok(instance),
+      None => self.create_instance(),
+    }
+  }
+
+  fn release_instance(&self, plugin: InitializedWasmPluginInstance) {
+    self.0.instances.lock().push(plugin);
+  }
+
+  fn create_instance(&self) -> Result<InitializedWasmPluginInstance> {
+    let instance = load_instance(&self.0.module, &(self.0.create_import_object)())?;
+    let wasm_functions = WasmFunctions::new(instance)?;
+    let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
+
+    let mut instance = InitializedWasmPluginInstance { wasm_functions, buffer_size };
+
+    instance.set_global_config(&self.0.global_config)?;
+    instance.set_plugin_config(&self.0.plugin_config)?;
+
+    Ok(instance)
+  }
+}
+
+impl InitializedPlugin for InitializedWasmPlugin {
+  fn license_text(&self) -> BoxFuture<'static, Result<String>> {
+    let plugin = self.clone();
+    async move {
+      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.license_text()))
+        .await
+        .unwrap()
+    }
+    .boxed()
+  }
+
+  fn resolved_config(&self) -> BoxFuture<'static, Result<String>> {
+    let plugin = self.clone();
+    async move {
+      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.resolved_config()))
+        .await
+        .unwrap()
+    }
+    .boxed()
+  }
+
+  fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+    let plugin = self.clone();
+    async move {
+      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.config_diagnostics()))
+        .await
+        .unwrap()
+    }
+    .boxed()
+  }
+
+  fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
+    let plugin = self.clone();
+    async move {
+      let token = request.token;
+      let file_path = request.file_path;
+      let file_text = request.file_text;
+      let override_config = request.override_config;
+      // Wasm plugins do not currently support range formatting
+      // so always return back None for now.
+      if request.range.is_some() {
+        return Ok(None);
+      }
+      let format_future =
+        tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config)));
+      tokio::select! {
+        _ = token.wait_cancellation() => {
+          Ok(None)
+        }
+        result = format_future => {
+          result?
         }
       }
     }
+    .boxed()
   }
 }

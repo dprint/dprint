@@ -6,8 +6,8 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::generate_plugin_code;
-use dprint_core::plugins::PluginHandler;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::SyncPluginHandler;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
@@ -30,7 +30,7 @@ impl TestWasmPlugin {
   }
 }
 
-impl PluginHandler<Configuration> for TestWasmPlugin {
+impl SyncPluginHandler<Configuration> for TestWasmPlugin {
   fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut config = config;
     let mut diagnostics = Vec::new();
@@ -45,7 +45,7 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
     }
   }
 
-  fn get_plugin_info(&mut self) -> PluginInfo {
+  fn plugin_info(&mut self) -> PluginInfo {
     PluginInfo {
       name: env!("CARGO_PKG_NAME").to_string(),
       version: env!("CARGO_PKG_VERSION").to_string(),
@@ -58,11 +58,11 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
     }
   }
 
-  fn get_license_text(&mut self) -> String {
+  fn license_text(&mut self) -> String {
     std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
   }
 
-  fn format_text(
+  fn format(
     &mut self,
     _: &Path,
     file_text: &str,
@@ -71,8 +71,8 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
   ) -> Result<String> {
     if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
-    } else if file_text.starts_with("plugin: ") {
-      format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin: ", ""), &ConfigKeyMap::new())
+    } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
+      format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &ConfigKeyMap::new())
     } else if file_text.starts_with("plugin-config: ") {
       let mut config_map = ConfigKeyMap::new();
       config_map.insert("ending".to_string(), "custom_config".into());

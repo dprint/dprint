@@ -9,13 +9,13 @@ use crate::cache::Cache;
 use crate::cache::CreateCacheItemOptions;
 use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
-use crate::plugins::PluginPools;
+use crate::plugins::PluginsCollection;
 
 pub fn get_incremental_file<TEnvironment: Environment>(
   args: &CliArgs,
   config: &ResolvedConfig,
   cache: &Cache<TEnvironment>,
-  plugin_pools: &PluginPools<TEnvironment>,
+  plugin_pools: &PluginsCollection<TEnvironment>,
   environment: &TEnvironment,
 ) -> Option<Arc<IncrementalFile<TEnvironment>>> {
   if args.incremental || config.incremental {

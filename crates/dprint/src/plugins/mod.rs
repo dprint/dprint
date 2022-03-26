@@ -1,23 +1,21 @@
 mod cache;
 mod cache_manifest;
+mod collection;
 mod helpers;
 mod implementations;
 mod plugin;
-mod pool;
 mod repo;
 mod resolver;
 mod types;
-mod worker;
 
 pub use cache::*;
 use cache_manifest::*;
+pub use collection::*;
 pub use helpers::*;
 pub use plugin::*;
-pub use pool::*;
 pub use repo::*;
 pub use resolver::*;
 pub use types::*;
-pub use worker::*;
 
 pub use implementations::compile_wasm;
 
@@ -34,39 +32,39 @@ use crate::arg_parser::CliArgs;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
 
-pub fn get_plugins_from_args<TEnvironment: Environment>(
+pub async fn get_plugins_from_args<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>> {
   match resolve_config_from_args(args, cache, environment) {
-    Ok(config) => resolve_plugins(args, &config, environment, plugin_resolver),
+    Ok(config) => resolve_plugins(args, &config, environment, plugin_resolver).await,
     Err(_) => Ok(Vec::new()), // ignore
   }
 }
 
-pub fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
+pub async fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
   args: &CliArgs,
   config: &ResolvedConfig,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>> {
-  let plugins = resolve_plugins(args, config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins(args, config, environment, plugin_resolver).await?;
   if plugins.is_empty() {
     bail!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
   }
   Ok(plugins)
 }
 
-pub fn resolve_plugins<TEnvironment: Environment>(
+pub async fn resolve_plugins<TEnvironment: Environment>(
   args: &CliArgs,
   config: &ResolvedConfig,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>> {
   // resolve the plugins
-  let plugins = plugin_resolver.resolve_plugins(config.plugins.clone())?;
+  let plugins = plugin_resolver.resolve_plugins(config.plugins.clone()).await?;
   let mut config_map = config.config_map.clone();
 
   // resolve each plugin's configuration
