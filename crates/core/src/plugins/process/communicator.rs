@@ -148,16 +148,13 @@ impl ProcessPluginCommunicator {
       }
     });
 
-    tokio::task::spawn_blocking({
-      let poisoner = poisoner.clone();
-      move || {
-        while let Ok(message) = message_rx.recv() {
-          if message.write(&mut stdin_writer).is_err() {
-            break;
-          }
+    tokio::task::spawn_blocking(move || {
+      while let Ok(message) = message_rx.recv() {
+        if message.write(&mut stdin_writer).is_err() {
+          break;
         }
-        poisoner.poison();
       }
+      poisoner.poison();
     });
 
     Ok(Self {
