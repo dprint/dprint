@@ -1,6 +1,6 @@
+use anyhow::Result;
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc;
-use anyhow::Result;
 
 use super::communication::MessageWriter;
 use super::messages::Message;
@@ -23,9 +23,7 @@ impl StdoutMessageWriter {
       }
     });
 
-    Self {
-      tx,
-    }
+    Self { tx }
   }
 
   pub fn send(&self, message: Message) -> Result<()> {

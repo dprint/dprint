@@ -122,7 +122,7 @@ where
               async move {
                 tokio::select! {
                   _ = token.cancelled() => {
-                    return;
+                    // exit
                   }
                   _ = tokio::time::sleep(Duration::from_secs(10)) => {
                     environment.log_stderr(&format!("WARNING: Formatting is slow for {}", file_path.display()));
