@@ -70,6 +70,10 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     .unwrap()
   }
 
+  pub async fn shutdown(&self) {
+    self.get_inner().await.shutdown().await
+  }
+
   pub async fn get_license_text(&self) -> Result<String> {
     self.get_inner().await.license_text().await
   }
@@ -147,11 +151,11 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        let collection = PluginsCollection::new(environment.clone());
+        let collection = Arc::new(PluginsCollection::new(environment.clone()));
         // ensure that the config gets recreated as well
         let mut config = ConfigKeyMap::new();
         config.insert("ending".to_string(), "custom".to_string().into());
-        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection), config).await;
+        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), collection.clone(), config).await;
 
         // ensure basic formatting works
         {
@@ -210,7 +214,9 @@ mod test {
           assert_eq!(formatted_text, Some("testing_custom".to_string()));
         }
 
-        assert_eq!(environment.take_stderr_messages(), vec!["Error reading stdout message. early eof"],);
+        assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+
+        collection.drop_and_shutdown_initialized().await;
       }
     })
   }
@@ -221,9 +227,9 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        let collection = PluginsCollection::new(environment.clone());
+        let collection = Arc::new(PluginsCollection::new(environment.clone()));
         let communicator =
-          InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), Arc::new(collection), Default::default()).await;
+          InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), collection.clone(), Default::default()).await;
 
         // start up a format that will wait for cancellation
         let token = Arc::new(CancellationToken::new());
@@ -248,6 +254,8 @@ mod test {
 
         // should return Ok(None)
         assert_eq!(result.unwrap(), None);
+
+        collection.drop_and_shutdown_initialized().await;
       }
     })
   }

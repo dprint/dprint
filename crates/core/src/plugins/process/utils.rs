@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -22,6 +23,19 @@ impl Poisoner {
 
   pub fn wait_poisoned(&self) -> WaitForCancellationFuture {
     self.0.cancelled()
+  }
+}
+
+#[derive(Default, Clone)]
+pub struct ArcFlag(Arc<AtomicBool>);
+
+impl ArcFlag {
+  pub fn raise(&self) {
+    self.0.store(true, Ordering::SeqCst)
+  }
+
+  pub fn is_raised(&self) -> bool {
+    self.0.load(Ordering::SeqCst)
   }
 }
 

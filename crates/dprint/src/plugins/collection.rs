@@ -25,22 +25,6 @@ use crate::utils::get_lowercase_file_name;
 use crate::utils::ErrorCountLogger;
 use crate::utils::GlobMatcher;
 
-/// This is necessary because of a circular reference where
-/// PluginPools hold plugins and the plugins hold a PluginPools.
-pub struct PluginsDropper<TEnvironment: Environment>(Arc<PluginsCollection<TEnvironment>>);
-
-impl<TEnvironment: Environment> Drop for PluginsDropper<TEnvironment> {
-  fn drop(&mut self) {
-    self.0.drop_plugins();
-  }
-}
-
-impl<TEnvironment: Environment> PluginsDropper<TEnvironment> {
-  pub fn new(pools: Arc<PluginsCollection<TEnvironment>>) -> Self {
-    Self(pools)
-  }
-}
-
 #[derive(Default)]
 struct PluginNameResolutionMaps {
   extension_to_plugin_name_map: HashMap<String, String>,
@@ -63,8 +47,16 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
     }
   }
 
-  pub fn drop_plugins(&self) {
-    self.plugins.lock().clear();
+  pub async fn drop_and_shutdown_initialized(&self) {
+    // Need to drain this because plugins hold PluginsCollection
+    // and so without dropping them here they will never be droped
+    let plugins = self.plugins.lock().drain().collect::<Vec<_>>();
+    for (_, plugin) in plugins {
+      if let Some(initialized) = plugin.take_initialized().await {
+        // graceful shutdown
+        initialized.shutdown().await;
+      }
+    }
   }
 
   pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, config_base_path: &CanonicalizedPathBuf) -> Result<()> {
@@ -98,6 +90,10 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
     }
     *self.plugin_name_maps.write() = plugin_name_maps;
     Ok(())
+  }
+
+  pub fn process_plugin_count(&self) -> usize {
+    self.plugins.lock().values().filter(|p| p.plugin.is_process_plugin()).count()
   }
 
   pub fn get_plugin(&self, plugin_name: &str) -> Arc<PluginWrapper<TEnvironment>> {
@@ -214,6 +210,10 @@ impl<TEnvironment: Environment> PluginWrapper<TEnvironment> {
 
   pub fn name(&self) -> &str {
     self.name.as_str()
+  }
+
+  pub async fn take_initialized(&self) -> Option<Arc<dyn InitializedPlugin>> {
+    self.initialized_plugin.lock().await.take()
   }
 
   pub async fn get_or_create_checking_config_diagnostics(&self, error_logger: ErrorCountLogger<TEnvironment>) -> Result<GetPluginResult> {

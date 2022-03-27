@@ -223,7 +223,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
     if has_config_changed {
-      self.plugins_collection.drop_plugins(); // clear the existing plugins
+      self.plugins_collection.drop_and_shutdown_initialized().await; // clear the existing plugins
       let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver).await?;
       self.plugins_collection.set_plugins(plugins, &config.base_path)?;
     }

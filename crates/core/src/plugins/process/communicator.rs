@@ -3,19 +3,18 @@ use anyhow::bail;
 use anyhow::Result;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
+use std::io::BufRead;
+use std::io::Read;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Child;
+use std::process::ChildStderr;
+use std::process::ChildStdout;
+use std::process::Command;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::AsyncBufReadExt;
-use tokio::io::AsyncRead;
-use tokio::io::AsyncWrite;
-use tokio::process::Child;
-use tokio::process::ChildStderr;
-use tokio::process::ChildStdout;
-use tokio::process::Command;
-use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::mpsc::UnboundedSender;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -27,6 +26,7 @@ use super::messages::Message;
 use super::messages::MessageBody;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
+use super::utils::ArcFlag;
 use super::utils::ArcIdStore;
 use super::utils::IdGenerator;
 use super::utils::Poisoner;
@@ -52,8 +52,9 @@ enum MessageResponseChannel {
 
 #[derive(Clone)]
 struct Context {
-  message_tx: UnboundedSender<Message>,
+  message_tx: crossbeam_channel::Sender<Message>,
   poisoner: Poisoner,
+  shutdown_flag: ArcFlag,
   id_generator: IdGenerator,
   messages: ArcIdStore<MessageResponseChannel>,
   format_request_tokens: ArcIdStore<Arc<CancellationToken>>,
@@ -68,7 +69,7 @@ pub struct ProcessPluginCommunicator {
 
 impl Drop for ProcessPluginCommunicator {
   fn drop(&mut self) {
-    let _ignore = self.close();
+    self.kill();
   }
 }
 
@@ -94,6 +95,7 @@ impl ProcessPluginCommunicator {
     }
 
     let poisoner = Poisoner::default();
+    let shutdown_flag = ArcFlag::default();
     let mut child = Command::new(executable_file_path)
       .args(&args)
       .stdin(Stdio::piped())
@@ -104,11 +106,12 @@ impl ProcessPluginCommunicator {
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
-    tokio::task::spawn({
+    tokio::task::spawn_blocking({
       let poisoner = poisoner.clone();
+      let shutdown_flag = shutdown_flag.clone();
       let on_std_err = on_std_err.clone();
-      async move {
-        std_err_redirect(poisoner, stderr, on_std_err).await;
+      move || {
+        std_err_redirect(poisoner, shutdown_flag, stderr, on_std_err);
       }
     });
 
@@ -116,11 +119,12 @@ impl ProcessPluginCommunicator {
     let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
-    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer).await?;
+    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)?;
 
-    let (message_tx, mut message_rx) = unbounded_channel::<Message>();
+    let (message_tx, message_rx) = crossbeam_channel::unbounded::<Message>();
     let context = Context {
       id_generator: Default::default(),
+      shutdown_flag,
       message_tx,
       poisoner: poisoner.clone(),
       messages: ArcIdStore::new(),
@@ -129,13 +133,13 @@ impl ProcessPluginCommunicator {
     };
 
     // read from stdout
-    tokio::task::spawn({
+    tokio::task::spawn_blocking({
       let context = context.clone();
-      async move {
+      move || {
         loop {
-          if let Err(err) = read_stdout_message(&mut stdout_reader, &context).await {
-            if !context.poisoner.is_poisoned() {
-              on_std_err(format!("Error reading stdout message. {}", err));
+          if let Err(err) = read_stdout_message(&mut stdout_reader, &context) {
+            if !context.poisoner.is_poisoned() && !context.shutdown_flag.is_raised() {
+              on_std_err(format!("Error reading stdout message: {}", err));
             }
             break;
           }
@@ -144,14 +148,11 @@ impl ProcessPluginCommunicator {
       }
     });
 
-    tokio::task::spawn({
+    tokio::task::spawn_blocking({
       let poisoner = poisoner.clone();
-      async move {
-        while let Some(message) = message_rx.recv().await {
-          if message.write(&mut stdin_writer).await.is_err() {
-            break;
-          }
-          if matches!(message.body, MessageBody::Close) {
+      move || {
+        while let Ok(message) = message_rx.recv() {
+          if message.write(&mut stdin_writer).is_err() {
             break;
           }
         }
@@ -165,30 +166,26 @@ impl ProcessPluginCommunicator {
     })
   }
 
-  fn close(&self) -> Result<()> {
+  /// Perform a graceful shutdown.
+  pub async fn shutdown(&self) {
+    self.context.shutdown_flag.raise();
     if self.context.poisoner.is_poisoned() {
       self.kill();
     } else {
       // attempt to exit nicely
-      let result = self.context.message_tx.send(Message {
-        id: self.context.id_generator.next(),
-        body: MessageBody::Close,
-      });
-
-      self.context.poisoner.poison();
-
-      // otherwise, ensure kill
-      if result.is_err() {
-        self.kill();
+      tokio::select! {
+        _ = self.send_with_acknowledgement(MessageBody::Close) => {}
+        _ = tokio::time::sleep(Duration::from_millis(100)) => {}
       }
+      self.context.poisoner.poison();
     }
-
-    Ok(())
   }
 
   pub fn kill(&self) {
+    self.context.shutdown_flag.raise();
+    self.context.poisoner.poison();
     if let Some(mut child) = self.child.lock().take() {
-      let _ignore = child.start_kill();
+      let _ignore = child.kill();
     }
   }
 
@@ -329,19 +326,19 @@ impl ProcessPluginCommunicator {
   }
 }
 
-async fn verify_plugin_schema_version<TRead: AsyncRead + Unpin, TWrite: AsyncWrite + Unpin>(
+fn verify_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
   reader: &mut MessageReader<TRead>,
   writer: &mut MessageWriter<TWrite>,
 ) -> Result<()> {
-  writer.send_u32(0).await?; // ask for schema version
-  writer.flush().await?;
-  if reader.read_u32().await? != 0 {
+  writer.send_u32(0)?; // ask for schema version
+  writer.flush()?;
+  if reader.read_u32()? != 0 {
     bail!(concat!(
       "There was a problem checking the plugin schema version. ",
       "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade."
     ));
   }
-  let plugin_schema_version = reader.read_u32().await?;
+  let plugin_schema_version = reader.read_u32()?;
   if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
     bail!(
       concat!(
@@ -356,16 +353,14 @@ async fn verify_plugin_schema_version<TRead: AsyncRead + Unpin, TWrite: AsyncWri
   Ok(())
 }
 
-async fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
+fn std_err_redirect(poisoner: Poisoner, shutdown_flag: ArcFlag, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
   use std::io::ErrorKind;
-  let mut reader = tokio::io::BufReader::new(stderr).lines();
-  loop {
-    let line = reader.next_line().await;
+  let reader = std::io::BufReader::new(stderr);
+  for line in reader.lines() {
     match line {
-      Ok(Some(line)) => on_std_err(line),
-      Ok(None) => return,
+      Ok(line) => on_std_err(line),
       Err(err) => {
-        if poisoner.is_poisoned() {
+        if poisoner.is_poisoned() || shutdown_flag.is_raised() {
           return;
         }
         if err.kind() == ErrorKind::BrokenPipe {
@@ -379,8 +374,8 @@ async fn std_err_redirect(poisoner: Poisoner, stderr: ChildStderr, on_std_err: i
   }
 }
 
-async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
-  let message = Message::read(reader).await?;
+fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
+  let message = Message::read(reader)?;
 
   match message.body {
     MessageBody::Success(message_id) => match context.messages.take(message_id) {
@@ -444,7 +439,7 @@ async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &
       // plugin with the result
       let context = context.clone();
       tokio::task::spawn(async move {
-        let result = host_format(&context, message.id, body).await;
+        let result = host_format(context.clone(), message.id, body).await;
 
         // ignore failure, as this means that the process shut down
         // at which point handling would have occurred elsewhere
@@ -496,7 +491,7 @@ async fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &
   Ok(())
 }
 
-async fn host_format(context: &Context, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
+async fn host_format(context: Context, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
   let token = Arc::new(CancellationToken::new());
   context.format_request_tokens.store(message_id, token.clone());
 

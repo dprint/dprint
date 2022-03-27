@@ -1,9 +1,9 @@
+use std::io::Read;
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::bail;
 use anyhow::Result;
-use tokio::io::AsyncRead;
-use tokio::io::AsyncWrite;
 
 use crate::plugins::FormatRange;
 
@@ -17,19 +17,19 @@ pub struct Message {
 }
 
 impl Message {
-  pub async fn read<TRead: AsyncRead + Unpin>(reader: &mut MessageReader<TRead>) -> Result<Message> {
-    let id = reader.read_u32().await?;
-    let message_kind = reader.read_u32().await?;
+  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>) -> Result<Message> {
+    let id = reader.read_u32()?;
+    let message_kind = reader.read_u32()?;
     let body = match message_kind {
-      0 => MessageBody::Success(reader.read_u32().await?),
+      0 => MessageBody::Success(reader.read_u32()?),
       1 => {
-        let message_id = reader.read_u32().await?;
-        let data = reader.read_sized_bytes().await?;
+        let message_id = reader.read_u32()?;
+        let data = reader.read_sized_bytes()?;
         MessageBody::DataResponse(ResponseBody { message_id, data })
       }
       2 => {
-        let message_id = reader.read_u32().await?;
-        let data = reader.read_sized_bytes().await?;
+        let message_id = reader.read_u32()?;
+        let data = reader.read_sized_bytes()?;
         MessageBody::Error(ResponseBody { message_id, data })
       }
       3 => MessageBody::Close,
@@ -37,25 +37,25 @@ impl Message {
       5 => MessageBody::GetPluginInfo,
       6 => MessageBody::GetLicenseText,
       7 => {
-        let config_id = reader.read_u32().await?;
-        let global_config = reader.read_sized_bytes().await?;
-        let plugin_config = reader.read_sized_bytes().await?;
+        let config_id = reader.read_u32()?;
+        let global_config = reader.read_sized_bytes()?;
+        let plugin_config = reader.read_sized_bytes()?;
         MessageBody::RegisterConfig(RegisterConfigMessageBody {
           config_id,
           global_config,
           plugin_config,
         })
       }
-      8 => MessageBody::ReleaseConfig(reader.read_u32().await?),
-      9 => MessageBody::GetConfigDiagnostics(reader.read_u32().await?),
-      10 => MessageBody::GetResolvedConfig(reader.read_u32().await?),
+      8 => MessageBody::ReleaseConfig(reader.read_u32()?),
+      9 => MessageBody::GetConfigDiagnostics(reader.read_u32()?),
+      10 => MessageBody::GetResolvedConfig(reader.read_u32()?),
       11 => {
-        let file_path = reader.read_sized_bytes().await?;
-        let start_byte_index = reader.read_u32().await?;
-        let end_byte_index = reader.read_u32().await?;
-        let config_id = reader.read_u32().await?;
-        let override_config = reader.read_sized_bytes().await?;
-        let file_text = reader.read_sized_bytes().await?;
+        let file_path = reader.read_sized_bytes()?;
+        let start_byte_index = reader.read_u32()?;
+        let end_byte_index = reader.read_u32()?;
+        let config_id = reader.read_u32()?;
+        let override_config = reader.read_sized_bytes()?;
+        let file_text = reader.read_sized_bytes()?;
         MessageBody::Format(FormatMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
           range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
@@ -72,22 +72,22 @@ impl Message {
         })
       }
       12 => {
-        let message_id = reader.read_u32().await?;
-        let response_kind = reader.read_u32().await?;
+        let message_id = reader.read_u32()?;
+        let response_kind = reader.read_u32()?;
         let data = match response_kind {
           0 => None,
-          1 => Some(reader.read_sized_bytes().await?),
+          1 => Some(reader.read_sized_bytes()?),
           _ => bail!("Unknown format response kind: {}", response_kind),
         };
         MessageBody::FormatResponse(ResponseBody { message_id, data })
       }
-      13 => MessageBody::CancelFormat(reader.read_u32().await?),
+      13 => MessageBody::CancelFormat(reader.read_u32()?),
       14 => {
-        let file_path = reader.read_sized_bytes().await?;
-        let start_byte_index = reader.read_u32().await?;
-        let end_byte_index = reader.read_u32().await?;
-        let override_config = reader.read_sized_bytes().await?;
-        let file_text = reader.read_sized_bytes().await?;
+        let file_path = reader.read_sized_bytes()?;
+        let start_byte_index = reader.read_u32()?;
+        let end_byte_index = reader.read_u32()?;
+        let override_config = reader.read_sized_bytes()?;
+        let file_text = reader.read_sized_bytes()?;
         MessageBody::HostFormat(HostFormatMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
           range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
@@ -112,98 +112,94 @@ impl Message {
         });
       }
     };
-    reader.read_success_bytes().await?;
+    reader.read_success_bytes()?;
     Ok(Message { id, body })
   }
 
-  pub async fn write<TWrite: AsyncWrite + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
-    writer.send_u32(self.id).await?;
+  pub fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
+    writer.send_u32(self.id)?;
     match &self.body {
       MessageBody::Success(message_id) => {
-        writer.send_u32(0).await?;
-        writer.send_u32(*message_id).await?;
+        writer.send_u32(0)?;
+        writer.send_u32(*message_id)?;
       }
       MessageBody::DataResponse(response) => {
-        writer.send_u32(1).await?;
-        writer.send_u32(response.message_id).await?;
-        writer.send_sized_bytes(&response.data).await?;
+        writer.send_u32(1)?;
+        writer.send_u32(response.message_id)?;
+        writer.send_sized_bytes(&response.data)?;
       }
       MessageBody::Error(response) => {
-        writer.send_u32(2).await?;
-        writer.send_u32(response.message_id).await?;
-        writer.send_sized_bytes(&response.data).await?;
+        writer.send_u32(2)?;
+        writer.send_u32(response.message_id)?;
+        writer.send_sized_bytes(&response.data)?;
       }
       MessageBody::Close => {
-        writer.send_u32(3).await?;
+        writer.send_u32(3)?;
       }
       MessageBody::IsAlive => {
-        writer.send_u32(4).await?;
+        writer.send_u32(4)?;
       }
       MessageBody::GetPluginInfo => {
-        writer.send_u32(5).await?;
+        writer.send_u32(5)?;
       }
       MessageBody::GetLicenseText => {
-        writer.send_u32(6).await?;
+        writer.send_u32(6)?;
       }
       MessageBody::RegisterConfig(body) => {
-        writer.send_u32(7).await?;
-        writer.send_u32(body.config_id).await?;
-        writer.send_sized_bytes(&body.global_config).await?;
-        writer.send_sized_bytes(&body.plugin_config).await?;
+        writer.send_u32(7)?;
+        writer.send_u32(body.config_id)?;
+        writer.send_sized_bytes(&body.global_config)?;
+        writer.send_sized_bytes(&body.plugin_config)?;
       }
       MessageBody::ReleaseConfig(config_id) => {
-        writer.send_u32(8).await?;
-        writer.send_u32(*config_id).await?;
+        writer.send_u32(8)?;
+        writer.send_u32(*config_id)?;
       }
       MessageBody::GetConfigDiagnostics(config_id) => {
-        writer.send_u32(9).await?;
-        writer.send_u32(*config_id).await?;
+        writer.send_u32(9)?;
+        writer.send_u32(*config_id)?;
       }
       MessageBody::GetResolvedConfig(config_id) => {
-        writer.send_u32(10).await?;
-        writer.send_u32(*config_id).await?;
+        writer.send_u32(10)?;
+        writer.send_u32(*config_id)?;
       }
       MessageBody::Format(body) => {
-        writer.send_u32(11).await?;
-        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes()).await?;
-        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
-        writer
-          .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)
-          .await?;
-        writer.send_u32(body.config_id).await?;
-        writer.send_sized_bytes(&body.override_config).await?;
-        writer.send_sized_bytes(&body.file_text).await?;
+        writer.send_u32(11)?;
+        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes())?;
+        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
+        writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)?;
+        writer.send_u32(body.config_id)?;
+        writer.send_sized_bytes(&body.override_config)?;
+        writer.send_sized_bytes(&body.file_text)?;
       }
       MessageBody::FormatResponse(response) => {
-        writer.send_u32(12).await?;
-        writer.send_u32(response.message_id).await?;
+        writer.send_u32(12)?;
+        writer.send_u32(response.message_id)?;
         match &response.data {
           None => {
-            writer.send_u32(0).await?;
+            writer.send_u32(0)?;
           }
           Some(data) => {
-            writer.send_u32(1).await?;
-            writer.send_sized_bytes(data).await?;
+            writer.send_u32(1)?;
+            writer.send_sized_bytes(data)?;
           }
         }
       }
       MessageBody::CancelFormat(message_id) => {
-        writer.send_u32(13).await?;
-        writer.send_u32(*message_id).await?;
+        writer.send_u32(13)?;
+        writer.send_u32(*message_id)?;
       }
       MessageBody::HostFormat(body) => {
-        writer.send_u32(14).await?;
-        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes()).await?;
-        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32).await?;
-        writer
-          .send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)
-          .await?;
-        writer.send_sized_bytes(&body.override_config).await?;
-        writer.send_sized_bytes(&body.file_text).await?;
+        writer.send_u32(14)?;
+        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes())?;
+        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
+        writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)?;
+        writer.send_sized_bytes(&body.override_config)?;
+        writer.send_sized_bytes(&body.file_text)?;
       }
       MessageBody::Unknown(_) => unreachable!(), // should never be written
     }
-    writer.send_success_bytes().await?;
+    writer.send_success_bytes()?;
     Ok(())
   }
 }

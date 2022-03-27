@@ -155,7 +155,20 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
           .await
       });
 
-      match runtime_handle.block_on(handle).unwrap() {
+      let result = match runtime_handle.block_on(handle) {
+        Ok(result) => result,
+        Err(join_err) => {
+          if join_err.is_cancelled() {
+            return 0; // no change
+          } else {
+            let mut cell = env.cell.lock();
+            cell.error_text_store = join_err.to_string();
+            return 2; // error
+          }
+        }
+      };
+
+      match result {
         Ok(Some(formatted_text)) => {
           let mut cell = env.cell.lock();
           cell.formatted_text_store = formatted_text;

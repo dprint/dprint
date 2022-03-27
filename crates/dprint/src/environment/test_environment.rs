@@ -219,8 +219,9 @@ impl TestEnvironment {
     *self.runtime_handle.lock() = Some(handle);
   }
 
+  /// Remember to drop the plugins collection manually if using this with one.
   pub fn run_in_runtime<T>(&self, future: impl Future<Output = T>) -> T {
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
     self.set_runtime_handle(rt.handle().clone());
     rt.block_on(future)
   }

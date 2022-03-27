@@ -1,29 +1,30 @@
+use std::io::Write;
+use std::sync::Arc;
+
 use anyhow::Result;
-use tokio::io::AsyncWrite;
-use tokio::sync::mpsc;
 
 use super::communication::MessageWriter;
 use super::messages::Message;
 
 #[derive(Clone)]
 pub struct StdoutMessageWriter {
-  tx: mpsc::UnboundedSender<Message>,
+  tx: Arc<crossbeam_channel::Sender<Message>>,
 }
 
 impl StdoutMessageWriter {
-  pub fn new<TWrite: AsyncWrite + Unpin + Send + 'static>(mut writer: MessageWriter<TWrite>) -> Self {
-    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+  pub fn new<TWrite: Write + Unpin + Send + 'static>(mut writer: MessageWriter<TWrite>) -> Self {
+    let (tx, rx) = crossbeam_channel::unbounded::<Message>();
 
-    // use a dedicated task for writing messages
-    tokio::task::spawn({
-      async move {
-        while let Some(result) = rx.recv().await {
-          result.write(&mut writer).await.unwrap();
+    // use a dedicated thread for writing messages
+    tokio::task::spawn_blocking({
+      move || {
+        while let Ok(result) = rx.recv() {
+          result.write(&mut writer).unwrap();
         }
       }
     });
 
-    Self { tx }
+    Self { tx: Arc::new(tx) }
   }
 
   pub fn send(&self, message: Message) -> Result<()> {

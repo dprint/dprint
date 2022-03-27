@@ -361,7 +361,7 @@ mod test {
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
     assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted_process");
   }
 
