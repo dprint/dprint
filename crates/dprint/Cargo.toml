@@ -15,7 +15,7 @@ clap = "2.33.3"
 crossterm = "0.22.1"
 dirs = "4.0.0"
 dprint-cli-core = { path = "../cli-core", version = "0.12.0" }
-dprint-core = { path = "../core", version = "0.53.0", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.53.1", features = ["process", "wasm"] }
 dunce = "1.0.2"
 futures = "0.3.21"
 ignore = "0.4.18"
@@ -25,7 +25,7 @@ parking_lot = "0.11.2"
 serde = { version = "1.0.130", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 similar = { version = "2.1.0", features = ["inline"] }
-tokio = { version = "1", features = ["rt", "sync", "time", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.0" }
 twox-hash = "1.6.2"
 url = "2.2.2"
