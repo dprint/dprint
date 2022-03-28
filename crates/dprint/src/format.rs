@@ -3,6 +3,7 @@ use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
+use parking_lot::Mutex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -77,7 +78,7 @@ where
     });
   }
 
-  let semaphores = Arc::new(tokio::sync::Mutex::new(semaphores));
+  let semaphores = Arc::new(Mutex::new(semaphores));
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
     tokio::task::spawn({
       let error_logger = error_logger.clone();
@@ -86,6 +87,7 @@ where
       let f = f.clone();
       let semaphores = semaphores.clone();
       async move {
+        let _semaphore_permits = SemaphorePermitReleaser { index, semaphores };
         // resolve the plugins
         let mut plugins = Vec::with_capacity(task_work.plugins.len());
         for plugin_wrapper in task_work.plugins {
@@ -149,24 +151,6 @@ where
           }));
         }
         futures::future::join_all(format_handles).await;
-
-        // release the permits to other semaphores so other tasks start doing more work
-        let mut semaphores = semaphores.lock().await;
-        semaphores[index].finished = true;
-        let permits = semaphores[index].permits;
-        let mut remaining_semaphores = semaphores.iter_mut().filter(|s| !s.finished).collect::<Vec<_>>();
-        // favour giving permits to tasks with less permits... this should more ideally
-        // give permits to batches that look like they will take the longest to complete
-        remaining_semaphores.sort_by_key(|s| s.permits);
-        let remaining_len = remaining_semaphores.len();
-        for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
-          let additional_permit = i < permits % remaining_len;
-          let new_permits = permits / remaining_len + if additional_permit { 1 } else { 0 };
-          if new_permits > 0 {
-            semaphore.permits += new_permits;
-            semaphore.semaphore.add_permits(new_permits);
-          }
-        }
       }
     })
   });
@@ -239,5 +223,34 @@ where
     f(&file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, &environment)?;
 
     Ok(())
+  }
+}
+
+/// Ensures all semaphores are released on drop
+/// so that other threads can do more work.
+struct SemaphorePermitReleaser {
+  index: usize,
+  semaphores: Arc<Mutex<Vec<StoredSemaphore>>>,
+}
+
+impl Drop for SemaphorePermitReleaser {
+  fn drop(&mut self) {
+    // release the permits to other semaphores so other tasks start doing more work
+    let mut semaphores = self.semaphores.lock();
+    semaphores[self.index].finished = true;
+    let permits = semaphores[self.index].permits;
+    let mut remaining_semaphores = semaphores.iter_mut().filter(|s| !s.finished).collect::<Vec<_>>();
+    // favour giving permits to tasks with less permits... this should more ideally
+    // give permits to batches that look like they will take the longest to complete
+    remaining_semaphores.sort_by_key(|s| s.permits);
+    let remaining_len = remaining_semaphores.len();
+    for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
+      let additional_permit = i < permits % remaining_len;
+      let new_permits = permits / remaining_len + if additional_permit { 1 } else { 0 };
+      if new_permits > 0 {
+        semaphore.permits += new_permits;
+        semaphore.semaphore.add_permits(new_permits);
+      }
+    }
   }
 }
