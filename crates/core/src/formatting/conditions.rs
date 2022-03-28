@@ -47,7 +47,7 @@ pub fn space_if_not_start_of_line(space_char: Option<PrintItems>) -> Condition {
 
   if_true(
     "spaceIfNotStartOfLine",
-    move |context| Some(context.writer_info.column_number > context.writer_info.line_start_column_number),
+    move |context| Some(!context.writer_info.is_start_of_line()),
     space_char,
   )
 }
