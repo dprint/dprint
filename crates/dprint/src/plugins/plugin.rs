@@ -37,6 +37,9 @@ pub trait Plugin: Send + Sync {
   /// Gets the configuration for the plugin.
   fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration);
 
+  /// Gets if this is a process plugin.
+  fn is_process_plugin(&self) -> bool;
+
   /// Gets a hash that represents the current state of the plugin.
   /// This is used for the "incremental" feature to tell if a plugin has changed state.
   fn get_hash(&self) -> u64 {
@@ -75,6 +78,8 @@ pub trait InitializedPlugin: Send + Sync {
   fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>>;
   /// Formats the text in memory based on the file path and file text.
   fn format_text(&self, format_request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult>;
+  /// Shuts down the plugin. This is used for process plugins.
+  fn shutdown(&self) -> BoxFuture<'static, ()>;
 }
 
 #[cfg(test)]
@@ -149,6 +154,10 @@ impl Plugin for TestPlugin {
     &self.config
   }
 
+  fn is_process_plugin(&self) -> bool {
+    false
+  }
+
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     use futures::FutureExt;
     let test_plugin = Arc::new(self.initialized_test_plugin.clone().unwrap());
@@ -191,5 +200,9 @@ impl InitializedPlugin for InitializedTestPlugin {
   fn format_text(&self, format_request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
     use futures::FutureExt;
     async move { Ok(Some(format!("{}_formatted", format_request.file_text))) }.boxed()
+  }
+
+  fn shutdown(&self) -> BoxFuture<'static, ()> {
+    Box::pin(futures::future::ready(()))
   }
 }

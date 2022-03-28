@@ -93,6 +93,10 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     self.config.as_ref().expect("Call set_config first.")
   }
 
+  fn is_process_plugin(&self) -> bool {
+    false
+  }
+
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     let store = wasmer::Store::default();
     // need to call set_config first to ensure this doesn't fail
@@ -398,7 +402,6 @@ impl InitializedPlugin for InitializedWasmPlugin {
   fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
     let plugin = self.clone();
     async move {
-      let token = request.token;
       let file_path = request.file_path;
       let file_text = request.file_text;
       let override_config = request.override_config;
@@ -407,17 +410,17 @@ impl InitializedPlugin for InitializedWasmPlugin {
       if request.range.is_some() {
         return Ok(None);
       }
-      let format_future =
-        tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config)));
-      tokio::select! {
-        _ = token.wait_cancellation() => {
-          Ok(None)
-        }
-        result = format_future => {
-          result?
-        }
+      if request.token.is_cancelled() {
+        return Ok(None);
       }
+
+      // todo: support cancellation in Wasm plugins
+      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config))).await?
     }
     .boxed()
+  }
+
+  fn shutdown(&self) -> BoxFuture<'static, ()> {
+    Box::pin(futures::future::ready(()))
   }
 }

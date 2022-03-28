@@ -11,7 +11,6 @@ use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
-use crate::plugins::PluginsDropper;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
@@ -59,7 +58,6 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   let cache = Arc::new(Cache::new(environment.clone()));
   let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
   let plugin_pools = Arc::new(PluginsCollection::new(environment.clone()));
-  let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
   let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
   let args = parse_args(args, stdin_reader)?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
@@ -67,7 +65,11 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
 
   environment.run_in_runtime({
     let environment = environment.clone();
-    async move { run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools).await }
+    async move {
+      let result = run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools.clone()).await;
+      plugin_pools.drop_and_shutdown_initialized().await;
+      result
+    }
   })
 }
 

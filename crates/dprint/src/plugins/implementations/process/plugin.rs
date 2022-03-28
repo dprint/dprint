@@ -107,6 +107,10 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     self.config.as_ref().expect("Call set_config first.")
   }
 
+  fn is_process_plugin(&self) -> bool {
+    true
+  }
+
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     let config = self.config.as_ref().expect("Call set_config first.");
     let plugin_name = self.plugin_info.name.clone();
@@ -158,5 +162,10 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
   fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
     let communicator = self.communicator.clone();
     async move { communicator.format_text(request).await }.boxed()
+  }
+
+  fn shutdown(&self) -> BoxFuture<'static, ()> {
+    let communicator = self.communicator.clone();
+    async move { communicator.shutdown().await }.boxed()
   }
 }

@@ -65,6 +65,7 @@ mod test {
           .await
           .unwrap();
 
+        collection.drop_and_shutdown_initialized().await;
         assert_eq!(result, None);
       }
     });

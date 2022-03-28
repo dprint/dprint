@@ -31,7 +31,7 @@ mod test_helpers;
 
 fn main() {
   setup_exit_process_panic_hook();
-  let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+  let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
   let handle = rt.handle().clone();
   rt.block_on(async move {
     match run(handle).await {
@@ -54,8 +54,9 @@ async fn run(runtime_handle: tokio::runtime::Handle) -> Result<()> {
   let cache = Arc::new(cache::Cache::new(environment.clone()));
   let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
   let plugin_pools = Arc::new(plugins::PluginsCollection::new(environment.clone()));
-  let _plugins_dropper = plugins::PluginsDropper::new(plugin_pools.clone());
   let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
 
-  run_cli::run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools).await
+  let result = run_cli::run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools.clone()).await;
+  plugin_pools.drop_and_shutdown_initialized().await;
+  result
 }

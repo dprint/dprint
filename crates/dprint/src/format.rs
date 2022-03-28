@@ -3,6 +3,7 @@ use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
+use parking_lot::Mutex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -39,15 +40,18 @@ struct StoredSemaphore {
 pub async fn run_parallelized<F, TEnvironment: Environment>(
   file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
   environment: &TEnvironment,
-  plugin_collection: Arc<PluginsCollection<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
   f: F,
 ) -> Result<()>
 where
   F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + Sync + 'static + Clone,
 {
-  let number_threads = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4);
-  log_verbose!(environment, "Thread count: {}", number_threads);
+  let number_cores = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4);
+  let number_process_plugins = plugins_collection.process_plugin_count();
+  let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
+  let number_threads = if number_cores > reduction_count { number_cores - reduction_count } else { 1 };
+  log_verbose!(environment, "Core count: {}\nThread count: {}", number_cores, number_threads);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
@@ -58,7 +62,7 @@ where
   let mut semaphores = Vec::with_capacity(collection_count);
   let mut task_works = Vec::with_capacity(collection_count);
   for (i, (plugin_names, file_paths)) in file_paths_by_plugins.into_iter().enumerate() {
-    let plugins = plugin_names.names().map(|plugin_name| plugin_collection.get_plugin(plugin_name)).collect();
+    let plugins = plugin_names.names().map(|plugin_name| plugins_collection.get_plugin(plugin_name)).collect();
     let additional_thread = i < number_threads % collection_count;
     let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
     let semaphore = Arc::new(Semaphore::new(permits));
@@ -74,7 +78,7 @@ where
     });
   }
 
-  let semaphores = Arc::new(tokio::sync::Mutex::new(semaphores));
+  let semaphores = Arc::new(Mutex::new(semaphores));
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
     tokio::task::spawn({
       let error_logger = error_logger.clone();
@@ -83,6 +87,7 @@ where
       let f = f.clone();
       let semaphores = semaphores.clone();
       async move {
+        let _semaphore_permits = SemaphorePermitReleaser { index, semaphores };
         // resolve the plugins
         let mut plugins = Vec::with_capacity(task_work.plugins.len());
         for plugin_wrapper in task_work.plugins {
@@ -102,26 +107,27 @@ where
         }
 
         let plugins = Arc::new(plugins);
-        let format_handles = task_work.file_paths.into_iter().map(|file_path| {
+        let mut format_handles = Vec::with_capacity(task_work.file_paths.len());
+        for file_path in task_work.file_paths.into_iter() {
+          let permit = match task_work.semaphore.clone().acquire_owned().await {
+            Ok(permit) => permit,
+            Err(_) => return, // semaphore was closed, so stop working
+          };
+          let semaphore = task_work.semaphore.clone();
           let environment = environment.clone();
           let incremental_file = incremental_file.clone();
           let f = f.clone();
-          let semaphore = task_work.semaphore.clone();
           let plugins = plugins.clone();
           let error_logger = error_logger.clone();
-          tokio::task::spawn(async move {
-            let _permit = match semaphore.acquire().await {
-              Ok(permit) => permit,
-              Err(_) => return, // semaphore was closed, so stop working
-            };
+          format_handles.push(tokio::task::spawn(async move {
             let long_format_token = CancellationToken::new();
             tokio::task::spawn({
-              let token = long_format_token.clone();
+              let long_format_token = long_format_token.clone();
               let environment = environment.clone();
               let file_path = file_path.clone();
               async move {
                 tokio::select! {
-                  _ = token.cancelled() => {
+                  _ = long_format_token.cancelled() => {
                     // exit
                   }
                   _ = tokio::time::sleep(Duration::from_secs(10)) => {
@@ -140,27 +146,11 @@ where
                 error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err));
               }
             }
-          })
-        });
-        futures::future::join_all(format_handles).await;
-
-        // release the permits to other semaphores so other tasks start doing more work
-        let mut semaphores = semaphores.lock().await;
-        semaphores[index].finished = true;
-        let permits = semaphores[index].permits;
-        let mut remaining_semaphores = semaphores.iter_mut().filter(|s| !s.finished).collect::<Vec<_>>();
-        // favour giving permits to tasks with less permits... this should more ideally
-        // give permits to batches that look like they will take the longest to complete
-        remaining_semaphores.sort_by_key(|s| s.permits);
-        let remaining_len = remaining_semaphores.len();
-        for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
-          let additional_permit = i < permits % remaining_len;
-          let new_permits = permits / remaining_len + if additional_permit { 1 } else { 0 };
-          if new_permits > 0 {
-            semaphore.permits += new_permits;
-            semaphore.semaphore.add_permits(new_permits);
-          }
+            // drop the semaphore permit when we're all done
+            drop(permit);
+          }));
         }
+        futures::future::join_all(format_handles).await;
       }
     })
   });
@@ -233,5 +223,34 @@ where
     f(&file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, &environment)?;
 
     Ok(())
+  }
+}
+
+/// Ensures all semaphores are released on drop
+/// so that other threads can do more work.
+struct SemaphorePermitReleaser {
+  index: usize,
+  semaphores: Arc<Mutex<Vec<StoredSemaphore>>>,
+}
+
+impl Drop for SemaphorePermitReleaser {
+  fn drop(&mut self) {
+    // release the permits to other semaphores so other tasks start doing more work
+    let mut semaphores = self.semaphores.lock();
+    semaphores[self.index].finished = true;
+    let permits = semaphores[self.index].permits;
+    let mut remaining_semaphores = semaphores.iter_mut().filter(|s| !s.finished).collect::<Vec<_>>();
+    // favour giving permits to tasks with less permits... this should more ideally
+    // give permits to batches that look like they will take the longest to complete
+    remaining_semaphores.sort_by_key(|s| s.permits);
+    let remaining_len = remaining_semaphores.len();
+    for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
+      let additional_permit = i < permits % remaining_len;
+      let new_permits = permits / remaining_len + if additional_permit { 1 } else { 0 };
+      if new_permits > 0 {
+        semaphore.permits += new_permits;
+        semaphore.semaphore.add_permits(new_permits);
+      }
+    }
   }
 }

@@ -223,7 +223,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
     if has_config_changed {
-      self.plugins_collection.drop_plugins(); // clear the existing plugins
+      self.plugins_collection.drop_and_shutdown_initialized().await; // clear the existing plugins
       let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver).await?;
       self.plugins_collection.set_plugins(plugins, &config.base_path)?;
     }
@@ -268,8 +268,10 @@ mod test {
       .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
     final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);
     assert_eq!(environment.take_stdout_messages(), vec![final_output]);
+    let mut stderr_messages = environment.take_stderr_messages();
+    stderr_messages.sort();
     assert_eq!(
-      environment.take_stderr_messages(),
+      stderr_messages,
       vec![
         "Compiling https://plugins.dprint.dev/test-plugin.wasm",
         "Extracting zip for test-process-plugin"
