@@ -131,6 +131,9 @@ function Loader() {
       selectedPluginInfo={pluginInfo}
       onSelectPluginUrl={url => {
         setPluginInfo(undefined);
+        if (!pluginUrls.includes(url)) {
+          setPluginUrls([...pluginUrls, url]);
+        }
         setPluginUrl(url);
       }}
       isLoading={isLoading}

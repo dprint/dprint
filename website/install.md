@@ -42,6 +42,13 @@ Install using one of the methods below.
       dprint help
       ```
 
+- [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):
+
+      ```bash
+      asdf plugin-add dprint https://github.com/asdf-community/asdf-dprint
+      asdf install dprint latest
+      ```
+
 - [bvm](https://github.com/bvm/bvm) (Experimental)
 
       ```bash
@@ -54,6 +61,7 @@ For binaries and source, see the [GitHub releases](https://github.com/dprint/dpr
 ## Editor Extensions
 
 - [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
+- [IntelliJ](https://plugins.jetbrains.com/plugin/18192-dprint) - Thanks to the developers at [Canva](https://canva.com)
 - More to come!
 
 Next step: [Setup](/setup)

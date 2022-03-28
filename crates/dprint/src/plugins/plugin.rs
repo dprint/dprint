@@ -1,14 +1,19 @@
-use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::FormatResult;
+use futures::future::BoxFuture;
 
 use crate::configuration::RawPluginConfig;
 
-pub trait Plugin: std::marker::Send + std::marker::Sync {
+pub trait Plugin: Send + Sync {
   /// The name of the plugin.
   fn name(&self) -> &str;
   /// The version of the plugin.
@@ -23,12 +28,17 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
   fn help_url(&self) -> &str;
   /// Gets the configuration schema url.
   fn config_schema_url(&self) -> &str;
+  /// Gets the update url if it exists.
+  fn update_url(&self) -> Option<&str>;
   /// Sets the configuration for the plugin.
   fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration);
   /// Initializes the plugin.
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>>;
+  fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>>;
   /// Gets the configuration for the plugin.
   fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration);
+
+  /// Gets if this is a process plugin.
+  fn is_process_plugin(&self) -> bool;
 
   /// Gets a hash that represents the current state of the plugin.
   /// This is used for the "incremental" feature to tell if a plugin has changed state.
@@ -51,15 +61,25 @@ pub trait Plugin: std::marker::Send + std::marker::Sync {
   }
 }
 
-pub trait InitializedPlugin: std::marker::Send {
+pub struct InitializedPluginFormatRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  pub range: FormatRange,
+  pub override_config: ConfigKeyMap,
+  pub token: Arc<dyn CancellationToken>,
+}
+
+pub trait InitializedPlugin: Send + Sync {
   /// Gets the license text
-  fn get_license_text(&self) -> Result<String>;
+  fn license_text(&self) -> BoxFuture<'static, Result<String>>;
   /// Gets the configuration as a collection of key value pairs.
-  fn get_resolved_config(&self) -> Result<String>;
+  fn resolved_config(&self) -> BoxFuture<'static, Result<String>>;
   /// Gets the configuration diagnostics.
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>>;
+  fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>>;
   /// Formats the text in memory based on the file path and file text.
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String>;
+  fn format_text(&self, format_request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult>;
+  /// Shuts down the plugin. This is used for process plugins.
+  fn shutdown(&self) -> BoxFuture<'static, ()>;
 }
 
 #[cfg(test)]
@@ -99,30 +119,53 @@ impl Plugin for TestPlugin {
   fn name(&self) -> &str {
     &self.name
   }
+
   fn version(&self) -> &str {
     "1.0.0"
   }
+
   fn help_url(&self) -> &str {
     "https://dprint.dev/plugins/test"
   }
+
   fn config_schema_url(&self) -> &str {
     "https://plugins.dprint.dev/schemas/test.json"
   }
+
+  fn update_url(&self) -> Option<&str> {
+    None
+  }
+
   fn config_key(&self) -> &str {
     &self.config_key
   }
+
   fn file_extensions(&self) -> &Vec<String> {
     &self.file_extensions
   }
+
   fn file_names(&self) -> &Vec<String> {
     &self.file_names
   }
+
   fn set_config(&mut self, _: RawPluginConfig, _: GlobalConfiguration) {}
+
   fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
     &self.config
   }
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>> {
-    Ok(Box::new(self.initialized_test_plugin.clone().unwrap()))
+
+  fn is_process_plugin(&self) -> bool {
+    false
+  }
+
+  fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+    use futures::FutureExt;
+    let test_plugin = Arc::new(self.initialized_test_plugin.clone().unwrap());
+    async move {
+      let result: Arc<dyn InitializedPlugin> = test_plugin;
+      Ok(result)
+    }
+    .boxed()
   }
 }
 
@@ -139,16 +182,27 @@ impl InitializedTestPlugin {
 
 #[cfg(test)]
 impl InitializedPlugin for InitializedTestPlugin {
-  fn get_license_text(&self) -> Result<String> {
-    Ok(String::from("License Text"))
+  fn license_text(&self) -> BoxFuture<'static, Result<String>> {
+    use futures::FutureExt;
+    async move { Ok(String::from("License Text")) }.boxed()
   }
-  fn get_resolved_config(&self) -> Result<String> {
-    Ok(String::from("{}"))
+
+  fn resolved_config(&self) -> BoxFuture<'static, Result<String>> {
+    use futures::FutureExt;
+    async move { Ok(String::from("{}")) }.boxed()
   }
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
-    Ok(vec![])
+
+  fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+    use futures::FutureExt;
+    async move { Ok(vec![]) }.boxed()
   }
-  fn format_text(&mut self, _: &Path, text: &str, _: &ConfigKeyMap) -> Result<String> {
-    Ok(format!("{}_formatted", text))
+
+  fn format_text(&self, format_request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
+    use futures::FutureExt;
+    async move { Ok(Some(format!("{}_formatted", format_request.file_text))) }.boxed()
+  }
+
+  fn shutdown(&self) -> BoxFuture<'static, ()> {
+    Box::pin(futures::future::ready(()))
   }
 }

@@ -3,7 +3,6 @@ use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveGlobalConfigOptions;
-use std::collections::HashMap;
 
 use super::ConfigMap;
 use super::ConfigMapValue;
@@ -47,7 +46,7 @@ fn get_global_config_inner(config_map: ConfigMap, environment: &impl Environment
 
   fn get_global_config_from_config_map(config_map: ConfigMap, options: &GetGlobalConfigOptions) -> Result<ConfigKeyMap> {
     // at this point, there should only be key values inside the hash map
-    let mut global_config = HashMap::new();
+    let mut global_config = ConfigKeyMap::new();
 
     for (key, value) in config_map.into_iter() {
       if key == "$schema" {
@@ -70,11 +69,10 @@ mod tests {
   use super::*;
   use crate::configuration::ConfigMap;
   use crate::environment::TestEnvironment;
-  use std::collections::HashMap;
 
   #[test]
   fn should_get_global_config() {
-    let mut config_map = HashMap::new();
+    let mut config_map = ConfigMap::new();
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
     assert_gets(
       config_map,
@@ -89,7 +87,7 @@ mod tests {
 
   #[test]
   fn should_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_true() {
-    let mut config_map = HashMap::new();
+    let mut config_map = ConfigMap::new();
     config_map.insert(String::from("test"), ConfigMapValue::PluginConfig(Default::default()));
     assert_errors_with_options(
       config_map,
@@ -103,7 +101,7 @@ mod tests {
 
   #[test]
   fn should_not_error_on_unexpected_object_properties_when_check_unknown_property_diagnostics_false() {
-    let mut config_map = HashMap::new();
+    let mut config_map = ConfigMap::new();
     config_map.insert(String::from("test"), ConfigMapValue::PluginConfig(Default::default()));
     assert_gets_with_options(
       config_map,
@@ -121,7 +119,7 @@ mod tests {
 
   #[test]
   fn should_log_config_file_diagnostics() {
-    let mut config_map = HashMap::new();
+    let mut config_map = ConfigMap::new();
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_str("test"));
     config_map.insert(String::from("unknownProperty"), ConfigMapValue::from_i32(80));
     assert_errors(
@@ -136,7 +134,7 @@ mod tests {
 
   #[test]
   fn should_ignore_schema_property() {
-    let mut config_map = HashMap::new();
+    let mut config_map = ConfigMap::new();
     config_map.insert(String::from("$schema"), ConfigMapValue::from_str("test"));
     assert_gets(
       config_map,

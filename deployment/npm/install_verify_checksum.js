@@ -25,10 +25,14 @@ if (actualZipChecksum !== expectedZipChecksum) {
 function getExpectedZipChecksum() {
   switch (os.platform()) {
     case "win32":
-      return info.checksums.windows;
+      return info.checksums["windows-x86_64"];
     case "darwin":
-      return info.checksums.mac;
+      if (os.arch() === "arm64") {
+        return info.checksums["darwin-aarch64"];
+      } else {
+        return info.checksums["darwin-x86_64"];
+      }
     default:
-      return info.checksums.linux;
+      return info.checksums["linux-x86_64"];
   }
 }

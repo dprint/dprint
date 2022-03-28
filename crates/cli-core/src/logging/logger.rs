@@ -28,12 +28,19 @@ struct LoggerRefreshItem {
 }
 
 #[derive(Clone)]
+pub struct LoggerOptions {
+  pub initial_context_name: String,
+  /// Whether stdout will be read by a program.
+  pub is_stdout_machine_readable: bool,
+}
+
+#[derive(Clone)]
 pub struct Logger {
   output_lock: Arc<Mutex<LoggerState>>,
+  is_stdout_machine_readable: bool,
 }
 
 struct LoggerState {
-  is_silent: bool,
   last_context_name: String,
   std_out: Stdout,
   std_err: Stderr,
@@ -42,30 +49,31 @@ struct LoggerState {
 }
 
 impl Logger {
-  pub fn new(initial_context_name: &str, is_silent: bool) -> Self {
+  pub fn new(options: &LoggerOptions) -> Self {
     Logger {
       output_lock: Arc::new(Mutex::new(LoggerState {
-        is_silent,
-        last_context_name: initial_context_name.to_string(),
+        last_context_name: options.initial_context_name.clone(),
         std_out: stdout(),
         std_err: stderr(),
         refresh_items: Vec::new(),
         last_terminal_size: None,
       })),
+      is_stdout_machine_readable: options.is_stdout_machine_readable,
     }
   }
 
   pub fn log(&self, text: &str, context_name: &str) {
-    let mut state = self.output_lock.lock();
-    if state.is_silent {
+    if self.is_stdout_machine_readable {
       return;
     }
+    let mut state = self.output_lock.lock();
     self.inner_log(&mut state, true, text, context_name);
   }
 
-  pub fn log_bypass_silent(&self, text: &str, context_name: &str) {
+  pub fn log_machine_readable(&self, text: &str) {
     let mut state = self.output_lock.lock();
-    self.inner_log(&mut state, true, text, context_name);
+    let last_context_name = state.last_context_name.clone(); // not really used here
+    self.inner_log(&mut state, true, text, &last_context_name);
   }
 
   pub fn log_err(&self, text: &str, context_name: &str) {
@@ -85,7 +93,10 @@ impl Logger {
 
     let mut output_text = String::new();
     if state.last_context_name != context_name {
-      output_text.push_str(&format!("[{}]\n", context_name));
+      // don't output this if stdout is machine readable
+      if !is_std_out || !self.is_stdout_machine_readable {
+        output_text.push_str(&format!("[{}]\n", context_name));
+      }
       state.last_context_name = context_name.to_string();
     }
 
@@ -162,7 +173,7 @@ impl Logger {
 
   fn inner_queue_clear_previous_draws(&self, state: &mut LoggerState) {
     let terminal_width = crate::terminal::get_terminal_width().unwrap();
-    let text_items = state.refresh_items.iter().map(|item| item.text_items.iter()).flatten();
+    let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
     let rendered_text = render_text_items_truncated_to_height(text_items, state.last_terminal_size);
     let last_line_count = get_text_line_count(&rendered_text, terminal_width);
 
@@ -179,7 +190,7 @@ impl Logger {
 
   fn inner_queue_draw_items(&self, state: &mut LoggerState) {
     let terminal_size = crate::terminal::get_terminal_size();
-    let text_items = state.refresh_items.iter().map(|item| item.text_items.iter()).flatten();
+    let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
     let rendered_text = render_text_items_truncated_to_height(text_items, terminal_size);
     state.std_err.queue(style::Print(&rendered_text)).unwrap();
     state.std_err.queue(cursor::MoveToColumn(0)).unwrap();

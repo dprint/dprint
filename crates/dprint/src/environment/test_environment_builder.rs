@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use super::Environment;
 use super::TestEnvironment;
+use super::UrlDownloader;
 use crate::test_helpers;
 
 pub struct TestConfigFileBuilder {
@@ -79,7 +80,10 @@ impl TestConfigFileBuilder {
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
     // get the process plugin file and check its checksum
-    let remote_file_text = self.environment.download_file("https://plugins.dprint.dev/test-process.exe-plugin").unwrap();
+    let remote_file_text = self
+      .environment
+      .download_file_err_404("https://plugins.dprint.dev/test-process.exe-plugin")
+      .unwrap();
     let checksum = dprint_cli_core::checksums::get_sha256_checksum(&remote_file_text);
     self.add_remote_process_plugin_with_checksum(&checksum)
   }

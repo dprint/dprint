@@ -17,7 +17,7 @@ pub fn output_version<TEnvironment: Environment>(environment: &TEnvironment) -> 
   Ok(())
 }
 
-pub fn output_help<TEnvironment: Environment>(
+pub async fn output_help<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
@@ -28,7 +28,7 @@ pub fn output_help<TEnvironment: Environment>(
   environment.log(help_text);
 
   // now check for the plugins
-  let plugins_result = get_plugins_from_args(args, cache, environment, plugin_resolver);
+  let plugins_result = get_plugins_from_args(args, cache, environment, plugin_resolver).await;
   match plugins_result {
     Ok(plugins) => {
       if !plugins.is_empty() {
@@ -50,7 +50,7 @@ pub fn output_help<TEnvironment: Environment>(
   Ok(())
 }
 
-pub fn output_license<TEnvironment: Environment>(
+pub async fn output_license<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
@@ -60,10 +60,10 @@ pub fn output_license<TEnvironment: Environment>(
   environment.log(std::str::from_utf8(include_bytes!("../../LICENSE"))?);
 
   // now check for the plugins
-  for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver)? {
+  for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
     environment.log(&format!("\n==== {} LICENSE ====", plugin.name().to_uppercase()));
-    let initialized_plugin = plugin.initialize()?;
-    environment.log(&initialized_plugin.get_license_text()?);
+    let initialized_plugin = plugin.initialize().await?;
+    environment.log(&initialized_plugin.license_text().await?);
   }
 
   Ok(())
@@ -76,15 +76,15 @@ pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   Ok(())
 }
 
-pub fn output_file_paths<TEnvironment: Environment>(
+pub async fn output_file_paths<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let resolved_file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins(&plugins, resolved_file_paths, &config.base_path)?;
 
   let file_paths = file_paths_by_plugin.values().flat_map(|x| x.iter());
@@ -270,7 +270,7 @@ mod test {
         "\n==== TEST-PLUGIN LICENSE ====",
         r#"The MIT License (MIT)
 
-Copyright (c) 2020 David Sherret
+Copyright (c) 2020-2022 David Sherret
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

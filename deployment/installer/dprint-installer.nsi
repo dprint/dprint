@@ -1,5 +1,5 @@
 # dprint installer script
-# Copyright 2020-2021 David Sherret. All rights reserved. MIT license.
+# Copyright 2020-2022 David Sherret. All rights reserved. MIT license.
 
 Name "dprint"
 

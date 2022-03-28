@@ -1,4 +1,4 @@
-# Copyright 2020-2021 David Sherret. All rights reserved. MIT license.
+# Copyright 2020-2022 David Sherret. All rights reserved. MIT license.
 name: Website
 on:
   push:
@@ -22,25 +22,16 @@ jobs:
             ${{ runner.os }}-node-
 
       - name: Install playground dependencies
-        run: |
-          cd website/playground
-          npm ci
-          cd ../../
+        run: (cd website/playground && npm ci)
 
       - name: Install script dependencies
-        run: |
-          cd scripts
-          npm ci
-          cd ../
+        run: (cd scripts && npm ci)
 
       - name: Build playground
         run: npm run build --prefix website/playground
 
       - name: Build website
-        run: |
-          cd scripts
-          npm run build-website
-          cd ../
+        run: (cd scripts && npm run build-website)
 
       - name: Deploy
         if: github.ref == 'refs/heads/main'

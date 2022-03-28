@@ -1,4 +1,7 @@
 use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::plugins::Host;
+use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,9 +13,8 @@ use wasmer::Memory;
 use wasmer::Store;
 use wasmer::WasmerEnv;
 
-use super::super::format_with_plugin_pool;
 use crate::environment::Environment;
-use crate::plugins::pool::PluginPools;
+use crate::plugins::collection::PluginsCollection;
 
 /// Use this when the plugins don't need to format via a plugin pool.
 pub fn create_identity_import_object(store: &Store) -> wasmer::ImportObject {
@@ -26,33 +28,33 @@ pub fn create_identity_import_object(store: &Store) -> wasmer::ImportObject {
   let host_get_error_text = || -> u32 { 0 }; // zero length
 
   wasmer::imports! {
-      "dprint" => {
-          "host_clear_bytes" => Function::new_native(store, host_clear_bytes),
-          "host_read_buffer" => Function::new_native(store, host_read_buffer),
-          "host_write_buffer" => Function::new_native(store, host_write_buffer),
-          "host_take_override_config" => Function::new_native(store, host_take_override_config),
-          "host_take_file_path" => Function::new_native(store, host_take_file_path),
-          "host_format" => Function::new_native(store, host_format),
-          "host_get_formatted_text" => Function::new_native(store, host_get_formatted_text),
-          "host_get_error_text" => Function::new_native(store, host_get_error_text),
-      }
+    "dprint" => {
+      "host_clear_bytes" => Function::new_native(store, host_clear_bytes),
+      "host_read_buffer" => Function::new_native(store, host_read_buffer),
+      "host_write_buffer" => Function::new_native(store, host_write_buffer),
+      "host_take_override_config" => Function::new_native(store, host_take_override_config),
+      "host_take_file_path" => Function::new_native(store, host_take_file_path),
+      "host_format" => Function::new_native(store, host_format),
+      "host_get_formatted_text" => Function::new_native(store, host_get_formatted_text),
+      "host_get_error_text" => Function::new_native(store, host_get_error_text),
+    }
   }
 }
 
-pub struct ImportObjectEnvironmentCellItems {
+pub struct ImportObjectEnvironmentCellItems<TEnvironment: Environment> {
   override_config: Option<ConfigKeyMap>,
   file_path: Option<PathBuf>,
   shared_bytes: Vec<u8>,
   formatted_text_store: String,
   error_text_store: String,
+  environment: TEnvironment,
 }
 
 #[derive(Clone)]
 pub struct ImportObjectEnvironment<TEnvironment: Environment> {
-  parent_plugin_name: String,
   memory: LazyInit<Memory>,
-  pools: Arc<PluginPools<TEnvironment>>,
-  cell: Arc<Mutex<ImportObjectEnvironmentCellItems>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
+  cell: Arc<Mutex<ImportObjectEnvironmentCellItems<TEnvironment>>>,
 }
 
 impl<TEnvironment: Environment> WasmerEnv for ImportObjectEnvironment<TEnvironment> {
@@ -64,10 +66,9 @@ impl<TEnvironment: Environment> WasmerEnv for ImportObjectEnvironment<TEnvironme
 }
 
 impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
-  pub fn new(plugin_name: &str, pools: Arc<PluginPools<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, plugins_collection: Arc<PluginsCollection<TEnvironment>>) -> Self {
     ImportObjectEnvironment {
-      parent_plugin_name: plugin_name.to_string(),
-      pools,
+      plugins_collection,
       memory: LazyInit::new(),
       cell: Arc::new(Mutex::new(ImportObjectEnvironmentCellItems {
         override_config: None,
@@ -75,6 +76,7 @@ impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
         shared_bytes: Vec::new(),
         formatted_text_store: String::new(),
         error_text_store: String::new(),
+        environment,
       })),
     }
   }
@@ -130,16 +132,43 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
   };
   let host_format = {
     |env: &ImportObjectEnvironment<TEnvironment>| {
-      let (override_config, file_path, file_text) = {
+      let (override_config, file_path, file_text, runtime_handle) = {
         let mut cell = env.cell.lock();
         let override_config = cell.override_config.take().unwrap_or_default();
         let file_path = cell.file_path.take().expect("Expected to have file path.");
         let bytes = std::mem::take(&mut cell.shared_bytes);
         let file_text = String::from_utf8(bytes).unwrap();
-        (override_config, file_path, file_text)
+        (override_config, file_path, file_text, cell.environment.runtime_handle())
       };
 
-      match format_with_plugin_pool(&env.parent_plugin_name, &file_path, &file_text, &override_config, &env.pools) {
+      let plugins_collection = env.plugins_collection.clone();
+      let handle = tokio::task::spawn(async move {
+        plugins_collection
+          .format(HostFormatRequest {
+            file_path,
+            file_text,
+            range: None,
+            override_config,
+            // Wasm plugins currently don't support cancellation
+            token: Arc::new(NullCancellationToken),
+          })
+          .await
+      });
+
+      let result = match runtime_handle.block_on(handle) {
+        Ok(result) => result,
+        Err(join_err) => {
+          if join_err.is_cancelled() {
+            return 0; // no change
+          } else {
+            let mut cell = env.cell.lock();
+            cell.error_text_store = join_err.to_string();
+            return 2; // error
+          }
+        }
+      };
+
+      match result {
         Ok(Some(formatted_text)) => {
           let mut cell = env.cell.lock();
           cell.formatted_text_store = formatted_text;
@@ -148,6 +177,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
         Ok(None) => {
           0 // no change
         }
+        // ignore critical error as we can just continue formatting
         Err(err) => {
           let mut cell = env.cell.lock();
           cell.error_text_store = err.to_string();
@@ -177,15 +207,15 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
   };
 
   wasmer::imports! {
-      "dprint" => {
-          "host_clear_bytes" => Function::new_native_with_env(store, import_object_env.clone(), host_clear_bytes),
-          "host_read_buffer" => Function::new_native_with_env(store, import_object_env.clone(), host_read_buffer),
-          "host_write_buffer" => Function::new_native_with_env(store, import_object_env.clone(), host_write_buffer),
-          "host_take_override_config" => Function::new_native_with_env(store, import_object_env.clone(), host_take_override_config),
-          "host_take_file_path" => Function::new_native_with_env(store, import_object_env.clone(), host_take_file_path),
-          "host_format" => Function::new_native_with_env(store, import_object_env.clone(), host_format),
-          "host_get_formatted_text" => Function::new_native_with_env(store, import_object_env.clone(), host_get_formatted_text),
-          "host_get_error_text" => Function::new_native_with_env(store, import_object_env.clone(), host_get_error_text),
-      }
+    "dprint" => {
+      "host_clear_bytes" => Function::new_native_with_env(store, import_object_env.clone(), host_clear_bytes),
+      "host_read_buffer" => Function::new_native_with_env(store, import_object_env.clone(), host_read_buffer),
+      "host_write_buffer" => Function::new_native_with_env(store, import_object_env.clone(), host_write_buffer),
+      "host_take_override_config" => Function::new_native_with_env(store, import_object_env.clone(), host_take_override_config),
+      "host_take_file_path" => Function::new_native_with_env(store, import_object_env.clone(), host_take_file_path),
+      "host_format" => Function::new_native_with_env(store, import_object_env.clone(), host_format),
+      "host_get_formatted_text" => Function::new_native_with_env(store, import_object_env.clone(), host_get_formatted_text),
+      "host_get_error_text" => Function::new_native_with_env(store, import_object_env.clone(), host_get_error_text),
+    }
   }
 }

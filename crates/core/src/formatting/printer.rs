@@ -173,14 +173,9 @@ impl<'a> Printer<'a> {
     }
   }
 
+  #[inline]
   pub fn get_writer_info(&self) -> WriterInfo {
-    WriterInfo {
-      line_start_indent_level: self.writer.get_line_start_indent_level(),
-      line_start_column_number: self.writer.get_line_start_column_number(),
-      line_number: self.writer.get_line_number(),
-      column_number: self.writer.get_line_column(),
-      indent_level: self.writer.get_indentation_level(),
-    }
+    self.writer.get_writer_info()
   }
 
   pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
@@ -413,7 +408,7 @@ impl<'a> Printer<'a> {
       for (condition, save_point) in conditions_for_info.values() {
         let condition_id = condition.get_unique_id();
 
-        if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).map(|x| x.to_owned()).flatten() {
+        if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
           self.resolving_save_point.replace(save_point);
           let mut context = ConditionResolverContext::new(self, save_point.writer_state.get_writer_info(self.writer.get_indent_width()));
           let condition_value = condition.resolve(&mut context);

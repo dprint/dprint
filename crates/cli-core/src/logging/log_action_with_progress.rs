@@ -1,10 +1,7 @@
 use super::ProgressBarStyle;
 use super::ProgressBars;
 
-pub fn log_action_with_progress<
-  TResult: std::marker::Send + std::marker::Sync,
-  TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
->(
+pub fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
   progress_bars: &Option<ProgressBars>,
   message: &str,
   action: TCreate,

@@ -122,7 +122,7 @@ pub fn if_above_width_or(width: u8, true_items: PrintItems, false_items: PrintIt
     ConditionProperties {
       condition: Rc::new(move |context| {
         let writer_info = &context.writer_info;
-        let first_indent_col = writer_info.line_start_column_number + (width as u32);
+        let first_indent_col = writer_info.line_start_column_number() + (width as u32);
         Some(writer_info.column_number > first_indent_col)
       }),
       true_path: Some(true_items),

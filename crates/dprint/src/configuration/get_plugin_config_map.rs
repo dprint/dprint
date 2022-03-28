@@ -30,8 +30,8 @@ fn get_plugin_config_map_inner(plugin: &dyn Plugin, config_map: &mut ConfigMap) 
 #[cfg(test)]
 mod tests {
   use crate::plugins::TestPlugin;
+  use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::configuration::ConfigKeyValue;
-  use std::collections::HashMap;
 
   use super::super::ConfigMap;
   use super::super::ConfigMapValue;
@@ -39,11 +39,11 @@ mod tests {
 
   #[test]
   fn should_get_config_for_plugin() {
-    let mut config_map = HashMap::new();
+    let mut config_map = ConfigMap::new();
     let ts_plugin = RawPluginConfig {
       associations: None,
       locked: false,
-      properties: HashMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
+      properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
     };
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
     config_map.insert(String::from("typescript"), ConfigMapValue::PluginConfig(ts_plugin.clone()));
@@ -55,7 +55,7 @@ mod tests {
 
   #[test]
   fn should_error_plugin_key_is_not_object() {
-    let mut config_map = HashMap::new();
+    let mut config_map = ConfigMap::new();
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
     config_map.insert(String::from("typescript"), ConfigMapValue::from_str(""));
     assert_errors(&mut config_map, "Expected the configuration property 'typescript' to be an object.");

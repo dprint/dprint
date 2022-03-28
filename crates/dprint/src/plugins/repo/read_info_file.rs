@@ -4,8 +4,11 @@ use jsonc_parser::parse_to_value;
 use jsonc_parser::JsonArray;
 use jsonc_parser::JsonObject;
 use jsonc_parser::JsonValue;
+use url::Url;
 
 use crate::environment::Environment;
+use crate::plugins::PluginSourceReference;
+use crate::utils::PathSource;
 
 #[derive(PartialEq, Debug)]
 pub struct InfoFile {
@@ -27,8 +30,34 @@ pub struct InfoFilePluginInfo {
 }
 
 impl InfoFilePluginInfo {
+  pub fn is_wasm(&self) -> bool {
+    self.url.to_lowercase().ends_with(".wasm")
+  }
+
   pub fn is_process_plugin(&self) -> bool {
-    !self.url.to_lowercase().ends_with(".wasm")
+    !self.is_wasm()
+  }
+
+  pub fn full_url(&self) -> String {
+    if let Some(checksum) = &self.checksum {
+      return format!("{}@{}", self.url, checksum);
+    }
+    self.url.to_string()
+  }
+
+  pub fn full_url_no_wasm_checksum(&self) -> String {
+    if self.is_wasm() {
+      self.url.to_string()
+    } else {
+      self.full_url()
+    }
+  }
+
+  pub fn as_source_reference(&self) -> Result<PluginSourceReference> {
+    Ok(PluginSourceReference {
+      path_source: PathSource::new_remote(Url::parse(&self.url)?),
+      checksum: self.checksum.clone(),
+    })
   }
 }
 
@@ -36,7 +65,7 @@ const SCHEMA_VERSION: u8 = 4;
 pub const REMOTE_INFO_URL: &str = "https://plugins.dprint.dev/info.json";
 
 pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
-  let info_bytes = environment.download_file(REMOTE_INFO_URL)?;
+  let info_bytes = environment.download_file_err_404(REMOTE_INFO_URL)?;
   let info_text = String::from_utf8(info_bytes.to_vec())?;
   let json_value = parse_to_value(&info_text)?;
   let mut obj = match json_value {
@@ -234,9 +263,17 @@ mod test {
   }
 
   #[test]
-  fn should_error_when_no_internet() {
+  fn should_error_when_info_file_not_exists() {
     let environment = TestEnvironment::new();
     let message = read_info_file(&environment).err().unwrap();
-    assert_eq!(message.to_string(), "Could not find file at url https://plugins.dprint.dev/info.json");
+    assert_eq!(message.to_string(), "Error downloading https://plugins.dprint.dev/info.json - 404 Not Found");
+  }
+
+  #[test]
+  fn should_error_when_info_file_errors() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file_error("https://plugins.dprint.dev/info.json", "Some Error");
+    let message = read_info_file(&environment).err().unwrap();
+    assert_eq!(message.to_string(), "Some Error");
   }
 }

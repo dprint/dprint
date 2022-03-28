@@ -1,6 +1,9 @@
 use anyhow::bail;
 use anyhow::Result;
 use crossterm::style::Stylize;
+use dprint_core::plugins::Host;
+use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use std::path::Path;
 use std::path::PathBuf;
@@ -14,68 +17,74 @@ use crate::arg_parser::StdInFmtSubCommand;
 use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
-use crate::format::format_with_plugin_pools;
 use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
 use crate::patterns::FileMatcher;
 use crate::plugins::resolve_plugins_and_err_if_empty;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginsCollection;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
 
-pub fn stdin_fmt<TEnvironment: Environment>(
+pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(&config, args, environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
-    match environment.canonicalize(&cmd.file_name_or_path) {
-      Ok(resolved_file_path) => {
-        // log the file text as-is since it's not in the list of files to format
-        if !file_matcher.matches(&resolved_file_path) {
-          environment.log_silent(&cmd.file_text);
-          return Ok(());
-        }
-      }
-      Err(err) => bail!("Error canonicalizing file {}: {}", cmd.file_name_or_path, err.to_string()),
+    let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
+    // log the file text as-is since it's not in the list of files to format
+    if !file_matcher.matches(&resolved_file_path) {
+      environment.log_machine_readable(&cmd.file_text);
+      return Ok(());
     }
   }
-  output_stdin_format(&PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools)
+  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools).await
 }
 
-fn output_stdin_format<TEnvironment: Environment>(
-  file_name: &Path,
+async fn output_stdin_format<TEnvironment: Environment>(
+  file_name: PathBuf,
   file_text: &str,
   environment: &TEnvironment,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let formatted_text = format_with_plugin_pools(file_name, file_text, environment, &plugin_pools)?;
-  environment.log_silent(&formatted_text);
+  let result = plugins_collection
+    .format(HostFormatRequest {
+      file_path: file_name,
+      file_text: file_text.to_string(),
+      range: None,
+      override_config: Default::default(),
+      token: Arc::new(NullCancellationToken),
+    })
+    .await?;
+  match result {
+    Some(text) => environment.log_machine_readable(&text),
+    None => environment.log_machine_readable(file_text),
+  }
   Ok(())
 }
 
-pub fn output_format_times<TEnvironment: Environment>(
+pub async fn output_format_times<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
@@ -88,7 +97,8 @@ pub fn output_format_times<TEnvironment: Environment>(
       durations.push((file_path.to_owned(), duration));
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let mut durations = durations.lock();
   durations.sort_by_key(|k| k.1);
@@ -99,16 +109,16 @@ pub fn output_format_times<TEnvironment: Environment>(
   Ok(())
 }
 
-pub fn check<TEnvironment: Environment>(
+pub async fn check<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
@@ -124,7 +134,8 @@ pub fn check<TEnvironment: Environment>(
       }
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
   if not_formatted_files_count == 0 {
@@ -137,25 +148,20 @@ pub fn check<TEnvironment: Environment>(
 
 fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, environment: &impl Environment) {
   let difference_text = get_difference(file_text, formatted_text);
-  environment.log(&format!(
-    "{} {}:\n{}\n--",
-    "from".bold().red().to_string(),
-    file_path.display(),
-    difference_text,
-  ));
+  environment.log(&format!("{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text,));
 }
 
-pub fn format<TEnvironment: Environment>(
+pub async fn format<TEnvironment: Environment>(
   cmd: &FmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
@@ -184,12 +190,13 @@ pub fn format<TEnvironment: Environment>(
 
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
-    environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold().to_string(), suffix));
+    environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold(), suffix));
   }
 
   if let Some(incremental_file) = &incremental_file {
@@ -230,7 +237,7 @@ mod test {
   }
 
   #[test]
-  fn should_format_file() {
+  fn should_format_single_file() {
     let file_path1 = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(file_path1, "text")
@@ -316,20 +323,23 @@ mod test {
 
   #[test]
   fn should_handle_wasm_plugin_panicking() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file1.txt", "should_panic") // special text to make it panic
-      .write_file("/file2.txt", "test")
+      .write_file("/file2.txt_ps", "test")
       .build();
-    let error_message = run_test_cli(vec!["fmt", "**.txt"], &environment).err().unwrap();
+    let error_message = run_test_cli(vec!["fmt", "**.{txt,txt_ps}"], &environment).err().unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
     let logged_errors = environment.take_stderr_messages();
     assert_eq!(logged_errors.len(), 1);
-    assert_eq!(
-      logged_errors[0].starts_with("Error formatting /file1.txt. Message: RuntimeError: unreachable"),
-      true
+    let expected_start_text = concat!(
+      "Critical error formatting /file1.txt. Cannot continue. ",
+      "Message: Originally panicked in test-plugin, then failed reinitialize. ",
+      "This may be a bug in the plugin, the dprint cli is out of date, or the plugin is out of date.",
     );
+    assert_eq!(&logged_errors[0][..expected_start_text.len()], expected_start_text);
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(environment.read_file("/file2.txt").unwrap(), "test_formatted");
+    // should still format with the other plugin
+    assert_eq!(environment.read_file("/file2.txt_ps").unwrap(), "test_formatted_process");
   }
 
   #[test]
@@ -352,7 +362,7 @@ mod test {
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
     assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted_process");
   }
 
@@ -913,10 +923,14 @@ mod test {
   #[test]
   fn should_error_when_no_files_match_glob() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
-    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    let error = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
+    assert_no_files_found(&error, &environment);
+  }
+
+  fn assert_no_files_found(error: &anyhow::Error, environment: &TestEnvironment) {
     assert_eq!(
-      error_message.to_string(),
+      error.to_string(),
       concat!(
         "No files found to format with the specified plugins. ",
         "You may want to try using `dprint output-file-paths` to see which files it's finding."
@@ -929,10 +943,10 @@ mod test {
   #[cfg(target_os = "windows")]
   #[test]
   fn should_format_absolute_paths_on_windows() {
-    let file_path = "E:\\file1.txt";
+    let file_path = "D:\\test\\other\\file1.txt"; // needs to be in the base directory
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("D:\\test\\other\\dprint.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+        c.add_includes("asdf/**/*.txt").add_remote_wasm_plugin();
       })
       .write_file(file_path, "text1")
       .set_cwd("D:\\test\\other\\")
@@ -940,7 +954,7 @@ mod test {
       .build();
 
     // formats because the file path is explicitly provided
-    run_test_cli(vec!["fmt", "--", "E:\\file1.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--", file_path], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
@@ -950,17 +964,17 @@ mod test {
   #[cfg(target_os = "linux")]
   #[test]
   fn should_format_absolute_paths_on_linux() {
-    let file_path = "/asdf/file1.txt";
+    let file_path = "/test/other/file1.txt"; // needs to be in the base directory
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/test/other/dprint.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+        c.add_includes("asdf/**/*.txt").add_remote_wasm_plugin();
       })
       .write_file(&file_path, "text1")
       .set_cwd("/test/other/")
       .initialize()
       .build();
 
-    run_test_cli(vec!["fmt", "--", "/asdf/file1.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--", "/test/other/file1.txt"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
@@ -1068,7 +1082,7 @@ mod test {
   }
 
   #[test]
-  fn should_format_explicitly_specified_file_even_if_excluded() {
+  fn should_not_format_explicitly_specified_file_when_excluded() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .write_file(&file_path1, "text1")
@@ -1078,11 +1092,9 @@ mod test {
       .initialize()
       .build();
 
-    run_test_cli(vec!["fmt", "file1.txt"], &environment).unwrap();
-
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+    // this is done for tools like lint staged
+    let error = run_test_cli(vec!["fmt", "file1.txt"], &environment).err().unwrap();
+    assert_no_files_found(&error, &environment);
   }
 
   #[test]
@@ -1154,11 +1166,10 @@ mod test {
     run_test_cli(vec!["fmt"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
   }
 
   #[test]
-  fn should_not_ignore_path_in_cli_includes_if_not_exists() {
+  fn should_ignore_path_in_cli_includes_even_if_not_exists_since_pattern() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1170,13 +1181,9 @@ mod test {
       .initialize()
       .build();
 
-    let err = run_test_cli(vec!["fmt", "/file2.txt", "/file3.txt"], &environment).err().unwrap();
+    run_test_cli(vec!["fmt", "/file2.txt", "/file3.txt"], &environment).unwrap();
 
-    assert_eq!(err.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Error formatting /file3.txt. Message: Could not find file at path /file3.txt"]
-    );
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
   }
 
   #[test]
@@ -1497,7 +1504,10 @@ mod test {
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
@@ -1512,7 +1522,10 @@ mod test {
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "txt"], &environment, test_std_in).unwrap();
     // should format even though it wasn't matched because an absolute path wasn't provided
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
@@ -1581,7 +1594,10 @@ mod test {
     // the absolute path must be provided instead of a relative one in order to properly pick up
     // inclusion/exclusion rules and the proper configuration file.
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]

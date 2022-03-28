@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 #[derive(PartialEq, Debug)]
 pub struct Spec {
@@ -10,7 +10,7 @@ pub struct Spec {
   pub is_trace: bool,
   pub skip: bool,
   pub skip_format_twice: bool,
-  pub config: HashMap<String, String>,
+  pub config: IndexMap<String, String>,
 }
 
 pub struct ParseSpecOptions {
@@ -47,14 +47,14 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     (file_text["--".len()..last_index].trim().into(), file_text[(last_index + "--\n".len())..].into())
   }
 
-  fn parse_config(file_text: String) -> (HashMap<String, String>, String) {
+  fn parse_config(file_text: String) -> (IndexMap<String, String>, String) {
     if !file_text.starts_with("~~") {
-      return (HashMap::new(), file_text);
+      return (IndexMap::new(), file_text);
     }
     let last_index = file_text.find("~~\n").expect("Could not find final ~~\\n");
 
-    let config_text = file_text["~~".len()..last_index].replace("\n", "");
-    let mut config: HashMap<String, String> = HashMap::new();
+    let config_text = file_text["~~".len()..last_index].replace('\n', "");
+    let mut config: IndexMap<String, String> = IndexMap::new();
 
     for item in config_text.split(',') {
       let first_colon = item.find(':').expect("Could not find colon in config option.");
@@ -84,7 +84,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     result
   }
 
-  fn parse_single_spec(file_name: &str, message_line: &str, lines: &[&str], config: &HashMap<String, String>) -> Spec {
+  fn parse_single_spec(file_name: &str, message_line: &str, lines: &[&str], config: &IndexMap<String, String>) -> Spec {
     let file_text = lines.join("\n");
     let parts = file_text.split("[expect]").collect::<Vec<&str>>();
     let start_text = parts[0][0..parts[0].len() - "\n".len()].into(); // remove last newline
@@ -162,7 +162,7 @@ mod tests {
         is_trace: false,
         skip: false,
         skip_format_twice: false,
-        config: HashMap::new(),
+        config: Default::default(),
       }
     );
     assert_eq!(
@@ -176,7 +176,7 @@ mod tests {
         is_trace: false,
         skip: true,
         skip_format_twice: true,
-        config: HashMap::new(),
+        config: Default::default(),
       }
     );
     assert_eq!(
@@ -190,7 +190,7 @@ mod tests {
         is_trace: true,
         skip: false,
         skip_format_twice: false,
-        config: HashMap::new(),
+        config: Default::default(),
       }
     );
   }
@@ -214,7 +214,7 @@ mod tests {
         is_trace: false,
         skip: false,
         skip_format_twice: false,
-        config: HashMap::new(),
+        config: Default::default(),
       }
     );
   }
@@ -289,7 +289,7 @@ mod tests {
         is_trace: false,
         skip: false,
         skip_format_twice: false,
-        config: HashMap::new(),
+        config: Default::default(),
       }
     );
     assert_eq!(
@@ -303,7 +303,7 @@ mod tests {
         is_trace: false,
         skip: true,
         skip_format_twice: true,
-        config: HashMap::new(),
+        config: Default::default(),
       }
     );
   }

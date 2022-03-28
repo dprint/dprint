@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use super::printer::Printer;
 use super::utils::with_bump_allocator;
-use super::utils::CounterCell;
+use crate::formatting::id::IdCounter;
 
 /** Print Items */
 
@@ -133,7 +133,7 @@ impl PrintItems {
               text.push_str(&get_items_as_text(false_path, format!("{}    ", &indent_text)));
             }
           }
-          PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text.to_string()), &indent_text)),
+          PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),
           PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path, indent_text.clone())),
         }
       }
@@ -307,9 +307,9 @@ pub struct PrintNode {
   pub print_node_id: usize,
 }
 
-#[cfg(feature = "tracing")]
 thread_local! {
-  static PRINT_NODE_COUNTER: CounterCell = CounterCell::new();
+  #[cfg(feature = "tracing")]
+  static PRINT_NODE_IDS: IdCounter = IdCounter::default();
 }
 
 impl PrintNode {
@@ -318,7 +318,7 @@ impl PrintNode {
       item,
       next: None,
       #[cfg(feature = "tracing")]
-      print_node_id: PRINT_NODE_COUNTER.with(CounterCell::increment_and_get),
+      print_node_id: IdCounter::next(&PRINT_NODE_IDS),
     }
   }
 
@@ -472,13 +472,13 @@ pub struct Info {
 }
 
 thread_local! {
-  static INFO_COUNTER: CounterCell = CounterCell::new();
+  static INFO_IDS: IdCounter = IdCounter::default();
 }
 
 impl Info {
   pub fn new(_name: &'static str) -> Info {
     Info {
-      id: INFO_COUNTER.with(CounterCell::increment_and_get),
+      id: IdCounter::next(&INFO_IDS),
       #[cfg(debug_assertions)]
       name: _name,
     }
@@ -524,7 +524,7 @@ pub struct Condition {
 }
 
 thread_local! {
-  static CONDITION_COUNTER: CounterCell = CounterCell::new();
+  static CONDITION_IDS: IdCounter = IdCounter::default();
 }
 
 impl Condition {
@@ -562,13 +562,13 @@ impl Condition {
 
   fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
     Condition {
-      id: CONDITION_COUNTER.with(CounterCell::increment_and_get),
+      id: IdCounter::next(&CONDITION_IDS),
       is_stored: dependent_infos.is_some(),
       #[cfg(debug_assertions)]
       name: _name,
       condition: properties.condition,
-      true_path: properties.true_path.map(|x| x.first_node).flatten(),
-      false_path: properties.false_path.map(|x| x.first_node).flatten(),
+      true_path: properties.true_path.and_then(|x| x.first_node),
+      false_path: properties.false_path.and_then(|x| x.first_node),
       dependent_infos,
     }
   }
@@ -711,13 +711,24 @@ pub struct WriterInfo {
   pub column_number: u32,
   pub indent_level: u8,
   pub line_start_indent_level: u8,
-  pub line_start_column_number: u32,
+  pub indent_width: u8,
+  pub expect_newline_next: bool,
 }
 
 impl WriterInfo {
-  /// Gets if the current column number equals the line start column number.
+  /// Gets if the current column number equals the line start column number
+  /// or if a newline is expected next.
   pub fn is_start_of_line(&self) -> bool {
-    self.column_number == self.line_start_column_number
+    self.expect_newline_next || self.is_column_number_at_line_start()
+  }
+
+  /// Gets if the current column number is at the line start column number.
+  pub fn is_column_number_at_line_start(&self) -> bool {
+    self.column_number == self.line_start_column_number()
+  }
+
+  pub fn line_start_column_number(&self) -> u32 {
+    (self.line_start_indent_level as u32) * (self.indent_width as u32)
   }
 
   /// Gets the line and column number.

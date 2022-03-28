@@ -61,7 +61,29 @@ Alternatively, these may be provided to the CLI via the `--plugins <plugin urls 
 
 Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first.
 
-### Updating Plugins
+### Adding Plugins via CLI
+
+You may add a plugin via the CLI by running:
+
+```bash
+dprint config add
+```
+
+This will prompt asking you which of the standard plugins you want to add.
+
+Alternatively, specify the specific name of the plugin to add which only works for certain plugins:
+
+```bash
+dprint config add dprint-plugin-typescript
+```
+
+Or specify a plugin url:
+
+```bash
+dprint config add https://plugins.dprint.dev/json-x.x.x.wasm
+```
+
+### Updating Plugins via CLI
 
 Some plugins can be updated to the latest version in the configuration file by running:
 

@@ -16,6 +16,7 @@ pub mod macros {
           StaticCell(std::cell::UnsafeCell::new(value))
         }
 
+        #[allow(clippy::mut_from_ref)]
         unsafe fn get(&self) -> &mut T {
           &mut *self.0.get()
         }
@@ -146,7 +147,7 @@ pub mod macros {
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
         let file_text = take_string_from_shared_bytes();
 
-        let formatted_text = unsafe { WASM_PLUGIN.get().format_text(&file_path, &file_text, &config, format_with_host) };
+        let formatted_text = unsafe { WASM_PLUGIN.get().format(&file_path, &file_text, &config, format_with_host) };
         match formatted_text {
           Ok(formatted_text) => {
             if formatted_text == file_text {
@@ -182,14 +183,14 @@ pub mod macros {
       #[no_mangle]
       pub fn get_plugin_info() -> usize {
         use dprint_core::plugins::PluginInfo;
-        let plugin_info = unsafe { WASM_PLUGIN.get().get_plugin_info() };
+        let plugin_info = unsafe { WASM_PLUGIN.get().plugin_info() };
         let info_json = serde_json::to_string(&plugin_info).unwrap();
         set_shared_bytes_str(info_json)
       }
 
       #[no_mangle]
       pub fn get_license_text() -> usize {
-        set_shared_bytes_str(unsafe { WASM_PLUGIN.get().get_license_text() })
+        set_shared_bytes_str(unsafe { WASM_PLUGIN.get().license_text() })
       }
 
       #[no_mangle]
@@ -214,7 +215,7 @@ pub mod macros {
       fn ensure_initialized() {
         unsafe {
           if RESOLVE_CONFIGURATION_RESULT.get().is_none() {
-            let config_result = create_resolved_config_result(std::collections::HashMap::new());
+            let config_result = create_resolved_config_result(dprint_core::configuration::ConfigKeyMap::new());
             RESOLVE_CONFIGURATION_RESULT.get().replace(config_result);
           }
         }
@@ -230,7 +231,7 @@ pub mod macros {
               for (key, value) in override_config {
                 plugin_config.insert(key, value);
               }
-              return unsafe { WASM_PLUGIN.get().resolve_config(plugin_config, global_config) };
+              return WASM_PLUGIN.get().resolve_config(plugin_config, global_config);
             }
           }
         }
@@ -293,7 +294,7 @@ pub mod macros {
       pub fn set_buffer_with_shared_bytes(offset: usize, length: usize) {
         unsafe {
           let bytes = &SHARED_BYTES.get()[offset..(offset + length)];
-          &WASM_MEMORY_BUFFER[..length].copy_from_slice(bytes);
+          WASM_MEMORY_BUFFER[..length].copy_from_slice(bytes);
         }
       }
 

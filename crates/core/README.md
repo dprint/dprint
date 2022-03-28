@@ -10,10 +10,11 @@ Features:
 - `process` - Code to help build a "process plugin"
 - `wasm` - Code to help build a "wasm plugin" (recommended over process plugins)
 
-## Api
+## Formatting Api
 
 Use:
 
+<!-- dprint-ignore -->
 ```rust
 let result = dprint_core::formatting::format(|| {
     let print_items = ...; // parsed out IR (see example below)

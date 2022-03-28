@@ -70,24 +70,18 @@ export class UrlSaver {
     configText?: string;
     language?: "typescript" | "json" | "markdown" | "toml" | "dockerfile";
   }) {
-    if (language == null) {
-      window.history.replaceState(
-        undefined,
-        "",
-        ``,
-      );
-    } else {
-      let url = `#code/${compressToEncodedURIComponent(text)}`;
-      if (configText != null) {
-        url += `/config/${compressToEncodedURIComponent(configText)}`;
-      }
-      url += `/language/${language}`;
-      window.history.replaceState(
-        undefined,
-        "",
-        url,
-      );
+    let url = `#code/${compressToEncodedURIComponent(text)}`;
+    if (configText != null) {
+      url += `/config/${compressToEncodedURIComponent(configText)}`;
     }
+    if (language != null) {
+      url += `/language/${language}`;
+    }
+    window.history.replaceState(
+      undefined,
+      "",
+      url,
+    );
   }
 }
 

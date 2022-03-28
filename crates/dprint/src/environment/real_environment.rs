@@ -6,33 +6,47 @@ use dprint_cli_core::logging::show_confirm;
 use dprint_cli_core::logging::show_multi_select;
 use dprint_cli_core::logging::show_select;
 use dprint_cli_core::logging::Logger;
+use dprint_cli_core::logging::LoggerOptions;
 use dprint_cli_core::logging::ProgressBars;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
 use super::DirEntryKind;
 use super::Environment;
+use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+
+pub struct RealEnvironmentOptions {
+  pub is_verbose: bool,
+  pub is_stdout_machine_readable: bool,
+  pub runtime_handle: Arc<tokio::runtime::Handle>,
+}
 
 #[derive(Clone)]
 pub struct RealEnvironment {
   logger: Logger,
   progress_bars: Option<ProgressBars>,
   is_verbose: bool,
+  runtime_handle: Arc<tokio::runtime::Handle>,
 }
 
 impl RealEnvironment {
-  pub fn new(is_verbose: bool, is_silent: bool) -> Result<RealEnvironment> {
-    let logger = Logger::new("dprint", is_silent);
-    let progress_bars = if is_silent { None } else { ProgressBars::new(&logger) };
+  pub fn new(options: RealEnvironmentOptions) -> Result<RealEnvironment> {
+    let logger = Logger::new(&LoggerOptions {
+      initial_context_name: "dprint".to_string(),
+      is_stdout_machine_readable: options.is_stdout_machine_readable,
+    });
+    let progress_bars = ProgressBars::new(&logger);
     let environment = RealEnvironment {
       logger,
       progress_bars,
-      is_verbose,
+      is_verbose: options.is_verbose,
+      runtime_handle: options.runtime_handle,
     };
 
     // ensure the cache directory is created
@@ -41,6 +55,14 @@ impl RealEnvironment {
     }
 
     Ok(environment)
+  }
+}
+
+impl UrlDownloader for RealEnvironment {
+  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    log_verbose!(self, "Downloading url: {}", url);
+
+    download_url(url, &self.progress_bars, |env_var_name| std::env::var(env_var_name).ok())
   }
 }
 
@@ -91,12 +113,6 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn download_file(&self, url: &str) -> Result<Vec<u8>> {
-    log_verbose!(self, "Downloading url: {}", url);
-
-    download_url(url, &self.progress_bars, |env_var_name| std::env::var(env_var_name).ok())
-  }
-
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
@@ -137,7 +153,10 @@ impl Environment for RealEnvironment {
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
     // use this to avoid //?//C:/etc... like paths on windows (UNC)
-    Ok(CanonicalizedPathBuf::new(dunce::canonicalize(path)?))
+    match dunce::canonicalize(path.as_ref()) {
+      Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
+      Err(err) => bail!("Error canonicalizing path {}: {}", path.as_ref().display(), err),
+    }
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
@@ -162,18 +181,15 @@ impl Environment for RealEnvironment {
     self.logger.log(text, "dprint");
   }
 
-  fn log_silent(&self, text: &str) {
-    self.logger.log_bypass_silent(text, "dprint");
+  fn log_machine_readable(&self, text: &str) {
+    self.logger.log_machine_readable(text);
   }
 
   fn log_stderr_with_context(&self, text: &str, context_name: &str) {
     self.logger.log_err(text, context_name);
   }
 
-  fn log_action_with_progress<
-    TResult: std::marker::Send + std::marker::Sync,
-    TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
-  >(
+  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,
     action: TCreate,
@@ -185,6 +201,10 @@ impl Environment for RealEnvironment {
   fn get_cache_dir(&self) -> PathBuf {
     // this would have errored in the constructor so it's ok to unwrap here
     get_cache_dir().unwrap()
+  }
+
+  fn cpu_arch(&self) -> String {
+    std::env::consts::ARCH.to_string()
   }
 
   fn get_time_secs(&self) -> u64 {
@@ -228,6 +248,10 @@ impl Environment for RealEnvironment {
 
   fn stdin(&self) -> Box<dyn std::io::Read + Send> {
     Box::new(std::io::stdin())
+  }
+
+  fn runtime_handle(&self) -> tokio::runtime::Handle {
+    (*self.runtime_handle).clone()
   }
 
   #[cfg(windows)]
@@ -304,7 +328,7 @@ fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
   // ignore any access denied errors for the system volume information
   cfg!(target_os = "windows")
     && matches!(err.raw_os_error(), Some(5))
-    && matches!(dir_path.file_name().map(|f| f.to_str()).flatten(), Some("System Volume Information"))
+    && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
 #[cfg(test)]

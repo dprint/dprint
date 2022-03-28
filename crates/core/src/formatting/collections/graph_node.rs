@@ -1,14 +1,9 @@
 #[cfg(feature = "tracing")]
-mod counter {
-  use crate::formatting::utils::CounterCell;
+use crate::formatting::id::IdCounter;
 
-  thread_local! {
-    static GRAPH_NODE_COUNTER: CounterCell = CounterCell::new();
-  }
-
-  pub fn increment_and_get() -> usize {
-    GRAPH_NODE_COUNTER.with(CounterCell::increment_and_get)
-  }
+thread_local! {
+#[cfg(feature = "tracing")]
+  static GRAPH_NODE_IDS: IdCounter = IdCounter::default();
 }
 
 #[derive(Clone)]
@@ -25,7 +20,7 @@ impl<'a, T> GraphNode<'a, T> {
       item,
       previous,
       #[cfg(feature = "tracing")]
-      graph_node_id: counter::increment_and_get(),
+      graph_node_id: IdCounter::next(&GRAPH_NODE_IDS),
     }
   }
 }

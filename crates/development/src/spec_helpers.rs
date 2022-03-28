@@ -1,17 +1,19 @@
 use anyhow::Result;
 use console::Style;
+use indexmap::IndexMap;
 use similar::ChangeTag;
 use similar::TextDiff;
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
+use std::panic::catch_unwind;
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::path::PathBuf;
 
 use super::*;
 
 struct FailedTestResult {
-  file_path: String,
+  file_path: PathBuf,
   expected: String,
   actual: String,
   actual_second: Option<String>,
@@ -51,8 +53,8 @@ pub fn run_specs(
   directory_path: &Path,
   parse_spec_options: &ParseSpecOptions,
   run_spec_options: &RunSpecsOptions,
-  format_text: impl Fn(&Path, &str, &HashMap<String, String>) -> Result<String>,
-  get_trace_json: impl Fn(&Path, &str, &HashMap<String, String>) -> String,
+  format_text: impl Fn(&Path, &str, &IndexMap<String, String>) -> Result<Option<String>>,
+  get_trace_json: impl Fn(&Path, &str, &IndexMap<String, String>) -> String,
 ) {
   #[cfg(not(debug_assertions))]
   assert_not_fix_failures(run_spec_options);
@@ -67,21 +69,22 @@ pub fn run_specs(
 
     let file_path_buf = PathBuf::from(&spec.file_name);
     let format = |file_text: &str| {
-      format_text(&file_path_buf, file_text, &spec.config)
-        .unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {}", spec.message, file_path, err.to_string(),))
+      let result = catch_unwind(AssertUnwindSafe(|| format_text(&file_path_buf, file_text, &spec.config)));
+      let result = result.unwrap_or_else(|err| panic!("Panic in spec '{}' in {}.\n\n{:?}", spec.message, file_path.display(), err));
+      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {}", spec.message, file_path.display(), err,))
     };
 
     if spec.is_trace {
       let trace_json = get_trace_json(&file_path_buf, &spec.file_text, &spec.config);
       handle_trace(&spec, &trace_json);
     } else {
-      let result = format(&spec.file_text);
+      let result = format(&spec.file_text).unwrap_or_else(|| spec.file_text.to_string());
       if result != spec.expected_text {
         if run_spec_options.fix_failures {
           // very rough, but good enough
           let file_path = PathBuf::from(&file_path);
           let file_text = fs::read_to_string(&file_path).expect("Expected to read the file.");
-          let file_text = file_text.replace(&spec.expected_text.replace("\n", "\r\n"), &result.replace("\n", "\r\n"));
+          let file_text = file_text.replace(&spec.expected_text.replace('\n', "\r\n"), &result.replace('\n', "\r\n"));
           fs::write(&file_path, file_text).expect("Expected to write to file.");
         } else {
           failed_tests.push(FailedTestResult {
@@ -94,7 +97,7 @@ pub fn run_specs(
         }
       } else if run_spec_options.format_twice && !spec.skip_format_twice {
         // ensure no changes when formatting twice
-        let twice_result = format(&result);
+        let twice_result = format(&result).unwrap_or_else(|| result.to_string());
         if twice_result != spec.expected_text {
           failed_tests.push(FailedTestResult {
             file_path: file_path.clone(),
@@ -113,7 +116,7 @@ pub fn run_specs(
     let mut failed_message = format!(
       "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`,\nDiff:\n{}",
       failed_test.message,
-      failed_test.file_path,
+      failed_test.file_path.display(),
       failed_test.expected,
       failed_test.actual,
       DiffFailedMessage {
@@ -165,7 +168,7 @@ pub fn run_specs(
 </body>
 </html>"#;
     let mut script = format!("const rawTraceResult = {};\n", trace_json);
-    script.push_str(&format!("const specMessage = \"{}\";\n", spec.message.replace("\"", "\\\"")));
+    script.push_str(&format!("const specMessage = \"{}\";\n", spec.message.replace('"', "\\\"")));
     script.push_str(app_js_text);
     let html_file = html_file
       .replace("<!-- script -->", &script)
@@ -173,7 +176,7 @@ pub fn run_specs(
       .replace("<!-- style -->", app_css_text);
     let temp_file_path = std::env::temp_dir().join("dprint-core-trace.html");
     fs::write(&temp_file_path, html_file).unwrap();
-    let url = format!("file://{}", temp_file_path.to_string_lossy().replace("\\", "/"));
+    let url = format!("file://{}", temp_file_path.to_string_lossy().replace('\\', "/"));
     panic!("\n==============\nTrace output ready! Please open your browser to: {}\n==============\n", url);
   }
 

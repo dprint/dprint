@@ -1,10 +1,16 @@
-# Copyright 2020-2021 David Sherret. All rights reserved. MIT license.
+# Copyright 2020-2022 David Sherret. All rights reserved. MIT license.
 # Made with the help of:
 # https://github.com/denoland/deno/blob/main/.github/workflows/ci.yml
 
 name: CI
 
-on: [push, pull_request]
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags:
+    - '*'
 
 jobs:
   build:
@@ -17,7 +23,8 @@ jobs:
             kind: test_release
           - os: windows-latest
             kind: test_release
-          - os: ubuntu-latest
+          # uses an older version of ubuntu because of issue 483
+          - os: ubuntu-18.04
             kind: test_release
           - os: ubuntu-latest
             kind: test_debug
@@ -27,25 +34,23 @@ jobs:
       RUST_BACKTRACE: full
 
     outputs:
-      LINUX_ZIP_CHECKSUM: ${{steps.linux_pre_release.outputs.ZIP_CHECKSUM}}
-      MAC_ZIP_CHECKSUM: ${{steps.mac_pre_release.outputs.ZIP_CHECKSUM}}
-      WINDOWS_ZIP_CHECKSUM: ${{steps.windows_pre_release.outputs.ZIP_CHECKSUM}}
-      WINDOWS_INSTALLER_CHECKSUM: ${{steps.windows_pre_release.outputs.INSTALLER_CHECKSUM}}
+      LINUX_X86_64_ZIP_CHECKSUM: ${{steps.linux_x86_64_pre_release.outputs.ZIP_CHECKSUM}}
+      MAX_X86_64_ZIP_CHECKSUM: ${{steps.mac_x86_64_pre_release.outputs.ZIP_CHECKSUM}}
+      MAX_AARCH64_ZIP_CHECKSUM: ${{steps.mac_aarch64_pre_release.outputs.ZIP_CHECKSUM}}
+      WINDOWS_X86_64_ZIP_CHECKSUM: ${{steps.windows_x86_64_pre_release.outputs.ZIP_CHECKSUM}}
+      WINDOWS_INSTALLER_CHECKSUM: ${{steps.windows_x86_64_pre_release.outputs.INSTALLER_CHECKSUM}}
 
     steps:
     - name: Checkout
       uses: actions/checkout@v2
-      # remember to update the publish script if changing the version
-    - uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: 1.56.0
-        override: true
+    - uses: dtolnay/rust-toolchain@stable
     - name: Install wasm32 target
       run: rustup target add wasm32-unknown-unknown
 
     # CACHE SETUP
     - uses: Swatinem/rust-cache@v1
+      # todo: re-enable this for ubuntu... was having cache issues with glibc
+      if: startsWith(matrix.config.os, 'ubuntu') == false
 
     # BUILD
     - name: Build test plugins
@@ -59,6 +64,11 @@ jobs:
     - name: Build release
       if: matrix.config.kind == 'test_release'
       run: cargo build --locked --all-features --release
+    - name: Build release (Mac aarch64)
+      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release'
+      run: |
+        rustup target add aarch64-apple-darwin
+        cargo build --locked --all-features --release --target aarch64-apple-darwin
 
     # TEST
     - name: Test debug
@@ -69,35 +79,43 @@ jobs:
       run: cargo test --locked --all-features --release
 
     # INSTALLER
-    - name: Create installer (Windows)
+    - name: Create installer (Windows x86_64)
       uses: joncloud/makensis-action@v2.0
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       with:
         script-file: ${{ github.workspace }}/deployment/installer/dprint-installer.nsi
 
     # PRE-RELEASE
-    - name: Pre-release (Linux)
-      id: linux_pre_release
+    - name: Pre-release (Linux x86_64)
+      id: linux_x86_64_pre_release
       if: startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       run: |
-          cd target/release
-          zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
-          echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')"
-    - name: Pre-release (Mac)
-      id: mac_pre_release
+        cd target/release
+        zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
+        echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')"
+    - name: Pre-release (Mac x86_64)
+      id: mac_x86_64_pre_release
       if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       run: |
-          cd target/release
-          zip -r dprint-x86_64-apple-darwin.zip dprint
-          echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')"
-    - name: Pre-release (Windows)
-      id: windows_pre_release
+        cd target/release
+        zip -r dprint-x86_64-apple-darwin.zip dprint
+        echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')"
+    - name: Pre-release (Mac aarch64)
+      id: mac_aarch64_pre_release
+      if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
+      run: |
+        cd target/aarch64-apple-darwin/release
+        zip -r dprint-aarch64-apple-darwin.zip dprint
+        echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')"
+        mv dprint-aarch64-apple-darwin.zip ../../release
+    - name: Pre-release (Windows x86_64)
+      id: windows_x86_64_pre_release
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       run: |
-          Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip
-          mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/release/dprint-x86_64-pc-windows-msvc-installer.exe
-          echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
-          echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
+        Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip
+        mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/release/dprint-x86_64-pc-windows-msvc-installer.exe
+        echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
+        echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
 
     # UPLOAD ARTIFACTS
     - name: Upload Artifacts (Linux)
@@ -111,7 +129,9 @@ jobs:
       if: startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
       with:
         name: mac-artifacts
-        path: target/release/dprint-x86_64-apple-darwin.zip
+        path: |
+          target/release/dprint-aarch64-apple-darwin.zip
+          target/release/dprint-x86_64-apple-darwin.zip
     - name: Upload Artifacts (Windows)
       uses: actions/upload-artifact@v2
       if: startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')
@@ -149,10 +169,11 @@ jobs:
 
     - name: Output checksums
       run: |
-        echo "Linux Zip: ${{needs.build.outputs.LINUX_ZIP_CHECKSUM}}"
-        echo "Mac Zip: ${{needs.build.outputs.MAC_ZIP_CHECKSUM}}"
-        echo "Windows Zip: ${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}}"
-        echo "Windows Installer: ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}"
+        echo "Linux x86_64 Zip: ${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}"
+        echo "Mac x86_64 Zip: ${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}}"
+        echo "Mac aarch64 Zip: ${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}}"
+        echo "Windows x86_64 Zip: ${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}"
+        echo "Windows x86_64 Installer: ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}"
 
     - name: Create extra release files
       # .tar.gz file is for homebrew binary release... no clue why I couldn't do this above when creating the mac artifacts above
@@ -160,6 +181,9 @@ jobs:
         cd mac-artifacts
         unzip -o dprint-x86_64-apple-darwin.zip
         tar -czf dprint-x86_64-apple-darwin.tar.gz dprint
+        rm dprint
+        unzip -o dprint-aarch64-apple-darwin.zip
+        tar -czf dprint-aarch64-apple-darwin.tar.gz dprint
 
     - uses: finnp/create-file-action@1.0.0
       env:
@@ -174,7 +198,7 @@ jobs:
             "windows-x86_64": {
               "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-pc-windows-msvc.zip",
               "type": "zip",
-              "checksum": "${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}}",
+              "checksum": "${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}",
               "commands": [{
                 "name": "dprint",
                 "path": "dprint.exe"
@@ -183,7 +207,7 @@ jobs:
             "linux-x86_64": {
               "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-unknown-linux-gnu.zip",
               "type": "zip",
-              "checksum": "${{needs.build.outputs.LINUX_ZIP_CHECKSUM}}",
+              "checksum": "${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}",
               "commands": [{
                 "name": "dprint",
                 "path": "dprint"
@@ -192,7 +216,16 @@ jobs:
             "darwin-x86_64": {
               "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-apple-darwin.zip",
               "type": "zip",
-              "checksum": "${{needs.build.outputs.MAC_ZIP_CHECKSUM}}",
+              "checksum": "${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}}",
+              "commands": [{
+                "name": "dprint",
+                "path": "dprint"
+              }]
+            },
+            "darwin-aarch64": {
+              "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-aarch64-apple-darwin.zip",
+              "type": "zip",
+              "checksum": "${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}}",
               "commands": [{
                 "name": "dprint",
                 "path": "dprint"
@@ -202,9 +235,10 @@ jobs:
 
     - name: Create SHASUMS256.txt file
       run: |
-        echo "${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip" > SHASUMS256.txt
-        echo "${{needs.build.outputs.LINUX_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip" >> SHASUMS256.txt
-        echo "${{needs.build.outputs.MAC_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip" >> SHASUMS256.txt
+        echo "${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip" > SHASUMS256.txt
+        echo "${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip" >> SHASUMS256.txt
+        echo "${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip" >> SHASUMS256.txt
+        echo "${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}} dprint-aarch64-apple-darwin.zip" >> SHASUMS256.txt
         echo "${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe" >> SHASUMS256.txt
 
     - name: Get bvm.json checksum
@@ -221,7 +255,9 @@ jobs:
           windows-artifacts/dprint-x86_64-pc-windows-msvc-installer.exe
           linux-artifacts/dprint-x86_64-unknown-linux-gnu.zip
           mac-artifacts/dprint-x86_64-apple-darwin.zip
+          mac-artifacts/dprint-aarch64-apple-darwin.zip
           mac-artifacts/dprint-x86_64-apple-darwin.tar.gz
+          mac-artifacts/dprint-aarch64-apple-darwin.tar.gz
           bvm.json
           SHASUMS256.txt
         body: |
@@ -231,67 +267,15 @@ jobs:
 
           ## Install
 
-          Linux/Mac/WSL:
-
-          ```bash
-          curl -fsSL https://dprint.dev/install.sh | sh
-          ```
-
-          Windows (use Powershell or installer below):
-
-          ```powershell
-          iwr https://dprint.dev/install.ps1 -useb | iex
-          ```
-
-          [Homebrew](https://brew.sh/) (Mac):
-
-          ```bash
-          brew install dprint
-          ```
-
-          Cargo (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
-
-          ```bash
-          cargo install dprint
-          ```
-
-          [npm](https://www.npmjs.com/):
-
-          ```bash
-          npm install dprint
-          npx dprint help
-
-          # or install globally
-          npm install -g dprint
-          dprint help
-          ```
-
-          [bvm](https://github.com/dsherret/bvm) (Experimental):
-
-          ```bash
-          bvm install https://bvm.land/dprint/${{steps.get_tag_version.outputs.TAG_VERSION}}.json
-
-          # or install via the registry
-          bvm registry add https://bvm.land/dprint/registry.json
-          bvm install dprint
-          ```
-
-          Or project specific in `bvm.json`:
-
-          ```json
-          {
-            "dependencies": [
-              "https://bvm.land/dprint/${{steps.get_tag_version.outputs.TAG_VERSION}}.json@${{steps.get_bvm_checksum.outputs.CHECKSUM}}"
-            ]
-          }
-          ```
+          See https://dprint.dev/install/
 
           ## Checksums
 
           |Artifact|SHA-256 Checksum|
           |:--|:--|
-          |Linux Zip|${{needs.build.outputs.LINUX_ZIP_CHECKSUM}}|
-          |Mac Zip|${{needs.build.outputs.MAC_ZIP_CHECKSUM}}|
-          |Windows Zip|${{needs.build.outputs.WINDOWS_ZIP_CHECKSUM}}|
-          |Windows Installer|${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}|
+          |Linux x86_64 Zip|${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}|
+          |Mac x86_64 Zip|${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}}|
+          |Mac aarch64 Zip|${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}}|
+          |Windows x86_64 Zip|${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}|
+          |Windows x86_64 Installer|${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}|
         draft: true

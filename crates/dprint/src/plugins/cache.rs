@@ -45,21 +45,21 @@ where
 
     if let Some(cache_item) = cache_item {
       if let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
-        self.environment.log_stderr(&format!("Error forgetting plugin: {}", err.to_string()))
+        self.environment.log_stderr(&format!("Error forgetting plugin: {}", err))
       }
     }
 
     Ok(())
   }
 
-  pub fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
+  pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
     match &source_reference.path_source {
-      PathSource::Remote(_) => self.get_plugin(source_reference.clone(), false, download_url),
-      PathSource::Local(_) => self.get_plugin(source_reference.clone(), true, get_file_bytes),
+      PathSource::Remote(_) => self.get_plugin(source_reference.clone(), false, download_url).await,
+      PathSource::Local(_) => self.get_plugin(source_reference.clone(), true, get_file_bytes).await,
     }
   }
 
-  fn get_plugin(
+  async fn get_plugin(
     &self,
     source_reference: PluginSourceReference,
     check_file_hash: bool,
@@ -102,7 +102,7 @@ where
       verify_sha256_checksum(&file_bytes, checksum)?;
     }
 
-    let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment)?;
+    let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
       file_hash: if check_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None },
@@ -131,7 +131,7 @@ where
 }
 
 fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
-  environment.download_file(path_source.unwrap_remote().url.as_str())
+  environment.download_file_err_404(path_source.unwrap_remote().url.as_str())
 }
 
 fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
@@ -149,28 +149,29 @@ mod test {
   use pretty_assertions::assert_eq;
   use std::path::PathBuf;
 
-  #[test]
-  fn should_download_remote_file() -> Result<()> {
+  #[tokio::test]
+  async fn should_download_remote_file() -> Result<()> {
     let environment = TestEnvironment::new();
     environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
     environment.set_wasm_compile_result(create_compilation_result("t".as_bytes()));
+    environment.set_cpu_arch("aarch64");
 
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("test-plugin-0.1.0.cached");
+    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-aarch64.cached");
 
     assert_eq!(file_path, expected_file_path);
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
 
     // should be the same when requesting it again
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
+    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
     assert_eq!(file_path, expected_file_path);
 
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":4,"plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
+      r#"{"schemaVersion":5,"plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
     );
 
     // should forget it afterwards
@@ -180,14 +181,14 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":4,"plugins":{}}"#,
+      r#"{"schemaVersion":5,"plugins":{}}"#,
     );
 
     Ok(())
   }
 
-  #[test]
-  fn should_cache_local_file() -> Result<()> {
+  #[tokio::test]
+  async fn should_cache_local_file() -> Result<()> {
     let environment = TestEnvironment::new();
     let original_file_path = PathBuf::from("/test.wasm");
     let file_bytes = "t".as_bytes();
@@ -196,24 +197,24 @@ mod test {
 
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("test-plugin-0.1.0.cached");
+    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-x86_64.cached");
 
     assert_eq!(file_path, expected_file_path);
 
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling /test.wasm"]);
 
     // should be the same when requesting it again
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source)?.file_path;
+    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
     assert_eq!(file_path, expected_file_path);
 
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":4,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
+        r#"{"schemaVersion":5,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
+        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
       )
     );
 
@@ -225,16 +226,17 @@ mod test {
 
     // should update the cache with the new file
     let file_path = plugin_cache
-      .get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone()))?
+      .get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone()))
+      .await?
       .file_path;
     assert_eq!(file_path, expected_file_path);
 
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":4,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
+        r#"{"schemaVersion":5,"plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url"}}}}"#,
+        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
       )
     );
 
@@ -247,7 +249,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":4,"plugins":{}}"#,
+      r#"{"schemaVersion":5,"plugins":{}}"#,
     );
 
     Ok(())
@@ -269,6 +271,7 @@ mod test {
       file_names: vec![],
       help_url: String::from("test-url"),
       config_schema_url: String::from("schema-url"),
+      update_url: Some(String::from("update-url")),
     }
   }
 }

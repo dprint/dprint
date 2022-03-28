@@ -17,8 +17,26 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
-  pub fn is_silent_output(&self) -> bool {
-    matches!(self.sub_command, SubCommand::StdInFmt(..))
+  #[cfg(test)]
+  pub fn empty() -> Self {
+    Self {
+      sub_command: SubCommand::Help("".to_string()),
+      verbose: false,
+      plugins: vec![],
+      config: None,
+      incremental: false,
+      file_patterns: vec![],
+      exclude_file_patterns: vec![],
+      allow_node_modules: false,
+    }
+  }
+
+  pub fn is_stdout_machine_readable(&self) -> bool {
+    // these output json or other text that's read by stdout
+    matches!(
+      self.sub_command,
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig
+    )
   }
 
   fn new_with_sub_command(sub_command: SubCommand) -> CliArgs {
@@ -63,6 +81,7 @@ pub struct FmtSubCommand {
 pub enum ConfigSubCommand {
   Init,
   Update,
+  Add(Option<String>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -126,6 +145,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", Some(matches)) => SubCommand::Config(match matches.subcommand() {
       ("init", _) => ConfigSubCommand::Init,
+      ("add", Some(matches)) => ConfigSubCommand::Add(matches.value_of("url-or-plugin-name").map(ToOwned::to_owned)),
       ("update", _) => ConfigSubCommand::Update,
       _ => unreachable!(),
     }),
@@ -137,7 +157,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     ("license", _) => SubCommand::License,
     ("editor-info", _) => SubCommand::EditorInfo,
     ("editor-service", Some(matches)) => SubCommand::EditorService(EditorServiceSubCommand {
-      parent_pid: matches.value_of("parent-pid").map(|v| v.parse::<u32>().ok()).flatten().unwrap(),
+      parent_pid: matches.value_of("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
     #[cfg(target_os = "windows")]
     ("hidden", Some(matches)) => SubCommand::Hidden(match matches.subcommand() {
@@ -154,20 +174,54 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     _ => None,
   };
 
+  let file_patterns = sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or_default();
+  let plugins = values_to_vec(matches.values_of("plugins"));
+
+  if !plugins.is_empty() && file_patterns.is_empty() {
+    validate_plugin_args_when_no_files(&plugins)?;
+  }
+
   Ok(CliArgs {
     sub_command,
     verbose: matches.is_present("verbose"),
     config: matches.value_of("config").map(String::from),
-    plugins: values_to_vec(matches.values_of("plugins")),
+    plugins,
     incremental: sub_command_matches.map(|m| m.is_present("incremental")).unwrap_or(false),
     allow_node_modules: sub_command_matches.map(|m| m.is_present("allow-node-modules")).unwrap_or(false),
-    file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or_default(),
+    file_patterns,
     exclude_file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("excludes"))).unwrap_or_default(),
   })
 }
 
 fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
   values.map(|x| x.map(std::string::ToString::to_string).collect()).unwrap_or_default()
+}
+
+/// Users have accidentally specified: dprint fmt --plugins <url1> <url2> -- <file-path>
+/// But it should be: dprint fmt --plugins <url1> <url2> -- <file-path>
+fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
+  for (i, plugin) in plugins.iter().enumerate() {
+    let lower_plugin = plugin.to_lowercase();
+    let is_valid_plugin =
+      lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".exe-plugin@") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".exe-plugin");
+    if !is_valid_plugin {
+      let start_message = format!(
+        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.",
+        plugin
+      );
+      if i == 0 {
+        bail!("{}", start_message);
+      } else {
+        bail!(
+          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- {} [etc...]",
+          start_message,
+          plugins[..i].join(" "),
+          plugins[i],
+        )
+      }
+    }
+  }
+  Ok(())
 }
 
 fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b> {
@@ -188,16 +242,16 @@ fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b>
   };
 
   app.setting(AppSettings::UnifiedHelpMessage)
-        .setting(AppSettings::DeriveDisplayOrder)
-        .bin_name("dprint")
-        .version_short("v")
-        .version(env!("CARGO_PKG_VERSION"))
-        .author("Copyright 2020-2021 by David Sherret")
-        .about("Auto-formats source code based on the specified plugins.")
-        .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
-        // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
-        // .version_aboute("Prints the version.")
-        .template(r#"{bin} {version}
+    .setting(AppSettings::DeriveDisplayOrder)
+    .bin_name("dprint")
+    .version_short("v")
+    .version(env!("CARGO_PKG_VERSION"))
+    .author("Copyright 2020-2022 by David Sherret")
+    .about("Auto-formats source code based on the specified plugins.")
+    .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
+    // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
+    // .version_aboute("Prints the version.")
+    .template(r#"{bin} {version}
 {author}
 
 {about}
@@ -218,7 +272,7 @@ ENVIRONMENT VARIABLES:
                       this directory may be periodically deleted by the CLI.
 
 {after-help}"#)
-        .after_help(
+    .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
   2. Run `dprint init` to create a dprint.json file in that directory.
@@ -241,138 +295,147 @@ EXAMPLES:
   Search for files using the specified file patterns:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
-        )
-        .subcommand(
-            SubCommand::with_name("init")
-                .about("Initializes a configuration file in the current directory.")
-        )
-        .subcommand(
-            SubCommand::with_name("fmt")
-                .about("Formats the source files and writes the result to the file system.")
-                .add_resolve_file_path_args()
-                .add_incremental_arg()
-                .arg(
-                    Arg::with_name("stdin")
-                        .long("stdin")
-                        .value_name("extension/file-name/file-path")
-                        .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
-                        .required(false)
-                        .takes_value(true)
-                )
-                .arg(
-                  Arg::with_name("diff")
-                    .long("diff")
-                    .help("Outputs a check-like diff of every formatted file.")
-                    .takes_value(false)
-                    .required(false)
-                )
-        )
-        .subcommand(
-            SubCommand::with_name("check")
-                .about("Checks for any files that haven't been formatted.")
-                .add_resolve_file_path_args()
-                .add_incremental_arg()
-        )
-        .subcommand(
-            SubCommand::with_name("config")
-                .about("Functionality related to the configuration file.")
-                .setting(AppSettings::SubcommandRequiredElseHelp)
-                .subcommand(
-                  SubCommand::with_name("init")
-                      .about("Initializes a configuration file in the current directory.")
-                )
-                .subcommand(
-                  SubCommand::with_name("update")
-                      .about("Updates the plugins in the configuration file.")
-                )
-        )
-        .subcommand(
-            SubCommand::with_name("output-file-paths")
-                .about("Prints the resolved file paths for the plugins based on the args and configuration.")
-                .add_resolve_file_path_args()
-        )
-        .subcommand(
-            SubCommand::with_name("output-resolved-config")
-                .about("Prints the resolved configuration for the plugins based on the args and configuration.")
-        )
-        .subcommand(
-            SubCommand::with_name("output-format-times")
-                .about("Prints the amount of time it takes to format each file. Use this for debugging.")
-                .add_resolve_file_path_args()
-        )
-        .subcommand(
-            SubCommand::with_name("clear-cache")
-                .about("Deletes the plugin cache directory.")
-        )
-        .subcommand(
-            SubCommand::with_name("license")
-                .about("Outputs the software license.")
-        )
-        .subcommand(
-            SubCommand::with_name("editor-info")
-                .setting(AppSettings::Hidden)
-        )
-        .subcommand(
-            SubCommand::with_name("editor-service")
-                .setting(AppSettings::Hidden)
-                .arg(
-                    Arg::with_name("parent-pid")
-                        .long("parent-pid")
-                        .required(true)
-                        .takes_value(true)
-                )
+    )
+    .subcommand(
+      SubCommand::with_name("init")
+        .about("Initializes a configuration file in the current directory.")
+    )
+    .subcommand(
+      SubCommand::with_name("fmt")
+        .about("Formats the source files and writes the result to the file system.")
+        .add_resolve_file_path_args()
+        .add_incremental_arg()
+        .arg(
+          Arg::with_name("stdin")
+            .long("stdin")
+            .value_name("extension/file-name/file-path")
+            .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
+            .required(false)
+            .takes_value(true)
         )
         .arg(
-            Arg::with_name("config")
-                .long("config")
-                .short("c")
-                .help("Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.")
-                .global(true)
-                .takes_value(true),
+          Arg::with_name("diff")
+            .long("diff")
+            .help("Outputs a check-like diff of every formatted file.")
+            .takes_value(false)
+            .required(false)
         )
-        .arg(
-            Arg::with_name("plugins")
-                .long("plugins")
-                .value_name("urls/files")
-                .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
-                .global(true)
+    )
+    .subcommand(
+      SubCommand::with_name("check")
+        .about("Checks for any files that haven't been formatted.")
+        .add_resolve_file_path_args()
+        .add_incremental_arg()
+    )
+    .subcommand(
+      SubCommand::with_name("config")
+        .about("Functionality related to the configuration file.")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(
+          SubCommand::with_name("init")
+            .about("Initializes a configuration file in the current directory.")
+        )
+        .subcommand(
+          SubCommand::with_name("update")
+            .about("Updates the plugins in the configuration file.")
+        )
+        .subcommand(
+          SubCommand::with_name("add")
+            .about("Adds a plugin to the configuration file.")
+            .arg(
+              Arg::with_name("url-or-plugin-name")
+                .required(false)
                 .takes_value(true)
-                .multiple(true),
+          )
         )
+    )
+    .subcommand(
+      SubCommand::with_name("output-file-paths")
+        .about("Prints the resolved file paths for the plugins based on the args and configuration.")
+        .add_resolve_file_path_args()
+    )
+    .subcommand(
+      SubCommand::with_name("output-resolved-config")
+        .about("Prints the resolved configuration for the plugins based on the args and configuration.")
+    )
+    .subcommand(
+      SubCommand::with_name("output-format-times")
+        .about("Prints the amount of time it takes to format each file. Use this for debugging.")
+        .add_resolve_file_path_args()
+    )
+    .subcommand(
+      SubCommand::with_name("clear-cache")
+        .about("Deletes the plugin cache directory.")
+    )
+    .subcommand(
+      SubCommand::with_name("license")
+        .about("Outputs the software license.")
+    )
+    .subcommand(
+      SubCommand::with_name("editor-info")
+        .setting(AppSettings::Hidden)
+    )
+    .subcommand(
+      SubCommand::with_name("editor-service")
+        .setting(AppSettings::Hidden)
         .arg(
-            Arg::with_name("verbose")
-                .long("verbose")
-                .help("Prints additional diagnostic information.")
-                .global(true)
-                .takes_value(false),
+          Arg::with_name("parent-pid")
+            .long("parent-pid")
+            .required(true)
+            .takes_value(true)
         )
-        .arg(
-            Arg::with_name("version")
-                .short("v")
-                .long("version")
-                .help("Prints the version.")
-                .takes_value(false),
+    )
+    .arg(
+      Arg::with_name("config")
+        .long("config")
+        .short("c")
+        .help("Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.")
+        .global(true)
+        .takes_value(true),
+    )
+    .arg(
+      Arg::with_name("plugins")
+        .long("plugins")
+        .value_name("urls/files")
+        .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
+        .global(true)
+        .takes_value(true)
+        .multiple(true),
+    )
+    .arg(
+      Arg::with_name("verbose")
+        .long("verbose")
+        .help("Prints additional diagnostic information.")
+        .global(true)
+        .takes_value(false),
+    )
+    .arg(
+      Arg::with_name("version")
+        .short("v")
+        .long("version")
+        .help("Prints the version.")
+        .takes_value(false),
+    )
+    .subcommand(
+      SubCommand::with_name("hidden")
+        .setting(AppSettings::Hidden)
+        .subcommand(
+          SubCommand::with_name("windows-install")
+            .arg(
+              Arg::with_name("install-path")
+                .takes_value(true)
+                .required(true)
+            )
         )
         .subcommand(
-            SubCommand::with_name("hidden")
-                .setting(AppSettings::Hidden)
-                .subcommand(
-                    SubCommand::with_name("windows-install")
-                        .arg(
-                            Arg::with_name("install-path")
-                                .takes_value(true)
-                                .required(true)
-                        )
-                )
-                .subcommand(
-                    SubCommand::with_name("windows-uninstall")
-                        .arg(
-                            Arg::with_name("install-path")
-                                .takes_value(true)
-                                .required(true)
-                        )
-                )
+          SubCommand::with_name("windows-uninstall")
+            .arg(
+              Arg::with_name("install-path")
+                .takes_value(true)
+                .required(true)
+            )
         )
+    )
 }
 
 trait ClapExtensions {
@@ -414,5 +477,43 @@ impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
         .help("Only format files when they change. This may alternatively be specified in the configuration file.")
         .takes_value(false),
     )
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use crate::utils::TestStdInReader;
+
+  use super::*;
+
+  #[test]
+  fn plugins_with_file_paths_no_dash_at_first() {
+    let err = test_args(vec!["fmt", "--plugins", "test", "other.ts"]).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.")
+    );
+  }
+
+  #[test]
+  fn plugins_with_file_paths_no_dash_after_first() {
+    let err = test_args(vec!["fmt", "--plugins", "https://plugins.dprint.dev/test.wasm", "other.ts"])
+      .err()
+      .unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.\n\n",
+        "Maybe you meant to add two dashes after the plugins?\n",
+        "  --plugins https://plugins.dprint.dev/test.wasm -- other.ts [etc...]",
+      )
+    );
+  }
+
+  fn test_args(args: Vec<&str>) -> Result<CliArgs> {
+    let stdin_reader = TestStdInReader::default();
+    let mut args: Vec<String> = args.into_iter().map(String::from).collect();
+    args.insert(0, "".to_string());
+    parse_args(args, stdin_reader)
   }
 }
