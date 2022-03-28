@@ -513,7 +513,7 @@ pub struct Condition {
   /// will store the condition and it will be retrievable via a condition resolver.
   pub(super) is_stored: bool,
   /// The condition to resolve.
-  pub(super) condition: Rc<ConditionResolver>,
+  pub(super) condition: ConditionResolver,
   /// The items to print when the condition is true.
   pub(super) true_path: Option<PrintItemPath>,
   /// The items to print when the condition is false or undefined (not yet resolved).
@@ -632,16 +632,16 @@ impl ConditionReference {
   }
 
   /// Creates a condition resolver that checks the value of the condition this references.
-  pub fn create_resolver(&self) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
+  pub fn create_resolver(&self) -> ConditionResolver {
     let captured_self = *self;
-    move |condition_context: &mut ConditionResolverContext| condition_context.get_resolved_condition(&captured_self)
+    Rc::new(move |condition_context: &mut ConditionResolverContext| condition_context.get_resolved_condition(&captured_self))
   }
 }
 
 /// Properties for the condition.
 pub struct ConditionProperties {
   /// The condition to resolve.
-  pub condition: Rc<ConditionResolver>,
+  pub condition: ConditionResolver,
   /// The items to print when the condition is true.
   pub true_path: Option<PrintItems>,
   /// The items to print when the condition is false or undefined (not yet resolved).
@@ -649,7 +649,7 @@ pub struct ConditionProperties {
 }
 
 /// Function used to resolve a condition.
-pub type ConditionResolver = dyn Fn(&mut ConditionResolverContext) -> Option<bool>;
+pub type ConditionResolver = Rc<dyn Fn(&mut ConditionResolverContext) -> Option<bool>>;
 
 /// Context used when resolving a condition.
 pub struct ConditionResolverContext<'a, 'b> {
@@ -720,6 +720,11 @@ impl WriterInfo {
   /// or if a newline is expected next.
   pub fn is_start_of_line(&self) -> bool {
     self.expect_newline_next || self.is_column_number_at_line_start()
+  }
+
+  /// Gets if the start of the line is indented.
+  pub fn is_start_of_line_indented(&self) -> bool {
+    self.line_start_indent_level > self.indent_level
   }
 
   /// Gets if the current column number is at the line start column number.

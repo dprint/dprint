@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
-use super::super::condition_resolvers;
+use crate::formatting::condition_helpers;
+
 use super::super::conditions;
 use super::super::print_items::*;
 
@@ -166,7 +167,7 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
         if context.has_info_moved(&start_info)? {
           context.clear_info(&end_info);
         }
-        condition_resolvers::is_multiple_lines(context, &start_info, &end_info)
+        condition_helpers::is_multiple_lines(context, &start_info, &end_info)
       }),
     },
     vec![end_info],

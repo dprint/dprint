@@ -135,6 +135,7 @@ impl<'a> Writer<'a> {
     self.state.indent_queue_count += 1;
   }
 
+  #[cfg(debug_assertions)]
   #[inline]
   pub fn get_indentation_level(&self) -> u8 {
     self.state.indent_level

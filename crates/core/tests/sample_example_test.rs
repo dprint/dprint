@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use dprint_core::formatting::*;
 
 enum Node<'a> {
@@ -178,7 +180,7 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
 
   return items;
 
-  fn gen_elements(elements: &[ArrayElement], is_multiple_lines: &(impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static)) -> PrintItems {
+  fn gen_elements(elements: &[ArrayElement], is_multiple_lines: &ConditionResolver) -> PrintItems {
     let mut items = PrintItems::new();
     let elements_len = elements.len();
 
@@ -206,15 +208,8 @@ fn gen_array_element(element: &ArrayElement) -> PrintItems {
 
 // helper functions
 
-fn create_is_multiple_lines_resolver(
-  parent_position: Position,
-  child_positions: Vec<Position>,
-  start_info: Info,
-  end_info: Info,
-) -> impl Fn(&mut ConditionResolverContext) -> Option<bool> + Clone + 'static {
-  // This could be more efficient by only using references and avoid clones
-  // I'm too lazy to update this sample, but it should help you get the idea.
-  move |condition_context: &mut ConditionResolverContext| {
+fn create_is_multiple_lines_resolver(parent_position: Position, child_positions: Vec<Position>, start_info: Info, end_info: Info) -> ConditionResolver {
+  Rc::new(move |condition_context: &mut ConditionResolverContext| {
     // no items, so format on the same line
     if child_positions.is_empty() {
       return Some(false);
@@ -226,6 +221,6 @@ fn create_is_multiple_lines_resolver(
     }
 
     // check if it spans multiple lines, and if it does then make it multi-line
-    condition_resolvers::is_multiple_lines(condition_context, &start_info, &end_info)
-  }
+    condition_helpers::is_multiple_lines(condition_context, &start_info, &end_info)
+  })
 }
