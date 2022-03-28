@@ -234,10 +234,10 @@ impl<TEnvironment: Environment> PluginWrapper<TEnvironment> {
         }
         None => {
           let result = output_plugin_config_diagnostics(self.name(), instance.clone(), error_logger).await;
-          instance.shutdown().await;
           *self.checked_diagnostics.lock() = Some(result.is_ok());
           if let Err(err) = result {
             self.environment.log_stderr(&err.to_string());
+            instance.shutdown().await;
             return Ok(GetPluginResult::HadDiagnostics);
           }
         }
