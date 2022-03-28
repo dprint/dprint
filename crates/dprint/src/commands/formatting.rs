@@ -323,11 +323,11 @@ mod test {
 
   #[test]
   fn should_handle_wasm_plugin_panicking() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file1.txt", "should_panic") // special text to make it panic
-      .write_file("/file2.txt", "test")
+      .write_file("/file2.txt_ps", "test")
       .build();
-    let error_message = run_test_cli(vec!["fmt", "**.txt"], &environment).err().unwrap();
+    let error_message = run_test_cli(vec!["fmt", "**.{txt,txt_ps}"], &environment).err().unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
     let logged_errors = environment.take_stderr_messages();
     assert_eq!(logged_errors.len(), 1);
@@ -338,7 +338,8 @@ mod test {
     );
     assert_eq!(&logged_errors[0][..expected_start_text.len()], expected_start_text);
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(environment.read_file("/file2.txt").unwrap(), "test_formatted");
+    // should still format with the other plugin
+    assert_eq!(environment.read_file("/file2.txt_ps").unwrap(), "test_formatted_process");
   }
 
   #[test]
