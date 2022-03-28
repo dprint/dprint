@@ -98,6 +98,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
     )
     .await?;
     let plugin_info = communicator.plugin_info().await?;
+    communicator.shutdown().await;
 
     Ok(SetupPluginResult {
       plugin_info,

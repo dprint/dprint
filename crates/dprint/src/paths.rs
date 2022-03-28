@@ -103,6 +103,6 @@ pub async fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs,
   let environment = environment.clone();
 
   // This is intensive so do it in a blocking task
-  // Eventually this could should maybe be changed to use tokio threads
+  // Eventually this could should maybe be changed to use tokio tasks
   tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
 }
