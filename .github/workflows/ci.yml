@@ -73,10 +73,10 @@ jobs:
     # TEST
     - name: Test debug
       if: matrix.config.kind == 'test_debug'
-      run: cargo test --locked --all-features -- --nocapture
+      run: cargo test --locked --all-features
     - name: Test release
       if: matrix.config.kind == 'test_release'
-      run: cargo test --locked --all-features --release -- --nocapture
+      run: cargo test --locked --all-features --release
 
     # INSTALLER
     - name: Create installer (Windows x86_64)
