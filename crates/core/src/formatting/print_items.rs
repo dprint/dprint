@@ -711,13 +711,17 @@ pub struct WriterInfo {
   pub column_number: u32,
   pub indent_level: u8,
   pub line_start_indent_level: u8,
-  pub line_start_column_number: u32,
+  pub indent_width: u8,
 }
 
 impl WriterInfo {
   /// Gets if the current column number equals the line start column number.
   pub fn is_start_of_line(&self) -> bool {
-    self.column_number == self.line_start_column_number
+    self.column_number == self.line_start_column_number()
+  }
+
+  pub fn line_start_column_number(&self) -> u32 {
+    (self.line_start_indent_level as u32) * (self.indent_width as u32)
   }
 
   /// Gets the line and column number.

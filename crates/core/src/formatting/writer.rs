@@ -24,7 +24,7 @@ impl<'a> WriterState<'a> {
       column_number: self.get_line_column(indent_width),
       indent_level: self.indent_level,
       line_start_indent_level: self.last_line_indent_level,
-      line_start_column_number: (self.last_line_indent_level as u32) * (indent_width as u32),
+      indent_width,
     }
   }
 
