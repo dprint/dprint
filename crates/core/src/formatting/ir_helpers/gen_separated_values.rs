@@ -422,7 +422,7 @@ fn get_is_start_standalone_line(start_info: Info) -> Condition {
     ConditionProperties {
       condition: Rc::new(move |condition_context| {
         let start_info = condition_context.get_resolved_info(&start_info)?;
-        Some(start_info.is_start_of_line())
+        Some(start_info.is_column_number_at_line_start())
       }),
       false_path: None,
       true_path: None,
