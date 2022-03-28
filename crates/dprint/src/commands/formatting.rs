@@ -763,6 +763,7 @@ mod test {
 
   #[test]
   fn should_error_config_diagnostic_multiple_plugins_same_file_via_associations() {
+    eprintln!("ENTERING");
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_local_config("/config.json", |c| {
         c.add_remote_wasm_plugin()
@@ -790,8 +791,10 @@ mod test {
       .write_file("/test.txt", "text")
       .write_file("/shared_file", "text")
       .build();
+    eprintln!("INITIALIZED");
 
     let error_message = run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).err().unwrap();
+    eprintln!("FINISHED");
 
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
     assert_eq!(environment.take_stdout_messages().len(), 0);
