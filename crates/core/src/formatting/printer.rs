@@ -320,7 +320,7 @@ impl<'a> Printer<'a> {
         let rewrap_line_number = rewrap_save_point.writer_state.get_writer_info(self.writer.get_indent_width()).line_number;
         let save_point_info = save_point.writer_state.get_writer_info(self.writer.get_indent_width());
         let current_line_number = save_point_info.line_number;
-        let current_line_length = save_point_info.column_number - save_point_info.line_start_column_number;
+        let current_line_length = save_point_info.column_number - save_point_info.line_start_column_number();
         let merged_line_length = self.rewrap_line_length.unwrap() + current_line_length + if rewrap_save_point.rewrap_should_add_space { 1 } else { 0 };
         if rewrap_line_number == current_line_number - 1 && merged_line_length < self.max_width {
           self.update_state_to_rewrap_save_point();
