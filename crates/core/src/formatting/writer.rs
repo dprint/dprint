@@ -25,6 +25,7 @@ impl<'a> WriterState<'a> {
       indent_level: self.indent_level,
       line_start_indent_level: self.last_line_indent_level,
       indent_width,
+      expect_newline_next: self.expect_newline_next,
     }
   }
 

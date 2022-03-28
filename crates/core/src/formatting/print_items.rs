@@ -712,11 +712,18 @@ pub struct WriterInfo {
   pub indent_level: u8,
   pub line_start_indent_level: u8,
   pub indent_width: u8,
+  pub expect_newline_next: bool,
 }
 
 impl WriterInfo {
-  /// Gets if the current column number equals the line start column number.
+  /// Gets if the current column number equals the line start column number
+  /// or if a newline is expected next.
   pub fn is_start_of_line(&self) -> bool {
+    self.expect_newline_next || self.is_column_number_at_line_start()
+  }
+
+  /// Gets if the current column number is at the line start column number.
+  pub fn is_column_number_at_line_start(&self) -> bool {
     self.column_number == self.line_start_column_number()
   }
 
