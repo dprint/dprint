@@ -4,6 +4,7 @@ use super::StringContainer;
 use super::WriteItem;
 use bumpalo::Bump;
 
+#[derive(Clone)]
 pub struct WriterState<'a> {
   current_line_column: u32,
   current_line_number: u32,
@@ -20,26 +21,19 @@ impl<'a> WriterState<'a> {
   pub fn get_writer_info(&self, indent_width: u8) -> WriterInfo {
     WriterInfo {
       line_number: self.current_line_number,
-      column_number: self.current_line_column,
+      column_number: self.get_line_column(indent_width),
       indent_level: self.indent_level,
       line_start_indent_level: self.last_line_indent_level,
-      line_start_column_number: get_line_start_column_number(self, indent_width),
+      line_start_column_number: (self.last_line_indent_level as u32) * (indent_width as u32),
     }
   }
-}
 
-impl<'a> Clone for WriterState<'a> {
-  fn clone(&self) -> WriterState<'a> {
-    WriterState {
-      current_line_column: self.current_line_column,
-      current_line_number: self.current_line_number,
-      last_line_indent_level: self.last_line_indent_level,
-      indent_level: self.indent_level,
-      expect_newline_next: self.expect_newline_next,
-      indent_queue_count: self.indent_queue_count,
-      last_was_not_trailing_space: self.last_was_not_trailing_space,
-      ignore_indent_count: self.ignore_indent_count,
-      items: self.items,
+  #[inline]
+  pub fn get_line_column(&self, indent_width: u8) -> u32 {
+    if self.current_line_column == 0 {
+      (indent_width as u32) * (self.indent_level as u32)
+    } else {
+      self.current_line_column
     }
   }
 }
@@ -77,6 +71,10 @@ impl<'a> Writer<'a> {
       #[cfg(feature = "tracing")]
       nodes: if options.enable_tracing { Some(Vec::new()) } else { None },
     }
+  }
+
+  pub fn get_writer_info(&self) -> WriterInfo {
+    self.state.get_writer_info(self.indent_width)
   }
 
   pub fn get_state(&self) -> WriterState<'a> {
@@ -137,11 +135,6 @@ impl<'a> Writer<'a> {
   }
 
   #[inline]
-  pub fn get_line_start_indent_level(&self) -> u8 {
-    self.state.last_line_indent_level
-  }
-
-  #[inline]
   pub fn get_indentation_level(&self) -> u8 {
     self.state.indent_level
   }
@@ -157,22 +150,8 @@ impl<'a> Writer<'a> {
   }
 
   #[inline]
-  pub fn get_line_start_column_number(&self) -> u32 {
-    get_line_start_column_number(&self.state, self.indent_width)
-  }
-
-  #[inline]
   pub fn get_line_column(&self) -> u32 {
-    if self.state.current_line_column == 0 {
-      (self.indent_width as u32) * (self.state.indent_level as u32)
-    } else {
-      self.state.current_line_column
-    }
-  }
-
-  #[inline]
-  pub fn get_line_number(&self) -> u32 {
-    self.state.current_line_number
+    self.state.get_line_column(self.indent_width)
   }
 
   pub fn new_line(&mut self) {
@@ -291,11 +270,6 @@ impl<'a> Writer<'a> {
     }
     items
   }
-}
-
-#[inline]
-fn get_line_start_column_number(writer_state: &WriterState, indent_width: u8) -> u32 {
-  (writer_state.last_line_indent_level as u32) * (indent_width as u32)
 }
 
 #[cfg(test)]
