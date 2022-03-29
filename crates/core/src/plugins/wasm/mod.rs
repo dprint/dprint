@@ -36,7 +36,7 @@ pub mod macros {
         file_path: &std::path::Path,
         file_text: String,
         override_config: &dprint_core::configuration::ConfigKeyMap,
-      ) -> anyhow::Result<String> {
+      ) -> anyhow::Result<Option<String>> {
         #[link(wasm_import_module = "dprint")]
         extern "C" {
           fn host_clear_bytes(length: u32);
@@ -60,18 +60,18 @@ pub mod macros {
         unsafe {
           host_take_file_path();
         }
-        send_string_to_host(file_text.clone());
+        send_string_to_host(file_text);
 
         return match unsafe { host_format() } {
           0 => {
             // no change
-            Ok(file_text)
+            Ok(None)
           }
           1 => {
             // change
             let length = unsafe { host_get_formatted_text() };
             let formatted_text = get_string_from_host(length);
-            Ok(formatted_text)
+            Ok(Some(formatted_text))
           }
           2 => {
             // error
@@ -149,13 +149,12 @@ pub mod macros {
 
         let formatted_text = unsafe { WASM_PLUGIN.get().format(&file_path, &file_text, &config, format_with_host) };
         match formatted_text {
-          Ok(formatted_text) => {
-            if formatted_text == file_text {
-              0 // no change
-            } else {
-              unsafe { FORMATTED_TEXT.get().replace(formatted_text) };
-              1 // change
-            }
+          Ok(None) => {
+            0 // no change
+          }
+          Ok(Some(formatted_text)) => {
+            unsafe { FORMATTED_TEXT.get().replace(formatted_text) };
+            1 // change
           }
           Err(err_text) => {
             unsafe { ERROR_TEXT.get().replace(err_text.to_string()) };
@@ -203,6 +202,14 @@ pub mod macros {
       pub fn get_config_diagnostics() -> usize {
         let bytes = serde_json::to_vec(&get_resolved_config_result().diagnostics).unwrap();
         set_shared_bytes(bytes)
+      }
+
+      // for clearing the config in the playground
+      #[no_mangle]
+      pub fn reset_config() {
+        unsafe {
+          RESOLVE_CONFIGURATION_RESULT.get().take();
+        }
       }
 
       fn get_resolved_config_result<'a>() -> &'a dprint_core::configuration::ResolveConfigurationResult<Configuration> {

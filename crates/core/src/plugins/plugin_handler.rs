@@ -118,6 +118,6 @@ pub trait SyncPluginHandler<TConfiguration: Clone + Serialize> {
     file_path: &Path,
     file_text: &str,
     config: &TConfiguration,
-    format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
-  ) -> Result<String>;
+    format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> FormatResult,
+  ) -> FormatResult;
 }
