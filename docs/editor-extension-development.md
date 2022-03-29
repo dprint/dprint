@@ -115,7 +115,7 @@ Causes the service to shut down itself and all the process plugins gracefully.
 
 Message body: None
 
-Response: No response
+Response: Success response and then CLI will exit process. The CLI will handle the client not accepting this response though.
 
 #### `3` - Active (Client to Service, Service to Client)
 
