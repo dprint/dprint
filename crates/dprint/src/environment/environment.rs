@@ -62,7 +62,10 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     total_size: usize,
   ) -> TResult;
   fn get_cache_dir(&self) -> PathBuf;
+  /// Gets the CPU architecture.
   fn cpu_arch(&self) -> String;
+  /// Gets the operating system.
+  fn os(&self) -> String;
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;

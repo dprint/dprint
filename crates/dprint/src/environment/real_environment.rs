@@ -207,6 +207,10 @@ impl Environment for RealEnvironment {
     std::env::consts::ARCH.to_string()
   }
 
+  fn os(&self) -> String {
+    std::env::consts::OS.to_string()
+  }
+
   fn get_time_secs(&self) -> u64 {
     SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
   }

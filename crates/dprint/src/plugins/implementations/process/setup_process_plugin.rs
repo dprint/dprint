@@ -113,7 +113,7 @@ pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Envir
   Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct ProcessPluginFile {
   schema_version: u32,
@@ -129,7 +129,7 @@ struct ProcessPluginFile {
   windows: Option<ProcessPluginPath>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct ProcessPluginPath {
   reference: String,
@@ -182,28 +182,29 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
 
 fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
   let arch = environment.cpu_arch();
-  let path = if cfg!(target_os = "linux") {
-    match arch.as_str() {
+  let os = environment.os();
+  let path = match os.as_str() {
+    "linux" => match arch.as_str() {
       "x86_64" => plugin_file.linux.as_ref(),
       _ => None,
-    }
-  } else if cfg!(target_os = "macos") {
-    match arch.as_str() {
+    },
+    "macos" => match arch.as_str() {
       "x86_64" => plugin_file.darwin_x86_64.as_ref(),
       "aarc64" => plugin_file.darwin_aarch64.as_ref().or(plugin_file.darwin_x86_64.as_ref()),
       _ => None,
-    }
-  } else if cfg!(target_os = "windows") {
-    match arch.as_str() {
+    },
+    "windows" => match arch.as_str() {
       "x86_64" => plugin_file.windows.as_ref(),
       _ => None,
-    }
-  } else {
-    bail!("Unsupported operating system.")
+    },
+    _ => bail!("Unsupported operating system: {}", os),
   };
 
   match path {
     Some(path) => Ok(path),
-    None => bail!("Unsupported CPU architecture: {}", arch),
+    None => {
+      log_verbose!(environment, "Plugin File -- {:#?}", plugin_file);
+      bail!("Unsupported CPU architecture: {} ({})", arch, os)
+    }
   }
 }

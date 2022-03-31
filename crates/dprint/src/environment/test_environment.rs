@@ -421,6 +421,10 @@ impl Environment for TestEnvironment {
     self.cpu_arch.lock().clone()
   }
 
+  fn os(&self) -> String {
+    std::env::consts::OS.to_string()
+  }
+
   fn get_time_secs(&self) -> u64 {
     123456
   }
