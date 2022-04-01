@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::Context as AnyhowContext;
 use anyhow::Result;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
@@ -119,7 +120,8 @@ impl ProcessPluginCommunicator {
     let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
-    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)?;
+    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
+      .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade.")?;
 
     let (message_tx, message_rx) = crossbeam_channel::unbounded::<Message>();
     let context = Context {
@@ -330,21 +332,17 @@ fn verify_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
   reader: &mut MessageReader<TRead>,
   writer: &mut MessageWriter<TWrite>,
 ) -> Result<()> {
-  writer.send_u32(0)?; // ask for schema version
-  writer.flush()?;
-  if reader.read_u32()? != 0 {
-    bail!(concat!(
-      "There was a problem checking the plugin schema version. ",
-      "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade."
-    ));
+  // since this is the setup, use a lot of contexts to find exactly where it failed
+  writer.send_u32(0).context("Failed asking for schema version.")?; // ask for schema version
+  writer.flush().context("Failed flushing schema version request.")?;
+  let acknowledgement_response = reader.read_u32().context("Could not read success response.")?;
+  if acknowledgement_response != 0 {
+    bail!("Plugin response was unexpected ({acknowledgement_response}).");
   }
-  let plugin_schema_version = reader.read_u32()?;
+  let plugin_schema_version = reader.read_u32().context("Could not read schema version.")?;
   if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
     bail!(
-      concat!(
-        "The plugin schema version was {}, but expected {}. ",
-        "This may indicate you are using an old version of the dprint CLI or plugin and should upgrade."
-      ),
+      "The plugin schema version was {}, but expected {}.",
       plugin_schema_version,
       PLUGIN_SCHEMA_VERSION
     );
