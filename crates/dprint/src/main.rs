@@ -37,7 +37,7 @@ fn main() {
     match run(handle).await {
       Ok(_) => {}
       Err(err) => {
-        eprintln!("{}", err);
+        eprintln!("{:#}", err);
         std::process::exit(1);
       }
     }

@@ -43,7 +43,7 @@ pub async fn output_help<TEnvironment: Environment>(
       }
     }
     Err(err) => {
-      log_verbose!(environment, "Error getting plugins for help. {}", err.to_string());
+      log_verbose!(environment, "Error getting plugins for help. {:#}", err.to_string());
     }
   }
 

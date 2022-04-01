@@ -138,7 +138,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             file_text: match String::from_utf8(body.file_text) {
               Ok(text) => text,
               Err(err) => {
-                send_error_response(&context, message.id, anyhow!("Error decoding text to utf8: {}", err));
+                send_error_response(&context, message.id, anyhow!("Error decoding text to utf8: {:#}", err));
                 continue;
               }
             },
@@ -161,7 +161,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                 }),
                 Err(err) => MessageBody::Error(ResponseBody {
                   message_id: message.id,
-                  data: format!("{}", err).into_bytes(),
+                  data: format!("{:#}", err).into_bytes(),
                 }),
               };
               send_response_body(&context, body)
@@ -186,7 +186,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             None => Ok(None),
             Some(data) => match String::from_utf8(data) {
               Ok(data) => Ok(Some(data)),
-              Err(err) => Err(anyhow!("Error deserializing success: {}", err)),
+              Err(err) => Err(anyhow!("Error deserializing success: {:#}", err)),
             },
           };
           if let Some(sender) = context.format_host_senders.take(body.message_id) {
@@ -229,7 +229,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
           override_config: serde_json::to_vec(&request.override_config).unwrap(),
         }),
       })
-      .unwrap_or_else(|err| panic!("Error sending host format response: {}", err));
+      .unwrap_or_else(|err| panic!("Error sending host format response: {:#}", err));
 
     let token = request.token;
     let stdout_writer = self.context.stdout_writer.clone();
@@ -243,7 +243,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
           stdout_writer.send(Message {
             id: id_generator.next(),
             body: MessageBody::CancelFormat(original_message_id),
-          }).unwrap_or_else(|err| panic!("Error sending host format cancellation: {}", err));
+          }).unwrap_or_else(|err| panic!("Error sending host format cancellation: {:#}", err));
 
           // return no change
           Ok(None)
@@ -291,7 +291,7 @@ fn send_error_response<TConfiguration: Serialize + Clone + Send + Sync>(
 ) {
   let body = MessageBody::Error(ResponseBody {
     message_id: original_message_id,
-    data: format!("{}", err).into_bytes(),
+    data: format!("{:#}", err).into_bytes(),
   });
   send_response_body(context, body)
 }
@@ -302,7 +302,7 @@ fn send_response_body<TConfiguration: Serialize + Clone + Send + Sync>(context: 
     body,
   };
   if let Err(err) = context.stdout_writer.send(message) {
-    panic!("Receiver dropped. {}", err);
+    panic!("Receiver dropped. {:#}", err);
   }
 }
 

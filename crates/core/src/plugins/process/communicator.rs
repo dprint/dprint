@@ -103,7 +103,7 @@ impl ProcessPluginCommunicator {
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
-      .map_err(|err| anyhow!("Error starting {} with args [{}]. {}", executable_file_path.display(), args.join(" "), err))?;
+      .map_err(|err| anyhow!("Error starting {} with args [{}]. {:#}", executable_file_path.display(), args.join(" "), err))?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
@@ -141,7 +141,7 @@ impl ProcessPluginCommunicator {
         loop {
           if let Err(err) = read_stdout_message(&mut stdout_reader, &context) {
             if !context.poisoner.is_poisoned() && !context.shutdown_flag.is_raised() {
-              on_std_err(format!("Error reading stdout message: {}", err));
+              on_std_err(format!("Error reading stdout message: {:#}", err));
             }
             break;
           }
@@ -320,7 +320,7 @@ impl ProcessPluginCommunicator {
           Ok(data) => Ok(data),
           Err(err) => {
             self.context.poisoner.poison();
-            bail!("Error waiting on message ({}). {}", message_id, err)
+            bail!("Error waiting on message ({}). {:#}", message_id, err)
           }
         }
       }
@@ -365,7 +365,7 @@ fn std_err_redirect(poisoner: Poisoner, shutdown_flag: ArcFlag, stderr: ChildStd
           poisoner.poison();
           return;
         } else {
-          on_std_err(format!("Error reading line from process plugin stderr. {}", err));
+          on_std_err(format!("Error reading line from process plugin stderr. {:#}", err));
         }
       }
     }
@@ -450,7 +450,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
             }),
             Err(err) => MessageBody::Error(ResponseBody {
               message_id: message.id,
-              data: format!("{}", err).into_bytes(),
+              data: format!("{:#}", err).into_bytes(),
             }),
           },
         });

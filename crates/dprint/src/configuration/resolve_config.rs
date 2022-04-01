@@ -120,7 +120,7 @@ fn resolve_extends<TEnvironment: Environment>(
     let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, cache, environment)?;
     match handle_config_file(&resolved_path, resolved_config, cache, environment) {
       Ok(extends) => extends,
-      Err(err) => bail!("Error with '{}'. {}", resolved_path.source.display(), err.to_string()),
+      Err(err) => bail!("Error with '{}'. {:#}", resolved_path.source.display(), err),
     }
   }
   Ok(())

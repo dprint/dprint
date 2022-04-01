@@ -56,7 +56,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
   return match result {
     Ok(result) => Ok(result),
     Err(err) => {
-      log_verbose!(environment, "Failed setting up process plugin. {}", err);
+      log_verbose!(environment, "Failed setting up process plugin. {:#}", err);
       // failed, so delete the dir if it exists
       let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
       Err(err)

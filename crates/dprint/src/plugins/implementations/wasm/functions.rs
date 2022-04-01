@@ -166,9 +166,9 @@ impl WasmFunctions {
     match self.instance.exports.get_function(name) {
       Ok(func) => match func.native::<Args, Rets>() {
         Ok(native_func) => Ok(native_func),
-        Err(err) => bail!("Error creating function '{}'. Message: {}", name, err.to_string()),
+        Err(err) => bail!("Error creating function '{}'. Message: {:#}", name, err),
       },
-      Err(err) => bail!("Could not find export in plugin with name '{}'. Message: {}", name, err.to_string()),
+      Err(err) => bail!("Could not find export in plugin with name '{}'. Message: {:#}", name, err),
     }
   }
 }
@@ -184,6 +184,6 @@ fn wasm_runtime_error_to_err_box<T>(result: Result<T, RuntimeError>) -> Result<T
   // need to do this because RuntimeError can't be sent between threads safely
   match result {
     Ok(value) => Ok(value),
-    Err(err) => bail!("{}", err.to_string()),
+    Err(err) => Err(err.into()),
   }
 }

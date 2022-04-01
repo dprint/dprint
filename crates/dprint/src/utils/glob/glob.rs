@@ -70,7 +70,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
         let info_result = self
           .environment
           .dir_info(&current_dir)
-          .map_err(|err| anyhow!("Error reading dir '{}': {}", current_dir.display(), err.to_string()));
+          .map_err(|err| anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
         match info_result {
           Ok(entries) => {
             if !entries.is_empty() {
@@ -197,7 +197,7 @@ impl GlobMatchingProcessor {
           }
         }
         ReadDirThreadState::Error(err) => {
-          return Err(anyhow!("{}", err.to_string()));
+          return Err(anyhow!("{:#}", err));
         }
         ReadDirThreadState::Processing => {
           // wait to be notified by the other thread

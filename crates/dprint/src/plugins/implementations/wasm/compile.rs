@@ -15,7 +15,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
   let module = Module::new(&store, wasm_bytes)?;
   let bytes = match module.serialize() {
     Ok(bytes) => bytes,
-    Err(err) => bail!("Error serializing wasm module: {:?}", err),
+    Err(err) => bail!("Error serializing wasm module: {:#}", err),
   };
 
   // load the plugin and get the info

@@ -23,7 +23,7 @@ pub fn get_incremental_file<TEnvironment: Environment>(
     let base_path = match environment.canonicalize(&config.base_path) {
       Ok(base_path) => base_path,
       Err(err) => {
-        environment.log_stderr(&format!("Could not canonicalize base path for incremental feature. {}", err));
+        environment.log_stderr(&format!("Could not canonicalize base path for incremental feature. {:#}", err));
         return None;
       }
     };
@@ -40,7 +40,7 @@ pub fn get_incremental_file<TEnvironment: Environment>(
       match cache_item {
         Ok(cache_item) => cache_item,
         Err(err) => {
-          environment.log_stderr(&format!("Could not create cache item for incremental feature. {}", err));
+          environment.log_stderr(&format!("Could not create cache item for incremental feature. {:#}", err));
           return None;
         }
       }

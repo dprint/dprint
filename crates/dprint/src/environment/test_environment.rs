@@ -263,7 +263,7 @@ impl UrlDownloader for TestEnvironment {
     let remote_files = self.remote_files.lock();
     match remote_files.get(&String::from(url)) {
       Some(Ok(result)) => Ok(Some(result.clone())),
-      Some(Err(err)) => Err(anyhow!("{}", err)),
+      Some(Err(err)) => Err(anyhow!("{:#}", err)),
       None => Ok(None),
     }
   }

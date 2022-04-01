@@ -51,14 +51,14 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
           Ok(()) => {}
           Err(inner_err) => {
             bail!(
-              "Error resolving plugin {} and forgetting from cache: {}\n{}",
+              "Error resolving plugin {} and forgetting from cache: {:#}\n{:#}",
               plugin_reference.display(),
               err,
               inner_err
             )
           }
         }
-        bail!("Error resolving plugin {}: {}", plugin_reference.display(), err);
+        bail!("Error resolving plugin {}: {:#}", plugin_reference.display(), err);
       }
     }
   }

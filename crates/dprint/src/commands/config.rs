@@ -142,14 +142,14 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
   current_plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<InfoFilePluginInfo>> {
-  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
+  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {:#}", err))?;
   let current_plugin_names = get_config_file_plugins(plugin_resolver, current_plugins)
     .await
     .into_iter()
     .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
       Ok(plugin) => Some(plugin.name().to_string()),
-      Err(error) => {
-        environment.log_stderr(&format!("Error resolving plugin: {}\n\n{}", plugin_reference.path_source.display(), error));
+      Err(err) => {
+        environment.log_stderr(&format!("Error resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err));
         None
       }
     })
@@ -199,7 +199,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
         }
       }
       Err(err_info) => {
-        environment.log_stderr(&format!("Error updating plugin {}: {}", err_info.name, err_info.error));
+        environment.log_stderr(&format!("Error updating plugin {}: {:#}", err_info.name, err_info.error));
       }
     }
   }
@@ -222,7 +222,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
   let info_file = match read_info_file(environment) {
     Ok(info_file) => Some(info_file),
     Err(err) => {
-      environment.log_stderr(&format!("Error downloading info file. {}", err));
+      environment.log_stderr(&format!("Error downloading info file. {:#}", err));
       None
     }
   };
@@ -261,7 +261,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
             }
             Err(err) => {
               // output and fallback to using the info file
-              environment.log_stderr(&format!("Error reading plugin latest info. {}", err));
+              environment.log_stderr(&format!("Error reading plugin latest info. {:#}", err));
             }
           }
         }

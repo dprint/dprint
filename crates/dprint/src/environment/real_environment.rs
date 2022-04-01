@@ -51,7 +51,7 @@ impl RealEnvironment {
 
     // ensure the cache directory is created
     if let Err(err) = environment.mk_dir_all(&get_cache_dir()?) {
-      bail!("Error creating cache directory: {:?}", err);
+      bail!("Error creating cache directory: {:#}", err);
     }
 
     Ok(environment)
@@ -79,7 +79,7 @@ impl Environment for RealEnvironment {
     log_verbose!(self, "Reading file: {}", file_path.as_ref().display());
     match fs::read(&file_path) {
       Ok(bytes) => Ok(bytes),
-      Err(err) => bail!("Error reading file {}: {}", file_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
     }
   }
 
@@ -91,7 +91,7 @@ impl Environment for RealEnvironment {
     log_verbose!(self, "Writing file: {}", file_path.as_ref().display());
     match fs::write(&file_path, bytes) {
       Ok(_) => Ok(()),
-      Err(err) => bail!("Error writing file {}: {}", file_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error writing file {}: {:#}", file_path.as_ref().display(), err),
     }
   }
 
@@ -100,7 +100,7 @@ impl Environment for RealEnvironment {
     match fs::remove_file(&file_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-      Err(err) => bail!("Error deleting file {}: {}", file_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error deleting file {}: {:#}", file_path.as_ref().display(), err),
     }
   }
 
@@ -109,7 +109,7 @@ impl Environment for RealEnvironment {
     match fs::remove_dir_all(&dir_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-      Err(err) => bail!("Error removing directory {}: {}", dir_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error removing directory {}: {:#}", dir_path.as_ref().display(), err),
     }
   }
 
@@ -122,7 +122,7 @@ impl Environment for RealEnvironment {
         if is_system_volume_error(dir_path.as_ref(), &err) {
           return Ok(Vec::with_capacity(0));
         } else {
-          bail!("{}", err);
+          return Err(err.into());
         }
       }
     };
@@ -155,7 +155,7 @@ impl Environment for RealEnvironment {
     // use this to avoid //?//C:/etc... like paths on windows (UNC)
     match dunce::canonicalize(path.as_ref()) {
       Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
-      Err(err) => bail!("Error canonicalizing path {}: {}", path.as_ref().display(), err),
+      Err(err) => bail!("Error canonicalizing path {}: {:#}", path.as_ref().display(), err),
     }
   }
 
@@ -167,7 +167,7 @@ impl Environment for RealEnvironment {
     log_verbose!(self, "Creating directory: {}", path.as_ref().display());
     match fs::create_dir_all(&path) {
       Ok(_) => Ok(()),
-      Err(err) => bail!("Error creating directory {}: {}", path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error creating directory {}: {:#}", path.as_ref().display(), err),
     }
   }
 

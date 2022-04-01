@@ -140,10 +140,14 @@ where
             long_format_token.cancel();
             if let Err(err) = result {
               if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
-                error_logger.log_error(&format!("Critical error formatting {}. Cannot continue. Message: {}", file_path.display(), err));
+                error_logger.log_error(&format!(
+                  "Critical error formatting {}. Cannot continue. Message: {:#}",
+                  file_path.display(),
+                  err
+                ));
                 semaphore.close(); // stop formatting
               } else {
-                error_logger.log_error(&format!("Error formatting {}. Message: {}", file_path.display(), err));
+                error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
               }
             }
             // drop the semaphore permit when we're all done

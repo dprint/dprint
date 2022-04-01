@@ -45,7 +45,7 @@ where
 
     if let Some(cache_item) = cache_item {
       if let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
-        self.environment.log_stderr(&format!("Error forgetting plugin: {}", err))
+        self.environment.log_stderr(&format!("Error forgetting plugin: {:#}", err))
       }
     }
 
