@@ -1,6 +1,6 @@
 # Developing an Editor Extension (Schema Version 5)
 
-Note: Schema version 5 was introduced in dprint 0.X
+Note: Schema version 5 was introduced in dprint 0.25
 
 Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
 
@@ -72,7 +72,7 @@ This starts a long running process that can be communicated with over stdin and 
 
 Run `dprint editor-service --parent-pid <provide your current process pid here>`
 
-The editor service polls for the provided process id every 30 seconds and if it doesn't exist it will exit.
+The editor service polls for the provided process id every 10 seconds and if it doesn't exist it will exit.
 
 ### Messages
 
@@ -178,13 +178,3 @@ Message body:
 - u32 - Message id of the format to cancel
 
 Response: Clients should not expect a message back. This message is fire and forget. Remember though, you may still receive a response from the CLI for this cancelled message. In that case, just ignore the message.
-
-#### `9` - Notification (Service to Client)
-
-TODO: is there a need for this? Might not do it.
-
-Message body:
-
-- todo: look at what the lsp does
-
-Response: No response
