@@ -82,12 +82,16 @@ Messages are sent in the following format:
 <ID><KIND>[<BODY>]<SUCCESS_BYTES>
 ```
 
-- `ID` - u32 - Identifier of the message.
+- `ID` - u32 - Identifier of the message
 - `KIND` - u32 - Kind of request
+- `BODY_LENGTH` - u32 - Size of the body
 - `BODY` - Depends on the kind and may be optional
 - `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
 
-Messages sent from the client to the editor service may have response messages and responses need to be correlated with the ID of the message that was sent.
+Notes:
+
+- Messages sent from the client to the editor service may have response messages and responses need to be correlated with the ID of the message that was sent.
+- If an unknown message kind is received, return an error (don't ignore it).
 
 ### Message Kinds
 
