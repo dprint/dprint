@@ -10,21 +10,20 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use super::communication::MessageReader;
-use super::communication::MessageWriter;
 use super::context::ProcessContext;
 use super::context::StoredConfig;
 use super::messages::HostFormatMessageBody;
-use super::messages::Message;
 use super::messages::MessageBody;
+use super::messages::ProcessPluginMessage;
 use super::messages::ResponseBody;
-use super::stdout_message_writer::StdoutMessageWriter;
 use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
+use crate::communication::MessageReader;
+use crate::communication::MessageWriter;
+use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::AsyncPluginHandler;
-use crate::plugins::BoxFuture;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::Host;
@@ -42,13 +41,13 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
     schema_establishment_phase(&mut stdin_reader, &mut stdout_writer)?;
 
     let handler = Arc::new(handler);
-    let stdout_message_writer = StdoutMessageWriter::new(stdout_writer);
+    let stdout_message_writer = SingleThreadMessageWriter::for_stdout(stdout_writer);
     let context: ProcessContext<THandler::Configuration> = ProcessContext::new(stdout_message_writer);
     let host = Arc::new(ProcessHost { context: context.clone() });
 
     // read messages over stdin
     loop {
-      let message = Message::read(&mut stdin_reader).with_context(|| "Error reading message from stdin.")?;
+      let message = ProcessPluginMessage::read(&mut stdin_reader).with_context(|| "Error reading message from stdin.")?;
 
       match message.body {
         MessageBody::Close => {
@@ -220,7 +219,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
     self
       .context
       .stdout_writer
-      .send(Message {
+      .send(ProcessPluginMessage {
         id,
         body: MessageBody::HostFormat(HostFormatMessageBody {
           file_path: request.file_path,
@@ -240,7 +239,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
       tokio::select! {
         _ = token.wait_cancellation() => {
           // send a cancellation to the host
-          stdout_writer.send(Message {
+          stdout_writer.send(ProcessPluginMessage {
             id: id_generator.next(),
             body: MessageBody::CancelFormat(original_message_id),
           }).unwrap_or_else(|err| panic!("Error sending host format cancellation: {:#}", err));
@@ -259,17 +258,6 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
         }
       }
     })
-  }
-}
-
-impl crate::plugins::CancellationToken for CancellationToken {
-  fn is_cancelled(&self) -> bool {
-    self.is_cancelled()
-  }
-
-  fn wait_cancellation(&self) -> BoxFuture<'static, ()> {
-    let token = self.clone();
-    Box::pin(async move { token.cancelled().await })
   }
 }
 
@@ -297,7 +285,7 @@ fn send_error_response<TConfiguration: Serialize + Clone + Send + Sync>(
 }
 
 fn send_response_body<TConfiguration: Serialize + Clone + Send + Sync>(context: &ProcessContext<TConfiguration>, body: MessageBody) {
-  let message = Message {
+  let message = ProcessPluginMessage {
     id: context.id_generator.next(),
     body,
   };

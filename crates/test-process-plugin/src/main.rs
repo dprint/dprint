@@ -81,7 +81,15 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
 
   fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
     Box::pin(async move {
-      if request.file_text.starts_with("wait_cancellation") {
+      if let Some(range) = &request.range {
+        let text = format!(
+          "{}_{}_{}",
+          &request.file_text[0..range.start],
+          request.config.ending,
+          &request.file_text[range.end..]
+        );
+        Ok(Some(text))
+      } else if request.file_text.starts_with("wait_cancellation") {
         request.token.wait_cancellation().await;
         Ok(None)
       } else if let Some(new_text) = request.file_text.strip_prefix("plugin: ") {

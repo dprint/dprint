@@ -19,19 +19,20 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use super::communication::MessageReader;
-use super::communication::MessageWriter;
 use super::messages::FormatMessageBody;
 use super::messages::HostFormatMessageBody;
-use super::messages::Message;
 use super::messages::MessageBody;
+use super::messages::ProcessPluginMessage;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
-use super::utils::ArcFlag;
-use super::utils::ArcIdStore;
-use super::utils::IdGenerator;
-use super::utils::Poisoner;
 use super::PLUGIN_SCHEMA_VERSION;
+use crate::communication::ArcFlag;
+use crate::communication::ArcIdStore;
+use crate::communication::IdGenerator;
+use crate::communication::MessageReader;
+use crate::communication::MessageWriter;
+use crate::communication::Poisoner;
+use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
@@ -53,7 +54,7 @@ enum MessageResponseChannel {
 
 #[derive(Clone)]
 struct Context {
-  message_tx: crossbeam_channel::Sender<Message>,
+  stdin_writer: SingleThreadMessageWriter<ProcessPluginMessage>,
   poisoner: Poisoner,
   shutdown_flag: ArcFlag,
   id_generator: IdGenerator,
@@ -123,14 +124,14 @@ impl ProcessPluginCommunicator {
     verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
       .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade.")?;
 
-    let (message_tx, message_rx) = crossbeam_channel::unbounded::<Message>();
+    let stdin_writer = SingleThreadMessageWriter::for_stdin(stdin_writer, poisoner.clone());
     let context = Context {
       id_generator: Default::default(),
       shutdown_flag,
-      message_tx,
-      poisoner: poisoner.clone(),
-      messages: ArcIdStore::new(),
-      format_request_tokens: ArcIdStore::new(),
+      stdin_writer,
+      poisoner,
+      messages: Default::default(),
+      format_request_tokens: Default::default(),
       host,
     };
 
@@ -148,15 +149,6 @@ impl ProcessPluginCommunicator {
         }
         context.poisoner.poison();
       }
-    });
-
-    tokio::task::spawn_blocking(move || {
-      while let Ok(message) = message_rx.recv() {
-        if message.write(&mut stdin_writer).is_err() {
-          break;
-        }
-      }
-      poisoner.poison();
     });
 
     Ok(Self {
@@ -305,7 +297,7 @@ impl ProcessPluginCommunicator {
   ) -> Result<Result<T>> {
     let message_id = self.context.id_generator.next();
     self.context.messages.store(message_id, response_channel);
-    self.context.message_tx.send(Message { id: message_id, body })?;
+    self.context.stdin_writer.send(ProcessPluginMessage { id: message_id, body })?;
     tokio::select! {
       _ = self.context.poisoner.wait_poisoned() => {
         self.context.messages.take(message_id); // clear memory
@@ -373,7 +365,7 @@ fn std_err_redirect(poisoner: Poisoner, shutdown_flag: ArcFlag, stderr: ChildStd
 }
 
 fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
-  let message = Message::read(reader)?;
+  let message = ProcessPluginMessage::read(reader)?;
 
   match message.body {
     MessageBody::Success(message_id) => match context.messages.take(message_id) {
@@ -441,7 +433,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
 
         // ignore failure, as this means that the process shut down
         // at which point handling would have occurred elsewhere
-        let _ignore = context.message_tx.send(Message {
+        let _ignore = context.stdin_writer.send(ProcessPluginMessage {
           id: context.id_generator.next(),
           body: match result {
             Ok(result) => MessageBody::FormatResponse(ResponseBody {
@@ -458,7 +450,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
     }
     MessageBody::IsAlive => {
       // the CLI is not documented as supporting this, but we might as well respond
-      let _ = context.message_tx.send(Message {
+      let _ = context.stdin_writer.send(ProcessPluginMessage {
         id: context.id_generator.next(),
         body: MessageBody::Success(message.id),
       });
@@ -471,7 +463,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
     | MessageBody::ReleaseConfig(_)
     | MessageBody::GetConfigDiagnostics(_)
     | MessageBody::GetResolvedConfig(_) => {
-      let _ = context.message_tx.send(Message {
+      let _ = context.stdin_writer.send(ProcessPluginMessage {
         id: context.id_generator.next(),
         body: MessageBody::Error(ResponseBody {
           message_id: message.id,

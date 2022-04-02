@@ -3,6 +3,7 @@ use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
 use futures::Future;
+use parking_lot::Condvar;
 use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::collections::HashMap;
@@ -11,9 +12,6 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 use super::CanonicalizedPathBuf;
@@ -23,39 +21,54 @@ use super::Environment;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 
+#[derive(Default)]
 struct BufferData {
   data: Vec<u8>,
   read_pos: usize,
+  closed: bool,
+}
+
+#[derive(Default)]
+struct PipeData {
+  cond_var: Condvar,
+  buffer_data: Mutex<BufferData>,
+}
+
+fn create_test_pipe() -> (TestPipeWriter, TestPipeReader) {
+  let buffer_data = Arc::new(PipeData::default());
+  (TestPipeWriter(buffer_data.clone()), TestPipeReader(buffer_data))
 }
 
 #[derive(Clone)]
-struct MockStdInOut {
-  buffer_data: Arc<Mutex<BufferData>>,
-  sender: Arc<Mutex<Sender<u32>>>,
-  receiver: Arc<Mutex<Receiver<u32>>>,
-}
+struct TestPipeReader(Arc<PipeData>);
 
-impl MockStdInOut {
-  pub fn new() -> Self {
-    let (sender, receiver) = channel();
-    MockStdInOut {
-      buffer_data: Arc::new(Mutex::new(BufferData { data: Vec::new(), read_pos: 0 })),
-      sender: Arc::new(Mutex::new(sender)),
-      receiver: Arc::new(Mutex::new(receiver)),
-    }
+// Prevent having to deal with deadlock headaches by
+// only allowing one of these to be created
+struct TestPipeWriter(Arc<PipeData>);
+
+impl Drop for TestPipeWriter {
+  fn drop(&mut self) {
+    self.0.buffer_data.lock().closed = true;
+    self.0.cond_var.notify_one();
   }
 }
 
-impl Read for MockStdInOut {
+impl Read for TestPipeReader {
   fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> {
     panic!("Not implemented");
   }
 
   fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error> {
-    let rx = self.receiver.lock();
-    rx.recv().unwrap();
+    let mut buffer_data = self.0.buffer_data.lock();
 
-    let mut buffer_data = self.buffer_data.lock();
+    while buffer_data.data.len() < buffer_data.read_pos + buf.len() && !buffer_data.closed {
+      self.0.cond_var.wait(&mut buffer_data);
+    }
+
+    if buffer_data.data.len() == buffer_data.read_pos && buffer_data.closed {
+      return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe."));
+    }
+
     buf.copy_from_slice(&buffer_data.data[buffer_data.read_pos..buffer_data.read_pos + buf.len()]);
     buffer_data.read_pos += buf.len();
 
@@ -63,14 +76,13 @@ impl Read for MockStdInOut {
   }
 }
 
-impl Write for MockStdInOut {
+impl Write for TestPipeWriter {
   fn write(&mut self, data: &[u8]) -> Result<usize, std::io::Error> {
     let result = {
-      let mut buffer_data = self.buffer_data.lock();
+      let mut buffer_data = self.0.buffer_data.lock();
       buffer_data.data.write(data)
     };
-    let tx = self.sender.lock();
-    tx.send(0).unwrap();
+    self.0.cond_var.notify_one();
     result
   }
 
@@ -94,8 +106,8 @@ pub struct TestEnvironment {
   is_stdout_machine_readable: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
   dir_info_error: Arc<Mutex<Option<Error>>>,
-  std_in: MockStdInOut,
-  std_out: MockStdInOut,
+  std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
+  std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   runtime_handle: Arc<Mutex<Option<tokio::runtime::Handle>>>,
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
@@ -118,8 +130,14 @@ impl TestEnvironment {
       is_stdout_machine_readable: Arc::new(Mutex::new(false)),
       wasm_compile_result: Arc::new(Mutex::new(None)),
       dir_info_error: Arc::new(Mutex::new(None)),
-      std_in: MockStdInOut::new(),
-      std_out: MockStdInOut::new(),
+      std_in_pipe: Arc::new(Mutex::new({
+        let pipe = create_test_pipe();
+        (Some(pipe.0), pipe.1)
+      })),
+      std_out_pipe: Arc::new(Mutex::new({
+        let pipe = create_test_pipe();
+        (Some(pipe.0), pipe.1)
+      })),
       runtime_handle: Default::default(),
       #[cfg(windows)]
       path_dirs: Default::default(),
@@ -194,11 +212,11 @@ impl TestEnvironment {
   }
 
   pub fn stdout_reader(&self) -> Box<dyn Read + Send> {
-    Box::new(self.std_out.clone())
+    Box::new(self.std_out_pipe.lock().1.clone())
   }
 
   pub fn stdin_writer(&self) -> Box<dyn Write + Send> {
-    Box::new(self.std_in.clone())
+    Box::new(self.std_in_pipe.lock().0.take().unwrap())
   }
 
   #[cfg(windows)]
@@ -473,11 +491,11 @@ impl Environment for TestEnvironment {
   }
 
   fn stdout(&self) -> Box<dyn Write + Send> {
-    Box::new(self.std_out.clone())
+    Box::new(self.std_out_pipe.lock().0.take().unwrap())
   }
 
   fn stdin(&self) -> Box<dyn Read + Send> {
-    Box::new(self.std_in.clone())
+    Box::new(self.std_in_pipe.lock().1.clone())
   }
 
   fn runtime_handle(&self) -> tokio::runtime::Handle {

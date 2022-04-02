@@ -1,3 +1,6 @@
+#[cfg(feature = "communication")]
+pub mod communication;
+
 #[cfg(feature = "formatting")]
 pub mod formatting;
 
