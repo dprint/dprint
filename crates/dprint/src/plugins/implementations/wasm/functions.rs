@@ -10,18 +10,18 @@ use wasmer::WasmTypeList;
 
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
 
-pub enum FormatResult {
+pub enum WasmFormatResult {
   NoChange = 0,
   Change = 1,
   Error = 2,
 }
 
-impl From<u8> for FormatResult {
+impl From<u8> for WasmFormatResult {
   fn from(orig: u8) -> Self {
     match orig {
-      0 => FormatResult::NoChange,
-      1 => FormatResult::Change,
-      2 => FormatResult::Error,
+      0 => WasmFormatResult::NoChange,
+      1 => WasmFormatResult::Change,
+      2 => WasmFormatResult::Error,
       _ => unreachable!(),
     }
   }
@@ -105,7 +105,7 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn format(&self) -> Result<FormatResult> {
+  pub fn format(&self) -> Result<WasmFormatResult> {
     let format_func = self.get_export::<(), u8>("format")?;
     wasm_runtime_error_to_err_box(format_func.call()).map(|value| value.into())
   }
@@ -166,9 +166,9 @@ impl WasmFunctions {
     match self.instance.exports.get_function(name) {
       Ok(func) => match func.native::<Args, Rets>() {
         Ok(native_func) => Ok(native_func),
-        Err(err) => bail!("Error creating function '{}'. Message: {}", name, err.to_string()),
+        Err(err) => bail!("Error creating function '{}'. Message: {:#}", name, err),
       },
-      Err(err) => bail!("Could not find export in plugin with name '{}'. Message: {}", name, err.to_string()),
+      Err(err) => bail!("Could not find export in plugin with name '{}'. Message: {:#}", name, err),
     }
   }
 }
@@ -184,6 +184,6 @@ fn wasm_runtime_error_to_err_box<T>(result: Result<T, RuntimeError>) -> Result<T
   // need to do this because RuntimeError can't be sent between threads safely
   match result {
     Ok(value) => Ok(value),
-    Err(err) => bail!("{}", err.to_string()),
+    Err(err) => Err(err.into()),
   }
 }

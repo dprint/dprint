@@ -1,13 +1,13 @@
 use anyhow::bail;
-use anyhow::Result;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::generate_plugin_code;
-use dprint_core::plugins::PluginHandler;
+use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::SyncPluginHandler;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
@@ -30,7 +30,7 @@ impl TestWasmPlugin {
   }
 }
 
-impl PluginHandler<Configuration> for TestWasmPlugin {
+impl SyncPluginHandler<Configuration> for TestWasmPlugin {
   fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut config = config;
     let mut diagnostics = Vec::new();
@@ -45,7 +45,7 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
     }
   }
 
-  fn get_plugin_info(&mut self) -> PluginInfo {
+  fn plugin_info(&mut self) -> PluginInfo {
     PluginInfo {
       name: env!("CARGO_PKG_NAME").to_string(),
       version: env!("CARGO_PKG_VERSION").to_string(),
@@ -58,34 +58,45 @@ impl PluginHandler<Configuration> for TestWasmPlugin {
     }
   }
 
-  fn get_license_text(&mut self) -> String {
+  fn license_text(&mut self) -> String {
     std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
   }
 
-  fn format_text(
+  fn format(
     &mut self,
     _: &Path,
     file_text: &str,
     config: &Configuration,
-    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
-  ) -> Result<String> {
+    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> FormatResult,
+  ) -> FormatResult {
+    fn handle_host_response(result: FormatResult, original_text: &str) -> FormatResult {
+      match result {
+        Ok(Some(text)) => Ok(Some(text)),
+        Ok(None) => Ok(Some(original_text.to_string())),
+        Err(err) => Err(err),
+      }
+    }
+
     if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
-    } else if file_text.starts_with("plugin: ") {
-      format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin: ", ""), &ConfigKeyMap::new())
-    } else if file_text.starts_with("plugin-config: ") {
+    } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
+      handle_host_response(
+        format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &ConfigKeyMap::new()),
+        new_text,
+      )
+    } else if let Some(new_text) = file_text.strip_prefix("plugin-config: ") {
       let mut config_map = ConfigKeyMap::new();
       config_map.insert("ending".to_string(), "custom_config".into());
-      format_with_host(&PathBuf::from("./test.txt_ps"), file_text.replace("plugin-config: ", ""), &config_map)
+      handle_host_response(format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &config_map), new_text)
     } else if file_text == "should_error" {
       bail!("Did error.")
     } else if file_text == "should_panic" {
       self.has_panicked = true;
       panic!("Test panic")
     } else if file_text.ends_with(&config.ending) {
-      Ok(String::from(file_text))
+      Ok(None)
     } else {
-      Ok(format!("{}_{}", file_text, config.ending))
+      Ok(Some(format!("{}_{}", file_text, config.ending)))
     }
   }
 }

@@ -1,9 +1,14 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::plugins::BoxFuture;
+use dprint_core::plugins::FormatRequest;
+use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::Host;
+use dprint_core::plugins::HostFormatRequest;
 use serde::Deserialize;
 use serde::Serialize;
-use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
@@ -12,16 +17,17 @@ use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
-use dprint_core::plugins::process::start_parent_process_checker_thread;
-use dprint_core::plugins::PluginHandler;
+use dprint_core::plugins::process::start_parent_process_checker_task;
+use dprint_core::plugins::AsyncPluginHandler;
 use dprint_core::plugins::PluginInfo;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
   if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
-    start_parent_process_checker_thread(parent_process_id);
+    start_parent_process_checker_task(parent_process_id);
   }
 
-  handle_process_stdio_messages(TestProcessPluginHandler::new())
+  handle_process_stdio_messages(TestProcessPluginHandler::new()).await
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -39,8 +45,10 @@ impl TestProcessPluginHandler {
   }
 }
 
-impl PluginHandler<Configuration> for TestProcessPluginHandler {
-  fn get_plugin_info(&mut self) -> PluginInfo {
+impl AsyncPluginHandler for TestProcessPluginHandler {
+  type Configuration = Configuration;
+
+  fn plugin_info(&self) -> PluginInfo {
     PluginInfo {
       name: String::from(env!("CARGO_PKG_NAME")),
       version: String::from(env!("CARGO_PKG_VERSION")),
@@ -53,11 +61,11 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
     }
   }
 
-  fn get_license_text(&mut self) -> String {
+  fn license_text(&self) -> String {
     "License text.".to_string()
   }
 
-  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+  fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
     let mut config = config;
     let mut diagnostics = Vec::new();
     let ending = get_value(&mut config, "ending", String::from("formatted_process"), &mut diagnostics);
@@ -71,25 +79,42 @@ impl PluginHandler<Configuration> for TestProcessPluginHandler {
     }
   }
 
-  fn format_text(
-    &mut self,
-    _: &Path,
-    file_text: &str,
-    config: &Configuration,
-    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<String>,
-  ) -> Result<String> {
-    if file_text.starts_with("plugin: ") {
-      format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin: ", ""), &Default::default())
-    } else if file_text.starts_with("plugin-config: ") {
-      let mut config_map = ConfigKeyMap::new();
-      config_map.insert("ending".to_string(), "custom_config".into());
-      format_with_host(&PathBuf::from("./test.txt"), file_text.replace("plugin-config: ", ""), &config_map)
-    } else if file_text == "should_error" {
-      bail!("Did error.")
-    } else if file_text.ends_with(&config.ending) {
-      Ok(String::from(file_text))
-    } else {
-      Ok(format!("{}_{}", file_text, config.ending))
-    }
+  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
+    Box::pin(async move {
+      if request.file_text.starts_with("wait_cancellation") {
+        request.token.wait_cancellation().await;
+        Ok(None)
+      } else if let Some(new_text) = request.file_text.strip_prefix("plugin: ") {
+        let result = host
+          .format(HostFormatRequest {
+            file_path: PathBuf::from("./test.txt"),
+            file_text: new_text.to_string(),
+            range: None,
+            override_config: Default::default(),
+            token: request.token.clone(),
+          })
+          .await?;
+        Ok(Some(result.unwrap_or_else(|| new_text.to_string())))
+      } else if let Some(new_text) = request.file_text.strip_prefix("plugin-config: ") {
+        let mut config_map = ConfigKeyMap::new();
+        config_map.insert("ending".to_string(), "custom_config".into());
+        let result = host
+          .format(HostFormatRequest {
+            file_path: PathBuf::from("./test.txt"),
+            file_text: new_text.to_string(),
+            range: None,
+            override_config: config_map,
+            token: request.token.clone(),
+          })
+          .await?;
+        Ok(Some(result.unwrap_or_else(|| new_text.to_string())))
+      } else if request.file_text == "should_error" {
+        bail!("Did error.")
+      } else if request.file_text.ends_with(&request.config.ending) {
+        Ok(None)
+      } else {
+        Ok(Some(format!("{}_{}", request.file_text, request.config.ending)))
+      }
+    })
   }
 }

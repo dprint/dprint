@@ -11,6 +11,7 @@ use dprint_cli_core::logging::ProgressBars;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use super::CanonicalizedPathBuf;
@@ -23,6 +24,7 @@ use crate::plugins::CompilationResult;
 pub struct RealEnvironmentOptions {
   pub is_verbose: bool,
   pub is_stdout_machine_readable: bool,
+  pub runtime_handle: Arc<tokio::runtime::Handle>,
 }
 
 #[derive(Clone)]
@@ -30,10 +32,11 @@ pub struct RealEnvironment {
   logger: Logger,
   progress_bars: Option<ProgressBars>,
   is_verbose: bool,
+  runtime_handle: Arc<tokio::runtime::Handle>,
 }
 
 impl RealEnvironment {
-  pub fn new(options: &RealEnvironmentOptions) -> Result<RealEnvironment> {
+  pub fn new(options: RealEnvironmentOptions) -> Result<RealEnvironment> {
     let logger = Logger::new(&LoggerOptions {
       initial_context_name: "dprint".to_string(),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
@@ -43,11 +46,12 @@ impl RealEnvironment {
       logger,
       progress_bars,
       is_verbose: options.is_verbose,
+      runtime_handle: options.runtime_handle,
     };
 
     // ensure the cache directory is created
     if let Err(err) = environment.mk_dir_all(&get_cache_dir()?) {
-      bail!("Error creating cache directory: {:?}", err);
+      bail!("Error creating cache directory: {:#}", err);
     }
 
     Ok(environment)
@@ -75,7 +79,7 @@ impl Environment for RealEnvironment {
     log_verbose!(self, "Reading file: {}", file_path.as_ref().display());
     match fs::read(&file_path) {
       Ok(bytes) => Ok(bytes),
-      Err(err) => bail!("Error reading file {}: {}", file_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
     }
   }
 
@@ -87,7 +91,7 @@ impl Environment for RealEnvironment {
     log_verbose!(self, "Writing file: {}", file_path.as_ref().display());
     match fs::write(&file_path, bytes) {
       Ok(_) => Ok(()),
-      Err(err) => bail!("Error writing file {}: {}", file_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error writing file {}: {:#}", file_path.as_ref().display(), err),
     }
   }
 
@@ -96,7 +100,7 @@ impl Environment for RealEnvironment {
     match fs::remove_file(&file_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-      Err(err) => bail!("Error deleting file {}: {}", file_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error deleting file {}: {:#}", file_path.as_ref().display(), err),
     }
   }
 
@@ -105,7 +109,7 @@ impl Environment for RealEnvironment {
     match fs::remove_dir_all(&dir_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-      Err(err) => bail!("Error removing directory {}: {}", dir_path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error removing directory {}: {:#}", dir_path.as_ref().display(), err),
     }
   }
 
@@ -118,7 +122,7 @@ impl Environment for RealEnvironment {
         if is_system_volume_error(dir_path.as_ref(), &err) {
           return Ok(Vec::with_capacity(0));
         } else {
-          bail!("{}", err);
+          return Err(err.into());
         }
       }
     };
@@ -151,7 +155,7 @@ impl Environment for RealEnvironment {
     // use this to avoid //?//C:/etc... like paths on windows (UNC)
     match dunce::canonicalize(path.as_ref()) {
       Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
-      Err(err) => bail!("Error canonicalizing path {}: {}", path.as_ref().display(), err),
+      Err(err) => bail!("Error canonicalizing path {}: {:#}", path.as_ref().display(), err),
     }
   }
 
@@ -163,7 +167,7 @@ impl Environment for RealEnvironment {
     log_verbose!(self, "Creating directory: {}", path.as_ref().display());
     match fs::create_dir_all(&path) {
       Ok(_) => Ok(()),
-      Err(err) => bail!("Error creating directory {}: {}", path.as_ref().display(), err.to_string()),
+      Err(err) => bail!("Error creating directory {}: {:#}", path.as_ref().display(), err),
     }
   }
 
@@ -185,10 +189,7 @@ impl Environment for RealEnvironment {
     self.logger.log_err(text, context_name);
   }
 
-  fn log_action_with_progress<
-    TResult: std::marker::Send + std::marker::Sync,
-    TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
-  >(
+  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,
     action: TCreate,
@@ -204,6 +205,10 @@ impl Environment for RealEnvironment {
 
   fn cpu_arch(&self) -> String {
     std::env::consts::ARCH.to_string()
+  }
+
+  fn os(&self) -> String {
+    std::env::consts::OS.to_string()
   }
 
   fn get_time_secs(&self) -> u64 {
@@ -247,6 +252,10 @@ impl Environment for RealEnvironment {
 
   fn stdin(&self) -> Box<dyn std::io::Read + Send> {
     Box::new(std::io::stdin())
+  }
+
+  fn runtime_handle(&self) -> tokio::runtime::Handle {
+    (*self.runtime_handle).clone()
   }
 
   #[cfg(windows)]

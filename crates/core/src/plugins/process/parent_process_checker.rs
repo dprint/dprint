@@ -1,16 +1,19 @@
-use std::thread;
 use std::time::Duration;
 
 /// Starts a thread that polls for the existence of the parent process.
 /// If the parent process no longer exists, then it will exit the current process.
-pub fn start_parent_process_checker_thread(parent_process_id: u32) -> thread::JoinHandle<()> {
-  thread::spawn(move || loop {
-    thread::sleep(Duration::from_secs(30));
+///
+/// Note: This must be called from a tokio runtime.
+pub fn start_parent_process_checker_task(parent_process_id: u32) {
+  tokio::task::spawn(async move {
+    loop {
+      tokio::time::sleep(Duration::from_secs(10)).await;
 
-    if !is_process_active(parent_process_id) {
-      std::process::exit(1);
+      if !is_process_active(parent_process_id) {
+        std::process::exit(1);
+      }
     }
-  })
+  });
 }
 
 /// Gets the parent process id from the CLI arguments.

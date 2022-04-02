@@ -9,7 +9,7 @@ use crate::plugins::Plugin;
 pub fn get_plugin_config_map(plugin: &dyn Plugin, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
   match get_plugin_config_map_inner(plugin, config_map) {
     Ok(result) => Ok(result),
-    Err(err) => bail!("Error initializing from configuration file. {}", err.to_string()),
+    Err(err) => bail!("Error initializing from configuration file. {:#}", err),
   }
 }
 

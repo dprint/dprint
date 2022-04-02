@@ -27,7 +27,7 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
     if let Some(result) = results.get(url) {
       match result {
         Ok(result) => Ok(result.clone()),
-        Err(err) => Err(anyhow!("{}", err)),
+        Err(err) => Err(anyhow!("{:#}", err)),
       }
     } else {
       let result = self.inner.download_file(url);
@@ -35,7 +35,7 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
         url.to_string(),
         match &result {
           Ok(result) => Ok(result.clone()),
-          Err(err) => Err(format!("{}", err)),
+          Err(err) => Err(format!("{:#}", err)),
         },
       );
       result

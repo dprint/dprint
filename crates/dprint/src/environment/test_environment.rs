@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
+use futures::Future;
 use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::collections::HashMap;
@@ -95,6 +96,7 @@ pub struct TestEnvironment {
   dir_info_error: Arc<Mutex<Option<Error>>>,
   std_in: MockStdInOut,
   std_out: MockStdInOut,
+  runtime_handle: Arc<Mutex<Option<tokio::runtime::Handle>>>,
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
   cpu_arch: Arc<Mutex<String>>,
@@ -105,21 +107,22 @@ impl TestEnvironment {
     TestEnvironment {
       is_verbose: Arc::new(Mutex::new(false)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
-      files: Arc::new(Mutex::new(HashMap::new())),
-      stdout_messages: Arc::new(Mutex::new(Vec::new())),
-      stderr_messages: Arc::new(Mutex::new(Vec::new())),
-      remote_files: Arc::new(Mutex::new(HashMap::new())),
-      deleted_directories: Arc::new(Mutex::new(Vec::new())),
+      files: Default::default(),
+      stdout_messages: Default::default(),
+      stderr_messages: Default::default(),
+      remote_files: Default::default(),
+      deleted_directories: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
-      confirm_results: Arc::new(Mutex::new(Vec::new())),
+      confirm_results: Default::default(),
       is_stdout_machine_readable: Arc::new(Mutex::new(false)),
       wasm_compile_result: Arc::new(Mutex::new(None)),
       dir_info_error: Arc::new(Mutex::new(None)),
       std_in: MockStdInOut::new(),
       std_out: MockStdInOut::new(),
+      runtime_handle: Default::default(),
       #[cfg(windows)]
-      path_dirs: Arc::new(Mutex::new(Vec::new())),
+      path_dirs: Default::default(),
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
     }
   }
@@ -212,6 +215,17 @@ impl TestEnvironment {
     *self.cpu_arch.lock() = value.to_string();
   }
 
+  pub fn set_runtime_handle(&self, handle: tokio::runtime::Handle) {
+    *self.runtime_handle.lock() = Some(handle);
+  }
+
+  /// Remember to drop the plugins collection manually if using this with one.
+  pub fn run_in_runtime<T>(&self, future: impl Future<Output = T>) -> T {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
+    self.set_runtime_handle(rt.handle().clone());
+    rt.block_on(future)
+  }
+
   fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
     // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
     let file_path = PathBuf::from(path.as_ref().to_string_lossy().replace("\\", "/"));
@@ -249,7 +263,7 @@ impl UrlDownloader for TestEnvironment {
     let remote_files = self.remote_files.lock();
     match remote_files.get(&String::from(url)) {
       Some(Ok(result)) => Ok(Some(result.clone())),
-      Some(Err(err)) => Err(anyhow!("{}", err)),
+      Some(Err(err)) => Err(anyhow!("{:#}", err)),
       None => Ok(None),
     }
   }
@@ -389,10 +403,7 @@ impl Environment for TestEnvironment {
     self.stdout_messages.lock().push(String::from(text));
   }
 
-  fn log_action_with_progress<
-    TResult: std::marker::Send + std::marker::Sync,
-    TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
-  >(
+  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,
     action: TCreate,
@@ -408,6 +419,10 @@ impl Environment for TestEnvironment {
 
   fn cpu_arch(&self) -> String {
     self.cpu_arch.lock().clone()
+  }
+
+  fn os(&self) -> String {
+    std::env::consts::OS.to_string()
   }
 
   fn get_time_secs(&self) -> u64 {
@@ -463,6 +478,11 @@ impl Environment for TestEnvironment {
 
   fn stdin(&self) -> Box<dyn Read + Send> {
     Box::new(self.std_in.clone())
+  }
+
+  fn runtime_handle(&self) -> tokio::runtime::Handle {
+    // need to call set_runtime_handle to make this not panic
+    self.runtime_handle.lock().as_ref().unwrap().clone()
   }
 
   #[cfg(windows)]

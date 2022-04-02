@@ -31,7 +31,7 @@ pub trait UrlDownloader {
   }
 }
 
-pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownloader + 'static {
+pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn is_real(&self) -> bool;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
@@ -55,17 +55,17 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownlo
   fn log_stderr_with_context(&self, text: &str, context_name: &str);
   /// Information to force output when the environment is in "machine readable mode".
   fn log_machine_readable(&self, text: &str);
-  fn log_action_with_progress<
-    TResult: std::marker::Send + std::marker::Sync,
-    TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + std::marker::Send + std::marker::Sync,
-  >(
+  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,
     action: TCreate,
     total_size: usize,
   ) -> TResult;
   fn get_cache_dir(&self) -> PathBuf;
+  /// Gets the CPU architecture.
   fn cpu_arch(&self) -> String;
+  /// Gets the operating system.
+  fn os(&self) -> String;
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
@@ -75,6 +75,7 @@ pub trait Environment: Clone + std::marker::Send + std::marker::Sync + UrlDownlo
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
+  fn runtime_handle(&self) -> tokio::runtime::Handle;
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()>;
   #[cfg(windows)]

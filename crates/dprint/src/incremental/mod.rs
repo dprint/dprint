@@ -9,13 +9,13 @@ use crate::cache::Cache;
 use crate::cache::CreateCacheItemOptions;
 use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
-use crate::plugins::PluginPools;
+use crate::plugins::PluginsCollection;
 
 pub fn get_incremental_file<TEnvironment: Environment>(
   args: &CliArgs,
   config: &ResolvedConfig,
   cache: &Cache<TEnvironment>,
-  plugin_pools: &PluginPools<TEnvironment>,
+  plugin_pools: &PluginsCollection<TEnvironment>,
   environment: &TEnvironment,
 ) -> Option<Arc<IncrementalFile<TEnvironment>>> {
   if args.incremental || config.incremental {
@@ -23,7 +23,7 @@ pub fn get_incremental_file<TEnvironment: Environment>(
     let base_path = match environment.canonicalize(&config.base_path) {
       Ok(base_path) => base_path,
       Err(err) => {
-        environment.log_stderr(&format!("Could not canonicalize base path for incremental feature. {}", err));
+        environment.log_stderr(&format!("Could not canonicalize base path for incremental feature. {:#}", err));
         return None;
       }
     };
@@ -40,7 +40,7 @@ pub fn get_incremental_file<TEnvironment: Environment>(
       match cache_item {
         Ok(cache_item) => cache_item,
         Err(err) => {
-          environment.log_stderr(&format!("Could not create cache item for incremental feature. {}", err));
+          environment.log_stderr(&format!("Could not create cache item for incremental feature. {:#}", err));
           return None;
         }
       }

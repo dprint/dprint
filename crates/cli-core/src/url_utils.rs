@@ -12,7 +12,7 @@ pub fn download_url(url: &str, progress_bars: &Option<ProgressBars>, read_env_va
       return Ok(None);
     }
     Err(err) => {
-      bail!("Error downloading {} - Error: {}", url, err)
+      bail!("Error downloading {} - Error: {:#}", url, err)
     }
   };
 
@@ -20,7 +20,7 @@ pub fn download_url(url: &str, progress_bars: &Option<ProgressBars>, read_env_va
   let mut reader = resp.into_reader();
   match inner_download(url, &mut reader, total_size, progress_bars) {
     Ok(result) => Ok(Some(result)),
-    Err(err) => bail!("Error downloading {} - {}", url, err),
+    Err(err) => bail!("Error downloading {} - {:#}", url, err),
   }
 }
 

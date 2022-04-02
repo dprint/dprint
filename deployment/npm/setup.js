@@ -16,8 +16,8 @@ const infoJson = {
   version,
   checksums: {
     "windows-x86_64": checksums.get("dprint-x86_64-pc-windows-msvc.zip"),
-    "mac-x86_64": checksums.get("dprint-x86_64-apple-darwin.zip"),
-    "mac-aarch64": checksums.get("dprint-aarch64-apple-darwin.zip"),
+    "darwin-x86_64": checksums.get("dprint-x86_64-apple-darwin.zip"),
+    "darwin-aarch64": checksums.get("dprint-aarch64-apple-darwin.zip"),
     "linux-x86_64": checksums.get("dprint-x86_64-unknown-linux-gnu.zip"),
   },
 };

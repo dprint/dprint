@@ -53,7 +53,7 @@ pub fn run_specs(
   directory_path: &Path,
   parse_spec_options: &ParseSpecOptions,
   run_spec_options: &RunSpecsOptions,
-  format_text: impl Fn(&Path, &str, &IndexMap<String, String>) -> Result<String>,
+  format_text: impl Fn(&Path, &str, &IndexMap<String, String>) -> Result<Option<String>>,
   get_trace_json: impl Fn(&Path, &str, &IndexMap<String, String>) -> String,
 ) {
   #[cfg(not(debug_assertions))]
@@ -71,14 +71,14 @@ pub fn run_specs(
     let format = |file_text: &str| {
       let result = catch_unwind(AssertUnwindSafe(|| format_text(&file_path_buf, file_text, &spec.config)));
       let result = result.unwrap_or_else(|err| panic!("Panic in spec '{}' in {}.\n\n{:?}", spec.message, file_path.display(), err));
-      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {}", spec.message, file_path.display(), err,))
+      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {:#}", spec.message, file_path.display(), err,))
     };
 
     if spec.is_trace {
       let trace_json = get_trace_json(&file_path_buf, &spec.file_text, &spec.config);
       handle_trace(&spec, &trace_json);
     } else {
-      let result = format(&spec.file_text);
+      let result = format(&spec.file_text).unwrap_or_else(|| spec.file_text.to_string());
       if result != spec.expected_text {
         if run_spec_options.fix_failures {
           // very rough, but good enough
@@ -97,7 +97,7 @@ pub fn run_specs(
         }
       } else if run_spec_options.format_twice && !spec.skip_format_twice {
         // ensure no changes when formatting twice
-        let twice_result = format(&result);
+        let twice_result = format(&result).unwrap_or_else(|| result.to_string());
         if twice_result != spec.expected_text {
           failed_tests.push(FailedTestResult {
             file_path: file_path.clone(),

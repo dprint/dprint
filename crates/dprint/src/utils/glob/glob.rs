@@ -39,7 +39,7 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
   // to the speed of `fs::read_dir` calls. Essentially, run all the `fs::read_dir` calls
   // on a new thread and do the glob matching on the other thread.
   let read_dir_runner = ReadDirRunner::new(environment.clone(), shared_state.clone());
-  rayon::spawn(move || read_dir_runner.run());
+  std::thread::spawn(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
   let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);
@@ -70,7 +70,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
         let info_result = self
           .environment
           .dir_info(&current_dir)
-          .map_err(|err| anyhow!("Error reading dir '{}': {}", current_dir.display(), err.to_string()));
+          .map_err(|err| anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
         match info_result {
           Ok(entries) => {
             if !entries.is_empty() {
@@ -197,7 +197,7 @@ impl GlobMatchingProcessor {
           }
         }
         ReadDirThreadState::Error(err) => {
-          return Err(anyhow!("{}", err.to_string()));
+          return Err(anyhow!("{:#}", err));
         }
         ReadDirThreadState::Processing => {
           // wait to be notified by the other thread

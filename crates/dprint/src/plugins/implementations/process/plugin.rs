@@ -1,19 +1,20 @@
 use anyhow::Result;
-use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
-use std::path::Path;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
 use crate::plugins::InitializedPlugin;
+use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
-use crate::plugins::PluginPools;
+use crate::plugins::PluginsCollection;
 
-use super::super::format_with_plugin_pool;
 use super::InitializedProcessPluginCommunicator;
 
 static PLUGIN_FILE_INITIALIZE: std::sync::Once = std::sync::Once::new();
@@ -45,17 +46,22 @@ pub struct ProcessPlugin<TEnvironment: Environment> {
   executable_file_path: PathBuf,
   plugin_info: PluginInfo,
   config: Option<(RawPluginConfig, GlobalConfiguration)>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
-  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo, plugin_pools: Arc<PluginPools<TEnvironment>>) -> Self {
+  pub fn new(
+    environment: TEnvironment,
+    executable_file_path: PathBuf,
+    plugin_info: PluginInfo,
+    plugins_collection: Arc<PluginsCollection<TEnvironment>>,
+  ) -> Self {
     ProcessPlugin {
       environment,
       executable_file_path,
       plugin_info,
       config: None,
-      plugin_pools,
+      plugins_collection,
     }
   }
 }
@@ -101,90 +107,65 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     self.config.as_ref().expect("Call set_config first.")
   }
 
-  fn initialize(&self) -> Result<Box<dyn InitializedPlugin>> {
-    let config = self.config.as_ref().expect("Call set_config first.");
-    let communicator = InitializedProcessPluginCommunicator::new(
-      self.environment.clone(),
-      self.plugin_info.name.clone(),
-      self.executable_file_path.clone(),
-      (config.0.properties.clone(), config.1.clone()),
-    )?;
-    let process_plugin = InitializedProcessPlugin::new(self.name().to_string(), self.environment.clone(), communicator, self.plugin_pools.clone())?;
+  fn is_process_plugin(&self) -> bool {
+    true
+  }
 
-    Ok(Box::new(process_plugin))
+  fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+    let config = self.config.as_ref().expect("Call set_config first.");
+    let plugin_name = self.plugin_info.name.clone();
+    let executable_file_path = self.executable_file_path.clone();
+    let config = (config.1.clone(), config.0.properties.clone());
+    let environment = self.environment.clone();
+    let plugins_collection = self.plugins_collection.clone();
+    async move {
+      let communicator =
+        InitializedProcessPluginCommunicator::new(plugin_name, executable_file_path, config, environment.clone(), plugins_collection.clone()).await?;
+      let process_plugin = InitializedProcessPlugin::new(communicator)?;
+
+      let result: Arc<dyn InitializedPlugin> = Arc::new(process_plugin);
+      Ok(result)
+    }
+    .boxed()
   }
 }
 
+#[derive(Clone)]
 pub struct InitializedProcessPlugin<TEnvironment: Environment> {
-  name: String,
-  environment: TEnvironment,
-  communicator: InitializedProcessPluginCommunicator<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  communicator: Arc<InitializedProcessPluginCommunicator<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
-  pub fn new(
-    name: String,
-    environment: TEnvironment,
-    communicator: InitializedProcessPluginCommunicator<TEnvironment>,
-    plugin_pools: Arc<PluginPools<TEnvironment>>,
-  ) -> Result<Self> {
-    let initialized_plugin = InitializedProcessPlugin {
-      name,
-      environment,
-      communicator,
-      plugin_pools,
-    };
-
-    Ok(initialized_plugin)
-  }
-
-  fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String> {
-    self
-      .communicator
-      .format_text(file_path, file_text, override_config, |file_path, file_text, override_config| {
-        format_with_plugin_pool(&self.name, &file_path, &file_text, &override_config, &self.plugin_pools)
-      })
+  pub fn new(communicator: InitializedProcessPluginCommunicator<TEnvironment>) -> Result<Self> {
+    Ok(Self {
+      communicator: Arc::new(communicator),
+    })
   }
 }
 
 impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<TEnvironment> {
-  fn get_license_text(&self) -> Result<String> {
-    self.communicator.get_license_text()
+  fn license_text(&self) -> BoxFuture<'static, Result<String>> {
+    let communicator = self.communicator.clone();
+    async move { communicator.get_license_text().await }.boxed()
   }
 
-  fn get_resolved_config(&self) -> Result<String> {
-    self.communicator.get_resolved_config()
+  fn resolved_config(&self) -> BoxFuture<'static, Result<String>> {
+    let communicator = self.communicator.clone();
+    async move { communicator.get_resolved_config().await }.boxed()
   }
 
-  fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
-    self.communicator.get_config_diagnostics()
+  fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+    let communicator = self.communicator.clone();
+    async move { communicator.get_config_diagnostics().await }.boxed()
   }
 
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<String> {
-    let result = self.inner_format_text(file_path, file_text, override_config);
+  fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
+    let communicator = self.communicator.clone();
+    async move { communicator.format_text(request).await }.boxed()
+  }
 
-    match result {
-      Ok(result) => Ok(result),
-      Err(original_err) => {
-        // todo: tests for this somehow
-        let process_recreated = match self.communicator.recreate_process_if_dead() {
-          Ok(process_recreated) => process_recreated,
-          Err(err) => {
-            self
-              .environment
-              .log_stderr(&format!("Failed to recreate child process plugin after it was unresponsive: {}", err,));
-            return Err(original_err);
-          }
-        };
-
-        if process_recreated {
-          // attempt formatting again
-          self.inner_format_text(file_path, file_text, override_config)
-        } else {
-          Err(original_err)
-        }
-      }
-    }
+  fn shutdown(&self) -> BoxFuture<'static, ()> {
+    let communicator = self.communicator.clone();
+    async move { communicator.shutdown().await }.boxed()
   }
 }

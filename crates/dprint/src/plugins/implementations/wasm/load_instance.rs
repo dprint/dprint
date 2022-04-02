@@ -10,7 +10,7 @@ pub fn load_instance(module: &Module, import_object: &ImportObject) -> Result<In
   let instance = Instance::new(module, import_object);
   match instance {
     Ok(instance) => Ok(instance),
-    Err(err) => bail!("Error instantiating module: {}", err),
+    Err(err) => bail!("Error instantiating module: {:#}", err),
   }
 }
 
@@ -20,7 +20,7 @@ pub fn create_module(compiled_module_bytes: &[u8]) -> Result<Module> {
   unsafe {
     match Module::deserialize(&store, compiled_module_bytes) {
       Ok(module) => Ok(module),
-      Err(err) => bail!("Error deserializing compiled wasm module: {:?}", err),
+      Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
     }
   }
 }

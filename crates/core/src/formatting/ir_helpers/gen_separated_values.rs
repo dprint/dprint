@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::formatting::condition_helpers;
+
 use super::super::condition_resolvers;
 use super::super::conditions::*;
 use super::super::ir_helpers;
@@ -23,7 +25,7 @@ pub struct GenSeparatedValuesOptions {
 
 pub enum BoolOrCondition {
   Bool(bool),
-  Condition(Rc<ConditionResolver>),
+  Condition(ConditionResolver),
 }
 
 pub struct MultiLineOptions {
@@ -156,7 +158,6 @@ pub fn gen_separated_values(
   };
   let is_multi_line_condition_ref = is_multi_line_condition.get_reference();
   let is_multi_line = is_multi_line_condition_ref.create_resolver();
-  let is_multi_line = Rc::new(Box::new(is_multi_line) as Box<ConditionResolver>);
 
   let mut items = PrintItems::new();
   items.push_info(start_info);
@@ -184,7 +185,7 @@ pub fn gen_separated_values(
       true_path: Some(
         if_true_or(
           "newLineIndentedIfNotStandalone",
-          move |context| Some(!context.get_resolved_condition(&is_start_standalone_line_ref)?),
+          Rc::new(move |context| Some(!context.get_resolved_condition(&is_start_standalone_line_ref)?)),
           {
             let mut items = PrintItems::new();
             if multi_line_options.newline_at_start {
@@ -247,7 +248,7 @@ pub fn gen_separated_values(
 
   fn inner_gen(
     generated_values: Vec<GeneratedValue>,
-    is_multi_line: Rc<ConditionResolver>,
+    is_multi_line: ConditionResolver,
     single_line_separator: PrintItems,
     multi_line_options: &MultiLineOptions,
     allow_blank_lines: bool,
@@ -274,7 +275,7 @@ pub fn gen_separated_values(
         if multi_line_options.newline_at_start && values_count > 1 {
           items.push_condition(if_false(
             "isNotStartOfLine",
-            |context| Some(condition_resolvers::is_start_of_line(context)),
+            condition_resolvers::is_start_of_line(),
             Signal::PossibleNewLine.into(),
           ));
         }
@@ -313,7 +314,7 @@ pub fn gen_separated_values(
                   if let Some(last_start_info) = last_start_info {
                     if_true_or(
                       "newlineIfHanging",
-                      move |context| condition_resolvers::is_hanging(context, &last_start_info, &None),
+                      Rc::new(move |context| condition_helpers::is_hanging(context, &last_start_info, &None)),
                       Signal::NewLine.into(),
                       single_line_separator.into(),
                     )
@@ -328,7 +329,7 @@ pub fn gen_separated_values(
                   // was a newline due to the line width so it must be this one)
                   items.push_condition(if_true_or(
                     "forcedNewLineIfNoNewLine",
-                    move |context| condition_resolvers::is_on_different_line(context, &first_start_info),
+                    Rc::new(move |context| condition_helpers::is_on_different_line(context, &first_start_info)),
                     space_or_newline,
                     Signal::NewLine.into(),
                   ))
@@ -422,7 +423,7 @@ fn get_is_start_standalone_line(start_info: Info) -> Condition {
     ConditionProperties {
       condition: Rc::new(move |condition_context| {
         let start_info = condition_context.get_resolved_info(&start_info)?;
-        Some(start_info.is_start_of_line())
+        Some(start_info.is_column_number_at_line_start())
       }),
       false_path: None,
       true_path: None,

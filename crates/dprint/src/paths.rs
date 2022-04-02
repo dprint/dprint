@@ -95,10 +95,14 @@ pub fn get_file_paths_by_plugins(
   Ok(file_paths_by_plugin)
 }
 
-pub fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
+pub async fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
   let cwd = environment.cwd();
   let file_patterns = get_all_file_patterns(config, args, &cwd);
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
-  let base_dir = if is_in_sub_dir { &cwd } else { &config.base_path };
-  glob(environment, &base_dir, file_patterns)
+  let base_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
+  let environment = environment.clone();
+
+  // This is intensive so do it in a blocking task
+  // Eventually this could should maybe be changed to use tokio tasks
+  tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
 }

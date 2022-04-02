@@ -1,6 +1,9 @@
 use anyhow::bail;
 use anyhow::Result;
 use crossterm::style::Stylize;
+use dprint_core::plugins::Host;
+use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use std::path::Path;
 use std::path::PathBuf;
@@ -14,28 +17,27 @@ use crate::arg_parser::StdInFmtSubCommand;
 use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
-use crate::format::format_with_plugin_pools;
 use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
 use crate::patterns::FileMatcher;
 use crate::plugins::resolve_plugins_and_err_if_empty;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginsCollection;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
 
-pub fn stdin_fmt<TEnvironment: Environment>(
+pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
@@ -48,30 +50,41 @@ pub fn stdin_fmt<TEnvironment: Environment>(
       return Ok(());
     }
   }
-  output_stdin_format(&PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools)
+  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools).await
 }
 
-fn output_stdin_format<TEnvironment: Environment>(
-  file_name: &Path,
+async fn output_stdin_format<TEnvironment: Environment>(
+  file_name: PathBuf,
   file_text: &str,
   environment: &TEnvironment,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let formatted_text = format_with_plugin_pools(file_name, file_text, environment, &plugin_pools)?;
-  environment.log_machine_readable(&formatted_text);
+  let result = plugins_collection
+    .format(HostFormatRequest {
+      file_path: file_name,
+      file_text: file_text.to_string(),
+      range: None,
+      override_config: Default::default(),
+      token: Arc::new(NullCancellationToken),
+    })
+    .await?;
+  match result {
+    Some(text) => environment.log_machine_readable(&text),
+    None => environment.log_machine_readable(file_text),
+  }
   Ok(())
 }
 
-pub fn output_format_times<TEnvironment: Environment>(
+pub async fn output_format_times<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
@@ -84,7 +97,8 @@ pub fn output_format_times<TEnvironment: Environment>(
       durations.push((file_path.to_owned(), duration));
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let mut durations = durations.lock();
   durations.sort_by_key(|k| k.1);
@@ -95,16 +109,16 @@ pub fn output_format_times<TEnvironment: Environment>(
   Ok(())
 }
 
-pub fn check<TEnvironment: Environment>(
+pub async fn check<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
@@ -120,7 +134,8 @@ pub fn check<TEnvironment: Environment>(
       }
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
   if not_formatted_files_count == 0 {
@@ -136,17 +151,17 @@ fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, en
   environment.log(&format!("{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text,));
 }
 
-pub fn format<TEnvironment: Environment>(
+pub async fn format<TEnvironment: Environment>(
   cmd: &FmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginPools<TEnvironment>>,
+  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver)?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment)?;
+  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
@@ -175,7 +190,8 @@ pub fn format<TEnvironment: Environment>(
 
       Ok(())
     }
-  })?;
+  })
+  .await?;
 
   let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
   if formatted_files_count > 0 {
@@ -221,7 +237,7 @@ mod test {
   }
 
   #[test]
-  fn should_format_file() {
+  fn should_format_single_file() {
     let file_path1 = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file(file_path1, "text")
@@ -307,20 +323,23 @@ mod test {
 
   #[test]
   fn should_handle_wasm_plugin_panicking() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file1.txt", "should_panic") // special text to make it panic
-      .write_file("/file2.txt", "test")
+      .write_file("/file2.txt_ps", "test")
       .build();
-    let error_message = run_test_cli(vec!["fmt", "**.txt"], &environment).err().unwrap();
+    let error_message = run_test_cli(vec!["fmt", "**.{txt,txt_ps}"], &environment).err().unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
     let logged_errors = environment.take_stderr_messages();
     assert_eq!(logged_errors.len(), 1);
-    assert_eq!(
-      logged_errors[0].starts_with("Error formatting /file1.txt. Message: RuntimeError: unreachable"),
-      true
+    let expected_start_text = concat!(
+      "Critical error formatting /file1.txt. Cannot continue. ",
+      "Message: Originally panicked in test-plugin, then failed reinitialize. ",
+      "This may be a bug in the plugin, the dprint cli is out of date, or the plugin is out of date.",
     );
+    assert_eq!(&logged_errors[0][..expected_start_text.len()], expected_start_text);
     assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
-    assert_eq!(environment.read_file("/file2.txt").unwrap(), "test_formatted");
+    // should still format with the other plugin
+    assert_eq!(environment.read_file("/file2.txt_ps").unwrap(), "test_formatted_process");
   }
 
   #[test]
@@ -343,7 +362,7 @@ mod test {
       .build();
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
     assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted_process");
   }
 

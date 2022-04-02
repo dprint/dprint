@@ -9,9 +9,8 @@ use crate::cache::Cache;
 use crate::environment::TestEnvironment;
 use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
-use crate::plugins::PluginPools;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsDropper;
+use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
@@ -58,13 +57,20 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
   let cache = Arc::new(Cache::new(environment.clone()));
   let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-  let plugin_pools = Arc::new(PluginPools::new(environment.clone()));
-  let _plugins_dropper = PluginsDropper::new(plugin_pools.clone());
+  let plugin_pools = Arc::new(PluginsCollection::new(environment.clone()));
   let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
   let args = parse_args(args, stdin_reader)?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_verbose(args.verbose);
-  run_cli(&args, environment, &cache, &plugin_resolver, plugin_pools)
+
+  environment.run_in_runtime({
+    let environment = environment.clone();
+    async move {
+      let result = run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools.clone()).await;
+      plugin_pools.drop_and_shutdown_initialized().await;
+      result
+    }
+  })
 }
 
 pub fn get_test_process_plugin_zip_checksum() -> String {
@@ -84,7 +90,7 @@ pub fn get_test_process_plugin_checksum() -> String {
 pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
   format!(
     r#"{{
-"schemaVersion": 1,
+"schemaVersion": 2,
 "name": "test-process-plugin",
 "version": "0.1.0",
 "windows-x86_64": {{
@@ -95,11 +101,11 @@ pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"
 }},
-"mac-x86_64": {{
+"darwin-x86_64": {{
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"
 }},
-"mac-aarch64": {{
+"darwin-aarch64": {{
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"
 }}

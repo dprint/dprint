@@ -17,6 +17,20 @@ pub struct CliArgs {
 }
 
 impl CliArgs {
+  #[cfg(test)]
+  pub fn empty() -> Self {
+    Self {
+      sub_command: SubCommand::Help("".to_string()),
+      verbose: false,
+      plugins: vec![],
+      config: None,
+      incremental: false,
+      file_patterns: vec![],
+      exclude_file_patterns: vec![],
+      allow_node_modules: false,
+    }
+  }
+
   pub fn is_stdout_machine_readable(&self) -> bool {
     // these output json or other text that's read by stdout
     matches!(
@@ -105,7 +119,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
   let cli_parser = create_cli_parser(false);
   let matches = match cli_parser.get_matches_from_safe(&args) {
     Ok(result) => result,
-    Err(err) => bail!("{}", err.to_string()),
+    Err(err) => return Err(err.into()),
   };
 
   let sub_command = match matches.subcommand() {

@@ -11,7 +11,7 @@ fn test_tracing() {
       print_items.push_str("string");
       print_items.push_condition(conditions::if_true_or(
         "condition_name",
-        |_| Some(true),
+        std::rc::Rc::new(|_| Some(true)),
         "true_path".into(),
         "false_path".into(),
       ));

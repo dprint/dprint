@@ -7,7 +7,17 @@ pub fn indent_if_start_of_line(items: PrintItems) -> Condition {
   let rc_path = items.into_rc_path();
   if_true_or(
     "indentIfStartOfLine",
-    |context| Some(condition_resolvers::is_start_of_line(context)),
+    condition_resolvers::is_start_of_line(),
+    ir_helpers::with_indent(rc_path.into()),
+    rc_path.into(),
+  )
+}
+
+pub fn indent_if_start_of_line_or_start_of_line_indented(items: PrintItems) -> Condition {
+  let rc_path = items.into_rc_path();
+  conditions::if_true_or(
+    "withIndentIfStartOfLineOrStartOfLineIndented",
+    condition_resolvers::is_start_of_line_or_is_start_of_line_indented(),
     ir_helpers::with_indent(rc_path.into()),
     rc_path.into(),
   )
@@ -17,7 +27,7 @@ pub fn with_indent_if_start_of_line_indented(items: PrintItems) -> Condition {
   let rc_path = items.into_rc_path();
   if_true_or(
     "withIndentIfStartOfLineIndented",
-    |context| Some(condition_resolvers::is_start_of_line_indented(context)),
+    condition_resolvers::is_start_of_line_indented(),
     ir_helpers::with_indent(rc_path.into()),
     rc_path.into(),
   )
@@ -36,7 +46,7 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
 
   if_true_or(
     "newLineIfHangingSpaceOtherwise",
-    move |context| condition_resolvers::is_hanging(context, &start_info, &end_info),
+    Rc::new(move |context| condition_helpers::is_hanging(context, &start_info, &end_info)),
     Signal::NewLine.into(),
     space_char,
   )
@@ -45,7 +55,7 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
 pub fn new_line_if_hanging(start_info: Info, end_info: Option<Info>) -> Condition {
   if_true(
     "newlineIfHanging",
-    move |context| condition_resolvers::is_hanging(context, &start_info, &end_info),
+    Rc::new(move |context| condition_helpers::is_hanging(context, &start_info, &end_info)),
     Signal::NewLine.into(),
   )
 }
@@ -73,7 +83,7 @@ pub fn force_reevaluation_once_resolved(info: Info) -> Condition {
 pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, end_info: Option<Info>) -> Condition {
   if_true_or(
     "newLineIfMultipleLinesSpaceOrNewLineOtherwise",
-    move |context| {
+    Rc::new(move |context| {
       let start_info = context.get_resolved_info(&start_info)?;
       let end_info = {
         if let Some(end_info) = &end_info {
@@ -84,7 +94,7 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, 
       };
 
       Some(end_info.line_number > start_info.line_number)
-    },
+    }),
     Signal::NewLine.into(),
     Signal::SpaceOrNewLine.into(),
   )
@@ -93,7 +103,7 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, 
 pub fn single_indent_if_start_of_line() -> Condition {
   if_true(
     "singleIndentIfStartOfLine",
-    |context| Some(condition_resolvers::is_start_of_line(context)),
+    condition_resolvers::is_start_of_line(),
     Signal::SingleIndent.into(),
   )
 }
@@ -112,7 +122,7 @@ pub fn if_above_width_or(width: u8, true_items: PrintItems, false_items: PrintIt
     ConditionProperties {
       condition: Rc::new(move |context| {
         let writer_info = &context.writer_info;
-        let first_indent_col = writer_info.line_start_column_number + (width as u32);
+        let first_indent_col = writer_info.line_start_column_number() + (width as u32);
         Some(writer_info.column_number > first_indent_col)
       }),
       true_path: Some(true_items),
@@ -121,40 +131,35 @@ pub fn if_above_width_or(width: u8, true_items: PrintItems, false_items: PrintIt
   )
 }
 
-pub fn if_true(name: &'static str, resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + 'static, true_path: PrintItems) -> Condition {
+pub fn if_true(name: &'static str, resolver: ConditionResolver, true_path: PrintItems) -> Condition {
   Condition::new(
     name,
     ConditionProperties {
       true_path: Some(true_path),
       false_path: None,
-      condition: Rc::new(Box::new(resolver)),
+      condition: resolver,
     },
   )
 }
 
-pub fn if_true_or(
-  name: &'static str,
-  resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + 'static,
-  true_path: PrintItems,
-  false_path: PrintItems,
-) -> Condition {
+pub fn if_true_or(name: &'static str, resolver: ConditionResolver, true_path: PrintItems, false_path: PrintItems) -> Condition {
   Condition::new(
     name,
     ConditionProperties {
       true_path: Some(true_path),
       false_path: Some(false_path),
-      condition: Rc::new(Box::new(resolver)),
+      condition: resolver,
     },
   )
 }
 
-pub fn if_false(name: &'static str, resolver: impl Fn(&mut ConditionResolverContext) -> Option<bool> + 'static, false_path: PrintItems) -> Condition {
+pub fn if_false(name: &'static str, resolver: ConditionResolver, false_path: PrintItems) -> Condition {
   Condition::new(
     name,
     ConditionProperties {
       true_path: None,
       false_path: Some(false_path),
-      condition: Rc::new(Box::new(resolver)),
+      condition: resolver,
     },
   )
 }

@@ -28,9 +28,9 @@ function getExpectedZipChecksum() {
       return info.checksums["windows-x86_64"];
     case "darwin":
       if (os.arch() === "arm64") {
-        return info.checksums["mac-aarch64"];
+        return info.checksums["darwin-aarch64"];
       } else {
-        return info.checksums["mac-x86_64"];
+        return info.checksums["darwin-x86_64"];
       }
     default:
       return info.checksums["linux-x86_64"];

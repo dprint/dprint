@@ -15,7 +15,7 @@ pub struct GetGlobalConfigOptions {
 pub fn get_global_config(config_map: ConfigMap, environment: &impl Environment, options: &GetGlobalConfigOptions) -> Result<GlobalConfiguration> {
   match get_global_config_inner(config_map, environment, options) {
     Ok(config) => Ok(config),
-    Err(err) => bail!("Error resolving global config from configuration file. {}", err.to_string()),
+    Err(err) => bail!("Error resolving global config from configuration file. {:#}", err),
   }
 }
 

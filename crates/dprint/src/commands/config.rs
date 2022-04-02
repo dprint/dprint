@@ -44,7 +44,7 @@ pub fn init_config_file(environment: &impl Environment, config_arg: &Option<Stri
   }
 }
 
-pub fn add_plugin_config_file<TEnvironment: Environment>(
+pub async fn add_plugin_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   plugin_name_or_url: Option<&String>,
   cache: &Cache<TEnvironment>,
@@ -69,7 +69,7 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
         let plugin = match read_update_url(&cached_downloader, &format!("https://plugins.dprint.dev/{}/latest.json", plugin_name))? {
           Some(result) => result,
           None => {
-            let trailing_message = if let Ok(possible_plugins) = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins) {
+            let trailing_message = if let Ok(possible_plugins) = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins).await {
               if possible_plugins.is_empty() {
                 String::new()
               } else {
@@ -88,7 +88,7 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
             )
           }
         };
-        for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins) {
+        for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins).await {
           if let Ok(config_plugin) = config_plugin {
             if let Some(update_url) = config_plugin.update_url() {
               if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url) {
@@ -117,7 +117,7 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
       }
     },
     None => {
-      let mut possible_plugins = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins)?;
+      let mut possible_plugins = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins).await?;
       if possible_plugins.is_empty() {
         bail!("Could not find any plugins to add. Please provide one by specifying `dprint config add <plugin-url>`.");
       }
@@ -137,18 +137,19 @@ pub fn add_plugin_config_file<TEnvironment: Environment>(
   Ok(())
 }
 
-fn get_possible_plugins_to_add<TEnvironment: Environment>(
+async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
   current_plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<InfoFilePluginInfo>> {
-  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {}", err))?;
+  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {:#}", err))?;
   let current_plugin_names = get_config_file_plugins(plugin_resolver, current_plugins)
+    .await
     .into_iter()
     .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
       Ok(plugin) => Some(plugin.name().to_string()),
-      Err(error) => {
-        environment.log_stderr(&format!("Error resolving plugin: {}\n\n{}", plugin_reference.path_source.display(), error));
+      Err(err) => {
+        environment.log_stderr(&format!("Error resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err));
         None
       }
     })
@@ -162,7 +163,7 @@ fn get_possible_plugins_to_add<TEnvironment: Environment>(
   )
 }
 
-pub fn update_plugins_config_file<TEnvironment: Environment>(
+pub async fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
@@ -174,7 +175,7 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
   };
   let mut file_text = environment.read_file(&config_path)?;
-  let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins)?;
+  let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins).await?;
 
   for result in plugins_to_update {
     match result {
@@ -198,7 +199,7 @@ pub fn update_plugins_config_file<TEnvironment: Environment>(
         }
       }
       Err(err_info) => {
-        environment.log_stderr(&format!("Error updating plugin {}: {}", err_info.name, err_info.error));
+        environment.log_stderr(&format!("Error updating plugin {}: {:#}", err_info.name, err_info.error));
       }
     }
   }
@@ -213,7 +214,7 @@ struct PluginUpdateError {
   error: Error,
 }
 
-fn get_plugins_to_update<TEnvironment: Environment>(
+async fn get_plugins_to_update<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugins: Vec<PluginSourceReference>,
@@ -221,11 +222,11 @@ fn get_plugins_to_update<TEnvironment: Environment>(
   let info_file = match read_info_file(environment) {
     Ok(info_file) => Some(info_file),
     Err(err) => {
-      environment.log_stderr(&format!("Error downloading info file. {}", err));
+      environment.log_stderr(&format!("Error downloading info file. {:#}", err));
       None
     }
   };
-  let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins);
+  let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins).await;
   Ok(
     config_file_plugins
       .into_iter()
@@ -260,7 +261,7 @@ fn get_plugins_to_update<TEnvironment: Environment>(
             }
             Err(err) => {
               // output and fallback to using the info file
-              environment.log_stderr(&format!("Error reading plugin latest info. {}", err));
+              environment.log_stderr(&format!("Error reading plugin latest info. {:#}", err));
             }
           }
         }
@@ -285,24 +286,24 @@ fn get_plugins_to_update<TEnvironment: Environment>(
   )
 }
 
-pub fn output_resolved_config<TEnvironment: Environment>(
+pub async fn output_resolved_config<TEnvironment: Environment>(
   args: &CliArgs,
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
-  let plugins = resolve_plugins(args, &config, environment, plugin_resolver)?;
+  let plugins = resolve_plugins(args, &config, environment, plugin_resolver).await?;
 
   let mut plugin_jsons = Vec::new();
   for plugin in plugins {
     let config_key = String::from(plugin.config_key());
 
     // get an initialized plugin and output its diagnostics
-    let initialized_plugin = plugin.initialize()?;
-    output_plugin_config_diagnostics(plugin.name(), &*initialized_plugin, &ErrorCountLogger::from_environment(environment))?;
+    let initialized_plugin = plugin.initialize().await?;
+    output_plugin_config_diagnostics(plugin.name(), initialized_plugin.clone(), ErrorCountLogger::from_environment(environment)).await?;
 
-    let text = initialized_plugin.get_resolved_config()?;
+    let text = initialized_plugin.resolved_config().await?;
     let pretty_text = pretty_print_json_text(&text)?;
     plugin_jsons.push(format!("\"{}\": {}", config_key, pretty_text));
   }
@@ -317,20 +318,26 @@ pub fn output_resolved_config<TEnvironment: Environment>(
   Ok(())
 }
 
-fn get_config_file_plugins<TEnvironment: Environment>(
+async fn get_config_file_plugins<TEnvironment: Environment>(
   plugin_resolver: &PluginResolver<TEnvironment>,
   current_plugins: Vec<PluginSourceReference>,
 ) -> Vec<(PluginSourceReference, Result<Box<dyn Plugin>>)> {
-  use rayon::iter::IntoParallelIterator;
-  use rayon::iter::ParallelIterator;
-
-  current_plugins
-    .into_par_iter()
+  let tasks = current_plugins
+    .into_iter()
     .map(|plugin_reference| {
-      let resolve_result = plugin_resolver.resolve_plugin(&plugin_reference);
-      (plugin_reference, resolve_result)
+      let plugin_resolver = plugin_resolver.clone();
+      tokio::task::spawn(async move {
+        let resolve_result = plugin_resolver.resolve_plugin(&plugin_reference).await;
+        (plugin_reference, resolve_result)
+      })
     })
-    .collect::<Vec<_>>()
+    .collect::<Vec<_>>();
+
+  let mut results = Vec::with_capacity(tasks.len());
+  for result in futures::future::join_all(tasks).await {
+    results.push(result.unwrap());
+  }
+  results
 }
 
 #[cfg(test)]

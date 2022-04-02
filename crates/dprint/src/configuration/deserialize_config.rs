@@ -236,7 +236,7 @@ mod tests {
   fn assert_deserializes(text: &str, expected_map: ConfigMap) {
     match deserialize_config(text) {
       Ok(result) => assert_eq!(result, expected_map),
-      Err(err) => panic!("Errored, but that was not expected. {}", err),
+      Err(err) => panic!("Errored, but that was not expected. {:#}", err),
     }
   }
 
