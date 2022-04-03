@@ -18,6 +18,9 @@ struct SavePoint<'a> {
   pub look_ahead_condition_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
   pub look_ahead_info_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
   pub next_node_stack: RcStack,
+  pub rewrap_save_point: Option<&'a SavePoint<'a>>,
+  pub rewrap_should_add_space: bool,
+  pub rewrap_line_length: Option<u32>,
 }
 
 struct PrintItemContainer<'a> {
@@ -73,6 +76,10 @@ pub struct Printer<'a> {
   traces: Option<Vec<Trace>>,
   #[cfg(feature = "tracing")]
   start_time: std::time::Instant,
+  // Rewrapping state
+  rewrap_save_point: Option<&'a SavePoint<'a>>,
+  rewrap_line_length: Option<u32>,
+  force_next_possible_new_line: bool,
 }
 
 impl<'a> Printer<'a> {
@@ -105,6 +112,9 @@ impl<'a> Printer<'a> {
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
       #[cfg(feature = "tracing")]
       start_time: std::time::Instant::now(),
+      rewrap_save_point: None,
+      rewrap_line_length: None,
+      force_next_possible_new_line: false,
     }
   }
 
@@ -222,7 +232,7 @@ impl<'a> Printer<'a> {
     self.possible_new_line_save_point = None;
   }
 
-  fn create_save_point(&self, _name: &'static str, next_node: Option<PrintItemPath>) -> &'a SavePoint<'a> {
+  fn create_save_point(&self, _name: &'static str, next_node: Option<PrintItemPath>, rewrap_should_add_space: bool) -> &'a SavePoint<'a> {
     self.bump.alloc(SavePoint {
       #[cfg(debug_assertions)]
       name: _name,
@@ -234,6 +244,9 @@ impl<'a> Printer<'a> {
       look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
       look_ahead_info_save_points: self.look_ahead_info_save_points.clone_map(),
       next_node_stack: self.next_node_stack.clone(),
+      rewrap_save_point: self.rewrap_save_point,
+      rewrap_line_length: self.rewrap_line_length,
+      rewrap_should_add_space,
     })
   }
 
@@ -242,11 +255,11 @@ impl<'a> Printer<'a> {
     if let Some(save_point) = &self.resolving_save_point {
       save_point
     } else {
-      self.create_save_point(name, self.current_node)
+      self.create_save_point(name, self.current_node, false)
     }
   }
 
-  fn mark_possible_new_line_if_able(&mut self) {
+  fn mark_possible_new_line_if_able(&mut self, rewrap_should_add_space: bool) {
     if let Some(new_line_save_point) = &self.possible_new_line_save_point {
       if self.new_line_group_depth > new_line_save_point.new_line_group_depth {
         return;
@@ -254,7 +267,7 @@ impl<'a> Printer<'a> {
     }
 
     let next_node = self.current_node.as_ref().unwrap().get_next();
-    self.possible_new_line_save_point = Some(self.create_save_point("newline", next_node));
+    self.possible_new_line_save_point = Some(self.create_save_point("newline", next_node, rewrap_should_add_space));
   }
 
   #[inline]
@@ -271,12 +284,54 @@ impl<'a> Printer<'a> {
     self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
     self.look_ahead_info_save_points.replace_map(save_point.look_ahead_info_save_points.clone());
     self.next_node_stack = save_point.next_node_stack.clone();
+    self.force_next_possible_new_line = false;
 
     if is_for_new_line {
+      self.rewrap_save_point = Some(self.create_save_point("rewrap", self.current_node, save_point.rewrap_should_add_space));
+      self.rewrap_line_length = Some(self.writer.get_line_column());
       self.write_new_line();
+    } else {
+      self.rewrap_save_point = save_point.rewrap_save_point;
+      self.rewrap_line_length = save_point.rewrap_line_length;
     }
 
     self.skip_moving_next = true;
+  }
+
+  fn update_state_to_rewrap_save_point(&mut self) {
+    if let Some(save_point) = self.rewrap_save_point {
+      self.update_state_to_save_point(save_point, false);
+      self.possible_new_line_save_point = None;
+      self.rewrap_save_point = None;
+      self.rewrap_line_length = None;
+      self.force_next_possible_new_line = true;
+      if save_point.rewrap_should_add_space {
+        self.writer.space_if_not_trailing();
+      }
+    }
+  }
+
+  /// Called when the current print exceeds the line width, and we need to restore a save point +
+  /// perform a line break.
+  fn perform_wrap(&mut self, save_point: &'a SavePoint<'a>) {
+    match self.rewrap_save_point {
+      // Optionally collapse a previous wrap if this wrap would cause it to now fit on the previous line.
+      Some(rewrap_save_point) => {
+        let rewrap_line_number = rewrap_save_point.writer_state.get_writer_info(self.writer.get_indent_width()).line_number;
+        let save_point_info = save_point.writer_state.get_writer_info(self.writer.get_indent_width());
+        let current_line_number = save_point_info.line_number;
+        let current_line_length = save_point_info.column_number - save_point_info.line_start_column_number();
+        let merged_line_length = self.rewrap_line_length.unwrap() + current_line_length + if rewrap_save_point.rewrap_should_add_space { 1 } else { 0 };
+        if rewrap_line_number == current_line_number - 1 && merged_line_length < self.max_width {
+          self.update_state_to_rewrap_save_point();
+        } else {
+          self.update_state_to_save_point(save_point, true);
+        }
+      }
+      None => {
+        self.update_state_to_save_point(save_point, true);
+      }
+    };
   }
 
   #[inline]
@@ -294,8 +349,11 @@ impl<'a> Printer<'a> {
         self.possible_new_line_save_point = None;
       }
       Signal::PossibleNewLine => {
-        if self.allow_new_lines() {
-          self.mark_possible_new_line_if_able()
+        if self.force_next_possible_new_line {
+          self.write_new_line();
+          self.force_next_possible_new_line = false;
+        } else if self.allow_new_lines() {
+          self.mark_possible_new_line_if_able(false);
         }
       }
       Signal::SpaceOrNewLine => {
@@ -308,11 +366,11 @@ impl<'a> Printer<'a> {
               if save_state.new_line_group_depth >= self.new_line_group_depth {
                 self.write_new_line();
               } else {
-                self.update_state_to_save_point(save_state, true);
+                self.perform_wrap(save_state);
               }
             }
           } else {
-            self.mark_possible_new_line_if_able();
+            self.mark_possible_new_line_if_able(true);
             self.writer.space_if_not_trailing();
           }
         } else {
@@ -432,7 +490,7 @@ impl<'a> Printer<'a> {
 
     if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
       let save_point = std::mem::replace(&mut self.possible_new_line_save_point, Option::None);
-      self.update_state_to_save_point(save_point.unwrap(), true);
+      self.perform_wrap(save_point.unwrap());
     } else {
       self.writer.write(text);
     }
