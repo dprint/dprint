@@ -179,17 +179,21 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           let request = HostFormatRequest {
             file_path: body.file_path,
             range: body.range,
-            override_config: match serde_json::from_slice(&body.override_config) {
-              Ok(config) => config,
-              Err(err) => {
-                send_error_response(&self.context, message.id, anyhow!("Error deserializing override config: {:#}", err));
-                continue;
+            override_config: if body.override_config.len() == 0 {
+              Default::default()
+            } else {
+              match serde_json::from_slice(&body.override_config) {
+                Ok(config) => config,
+                Err(err) => {
+                  send_error_response(&self.context, message.id, anyhow!("Error deserializing override config. {:#}", err));
+                  continue;
+                }
               }
             },
             file_text: match String::from_utf8(body.file_text) {
               Ok(text) => text,
               Err(err) => {
-                send_error_response(&self.context, message.id, anyhow!("Error decoding text to utf8: {:#}", err));
+                send_error_response(&self.context, message.id, anyhow!("Error decoding text to utf8. {:#}", err));
                 continue;
               }
             },

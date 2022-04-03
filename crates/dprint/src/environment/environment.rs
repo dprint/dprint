@@ -86,7 +86,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
 macro_rules! log_verbose {
     ($environment:expr, $($arg:tt)*) => {
         if $environment.is_verbose() {
-            let mut text = String::from("[VERBOSE]: ");
+            let mut text = String::from("[VERBOSE] ");
             text.push_str(&format!($($arg)*));
             $environment.log_stderr(&text);
         }
