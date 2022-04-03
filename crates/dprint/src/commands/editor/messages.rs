@@ -81,72 +81,113 @@ impl EditorMessage {
 
 impl Message for EditorMessage {
   fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
-    writer.send_u32(self.id)?;
+    let mut builder = MessageBuilder::new(self.id, self.body.as_u32());
     match &self.body {
       EditorMessageBody::Success(message_id) => {
-        writer.send_u32(0)?;
-        writer.send_u32(4)?; // body size
-        writer.send_u32(*message_id)?;
+        builder.add_number(*message_id);
       }
       EditorMessageBody::Error(message_id, data) => {
-        writer.send_u32(1)?;
-        writer.send_u32(4 + data.len() as u32)?; // body size
-        writer.send_u32(*message_id)?;
-        writer.send_sized_bytes(data)?;
+        builder.add_number(*message_id);
+        builder.add_bytes(data);
       }
-      EditorMessageBody::Close => {
-        writer.send_u32(2)?;
-        writer.send_u32(0)?; // body size
-      }
-      EditorMessageBody::IsAlive => {
-        writer.send_u32(3)?;
-        writer.send_u32(0)?; // body size
-      }
+      EditorMessageBody::Close => {}
+      EditorMessageBody::IsAlive => {}
       EditorMessageBody::CanFormat(path_buf) => {
         let path = path_buf.to_string_lossy().to_string();
-        writer.send_u32(4)?;
-        writer.send_u32(4 + path.len() as u32)?; // body size
-        writer.send_sized_bytes(path.as_bytes())?;
+        builder.add_owned_bytes(path.into_bytes());
       }
       EditorMessageBody::CanFormatResponse(message_id, can_format) => {
-        writer.send_u32(5)?;
-        writer.send_u32(4 * 2)?; // body size
-        writer.send_u32(*message_id)?;
-        writer.send_u32(*can_format)?;
+        builder.add_number(*message_id);
+        builder.add_number(*can_format);
       }
       EditorMessageBody::Format(body) => {
         let path = body.file_path.to_string_lossy().to_string();
-        writer.send_u32(6)?;
-        writer.send_u32(4 + path.len() as u32 + 4 * 2 + 4 + body.override_config.len() as u32 + 4 + body.file_text.len() as u32)?; // body size
-        writer.send_sized_bytes(path.as_bytes())?;
-        writer.send_u32(body.range.as_ref().map(|r| r.start as u32).unwrap_or(0))?;
-        writer.send_u32(body.range.as_ref().map(|r| r.end as u32).unwrap_or_else(|| body.file_text.len() as u32))?;
-        writer.send_sized_bytes(&body.override_config)?;
-        writer.send_sized_bytes(&body.file_text)?;
+        builder.add_owned_bytes(path.into_bytes());
+        builder.add_number(body.range.as_ref().map(|r| r.start as u32).unwrap_or(0));
+        builder.add_number(body.range.as_ref().map(|r| r.end as u32).unwrap_or_else(|| body.file_text.len() as u32));
+        builder.add_bytes(&body.override_config);
+        builder.add_bytes(&body.file_text);
       }
       EditorMessageBody::FormatResponse(message_id, data) => {
-        writer.send_u32(7)?;
-        writer.send_u32(4 + 4 + data.as_ref().map(|d| d.len()).unwrap_or(0) as u32)?; // body size
-        writer.send_u32(*message_id)?;
+        builder.add_number(*message_id);
         match &data {
           None => {
-            writer.send_u32(0)?;
+            builder.add_number(0);
           }
           Some(data) => {
-            writer.send_u32(1)?;
-            writer.send_sized_bytes(data)?;
+            builder.add_number(1);
+            builder.add_bytes(data);
           }
         }
       }
       EditorMessageBody::CancelFormat(message_id) => {
-        writer.send_u32(8)?;
-        writer.send_u32(4)?; // body size
-        writer.send_u32(*message_id)?;
+        builder.add_number(*message_id);
       }
       EditorMessageBody::Unknown(_, _) => unreachable!(), // should never be written
     }
+    builder.write(writer)?;
+    Ok(())
+  }
+}
+
+enum NumberOrBytes<'a> {
+  Number(u32),
+  Bytes(&'a [u8]),
+  OwnedBytes(Vec<u8>),
+}
+
+struct MessageBuilder<'a> {
+  message_id: u32,
+  kind: u32,
+  parts: Vec<NumberOrBytes<'a>>,
+}
+
+impl<'a> MessageBuilder<'a> {
+  pub fn new(message_id: u32, kind: u32) -> Self {
+    Self {
+      message_id,
+      kind,
+      parts: Vec::new(),
+    }
+  }
+
+  pub fn add_number(&mut self, num: u32) {
+    self.parts.push(NumberOrBytes::Number(num));
+  }
+
+  pub fn add_bytes(&mut self, bytes: &'a [u8]) {
+    self.parts.push(NumberOrBytes::Bytes(bytes));
+  }
+
+  pub fn add_owned_bytes(&mut self, bytes: Vec<u8>) {
+    self.parts.push(NumberOrBytes::OwnedBytes(bytes));
+  }
+
+  pub fn write<TWrite: Write + Unpin>(&mut self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
+    writer.send_u32(self.message_id)?;
+    writer.send_u32(self.kind)?;
+    writer.send_u32(self.body_size())?;
+    for part in &self.parts {
+      match part {
+        NumberOrBytes::Number(val) => writer.send_u32(*val)?,
+        NumberOrBytes::Bytes(bytes) => writer.send_sized_bytes(bytes)?,
+        NumberOrBytes::OwnedBytes(bytes) => writer.send_sized_bytes(bytes)?,
+      }
+    }
     writer.send_success_bytes()?;
     Ok(())
+  }
+
+  fn body_size(&self) -> u32 {
+    self
+      .parts
+      .iter()
+      .map(|p| match p {
+        NumberOrBytes::Number(_) => 4,
+        NumberOrBytes::Bytes(bytes) => bytes.len() + 4,
+        NumberOrBytes::OwnedBytes(bytes) => bytes.len() + 4,
+      })
+      .sum::<usize>() as u32
   }
 }
 
@@ -162,6 +203,23 @@ pub enum EditorMessageBody {
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
   Unknown(u32, Vec<u8>),
+}
+
+impl EditorMessageBody {
+  pub fn as_u32(&self) -> u32 {
+    match self {
+      EditorMessageBody::Success(_) => 0,
+      EditorMessageBody::Error(_, _) => 1,
+      EditorMessageBody::Close => 2,
+      EditorMessageBody::IsAlive => 3,
+      EditorMessageBody::CanFormat(_) => 4,
+      EditorMessageBody::CanFormatResponse(_, _) => 5,
+      EditorMessageBody::Format(_) => 6,
+      EditorMessageBody::FormatResponse(_, _) => 7,
+      EditorMessageBody::CancelFormat(_) => 8,
+      EditorMessageBody::Unknown(_, _) => unreachable!(),
+    }
+  }
 }
 
 #[derive(Debug)]
