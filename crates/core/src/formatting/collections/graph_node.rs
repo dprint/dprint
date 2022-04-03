@@ -1,17 +1,9 @@
-#[cfg(feature = "tracing")]
-use crate::formatting::id::IdCounter;
-
-thread_local! {
-#[cfg(feature = "tracing")]
-  static GRAPH_NODE_IDS: IdCounter = IdCounter::default();
-}
-
 #[derive(Clone)]
 pub struct GraphNode<'a, T> {
   pub item: T,
   pub previous: Option<&'a GraphNode<'a, T>>,
   #[cfg(feature = "tracing")]
-  pub graph_node_id: usize,
+  pub graph_node_id: u32,
 }
 
 impl<'a, T> GraphNode<'a, T> {
@@ -20,7 +12,7 @@ impl<'a, T> GraphNode<'a, T> {
       item,
       previous,
       #[cfg(feature = "tracing")]
-      graph_node_id: IdCounter::next(&GRAPH_NODE_IDS),
+      graph_node_id: super::super::thread_state::next_graph_node_id(),
     }
   }
 }

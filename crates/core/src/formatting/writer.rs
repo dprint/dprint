@@ -244,7 +244,7 @@ impl<'a> Writer<'a> {
   }
 
   #[cfg(feature = "tracing")]
-  pub fn get_current_node_id(&self) -> Option<usize> {
+  pub fn get_current_node_id(&self) -> Option<u32> {
     self.state.items.as_ref().map(|node| node.graph_node_id)
   }
 
@@ -276,7 +276,8 @@ impl<'a> Writer<'a> {
 
 #[cfg(test)]
 mod test {
-  use super::super::utils::with_bump_allocator_mut;
+  use crate::formatting::thread_state;
+
   use super::super::Indentation;
   use super::super::StringContainer;
   use super::super::WriteItemsPrinter;
@@ -286,7 +287,7 @@ mod test {
 
   #[test]
   fn write_singleword_writes() {
-    with_bump_allocator_mut(|bump| {
+    thread_state::with_bump_allocator_mut(|bump| {
       let mut writer = create_writer(bump);
       write_text(&mut writer, "test", bump);
       assert_writer_equal(writer, "test");
@@ -296,7 +297,7 @@ mod test {
 
   #[test]
   fn write_multiple_lines_writes() {
-    with_bump_allocator_mut(|bump| {
+    thread_state::with_bump_allocator_mut(|bump| {
       let mut writer = create_writer(bump);
       write_text(&mut writer, "1", bump);
       writer.new_line();
@@ -308,7 +309,7 @@ mod test {
 
   #[test]
   fn write_indented_writes() {
-    with_bump_allocator_mut(|bump| {
+    thread_state::with_bump_allocator_mut(|bump| {
       let mut writer = create_writer(bump);
       write_text(&mut writer, "1", bump);
       writer.new_line();
@@ -324,7 +325,7 @@ mod test {
 
   #[test]
   fn write_singleindent_writes() {
-    with_bump_allocator_mut(|bump| {
+    thread_state::with_bump_allocator_mut(|bump| {
       let mut writer = create_writer(bump);
       writer.single_indent();
       write_text(&mut writer, "t", bump);
@@ -335,7 +336,7 @@ mod test {
 
   #[test]
   fn markexpectnewline_writesnewline() {
-    with_bump_allocator_mut(|bump| {
+    thread_state::with_bump_allocator_mut(|bump| {
       let mut writer = create_writer(bump);
       write_text(&mut writer, "1", bump);
       writer.mark_expect_new_line();

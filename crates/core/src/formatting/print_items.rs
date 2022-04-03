@@ -2,9 +2,9 @@ use std::cell::UnsafeCell;
 use std::mem;
 use std::rc::Rc;
 
+use super::condition_resolvers;
 use super::printer::Printer;
-use super::utils::with_bump_allocator;
-use crate::formatting::id::IdCounter;
+use super::thread_state;
 
 /** Print Items */
 
@@ -15,8 +15,8 @@ pub struct PrintItems {
 }
 
 impl PrintItems {
-  pub fn new() -> PrintItems {
-    PrintItems {
+  pub fn new() -> Self {
+    Self {
       first_node: None,
       last_node: None,
     }
@@ -32,7 +32,7 @@ impl PrintItems {
 
   #[inline]
   fn push_item_internal(&mut self, item: PrintItem) {
-    let node = with_bump_allocator(|bump| {
+    let node = thread_state::with_bump_allocator(|bump| {
       let result = bump.alloc(PrintNodeCell::new(item));
       unsafe { std::mem::transmute::<&PrintNodeCell, UnsafePrintLifetime<PrintNodeCell>>(result) }
     });
@@ -70,7 +70,7 @@ impl PrintItems {
   }
 
   pub fn push_string(&mut self, item: String) {
-    let string_container = with_bump_allocator(|bump| {
+    let string_container = thread_state::with_bump_allocator(|bump| {
       let result = bump.alloc(StringContainer::new(item));
       unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(result) }
     });
@@ -78,7 +78,7 @@ impl PrintItems {
   }
 
   pub fn push_condition(&mut self, condition: Condition) {
-    let condition = with_bump_allocator(|bump| {
+    let condition = thread_state::with_bump_allocator(|bump| {
       let result = bump.alloc(condition);
       unsafe { std::mem::transmute::<&Condition, UnsafePrintLifetime<Condition>>(result) }
     });
@@ -156,8 +156,8 @@ pub struct PrintItemsIterator {
 }
 
 impl PrintItemsIterator {
-  pub fn new(path: PrintItemPath) -> PrintItemsIterator {
-    PrintItemsIterator { node: Some(path) }
+  pub fn new(path: PrintItemPath) -> Self {
+    Self { node: Some(path) }
   }
 }
 
@@ -234,18 +234,18 @@ where
 pub struct Trace {
   /// The relative time of the trace from the start of printing in nanoseconds.
   pub nanos: u128,
-  pub print_node_id: usize,
+  pub print_node_id: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub writer_node_id: Option<usize>,
+  pub writer_node_id: Option<u32>,
 }
 
 #[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceWriterNode {
-  pub writer_node_id: usize,
+  pub writer_node_id: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub previous_node_id: Option<usize>,
+  pub previous_node_id: Option<u32>,
   pub text: String,
 }
 
@@ -253,9 +253,9 @@ pub struct TraceWriterNode {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TracePrintNode {
-  pub print_node_id: usize,
+  pub print_node_id: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub next_print_node_id: Option<usize>,
+  pub next_print_node_id: Option<u32>,
   pub print_item: TracePrintItem,
 }
 
@@ -268,14 +268,14 @@ pub enum TracePrintItem {
   Info(TraceInfo),
   Signal(Signal),
   /// Identifier to the print node.
-  RcPath(usize),
+  RcPath(u32),
 }
 
 #[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceInfo {
-  pub info_id: usize,
+  pub info_id: u32,
   pub name: String,
 }
 
@@ -283,19 +283,19 @@ pub struct TraceInfo {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceCondition {
-  pub condition_id: usize,
+  pub condition_id: u32,
   pub name: String,
   pub is_stored: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   /// Identifier to the true path print node.
-  pub true_path: Option<usize>,
+  pub true_path: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
   /// Identifier to the false path print node.
-  pub false_path: Option<usize>,
+  pub false_path: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
   /// Any infos that should cause the re-evaluation of this condition.
   /// This is only done on request for performance reasons.
-  pub dependent_infos: Option<Vec<usize>>,
+  pub dependent_infos: Option<Vec<u32>>,
 }
 
 /** Print Node */
@@ -304,12 +304,7 @@ pub struct PrintNode {
   pub(super) next: Option<PrintItemPath>,
   pub(super) item: PrintItem,
   #[cfg(feature = "tracing")]
-  pub print_node_id: usize,
-}
-
-thread_local! {
-  #[cfg(feature = "tracing")]
-  static PRINT_NODE_IDS: IdCounter = IdCounter::default();
+  pub print_node_id: u32,
 }
 
 impl PrintNode {
@@ -318,7 +313,7 @@ impl PrintNode {
       item,
       next: None,
       #[cfg(feature = "tracing")]
-      print_node_id: IdCounter::next(&PRINT_NODE_IDS),
+      print_node_id: thread_state::next_print_node_id(),
     }
   }
 
@@ -379,7 +374,7 @@ impl PrintNodeCell {
   }
 
   #[cfg(feature = "tracing")]
-  pub(super) fn get_node_id(&self) -> usize {
+  pub(super) fn get_node_id(&self) -> u32 {
     unsafe { (*self.get_node()).print_node_id }
   }
 
@@ -465,27 +460,23 @@ pub enum Signal {
 #[derive(Clone, PartialEq, Copy, Debug)]
 pub struct Info {
   /// Unique identifier.
-  id: usize,
+  id: u32,
   /// Name for debugging purposes.
   #[cfg(debug_assertions)]
   name: &'static str,
 }
 
-thread_local! {
-  static INFO_IDS: IdCounter = IdCounter::default();
-}
-
 impl Info {
-  pub fn new(_name: &'static str) -> Info {
-    Info {
-      id: IdCounter::next(&INFO_IDS),
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_info_id(),
       #[cfg(debug_assertions)]
       name: _name,
     }
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> usize {
+  pub fn get_unique_id(&self) -> u32 {
     self.id
   }
 
@@ -505,7 +496,7 @@ impl Info {
 #[derive(Clone)]
 pub struct Condition {
   /// Unique identifier.
-  id: usize,
+  id: u32,
   /// Name for debugging purposes.
   #[cfg(debug_assertions)]
   name: &'static str,
@@ -523,20 +514,16 @@ pub struct Condition {
   pub(super) dependent_infos: Option<Vec<Info>>,
 }
 
-thread_local! {
-  static CONDITION_IDS: IdCounter = IdCounter::default();
-}
-
 impl Condition {
-  pub fn new(name: &'static str, properties: ConditionProperties) -> Condition {
-    Condition::new_internal(name, properties, None)
+  pub fn new(name: &'static str, properties: ConditionProperties) -> Self {
+    Self::new_internal(name, properties, None)
   }
 
-  pub fn new_true() -> Condition {
-    Condition::new_internal(
+  pub fn new_true() -> Self {
+    Self::new_internal(
       "trueCondition",
       ConditionProperties {
-        condition: Rc::new(|_| Some(true)),
+        condition: condition_resolvers::true_resolver(),
         true_path: None,
         false_path: None,
       },
@@ -544,11 +531,11 @@ impl Condition {
     )
   }
 
-  pub fn new_false() -> Condition {
-    Condition::new_internal(
+  pub fn new_false() -> Self {
+    Self::new_internal(
       "falseCondition",
       ConditionProperties {
-        condition: Rc::new(|_| Some(false)),
+        condition: condition_resolvers::false_resolver(),
         true_path: None,
         false_path: None,
       },
@@ -556,13 +543,13 @@ impl Condition {
     )
   }
 
-  pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties, dependent_infos: Vec<Info>) -> Condition {
-    Condition::new_internal(name, properties, Some(dependent_infos))
+  pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties, dependent_infos: Vec<Info>) -> Self {
+    Self::new_internal(name, properties, Some(dependent_infos))
   }
 
-  fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Condition {
-    Condition {
-      id: IdCounter::next(&CONDITION_IDS),
+  fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Self {
+    Self {
+      id: thread_state::next_condition_id(),
       is_stored: dependent_infos.is_some(),
       #[cfg(debug_assertions)]
       name: _name,
@@ -574,7 +561,7 @@ impl Condition {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> usize {
+  pub fn get_unique_id(&self) -> u32 {
     self.id
   }
 
@@ -611,11 +598,11 @@ impl Condition {
 pub struct ConditionReference {
   #[cfg(debug_assertions)]
   pub(super) name: &'static str,
-  pub(super) id: usize,
+  pub(super) id: u32,
 }
 
 impl ConditionReference {
-  pub(super) fn new(_name: &'static str, id: usize) -> ConditionReference {
+  pub(super) fn new(_name: &'static str, id: u32) -> ConditionReference {
     ConditionReference {
       #[cfg(debug_assertions)]
       name: _name,
@@ -698,9 +685,9 @@ pub struct StringContainer {
 
 impl StringContainer {
   /// Creates a new string container.
-  pub fn new(text: String) -> StringContainer {
+  pub fn new(text: String) -> Self {
     let char_count = text.chars().count() as u32;
-    StringContainer { text, char_count }
+    Self { text, char_count }
   }
 }
 

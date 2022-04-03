@@ -7,12 +7,11 @@ mod collections;
 mod print;
 mod print_items;
 mod printer;
+mod thread_state;
 #[cfg(feature = "tracing")]
 mod tracing;
 mod write_items;
 mod writer;
-
-pub(crate) mod id;
 
 pub mod tokens;
 pub mod utils;

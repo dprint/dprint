@@ -3,6 +3,8 @@ use rustc_hash::FxHashMap;
 
 use super::collections::*;
 use super::print_items::*;
+use super::thread_state;
+use super::utils::VecU32Map;
 use super::writer::*;
 use super::WriteItem;
 
@@ -15,8 +17,8 @@ struct SavePoint<'a> {
   pub writer_state: WriterState<'a>,
   pub possible_new_line_save_point: Option<&'a SavePoint<'a>>,
   pub node: Option<PrintItemPath>,
-  pub look_ahead_condition_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
-  pub look_ahead_info_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
+  pub look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  pub look_ahead_info_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub next_node_stack: RcStack,
 }
 
@@ -59,16 +61,23 @@ pub struct Printer<'a> {
   force_no_newlines_depth: u8,
   current_node: Option<PrintItemPath>,
   writer: Writer<'a>,
-  resolved_conditions: FxHashMap<usize, Option<bool>>,
-  resolved_infos: FxHashMap<usize, WriterInfo>,
-  look_ahead_condition_save_points: FxHashMap<usize, &'a SavePoint<'a>>,
-  look_ahead_info_save_points: FastCellMap<'a, usize, SavePoint<'a>>,
+  // Use a regular hash map here because conditions don't seem
+  // to be resolved as much as infos. In one test, only about 10%
+  // of them were resolved after formatting.
+  resolved_conditions: FxHashMap<u32, Option<bool>>,
+  // Use a VecU32Map for resolved infos because it has much faster
+  // lookups than a hash map and generally infos seem to be resolved
+  // about 90% of the time, so the extra memory usage is probably not
+  // a big deal.
+  resolved_infos: VecU32Map<WriterInfo>,
+  look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  look_ahead_info_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
   next_node_stack: RcStack,
-  conditions_for_infos: FxHashMap<usize, FxHashMap<usize, (&'a Condition, &'a SavePoint<'a>)>>,
+  conditions_for_infos: FxHashMap<u32, FxHashMap<u32, (&'a Condition, &'a SavePoint<'a>)>>,
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
-  stored_info_positions: FxHashMap<usize, (u32, u32)>,
+  stored_info_positions: FxHashMap<u32, (u32, u32)>,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
   #[cfg(feature = "tracing")]
@@ -92,7 +101,7 @@ impl<'a> Printer<'a> {
         },
       ),
       resolved_conditions: FxHashMap::default(),
-      resolved_infos: FxHashMap::default(),
+      resolved_infos: VecU32Map::new(thread_state::peek_next_info_id()),
       look_ahead_condition_save_points: FxHashMap::default(),
       look_ahead_info_save_points: FastCellMap::new(),
       conditions_for_infos: FxHashMap::default(),
@@ -169,7 +178,7 @@ impl<'a> Printer<'a> {
   }
 
   pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
-    let resolved_info = self.resolved_infos.get(&info.get_unique_id());
+    let resolved_info = self.resolved_infos.get(info.get_unique_id());
     if resolved_info.is_none() && !self.look_ahead_info_save_points.contains_key(&info.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(info.get_name());
       self.look_ahead_info_save_points.insert(info.get_unique_id(), save_point);
@@ -179,7 +188,7 @@ impl<'a> Printer<'a> {
   }
 
   pub fn clear_info(&mut self, info: &Info) {
-    self.resolved_infos.remove(&info.get_unique_id());
+    self.resolved_infos.remove(info.get_unique_id());
   }
 
   pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
