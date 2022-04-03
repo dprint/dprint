@@ -211,6 +211,10 @@ impl Environment for RealEnvironment {
     std::env::consts::OS.to_string()
   }
 
+  fn available_parallelism(&self) -> usize {
+    std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4)
+  }
+
   fn get_time_secs(&self) -> u64 {
     SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
   }

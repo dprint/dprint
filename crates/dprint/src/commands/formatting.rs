@@ -256,6 +256,7 @@ mod test {
       .write_file(&file_path1, "text")
       .write_file(&file_path2, "text2")
       .build();
+    environment.set_available_parallelism(1); // ensure files are still formatted with only 1 core
     run_test_cli(vec!["fmt", "/file.*"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);

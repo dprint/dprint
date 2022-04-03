@@ -10,6 +10,7 @@ use dprint_core::plugins::HostFormatRequest;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use dprint_core::plugins::process::start_parent_process_checker_task;
@@ -117,6 +118,7 @@ struct EditorService<'a, TEnvironment: Environment> {
   plugin_resolver: &'a PluginResolver<TEnvironment>,
   plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   context: Arc<EditorContext>,
+  concurrency_limiter: Arc<Semaphore>,
 }
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
@@ -131,6 +133,8 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let stdout = environment.stdout();
     let reader = MessageReader::new(stdin);
     let writer = SingleThreadMessageWriter::for_stdout(MessageWriter::new(stdout));
+    let number_cores = environment.available_parallelism();
+    let concurrency_limiter = Arc::new(Semaphore::new(std::cmp::max(1, number_cores - 1)));
 
     Self {
       reader,
@@ -145,6 +149,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         cancellation_tokens: Default::default(),
         writer,
       }),
+      concurrency_limiter,
     }
   }
 
@@ -203,16 +208,24 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           self.context.cancellation_tokens.store(message.id, token.clone());
           let plugins_collection = self.plugins_collection.clone();
           let context = self.context.clone();
+          let concurrency_limiter = self.concurrency_limiter.clone();
           let _ignore = tokio::task::spawn(async move {
+            let _permit = concurrency_limiter.acquire().await;
+            if token.is_cancelled() {
+              return;
+            }
+
             let result = plugins_collection.format(request).await;
             context.cancellation_tokens.take(message.id);
-            if !token.is_cancelled() {
-              let body = match result {
-                Ok(text) => EditorMessageBody::FormatResponse(message.id, text.map(|t| t.into_bytes())),
-                Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
-              };
-              send_response_body(&context, body)
+            if token.is_cancelled() {
+              return;
             }
+
+            let body = match result {
+              Ok(text) => EditorMessageBody::FormatResponse(message.id, text.map(|t| t.into_bytes())),
+              Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
+            };
+            send_response_body(&context, body);
           });
         }
         EditorMessageBody::FormatResponse(_, _) => {

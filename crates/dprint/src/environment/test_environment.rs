@@ -112,6 +112,7 @@ pub struct TestEnvironment {
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
   cpu_arch: Arc<Mutex<String>>,
+  core_count: Arc<Mutex<usize>>,
 }
 
 impl TestEnvironment {
@@ -142,6 +143,7 @@ impl TestEnvironment {
       #[cfg(windows)]
       path_dirs: Default::default(),
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
+      core_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
     }
   }
 
@@ -231,6 +233,10 @@ impl TestEnvironment {
 
   pub fn set_cpu_arch(&self, value: &str) {
     *self.cpu_arch.lock() = value.to_string();
+  }
+
+  pub fn set_available_parallelism(&self, value: usize) {
+    *self.core_count.lock() = value;
   }
 
   pub fn set_runtime_handle(&self, handle: tokio::runtime::Handle) {
@@ -441,6 +447,10 @@ impl Environment for TestEnvironment {
 
   fn os(&self) -> String {
     std::env::consts::OS.to_string()
+  }
+
+  fn available_parallelism(&self) -> usize {
+    *self.core_count.lock()
   }
 
   fn get_time_secs(&self) -> u64 {

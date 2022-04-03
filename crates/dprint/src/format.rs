@@ -47,7 +47,7 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
 where
   F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + Sync + 'static + Clone,
 {
-  let number_cores = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4);
+  let number_cores = environment.available_parallelism();
   let number_process_plugins = plugins_collection.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if number_cores > reduction_count { number_cores - reduction_count } else { 1 };
