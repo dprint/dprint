@@ -46,7 +46,7 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
 
   if_true_or(
     "newLineIfHangingSpaceOtherwise",
-    Rc::new(move |context| condition_helpers::is_hanging(context, &start_info, &end_info)),
+    Rc::new(move |context| condition_helpers::is_hanging_delete(context, &start_info, &end_info)),
     Signal::NewLine.into(),
     space_char,
   )
@@ -55,7 +55,7 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
 pub fn new_line_if_hanging(start_info: Info, end_info: Option<Info>) -> Condition {
   if_true(
     "newlineIfHanging",
-    Rc::new(move |context| condition_helpers::is_hanging(context, &start_info, &end_info)),
+    Rc::new(move |context| condition_helpers::is_hanging_delete(context, &start_info, &end_info)),
     Signal::NewLine.into(),
   )
 }

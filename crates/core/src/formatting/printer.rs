@@ -70,10 +70,22 @@ pub struct Printer<'a> {
   // about 90% of the time, so the extra memory usage is probably not
   // a big deal.
   resolved_infos: VecU32Map<WriterInfo>,
+  resolved_line_number_anchors: VecU32Map<u32>,
+  resolved_line_numbers: VecU32Map<u32>,
+  resolved_column_numbers: VecU32Map<u32>,
+  resolved_is_start_of_lines: VecU32Map<bool>,
+  resolved_line_start_column_numbers: VecU32Map<u32>,
+  resolved_line_start_indent_levels: VecU32Map<u8>,
   look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   look_ahead_info_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
+  look_ahead_line_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
+  look_ahead_column_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
+  look_ahead_is_start_of_line_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
+  look_ahead_line_start_column_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
+  look_ahead_line_start_indent_level_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
   next_node_stack: RcStack,
   conditions_for_infos: FxHashMap<u32, FxHashMap<u32, (&'a Condition, &'a SavePoint<'a>)>>,
+  stored_condition_save_points: FxHashMap<u32, (&'a Condition, &'a SavePoint<'a>)>,
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
@@ -101,10 +113,22 @@ impl<'a> Printer<'a> {
         },
       ),
       resolved_conditions: FxHashMap::default(),
-      resolved_infos: VecU32Map::new(thread_state::peek_next_info_id()),
+      resolved_infos: VecU32Map::new(thread_state::next_info_id()),
+      resolved_line_number_anchors: VecU32Map::new(thread_state::next_line_number_anchor_id()),
+      resolved_line_numbers: VecU32Map::new(thread_state::next_line_number_id()),
+      resolved_column_numbers: VecU32Map::new(thread_state::next_column_number_id()),
+      resolved_is_start_of_lines: VecU32Map::new(thread_state::next_is_start_of_line_id()),
+      resolved_line_start_column_numbers: VecU32Map::new(thread_state::next_line_start_column_number_id()),
+      resolved_line_start_indent_levels: VecU32Map::new(thread_state::next_line_start_indent_level_id()),
       look_ahead_condition_save_points: FxHashMap::default(),
       look_ahead_info_save_points: FastCellMap::new(),
+      look_ahead_line_number_save_points: FastCellMap::new(),
+      look_ahead_column_number_save_points: FastCellMap::new(),
+      look_ahead_is_start_of_line_save_points: FastCellMap::new(),
+      look_ahead_line_start_column_number_save_points: FastCellMap::new(),
+      look_ahead_line_start_indent_level_save_points: FastCellMap::new(),
       conditions_for_infos: FxHashMap::default(),
+      stored_condition_save_points: FxHashMap::default(),
       next_node_stack: RcStack::default(),
       max_width: options.max_width,
       skip_moving_next: false,
@@ -187,8 +211,92 @@ impl<'a> Printer<'a> {
     resolved_info
   }
 
+  pub fn get_resolved_line_number(&self, line_number: LineNumber) -> Option<u32> {
+    let resolved_number = self.resolved_line_numbers.get(line_number.get_unique_id());
+    if resolved_number.is_none() && !self.look_ahead_line_number_save_points.contains_key(&line_number.get_unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(line_number.get_name());
+      self.look_ahead_line_number_save_points.insert(line_number.get_unique_id(), save_point);
+    }
+
+    resolved_number.map(|v| *v)
+  }
+
+  pub fn get_resolved_column_number(&self, column_number: ColumnNumber) -> Option<u32> {
+    let resolved_number = self.resolved_column_numbers.get(column_number.get_unique_id());
+    if resolved_number.is_none() && !self.look_ahead_column_number_save_points.contains_key(&column_number.get_unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(column_number.get_name());
+      self.look_ahead_column_number_save_points.insert(column_number.get_unique_id(), save_point);
+    }
+
+    resolved_number.map(|v| *v)
+  }
+
+  pub fn get_resolved_is_start_of_line(&self, is_start_of_line: IsStartOfLine) -> Option<bool> {
+    let resolved_is_start_of_line = self.resolved_is_start_of_lines.get(is_start_of_line.get_unique_id());
+    if resolved_is_start_of_line.is_none() && !self.look_ahead_is_start_of_line_save_points.contains_key(&is_start_of_line.get_unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(is_start_of_line.get_name());
+      self
+        .look_ahead_is_start_of_line_save_points
+        .insert(is_start_of_line.get_unique_id(), save_point);
+    }
+
+    resolved_is_start_of_line.map(|v| *v)
+  }
+
+  pub fn get_resolved_line_start_column_number(&self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
+    let resolved_line_start_column_number = self.resolved_line_start_column_numbers.get(line_start_column_number.get_unique_id());
+    if resolved_line_start_column_number.is_none()
+      && !self
+        .look_ahead_line_start_column_number_save_points
+        .contains_key(&line_start_column_number.get_unique_id())
+    {
+      let save_point = self.get_save_point_for_restoring_condition(line_start_column_number.get_name());
+      self
+        .look_ahead_line_start_column_number_save_points
+        .insert(line_start_column_number.get_unique_id(), save_point);
+    }
+
+    resolved_line_start_column_number.map(|v| *v)
+  }
+
+  pub fn get_resolved_line_start_indent_level(&self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
+    let resolved_line_start_indent_level = self.resolved_line_start_indent_levels.get(line_start_indent_level.get_unique_id());
+    if resolved_line_start_indent_level.is_none()
+      && !self
+        .look_ahead_line_start_indent_level_save_points
+        .contains_key(&line_start_indent_level.get_unique_id())
+    {
+      let save_point = self.get_save_point_for_restoring_condition(line_start_indent_level.get_name());
+      self
+        .look_ahead_line_start_indent_level_save_points
+        .insert(line_start_indent_level.get_unique_id(), save_point);
+    }
+
+    resolved_line_start_indent_level.map(|v| *v)
+  }
+
   pub fn clear_info(&mut self, info: &Info) {
     self.resolved_infos.remove(info.get_unique_id());
+  }
+
+  pub fn clear_line_number(&mut self, line_number: LineNumber) {
+    self.resolved_line_numbers.remove(line_number.get_unique_id());
+  }
+
+  pub fn clear_column_number(&mut self, column_number: ColumnNumber) {
+    self.resolved_column_numbers.remove(column_number.get_unique_id());
+  }
+
+  pub fn clear_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
+    self.resolved_is_start_of_lines.remove(is_start_of_line.get_unique_id());
+  }
+
+  pub fn clear_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) {
+    self.resolved_line_start_column_numbers.remove(line_start_column_number.get_unique_id());
+  }
+
+  pub fn clear_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
+    self.resolved_line_start_indent_levels.remove(line_start_indent_level.get_unique_id());
   }
 
   pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
@@ -223,6 +331,9 @@ impl<'a> Printer<'a> {
       PrintItem::Info(info) => self.handle_info(info),
       PrintItem::Signal(signal) => self.handle_signal(signal),
       PrintItem::RcPath(rc_path) => self.handle_rc_path(rc_path, &print_node.next),
+      PrintItem::Anchor(anchor) => self.handle_anchor(anchor),
+      PrintItem::TargetedInfo(info) => self.handle_targeted_info(info),
+      PrintItem::ConditionReevaluation(reevaluation) => self.handle_condition_reevaluation(reevaluation),
     }
   }
 
@@ -268,7 +379,7 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn is_above_max_width(&self, offset: u32) -> bool {
-    self.writer.get_line_column() + offset > self.max_width
+    self.writer.get_column_number() + offset > self.max_width
   }
 
   fn update_state_to_save_point(&mut self, save_point: &'a SavePoint<'a>, is_for_new_line: bool) {
@@ -378,6 +489,102 @@ impl<'a> Printer<'a> {
   }
 
   #[inline]
+  fn handle_anchor(&mut self, anchor: &Anchor) {
+    match anchor {
+      Anchor::LineNumber(anchor) => {
+        let id = anchor.get_unique_id();
+        if let Some(past_line_number) = self.resolved_line_number_anchors.get(id) {
+          let current_line_number = self.writer.get_line_number();
+          let difference = (current_line_number as isize) - (*past_line_number as isize);
+          if difference != 0 {
+            let line_number_id = anchor.get_line_number_id();
+            if let Some(value) = self.resolved_line_numbers.get(line_number_id) {
+              let new_value = ((*value as isize) + difference) as u32;
+              self.resolved_line_numbers.insert(line_number_id, new_value);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  #[inline]
+  fn handle_targeted_info(&mut self, info: &TargetedInfo) {
+    match info {
+      TargetedInfo::LineNumber(line_number) => {
+        let line_number_id = line_number.get_unique_id();
+        self.resolved_line_numbers.insert(line_number_id, self.writer.get_line_number());
+        let option_save_point = self.look_ahead_line_number_save_points.remove(&line_number_id);
+        if let Some(save_point) = option_save_point {
+          self.update_state_to_save_point(save_point, false);
+          return;
+        }
+      }
+      TargetedInfo::ColumnNumber(column_number) => {
+        let column_number_id = column_number.get_unique_id();
+        self.resolved_column_numbers.insert(column_number_id, self.writer.get_column_number());
+        let option_save_point = self.look_ahead_column_number_save_points.remove(&column_number_id);
+        if let Some(save_point) = option_save_point {
+          self.update_state_to_save_point(save_point, false);
+          return;
+        }
+      }
+      TargetedInfo::IsStartOfLine(is_start_of_line) => {
+        let is_start_of_line_id = is_start_of_line.get_unique_id();
+        self.resolved_is_start_of_lines.insert(is_start_of_line_id, self.writer.get_is_start_of_line());
+        let option_save_point = self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id);
+        if let Some(save_point) = option_save_point {
+          self.update_state_to_save_point(save_point, false);
+          return;
+        }
+      }
+      TargetedInfo::LineStartColumnNumber(line_start_column_number) => {
+        let line_start_column_number_id = line_start_column_number.get_unique_id();
+        self
+          .resolved_line_start_column_numbers
+          .insert(line_start_column_number_id, self.writer.get_line_start_column_number());
+        let option_save_point = self.look_ahead_line_start_column_number_save_points.remove(&line_start_column_number_id);
+        if let Some(save_point) = option_save_point {
+          self.update_state_to_save_point(save_point, false);
+          return;
+        }
+      }
+      TargetedInfo::LineStartIndentLevel(line_start_indent_level) => {
+        let line_start_indent_level_id = line_start_indent_level.get_unique_id();
+        self
+          .resolved_line_start_indent_levels
+          .insert(line_start_indent_level_id, self.writer.get_line_start_indent_level());
+        let option_save_point = self.look_ahead_line_start_indent_level_save_points.remove(&line_start_indent_level_id);
+        if let Some(save_point) = option_save_point {
+          self.update_state_to_save_point(save_point, false);
+          return;
+        }
+      }
+    }
+  }
+
+  #[inline]
+  fn handle_condition_reevaluation(&mut self, condition_reevaluation: &ConditionReevaluation) {
+    let condition_id = condition_reevaluation.condition_id;
+    if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned() {
+      if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
+        self.resolving_save_point.replace(save_point);
+        let mut context = ConditionResolverContext::new(self, save_point.writer_state.get_writer_info(self.writer.get_indent_width()));
+        let condition_value = condition.resolve(&mut context);
+        self.resolving_save_point.take();
+        if let Some(condition_value) = condition_value {
+          if condition_value != resolved_condition_value {
+            self.update_state_to_save_point(save_point, false);
+            return;
+          }
+        } else {
+          self.resolved_conditions.remove(&condition_id);
+        }
+      }
+    }
+  }
+
+  #[inline]
   fn handle_condition(&mut self, condition: &'a Condition, next_node: &Option<PrintItemPath>) {
     let condition_id = condition.get_unique_id();
     if let Some(dependent_infos) = &condition.dependent_infos {
@@ -394,6 +601,11 @@ impl<'a> Printer<'a> {
         let condition_id = condition.get_unique_id();
         conditions_for_info.insert(condition_id, (condition, save_point));
       }
+    }
+
+    if condition.store_save_point {
+      let save_point = self.get_save_point_for_restoring_condition(condition.get_name());
+      self.stored_condition_save_points.insert(condition.get_unique_id(), (condition, save_point));
     }
 
     let condition_value = condition.resolve(&mut ConditionResolverContext::new(self, self.get_writer_info()));

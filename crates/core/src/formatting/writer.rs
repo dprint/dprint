@@ -21,7 +21,7 @@ impl<'a> WriterState<'a> {
   pub fn get_writer_info(&self, indent_width: u8) -> WriterInfo {
     WriterInfo {
       line_number: self.current_line_number,
-      column_number: self.get_line_column(indent_width),
+      column_number: self.get_column_number(indent_width),
       indent_level: self.indent_level,
       line_start_indent_level: self.last_line_indent_level,
       indent_width,
@@ -30,7 +30,7 @@ impl<'a> WriterState<'a> {
   }
 
   #[inline]
-  pub fn get_line_column(&self, indent_width: u8) -> u32 {
+  pub fn get_column_number(&self, indent_width: u8) -> u32 {
     if self.current_line_column == 0 {
       (indent_width as u32) * (self.indent_level as u32)
     } else {
@@ -152,8 +152,28 @@ impl<'a> Writer<'a> {
   }
 
   #[inline]
-  pub fn get_line_column(&self) -> u32 {
-    self.state.get_line_column(self.indent_width)
+  pub fn get_column_number(&self) -> u32 {
+    self.state.get_column_number(self.indent_width)
+  }
+
+  #[inline]
+  pub fn get_line_number(&self) -> u32 {
+    self.state.current_line_number
+  }
+
+  #[inline]
+  pub fn get_is_start_of_line(&self) -> bool {
+    self.state.expect_newline_next || self.get_column_number() == self.get_line_start_column_number()
+  }
+
+  #[inline]
+  pub fn get_line_start_column_number(&self) -> u32 {
+    (self.state.last_line_indent_level as u32) * (self.indent_width as u32)
+  }
+
+  #[inline]
+  pub fn get_line_start_indent_level(&self) -> u8 {
+    self.state.last_line_indent_level
   }
 
   pub fn new_line(&mut self) {

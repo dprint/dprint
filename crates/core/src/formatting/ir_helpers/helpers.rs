@@ -147,12 +147,13 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
   }
 
   let mut items = PrintItems::new();
-  let start_info = Info::new("surroundWithNewLinesIndentedIfMultiLineStart");
-  let end_info = Info::new("surroundWithNewLineIndentedsIfMultiLineEnd");
+  let start_ln = LineNumber::new("surroundWithNewLinesIndentedIfMultiLineStart");
+  let end_ln = LineNumber::new("surroundWithNewLineIndentedsIfMultiLineEnd");
   let inner_items = inner_items.into_rc_path();
 
-  items.push_info(start_info);
-  items.push_condition(Condition::new_with_dependent_infos(
+  items.push_line_number(start_ln);
+  items.push_line_number_anchor(LineNumberAnchor::new("surroundWithNewLineIndentedsIfMultiLineEnd", end_ln));
+  let mut condition = Condition::new(
     "newlineIfMultiLine",
     ConditionProperties {
       true_path: Some(surround_with_new_lines(with_indent(inner_items.into()))),
@@ -162,17 +163,13 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
         items.extend(inner_items.into());
         items
       }),
-      condition: Rc::new(move |context| {
-        // clear the end info when the start info changes
-        if context.has_info_moved(&start_info)? {
-          context.clear_info(&end_info);
-        }
-        condition_helpers::is_multiple_lines(context, &start_info, &end_info)
-      }),
+      condition: Rc::new(move |context| condition_helpers::is_multiple_lines(context, start_ln, end_ln)),
     },
-    vec![end_info],
-  ));
-  items.push_info(end_info);
+  );
+  let condition_reevaluation = condition.create_reevaluation();
+  items.push_condition(condition);
+  items.push_line_number(end_ln);
+  items.push_reevaluation(condition_reevaluation);
 
   items
 }

@@ -89,6 +89,34 @@ impl PrintItems {
     self.push_item_internal(PrintItem::Info(info));
   }
 
+  pub fn push_line_number(&mut self, line_number: LineNumber) {
+    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::LineNumber(line_number)));
+  }
+
+  pub fn push_column_number(&mut self, column_number: ColumnNumber) {
+    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::ColumnNumber(column_number)));
+  }
+
+  pub fn push_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
+    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::IsStartOfLine(is_start_of_line)));
+  }
+
+  pub fn push_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) {
+    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::LineStartColumnNumber(line_start_column_number)));
+  }
+
+  pub fn push_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
+    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::LineStartIndentLevel(line_start_indent_level)));
+  }
+
+  pub fn push_line_number_anchor(&mut self, anchor: LineNumberAnchor) {
+    self.push_item_internal(PrintItem::Anchor(Anchor::LineNumber(anchor)));
+  }
+
+  pub fn push_reevaluation(&mut self, condition_reevaluation: ConditionReevaluation) {
+    self.push_item_internal(PrintItem::ConditionReevaluation(condition_reevaluation));
+  }
+
   pub fn push_signal(&mut self, signal: Signal) {
     self.push_item_internal(PrintItem::Signal(signal));
   }
@@ -135,6 +163,7 @@ impl PrintItems {
           }
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),
           PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path, indent_text.clone())),
+          _ => todo!(),
         }
       }
 
@@ -413,6 +442,9 @@ pub enum PrintItem {
   Info(Info),
   Signal(Signal),
   RcPath(PrintItemPath),
+  Anchor(Anchor),
+  TargetedInfo(TargetedInfo),
+  ConditionReevaluation(ConditionReevaluation),
 }
 
 #[derive(Clone, PartialEq, Copy, Debug, serde::Serialize)]
@@ -454,6 +486,207 @@ pub enum Signal {
   SpaceIfNotTrailing,
 }
 
+#[derive(Clone)]
+pub enum Anchor {
+  LineNumber(LineNumberAnchor),
+}
+
+/// Handles updating the position of a future resolved line
+/// number if the anchor changes.
+#[derive(Clone)]
+pub struct LineNumberAnchor {
+  id: u32,
+  line_number: LineNumber,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl LineNumberAnchor {
+  pub fn new(_name: &'static str, line_number: LineNumber) -> Self {
+    Self {
+      id: thread_state::next_line_number_anchor_id(),
+      line_number,
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn get_unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn get_line_number_id(&self) -> u32 {
+    self.line_number.id
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub enum TargetedInfo {
+  LineNumber(LineNumber),
+  ColumnNumber(ColumnNumber),
+  IsStartOfLine(IsStartOfLine),
+  LineStartColumnNumber(LineStartColumnNumber),
+  LineStartIndentLevel(LineStartIndentLevel),
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineNumber {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl LineNumber {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_line_number_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn get_unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn get_name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "line_number";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct ColumnNumber {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl ColumnNumber {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_column_number_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn get_unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn get_name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "column_number";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct IsStartOfLine {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl IsStartOfLine {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_is_start_of_line_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn get_unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn get_name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "is_start_of_line";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineStartColumnNumber {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl LineStartColumnNumber {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_line_start_column_number_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn get_unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn get_name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "line_start_column_number";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineStartIndentLevel {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl LineStartIndentLevel {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_line_start_indent_level_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn get_unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn get_name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "line_start_indent_level";
+  }
+}
+
 /// Can be used to get information at a certain location being printed. These
 /// can be resolved by providing the info object to a condition context's
 /// get_resolved_info(&info) method.
@@ -489,6 +722,20 @@ impl Info {
   }
 }
 
+/// Used to re-evaluate a condition.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ConditionReevaluation {
+  pub(crate) condition_id: u32,
+}
+
+impl ConditionReevaluation {
+  pub(crate) fn new(condition: &mut Condition) -> Self {
+    condition.store_save_point = true;
+    condition.is_stored = true;
+    ConditionReevaluation { condition_id: condition.id }
+  }
+}
+
 /// Conditionally print items based on a condition.
 ///
 /// These conditions are extremely flexible and can even be resolved based on
@@ -503,6 +750,7 @@ pub struct Condition {
   /// If a reference has been created for the condition via `get_reference()`. If so, the printer
   /// will store the condition and it will be retrievable via a condition resolver.
   pub(super) is_stored: bool,
+  pub(super) store_save_point: bool,
   /// The condition to resolve.
   pub(super) condition: ConditionResolver,
   /// The items to print when the condition is true.
@@ -517,6 +765,10 @@ pub struct Condition {
 impl Condition {
   pub fn new(name: &'static str, properties: ConditionProperties) -> Self {
     Self::new_internal(name, properties, None)
+  }
+
+  pub fn create_reevaluation(&mut self) -> ConditionReevaluation {
+    ConditionReevaluation::new(self)
   }
 
   pub fn new_true() -> Self {
@@ -551,6 +803,7 @@ impl Condition {
     Self {
       id: thread_state::next_condition_id(),
       is_stored: dependent_infos.is_some(),
+      store_save_point: false,
       #[cfg(debug_assertions)]
       name: _name,
       condition: properties.condition,
@@ -650,20 +903,65 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     ConditionResolverContext { printer, writer_info }
   }
 
-  /// Gets if a condition was true, false, or returns undefined when not yet resolved.
+  /// Gets if a condition was true, false, or returns None when not yet resolved.
   /// A condition reference can be retrieved by calling the `get_reference()` on a condition.
   pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
     self.printer.get_resolved_condition(condition_reference)
   }
 
-  /// Gets the writer info at a specified info or returns undefined when not yet resolved.
+  /// Gets the writer info at a specified info or returns None when not yet resolved.
   pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
     self.printer.get_resolved_info(info)
+  }
+
+  /// Gets the line number or returns None when not yet resolved.
+  pub fn get_resolved_line_number(&self, line_number: LineNumber) -> Option<u32> {
+    self.printer.get_resolved_line_number(line_number)
+  }
+
+  /// Gets the column number or returns None when not yet resolved.
+  pub fn get_resolved_column_number(&self, column_number: ColumnNumber) -> Option<u32> {
+    self.printer.get_resolved_column_number(column_number)
+  }
+
+  /// Gets if the info is at the start of the line or returns None when not yet resolved.
+  pub fn get_resolved_is_start_of_line(&self, is_start_of_line: IsStartOfLine) -> Option<bool> {
+    self.printer.get_resolved_is_start_of_line(is_start_of_line)
+  }
+
+  /// Gets the column number at the start of the line this info appears or returns None when not yet resolved.
+  pub fn get_resolved_line_start_column_number(&self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
+    self.printer.get_resolved_line_start_column_number(line_start_column_number)
+  }
+
+  /// Gets the indent level at the start of the line this info appears or returns None when not yet resolved.
+  pub fn get_resolved_line_start_indent_level(&self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
+    self.printer.get_resolved_line_start_indent_level(line_start_indent_level)
   }
 
   /// Clears the info result from being stored.
   pub fn clear_info(&mut self, info: &Info) {
     self.printer.clear_info(info)
+  }
+
+  /// Clears the line number from being stored.
+  pub fn clear_line_number(&mut self, line_number: LineNumber) {
+    self.printer.clear_line_number(line_number)
+  }
+
+  /// Clears the column number from being stored.
+  pub fn clear_column_number(&mut self, column_number: ColumnNumber) {
+    self.printer.clear_column_number(column_number)
+  }
+
+  /// Clears the info from being stored.
+  pub fn clear_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
+    self.printer.clear_is_start_of_line(is_start_of_line)
+  }
+
+  /// Clears the info from being stored.
+  pub fn clear_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
+    self.printer.clear_line_start_indent_level(line_start_indent_level)
   }
 
   /// Gets if the provided info has moved positions since the last check.
