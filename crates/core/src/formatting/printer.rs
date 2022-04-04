@@ -19,6 +19,11 @@ struct SavePoint<'a> {
   pub node: Option<PrintItemPath>,
   pub look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub look_ahead_info_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  pub look_ahead_line_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  pub look_ahead_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  pub look_ahead_is_start_of_line_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  pub look_ahead_line_start_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  pub look_ahead_line_start_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub next_node_stack: RcStack,
 }
 
@@ -353,6 +358,11 @@ impl<'a> Printer<'a> {
       writer_state: self.writer.get_state(),
       look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
       look_ahead_info_save_points: self.look_ahead_info_save_points.clone_map(),
+      look_ahead_line_number_save_points: self.look_ahead_line_number_save_points.clone_map(),
+      look_ahead_column_number_save_points: self.look_ahead_column_number_save_points.clone_map(),
+      look_ahead_is_start_of_line_save_points: self.look_ahead_is_start_of_line_save_points.clone_map(),
+      look_ahead_line_start_column_number_save_points: self.look_ahead_line_start_column_number_save_points.clone_map(),
+      look_ahead_line_start_indent_level_save_points: self.look_ahead_line_start_indent_level_save_points.clone_map(),
       next_node_stack: self.next_node_stack.clone(),
     })
   }
@@ -390,6 +400,21 @@ impl<'a> Printer<'a> {
     self.force_no_newlines_depth = save_point.force_no_newlines_depth;
     self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
     self.look_ahead_info_save_points.replace_map(save_point.look_ahead_info_save_points.clone());
+    self
+      .look_ahead_line_number_save_points
+      .replace_map(save_point.look_ahead_line_number_save_points.clone());
+    self
+      .look_ahead_column_number_save_points
+      .replace_map(save_point.look_ahead_column_number_save_points.clone());
+    self
+      .look_ahead_is_start_of_line_save_points
+      .replace_map(save_point.look_ahead_is_start_of_line_save_points.clone());
+    self
+      .look_ahead_line_start_column_number_save_points
+      .replace_map(save_point.look_ahead_line_start_column_number_save_points.clone());
+    self
+      .look_ahead_line_start_indent_level_save_points
+      .replace_map(save_point.look_ahead_line_start_indent_level_save_points.clone());
     self.next_node_stack = save_point.next_node_stack.clone();
 
     if is_for_new_line {
