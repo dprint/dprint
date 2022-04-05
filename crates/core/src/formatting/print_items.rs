@@ -318,13 +318,53 @@ pub enum TracePrintItem {
   Signal(Signal),
   /// Identifier to the print node.
   RcPath(u32),
+  Anchor(TraceLineNumberAnchor),
+  ConditionReevaluation(TraceConditionReevaluation),
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "content", rename_all = "camelCase")]
+pub enum TraceInfo {
+  LineNumber(TraceInfoInner),
+  ColumnNumber(TraceInfoInner),
+  IsStartOfLine(TraceInfoInner),
+  IndentLevel(TraceInfoInner),
+  LineStartColumnNumber(TraceInfoInner),
+  LineStartIndentLevel(TraceInfoInner),
 }
 
 #[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TraceInfo {
+pub struct TraceInfoInner {
   pub info_id: u32,
+  pub name: String,
+}
+
+#[cfg(feature = "tracing")]
+impl TraceInfoInner {
+  pub fn new(info_id: u32, name: &str) -> Self {
+    Self {
+      info_id,
+      name: name.to_string(),
+    }
+  }
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceLineNumberAnchor {
+  pub anchor_id: u32,
+  pub name: String,
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceConditionReevaluation {
+  pub condition_id: u32,
   pub name: String,
 }
 
