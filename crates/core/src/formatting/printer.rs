@@ -57,8 +57,6 @@ pub struct PrinterOptions {
   pub enable_tracing: bool,
 }
 
-// todo: Needs slight redesign. See issue #71 and #195.
-
 pub struct Printer<'a> {
   bump: &'a Bump,
   possible_new_line_save_point: Option<&'a SavePoint<'a>>,
@@ -66,8 +64,7 @@ pub struct Printer<'a> {
   force_no_newlines_depth: u8,
   current_node: Option<PrintItemPath>,
   writer: Writer<'a>,
-  // Use a regular hash map here because condition resolution isn't
-  // stored that much.
+  // Use a regular hash map here because only some conditions are stored (not all).
   resolved_conditions: FxHashMap<u32, Option<bool>>,
   // Use a VecU32Map for resolved infos because it has much faster
   // lookups than a hash map and generally infos seem to be resolved
@@ -208,7 +205,7 @@ impl<'a> Printer<'a> {
       self.look_ahead_line_number_save_points.insert(line_number.get_unique_id(), save_point);
     }
 
-    resolved_number.map(|v| *v)
+    resolved_number.copied()
   }
 
   pub fn resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
@@ -218,7 +215,7 @@ impl<'a> Printer<'a> {
       self.look_ahead_column_number_save_points.insert(column_number.get_unique_id(), save_point);
     }
 
-    resolved_number.map(|v| *v)
+    resolved_number.copied()
   }
 
   pub fn resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
@@ -230,7 +227,7 @@ impl<'a> Printer<'a> {
         .insert(is_start_of_line.get_unique_id(), save_point);
     }
 
-    resolved_is_start_of_line.map(|v| *v)
+    resolved_is_start_of_line.copied()
   }
 
   pub fn resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
@@ -240,7 +237,7 @@ impl<'a> Printer<'a> {
       self.look_ahead_indent_level_save_points.insert(indent_level.get_unique_id(), save_point);
     }
 
-    resolved_indent_level.map(|v| *v)
+    resolved_indent_level.copied()
   }
 
   pub fn resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
@@ -256,7 +253,7 @@ impl<'a> Printer<'a> {
         .insert(line_start_column_number.get_unique_id(), save_point);
     }
 
-    resolved_line_start_column_number.map(|v| *v)
+    resolved_line_start_column_number.copied()
   }
 
   pub fn resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
@@ -272,7 +269,7 @@ impl<'a> Printer<'a> {
         .insert(line_start_indent_level.get_unique_id(), save_point);
     }
 
-    resolved_line_start_indent_level.map(|v| *v)
+    resolved_line_start_indent_level.copied()
   }
 
   pub fn clear_info(&mut self, info: Info) {
@@ -464,7 +461,6 @@ impl<'a> Printer<'a> {
         let option_save_point = self.look_ahead_line_number_save_points.remove(&line_number_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
-          return;
         }
       }
       Info::ColumnNumber(column_number) => {
@@ -473,7 +469,6 @@ impl<'a> Printer<'a> {
         let option_save_point = self.look_ahead_column_number_save_points.remove(&column_number_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
-          return;
         }
       }
       Info::IsStartOfLine(is_start_of_line) => {
@@ -482,7 +477,6 @@ impl<'a> Printer<'a> {
         let option_save_point = self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
-          return;
         }
       }
       Info::IndentLevel(indent_level) => {
@@ -491,7 +485,6 @@ impl<'a> Printer<'a> {
         let option_save_point = self.look_ahead_indent_level_save_points.remove(&indent_level_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
-          return;
         }
       }
       Info::LineStartColumnNumber(line_start_column_number) => {
@@ -502,7 +495,6 @@ impl<'a> Printer<'a> {
         let option_save_point = self.look_ahead_line_start_column_number_save_points.remove(&line_start_column_number_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
-          return;
         }
       }
       Info::LineStartIndentLevel(line_start_indent_level) => {
@@ -513,7 +505,6 @@ impl<'a> Printer<'a> {
         let option_save_point = self.look_ahead_line_start_indent_level_save_points.remove(&line_start_indent_level_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
-          return;
         }
       }
     }
@@ -531,7 +522,6 @@ impl<'a> Printer<'a> {
         if let Some(condition_value) = condition_value {
           if condition_value != resolved_condition_value {
             self.update_state_to_save_point(save_point, false);
-            return;
           }
         } else {
           self.resolved_conditions.remove(&condition_id);

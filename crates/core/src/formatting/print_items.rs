@@ -1051,8 +1051,8 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
 
   /// Clears the line and column from being stored.
   pub fn clear_line_and_column(&mut self, lc: LineAndColumn) {
-    self.printer.clear_info(lc.line.into());
-    self.printer.clear_info(lc.column.into());
+    self.clear_info(lc.line);
+    self.clear_info(lc.column);
   }
 
   /// Clears the info from being stored.
