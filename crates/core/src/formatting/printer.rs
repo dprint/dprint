@@ -7,6 +7,22 @@ use super::thread_state;
 use super::writer::*;
 use super::WriteItem;
 
+struct PendingCachedPathInfo<'a> {
+  cached_path_id: u32,
+  start_line_number: u32,
+  start_column_number: u32,
+  start_next_node_stack_size: usize,
+  start_link: &'a GraphNode<'a, WriteItem<'a>>,
+}
+
+#[derive(Clone)] // only to make the compile happy... not used
+struct CachedPathInfo<'a> {
+  start_line_number: u32,
+  start_column_number: u32,
+  start_link: &'a GraphNode<'a, WriteItem<'a>>,
+  writer_state: WriterState<'a>,
+}
+
 struct SavePoint<'a> {
   #[cfg(debug_assertions)]
   /// Name for debugging purposes.
@@ -88,6 +104,8 @@ pub struct Printer<'a> {
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
+  pending_cached_paths: Vec<PendingCachedPathInfo<'a>>,
+  cached_paths: VecU32Map<CachedPathInfo<'a>>,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
   #[cfg(feature = "tracing")]
@@ -130,6 +148,8 @@ impl<'a> Printer<'a> {
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
+      pending_cached_paths: Vec::new(),
+      cached_paths: VecU32Map::new(thread_state::next_cached_path_id()),
       #[cfg(feature = "tracing")]
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
       #[cfg(feature = "tracing")]
@@ -170,7 +190,32 @@ impl<'a> Printer<'a> {
         self.current_node = current_node.get_next();
       }
 
-      while self.current_node.is_none() && !self.next_node_stack.is_empty() {
+      // if we backtrace behind a cached path, then we should clear it
+      for i in (0..self.pending_cached_paths.len()).rev() {
+        let current = &self.pending_cached_paths[i];
+        let line_number = self.writer.line_number();
+        if current.start_line_number < line_number || current.start_line_number == line_number && current.start_column_number < self.writer.column_number() {
+          self.pending_cached_paths.pop();
+        } else {
+          break;
+        }
+      }
+
+      if self.current_node.is_none() {
+        if let Some(last) = self.pending_cached_paths.last_mut() {
+          if last.start_next_node_stack_size == self.next_node_stack.size() {
+            let last = self.pending_cached_paths.pop().unwrap();
+            self.cached_paths.insert(
+              last.cached_path_id,
+              CachedPathInfo {
+                start_line_number: last.start_line_number,
+                start_column_number: last.start_column_number,
+                start_link: last.start_link,
+                writer_state: self.writer.state(),
+              },
+            )
+          }
+        }
         self.current_node = self.next_node_stack.pop();
       }
     }
@@ -297,6 +342,7 @@ impl<'a> Printer<'a> {
       PrintItem::Condition(condition) => self.handle_condition(condition, &print_node.next),
       PrintItem::Signal(signal) => self.handle_signal(signal),
       PrintItem::RcPath(rc_path) => self.handle_rc_path(rc_path, &print_node.next),
+      PrintItem::CachedPath(cached_path) => self.handle_cached_path(cached_path, &print_node.next),
       PrintItem::Anchor(anchor) => self.handle_anchor(anchor),
       PrintItem::Info(info) => self.handle_targeted_info(info),
       PrintItem::ConditionReevaluation(reevaluation) => self.handle_condition_reevaluation(reevaluation),
@@ -567,11 +613,46 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn handle_rc_path(&mut self, print_item_path: &PrintItemPath, next_node: &Option<PrintItemPath>) {
-    if let Some(path) = next_node {
-      self.next_node_stack.push(path);
+    if let Some(node) = next_node {
+      self.next_node_stack.push(node);
     }
     self.current_node = Some(print_item_path);
     self.skip_moving_next = true;
+  }
+
+  #[inline]
+  fn handle_cached_path(&mut self, cached_path: &CachedPath, next_node: &Option<PrintItemPath>) {
+    if let Some(path) = &cached_path.path {
+      if let Some(node) = next_node {
+        self.next_node_stack.push(node);
+      }
+
+      self.skip_moving_next = true;
+
+      if let Some(cached_path) = self.cached_paths.get(cached_path.unique_id()) {
+        // if the cached path hasn't changed position, then use it
+        if cached_path.start_column_number == self.writer.column_number() {
+          self.current_node = None;
+          cached_path.start_link.set_previous(Some(self.writer.create_link()));
+          let original_difference = cached_path.writer_state.line_number() - cached_path.start_line_number;
+          let new_number = self.writer.line_number() + original_difference;
+          self.writer.set_state(cached_path.writer_state.with_line_number(new_number));
+          return;
+        }
+      }
+
+      self.current_node = Some(path);
+
+      // set this after the next_node_stack so that we get a count
+      // that we can use before poping from the next_node_stack
+      self.pending_cached_paths.push(PendingCachedPathInfo {
+        cached_path_id: cached_path.unique_id(),
+        start_column_number: self.writer.column_number(),
+        start_line_number: self.writer.line_number(),
+        start_link: self.writer.create_link(),
+        start_next_node_stack_size: self.next_node_stack.size(),
+      });
+    }
   }
 
   #[inline]

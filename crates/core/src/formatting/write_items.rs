@@ -3,6 +3,7 @@ use super::StringContainer;
 
 #[derive(Clone, Copy)]
 pub enum WriteItem<'a> {
+  None,
   String(&'a StringContainer),
   Indent(u8),
   NewLine,
@@ -45,6 +46,7 @@ impl WriteItemsPrinter {
       WriteItem::Tab => acc + "\t",
       WriteItem::Space => acc + " ",
       WriteItem::String(StringContainer { text, .. }) => acc + text,
+      WriteItem::None => acc,
     })
   }
 }

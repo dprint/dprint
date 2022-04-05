@@ -9,21 +9,26 @@ struct RcNode {
 }
 
 #[derive(Default, Clone)]
-pub struct RcStack(Option<Rc<RcNode>>);
+pub struct RcStack {
+  size: usize,
+  node: Option<Rc<RcNode>>,
+}
 
 impl RcStack {
   pub fn push(&mut self, path: PrintItemPath) {
-    let next = self.0.as_ref().map(Rc::clone);
-    self.0 = Some(Rc::new(RcNode { path, next }));
+    let next = self.node.as_ref().map(Rc::clone);
+    self.node = Some(Rc::new(RcNode { path, next }));
+    self.size += 1;
   }
 
   pub fn pop(&mut self) -> Option<PrintItemPath> {
-    let head = Rc::clone(self.0.as_ref()?);
-    self.0 = head.next.as_ref().cloned();
+    let head = Rc::clone(self.node.as_ref()?);
+    self.node = head.next.as_ref().cloned();
+    self.size -= 1;
     Some(head.path)
   }
 
-  pub fn is_empty(&self) -> bool {
-    self.0.is_none()
+  pub fn size(&self) -> usize {
+    self.size
   }
 }

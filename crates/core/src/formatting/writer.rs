@@ -30,12 +30,23 @@ impl<'a> WriterState<'a> {
   }
 
   #[inline]
+  pub fn line_number(&self) -> u32 {
+    self.current_line_number
+  }
+
+  #[inline]
   pub fn column_number(&self, indent_width: u8) -> u32 {
     if self.current_line_column == 0 {
       (indent_width as u32) * (self.indent_level as u32)
     } else {
       self.current_line_column
     }
+  }
+
+  pub fn with_line_number(&self, new_number: u32) -> Self {
+    let mut state = self.clone();
+    state.current_line_number = new_number;
+    state
   }
 }
 
@@ -218,6 +229,12 @@ impl<'a> Writer<'a> {
     self.push_item(WriteItem::String(text));
   }
 
+  /// Creates a link in the graph node where a portion could be detatched if desired.
+  pub fn create_link(&mut self) -> &'a GraphNode<'a, WriteItem<'a>> {
+    self.push_item_no_side_effects(WriteItem::None);
+    self.state.items.as_ref().unwrap()
+  }
+
   fn handle_first_column(&mut self) {
     if self.state.expect_newline_next {
       self.new_line();
@@ -242,14 +259,7 @@ impl<'a> Writer<'a> {
   }
 
   fn push_item(&mut self, item: WriteItem<'a>) {
-    let previous = std::mem::replace(&mut self.state.items, None);
-    let graph_node = self.bump.alloc(GraphNode::new(item, previous));
-    self.state.items = Some(graph_node);
-
-    #[cfg(feature = "tracing")]
-    if let Some(nodes) = self.nodes.as_mut() {
-      nodes.push(graph_node);
-    }
+    self.push_item_no_side_effects(item);
 
     if self.state.indent_queue_count > 0 {
       let indent_count = self.state.indent_queue_count;
@@ -258,9 +268,21 @@ impl<'a> Writer<'a> {
     }
   }
 
+  #[inline]
+  fn push_item_no_side_effects(&mut self, item: WriteItem<'a>) {
+    let previous = std::mem::replace(&mut self.state.items, None);
+    let graph_node = self.bump.alloc(GraphNode::new(item, previous));
+    self.state.items = Some(graph_node);
+
+    #[cfg(feature = "tracing")]
+    if let Some(nodes) = self.nodes.as_mut() {
+      nodes.push(graph_node);
+    }
+  }
+
   fn pop_item(&mut self) {
     if let Some(previous) = &self.state.items {
-      self.state.items = previous.previous;
+      self.state.items = previous.previous();
     }
   }
 
@@ -293,7 +315,7 @@ impl<'a> Writer<'a> {
     while let Some(item) = current_item {
       // insert at the start since items are stored last to first
       items.insert(0, item.item);
-      current_item = item.previous;
+      current_item = item.previous();
     }
     items
   }

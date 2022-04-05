@@ -12,6 +12,7 @@ pub struct Counts {
   line_start_column_number_id_count: u32,
   line_start_indent_level_id_count: u32,
   condition_id_count: u32,
+  cached_path_id_count: u32,
   #[cfg(feature = "tracing")]
   print_node_id_count: u32,
   #[cfg(feature = "tracing")]
@@ -116,6 +117,15 @@ pub fn next_condition_id() -> u32 {
     let counts = &mut *cell.get();
     let value = counts.condition_id_count;
     counts.condition_id_count += 1;
+    value
+  })
+}
+
+pub fn next_cached_path_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.cached_path_id_count;
+    counts.cached_path_id_count += 1;
     value
   })
 }

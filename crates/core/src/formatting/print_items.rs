@@ -5,6 +5,7 @@ use std::rc::Rc;
 use super::condition_resolvers;
 use super::printer::Printer;
 use super::thread_state;
+use super::thread_state::next_cached_path_id;
 
 /** Print Items */
 
@@ -63,6 +64,10 @@ impl PrintItems {
         self.last_node = items.last_node;
       }
     }
+  }
+
+  pub fn extend_cached(&mut self, items: PrintItems) {
+    self.push_item_internal(PrintItem::CachedPath(CachedPath::new(items)));
   }
 
   pub fn push_str(&mut self, item: &str) {
@@ -147,6 +152,11 @@ impl PrintItems {
           }
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),
           PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path, indent_text.clone())),
+          PrintItem::CachedPath(path) => {
+            if let Some(path) = &path.path {
+              text.push_str(&get_items_as_text(path, indent_text.clone()))
+            }
+          }
           PrintItem::Anchor(Anchor::LineNumber(line_number_anchor)) => {
             text.push_str(&get_line(format!("Line number anchor: {}", line_number_anchor.name()), &indent_text))
           }
@@ -479,6 +489,7 @@ pub enum PrintItem {
   Anchor(Anchor),
   Info(Info),
   ConditionReevaluation(ConditionReevaluation),
+  CachedPath(CachedPath),
 }
 
 #[derive(Clone, PartialEq, Copy, Debug, serde::Serialize)]
@@ -1066,6 +1077,25 @@ impl StringContainer {
   pub fn new(text: String) -> Self {
     let char_count = text.chars().count() as u32;
     Self { text, char_count }
+  }
+}
+
+#[derive(Clone)]
+pub struct CachedPath {
+  id: u32,
+  pub(crate) path: Option<PrintItemPath>,
+}
+
+impl CachedPath {
+  pub fn new(items: PrintItems) -> Self {
+    Self {
+      id: next_cached_path_id(),
+      path: items.first_node,
+    }
+  }
+
+  pub fn unique_id(&self) -> u32 {
+    self.id
   }
 }
 
