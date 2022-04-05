@@ -12,7 +12,7 @@ pub fn if_column_number_changes(inner_action: impl Fn(&mut ConditionResolverCont
       }
     }
   }));
-  items.push_column_number(column_number);
+  items.push_info(column_number);
   items
 }
 

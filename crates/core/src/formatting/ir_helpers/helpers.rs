@@ -153,10 +153,10 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
   let end_ln = LineNumber::new("surroundWithNewLinesIndentedIfMultiLineEnd");
   let inner_items = inner_items.into_rc_path();
 
-  items.push_line_number(start_ln);
-  items.push_line_number_anchor(LineNumberAnchor::new(end_ln));
+  items.push_info(start_ln);
+  items.push_anchor(LineNumberAnchor::new(end_ln));
   items.extend(actions::if_column_number_changes(move |context| {
-    context.clear_line_number(end_ln);
+    context.clear_info(end_ln);
   }));
   let mut condition = Condition::new(
     "newlineIfMultiLine",
@@ -173,7 +173,7 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
   );
   let condition_reevaluation = condition.create_reevaluation();
   items.push_condition(condition);
-  items.push_line_number(end_ln);
+  items.push_info(end_ln);
   items.push_reevaluation(condition_reevaluation);
 
   items

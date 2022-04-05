@@ -165,9 +165,9 @@ pub fn gen_separated_values(
   let is_multi_line = is_multi_line_condition_ref.create_resolver();
 
   let mut items = PrintItems::new();
-  items.push_column_number(start_cn);
-  items.push_line_start_column_number(start_lscn);
-  items.push_line_number(start_ln);
+  items.push_info(start_cn);
+  items.push_info(start_lscn);
+  items.push_info(start_ln);
   items.extend(clear_resolutions_on_position_change(value_datas.clone(), end_ln));
   items.push_condition(is_start_standalone_line);
   items.push_condition(is_multi_line_condition);
@@ -192,7 +192,7 @@ pub fn gen_separated_values(
       true_path: Some(
         if_true_or(
           "newLineIndentedIfNotStandalone",
-          Rc::new(move |context| Some(!context.get_resolved_condition(&is_start_standalone_line_ref)?)),
+          Rc::new(move |context| Some(!context.resolved_condition(&is_start_standalone_line_ref)?)),
           {
             let mut items = PrintItems::new();
             if multi_line_options.newline_at_start {
@@ -241,7 +241,7 @@ pub fn gen_separated_values(
     },
   ));
 
-  items.push_line_number(end_ln);
+  items.push_info(end_ln);
   items.push_reevaluation(is_multi_line_reevaluation);
 
   return GenSeparatedValuesResult {
@@ -292,9 +292,9 @@ pub fn gen_separated_values(
           ));
         }
 
-        items.push_line_number(start_line_number);
-        items.push_is_start_of_line(start_is_start_of_line);
-        items.push_line_start_indent_level(start_line_start_indent_level);
+        items.push_info(start_line_number);
+        items.push_info(start_is_start_of_line);
+        items.push_info(start_line_start_indent_level);
         items.extend(generated_value.items);
       } else {
         let (has_new_line, has_blank_line) = if let Some(last_lines_span) = last_lines_span {
@@ -357,25 +357,25 @@ pub fn gen_separated_values(
                   if *with_hanging_indent {
                     items.push_condition(indent_if_start_of_line({
                       let mut items = PrintItems::new();
-                      items.push_line_number(start_line_number);
-                      items.push_is_start_of_line(start_is_start_of_line);
-                      items.push_line_start_indent_level(start_line_start_indent_level);
+                      items.push_info(start_line_number);
+                      items.push_info(start_is_start_of_line);
+                      items.push_info(start_line_start_indent_level);
                       items.extend(generated_value.into());
                       items
                     }));
                   } else {
-                    items.push_line_number(start_line_number);
-                    items.push_is_start_of_line(start_is_start_of_line);
-                    items.push_line_start_indent_level(start_line_start_indent_level);
+                    items.push_info(start_line_number);
+                    items.push_info(start_is_start_of_line);
+                    items.push_info(start_line_start_indent_level);
                     items.extend(generated_value.into());
                   }
                 }
                 BoolOrCondition::Condition(condition) => {
                   let inner_items = {
                     let mut items = PrintItems::new();
-                    items.push_line_number(start_line_number);
-                    items.push_is_start_of_line(start_is_start_of_line);
-                    items.push_line_start_indent_level(start_line_start_indent_level);
+                    items.push_info(start_line_number);
+                    items.push_info(start_is_start_of_line);
+                    items.push_info(start_line_start_indent_level);
                     items.extend(generated_value.into());
                     items
                   }
@@ -398,9 +398,9 @@ pub fn gen_separated_values(
               items.extend(single_line_separator.into()); // ex. Signal::SpaceOrNewLine
               items.push_condition(indent_if_start_of_line({
                 let mut items = PrintItems::new();
-                items.push_line_number(start_line_number);
-                items.push_is_start_of_line(start_is_start_of_line);
-                items.push_line_start_indent_level(start_line_start_indent_level);
+                items.push_info(start_line_number);
+                items.push_info(start_is_start_of_line);
+                items.push_info(start_line_start_indent_level);
                 items.extend(generated_value.into());
                 items
               }));
@@ -432,11 +432,11 @@ fn clear_resolutions_on_position_change(value_datas: Rc<RefCell<Vec<GeneratedVal
         // when the position changes, clear all the infos so they get re-evaluated again
         if column_number != condition_context.writer_info.column_number || line_number != condition_context.writer_info.line_number {
           for value_data in value_datas.borrow().iter() {
-            condition_context.clear_line_number(value_data.line_number);
-            condition_context.clear_is_start_of_line(value_data.is_start_of_line);
-            condition_context.clear_line_start_indent_level(value_data.line_start_indent_level);
+            condition_context.clear_info(value_data.line_number);
+            condition_context.clear_info(value_data.is_start_of_line);
+            condition_context.clear_info(value_data.line_start_indent_level);
           }
-          condition_context.clear_line_number(end_line_number);
+          condition_context.clear_info(end_line_number);
         }
 
         None
@@ -445,8 +445,8 @@ fn clear_resolutions_on_position_change(value_datas: Rc<RefCell<Vec<GeneratedVal
       true_path: None,
     },
   ));
-  items.push_line_number(line_number);
-  items.push_column_number(column_number);
+  items.push_info(line_number);
+  items.push_info(column_number);
   items
 }
 
@@ -471,7 +471,7 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<GeneratedValueData>
     "isMultiLineForHanging",
     ConditionProperties {
       condition: Rc::new(move |condition_context| {
-        let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
+        let is_start_standalone_line = condition_context.resolved_condition(&is_start_standalone_line_ref)?;
         if is_start_standalone_line {
           // check if the second value is on a newline
           if let Some(second_value_data) = value_datas.borrow().iter().nth(1) {
@@ -503,7 +503,7 @@ fn get_is_multi_line_for_multi_line(
     ConditionProperties {
       condition: Rc::new(move |condition_context| {
         // todo: This is slightly confusing because it works on the "last" value rather than the current
-        let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
+        let is_start_standalone_line = condition_context.resolved_condition(&is_start_standalone_line_ref)?;
         let start_ln = condition_context.get_resolved_line_number(start_ln)?;
         let end_ln = condition_context.get_resolved_line_number(end_ln)?;
         let mut last_ln = start_ln;

@@ -85,37 +85,17 @@ impl PrintItems {
     self.push_item_internal(PrintItem::Condition(condition));
   }
 
+  pub fn push_info(&mut self, info: impl Into<Info>) {
+    self.push_item_internal(PrintItem::Info(info.into()));
+  }
+
   pub fn push_line_and_column(&mut self, line_and_col: LineAndColumn) {
-    self.push_line_number(line_and_col.line);
-    self.push_column_number(line_and_col.column);
+    self.push_info(line_and_col.line);
+    self.push_info(line_and_col.column);
   }
 
-  pub fn push_line_number(&mut self, line_number: LineNumber) {
-    self.push_item_internal(PrintItem::Info(Info::LineNumber(line_number)));
-  }
-
-  pub fn push_column_number(&mut self, column_number: ColumnNumber) {
-    self.push_item_internal(PrintItem::Info(Info::ColumnNumber(column_number)));
-  }
-
-  pub fn push_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
-    self.push_item_internal(PrintItem::Info(Info::IsStartOfLine(is_start_of_line)));
-  }
-
-  pub fn push_indent_level(&mut self, indent_level: IndentLevel) {
-    self.push_item_internal(PrintItem::Info(Info::IndentLevel(indent_level)));
-  }
-
-  pub fn push_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) {
-    self.push_item_internal(PrintItem::Info(Info::LineStartColumnNumber(line_start_column_number)));
-  }
-
-  pub fn push_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
-    self.push_item_internal(PrintItem::Info(Info::LineStartIndentLevel(line_start_indent_level)));
-  }
-
-  pub fn push_line_number_anchor(&mut self, anchor: LineNumberAnchor) {
-    self.push_item_internal(PrintItem::Anchor(Anchor::LineNumber(anchor)));
+  pub fn push_anchor(&mut self, anchor: impl Into<Anchor>) {
+    self.push_item_internal(PrintItem::Anchor(anchor.into()));
   }
 
   pub fn push_reevaluation(&mut self, condition_reevaluation: ConditionReevaluation) {
@@ -547,6 +527,12 @@ pub enum Anchor {
   LineNumber(LineNumberAnchor),
 }
 
+impl From<LineNumberAnchor> for Anchor {
+  fn from(anchor: LineNumberAnchor) -> Self {
+    Anchor::LineNumber(anchor)
+  }
+}
+
 /// Handles updating the position of a future resolved line
 /// number if the anchor changes.
 #[derive(Clone)]
@@ -595,6 +581,42 @@ pub enum Info {
   IndentLevel(IndentLevel),
   LineStartColumnNumber(LineStartColumnNumber),
   LineStartIndentLevel(LineStartIndentLevel),
+}
+
+impl From<LineNumber> for Info {
+  fn from(info: LineNumber) -> Self {
+    Info::LineNumber(info)
+  }
+}
+
+impl From<ColumnNumber> for Info {
+  fn from(info: ColumnNumber) -> Self {
+    Info::ColumnNumber(info)
+  }
+}
+
+impl From<IsStartOfLine> for Info {
+  fn from(info: IsStartOfLine) -> Self {
+    Info::IsStartOfLine(info)
+  }
+}
+
+impl From<IndentLevel> for Info {
+  fn from(info: IndentLevel) -> Self {
+    Info::IndentLevel(info)
+  }
+}
+
+impl From<LineStartColumnNumber> for Info {
+  fn from(info: LineStartColumnNumber) -> Self {
+    Info::LineStartColumnNumber(info)
+  }
+}
+
+impl From<LineStartIndentLevel> for Info {
+  fn from(info: LineStartIndentLevel) -> Self {
+    Info::LineStartIndentLevel(info)
+  }
 }
 
 /// Helper IR that holds line and column number IR.
@@ -811,7 +833,7 @@ pub struct ConditionReevaluation {
 impl ConditionReevaluation {
   pub(crate) fn new(_name: &'static str, condition_id: u32) -> Self {
     ConditionReevaluation {
-      condition_id: condition_id,
+      condition_id,
       #[cfg(debug_assertions)]
       name: _name,
     }
@@ -955,7 +977,7 @@ impl ConditionReference {
   /// Creates a condition resolver that checks the value of the condition this references.
   pub fn create_resolver(&self) -> ConditionResolver {
     let captured_self = *self;
-    Rc::new(move |condition_context: &mut ConditionResolverContext| condition_context.get_resolved_condition(&captured_self))
+    Rc::new(move |condition_context: &mut ConditionResolverContext| condition_context.resolved_condition(&captured_self))
   }
 }
 
@@ -986,8 +1008,8 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
 
   /// Gets if a condition was true, false, or returns None when not yet resolved.
   /// A condition reference can be retrieved by calling the `get_reference()` on a condition.
-  pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
-    self.printer.get_resolved_condition(condition_reference)
+  pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
+    self.printer.resolved_condition(condition_reference)
   }
 
   /// Gets a resolved line and column.
@@ -1027,29 +1049,15 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     self.printer.get_resolved_line_start_indent_level(line_start_indent_level)
   }
 
-  /// Clears the line number from being stored.
-  pub fn clear_line_number(&mut self, line_number: LineNumber) {
-    self.printer.clear_line_number(line_number)
-  }
-
-  /// Clears the column number from being stored.
-  pub fn clear_column_number(&mut self, column_number: ColumnNumber) {
-    self.printer.clear_column_number(column_number)
+  /// Clears the line and column from being stored.
+  pub fn clear_line_and_column(&mut self, lc: LineAndColumn) {
+    self.printer.clear_info(lc.line.into());
+    self.printer.clear_info(lc.column.into());
   }
 
   /// Clears the info from being stored.
-  pub fn clear_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
-    self.printer.clear_is_start_of_line(is_start_of_line)
-  }
-
-  /// Clears the info from being stored.
-  pub fn clear_line_start_column_number(&mut self, col_number: LineStartColumnNumber) {
-    self.printer.clear_line_start_column_number(col_number)
-  }
-
-  /// Clears the info from being stored.
-  pub fn clear_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
-    self.printer.clear_line_start_indent_level(line_start_indent_level)
+  pub fn clear_info(&mut self, info: impl Into<Info>) {
+    self.printer.clear_info(info.into())
   }
 }
 

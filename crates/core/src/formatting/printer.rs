@@ -275,27 +275,18 @@ impl<'a> Printer<'a> {
     resolved_line_start_indent_level.map(|v| *v)
   }
 
-  pub fn clear_line_number(&mut self, line_number: LineNumber) {
-    self.resolved_line_numbers.remove(line_number.get_unique_id());
+  pub fn clear_info(&mut self, info: Info) {
+    match info {
+      Info::LineNumber(info) => self.resolved_line_numbers.remove(info.get_unique_id()),
+      Info::ColumnNumber(info) => self.resolved_column_numbers.remove(info.get_unique_id()),
+      Info::IsStartOfLine(info) => self.resolved_is_start_of_lines.remove(info.get_unique_id()),
+      Info::IndentLevel(info) => self.resolved_indent_levels.remove(info.get_unique_id()),
+      Info::LineStartColumnNumber(info) => self.resolved_line_start_column_numbers.remove(info.get_unique_id()),
+      Info::LineStartIndentLevel(info) => self.resolved_line_start_indent_levels.remove(info.get_unique_id()),
+    }
   }
 
-  pub fn clear_column_number(&mut self, column_number: ColumnNumber) {
-    self.resolved_column_numbers.remove(column_number.get_unique_id());
-  }
-
-  pub fn clear_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
-    self.resolved_is_start_of_lines.remove(is_start_of_line.get_unique_id());
-  }
-
-  pub fn clear_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) {
-    self.resolved_line_start_column_numbers.remove(line_start_column_number.get_unique_id());
-  }
-
-  pub fn clear_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
-    self.resolved_line_start_indent_levels.remove(line_start_indent_level.get_unique_id());
-  }
-
-  pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
+  pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
     if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
       let save_point = self.get_save_point_for_restoring_condition(condition_reference.get_name());
       self.look_ahead_condition_save_points.insert(condition_reference.id, save_point);

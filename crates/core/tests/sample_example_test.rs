@@ -163,11 +163,11 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   // actions::if_column_number_changes is a helper that uses lower level IR to tell when the column number
   // changes at this point
   items.extend(actions::if_column_number_changes(move |context| {
-    context.clear_line_number(end_ln);
+    context.clear_info(end_ln);
   }));
 
-  items.push_line_number(start_ln);
-  items.push_line_number_anchor(LineNumberAnchor::new(end_ln)); // updates the line number of end_ln when this changes
+  items.push_info(start_ln);
+  items.push_anchor(LineNumberAnchor::new(end_ln)); // updates the line number of end_ln when this changes
 
   items.push_str("[");
   items.push_condition(conditions::if_true("arrayStartNewLine", is_multiple_lines.clone(), Signal::NewLine.into()));
@@ -183,7 +183,7 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   items.push_condition(conditions::if_true("arrayEndNewLine", is_multiple_lines, Signal::NewLine.into()));
   items.push_str("]");
 
-  items.push_line_number(end_ln);
+  items.push_info(end_ln);
 
   return items;
 
