@@ -167,6 +167,11 @@ impl<'a> Writer<'a> {
   }
 
   #[inline]
+  pub fn get_indent_level(&self) -> u8 {
+    self.state.indent_level
+  }
+
+  #[inline]
   pub fn get_line_start_column_number(&self) -> u32 {
     (self.state.last_line_indent_level as u32) * (self.indent_width as u32)
   }

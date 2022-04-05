@@ -493,10 +493,10 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<GeneratedValueData>
 }
 
 fn get_is_multi_line_for_multi_line(
-  start_line_number: LineNumber,
+  start_ln: LineNumber,
   value_datas: Rc<RefCell<Vec<GeneratedValueData>>>,
   is_start_standalone_line_ref: ConditionReference,
-  end_line_number: LineNumber,
+  end_ln: LineNumber,
 ) -> Condition {
   return Condition::new(
     "isMultiLineForMultiLine",
@@ -504,9 +504,9 @@ fn get_is_multi_line_for_multi_line(
       condition: Rc::new(move |condition_context| {
         // todo: This is slightly confusing because it works on the "last" value rather than the current
         let is_start_standalone_line = condition_context.get_resolved_condition(&is_start_standalone_line_ref)?;
-        let start_line_number = condition_context.get_resolved_line_number(start_line_number)?;
-        let end_line_number = condition_context.get_resolved_line_number(end_line_number)?;
-        let mut last_line_number = start_line_number;
+        let start_ln = condition_context.get_resolved_line_number(start_ln)?;
+        let end_ln = condition_context.get_resolved_line_number(end_ln)?;
+        let mut last_ln = start_ln;
         let mut last_allows_multi_line = true;
         let mut last_allows_single_line = false;
         let mut has_multi_line_value = false;
@@ -523,11 +523,11 @@ fn get_is_multi_line_for_multi_line(
           if value_start_is_start_of_line {
             return Some(true);
           }
-          let value_start_line_number = condition_context.get_resolved_line_number(value_data.line_number)?;
+          let value_start_ln = condition_context.get_resolved_line_number(value_data.line_number)?;
 
           if i >= 1 {
             // todo: consolidate with below
-            let last_is_multi_line_value = last_line_number < value_start_line_number;
+            let last_is_multi_line_value = last_ln < value_start_ln;
             if last_is_multi_line_value {
               has_multi_line_value = true;
             }
@@ -537,14 +537,14 @@ fn get_is_multi_line_for_multi_line(
             }
           }
 
-          last_line_number = value_start_line_number;
+          last_ln = value_start_ln;
           last_allows_multi_line = value_data.allow_inline_multi_line;
           last_allows_single_line = value_data.allow_inline_single_line;
         }
 
         // check if the last node is single-line
         // todo: consolidate with above
-        let last_is_multi_line_value = last_line_number < end_line_number;
+        let last_is_multi_line_value = last_ln < end_ln;
         if last_is_multi_line_value {
           has_multi_line_value = true;
         }

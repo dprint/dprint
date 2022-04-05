@@ -22,6 +22,7 @@ struct SavePoint<'a> {
   pub look_ahead_line_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub look_ahead_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub look_ahead_is_start_of_line_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  pub look_ahead_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub look_ahead_line_start_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub look_ahead_line_start_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   pub next_node_stack: RcStack,
@@ -79,6 +80,7 @@ pub struct Printer<'a> {
   resolved_line_numbers: VecU32Map<u32>,
   resolved_column_numbers: VecU32Map<u32>,
   resolved_is_start_of_lines: VecU32Map<bool>,
+  resolved_indent_levels: VecU32Map<u8>,
   resolved_line_start_column_numbers: VecU32Map<u32>,
   resolved_line_start_indent_levels: VecU32Map<u8>,
   look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
@@ -86,6 +88,7 @@ pub struct Printer<'a> {
   look_ahead_line_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
   look_ahead_column_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
   look_ahead_is_start_of_line_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
+  look_ahead_indent_level_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
   look_ahead_line_start_column_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
   look_ahead_line_start_indent_level_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
   next_node_stack: RcStack,
@@ -123,6 +126,7 @@ impl<'a> Printer<'a> {
       resolved_line_numbers: VecU32Map::new(thread_state::next_line_number_id()),
       resolved_column_numbers: VecU32Map::new(thread_state::next_column_number_id()),
       resolved_is_start_of_lines: VecU32Map::new(thread_state::next_is_start_of_line_id()),
+      resolved_indent_levels: VecU32Map::new(thread_state::next_indent_level_id()),
       resolved_line_start_column_numbers: VecU32Map::new(thread_state::next_line_start_column_number_id()),
       resolved_line_start_indent_levels: VecU32Map::new(thread_state::next_line_start_indent_level_id()),
       look_ahead_condition_save_points: FxHashMap::default(),
@@ -130,6 +134,7 @@ impl<'a> Printer<'a> {
       look_ahead_line_number_save_points: FastCellMap::new(),
       look_ahead_column_number_save_points: FastCellMap::new(),
       look_ahead_is_start_of_line_save_points: FastCellMap::new(),
+      look_ahead_indent_level_save_points: FastCellMap::new(),
       look_ahead_line_start_column_number_save_points: FastCellMap::new(),
       look_ahead_line_start_indent_level_save_points: FastCellMap::new(),
       conditions_for_infos: FxHashMap::default(),
@@ -248,6 +253,16 @@ impl<'a> Printer<'a> {
     resolved_is_start_of_line.map(|v| *v)
   }
 
+  pub fn get_resolved_indent_level(&self, indent_level: IndentLevel) -> Option<u8> {
+    let resolved_indent_level = self.resolved_indent_levels.get(indent_level.get_unique_id());
+    if resolved_indent_level.is_none() && !self.look_ahead_indent_level_save_points.contains_key(&indent_level.get_unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(indent_level.get_name());
+      self.look_ahead_indent_level_save_points.insert(indent_level.get_unique_id(), save_point);
+    }
+
+    resolved_indent_level.map(|v| *v)
+  }
+
   pub fn get_resolved_line_start_column_number(&self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
     let resolved_line_start_column_number = self.resolved_line_start_column_numbers.get(line_start_column_number.get_unique_id());
     if resolved_line_start_column_number.is_none()
@@ -361,6 +376,7 @@ impl<'a> Printer<'a> {
       look_ahead_line_number_save_points: self.look_ahead_line_number_save_points.clone_map(),
       look_ahead_column_number_save_points: self.look_ahead_column_number_save_points.clone_map(),
       look_ahead_is_start_of_line_save_points: self.look_ahead_is_start_of_line_save_points.clone_map(),
+      look_ahead_indent_level_save_points: self.look_ahead_indent_level_save_points.clone_map(),
       look_ahead_line_start_column_number_save_points: self.look_ahead_line_start_column_number_save_points.clone_map(),
       look_ahead_line_start_indent_level_save_points: self.look_ahead_line_start_indent_level_save_points.clone_map(),
       next_node_stack: self.next_node_stack.clone(),
@@ -409,6 +425,9 @@ impl<'a> Printer<'a> {
     self
       .look_ahead_is_start_of_line_save_points
       .replace_map(save_point.look_ahead_is_start_of_line_save_points.clone());
+    self
+      .look_ahead_indent_level_save_points
+      .replace_map(save_point.look_ahead_indent_level_save_points.clone());
     self
       .look_ahead_line_start_column_number_save_points
       .replace_map(save_point.look_ahead_line_start_column_number_save_points.clone());
@@ -558,6 +577,15 @@ impl<'a> Printer<'a> {
         let is_start_of_line_id = is_start_of_line.get_unique_id();
         self.resolved_is_start_of_lines.insert(is_start_of_line_id, self.writer.get_is_start_of_line());
         let option_save_point = self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id);
+        if let Some(save_point) = option_save_point {
+          self.update_state_to_save_point(save_point, false);
+          return;
+        }
+      }
+      TargetedInfo::IndentLevel(indent_level) => {
+        let indent_level_id = indent_level.get_unique_id();
+        self.resolved_indent_levels.insert(indent_level_id, self.writer.get_indent_level());
+        let option_save_point = self.look_ahead_indent_level_save_points.remove(&indent_level_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
           return;

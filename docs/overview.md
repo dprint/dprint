@@ -172,16 +172,23 @@ fn gen_node(node: Node) -> PrintItems {
 
 fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   let mut items = PrintItems::new();
-  let start_info = Info::new("start");
-  let end_info = Info::new("end");
+  let start_ln = LineNumber::new("start");
+  let end_ln = LineNumber::new("end");
   let is_multiple_lines = create_is_multiple_lines_resolver(
     expr.position.clone(),
     expr.elements.iter().map(|e| e.position.clone()).collect(),
-    start_info,
-    end_info,
+    start_ln,
+    end_ln,
   );
 
-  items.push_info(start_info);
+  // actions::if_column_number_changes is a helper that uses lower level IR to tell when the column number
+  // changes at this point
+  items.extend(actions::if_column_number_changes(move |context| {
+    context.clear_line_number(end_ln);
+  }));
+
+  items.push_line_number(start_ln);
+  items.push_line_number_anchor(LineNumberAnchor::new(end_ln)); // updates the line number of end_ln when this changes
 
   items.push_str("[");
   items.push_condition(conditions::if_true("arrayStartNewLine", is_multiple_lines.clone(), Signal::NewLine.into()));
@@ -197,7 +204,7 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   items.push_condition(conditions::if_true("arrayEndNewLine", is_multiple_lines, Signal::NewLine.into()));
   items.push_str("]");
 
-  items.push_info(end_info);
+  items.push_line_number(end_ln);
 
   return items;
 
@@ -229,7 +236,7 @@ fn gen_array_element(element: &ArrayElement) -> PrintItems {
 
 // helper functions
 
-fn create_is_multiple_lines_resolver(parent_position: Position, child_positions: Vec<Position>, start_info: Info, end_info: Info) -> ConditionResolver {
+fn create_is_multiple_lines_resolver(parent_position: Position, child_positions: Vec<Position>, start_ln: LineNumber, end_ln: LineNumber) -> ConditionResolver {
   Rc::new(move |condition_context: &mut ConditionResolverContext| {
     // no items, so format on the same line
     if child_positions.is_empty() {
@@ -242,7 +249,7 @@ fn create_is_multiple_lines_resolver(parent_position: Position, child_positions:
     }
 
     // check if it spans multiple lines, and if it does then make it multi-line
-    condition_helpers::is_multiple_lines(condition_context, &start_info, &end_info)
+    condition_helpers::is_multiple_lines(condition_context, start_ln, end_ln)
   })
 }
 ```

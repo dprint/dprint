@@ -89,6 +89,11 @@ impl PrintItems {
     self.push_item_internal(PrintItem::Info(info));
   }
 
+  pub fn push_line_and_column(&mut self, line_and_col: LineAndColumn) {
+    self.push_line_number(line_and_col.line);
+    self.push_column_number(line_and_col.column);
+  }
+
   pub fn push_line_number(&mut self, line_number: LineNumber) {
     self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::LineNumber(line_number)));
   }
@@ -99,6 +104,10 @@ impl PrintItems {
 
   pub fn push_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
     self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::IsStartOfLine(is_start_of_line)));
+  }
+
+  pub fn push_indent_level(&mut self, indent_level: IndentLevel) {
+    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::IndentLevel(indent_level)));
   }
 
   pub fn push_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) {
@@ -503,12 +512,12 @@ pub struct LineNumberAnchor {
 }
 
 impl LineNumberAnchor {
-  pub fn new(_name: &'static str, line_number: LineNumber) -> Self {
+  pub fn new(line_number: LineNumber) -> Self {
     Self {
       id: thread_state::next_line_number_anchor_id(),
       line_number,
       #[cfg(debug_assertions)]
-      name: _name,
+      name: line_number.name,
     }
   }
 
@@ -521,6 +530,14 @@ impl LineNumberAnchor {
   pub fn get_line_number_id(&self) -> u32 {
     self.line_number.id
   }
+
+  #[inline]
+  pub fn get_name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "line_number_anchor";
+  }
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
@@ -528,8 +545,25 @@ pub enum TargetedInfo {
   LineNumber(LineNumber),
   ColumnNumber(ColumnNumber),
   IsStartOfLine(IsStartOfLine),
+  IndentLevel(IndentLevel),
   LineStartColumnNumber(LineStartColumnNumber),
   LineStartIndentLevel(LineStartIndentLevel),
+}
+
+/// Helper IR that holds line and column number IR.
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineAndColumn {
+  pub line: LineNumber,
+  pub column: ColumnNumber,
+}
+
+impl LineAndColumn {
+  pub fn new(name: &'static str) -> Self {
+    Self {
+      line: LineNumber::new(name),
+      column: ColumnNumber::new(name),
+    }
+  }
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
@@ -653,6 +687,37 @@ impl LineStartColumnNumber {
     return self.name;
     #[cfg(not(debug_assertions))]
     return "line_start_column_number";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct IndentLevel {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl IndentLevel {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_indent_level_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn get_unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn get_name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "indent_level";
   }
 }
 
@@ -914,6 +979,13 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     self.printer.get_resolved_info(info)
   }
 
+  /// Gets a resolved line and column.
+  pub fn get_resolved_line_and_column(&self, line_and_column: LineAndColumn) -> Option<(u32, u32)> {
+    let line = self.printer.get_resolved_line_number(line_and_column.line)?;
+    let column = self.printer.get_resolved_column_number(line_and_column.column)?;
+    Some((line, column))
+  }
+
   /// Gets the line number or returns None when not yet resolved.
   pub fn get_resolved_line_number(&self, line_number: LineNumber) -> Option<u32> {
     self.printer.get_resolved_line_number(line_number)
@@ -927,6 +999,11 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   /// Gets if the info is at the start of the line or returns None when not yet resolved.
   pub fn get_resolved_is_start_of_line(&self, is_start_of_line: IsStartOfLine) -> Option<bool> {
     self.printer.get_resolved_is_start_of_line(is_start_of_line)
+  }
+
+  /// Gets if the indent level at this info or returns None when not yet resolved.
+  pub fn get_resolved_indent_level(&self, indent_level: IndentLevel) -> Option<u8> {
+    self.printer.get_resolved_indent_level(indent_level)
   }
 
   /// Gets the column number at the start of the line this info appears or returns None when not yet resolved.
@@ -957,6 +1034,11 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   /// Clears the info from being stored.
   pub fn clear_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
     self.printer.clear_is_start_of_line(is_start_of_line)
+  }
+
+  /// Clears the info from being stored.
+  pub fn clear_line_start_column_number(&mut self, col_number: LineStartColumnNumber) {
+    self.printer.clear_line_start_column_number(col_number)
   }
 
   /// Clears the info from being stored.

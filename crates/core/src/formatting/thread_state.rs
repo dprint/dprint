@@ -8,6 +8,7 @@ pub struct Counts {
   line_number_id_count: u32,
   column_number_id_count: u32,
   is_start_of_line_id: u32,
+  indent_level_id_count: u32,
   line_start_column_number_id_count: u32,
   line_start_indent_level_id_count: u32,
   info_id_count: u32,
@@ -80,6 +81,15 @@ pub fn next_is_start_of_line_id() -> u32 {
     let counts = &mut *cell.get();
     let value = counts.is_start_of_line_id;
     counts.is_start_of_line_id += 1;
+    value
+  })
+}
+
+pub fn next_indent_level_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.indent_level_id_count;
+    counts.indent_level_id_count += 1;
     value
   })
 }

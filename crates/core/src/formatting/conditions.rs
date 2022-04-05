@@ -34,19 +34,19 @@ pub fn with_indent_if_start_of_line_indented(items: PrintItems) -> Condition {
 }
 
 pub struct NewLineIfHangingSpaceOtherwiseOptions {
-  pub start_info: Info,
-  pub end_info: Option<Info>,
+  pub start_lsil: LineStartIndentLevel,
+  pub end_lsil: Option<LineStartIndentLevel>,
   pub space_char: Option<PrintItems>,
 }
 
 pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseOptions) -> Condition {
   let space_char = opts.space_char.unwrap_or_else(|| " ".into());
-  let start_info = opts.start_info;
-  let end_info = opts.end_info;
+  let start_lsil = opts.start_lsil;
+  let end_lsil = opts.end_lsil;
 
   if_true_or(
     "newLineIfHangingSpaceOtherwise",
-    Rc::new(move |context| condition_helpers::is_hanging_delete(context, &start_info, &end_info)),
+    Rc::new(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
     Signal::NewLine.into(),
     space_char,
   )

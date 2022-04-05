@@ -1,7 +1,9 @@
 use crate::formatting::WriterInfo;
 
+use super::ColumnNumber;
 use super::ConditionResolverContext;
 use super::Info;
+use super::LineAndColumn;
 use super::LineNumber;
 use super::LineStartIndentLevel;
 
@@ -19,9 +21,9 @@ pub fn is_multiple_lines(condition_context: &mut ConditionResolverContext, start
   Some(end_ln > start_ln)
 }
 
-pub fn is_hanging(condition_context: &mut ConditionResolverContext, start_info: LineStartIndentLevel, end_info: Option<LineStartIndentLevel>) -> Option<bool> {
-  let start_indent_level = condition_context.get_resolved_line_start_indent_level(start_info)?;
-  let end_indent_level = get_resolved_end_info(condition_context, end_info)?;
+pub fn is_hanging(condition_context: &mut ConditionResolverContext, start_lsil: LineStartIndentLevel, end_lsil: Option<LineStartIndentLevel>) -> Option<bool> {
+  let start_indent_level = condition_context.get_resolved_line_start_indent_level(start_lsil)?;
+  let end_indent_level = get_resolved_end_info(condition_context, end_lsil)?;
   return Some(end_indent_level > start_indent_level);
 
   fn get_resolved_end_info<'a>(condition_context: &'a ConditionResolverContext, end_info: Option<LineStartIndentLevel>) -> Option<u8> {
@@ -60,7 +62,12 @@ pub fn are_infos_equal(condition_context: &mut ConditionResolverContext, start_i
   Some(start_info.line_number == end_info.line_number && start_info.column_number == end_info.column_number)
 }
 
-pub fn is_at_same_position(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
+pub fn is_at_same_position(condition_context: &mut ConditionResolverContext, line_and_col: LineAndColumn) -> Option<bool> {
+  let (start_ln, start_col) = condition_context.get_resolved_line_and_column(line_and_col)?;
+  Some(start_ln == condition_context.writer_info.line_number && start_col == condition_context.writer_info.column_number)
+}
+
+pub fn is_at_same_position_delete(condition_context: &mut ConditionResolverContext, start_info: &Info) -> Option<bool> {
   let start_info = condition_context.get_resolved_info(start_info)?;
   Some(start_info.line_number == condition_context.writer_info.line_number && start_info.column_number == condition_context.writer_info.column_number)
 }

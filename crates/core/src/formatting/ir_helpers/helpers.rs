@@ -149,13 +149,12 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
 
   let mut items = PrintItems::new();
   let start_name = "surroundWithNewLinesIndentedIfMultiLineStart";
-  let end_name = "surroundWithNewLinesIndentedIfMultiLineEnd";
   let start_ln = LineNumber::new(start_name);
-  let end_ln = LineNumber::new(end_name);
+  let end_ln = LineNumber::new("surroundWithNewLinesIndentedIfMultiLineEnd");
   let inner_items = inner_items.into_rc_path();
 
   items.push_line_number(start_ln);
-  items.push_line_number_anchor(LineNumberAnchor::new(end_name, end_ln));
+  items.push_line_number_anchor(LineNumberAnchor::new(end_ln));
   items.extend(actions::if_column_number_changes(move |context| {
     context.clear_line_number(end_ln);
   }));
