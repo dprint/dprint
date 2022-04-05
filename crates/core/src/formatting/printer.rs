@@ -4,7 +4,6 @@ use rustc_hash::FxHashMap;
 use super::collections::*;
 use super::print_items::*;
 use super::thread_state;
-use super::utils::VecU32Map;
 use super::writer::*;
 use super::WriteItem;
 
