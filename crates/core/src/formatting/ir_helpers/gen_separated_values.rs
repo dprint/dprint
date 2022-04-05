@@ -427,8 +427,8 @@ fn clear_resolutions_on_position_change(value_datas: Rc<RefCell<Vec<GeneratedVal
     "clearWhenPositionChanges",
     ConditionProperties {
       condition: Rc::new(move |condition_context| {
-        let column_number = condition_context.get_resolved_column_number(column_number)?;
-        let line_number = condition_context.get_resolved_line_number(line_number)?;
+        let column_number = condition_context.resolved_column_number(column_number)?;
+        let line_number = condition_context.resolved_line_number(line_number)?;
         // when the position changes, clear all the infos so they get re-evaluated again
         if column_number != condition_context.writer_info.column_number || line_number != condition_context.writer_info.line_number {
           for value_data in value_datas.borrow().iter() {
@@ -455,8 +455,8 @@ fn get_is_start_standalone_line(start_cn: ColumnNumber, start_lscn: LineStartCol
     "isStartStandaloneLine",
     ConditionProperties {
       condition: Rc::new(move |condition_context| {
-        let start_cn = condition_context.get_resolved_column_number(start_cn);
-        let start_lscn = condition_context.get_resolved_line_start_column_number(start_lscn);
+        let start_cn = condition_context.resolved_column_number(start_cn);
+        let start_lscn = condition_context.resolved_line_start_column_number(start_lscn);
         let is_column_number_at_line_start = start_cn? == start_lscn?;
         Some(is_column_number_at_line_start)
       }),
@@ -475,12 +475,12 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<GeneratedValueData>
         if is_start_standalone_line {
           // check if the second value is on a newline
           if let Some(second_value_data) = value_datas.borrow().iter().nth(1) {
-            return condition_context.get_resolved_is_start_of_line(second_value_data.is_start_of_line);
+            return condition_context.resolved_is_start_of_line(second_value_data.is_start_of_line);
           }
         } else {
           // check if the first value is at the beginning of the line
           if let Some(first_value_data) = value_datas.borrow().iter().next() {
-            return condition_context.get_resolved_is_start_of_line(first_value_data.is_start_of_line);
+            return condition_context.resolved_is_start_of_line(first_value_data.is_start_of_line);
           }
         }
 
@@ -504,8 +504,8 @@ fn get_is_multi_line_for_multi_line(
       condition: Rc::new(move |condition_context| {
         // todo: This is slightly confusing because it works on the "last" value rather than the current
         let is_start_standalone_line = condition_context.resolved_condition(&is_start_standalone_line_ref)?;
-        let start_ln = condition_context.get_resolved_line_number(start_ln)?;
-        let end_ln = condition_context.get_resolved_line_number(end_ln)?;
+        let start_ln = condition_context.resolved_line_number(start_ln)?;
+        let end_ln = condition_context.resolved_line_number(end_ln)?;
         let mut last_ln = start_ln;
         let mut last_allows_multi_line = true;
         let mut last_allows_single_line = false;
@@ -518,12 +518,12 @@ fn get_is_multi_line_for_multi_line(
             continue;
           }
 
-          let value_start_is_start_of_line = condition_context.get_resolved_is_start_of_line(value_data.is_start_of_line)?;
+          let value_start_is_start_of_line = condition_context.resolved_is_start_of_line(value_data.is_start_of_line)?;
           // check if any of the value starts are at the beginning of the line
           if value_start_is_start_of_line {
             return Some(true);
           }
-          let value_start_ln = condition_context.get_resolved_line_number(value_data.line_number)?;
+          let value_start_ln = condition_context.resolved_line_number(value_data.line_number)?;
 
           if i >= 1 {
             // todo: consolidate with below

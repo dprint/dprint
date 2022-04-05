@@ -6,7 +6,7 @@ pub fn if_column_number_changes(inner_action: impl Fn(&mut ConditionResolverCont
   let mut items = PrintItems::new();
   let column_number = ColumnNumber::new("columnNumber");
   items.extend(action("actionIfColChanges", move |context| {
-    if let Some(column_number) = context.get_resolved_column_number(column_number) {
+    if let Some(column_number) = context.resolved_column_number(column_number) {
       if column_number != context.writer_info.column_number {
         inner_action(context);
       }

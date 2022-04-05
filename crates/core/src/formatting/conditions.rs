@@ -70,7 +70,7 @@ pub fn force_reevaluation_once_resolved_deprecated(ln: LineNumber) -> Condition 
     "forceReevaluationOnceoResolved",
     ConditionProperties {
       condition: Rc::new(move |context| {
-        let resolved_ln = context.get_resolved_line_number(ln);
+        let resolved_ln = context.resolved_line_number(ln);
         if resolved_ln.is_some() {
           Some(false)
         } else {
@@ -87,10 +87,10 @@ pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_ln: LineNumb
   if_true_or(
     "newLineIfMultipleLinesSpaceOrNewLineOtherwise",
     Rc::new(move |context| {
-      let start_ln = context.get_resolved_line_number(start_ln)?;
+      let start_ln = context.resolved_line_number(start_ln)?;
       let end_ln = {
         if let Some(end_ln) = end_ln {
-          context.get_resolved_line_number(end_ln)?
+          context.resolved_line_number(end_ln)?
         } else {
           context.writer_info.line_number
         }

@@ -201,7 +201,7 @@ impl<'a> Printer<'a> {
     self.writer.get_writer_info()
   }
 
-  pub fn get_resolved_line_number(&mut self, line_number: LineNumber) -> Option<u32> {
+  pub fn resolved_line_number(&mut self, line_number: LineNumber) -> Option<u32> {
     let resolved_number = self.resolved_line_numbers.get(line_number.get_unique_id());
     if resolved_number.is_none() && !self.look_ahead_line_number_save_points.contains_key(&line_number.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(line_number.get_name());
@@ -211,7 +211,7 @@ impl<'a> Printer<'a> {
     resolved_number.map(|v| *v)
   }
 
-  pub fn get_resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
+  pub fn resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
     let resolved_number = self.resolved_column_numbers.get(column_number.get_unique_id());
     if resolved_number.is_none() && !self.look_ahead_column_number_save_points.contains_key(&column_number.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(column_number.get_name());
@@ -221,7 +221,7 @@ impl<'a> Printer<'a> {
     resolved_number.map(|v| *v)
   }
 
-  pub fn get_resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
+  pub fn resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
     let resolved_is_start_of_line = self.resolved_is_start_of_lines.get(is_start_of_line.get_unique_id());
     if resolved_is_start_of_line.is_none() && !self.look_ahead_is_start_of_line_save_points.contains_key(&is_start_of_line.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(is_start_of_line.get_name());
@@ -233,7 +233,7 @@ impl<'a> Printer<'a> {
     resolved_is_start_of_line.map(|v| *v)
   }
 
-  pub fn get_resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
+  pub fn resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
     let resolved_indent_level = self.resolved_indent_levels.get(indent_level.get_unique_id());
     if resolved_indent_level.is_none() && !self.look_ahead_indent_level_save_points.contains_key(&indent_level.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(indent_level.get_name());
@@ -243,7 +243,7 @@ impl<'a> Printer<'a> {
     resolved_indent_level.map(|v| *v)
   }
 
-  pub fn get_resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
+  pub fn resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
     let resolved_line_start_column_number = self.resolved_line_start_column_numbers.get(line_start_column_number.get_unique_id());
     if resolved_line_start_column_number.is_none()
       && !self
@@ -259,7 +259,7 @@ impl<'a> Printer<'a> {
     resolved_line_start_column_number.map(|v| *v)
   }
 
-  pub fn get_resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
+  pub fn resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
     let resolved_line_start_indent_level = self.resolved_line_start_indent_levels.get(line_start_indent_level.get_unique_id());
     if resolved_line_start_indent_level.is_none()
       && !self
