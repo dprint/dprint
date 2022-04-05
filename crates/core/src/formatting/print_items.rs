@@ -1045,12 +1045,6 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   pub fn clear_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
     self.printer.clear_line_start_indent_level(line_start_indent_level)
   }
-
-  /// Gets if the provided info has moved positions since the last check.
-  /// Returns None when the info can't be resolved. Returns Some(false) the first time this is called.
-  pub fn has_info_moved(&mut self, info: &Info) -> Option<bool> {
-    self.printer.has_info_moved(info)
-  }
 }
 
 /// A container that holds the string's value and character count.

@@ -97,7 +97,6 @@ pub struct Printer<'a> {
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
-  stored_info_positions: FxHashMap<u32, (u32, u32)>,
   #[cfg(feature = "tracing")]
   traces: Option<Vec<Trace>>,
   #[cfg(feature = "tracing")]
@@ -143,7 +142,6 @@ impl<'a> Printer<'a> {
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
-      stored_info_positions: FxHashMap::default(),
       #[cfg(feature = "tracing")]
       traces: if options.enable_tracing { Some(Vec::new()) } else { None },
       #[cfg(feature = "tracing")]
@@ -327,20 +325,6 @@ impl<'a> Printer<'a> {
 
     let result = self.resolved_conditions.get(&condition_reference.id)?;
     result.map(|x| x.to_owned())
-  }
-
-  pub fn has_info_moved(&mut self, info: &Info) -> Option<bool> {
-    let position = self.get_resolved_info(info)?.get_line_and_column();
-    let stored_position = self.stored_info_positions.get(&info.get_unique_id());
-    if let Some(stored_position) = stored_position {
-      if position != *stored_position {
-        self.stored_info_positions.insert(info.get_unique_id(), position);
-        return Some(true);
-      }
-    } else {
-      self.stored_info_positions.insert(info.get_unique_id(), position);
-    }
-    Some(false)
   }
 
   #[inline]

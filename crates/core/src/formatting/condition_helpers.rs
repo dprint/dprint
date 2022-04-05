@@ -1,6 +1,5 @@
 use crate::formatting::WriterInfo;
 
-use super::ColumnNumber;
 use super::ConditionResolverContext;
 use super::Info;
 use super::LineAndColumn;

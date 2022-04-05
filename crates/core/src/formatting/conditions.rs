@@ -80,20 +80,20 @@ pub fn force_reevaluation_once_resolved(info: Info) -> Condition {
   )
 }
 
-pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, end_info: Option<Info>) -> Condition {
+pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_ln: LineNumber, end_ln: Option<LineNumber>) -> Condition {
   if_true_or(
     "newLineIfMultipleLinesSpaceOrNewLineOtherwise",
     Rc::new(move |context| {
-      let start_info = context.get_resolved_info(&start_info)?;
-      let end_info = {
-        if let Some(end_info) = &end_info {
-          context.get_resolved_info(end_info)?
+      let start_ln = context.get_resolved_line_number(start_ln)?;
+      let end_ln = {
+        if let Some(end_ln) = end_ln {
+          context.get_resolved_line_number(end_ln)?
         } else {
-          &context.writer_info
+          context.writer_info.line_number
         }
       };
 
-      Some(end_info.line_number > start_info.line_number)
+      Some(end_ln > start_ln)
     }),
     Signal::NewLine.into(),
     Signal::SpaceOrNewLine.into(),
